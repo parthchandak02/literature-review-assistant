@@ -1,0 +1,219 @@
+# Unified Workflow Configuration
+# Single YAML file for research topic, agents, workflow settings, and output config
+
+# Research Topic Configuration
+topic:
+  topic: "LLM-Powered Health Literacy Chatbots for Low-Income Communities"
+  keywords: ["health literacy", "chatbots", "LLM", "low-income", "health equity", "digital health", "conversational AI", "health communication"]
+  domain: "public health"
+  scope: "Focus on LLM-powered chatbots designed to improve health literacy in underserved and low-income populations"
+  research_question: "What is the effectiveness of LLM-powered health literacy chatbots in improving health outcomes and health literacy among low-income and underserved populations?"
+  context: "Health literacy disparities disproportionately affect low-income communities. LLM-powered chatbots offer potential for scalable, accessible health information delivery, but evidence of effectiveness in underserved populations is limited."
+
+# Agent Configurations
+# Model selection guide based on pricing research (2025):
+#   Gemini 2.5 Flash-Lite ($0.10/1M input, $0.40/1M output): Bulk screening, high-volume classification - RECOMMENDED for full-text screening
+#   Gemini 2.5 Flash ($0.30/1M input, $2.50/1M output): Balanced speed/cost - RECOMMENDED for search and moderate-volume tasks
+#   Gemini 2.5 Pro ($1.25/1M input, $10.00/1M output): Quality-critical decisions - RECOMMENDED for borderline screening, extraction, writing
+#   Gemini 3 Pro ($2.00/1M input, $12.00/1M output): Most advanced reasoning - OPTIONAL upgrade for Pro tasks
+#   Perplexity: sonar-pro, sonar-reasoning-pro, sonar
+agents:
+  search_agent:
+    role: "{topic} Literature Search Specialist"
+    goal: "Find comprehensive literature on {topic} across multiple databases"
+    backstory: "Expert researcher specializing in {domain} with deep knowledge of {topic}"
+    # Flash: Optimized for speed, efficiency, and scale. Best price-performance for search tasks.
+    # Handles large-scale summarization, responsive chat, efficient data extraction.
+    llm_model: "gemini-2.5-flash"
+    tools: ["database_search", "query_builder", "exa_search", "tavily_search"]
+    temperature: 0.1
+    max_iterations: 5
+    
+  # Title/Abstract Screening - uses Pro for quality-critical borderline cases (only ~4 papers need LLM)
+  title_abstract_screener:
+    role: "{topic} Title/Abstract Screening Specialist"
+    goal: "Screen papers based on title and abstract for relevance to {topic} and {research_question}"
+    backstory: "Expert reviewer with expertise in {domain}, focusing on {topic}. Handles borderline cases requiring careful judgment."
+    # Pro: Advanced reasoning for complex multi-step logic. Higher accuracy for precision-critical tasks.
+    # Only used for borderline papers after keyword pre-filtering, so cost is minimal (~4 papers).
+    llm_model: "gemini-2.5-pro"
+    tools: ["title_screener"]
+    temperature: 0.2
+    max_iterations: 10
+    
+  # Full-text Screening - use Flash-Lite for bulk processing (89+ papers)
+  fulltext_screener:
+    role: "{topic} Full-text Screening Specialist"
+    goal: "Screen papers based on full-text content for relevance to {topic} and {research_question}"
+    backstory: "Efficient reviewer specializing in {topic}. Optimized for high-volume screening tasks."
+    # Flash-Lite: Optimized for bulk screening tasks. 4x cheaper than Pro ($0.10 vs $1.25 per 1M tokens).
+    # Suitable for high-volume classification where speed and cost matter more than nuanced reasoning.
+    # Model selection guide:
+    # - Flash-Lite ($0.10): Bulk screening, high-volume tasks (RECOMMENDED for full-text)
+    # - Flash ($0.30): Balanced speed/cost for moderate volume
+    # - Pro ($1.25): Quality-critical, low-volume decisions
+    llm_model: "gemini-2.5-flash-lite"
+    tools: ["fulltext_screener"]
+    temperature: 0.2
+    max_iterations: 5
+    
+  # DEPRECATED: Use title_abstract_screener and fulltext_screener instead
+  # Kept for backward compatibility - will be used as fallback if new configs are missing
+  screening_agent:
+    role: "{topic} Screening Specialist"
+    goal: "Screen papers for relevance to {topic} and {research_question}"
+    backstory: "Meticulous reviewer with expertise in {domain}, focusing on {topic}"
+    # Pro: Advanced reasoning for complex multi-step logic. Higher accuracy for precision-critical tasks.
+    # Excels at complex reasoning, advanced coding, large data analysis with fewer errors.
+    llm_model: "gemini-2.5-pro"
+    tools: ["title_screener", "fulltext_screener"]
+    temperature: 0.2
+    max_iterations: 10
+    
+  extraction_agent:
+    role: "{topic} Data Extraction Specialist"
+    goal: "Extract structured data from papers related to {topic}"
+    backstory: "Detail-oriented analyst specializing in {domain} research on {topic}"
+    # Pro: Handles complex extraction with 90%+ accuracy. Better at structured output and complex reasoning.
+    # Delivers more precise answers for technical tasks requiring structured data extraction.
+    llm_model: "gemini-2.5-pro"
+    tools: ["data_extractor"]
+    temperature: 0.1
+    max_iterations: 5
+    
+  introduction_writer:
+    role: "{topic} Introduction Writer"
+    goal: "Write compelling introduction for systematic review on {topic}"
+    backstory: "Skilled academic writer with expertise in {domain}, specializing in {topic}"
+    # Pro: Better for professional reports, strategic documents, analytical workflows.
+    # Delivers more detailed explanations and polished outputs for academic writing.
+    llm_model: "gemini-2.5-pro"
+    tools: []
+    temperature: 0.2
+    max_iterations: 3
+    
+  methods_writer:
+    role: "{topic} Methods Writer"
+    goal: "Write detailed methods section for {topic} systematic review"
+    backstory: "Methodology expert in {domain} research, focusing on {topic}"
+    # Pro: Better for technical writing, code review, and structured documentation.
+    # Handles complex logic and structured output better than Flash.
+    llm_model: "gemini-2.5-pro"
+    tools: []
+    temperature: 0.2
+    max_iterations: 3
+    
+  results_writer:
+    role: "{topic} Results Writer"
+    goal: "Synthesize and present results for {topic} systematic review"
+    backstory: "Data synthesis expert in {domain}, specializing in {topic}"
+    # Pro: Better for synthesizing large datasets, making sense of complex information.
+    # Excels at data analysis and presenting insights from dense information.
+    llm_model: "gemini-2.5-pro"
+    tools: []
+    temperature: 0.2
+    max_iterations: 3
+    
+  discussion_writer:
+    role: "{topic} Discussion Writer"
+    goal: "Write comprehensive discussion for {topic} systematic review"
+    backstory: "Critical analysis expert in {domain}, focusing on {topic}"
+    # Pro: Best for critical analysis, complex reasoning, and nuanced interpretation.
+    # Handles multi-step logic and provides deeper insights for discussion sections.
+    llm_model: "gemini-2.5-pro"
+    tools: []
+    temperature: 0.2
+    max_iterations: 3
+
+# Workflow Settings
+workflow:
+  databases: ["PubMed", "arXiv", "Semantic Scholar", "Crossref", "Scopus"]
+  date_range:
+    start: null  # null means no start limit
+    end: 2025
+  language: "English"
+  max_results_per_db: 100
+  similarity_threshold: 85  # For deduplication
+  
+  # Database-specific settings
+  database_settings:
+    PubMed:
+      enabled: true
+      max_results: 100
+      rate_limit: 3  # requests per second
+      requires_api_key: false  # Optional but recommended
+    arXiv:
+      enabled: true
+      max_results: 100
+      rate_limit: 3  # requests per second
+      requires_api_key: false
+    "Semantic Scholar":
+      enabled: true
+      max_results: 100
+      rate_limit: 1  # requests per second (with API key)
+      requires_api_key: false  # Optional but recommended for higher limits
+    Crossref:
+      enabled: true
+      max_results: 100
+      rate_limit: 10  # requests per second (conservative)
+      requires_api_key: false
+      requires_email: true  # Recommended
+    Scopus:
+      enabled: false  # Requires API key
+      max_results: 100
+      rate_limit: 9  # requests per second
+      requires_api_key: true
+    "Web of Science":
+      enabled: false  # Requires API key
+      max_results: 100
+      rate_limit: 5
+      requires_api_key: true
+    "IEEE Xplore":
+      enabled: false  # Requires API key
+      max_results: 100
+      rate_limit: 5
+      requires_api_key: true
+  
+  # Caching settings
+  cache:
+    enabled: true
+    ttl_hours: 24  # Time-to-live for cached results
+    cache_dir: "data/cache"
+  
+  # Search logging (PRISMA compliance)
+  search_logging:
+    enabled: true
+    log_dir: "data/outputs/search_logs"
+    generate_prisma_report: true
+    generate_csv_summary: true
+  
+# Inclusion/Exclusion Criteria
+criteria:
+  inclusion:
+    - "Studies on LLM/chatbot interventions for health literacy"
+    - "Focus on low-income/underserved populations"
+    - "Health communication outcomes"
+    - "Accessibility features"
+    - "Evaluation studies"
+    - "Published in English and peer-reviewed journals or conferences"
+  exclusion:
+    - "Non-LLM chatbots (rule-based or simple keyword matching)"
+    - "General health apps without chatbot component"
+    - "Studies not focused on low-income populations"
+    - "Opinion pieces or non-peer-reviewed sources"
+    - "Conference abstracts without full papers"
+
+# Search Terms (will be merged with topic keywords if provided)
+search_terms:
+  health_literacy: ["health literacy", "health information seeking", "patient education", "health communication"]
+  chatbots: ["chatbot", "conversational agent", "virtual assistant", "chat bot", "dialogue system"]
+  llm: ["large language model", "LLM", "GPT", "generative AI", "language model"]
+  low_income: ["low-income", "underserved", "vulnerable populations", "health disparities", "socioeconomic", "health equity"]
+  health_equity: ["health equity", "health disparities", "access to care", "barriers to healthcare"]
+
+# Output Configuration
+output:
+  directory: "data/outputs"
+  formats: ["markdown", "json"]
+  generate_prisma: true
+  generate_charts: true

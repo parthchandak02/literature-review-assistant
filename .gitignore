@@ -1,0 +1,48 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+.venv/
+venv/
+ENV/
+env/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Data
+data/raw/
+data/processed/
+data/outputs/
+*.csv
+*.xlsx
+*.json
+
+# API Keys and Environment
+.env
+.env.local
+*.key
+*.pem
+
+# Keep .env.example
+!.env.example
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Test coverage
+.coverage
+htmlcov/
+*.cover
+.hypothesis/
+.pytest_cache/

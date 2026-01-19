@@ -1,0 +1,1676 @@
+Annual Report
+to the
+Los Angeles County Board of Supervisors
+Fiscal Year 2018-19
+1
+
+TABLE OF CONTENTS
+I. Introduction 3
+II. 2018-19 Program Activities 5
+A. Enrollment and Communication 5
+B. Participant Demographics 11
+C. Provider Network (Delivery System) 13
+D. Contracts and Audits 14
+E. Participant Experience 18
+F. Service Utilization 20
+G. Substance Use Disorder (SUD) Treatment Services 34
+H. Health Care Service Expenditures 36
+III. Conclusion and Looking Forward 38
+APPENDICES
+1. Total Enrolled and Office Visits by Community Partner Medical Home 39
+2. Avoidable Emergency Room Visits – Diseases 51
+3. Primary Care Expenditures for MHLA Community Partners FY 2018-19 52
+4. Dental Expenditures by Community Partner FY 2018-19 54
+5. Data Source and Submission 55
+2
+
+I. INTRODUCTION
+Fiscal Year (FY) 2018-19 was the fifth year of operation for the My Health LA (MHLA) program.
+The Los Angeles County Department of Health Services (DHS) developed the MHLA program in 2014 to
+fill a gap in health care access in Los Angeles County. MHLA participants receive primary medical care at
+contracted Community Partner (CP) clinics throughout Los Angeles County. They can also receive dental
+services at select CP sites. When needed, participants also receive specialty, inpatient, emergency and
+urgent care at Los Angeles County DHS facilities. To be eligible for MHLA, participants must be adults
+living in Los Angeles County and be ineligible for publicly funded health care coverage programs such as
+full-scope Medi-Cal. MHLA participants must also have a household income at or below 138% of the
+Federal Poverty Level.
+MHLA is closely aligned with the department’s mission is to “ensure access to high-quality, patient-
+centered, cost-effective health care to Los Angeles County residents through direct services at DHS
+facilities and through collaboration with community and university partners.”
+The goals of the MHLA program are to:
+Preserve Access to Care for Uninsured Patients.
+• Ensure that Los Angeles County residents who are not eligible for public health care
+coverage have a medical home and can access needed services.
+Encourage coordinated, whole-person care.
+• Encourage better health care coordination, continuity of care and patient management
+within the primary care setting.
+Payment Reform/Monthly Grant Funding.
+• Encourage appropriate utilization and discourage unnecessary visits by providing monthly
+grant funding as opposed to fee-for-service payment.
+Improve Efficiency and Reduce Duplication
+• Encourage collaboration among health clinics and providers and avoid unnecessary service
+duplication by improving data collection, developing performance measurements and
+tracking health outcomes.
+This annual report, covering FY 2018-19, is designed to provide the public, policy makers, participants,
+clinics, researchers and other interested groups with detailed information about the MHLA program. At
+the end of FY 2018-19, 142,105 Los Angeles County residents were enrolled in the MHLA program. There
+were also 49 Community Partner clinic agencies and 214 clinic sites contracted to provide care for
+participants. MHLA participants had an average of 3.57 primary care visits during the year, and 70% of
+the MHLA population had a primary care visit.
+Payments to clinics for MHLA participants totaled $49.4 million for primary care services and nearly $7
+million for dental services. MHLA also paid about $9.3 million for pharmacy services.
+During FY 2018-19, MHLA instituted important programmatic and administrative changes. DHS amended
+the MHLA contract in November 2018. As part of the amendment, MHLA created new audit tools and
+3
+
+instituted access standards for how quickly participants must be able to receive care. The program also
+added new covered services, including medication therapy management by pharmacist, annual wellness
+visits and alcohol and/or substance abuse screening and brief intervention.
+Other contract changes took effect at the beginning of FY 2019-20, including an increase in the Monthly
+Grant Funding (MGF) rate from $28.56 to $32 per month and a new requirement that enrolled
+participants must be seen at least once in the prior 24 months as a condition of MGF payment to the
+clinics. Participants can stay enrolled in the program even without such a visit, but clinics will not get
+paid for those participants.
+MHLA had a successful Fiscal Year 2018-19 serving its participants and we are thankful for everyone’s
+contributions to the program.
+4
+
+II. 2018-19 PROGRAM ACTIVITIES
+A. ENROLLMENT AND COMMUNICATIONS
+This section of the report discusses outreach, application and enrollment trends in the MHLA program.
+Key 2018-19 highlights were:
+• MHLA ended its fifth programmatic year with 142,105 uninsured Los Angeles County
+residents enrolled in the program.
+• MHLA ended the year with 68,014 individuals disenrolled from the program.
+• 46% of participants disenrolled from MHLA for failure to renew never had a visit.
+Communications and Outreach
+The MHLA program utilizes its website (dhs.lacounty.gov/mhla) to convey information to MHLA CP
+clinics, current and potential enrollees and the general public. The website is a comprehensive
+repository of information and contains all of the programmatic and contractual documents required by
+CPs to participate in the MHLA program. This includes patient and CP newsletters, fact sheets, reports
+and detailed pharmacy information such as up-to-date formularies. The website also displays
+instructions and guidance related to One-a-App, the online program used to screen and enroll
+participants.
+The MHLA program also produces and posts on the website Provider Information Notices and Provider
+Bulletins, which describe contractual and operational changes to the program. The public facing section
+of the website is translated into Spanish.
+During FY 2018-19, the MHLA website had a total of 140,562 visits for an average of 11,713 visits per
+month. The average number of monthly website visits increased from 2,999 visits in FY 2017-18, and
+3,032 in FY 2016-17.
+MHLA produces a variety of information sheets in eight languages - Armenian, Chinese, English, Korean,
+Spanish, Tagalog, Thai and Vietnamese. The two most commonly used information sheets explain the
+basics of the MHLA program and describe how and where to enroll. All information sheets are available
+on the website for download free of charge. MHLA has several other information sheets available on the
+website including information on MHLA pharmacy services and how MHLA participants can access
+behavioral health services.
+The MHLA program continues to disseminate program information and updates to CPs through the
+monthly newsletter, “CP Connection.” MHLA also sends out “My Healthy News” in English and Spanish
+to participants with important information as needed. These two publications are intended to keep CPs
+and MHLA program participants up to date with program information. In FY 2018-19, MHLA also
+produced posters and distributed them to all of the clinic sites.
+5
+
+MHLA Eligibility Review Unit (ERU)
+The MHLA Eligibility Review Unit (ERU) develops, implements and communicates the eligibility and
+enrollment rules for MHLA. The unit also monitors how those rules are applied in the online One-e-App
+enrollment and eligibility system.
+Additionally, the ERU provides MHLA eligibility trainings for CP enrollers on the process for enrolling
+patients in MHLA as well as how to refer individuals to other governmental medical assistance programs
+for which they may be eligible. In FY 2018-19, the ERU conducted three eligibility trainings. The unit also
+overhauled its trainings to cover both the program’s eligibility rules as well as how to enroll participants
+through the One-e-App system.
+To keep CPs informed, the ERU holds regular conference calls with “eligibility leads” from the clinics.
+Eligibility leads are key CP staff members responsible for staying abreast of changes to MHLA eligibility
+policies and processes and sharing this information with the enrollers at their clinic. The ERU helps CP
+enrollers through the enrollment and re-enrollment process in real time through the Subject Matter
+Expert telephone line. This help line assists enrollers who have questions about the specifics of a MHLA
+application in progress, and enrollers frequently use the line to call the ERU with eligibility issues in real
+time. In FY 2018-19, the line received 3,112 calls from CPs.
+MHLA Applications and Enrollment
+MHLA enrollment is conducted at the CP clinics through the One-e-App system. Certified Enrollment
+Counselors (CECs), Certified Application Counselors (CACs) and/or Certified Application Assistors (CAAs)
+screen potentially eligible individuals for the program during the enrollment process. Once eligibility has
+been assessed, the CP staff enroll participants into the program.
+An applicant is considered enrolled in MHLA when an application is completed and all required eligibility
+documents are clearly uploaded (i.e., proof of identification, Los Angeles County residency and income).
+One-e-App allows for real-time eligibility determination.
+During FY 2018-19, MHLA saw a 49% increase of One-e-App users across the system. Altogether, 1,526
+people had One-e-App access. That includes 421 enrollers taking applications, 885 clinic staff with “read
+only” access, 69 system administrators, 59 supervisors and 92 other users.
+MHLA’s annual enrollment target is 146,000 participants. At the end of this fiscal year, there were
+142,105 participants enrolled in MHLA. The enrollment represented over 97% of the target (Table A1),
+but enrollment declined each month beginning in August 2018. The exact reason for the decline is
+unknown. However, it may be due to federal immigration policies that have created some fear and
+uncertainty among immigrant communities. Some of the drop, particularly a little later in the fiscal year,
+may have been because of changes in the contract that mean CPs only get paid if participants are both
+enrolled and have had an allowable clinic visit in the prior 24 months. As a result of the change, some
+clinics may not be enrolling participants who are unlikely to come in for primary care.
+The program expects enrollment declines to continue in FY 2019-20 because the state has expanded
+full-scope Medi-Cal to young adults ages 19-25 regardless of immigration status. About 3,000 young
+adults in MHLA will become eligible for full-scope Medi-Cal on January 1, 2020.
+6
+
+Table A1
+Percentage of MHLA Enrollment Target Met
+Fiscal Year Enrollment at end MHLA Enrollment Percent of
+of the Fiscal Year Target Target Met
+2016-17 145,158 146,000 99.4%
+2017-18 147,037 146,000 100.7%
+2018-19 142,105 146,000 97.3%
+Graph A1
+MHLA Enrollment FY 2018-19
+150,000
+148,000
+146,000
+144,000
+142,000
+140,000
+138,000
+Disenrollments and Denials
+The MHLA program tracks participant disenrollments and denials. Disenrollments occur when there is a
+change in a participant’s eligibility status resulting in the person no longer meeting the eligibility criteria
+for the program. For example, participants who move out of Los Angeles County or obtain health
+insurance are no longer eligible for the MHLA program. Participants may also decide to voluntarily
+disenroll from the program or not to renew their coverage at their annual renewal date. Since
+participation is completely voluntary, participants may choose to seek care at DHS clinics or other, non-
+MHLA clinics. As a result, they no longer need to be in the program.
+A denial occurs when a person is enrolled in MHLA but is subsequently retroactively denied by the ERU
+going back to their initial date of application. This happens if the program learns during an eligibility
+audit that a participant had full-scope Medi-Cal during the entire duration of their MHLA coverage or
+that the documentation required to prove the participant’s eligibility in the MHLA was never submitted
+by the enroller. Participants can also be denied if ERU determines that the CP processed the application
+incorrectly and the participant was found to be ineligible.
+7
+
+Participants who have been denied or disenrolled from MHLA can re-apply at any time provided they
+meet eligibility requirements. There is no cost or waiting period to re-apply. Enrollment in the program
+fluctuates daily as new applicants enroll, existing participants renew eligibility and participants are
+disenrolled or denied.
+There were 181,902 participants enrolled in the program during FY 2018-19. During the year, 5,863
+(3.2%) were denied (Table A2) and 68,014 participants (37%) were disenrolled (Table A3).
+Table A2 identifies the primary reasons why participants were denied from the program. The majority of
+denials were due to incomplete applications. This means that CP enrollers submitted applications that
+were missing some or all of the core MHLA eligibility documents (i.e. proof of income, Los Angeles
+County residency, and/or identity). This follows the same trend as prior fiscal years, when most denials
+were also due to incomplete applications. The Eligibility Review Unit continues to work with clinic
+enrollers to inform them about the importance of completing applications.
+The MHLA program permits participants to submit affidavits when proof of income, identity, and
+residency are not possible for the applicant to produce. If any of these are missing, however, the
+person’s application will be denied.
+Table A2
+MHLA Post-Enrollment Denials by Reason
+Denial Reason FY 15-16 FY 16-17 FY 17-18 FY 18-19
+Incomplete Application 2,077 2,640 5,284 5,333
+Enrolled in Full-Scope Medi-Cal 61 85 173 71
+Income Exceeds 138% of FPL 69 135 255 316
+Determined Eligible for Other Programs 65 24 79 16
+Not a Los Angeles County Resident 42 58 27 16
+False or Misleading Information 7 5 53 90
+Duplicate Application 10 34 47 13
+Enrolled in Private Insurance 4 3 4 0
+Participant Request 1 3 8 2
+Enrolled in Public Coverage 1 1 0 0
+Participant has DHS Primary Care Provider 1 1 0 1
+Enrolled in Employer-Sponsored Insurance 0 0 7 3
+Did Not Complete Renewal 0 0 0 1
+Not Eligible Due to Other Reasons 0 0 0 1
+Total 2,338 2,989 5,937 5,863
+8
+
+Table A3 illustrates the reasons why MHLA participants were disenrolled from the program. The majority
+of disenrollments were due to participants not completing the renewal process before their annual
+renewal deadline, consistent with the trends from prior fiscal years.
+Table A3
+MHLA Disenrollments by Reason
+Disenrollment Reason FY 15-16 FY 16-17 FY 17-18 FY 18-19
+Did Not Complete Renewal 45,596 41,226 64,704 66,467
+Enrolled in Full Scope Medi-Cal 2,740 2,829 294 169
+Incomplete Application 156 14 27 20
+Participant Request 158 54 137 213
+Participant has DHS Primary Care
+Provider 124 102 113 312
+Not a Los Angeles County Resident 49 6 45 39
+Determined Eligible for Other Programs 43 6 23 24
+Income Exceeds 138% of FPL 16 2 7 44
+Enrolled in Employer Insurance 17 3 10 13
+Enrolled in Private Insurance 12 0 8 10
+Enrolled in Public Coverage 8 1 1 7
+False or Misleading Information 7 0 1 2
+Duplicate Application 6 5 12 2
+Participant is Deceased 4 3 3 3
+Program Dissatisfaction 0 1 0 0
+Under Program Age Requirement 0 0 1 2
+Enrollee is Incarcerated 0 0 0 2
+Total 48,936 44,252 65,386 67,329
+Renewals
+Participants are required to renew their MHLA coverage every year during an in-person interview at
+their medical home clinic prior to the end of the participant’s one-year enrollment period. Enrollers
+complete the renewal using the One-e-App system. The MHLA program notifies participants by postcard
+90, 60 and 30 days prior to the end of their 12-month program coverage that their renewal date is
+approaching. MHLA participants may renew their coverage up to 90 days prior to their renewal date.
+Failure to complete the renewal process prior to the end of their 365-day coverage results in the
+participant’s disenrollment from MHLA. Individuals who are disenrolled from the program have the
+option to re-enroll at any time with no penalty or waiting period and at no cost.
+Table A4 provides the current renewal and re-enrollment rates compared to the previous fiscal year. Of
+the 139,995 MHLA participants due to renew last fiscal year, 72,553 (52%) participants renewed on
+time. Of the 66,467 individuals that did not renew, 28,713 (21%) came back within the year to reenroll in
+the program, meaning 72% of MHLA participants renewed or reenrolled in the program this fiscal year.
+The re-enrollment rate for the program is the same as last fiscal year.
+9
+
+Table A4
+Renewal and Re-enrollment Rates
+Renewal Reenrolled Total Percent
+Total Disenrolled Percent
+Fiscal Renewal Renewal Rate – after Renewed Renewed
+Due to for Failure Re-
+Year Approved Denied Percent Failure to and Re- and Re-
+Renew to Renew enrolled
+Approved Renew enrolled enrolled
+A=
+B C D B/A E F=E/A G=B+E H=G/A
+B+C+D
+2016-
+134,679 68,473 1,407 64,799 51% 23,573 18% 92,052 68%
+2017
+2017-
+139,585 74,498 1,016 64,071 53% 26,600 19% 101,098 72%
+2018
+2018-
+139,995 72,553 975 66,467 52% 28,713 21% 101,266 72%
+2019
+Graph A2 captures the time gap between disenrollment and the participant’s subsequent re-enrollment
+in the program. 28,713 participants chose to re-enroll in MHLA after their disenrollment, a majority of
+whom (14,204, or 49%) did so within the first 30 days of their disenrollment. 5,609 individuals (20%)
+reenrolled between 31-60 days of being disenrolled, and 3,536 (12%) re-enrolled within 91-180 days.
+These rates of re-enrollment are consistent with the previous fiscal year.
+Graph A2
+MHLA Participant Days between Disenrollment for Failure to Renew and Re-enrollment
+14,204
+5,609
+3,023 3,874
+2,003
+The MHLA program looked at the utilization trends of those MHLA participants who were disenrolled
+from the program for failure to renew and who never re-enrolled into the program. Of the 66,467
+participants who were disenrolled from MHLA for failure to renew and never returned to the MHLA
+program (Table A4), 46% of them never had a visit with their MHLA CP clinic, indicating that many of
+these participants may not have renewed because they were not using the program.
+10
+stnapicitraP
+fo
+rebmuN
+0-30 Days 31-60 Days 61-90 Days 91-180 Days 180+ Days
+
+B. PARTICIPANT DEMOGRAPHICS
+This section of the report examines the demographic makeup of the individuals enrolled in MHLA.
+Latinos continued to comprise the largest group of enrollees, making up over 95% of program
+participants. As for language, 91% participants indicated that Spanish was their primary spoken language
+and 7% indicated that English was their primary spoken language. Most MHLA participants (46%) were
+between 25 and 44 years old. In FY 2018-19, MHLA enrolled 837 homeless individuals - less than 1% of
+enrolled participants. More participants were female (60%) than male (40%).
+Key FY 2018-19 demographic highlights for the MHLA Program are:
+• 95% of participants identified as Latino.
+• 60% were female and 40% were male.
+• Less than 1% identified as homeless.
+• Service Planning Area 6 had the largest concentration of MHLA participants at 22%.
+Participant Demographics
+The following table provides demographic detail on the participants enrolled at the end of FY 2018-19.
+Table B1
+Demographics for MHLA Participants (as of June 30, 2019)
+Age 1.83% 19-24 years old Income 5.36% at/below 0%-25% FPL
+43.36% 25-44 years old 23.93% between 25.01%-50% FPL
+32.98% 45-54 years old 15.51% between 50.01%-75% FPL
+15.15% 55-64 years old 21.41% between 75.01%-100% FPL
+6.68% 65+ 21.16% between 100.01%-125% FPL
+12.63% between 125.01%-138% FPL
+Ethnicity 94.71% Latino Language 91.38% Spanish
+2.47% Asian/Asian Pacific Islander 7.10% English
+1.86% Other/Declined to State 0.51% Korean
+0.82% Caucasian 0.49% Thai
+0.13% Black/African American 0.38% Other
+0.09% Tagalog
+0.08% Armenian
+0.03% Cambodian/Khmer
+0.02% Chinese
+Gender 59.72% Female Housing .6% Homeless
+40.19% Male Status 99.4% Housed
+0.10% Other
+11
+
+Service Planning Area (SPA) Distribution
+MHLA participant distribution by SPA highlights the geographic dispersion of enrollment. The overall
+percentages were nearly identical to previous fiscal years as noted in Table B2. SPA 6 continued to have
+the largest percentage of MHLA program participants of all eight SPAs, at 22%.
+Table B2
+SPA Distribution of MHLA Participants
+SPA FY 2016-17 FY 2017-18 FY 2018-19
+Total Total % of Total Total % of Total Total % of
+Number of Participants Number of Participants Number of Participants
+Participants Participants Participants
+1 2,879 1.98% 2,969 2.02% 2,688 1.89%
+2 27,745 19.11% 27,606 18.77% 27,162 19.11%
+3 13,071 9% 13,858 9.42% 13,016 9.16%
+4 27,301 18.81% 27,780 18.89% 26,615 18.73%
+5 3,402 2.34% 2,985 2.03% 3,182 2.24%
+6 32,314 22.26% 32,817 22.32% 31,261 22.00%
+7 19,204 13.23% 20,443 13.90% 19,564 13.77%
+8 15,141 10.43% 15,652 10.64% 14,919 10.50%
+Undetermined 4,101 2.83% 2,927 1.99% 3,698 2.60%
+MHLA Program Participant Distribution by Supervisorial District
+Graph B1 provides the MHLA participant distribution by Supervisorial District. District 2 shows the largest
+percentage of MHLA program participants of all five districts, at 34%, which is similar to previous years.
+Graph B1
+Distribution of MHLA Participants by Supervisorial District
+48,198
+37,734
+34%
+27% 26,053
+18%
+15,005
+11,417
+11%
+8% 3,698
+2%
+1 2 3 4 5 UNDETERMINED
+12
+
+C. PROVIDER NETWORK
+This section of the report describes the MHLA provider network.
+Key FY 2018-19 highlights were:
+• The number of MHLA medical homes, 214, remained similar to last year.
+• 71% of MHLA medical homes were open to accept new participants throughout
+the fiscal year.
+• A total of 63 (29%) medical home clinic sites were closed to new patients at some
+point during the fiscal year.
+Clinic Sites and Capacity
+MHLA ended FY 2018-19 with a total of 49 CP agencies and 214 primary care clinics.
+The MHLA Contract Administration Unit surveys CPs twice a month to determine whether there are any
+changes in clinic capacity and whether clinic panels should remain open or closed to new patients. The
+MHLA database and website are updated immediately upon notification of a change of open/closed
+status. A clinic is considered to have capacity if it can schedule an urgent primary care appointment
+within 96 hours and a non-urgent primary care appointment within 21 days.
+During FY 2018-19, 63 clinic sites closed to new patients at some point in the fiscal year due to limited
+capacity to meet the access standards. The number of “closed” sites increased compared to the 51 clinic
+sites that were closed at some point last fiscal year.
+Medical Home Distribution and Changes
+At the time of enrollment, MHLA participants select a primary care medical home. The medical home is
+where they receive their primary and preventative care services. This includes prevention, diagnosis,
+treatment of illness or injury, health advice, diagnostic services (basic labs and radiology), chronic
+disease management, immunizations, referrals, health education, medicines and other services.
+Participants retain their medical home for 12 months. They may receive care at any clinic site within a
+clinic agency’s network but may not receive their primary care outside of the agency. DHS creates a
+monthly report of the distribution of MHLA participants by medical home and posts the report on the
+MHLA website.
+Participants may change their medical home during the first 30 days of enrollment for any reason. They
+also can change throughout the year for any of the following reasons: 1) if the participant has a new
+place of residence or employment; 2) if the participant has a significant change in their clinical condition
+that cannot be appropriately cared for in the current medical home; 3) if the participant has a
+deterioration in the relationship with the health care provider/medical home that cannot be resolved; or
+4) if there is a termination or permanent closure of a medical home. If the MHLA participant has some
+other special circumstance that merits a medical home transfer, this may be approved by MHLA
+management using the medical home transfer reason of “Administrative Request.”
+13
+
+There were 103 approved medical home changes this fiscal year, most commonly during the first 30
+days of enrollment at the request of the participant.
+DHS Participation in the MHLA Network
+DHS provides a range of specialty, urgent care, diagnostic, emergency care and inpatient services to
+MHLA participants—all at no cost to the participant. Participants, however, must comply with the Medi-
+Cal screening and enrollment process when they go to DHS facilities. If they don’t, they may be
+financially liable for the cost of care.
+Hospital and specialty care services are critical components in the MHLA service continuum. MHLA
+participants have access to hospital services at DHS facilities only; hospital services at non-DHS facilities
+are not covered by MHLA. DHS hospitals available to MHLA participants are LAC+USC Medical Center,
+Harbor-UCLA Medical Center, Olive View-UCLA Medical Center and Rancho Los Amigos National
+Rehabilitation Center. However, MHLA participants can and should seek services for emergencies at the
+nearest hospital emergency department consistent with federal and state laws that govern access to
+emergency care.
+New Empanelment Referral Form (NERF) Patient Referrals
+DHS works to connect as many uninsured patients as possible to primary care providers. When
+uninsured patients present at DHS clinics or hospitals, DHS staff offer them the choice of a CP clinic or a
+DHS clinic depending on where the patient resides. Patients are referred to clinics through the New
+Empanelment Referral Form (NERF) process. The form is used when a DHS clinician wishes to begin the
+process of connecting a DHS patient to a primary care medical home.
+In recent years, DHS has built additional primary care capacity, which has led to a decrease in referrals
+out to MHLA CPs. When a patient does indicate the desire to enroll in MHLA, several factors can create
+challenges in the program’s efforts to facilitate a visit by the patient to a CP clinic for screening and
+enrollment. Frequently, mailing addresses and contact phone numbers provided by patients change.
+Additionally, some patients choose not to be referred if they feel that their medical issue was resolved
+at DHS and they do not perceive a need for ongoing primary care services.
+D. CONTRACT AND AUDIT ADMINISTRATION
+This section of the report focuses on MHLA Contract and Audit Administration unit. This MHLA unit
+ensures that CPs follow contractual guidelines as well as federal, state and county regulations in the
+provision of clinical care to program participants. CPs are responsible for addressing identified
+corrections/deficiencies.
+In addition, the unit provides contract oversight for vendor services (e.g., printing, translation, and
+interpreting services). As mandated, the Contract and Audit Administration unit conducts annual
+comprehensive evaluations of CPs’ facility, administration and medical records while maintaining
+oversight and compliance with regulatory agency requirements for all CP medical home clinics. The unit
+assists in improving the quality and safety of clinical care and services provided to MHLA participants.
+The reviews conducted by the Contract and Audit Administration unit include the following:
+14
+
+1. Facility Site Review (FSR)/Credentialing Review (CR)
+2. Medical Record Review (MRR)
+3. Dental Record Review (DRR)
+The Contract and Audit Administration unit works with CPs to help them successfully comply with the
+implementation of a Corrective Action Plan by providing technical assistance and conducting focused
+reviews if the audit does not reach compliance thresholds.
+As a result of the 2018 contract changes, the annual audit tools were revised. This year, the audit
+process was streamlined to become more meaningful and less administratively burdensome to CPs. For
+example, MHLA removed any element from the Facility Site Review (FSR)/Credentialing Review (CR) that
+was already being audited by the managed care plans, the California Department of Health Care Services
+or the federal Health Resources and Services Administration. In addition, the overall audit scores on the
+MRR that triggered a Corrective Action Plan were lowered.
+During FY 2018-19, the unit completed annual audits for all CP sites and vendors. The results are
+detailed in this section of the report. Even if a Corrective Action Plan is not required, MHLA informs CPs
+of the deficiencies and urges the CPs to address them to ensure the highest quality program and so
+there aren’t repeat deficiencies the following year.
+Facility Site Review (FSR)/Credentialing Review (CR)
+FSR/CR includes the process of evaluating the facility for patient access and appropriate service
+provision. Through the FSR/CR, MHLA also ensures that all required professional licenses and
+certifications are current and issued from the appropriate licensing/certification agency.
+There were 221 approved sites throughout FY 2018-19. FSR/CR were not conducted for 12 of the 221
+sites because some sites were terminated, and others were brand new to the program. Of the 209
+audits conducted, only two showed deficiencies. Each had one deficiency and only one was required to
+submit a Corrective Action Plan.
+The Contract and Audit Administration unit monitors timely access standards as part of the FSR. CPs
+shall make available to MHLA participants appointments for included services within 21 calendar days
+for non-urgent primary care health services or within 96 hours for urgent primary health care services.
+Every clinic site met the timely access standards. For urgent primary care appointments, 61% of clinics
+could provide same-day appointments and 28% could provide appointments within 24 hours. For non-
+urgent primary care appointments, 32% of clinics could provide same-day appointments and 49% could
+provide appointments within 1-5 business days.
+Medical Record Review (MRR)
+MRR includes the process of measuring, assessing and improving quality of medical record
+documentation. The medical record review supports effective patient care, information confidentiality
+and quality review processes that are performed in a timely manner. The MRR ensures documentation is
+accurate, complete and compliant according to the standards of care.
+15
+
+Of the 205 MRRs that were conducted, 139 sites showed deficiencies and two were required to submit a
+CAP. MRR were not conducted for 16 of the 221 sites because they were either brand new sites or they
+were smaller clinic sites and didn’t see MHLA patients during the fiscal year.
+The most frequent MRR deficiencies are listed in Table C1.
+There are 11 DHS core elements that are subject to liquidated damages if the score on any of those
+elements is below the satisfactory compliance of 90%. FY 2018-19 is the first year of this provision. If a
+CP has five or more of the same repeat deficiencies during each of three consecutive fiscal years and
+does not reduce its total number of repeat deficiencies between the first and third fiscal years,
+liquidated damages may be assessed.
+The DHS core elements are specialty referral, TB screening, lipid screening, mammogram, cervical cancer
+screening, immunization, seasonal flu vaccine, colorectal cancer screening, abuse/neglect assessment,
+diabetic retinal scan/ophthalmology referral and foot exam/podiatry referral.
+Altogether, there were 1,084 deficiencies in the MRR during FY 2018-19. Of those, 905 were related to
+the 11 DHS core elements (Table C2). 138 (67%) of the 205 sites showed one or more deficiencies for
+any of those elements. In addition, 132 (64%) of the 205 sites scored below the minimum satisfactory
+compliance (90%).
+Table C1
+Most frequent MRR deficiencies
+Rank Deficiency Frequency Percentage
+1 Immunization 123 11.3%
+1 Seasonal flu vaccine 123 11.3%
+2 Colorectal cancer screening 99 9.1%
+3 Foot exam/podiatry referral 96 8.9%
+4 TB screening 91 8.4%
+5 Cervical cancer screening 84 7.7%
+Table C2
+Ranking for the 11 core elements (Total 905=100%)
+Rank Deficiency Frequency Percentage
+1 Immunization 123 13.6%
+1 Seasonal flu vaccine 123 13.6%
+2 Colorectal cancer screening 99 10.9%
+3 Foot exam/podiatry referral 96 10.6%
+4 TB screening 91 10.1%
+5 Cervical cancer screening 84 9.3%
+6 Diabetic retinal scan/ophthalmology referral 81 9.0%
+7 Follow-up of specialty referrals made 62 6.9%
+8 Mammogram screening 61 6.7%
+9 Abuse/neglect assessment 45 5.0%
+16
+
+10 Lipid screening 40 4.4%
+Total 905 100.0%
+Dental Record Review (DRR)
+DRR includes the process of assessing the quality of dental record documentation for accuracy and
+performance. The DRR ensures documentation for dental services is compliant with recognized
+standards of care. As necessary, the DRR includes a claims processing review to verify that billed services
+concur with documentation within the dental record and meet the definition of a billable visit.
+A total of 51 DRRs were conducted. Of those, 13 (25%) sites showed deficiencies. None of the 51 dental
+sites were required to submit a CAP. The deficiencies are listed in Table C3.
+Table C3
+Total DRR deficiencies among the 51 dental sites
+Rank Deficiency Frequency Percentage
+1 Provision of oral cancer screening 7 32%
+2 Cleaning prophylactic 6 27%
+3 Emergency contact identified 3 14%
+4 Provision of disclaimer and patient's signature after a referral was made 2 9%
+4 Number of visits matching the number of claims 2 9%
+5 Dental material fact sheet present in chart 1 5%
+Billed service(s) concurring with documentation in the patient’s medical
+5 1 5%
+record and within the contract term
+TOTAL 22 100%
+17
+
+E. PARTICIPANT EXPERIENCE
+This section highlights program participants’ experience with the MHLA program and includes data
+related to the MHLA call center and the filing of formal complaints.
+Key FY 2018-19 highlights were:
+• Member Services received a total of 18,009 calls in FY 2018-19 (for an average of
+1,553 calls per month).
+• There was a total of 14 formal participant complaints filed by participants, with the
+top complaints being related to access to care and quality of service.
+Customer Service Center Call Center
+Member Services staff members are available to answer questions for MHLA participants Monday
+through Friday from 7:30 a.m. – 5:30 p.m. at 844-744-MHLA (844-744-6452). Interpreters are available
+for MHLA participants who speak a language not spoken by a call center agent. Member Services is
+available to help participants with questions about the program as well as to process medical home
+changes, complete disenrollments, process address and phone number changes and order replacement
+identification (ID) cards.
+During FY 2018-19, MHLA’s Member Services call center received an average of 1,553 call per month
+18,009 calls total. The number of incoming calls decreased 32% from last year’s total of 26,438. The top
+reasons for calls were general program questions, eligibility verification, ID card request and medical
+home changes.
+Participant Complaints
+Member Services staff members also take calls from MHLA participants who are experiencing issues and
+they try to help resolve those issues. When the problem requires more intensive research or involves a
+clinical investigation, a participant’s complaint is escalated to the DHS Grievance and Appeals Unit
+and/or the Quality Management-Clinical Compliance Unit (for clinical related complaints). In the MHLA
+program, these are called formal complaints.
+MHLA works closely with CPs to address participant concerns and complaints. The program believes that
+direct communication with the CP is essential to improve participant experience and satisfaction.
+Participants who file formal complaints are notified by letter within 60 days of the filing of the complaint
+with the resolution of their issue.
+Of the 18,009 calls that came into Member Services in FY 2018-19, 14 were “formal complaints.” This is
+an increase from the 10 formal complaints in FY 2017-18 but a significant decrease from the 29
+complaints filed in FY 2016-17. The top formal complaint reasons were related to delays in service and
+treatment/diagnosis/inappropriate care. Table E1 identifies formal complaints by category as well as
+the percentage of complaints by category over a three-year period.
+18
+
+Table E1
+MHLA Participant Formal Complaints by Category
+FY 2016-17 FY 2017-18 FY 2018-19
+Complaint Type
+Total Percent Total Percent Total Percent
+Mistreatment/Misdiagnosis/Inappropriate
+Care by Provider 1 3.5% 4 40% 4 29%
+Delay or Refusal in Receiving Clinical Care
+Services 11 38% 2 20% 7 50%
+Refusal of Referral to Specialist 7 24% 1 10% 0 0%
+Delay in Authorization 1 3.5% 1 10% 0 0%
+HIPAA, Treatment Record Keeping 0 0% 1 10% 0 0%
+Prolonged Wait in Provider’s Office 0 0% 1 10% 0 0%
+Refusal of Prescription by Clinical
+Provider/Pharmacy/Access Problems 5 17% 0 0% 2 14%
+Other (Primary care access standards,
+cultural and linguistic issues, denial of
+ER/urgent care, medical
+claims/billing/charges, etc.) 2 7% 0 0% 0 0%
+Attitude/Miscommunication/Behavior by
+Staff 1 3.5% 0 0% 0 0%
+Benefit Issue/Not Covered 1 3.5% 0 0% 0 0%
+After Hours and Access Information 0 0% 0 0% 0 0%
+Attitude/Miscommunication/Behavior by
+Physician 0 0% 0 0% 0 0%
+MHLA Medi-Cal 0 0% 0 0% 1 7%
+Total 29 100% 10 100% 14 100%
+19
+
+F. SERVICE UTILIZATION
+This section of the report provides an analysis of the clinical and service data from both CP and DHS
+facilities in order to assess disease morbidity, health outcomes and utilization of services.
+Key FY 2018-19 highlights were:
+• 70% of MHLA participants had a primary care visit.
+• MHLA participants had an average of 3.57 primary care visits per year.
+• 36,186 unduplicated MHLA patients accessed 162,920 specialty care visits.
+• 7% of all MHLA participants had an emergency department (ED) visit.
+• 17% of visits to the ED were considered avoidable.
+• The hospital readmission rate (30, 60, 90 days combined) was 18%.
+During FY 2018-19, there were 181,902 participants enrolled in the MHLA program in the year. This
+section of the report analyzes the health care service utilization patterns of these participants.
+Summary of Clinical Utilization Data
+In the MHLA program, primary and preventive care services are provided by CP medical homes while
+specialty, urgent, emergency and inpatient care services are provided at DHS facilities. Tables F1 and F2
+provide summary participant utilization information for FY 2018-19 at CPs and DHS facilities.
+There was a slight increase in the percentage of MHLA participants who accessed at least one primary
+care service this year (70%) compared to last year (68%).
+Table F1
+Summary of Utilization Data – Participants Utilizing at Least One Service at a CP
+Percentage
+of
+Number of Participants
+Participants Utilizing at
+Unique Utilizing at Least Least One Number of
+Fiscal Year Service Category Participants One Service Service Encounters
+Primary Care (CP) 189,410 121,133 64% 476,098
+FY 2016-17
+Prescription (CP) 189,410 49,163 26% 440,146
+Primary Care (CP) 185,695 125,828 68% 517,958
+FY 2017-18
+Prescription (CP) 185,695 93,755 49% 880,676
+FY 2018-19 Primary Care (CP) 181,902 126,748 70% 514,546
+Prescription (CP) 181,902 97,543 54% 1,044,996
+20
+
+Table F2
+Summary of Utilization Data – Participants Utilizing at Least One Service at a DHS Facility
+FY 2018-19
+Percentage
+Number of of
+Participants Participants
+Unique Utilizing at Least Utilizing at Number of
+Service Category Participants One Service Least One Encounters
+Serv ice
+Specialty (DHS) 181,902 36,186 19.89% 162,920
+Emergency (DHS) 181,902 12,808 7.04% 18,174
+Prescription (DHS) 181,902 15,354 8.44% 96,154
+Urgent Care (DHS) 181,902 6,322 3.48% 9,829
+Inpatient (DHS) 181,902 3,085 1.70% 4,206
+Primary Care
+During FY 2018-19, 70% of MHLA participants had at least one primary care visit at their medical home
+clinic during their period of enrollment. This percentage of primary care service utilization was a slight
+increase from prior years (68% in FY 2017-18 and 64% in FY 2016-17). The average number of visits for a
+MHLA participant in FY 2018-19 was 3.57. This is a slight increase from last fiscal year, when MHLA
+participants had 3.51 primary care visits per year on average. Appendix 1 provides detailed information
+on the number of primary care visits for MHLA participants by medical home.1 Table F3 provides a
+comparison of the average number of primary care visits from the inception of the program.
+Table F3
+Average Number of Primary Care Visits per Year
+Total Number Average
+Unique Total # of of Participant Participants Average Visits
+Fiscal Year Partici pants Vis its Mon ths per Month per Y ear
+FY 2014-15 80,707 231,486 786,521 87,391 3.53
+FY 2015-16 116,168 441,702 1,646,443 137,204 3.22
+FY 2016-17 121,133 476,098 1,734,532 144,544 3.29
+FY 2017-18 125,828 517,958 1,769,441 147,453 3.51
+FY 2018-19 126,748 514,546 1,730,998 144,250 3.57
+1 In the MHLA program, participants generally receive the majority of their primary care visits at their chosen medical home clinic
+site, but they may obtain care at other clinic sites within the same agency. Encounter data is reported by the clinic that provided
+the service to the participant (even if the visit was not at the participant’s chosen medical home). As a result, it is possible that a
+participant had primary care encounter data submitted for them on behalf of a clinic site that was not their chosen medical home.
+21
+
+Of the 126,748 MHLA participants who had a primary care visit this fiscal year, individuals with chronic
+conditions had a higher average number of visits per year (5.57) than those without chronic conditions
+(2.29). 2 The average number of visits per year for participants with both chronic and non-chronic
+conditions have not changed significantly through the life of the program (Table F4).
+Table F4
+Primary Care Visits – Participants with and without Chronic Conditions
+FY 2018-19
+Total Total
+Fiscal Type of Unique % Number Number of Average
+Year Condition Participants Participants of Visits Participant Visits per
+Mon ths Ye ar
+With
+Chronic 55,693 46% 279,556 600,627 5.59
+2016-17 Conditions
+Without
+Chronic 65,440 54% 196,542 1,133,905 2.08
+Conditions
+With
+Chronic 59,469 47% 309,234 648,827 5.72
+2017-18 Conditions
+Without
+Chronic 66,359 53% 208,724 1,120,614 2.24
+Conditions
+With
+Chronic 61,452 48% 313,133 674,553 5.57
+2018-19 Conditions
+Without
+Chronic 65,296 52% 201,413 1,056,445 2.29
+Conditions
+In FY 2018-19, 70% of MHLA participants had at least one primary care visit while they were enrolled
+during the year. As shown in Table F5, that percentage is the same as last year.
+2 The top three chronic conditions were Diabetes, Hypertension and Hyperlipidemia.
+22
+
+Table F5
+Primary Care Visit Distribution
+0 1 2 3 4 5 - 9 10+ Total with a Total
+Visits Visit Visits Visits Visits Visits Visits CP Visit Participants
+Number of
+Participants 55,154 22,599 22,667 20,029 17,524 37,407 6,522 126,748 181,902
+% Participants 30% 12.4% 12.5% 11% 9.6% 20.6% 3.6% 70% 100%
+MHLA Pharmacy Program
+MHLA contracts with Ventegra, a local Pharmacy Services Administrator, to provide over 800 retail
+pharmacy options for MHLA participants to fill their prescriptions. This pharmacy network is in addition
+to the dispensary or pharmacy option that some CPs have on-site. This network of retail pharmacies
+increases the number of locations where MHLA participants can fill their medications and includes
+pharmacy locations that may be closer to the participant’s home or work. In addition, utilizing the
+Ventegra pharmacy network increases medication availability for some patients during evenings and
+weekends. Participants also can have medications mailed to their home or clinic using the DHS Central
+Fill Pharmacy (participants receive a telephone consultation by a DHS pharmacist).
+Outside of DHS Central Fill, DHS pharmacies provide medications to MHLA participants only in those
+instances when the prescription is written by a DHS physician (i.e. during an emergency, specialty or
+urgent care visit at a DHS facility).
+Table F6 shows the number and percentage of MHLA participants who filled a prescription through the
+MHLA program over the last three fiscal years. The data indicate that 56% of MHLA participants filled at
+least one medication in FY 2018-19, up from 52% last fiscal year. However, what appears to be an
+increase in the total number of prescriptions filled in FY 2018-19 is not solely due to an increase in
+utilization. The pharmacy network implementation was phased in over time. The increase in pharmacy
+utilization is likely due to improvements in data collection once all prescriptions filled by MHLA
+participants were being run through Ventegra and their claims adjudication database.
+According to data received from Ventegra, 54% of medications dispensed in the MHLA program in FY
+2018-19 were generic, 15% were purchased under the 340B program, 23% were over the counter (OTC)
+medications, and 7% were diabetic supplies. Ventegra’s data also shows that 88% were filled at
+contracted pharmacies, 10% were filled at on-site CP dispensaries, and 2% were mailed to patients via
+the DHS Central Pharmacy.
+23
+
+Table F6
+Pharmacy Utilization (CP and DHS)
+Total
+Number of
+Participants Medications
+Receiving % of Dispensed at
+Prescriptions Participants Medications DHS Total
+Fiscal Unique (DHS & Receiving Dispensed (Prescribed Prescriptions
+Year Participants Ventegra) Prescriptions by Ventegra by DHS) Dispensed
+FY 2017- 982,852
+185,695 96,989 52% 875,099 107,753
+2018
+FY 2018-
+181,902 102,362 56% 1,044,996 96,154 1,141,150
+19
+Table F7 shows the top ten therapeutic classes of medications taken by those MHLA participants.
+Medications/products related to diabetes represented nearly 25% of total prescriptions and medications
+for high blood pressure and high cholesterol represented 17% of the total.
+Table F7
+DHS & CPs Pharmacy Utilization by Therapeutic Class
+% of Total Approved
+Therapeutic Class Description
+Prescriptions
+Antidiabetics Used for diabetes 15%
+Antihypertensives Used for high blood pressure 9%
+Antihyperlipidemics Used for high cholesterol 8%
+Used for pain and fever (Tylenol and
+Analgesics- Non-narcotic 6%
+Aspirin)
+Mostly diabetes related products like
+Medical Devices and Supplies 6%
+syringes and lancing devices
+Used for pain, fever and inflammation
+Analgesics – Anti-Inflammatory 5%
+(NSAID's)
+Mostly diabetes related products to
+Diagnostic Products 4%
+test blood sugar
+Ulcer Drugs/
+Used GI diseases 4%
+Antispasmodics/Anticholinergics
+Dermatologicals Topical dermatological agents 4%
+Diuretics Increases the flow of urine 3%
+24
+
+Specialty Care Services
+The following section provides analysis on specialty care utilization by MHLA participants at DHS clinics
+and hospitals in FY 2018-19.
+DHS’ eConsult is a web-based system that allows CPs and DHS specialists to securely share health
+information, discuss patient care and determine if MHLA participants need an in-person visit with a
+specialist. The total number of eConsults submitted from MHLA CPs in FY 2018-19 was 89,861. Of those,
+63,736 were directed for face-to-face visit.
+Table F8 reflects the total number of eConsults requested by CP clinicians or staff during the fiscal year
+and the subsequent specialty care visits that followed. There were 36,186 unduplicated MHLA
+participants who received a total of 162,920 specialty care visits at DHS in FY 2018-19. This fiscal year
+saw an 8% increase in the total number of specialty care visits provided to MHLA patients (from 150,528
+to 162,920). On average, a MHLA participant who saw a specialist had 4.5 specialty visits during the
+year. About 20% of all MHLA participants saw a specialist, compared to 17% of participants last year.
+Table F8
+Specialty Care Services by Unique Participants
+Average
+Number of Number of
+Number of Specialty Specialty
+Number of eConsult Care Visits Care Visits
+Participants Requests Number Per 1,000 per MHLA
+Receiving Recommended of Participant Participant
+Fiscal Specialty for a Specialty Specialty Months per Utilizing
+Year Unique Care Care Visit Care Visits Year Specialty
+Partici pants Services
+FY 2014-
+122,330 11,622 21,581 30,642 467.52 2.64
+2015
+FY 2015-
+179,367 23,002 40,269 87,074 634.63 3.79
+2016
+FY 2016-
+189,410 29,032 64,106 129,371 895.03 4.46
+2017
+FY 2017-
+185,695 32,123 40,591 150,528 1,020.85 4.69
+2018
+FY 2018-
+181,902 36,186 63,736 162,920 1,129.43 4.50
+2019
+Table F9 highlights the number of specialty care visits per MHLA participant within the fiscal year. The
+percentage of specialty care visits per MHLA participant remained largely the same between fiscal years.
+25
+
+Table F9
+Distribution of Unduplicated Specialty Care Participants by Number of Visits
+Number
+and
+0 1 2 3 4 5 – 9 10+
+Fiscal Percent
+Specialty Specialty Specialty Specialty Specialty Specialty Specialty Total
+Year of
+Visits Visit Visits Visits Visits Visits Visits
+MHLA
+Patients
+Number
+of
+MHLA
+160,378 9,024 4,991 3,479 2,481 5,949 3,108 189,410
+2016- Patients
+17 with SP
+Visits
+% of
+Total 84.67% 4.76% 2.64% 1.84% 1.31% 3.14% 1.64% 100%
+Number
+of
+MHLA
+153,572 9,861 5,397 3,703 2,676 6,673 3,813 185,695
+2017- Patients
+18 with SP
+Visits
+% of
+Total 82.70% 5.31% 2.91% 1.99% 1.44% 3.59% 2.05% 100%
+Number
+of
+MHLA
+145,716 12,121 5,876 4,060 2,961 7,063 4,105 181,902
+2018- Patients
+19 with SP
+Visits
+% of
+Total 80.11% 6.66% 3.23% 2.23% 1.63% 3.88% 2.26% 100%
+Table F10 details the total number of specialty care visits provided to MHLA participants in FY 2018-19
+by DHS facility. The 36,186 unduplicated participants reflected in this table may have been seen multiple
+times at different facilities for different specialty care services; the participant count reflected at each
+DHS location is unduplicated within the particular facility.
+Table F10 shows that LAC+USC continued to be the largest provider of specialty care services (39.81% of
+the total) for the MHLA program. Harbor-UCLA Medical Center, Olive View Medical Center and Martin
+Luther King Outpatient Center followed as the largest DHS specialty care providers for MHLA. Together,
+these four facilities made up 89% of all specialty care services provided to MHLA participants.
+26
+
+Table F10
+Specialty Care Services by DHS Facility
+FY 2018-19
+Participants % of Total
+Specialty
+Facility Name (Unduplicated Specialty
+Care Visits
+by Facility) Care Visits
+LAC+USC MEDICAL CENTER 15,227 64,863 39.81%
+OLIVE VIEW-UCLA MED CTR 7,131 28,366 17.41%
+HARBOR-UCLA MEDICAL CENTER 6,388 28,363 17.41%
+MARTIN LUTHER KING OUTPATIENT CENTER 6,412 23,614 14.49%
+RANCHO LOS AMIGOS NATIONAL REHABILITATION
+1,382 4,591 2.82%
+CENTER
+HUDSON COMPREHENSIVE HEALTH CENTER 1,516 3,069 1.88%
+HIGH DESERT REGIONAL HEALTH CENTER 1013 2,638 1.62%
+ROYBAL COMPREHENSIVE HEALTH CENTER 920 2,086 1.28%
+HUMPHREY COMPREHENSIVE HEALTH CTR 511 1,298 0.80%
+LONG BEACH COMPREHENSIVE HEALTH CENTER 357 1089 0.67%
+EL MONTE COMPREHENSIVE HEALTH CENTER 571 1,057 0.65%
+MID-VALLEY COMPREHENSIVE HEALTH CENTER 598 1,056 0.65%
+SOUTH VALLEY HEALTH CENTER 50 182 0.11%
+SAN FERNANDO HEALTH CENTER 91 163 0.10%
+WILMINGTON HEALTH CENTER 28 150 0.09%
+TORRANCE HEALTH CENTER 16 64 0.04%
+LA PUENTE COMMUNITY CLINIC 14 56 0.03%
+CURTIS TUCKER HEALTH CENTER 19 53 0.03%
+BELLFLOWER HEALTH CENTER 19 44 0.03%
+GLENDALE HEALTH CENTER 16 43 0.03%
+DHS-WEST VALLEY HEALTH CENTER 14 39 0.02%
+DOLLARHIDE HEALTH CENTER 10 14 0.01%
+DHS-EAST LOS ANGELES HEALTH CENTER 3 6 0.00%
+LITTLEROCK COMMUNITY CLINIC 4 6 0.00%
+DHS-EAST SAN GABRIEL VALLEY HEALTH CENTER 2 6 0.00%
+ANTELOPE VALLEY HEALTH CENTER 2 4 0.00%
+Overall (All DHS Facilities) 36,186 162,920 100.00%
+Urgent Care Services
+MHLA covers urgent care services for MHLA program participants at any of the DHS hospitals or
+comprehensive health centers that have an urgent care clinic. Participants are instructed to go to DHS, if
+27
+
+possible, in the event the participant experiences an urgent care situation requiring care that is beyond
+the scope of the CP’s capabilities.
+Tables F11 and F12 illustrate urgent care utilization among MHLA participants. 3.48% of all MHLA
+participants (6,332) utilized urgent care services at DHS for a total of 9,829 urgent care visits. The
+utilization rate for urgent care was 68.14 per 1,000 participants per year.
+Table F11
+Distribution of Unduplicated Urgent Care Patients by Number of Visits
+0 1 2 3 4 5 - 9 10+ Total
+Total
+Urgent Urgent Urgent Urgent Urgent Urgent Urgent Participant
+Participants
+Visits Visit Visits Visits Visits Visits Visits s w/ Visits
+Number of
+Participants
+175,580 4,386 1,147 405 199 175 10 6,322 181,902
+with Urgent
+Care Visits
+Percentage
+of 96.52% 2.41% 0.63% 0.22% 0.11% 0.10% 0.01% 3.48% 100%
+Participants
+Table F12
+Urgent Care Rate per 1,000 Participants (DHS Facilities)
+Total Participants Urgent Care Visits Per
+Urgent Visit Average Visits Per
+Participan w/ Urgent 1,000 Participants Per
+Care Count Participant Per Year
+ts Care Visit Year
+FY18-19 181,902 6,322 9,829 68.14 0.07
+Emergency Department (DHS)
+MHLA participants can receive no-cost emergency services at LAC+USC Medical Center, Olive View
+Medical Center and Harbor UCLA Medical Center. This section provides an analysis of emergency
+department (ED) utilization by MHLA participants in FY 2018-19. It is important to note that actual ED
+utilization among the MHLA population may be underreported as this data only includes ED utilization at
+DHS hospitals. If a MHLA participant receives emergency services from a non-DHS hospital, that data is
+not included here.
+In FY 2018-19, 12,808 MHLA participants had 18,174 ED visits at DHS facilities. The rate of ED visits was
+126 per 1,000 participants in FY 2018-19, compared to 101 per 1,000 participants last year (Table F13).
+28
+
+Table F13
+ED Visits per 1,000 Participants per Year
+Number of Participant
+ED Visits Months ED Visits/1,000
+FY 2014-15 (9 months) 6,323 786,521 96.47
+FY 2015-16 8,813 1,646,443 87.93
+FY 2016-17 14,186 1,734,532 98.14
+FY 2017-18 14,872 1,769,441 100.86
+FY 2018-19 18,174 1,730,998 125.99
+Table F14 illustrates the number of primary care visits that MHLA participants had in the same fiscal year
+that they visited a DHS ED. This data does not distinguish whether the ED visit was before or after the
+primary care visit at the CP clinic. Nearly 17% of MHLA participants who had an ED visit in FY 2018-19 did
+not have a visit at their CP medical home that same year.
+Table F14
+Distribution of ED Patients by Number of CP Primary Care Visits
+0 CP 1 CP 2 CP 3 CP 4 CP 5-9 CP 10+ CP
+Primary Primary Primary Primary Primary Primary Primary Total
+Care Care Care Care Care Care Care Participants
+Visits Visit Visits Visits Visits Visits Visits
+# of participants
+with primary care
+2,154 1,309 1,315 1,458 1,403 4,030 1,139 12,808
+visits who had an
+ED Visit
+The data in Tables F15 and F16 illustrate the total number of MHLA participants who utilized an ED
+service, further broken down by housing status (i.e., homeless or not homeless). 10,654 MHLA
+participants (5.9% of the total MHLA enrolled) visited a DHS ED in FY 2018-19. Of these, 145 identify as
+homeless. Nearly 93% of MHLA participants never had ED visit (homeless and not homeless combined),
+and that for both homeless and non-homeless ED users, most visited the ED only one time (Table F16).
+Table F15
+ED Visits by Unduplicated Housed and Homeless Participants
+Participants with
+Percentage of Number of ED
+Unduplicated Primary Care
+Participants Visits by Housing
+Participants Visits who had
+with ED Visits Status
+an ED Visit
+29
+
+All Participants 181,902 10,654 5.86% 18,174
+Housed Participants
+180,590 10,509 5.82% 17,926
+(ED Visits)
+Homeless
+Participants (ED 1,312 145 11.05% 248
+Visits)
+Table F16
+Distribution of Unduplicated ED Patients by Number of Visits
+1 ED 2 ED 3 ED 4 ED 5 – 9 ED 10+ ED Total
+0 ED Visits
+Visit Visits Visits Visits Visits Visits Participants
+All Participants 169,094 9,552 2,147 686 209 187 27 181,902
+ED Percentage of
+92.96% 5.25% 1.18% 0.38% 0.11% 0.10% 0.01% 100.00%
+Total Participants
+ED Visits (Homeless) 1,167 83 37 8 5 9 3 1,312
+ED Visits (Homeless)
+88.95% 6.33% 2.82% 0.61% 0.38% 0.69% 0.23% 100.00%
+of Total Participants
+Avoidable Emergency Department Visits
+ED visits that are not emergency related and could be considered avoidable3 are identified as avoidable
+emergency department visits. Appendix 2 lists the avoidable ED visits by type, number of visits and
+unique participants. Table F17 provides the rate of avoidable emergency department visits for each of
+the years since the program’s inception. Nearly 17% of ED visits by MHLA participants in FY 2018-19
+were considered avoidable. This rate is largely unchanged from last year’s rate. The top three avoidable
+ED visit reasons were: headaches, dorsalgia (back pain), and acute upper respiratory infections.
+Table F17
+Avoidable ED (AED) Visits and Rate by MHLA Participants
+Fiscal Year AED Visits ED Visits AED Rate
+FY 2014-15 (9 months) 1,009 6,323 15.96%
+FY 2015-16 1,970 12,064 16.33%
+FY 2016-17 2,526 14,186 17.81%
+FY 2017-18 2,563 14,872 17.23%
+FY 2018-19 3,086 18,174 16.98%
+Inpatient Hospitalization Admissions (DHS)
+3 This analysis uses conditions defined by the “Medi-Cal Managed Care Emergency Room Collaborative Avoidable Emergency
+Room Conditions” when designating an ED visit as avoidable.
+30
+
+DHS provides inpatient hospitalization for MHLA participants at four DHS hospitals. Similar to emergency
+department utilization data, this inpatient utilization data only captures data from DHS facilities. If a
+MHLA participant received inpatient services (as a result of an emergency admission) from a non-DHS
+facility, that data is not included in this analysis.
+Table F18 shows inpatient hospitalization admissions for all MHLA participants. 3,085 of 181,902 MHLA
+program participants (1.7%) in FY 2018-19 were admitted to a DHS hospital. This rate is largely
+unchanged from last fiscal year (1.5%).
+Table F18
+Distribution of Unduplicated Hospital Admissions by Number of Inpatient Stays (Visits)
+No 1 2 3 4 5 – 9 10+ Total
+Admissions Admission Admissions Admissions Admissions Admissions Admissions Participants
+Number of
+Participants
+178,817 2,423 448 100 61 51 2 181,902
+with IP
+Visits
+% of Total
+98.30% 1.33% 0.25% 0.05% 0.03% 0.03% 0.00% 100.00%
+Participants
+Table F19 reflects DHS hospitalization by facility, including bed days and average length of stay (ALOS).
+3,085 MHLA participants had 4,206 hospital admissions totaling 21,010 inpatient bed days at DHS
+facilities. The average length of stay for these patients was five days.
+LAC+USC Medical Center continues to be the DHS hospital with the highest number of MHLA inpatient
+admissions – 48.79% of the total. Rancho Los Amigos National Rehabilitation Center has the highest
+average length of stay, at 7.72 days.
+Table F19
+DHS Hospitalization Admission by Facility
+Total
+Participant
+% of Total
+Facility Name Admissions at Admissions Bed Days ALOS
+Admissions
+each DHS
+Hospital
+LAC+USC MEDICAL CENTER 1,528 2,052 48.79% 10,809 5.27
+OLIVE VIEW-UCLA MED CTR 701 956 22.73% 4,112 4.30
+HARBOR-UCLA MEDICAL CENTER 736 917 21.80% 3,920 4.27
+RANCHO LOS AMIGOS 224 281 6.68% 2,169 7.72
+3,085
+Total 4,206 100% 21,010 5.00
+(Unduplicated)
+31
+
+Table F20 shows that the majority (66.57%) of MHLA participants who were hospitalized had a chronic
+medical condition.
+Table F20
+DHS Hospitalization Admission
+Unique % of Total Bed
+Admissions ALOS
+Participants Admissions Days
+With Chronic
+1,997 2,800 66.57% 14,316 5.11
+Condition
+Without
+Chronic 1,088 1,406 33.43% 6,694 4.76
+Condition
+Total
+3,085 4,206 100% 21,010 5.00
+Participants
+Table F21 provides a comparative analysis of admissions, acute days and average length of stay. The
+average length of stay has remained relatively consistent for all years of the program. The number of
+patient admissions, admissions per 1,000, acute days and acute days per 1,000 participants has
+increased despite a drop in enrollment.
+Table F21
+Acute Hospital Days per 1,000 Participants per Year and Average Length of Stay (ALOS)
+Admissions/ Acute Days/
+Fiscal Year Admissions 1,000 Bed Days 1,000 ALOS
+FY 2014-15 (annualized) 978 18.51 6,045 92.23 4.98 Days
+FY 2015-16 2,444 17.81 12,396 90.35 5.07 Days
+FY 2016-17 3,563 24.65 17,292 119.63 4.85 Days
+FY 2017-18 3,766 25.54 17,749 120.37 4.71 Days
+FY 2018-19 4,206 29.16 21,010 145.65 5.00 Days
+Hospital Readmissions
+The readmission rate for MHLA participants within 90 days at all DHS facilities combined is 18%, as
+shown in Table F22. The majority of hospital readmissions occurred within the first thirty (30) days.
+Table F22 provides readmission rates by DHS hospital; Olive View-UCLA Medical Center had the highest
+readmission rate for MHLA participants, at 21.34%.
+Table F22
+32
+
+DHS Hospital Readmission Rate for 30, 60 and 90 Days
+Readmit Time
+Total Readmission
+After Readmissions
+Admissions Rate
+Discharge
+01-30 Days 512 4,206 12.17%
+31-60 Days 175 4,206 4.16%
+61-90 Days 73 4,206 1.74%
+Total 760 4,206 18.07%
+Table F23
+Readmission Rate by DHS Hospital (1 - 90 Days)
+Total Readmission
+Facility Name Readmissions
+Admissions Rate
+LAC+USC MEDICAL CENTER 401 2052 19.54%
+OLIVE VIEW-UCLA MEDICAL CENTER 204 956 21.34%
+HARBOR-UCLA MEDICAL CENTER 140 917 15.27%
+RANCHO LOS AMIGOS 15 281 5.34%
+Total (All DHS Hospitals) 760 4,206 18.07%
+Table F24 compares the MHLA readmission rate by fiscal year and by chronic versus non-chronic
+conditions. The readmission rates for both chronic and non-chronic conditions were slightly lower in FY
+2018-19 than last year.
+Table F24
+Re-admission Rate by Fiscal Year for Participants with and without Chronic Conditions
+FY 2014-15 FY 2015-16 FY 2016-17 FY 2017-18 FY 2018-19
+Condition Type Readmission Readmission Readmission Readmission Readmission
+Rate Rate Rate Rate Rate
+W/ Chronic Condition 15.14% 10.45% 19.19% 18.89% 16.56%
+W/O Chronic Condition 15.18% 15.89% 18.59% 16.83% 18.48%
+Overall Inpatients 15.17% 13.95% 18.72% 17.23% 18.07%
+G. SUBSTANCE USE DISORDER (SUD) SERVICES
+In July 2016, MHLA entered into a partnership with the Los Angeles County Department of Public
+Health’s (DPH) Substance Abuse Prevention and Control Division (SAPC) to provide Substance Abuse
+Disorder (SUD) treatment services for any MHLA participant who needs it.
+33
+
+With the addition of SUD services to the MHLA program, a full array of drug and alcohol treatment
+services became available to MHLA participants at no cost. These services include withdrawal
+management (detox), individual and group counseling, patient education and family therapy, recovery
+support services, opioid treatment, recovery bridge housing, and case management.
+MHLA participants can access SUD services in a number of ways. They can “self-refer” by calling DPH’s
+Substance Abuse Service Helpline, find a provider nearby through SAPC website or receive a referral
+from their MHLA CP medical home clinic.
+This fiscal year, a total of 570 MHLA participants accessed SUD services. This was a significant increase
+from last fiscal year, when only 323 patients accessed SUD treatment services. This is likely due in part
+to an outreach campaign by the program with clinics, advocacy groups and patients regarding the
+availability of these services. This year, the MHLA convened a workgroup with DPH, DMH, community
+clinics and health advocacy groups to develop outreach materials and strategies to better message the
+availability of behavioral health services through the MHLA program. MHLA also held two trainings for
+community providers on Medication Assisted Treatment for opioid use disorder.
+Graph G1 illustrates those MHLA participants who sought SUD treatment services from DPH, sorted by
+age. The largest group of SUD treatment recipients was the age group, 26 to 34 years old.
+Graph G1
+MHLA SUD Participant by Age
+241
+196
+61 63
+9
+0 0
+12-17 18-25 26-34 35-44 45-54 55-64 65+
+Graph G2 provides a breakdown of MHLA participants by SUD issue. The 570 participants may have had
+more than one SUD issue (total of 687 SUD issues) during the fiscal year. 381 patients sought SUD
+treatment services for methamphetamine addiction, 227 individuals utilized treatment for alcoholism,
+and 38 participants sought help for marijuana addiction. The remaining participants 40 sought SUD
+treatment for cocaine, heroin or prescription drug use.
+Graph G2
+34
+
+MHLA SUD Participant by SUD Issue
+10
+9 38 21
+227
+381
+Primary Drug Problem
+Heroin Alcohol
+Methamphetamine Cocaine
+Marijuana Prescription Drug
+Other Drug
+The utilization of SUD treatment is expected to increase in FY 2019-20 with new pilot projects aimed at
+expanding access to MHLA participants. One will bring SUD treatment providers into select CP clinics to
+provide services to MHLA participants, and another will enable SUD treatment providers to enroll
+eligible participants into MHLA.
+35
+
+H. HEALTH CARE SERVICE EXPENDITURES
+This final section of the annual report provides information on the payments made to CP clinics under
+the MHLA program in FY 2017-18. For this purpose, DHS tracks the payments made to each CP for
+primary care services utilizing Monthly Grant Funding (MGF).
+Key FY 2018-19 highlights were:
+• Total MGF payments to Community Partners for primary care related services
+totaled $49,437,017.28.
+• Payments for dental services totaled $6,953,821.92.
+• The Monthly Grant Funding rate was $28.56.
+MHLA Health Care Service Payment Categories
+Health care service payments are made to CP clinics in two ways: (1) MGF payments for preventive and
+primary care, and (2) Fee-For-Service payments for dental services provided by those CP clinics with
+dental contracts with MHLA. In addition, MHLA pays for medications on behalf of participants. In FY
+2018-19, MHLA paid $9.32 million for pharmacy-related services.
+Community Partners – Primary Care
+The Los Angeles County Board of Supervisors allocated $56 million for the provision of primary care for
+CPs. Of this allocation, a total of $49.44 million in MGF payments were paid to the CPs in FY 2018-19.
+Community Partners – Dental Care
+Although dental care is not a benefit of the MHLA program, twenty-five (25) MHLA Community Partners
+provided dental services to MHLA eligible or enrolled participants in FY 2018-19. A total of $6.95 million
+in dental funding was spent by the CPs in FY 2018-19.
+MHLA per Participant per Month Health Care Service Costs
+There was a total of 1,730,998 MHLA participant months in FY 2018-19. The total MGF paid by MHLA to
+CP clinics for primary care services was $49.44 million.
+CPs receive an MGF payment per month of $28.56 for each person enrolled in their medical home clinic
+in that month, irrespective of whether the participant used services that month. As noted in Table F5 of
+the annual report, 55,154 (30%) of MHLA participants did not have a primary care visit in FY 2018-19
+representing 416,630 enrollment months. A total of $11.90 million ($28.56 x 416,630 months) in
+payments were made on behalf of participants who did not utilize a primary care service. The way
+payments are made changed at the start of FY 2019-20, with CPs only receiving MGF for enrolled
+participants who had a primary care visit in the prior 24 months.
+Estimated MHLA Health Care Service Payments
+36
+
+Table H1 outlines the total payments, $65.71 million, for the MHLA Program for FY 2018-19.
+Table H1
+Estimated Total MHLA Payments Estimated Total MHLA Payments (FY 2018-19)
+ENROLLMENT
+TOTAL PARTICIPANT MONTHS
+(TOTAL ENROLLMENT OF 181,902): 1,730,998
+COMMUNITY PARTNER PROGRAM PAYMENTS
+MONTHLY GRANT FUNDING COST FOR ALL COMMUNITY PARTNERS
+PRIMARY CARE SERVICES $49,437,017.28
+VENTEGRA PHARMACY RELATED SERVICES $9,321,741.16
+DENTAL CARE SERVICES $6,953,821.92
+GRAND TOTAL $65,712,580.36
+Appendices 3 and 4 provide estimated total expenditures by CP clinic for both the MHLA primary care and
+dental programs.
+37
+
+III. CONCLUSION AND LOOKING FORWARD
+FY 2018-19 was the fifth programmatic year for the MHLA program. As the report demonstrates, the
+services available to the MHLA participants continue to expand under the program to provide a
+comprehensive array of primary and supportive services to meet the needs of these patients.
+Participants are receiving regular primary care, and when needed, specialty, emergency, urgent and
+inpatient care. They also are obtaining medications through a robust network of community pharmacies
+as well as through CPs and DHS.
+This year, MHLA began implementation of the new contract amendment, putting into practice new
+audit tools, enforcing access standards and adding new CPT codes. Program staff also built the systems
+to implement the 24-month rule for MGF payment, which took effect July 1, 2019. At the end of FY
+2019-20, we will be able to see the impact of that rule on both participant utilization and on the MHLA
+budget.
+In addition, MHLA program continues collaborating with Los Angeles County’s Department of Public
+Health (DPH) Substance Abuse Prevention and Control (SAPC) unit to increase access to SUD services for
+MHLA participants through pilot projects. Among those is a project that will bring SAPC providers into
+the CPs to provide SUD treatment. We will continue to partner with SAPC and CP clinics to increase
+participant’s knowledge of and participation in SUD treatment programs. We are also working on a
+project with the L.A. County Department of Mental Health to use Mental Health Prevention Services Act
+funding to provide prevention services at the CPs. The project is expected to begin in spring 2020.
+The ongoing work to expand outreach and enrollment opportunities in collaboration with the
+Community Partner (CP) clinics continued in FY 2018-19. This not only includes reaching those
+individuals who are eligible for, but not yet enrolled in MHLA, but also includes the work to engage
+participants who are due for their annual renewal. In FY 2019-20, we will be closely tracking enrollment
+and trying to better understand the declines. We will also work on seamlessly transitioning the young
+adults who become eligible for full-scope Medi-Cal.
+During FY 2019-20, we will be partnering with the CPs to reduce MHLA participants’ avoidable
+emergency room visits to DHS hospitals. In addition, we aim to decrease the number of patients who are
+simultaneously empaneled to DHS clinics and enrolled in MHLA. Finally, we will continue encouraging
+CPs to join LANES, the health information exchange in LA County. At the end of FY 2018-19, 15 CPs had
+signed contracts with LANES and several were beginning to access data through the exchange. Being on
+LANES enables CPs and DHS to securely share patient health information with the goal of more care
+coordination.
+DHS continues to work in partnership with the Community Clinic Association of Los Angeles County
+(CCALAC), the Los Angeles health advocacy community and our Community Partner clinics to build and
+grow a strong, comprehensive health care coverage program for eligible, uninsured residents of Los
+Angeles County.
+38
+
+APPENDIX 1
+Total Enrolled and Office Visits by Community Partner Medical Home4
+Visit Per
+Unique % of Total
+Total Participant
+Medical Home Participants Participants Participant
+Enrolled Per Year
+Seen Seen Visits
+(Annualized)
+AFH-519 108 66 61% 164 2.48
+AFH-BURBANK 60 39 65% 89 2.76
+AFH-CENTRAL 532 350 66% 779 2.41
+AFH-PACIFIC 10 1 10% 1 0.35
+AFH-SOUTH CENTRAL II 3 1 33% 3 1.33
+AFH-SUNLAND 14 5 36% 11 1.83
+ALL-INCLUSIVE COMMUNITY HEALTH
+CENTER 284 198 70% 638 3.45
+ALL-INCLUSIVE COMMUNITY HEALTH-
+EAGLE ROCK 14 11 79% 29 3.55
+ALTAMED-COMMERCE 1,216 986 81% 5,430 4.95
+ALTAMED-EL MONTE 538 444 83% 2,200 4.47
+ALTAMED-FIRST STREET 629 487 77% 2,607 4.67
+ALTAMED-HOLLYWOOD PRESBYTERIAN 100 72 72% 320 3.63
+ALTAMED-HUNTINGTON PARK 5 2 40% 9 2.00
+ALTAMED-PICO RIVERA PASSONS 14 10 71% 37 3.04
+ALTAMED-PICO RIVERA SLAUSON 611 494 81% 2,632 4.75
+4 In the MHLA program, participants generally receive the majority of their primary care visits at their chosen medical home, but
+they may obtain care at other clinics within the agency. Encounter data is reported by the clinic that provided the service to the
+participant (even if the visit was not at the participant’s chosen medical home). As a result, it is possible that a participant had
+primary care encounter data submitted for them on behalf of a CP clinic site that was not their medical home.
+39
+
+Visit Per
+Unique % of Total
+Total Participant
+Medical Home Participants Participants Participant
+Enrolled Per Year
+Seen Seen Visits
+(Annualized)
+ALTAMED-SOUTH GATE 292 248 85% 1,322 4.94
+ALTAMED-WEST COVINA 354 266 75% 1,073 3.34
+ALTAMED-WHITTIER 1,206 969 80% 5,855 5.31
+APLAHW-BALDWIN HILLS 287 152 53% 397 2.11
+APLAHW-LONG BEACH 57 37 65% 96 2.95
+ARROYO VISTA-EL SERENO
+HUNTINGTON DRIVE 520 348 67% 1,212 3.61
+ARROYO VISTA-EL SERENO VALLEY 237 159 67% 567 3.92
+ARROYO VISTA-HIGHLAND PARK 2,376 1,576 66% 5,813 3.61
+ARROYO VISTA-LINCOLN HEIGHTS 2,758 1,671 61% 5,495 3.02
+ARROYO VISTA-LOMA DRIVE 18 2 11% 11 7.33
+ASIAN PACIFIC HEALTH CARE-BELMONT
+HC 827 640 77% 2,910 4.77
+ASIAN PACIFIC HEALTH CARE-EL
+MONTE ROSEMEAD HC 390 281 72% 1,749 6.46
+ASIAN PACIFIC HEALTH CARE-JOHN
+MARSHALL HIGH SCHOOL 1 1 100% 9 9.00
+ASIAN PACIFIC HEALTH CARE-LOS FELIZ
+HC 2,101 1,553 74% 7,345 4.47
+AVCC-HEALTH AND WELLNESS 158 53 34% 120 1.59
+AVCC-PALMDALE 173 61 35% 127 1.56
+AVCC-PALMDALE EAST 49 18 37% 44 2.05
+BARTZ-ALTADONNA COMMUNITY
+HEALTH CENTER 540 370 69% 1,659 3.95
+BENEVOLENCE-CENTRAL MEDICAL
+CLINIC 715 394 55% 1,442 3.14
+40
+
+Visit Per
+Unique % of Total
+Total Participant
+Medical Home Participants Participants Participant
+Enrolled Per Year
+Seen Seen Visits
+(Annualized)
+BENEVOLENCE-CRENSHAW
+COMMUNITY CLINIC 517 258 50% 898 2.63
+CENTRAL CITY COMMUNITY HEALTH
+CENTER INC. 1,312 867 66% 4,163 4.34
+CENTRAL CITY COMMUNITY-BALDWIN
+PARK 192 144 75% 616 4.32
+CENTRAL CITY COMMUNITY-
+BROADWAY 326 238 73% 560 3.25
+CENTRAL CITY COMMUNITY-EL MONTE 302 190 63% 927 4.53
+CENTRAL CITY COMMUNITY-LA PUENTE 108 68 63% 320 4.67
+CENTRAL NEIGHBORHOOD-CENTRAL 978 604 62% 2,929 3.90
+CENTRAL NEIGHBORHOOD-GRAND 3 - 0% 0 0.00
+CHAPCARE-DEL MAR 452 345 76% 1,310 3.85
+CHAPCARE-FAIR OAKS 1,461 1,117 76% 4,864 4.24
+CHAPCARE-LAKE 172 127 74% 488 3.76
+CHAPCARE-VACCO 1,042 778 75% 3,721 4.69
+CHINATOWN-COMMUNITY HEALTH
+CENTER 159 110 69% 469 3.68
+CHINATOWN-CSC CHC-SAN GABRIEL
+VALLEY 17 12 71% 46 3.19
+CLINICA ROMERO-ALVARADO CLINIC 3,715 2,522 68% 7,956 2.51
+CLINICA ROMERO-MARENGO CLINIC 2,520 1,711 68% 6,111 2.86
+COMPLETE CARE COMMUNITY HEALTH
+CENTER 111 77 69% 361 4.73
+COMPREHENSIVE COMMUNITY-EAGLE
+ROCK 1,091 697 64% 2,444 3.09
+COMPREHENSIVE COMMUNITY-
+GLENDALE 1,001 702 70% 2,694 3.71
+41
+
+Visit Per
+Unique % of Total
+Total Participant
+Medical Home Participants Participants Participant
+Enrolled Per Year
+Seen Seen Visits
+(Annualized)
+COMPREHENSIVE COMMUNITY-
+HIGHLAND PARK 876 611 70% 2,398 3.43
+COMPREHENSIVE COMMUNITY-NORTH
+HOLLYWOOD 960 700 73% 2,460 3.38
+COMPREHENSIVE COMMUNITY-
+SUNLAND 167 117 70% 527 4.55
+EL PROYECTO DEL BARRIO-ARLETA 1,470 1,114 76% 6,412 5.32
+EL PROYECTO DEL BARRIO-AZUSA 1,545 1,111 72% 6,225 5.19
+EL PROYECTO DEL BARRIO-BALDWIN
+PARK 459 321 70% 1,829 5.27
+EL PROYECTO DEL BARRIO-ESPERANZA 299 218 73% 1,154 5.84
+EL PROYECTO DEL BARRIO-WINNETKA 2,327 1,711 74% 11,073 5.91
+EVCHC-COVINA HEALTH CENTER 393 324 82% 1,514 4.90
+EVCHC-POMONA CLINIC 2,484 1,823 73% 7,358 3.76
+EVCHC-VILLACORTA SCHOOL-BASED
+CLINIC 779 561 72% 2,382 3.96
+EVCHC-WEST COVINA CLINIC 3,053 2,241 73% 8,623 3.56
+FAMILY HEALTH-BELL GARDENS 3,630 2,617 72% 11,679 4.08
+FAMILY HEALTH-DOWNEY 219 151 69% 672 4.10
+FAMILY HEALTH-HAWAIIAN GARDENS 700 516 74% 2,400 4.22
+FAMILY HEALTH-MAYWOOD 203 130 64% 542 3.67
+FAMILY HEALTH-SCHOOL BASED
+HEALTH CENTER 9 5 56% 22 3.30
+GARFIELD HEALTH CENTER 197 158 80% 817 5.21
+GARFIELD HEALTH CENTER-ATLANTIC 74 54 73% 198 3.60
+42
+
+Visit Per
+Unique % of Total
+Total Participant
+Medical Home Participants Participants Participant
+Enrolled Per Year
+Seen Seen Visits
+(Annualized)
+HARBOR COMMUNITY CLINIC 880 625 71% 2,460 3.66
+HERALD CHRISTIAN HEALTH CENTER 93 63 68% 229 3.20
+HERALD CHRISTIAN HEALTH CENTER-
+ROSEMEAD 48 27 56% 99 2.79
+JWCH-BELL GARDENS 2,178 1,529 70% 6,102 3.54
+JWCH-BELL SHELTER 19 10 53% 78 7.49
+JWCH-DOWNTOWN WOMEN'S CENTER 9 9 100% 22 2.72
+JWCH-NORWALK 1,828 1,231 67% 5,242 3.44
+JWCH-WEINGART 649 420 65% 1,581 3.44
+JWCH-WEINGART 2 2 1 50% 1 0.63
+JWCH-WESLEY ANDREW ESCAJEDA 24 13 54% 41 2.38
+JWCH-WESLEY BELLFLOWER 1,825 1,261 69% 4,435 3.15
+JWCH-WESLEY DOWNEY 1,358 814 60% 2,694 2.80
+JWCH-WESLEY HACIENDA HEIGHTS 345 244 71% 806 3.09
+JWCH-WESLEY HEALTH AND WELLNESS 487 309 63% 939 2.36
+JWCH-WESLEY LYNWOOD 1,906 1,294 68% 4,124 2.68
+JWCH-WESLEY LYNWOOD MIDDLE
+SCHOOL 8 6 75% 31 4.83
+JWCH-WESLEY PALMDALE CENTRAL 474 292 62% 805 2.12
+JWCH-WESLEY PALMDALE EAST 218 139 64% 406 2.16
+JWCH-WESLEY VERMONT 1,353 804 59% 2,606 2.54
+43
+
+Visit Per
+Unique % of Total
+Total Participant
+Medical Home Participants Participants Participant
+Enrolled Per Year
+Seen Seen Visits
+(Annualized)
+KEDREN COMMUNITY CARE CLINIC 207 142 69% 638 3.92
+KHEIR CLINIC 2,211 1,504 68% 8,494 5.08
+LA CHRISTIAN-EXODUS ICM 10 8 80% 33 3.81
+LA CHRISTIAN-GATEWAY AT PERCY
+VILLAGE 3 2 67% 7 2.55
+LA CHRISTIAN-JOSHUA HOUSE 263 175 67% 604 3.20
+LA CHRISTIAN-PICO ALISO 1,192 772 65% 2,265 2.57
+LA CHRISTIAN-TELECARE SERVICE AREA
+4 20 5 25% 11 1.08
+LA CHRISTIAN-WORLD IMPACT 65 40 62% 83 2.59
+LOS ANGELES LGBT CENTER 61 38 62% 131 3.37
+MISSION CITY-CULVER CITY 2 - 0% 0 0.00
+MISSION CITY-FAIRFAX 7 3 43% 9 2.30
+MISSION CITY-INGLEWOOD 59 36 61% 162 4.14
+MISSION CITY-LA PUENTE 325 229 70% 1,028 4.28
+MISSION CITY-MAYWOOD 10 4 40% 15 2.14
+MISSION CITY-MONROVIA 99 77 78% 340 4.16
+MISSION CITY-NORTH HILLS 4,302 2,858 66% 10,620 2.94
+MISSION CITY-NORTHRIDGE 463 327 71% 1,240 3.16
+MISSION CITY-OLYMPIC 342 239 70% 906 4.40
+MISSION CITY-ORANGE GROVE 61 42 69% 145 3.16
+44
+
+Visit Per
+Unique % of Total
+Total Participant
+Medical Home Participants Participants Participant
+Enrolled Per Year
+Seen Seen Visits
+(Annualized)
+MISSION CITY-PANORAMA 53 37 70% 166 3.91
+MISSION CITY-PARTHENIA 3 2 67% 8 3.56
+MISSION CITY-PRAIRIE 95 34 36% 139 2.31
+MISSION CITY-SEPULVEDA 652 515 79% 2,241 3.73
+NEV-CANOGA PARK 472 377 80% 2,173 5.12
+NEV-HOMELESS HEALTH 153 115 75% 862 7.45
+NEV-HOMELESS MOBILE CLINIC 20 12 60% 50 5.00
+NEV-NEWHALL HEALTH CENTER 1,085 747 69% 3,794 4.55
+NEV-PACOIMA 1,130 773 68% 3,628 3.73
+NEV-PACOIMA WOMEN'S HEALTH
+CENTER 4 2 50% 4 2.18
+NEV-SAN FERNANDO 5,660 3,665 65% 18,176 3.98
+NEV-SAN FERNANDO HIGH SCHOOL
+TEEN HC 26 19 73% 114 4.97
+NEV-SANTA CLARITA 420 295 70% 1,502 4.08
+NEV-SUN VALLEY 868 626 72% 3,173 4.20
+NEV-VALENCIA 674 453 67% 2,578 4.30
+NEV-VAN NUYS ADULT 1,573 1,200 76% 6,610 5.48
+PED AND FAMILY-EISNER PED AND
+FAMILY 4,294 2,891 67% 10,475 2.82
+PED AND FAMILY-EISNER-LYNWOOD 189 127 67% 500 3.51
+PED AND FAMILY-EISNER-USC EISNER-
+CA HOSP 1,104 607 55% 1,897 2.51
+45
+
+Visit Per
+Unique % of Total
+Total Participant
+Medical Home Participants Participants Participant
+Enrolled Per Year
+Seen Seen Visits
+(Annualized)
+POMONA COMMUNITY-HOLT 844 610 72% 2,349 3.48
+POMONA COMMUNITY-PARK 3 - 0% 0 0.00
+QUEENSCARE-EAGLE ROCK 793 599 76% 2,538 3.89
+QUEENSCARE-EAST THIRD STREET 2,513 1,725 69% 7,043 3.53
+QUEENSCARE-ECHO PARK 1,628 1,218 75% 5,005 3.43
+QUEENSCARE-HOLLYWOOD 1,414 1,073 76% 4,123 3.28
+SAMUEL DIXON-CANYON COUNTRY HC 284 183 64% 465 2.07
+SAMUEL DIXON-NEWHALL 546 344 63% 1,008 2.35
+SAMUEL DIXON-VAL VERDE 44 31 70% 104 3.08
+SOUTH BAY-CARSON 270 183 68% 908 4.38
+SOUTH BAY-GARDENA 1,522 1,016 67% 5,167 3.96
+SOUTH BAY-INGLEWOOD 1,719 1,146 67% 4,587 3.21
+SOUTH BAY-REDONDO BEACH 842 534 63% 2,290 3.41
+SOUTH CENTRAL FAMILY HC 3,476 2,579 74% 12,273 4.25
+SOUTH CENTRAL-HUNTINGTON PARK 1,319 904 69% 3,955 3.96
+SOUTH CENTRAL-VERNON 8 6 75% 16 5.49
+ST. JOHN'S-COMPTON 4,165 3,060 73% 12,276 3.70
+ST. JOHN'S-CRENSHAW 85 74 87% 249 5.27
+ST. JOHN'S-DOMINGUEZ 2,873 2,103 73% 8,435 3.63
+46
+
+Visit Per
+Unique % of Total
+Total Participant
+Medical Home Participants Participants Participant
+Enrolled Per Year
+Seen Seen Visits
+(Annualized)
+ST. JOHN'S-DOWNTOWN LOS ANGELES-
+MAGNOLIA 4,275 2,840 66% 9,727 2.88
+ST. JOHN'S-DR. KENNETH WILLIAMS 8,877 6,035 68% 19,553 2.74
+ST. JOHN'S-HYDE PARK 974 622 64% 2,259 3.02
+ST. JOHN'S-LINCOLN HEIGHTS 677 459 68% 1,887 3.61
+ST. JOHN'S-LOUIS FRAYSER 862 496 58% 1,372 2.08
+ST. JOHN'S-MANUAL ARTS 1,675 1,108 66% 4,077 3.16
+ST. JOHN'S-MOBILE 2 41 13 32% 53 2.09
+ST. JOHN'S-MOBILE UNIT 1 91 58 64% 160 2.24
+ST. JOHN'S-RANCHO DOMINGUEZ 2,159 1,615 75% 6,934 3.96
+ST. JOHN'S-WARNER TRAYNHAM 2,318 1,649 71% 6,425 3.67
+ST. JOHN'S-WASHINGTON 1,384 988 71% 3,452 3.18
+TARZANA-LANCASTER 717 502 70% 2,366 4.02
+TARZANA-PALMDALE 423 245 58% 1,562 5.31
+THE ACHIEVABLE FOUNDATION 36 22 61% 61 1.86
+THE CHILDREN'S CLINIC-CABRILLO
+GATEWAY 46 36 78% 123 3.27
+THE CHILDREN'S CLINIC-CESAR CHAVEZ
+ELEMENTARY SCHOOL 207 166 80% 574 3.31
+THE CHILDREN'S CLINIC-FAMILY HC
+BELLFLOWER 347 282 81% 1,124 4.04
+THE CHILDREN'S CLINIC-FAMILY HC
+CENTRAL LB 482 309 64% 1,081 2.78
+THE CHILDREN'S CLINIC-FAMILY HC
+WESTSIDE 400 308 77% 1,159 3.37
+47
+
+Visit Per
+Unique % of Total
+Total Participant
+Medical Home Participants Participants Participant
+Enrolled Per Year
+Seen Seen Visits
+(Annualized)
+THE CHILDREN'S CLINIC-LB MULTI-
+SERVICE CTR HOMELESS 5 5 100% 14 6.22
+THE CHILDREN'S CLINIC-NORTH LB
+HAMILTON MIDDLE SCHOOL 695 523 75% 1,768 3.16
+THE CHILDREN'S CLINIC-ROOSEVELT 193 126 65% 397 2.72
+THE CHILDREN'S CLINIC-S. MARK TAPER 1,532 1,129 74% 3,714 2.96
+THE CHILDREN'S CLINIC-VASEK POLAK 857 633 74% 2,188 3.10
+THE LA FREE-BEVERLY 1,832 1,297 71% 5,034 3.47
+THE LA FREE-HOLLYWOOD-WILSHIRE 4,939 3,530 71% 13,212 3.35
+THE LA FREE-S. MARK TAPER 740 544 74% 2,301 4.15
+THE NECC-CALIFORNIA FAMILY CARE 88 32 36% 51 1.34
+THE NECC-COMMUNITY MEDICAL
+ALLIANCE 61 25 41% 52 2.22
+THE NECC-GAGE 41 12 29% 31 1.75
+THE NECC-GRAND 796 607 76% 2,049 2.86
+THE NECC-HARBOR CITY 164 129 79% 396 2.81
+THE NECC-HAWTHORNE 141 106 75% 368 3.29
+THE NECC-HIGHLAND PARK 59 20 34% 53 1.84
+THE NECC-HIGHLAND PARK SITE 440 350 80% 1,239 3.12
+THE NECC-HUNTINGTON PARK CHC 656 511 78% 2,069 3.68
+THE NECC-WILMINGTON 416 293 70% 898 2.48
+THE-LENNOX 963 643 67% 2,729 3.66
+48
+
+Visit Per
+Unique % of Total
+Total Participant
+Medical Home Participants Participants Participant
+Enrolled Per Year
+Seen Seen Visits
+(Annualized)
+THE-RUTH TEMPLE 1,087 753 69% 3,508 4.07
+UMMA 1,269 965 76% 3,360 3.48
+UMMA-FREMONT WELLNESS CENTER 521 386 74% 1,522 3.80
+UNIVERSAL COMMUNITY 152 93 61% 673 5.79
+UNIVERSAL COMMUNITY-SPS 172 130 76% 911 6.55
+VALLEY-NORTH HILLS WELLNESS
+CENTER 2,082 1,325 64% 4,281 2.82
+VALLEY-NORTH HOLLYWOOD 5,705 4,113 72% 14,959 3.33
+VENICE-COLEN 1,205 756 63% 2,525 2.45
+VENICE-ROBERT LEVINE 133 70 53% 189 1.95
+VENICE-SIMMS/MANN 1,803 1,159 64% 3,887 2.55
+VENICE-VENICE 1,104 752 68% 2,712 2.99
+VIA CARE CHC-607 498 339 68% 1,213 3.39
+VIA CARE CHC-615 4 3 75% 9 4.00
+VIA CARE CHC-EASTSIDE 415 305 73% 1,098 3.65
+VIA CARE CHC-GARFIELD WELLNESS
+CENTER 518 418 81% 1,465 3.86
+VIA CARE COMMUNITY HEALTH
+CENTER 1,500 1,099 73% 4,102 3.46
+WATTS-CRENSHAW 7 4 57% 25 4.76
+WATTS-WATTS 1,285 908 71% 5,008 4.77
+WESTSIDE FAMILY HEALTH CENTER 345 265 77% 1,067 4.13
+49
+
+Visit Per
+Unique % of Total
+Total Participant
+Medical Home Participants Participants Participant
+Enrolled Per Year
+Seen Seen Visits
+(Annualized)
+WILMINGTON COMMUNITY CLINIC 2,730 2,140 78% 7,839 3.35
+WILMINGTON-MARY HENRY
+COMMUNITY CLINIC 9 5 56% 11 2.24
+Grand Total 181,902 126,748 70% 514,546 3.57
+50

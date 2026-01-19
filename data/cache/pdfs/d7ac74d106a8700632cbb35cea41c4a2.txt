@@ -1,0 +1,619 @@
+VQGAN-CLIP: Open Domain Image Generation
+and Editing with Natural Language Guidance
+Katherine Crowson⋆1, Stella Biderman∗1,2, Daniel Kornis3, Dashiell Stander1,
+Eric Hallahan1, Louis Castricato1,4, and Edward Raff2
+1 EleutherAI
+2 Booz Allen Hamilton
+3 AIDock
+4 Georgia Institute of Technology
+Abstract Generatingandeditingimagesfromopendomaintextprompts
+isachallengingtaskthatheretoforehasrequiredexpensiveandspecially
+trained models. We demonstrate a novel methodology for both tasks
+which is capable of producing images of high visual quality from text
+prompts of significant semantic complexity without any training by us-
+ing a multimodal encoder to guide image generations. We demonstrate
+on a variety of tasks how using CLIP [37] to guide VQGAN [11] pro-
+duces higher visual quality outputs than prior, less flexible approaches
+like minDALL-E [19], GLIDE [33] and Open-Edit [24], despite not be-
+ing trained for the tasks presented. Our code is available in a public
+repository.
+Keywords: generativeadversarialnetworks;groundedlanguage;image
+manipulation
+1 Introduction
+Usingfree-formtexttogenerateormanipulatehigh-qualityimagesisachalleng-
+ing task, requiring a grounded learning between visual and textual representa-
+tions.Manipulatingimagesinanopendomaincontextwasfirstproposedbythe
+seminalOpen-Edit[24],whichallowedtextpromptstoalteranimage’scontent.
+Thiswasdonemostlywithsemanticallysimpletransformations(e.g.,turnared
+apple green), and does not allow generation of images. Soon after DALL-E [38]
+and GLIDE [33] were developed, both of which can perform generation (and
+inpainting) from arbitrary text prompts, but do not themselves enable image
+manipulation.
+Inthisworkweproposethefirstaunifiedapproachtosemanticimagegener-
+ation and editing, leveraging a pretrained joint image-text encoder [37] to steer
+animagegenerativemodel[11].Ourmethodologyworksbyusingthemultimodal
+encodertodefinealossfunctionevaluatingthesimilarityofa(text,image)pair
+and backpropagating to the latent space of the image generator. We iteratively
+⋆ Co-first authors
+
+2 K Crowson, S Biderman et al.
+updatethecandidategenerationuntilitissufficientlysimilartothetargettext.
+The difference between using our technique for generation and editing is merely
+a matter of initializing the generator with a particular image (for editing) or
+with random noise (for generation).
+A significant advantage of our methodology is the lack of additional training
+required. Only a pretrained image generator and a joint image-text encoder are
+necessary, while all three of Liu et al. [24], Ramesh et al. [38], and Nichol et al.
+[33]requiretrainingsimilarmodelsfromscratch.AdditionallyRameshetal.[38]
+and Nichol et al. [33] train generators from scratch.
+We demonstrate several significant contributions, including:
+1. High visual quality for both generation and manipulation of images.
+2. High semantic fidelity between text and generation, especially when seman-
+tically unlikely content co-occurs.
+3. Efficiencyinthatourmethodrequiresnoadditionaltrainingbeyondthepre-
+trained models, using only a small amount of optimization per inference.
+4. The value of open development and research. This technique was developed
+in public and open collaboration has been integral to its rapid real-world
+success.Non-authorshavealreadyextendedourapproachtoothermodalities
+(e.g., replacing text for audio) and commercial applications.
+The rest of our manuscript is organized as follows. In Section 2 we discuss
+how of how our methodology works, resulting in a simple and easy-to-apply
+approach for combing multiple modalities for generation or manipulation. The
+efficacyof vqgan-clipingeneratinghighqualityandsemanticallyrelevantim-
+agesisshowninSection3,followedbysuperiormanipulationabilityinSection4.
+The design choices of vqgan-clip to obtain both high image quality and fast
+generation are validated by ablations in Appendix G, and Section 5 discusses
+resource usage and efficiency considerations. As our approach has been public
+since April 2021, we are able to show further validation by external groups in
+Section 6. This use includes extensions to other modalities, showing the flexibil-
+ity of our approach, as well as commercial use of vqgan-clip that demonstrate
+its success at handling open-domain prompts and images to a satisfying degree.
+Finally we conclude in Section 7.
+2 Our Methodology
+To demonstrate our method’s effectiveness we apply it using VQGAN [11] and
+CLIP [37] as pre-trained models, and so refer to our approach as vqgan-clip.
+We stress, however, that our approach is not specific to either model and that
+subsequent work has already shown success that builds on our work using other
+models [5, 27, 46, 12], and even in other modalities [18, 50].
+We start with a text prompt and use a GAN to iteratively generate candi-
+date images, at each step using CLIP to improve the image. We optimize the
+image by treating the squared spherical distance between the embedding of the
+
+VQGAN-CLIP: Open Domain Image Generation 3
+candidate and the embedding of the text prompt as a loss function, and differ-
+entiating through CLIP with respect to the GAN’s latent vector representation
+of the image, which we refer to as the “z-vector” following Oord, Vinyals, and
+Kavukcuoglu [35]. This process is outlined in Fig. 1
+Figure1: Diagram showing how augmentations are added to stabilize and im-
+prove the optimization. Multiple crops, each with different random augmenta-
+tions, are applied to produce an average loss over a single source generation.
+This improves the results with respect to a single latent Z-vector.
+To generate an image, the “initial image” contains random pixel values. The
+optimizationprocessisrepeatedtoaltertheimage,untiltheoutputimagegrad-
+ually improves such that it semantically matches the target text. We can also
+edit existing images by starting with the image-to-edit as the “initial image”.
+The text prompt used to describe how we want the image to change is used
+identically to the text prompt for generating an image, and no changes to the
+architecture exist between generation and manipulation besides how the ‘initial
+image” is selected.
+We use Adam [20] to do the actual optimization, a learning rate of 0.15,
+β =(0.9,0.999), and run for 400 iterations for the experiments in this paper.
+2.1 Discrete Latent Spaces for Images
+Unlikethenaturallydiscretenatureoftext,thespaceofnaturallyoccurringim-
+ages is inherently continuous and not trivially discretized. Prior work by Oord,
+Vinyals, and Kavukcuoglu [35] borrows techniques from vector quantization
+(VQ) to represent a variety of modalities with discrete latent representations by
+buildingacodebookvocabularywithafinitesetoflearnedembeddings.Givena
+codebookofvocabularysizeK withembeddingdimensionn
+k
+,Z ={z
+i
+}K
+k
+∈Rnk.
+This is applied to images by constructing a convolutional autoencoder with
+encoder E and decoder G. An input image x ∈ I is first embedded with the
+encoder z =E(x). We can then compute the vector quantized embedding x as
+z =argmin∥z −z ∥
+q i,j k
+zk∈Z
+
+4 K Crowson, S Biderman et al.
+which we can then multiply back through the vocabulary in order to perform
+reconstruction.Wecanthenuseastraight-throughestimatoronthequantization
+step in order to allow the CNN and codebook to be jointly trained end-to-end.
+We use the popular VQGAN [11] model for the experiments in this paper.
+2.2 Contrastive Text-Image Models
+To guide the generative model, we need a way to adjust the similarity of a
+candidategenerationwith theguidancetext.Toachievethis,we useCLIP,[37],
+ajointtext-imageencodertrainedbyusingcontrastivelearning.WeuseCLIPto
+embedtextpromptsandcandidategeneratedimagesindependentlyandmeasure
+the cosine similarity between the embeddings. This similarity is then reframed
+as a loss that we can use gradient descent to minimize.
+2.3 Augmentations
+Onechallengeofusing vqgan-clipisthatgradientupdatesfromtheCLIPloss
+are quite noisy if calculated on a single image. To overcome this we take the
+generatedcandidateimageandmodifyitmanytimes,producingalargenumber
+of augmented images. We take random crops of the candidate image and then
+applyfurtheraugmentationssuchasflipping,colorjitter,noising,etc.[39]Most
+highlevelsemanticfeaturesofanimagearerelativelyinvarianttothesechanges,
+so averaging the CLIP loss with respect to all of the augmented images reduces
+the variance of each update step. There is a risk that a random crop might
+dramatically change the semantic content of an image (e.g. by cropping out an
+important object), but we find that in practice this does not cause any issues.
+For the results presented in this paper we used an augmentation pipeline
+consisting of: random horizontal flips, random affine projections, random per-
+spective projections, random color jitter, and adding random Gaussian noise.
+2.4 Regularizing the Latent Vector
+When using an unconstrained VQGAN for image generation, we found that
+outputs tended to be unstructured. Adding augmentations helps with general
+coherence, but the final output will often still contain patches of unwanted tex-
+tures. To solve this problem we apply a weighted L2 regularization to the the
+z-vector.
+This produces a regularized loss function given by the equation
+N
+1 (cid:88)
+Loss =L +α· Z2
+CLIP N i
+i=0
+whereαistheregularizationweight.Thisencouragesparsimonyintherepresen-
+tation,sendinglowinformationcodesinVQGAN’scodebooktozero.Inpractice
+we note that regularization appears to improve the coherence of the output and
+produces a better structured image. We decay the regularization term by 0.005
+over the course of generation.
+
+VQGAN-CLIP: Open Domain Image Generation 5
+2.5 Additional Components
+Our methodology is highly flexible and can be extended straightforwardly de-
+pending on the use-case and context due to the ease of integrating additional
+interventions on the intermediate steps of image generation. Researchers using
+our framework have introduced a number of additional components, ranging
+from using ensembles [6], to using B´ezier curves for latent representations [13,
+5], to using perturbations to make the results more robust to adversaries [25].
+Althoughtheyaren’tusedinthemainexperimentsofthispaper,wewishtocall
+attention to two in particular that we use frequently: “prompt addition” and
+maskedimageediting.Wegiveanoverviewofbothhere,andprovideadditional
+experiments and information in Appendix H
+Prompt Addition: Wehavefoundthatourusersareofteninterestedinapplying
+multiple text prompts at the same time. This can be achieved by computing
+the loss against multiple target texts simultaneously and adding the results. In
+AppendixH.1weusethistooltoexplorethesemanticcohesionof vqgan-clip’s
+generations.
+Masking: Acommontechniqueinimagegenerationandeditingismasking,where
+a portion of an image is identified ahead of time as being where a model should
+edit5 vqgan-clip is compatible with masking by zeroing out the gradients in
+parts of the latent vector that one wishes to not change. However vqgan-clip
+canalsoleveragethesemanticknowledgeofCLIPtoperformself-masking with-
+out any non-textual human input.
+3 Semantic Image Generation
+The primary application of our methodology is for generating images from text.
+In contrast to previous work on this topic [38, 33, 49], we do not perceive creat-
+ing photo-realistic images or images that could convince a human that they are
+real photographs as our primary goal. Our focus is on producing images of high
+visualqualitythataresemanticallymeaningfulinrelationtoanaturallanguage
+prompt, which we demonstrate in this section. This in fact requires abandoning
+photo-realism when prompts may ask for artistic or explicitly unrealistic gener-
+ations and edits. A loosely curated set of example generations is presented in
+Fig. 2.
+Asvqgan-cliphasbeenpubliclyavailableforalmostayear,wehavehadthe
+opportunity to observe people experimenting with and building off of vqgan-
+clipinthewild.InAppendixDweshowasampleofartworkcreatedbypeople
+other than the authors of this paper are included to demonstrate the power and
+range of vqgan-clip.
+5 Inthecontextofimagethisisoftenreferredtoas“infilling,”butwewilluse“mask-
+ing” as a general term to refer to both.
+
+6 K Crowson, S Biderman et al.
+(a) Oil painting of a (b) A colored pencil (c) A fantasy paint-
+candy dish of glass drawingofawaterfall ingofacityinadeep
+candies, mints, and valley by Ivan Aiva-
+other assorted sweets zovsky
+(d)Abeautifulpaint- (e) sketch of a 3D (f)anautogyroflying
+ing of a building in a printer by Leonardo car, trending on art-
+serene landscape da Vinci station
+(g) an astronaut in (h) Baba Yaga’s (i) pickled eggs, tem-
+the style of van Gogh house + fantasy art pera on wood
+(j) effervescent hope (k) the Tower of Ba- (l) a futuristic city in
+belbyJ.M.W.Turner synthwave style
+Figure2: Example vqgan-clip generations and their text prompts. Prompts
+selected to demonstrate a range of visual styles that vqgan-clip is capable of
+producingincludingclassicalart(g,i),modernart(l),drawings(e),oils(a),and
+others not included due to space.
+
+VQGAN-CLIP: Open Domain Image Generation 7
+3.1 Artistic Impressions
+Wefindthatvqgan-clipisabletoevoketheartisticstyleoffamousartistsand
+majorartisticstylesfromaroundtheworld.Fig.2features“anastronautinthe
+style of van Gogh” whose background evokes Starry Night and “the Tower of
+BabelbyJ.M.W.Turner”whichdrawsonTurner’scolorpalateanduseoflight.
+Another way this can be seen is by directly asking for “a painting by [name]”
+or “art by [name].” In Fig. 3 we present six images created this way drawing on
+artists fromdifferent regions, timeperiods,and artistic styles. While the images
+often are missing cohesion (most likely due to the vagueness of “a painting” as
+a prompt) they are each markedly reminiscent of the artist in question. While
+CLIP would obviously find these images visually similar to other works by the
+artist, we also find that non-CLIP-based image similarity approaches reliably
+identify these images as visually similar to work by the artists. To validate this
+we queried Google’s Reverse Image Search using each generation in Fig. 3, and
+in every case a real painting by the target artist was the most similar image.
+(a) van Gogh (b) Picasso (c) Hokusai
+(d) Turner (e) Kahlo (f) Mehretu
+Figure3: Stylistic impressions of famous artists. Third party tools like Google’s
+Reverse Image Search indicate that real paintings by the target artists are the
+most visually similar images in every case.
+3.2 Comparisons to Other Approaches
+TheclosestpriorworkinopendomaingenerationofimagescomesfromDALL-E
+[38] and GLIDE [33], which claim to train very large pretrained text-to-image
+
+8 K Crowson, S Biderman et al.
+models. DALL-E and GLIDE are purported to be 12 billion and 5 billion pa-
+rameters,respectively,whilevqgan-cliptogetheris227million.Unfortunately,
+we were not allowed to study the models purported in the respective papers by
+their authors. We instead use the state-of-the-art models using each methodol-
+ogy methodologies. This includes minDALL-E [19] (1.3 B parameters) and two
+versions of GLIDE (783 M parameters without CLIP and 941 M with) that
+OpenAI has released.
+To evaluate our model, we recruited humans and asked them to rate the
+alignment of (text, image) pairs on a scale of 1 (low) to 5 (high). In particular,
+they were directed to rate higher quality images that do not match the prompt
+lower than lower quality images that do. Prompts were selected based on prin-
+ciples learned from our experience working with these models but without prior
+knowledge of how the models would behave on the particular prompts in ques-
+tion.AllpromptsandgeneratedimagescanbefoundinAppendixD.Toprovide
+the maximal advantage to our competitors, minDALL-E and GLIDE examples
+are cherry-picked best-of-five, while vqgan-clip examples are uncherry-picked
+(best-of-one).Table1showsthemeanscoreperpromptforeachmodel.Wefind
+that humans overwhelmingly view the generations using our technique as more
+aligned with the input text.
+A B C D E F G H I J K L Mean
+minDALL-E 3.3 2.3 3.2 3.7 1.5 2.7 2.2 1.3 3.3 3.0 3.5 2.3 2.7
+GLIDE (CF) 3.0 4.0 2.7 3.2 1.3 2.5 1.3 1.2 2.0 2.3 2.0 2.8 2.3
+GLIDE (CLIP) 3.2 4.0 2.8 4.8 3.0 2.7 1.8 2.5 3.7 2.3 3.7 5.0 3.3
+vqgan-clip 4.35.04.85.04.54.54.84.74.23.84.7 4.7 4.6
+Table1:Meanhumanratingsofgenerationsbyeachmodelconsideredonascore
+of 1 (worst) to 5 (best).
+3.3 Qualitative Analysis
+AsamplingofrepresentativeresultsisshowninFig.4forfourdifferentprompts
+usingminDALL-E,twovariantsofGLIDE(filtered),andourvqgan-clip.Fur-
+ther comparisons, including the prompts in Fig. 2, can be found in Appendix E.
+We find that the minDALL-E and the GLIDE (filtered) models are much more
+variable in the quality of their generations. While they are able to produce im-
+ages that are clearly recognizable in response to the prompts “the universal
+library trending on artstation” and “a charcoal drawing of a cathedral,” their
+generations in response to “a child’s drawing of a baseball game” are largely
+unrecognizable and their responses to “a forest rendered in low poly” ignore
+the later half of the prompt. These latter cases demonstrate the low semantic
+relevance of prior methods’ output given the prompt.
+
+VQGAN-CLIP: Open Domain Image Generation 9
+(a) the univer- (b) a charcoal (c) a child’s (d) a forest ren-
+sal library trend- drawing of a drawing of a deredinlowpoly
+ing on artstation cathedral baseball game
+Figure4:Textbasedgenerationsofimages.Toptobottom:minDALL-E,GLIDE
+(CLIP-guided), GLIDE (CF-guided), and our vqgan-clip.
+The“child’sdrawing”caseisofparticularnotehereinthatachild’sdrawing
+is expected to have lower visual clarity and lack of structure. That vqgan-
+clip is able to correctly modulate its ability for fine details is thus of note to
+show that vqgan-clip is not intrinsically biased toward producing fine details
+wheninappropriate,andcorrectlyidentifiestheappropriatecontextofmulti-part
+prompts. Further evidence of this can be found in Figs. 9 to 12 where vqgan-
+clip is able to produce generations for the prompts “A colored pencil drawing
+ofawaterfall”and“sketchofa3DprinterbyLeonardodaVinci”thatshowcase
+the properties of the medium (visible strokes, the use of shading, the fact that
+theimageiscreatedonapieceofpaper)whilestillproducingacompellingvisual
+image.
+
+10 K Crowson, S Biderman et al.
+4 Semantic Image Editing
+As far as we are aware, our framework is the first in the literature to be able
+to perform semantic image generation and semantic image editing. There are
+other examples in the literature of generative models that can perform style
+transfer [36], image inpainting [38, 33], and other types of image manipulation
+[34], but we note that each of these represent distinct tasks from open domain
+semantic image editing. By contrast, to adapt our generation methodology to
+image editing all that is required is to replace the randomly initialized starting
+image with the image we wish to edit.
+4.1 Comparison to State-of-the-Art
+For semantic image editing we compare to Open-Edit [24]. As far as we are
+aware,Open-Editistheonlypublishedresearchonopendomain semanticimage
+editing other than our work. To avoid giving any accidental advantage to our
+methodology, we focus primarily on the domains presented as examples in Liu
+et al. [24] such as changing colors and textures. We use the default settings for
+their model and the same prompting structure as in their paper.
+Color editing Herewepromptthemodeltochangethedominantcolorpalette
+without degrading the image quality or any of the finer details. The results can
+be seen in Fig. 5, where prior Open-Edit causes destructive transformations of
+the content of the image. In the second case the “Red bus” also shows a single
+desiredtargetformanipulationthatisrespectedbyvqgan-clip,butOpen-Edit
+causes a change in coloration of the entire image.
+Instruction Original VQGAN-CLIP Open-Edit
+“Green”
+“Red Bus”
+Figure5: Examples of editing the color in an image. Original on the left, our
+vqgan-clip in the middle, and Open-Edit on the right. vqgan-clip better
+maintains original structure of the content while limiting unintended distortion.
+
+VQGAN-CLIP: Open Domain Image Generation 11
+Weather Modification Another use case that Liu et al. [24] highlight as a
+success of their model is weather modification, changing the overall weather
+conditions present in an image. Results on this task are shown in Fig. 6, where
+Open-Edit’s reliance on edge maps to maintain structure show a limitation in
+editing ability. The needed alterations often change more of the image content
+thatwouldviolatetheedgemaps,preventingOpen-Editfrombeingassuccessful
+in achieving the desired content change.
+Instruction Original VQGAN-CLIP Open-Edit
+“Foggy Sky → Clear Sky”
+“Clear Sky → Cloudy Sky”
+“Cloudy → Sunny”
+Figure6: Weather alteration can required greater alteration of scene structure
+that Open-Edit is not able to perform, as shown in the “Cloudy → Sunny”
+example that needs to alter the sky in addition to brightness levels.
+Misc We include extra miscellaneous examples to emphasize that this is open
+domain image editing and the performance is not limited to select types of
+transformations. These are shown in Fig. 7, and we note the “wooden” and
+“focused” examples demonstrate a task with less correlative semantics. This
+further requires a more robust grounding between modalities for success and
+the ability of our approach to better handle a breadth of possible inputs for
+open-domain prompts and images.
+5 Resource Considerations
+Our approach runs in (935.2±20.4)s on an NVIDIA Tesla K80 and (229.5±
+26.2)s on an NVIDIA GeForce RTX 2080 Ti (10 runs in each sample). This is
+
+12 K Crowson, S Biderman et al.
+Instruction Original VQGAN-CLIP Open-Edit
+“Wooden”
+“Withered Flowers”
+“Focused”
+Figure7:Morechallengingmodificationsthatrequiredgreaterlinguisticground-
+ingtovisualcontenttoachieve,againshowingvqgan-clipisbetterabletoedit
+image content.
+approximately three times slower than minDALL-E and ten times slower than
+GLIDE(filtered)inourtesting.Althoughwewouldliketoanalyzethetrade-offs
+involved with the fact that both models required extensive pretraining none of
+the papers we compare to report their training requirements in enough detail
+to analyze the trade-offs brought about by this difference. We encourage the
+authors to release more information about their models so that more complete
+analysis can be done.
+5.1 Efficiency as a Value
+OneofthegoalsofthisresearchistoincreasetheaccessibilityofAIimagegener-
+ative and editing tools. We have deliberately limited our approach to something
+that requires less than 11 GB of VRAM, so that it fits inside widely available
+commercial GPUs such as K80s. This GPU is particularly important from an
+accessibility standpoint, as it is the largest GPU that can be easily obtained
+using a free account on Google Colaboratory. The full generative process takes
+less than 3 minutes in a Google Colab notebook, making this a viable approach
+for anyone with access to the internet and a Google account.
+Researchers with significantly more resources can obtain higher quality im-
+agesusingvariousaugmentationsleftoutofthispaper,suchasusinganensemble
+or additional auxiliary models to regularize the generations. While pushing the
+performanceofourmethodologytothemaximumisaworthwhileendeavour,the
+
+VQGAN-CLIP: Open Domain Image Generation 13
+fact that we can outperform the current state-of-the-art while running on freely
+availableresourcesissomethingthatweviewasparticularlyworthhighlighting.
+We leave determining the optimal framework with unbound resources to future
+work.
+5.2 Runtime Analysis
+DALL-E [38], GLIDE [33], and Open-Edit [24] all also incorporate image gener-
+ators and joint text-image encoders into their architecture. Unlike our method
+however, they require computationally intensive training and finetuning. This
+invites the question of trade-offs between training and inference time. Unfortu-
+nately, none of the aforementioned papers report their training requirements in
+enoughdetailtoestimatetheirtrainingrequirements.Wearehoweverabletoes-
+timate how long minDALL-E [19], the current state-of-the-art DALL-E model,
+takes to train at 504 V100-hours for the base model plus an additional 288
+V100-hours to finetune on ImageNet [8]. Through private communication with
+theauthors,wewereabletolearnthatGLIDE(filtered)required400A100-days
+to train, which we approximate as 19,200 V100-hours for ease of comparison.
+Model K80 P100 V100 Training
+minDALL-E 216.0s±07.6s 60.0s±5.5s 016.3s±2.7s 792 V100-hours
+GLIDE (filtered)096.2s±00.1s 19.2s±0.3s 009.7s±1.1s19,200 V100-hours
+vqgan-clip 935.2s±20.4s654.3s±10.1s188.3s±1.2s 0 V100-hours
+Table 2: Run-time of minDALL-E, GLIDE (filtered) and vqgan-clip on a va-
+riety of GPUs. Each cell shows the mean and standard deviation of a 10-run
+sample. minDALL-E becomes cheaper than vqgan-clip after 858 V100-hours
+have been expended while GLIDE (filtered) requires 20200 V100-hours.
+On all hardwares evaluated, our model is substantially slower than both
+minDALL-E and GLIDE (filtered). However. In terms of trade-offs between
+trainingandinferenceonV100GPUs,minDALL-E’stotalcostbecomescheaper
+than vqgan-clip at ≈ 15,800 generations, while GLIDE(filtered) requires ≈
+384,000. In terms of compute expended, minDALL-E becomes cheaper than
+vqgan-clip after 858 V100-hours while GLIDE (filtered) requires 20200 V100-
+hours. While cost and efficiency concerns depend significantly on individual
+contexts, the fact that GLIDE (filtered) only becomes as efficient as vqgan-
+clip efficient after tens of thousands of dollars of compute have been expended
+substantially limits researchers’ ability to experiment with and iterate on the
+methodology. The same applies to minDALL-E, albeit with a price tag in the
+thousands rather than tens of thousands.
+
+14 K Crowson, S Biderman et al.
+6 Adoption of VQGAN-CLIP
+A unique aspect of vqgan-clip has been its public development over the past
+year, which has resulted in an active community of users and real-world impact
+within and beyond classical computer vision. Kwon and Ye [21], Frans, Soros,
+and Witkowski [13], Chen, Dumay, and Tang [5], Liu et al. [25], and Tian and
+Ha [46] create additional components (see Section 2.5) that they insert into our
+frameworktoimproveperformanceinparticulartargetdomains,andAvrahami,
+Lischinski, and Fried [2] and Gu et al. [15] experiment with diffusion models in
+placeofVQGAN.Severalotherresearchers[27,12,33]evaluatetheirpretrained
+models by substituting them in for VQGAN or CLIP in our framework.
+Beyond computer vision, Yang and Buehler [51] show that it is useful in the
+materials engineering design processes. Wu et al. [50] and Jang, Shin, and Kim
+[18] builds on our work by using the framework to perform sound-guided image
+generation.In thedomain ofaffective computingand HCI,Galanos, Liapis,and
+Yannakakis [14] has further found vqgan-clip able to elicit targeted emotions
+from viewers.
+Thislastexamplehelpsexplainthewidespreadcommercialadoptionofvqgan-
+clip,withoveradozencommercialappsbuilttoprovideitasaserviceandover
+500 NFTs produced using our method sold. A sampling of commercial websites
+usingvqgan-clipincludeNightCafe,WomboArt,snowpixel.app,starryai.com,
+neuralblender.com,andhypnogram.xyz.Collectively,acrossthesesites,vqgan-
+clip has been used over 10 million times, showing the veracity of our approach
+to handle unstructured and diverse user content.
+7 Conclusion
+We have presented vqgan-clip, a method of generating and manipulating im-
+ages based on only human written text prompts. The quality of our model’s
+generations have high visual fidelity and remain faithful to the textual prompt,
+outperformingpriorapproacheslikeDALL-EandGLIDE.Thefidelityhasbeen
+externallyvalidatedbycommercialsuccessandusebymultiplecompanies.Com-
+paredtotheonlycomparableapproachtotextbasedimageediting,vqgan-clip
+continuestoproducehigherqualityvisualimages—especiallywhenthetextual
+prompt and image content have low semantic similarity.
+Acknowledgements
+We would like to acknowledge Ryan Murdock, who developed a very similar
+technique for combining VQGAN and CLIP simultaneously to us [30, 31] but
+did not release his approach. Ryan was invited to coauthor this paper and de-
+clined. Many of the experiments in this paper were made possible by the free
+public demo for VQGAN-CLIP in the EleutherAI Discord server developed by
+BoneAmputee and sponsored by CoreWeave.
+
+VQGAN-CLIP: Open Domain Image Generation 15
+References
+1. Ali, S., and Parikh, D.: Telling Creative Stories Using Generative Visual Aids,
+(2021). arXiv: 2110.14810v1 [cs.HC]
+2. Avrahami, O., Lischinski, D., and Fried, O.: Blended Diffusion for Text-driven
+Editing of Natural Images, (2021). arXiv: 2111.14818v1 [cs.CV]
+3. Bau, D., Liu, S., Wang, T., Zhu, J.-Y., and Torralba, A.: Rewriting a deep gener-
+ative model. In: European Conference on Computer Vision, pp. 351–369 (2020)
+4. Black, S., Biderman, S., Hallahan, E., Anthony, Q., Gao, L., Golding, L., He,
+H., Leahy, C., McDonell, K., Phang, J., Pieler, M., Prashanth, U.S., Purohit, S.,
+Reynolds, L., Tow, J., Wang, B., and Weinbach, S.: GPT-NeoX-20B: An Open-
+Source Autoregressive Language Model. preprint (2022)
+5. Chen,G.,Dumay,A.,andTang,M.:diffvg+CLIP:GeneratingPaintingTrajecto-
+ries from Text. preprint (2021)
+6. Couairon, G., Grechka, A., Verbeek, J., Schwenk, H., and Cord, M.: FlexIT: To-
+wards Flexible Semantic Image Translation, (2022). arXiv: 2203.04705 [cs.CV]
+7. DeCao,N.,Aziz,W.,andTitov,I.:EditingFactualKnowledgeinLanguageMod-
+els, (2021). arXiv: 2104.08164v2 [cs.CL]
+8. Deng,J.,Dong,W.,Socher,R.,Li,L.-J.,Li,K.,andFei-Fei,L.:Imagenet:Alarge-
+scale hierarchical image database. In: 2009 IEEE conference on computer vision
+and pattern recognition, pp. 248–255 (2009)
+9. Dong,H.,Yu,S.,Wu,C.,andGuo,Y.:SemanticImageSynthesisviaAdversarial
+Learning. In: 2017 IEEE International Conference on Computer Vision (ICCV),
+pp. 5706–5714 (2017)
+10. Eichenberg,C.,Black,S.,Weinbach,S.,Parcalabescu,L.,andFrank,A.:MAGMA
+– Multimodal Augmentation of Generative Models through Adapter-based Fine-
+tuning, (2021). arXiv: 2112.05253v1 [cs.CV]
+11. Esser,P.,Rombach,R.,andOmmer,B.:TamingTransformersforHigh-Resolution
+Image Synthesis. In: Proceedings of the IEEE/CVF Conference on Computer Vi-
+sion and Pattern Recognition, pp. 12873–12883 (2021)
+12. Fei, N., Lu, Z., Gao, Y., Yang, G., Huo, Y., Wen, J., Lu, H., Song, R., Gao,
+X., Xiang, T., Sun, H., and Wen, J.-R.: WenLan 2.0: Make AI Imagine via a
+Multimodal Foundation Model, (2021). arXiv: 2110.14378v1 [cs.AI]
+13. Frans, K., Soros, L., and Witkowski, O.: CLIPDraw: Exploring Text-to-Drawing
+SynthesisthroughLanguage-ImageEncoders,(2021).arXiv:2106.14843v1[cs.CV]
+14. Galanos, T., Liapis, A., and Yannakakis, G.N.: AffectGAN: Affect-Based Gen-
+erative Art Driven by Semantics. In: 9th International Conference on Affective
+Computing and Intelligent Interaction Workshops and Demos (ACIIW) (2021)
+15. Gu, S., Chen, D., Bao, J., Wen, F., Zhang, B., Chen, D., Yuan, L., and Guo,
+B.: Vector Quantized Diffusion Model for Text-to-Image Synthesis, (2021). arXiv:
+2111.14822v3 [cs.CV]
+16. Houlsby, N., Giurgiu, A., Jastrzebski, S., Morrone, B., De Laroussilhe, Q., Ges-
+mundo, A., Attariyan, M., and Gelly, S.: Parameter-efficient transfer learning for
+NLP. In: International Conference on Machine Learning, pp. 2790–2799 (2019)
+17. Hu, X., Yu, P., Knight, K., Ji, H., Li, B., and Shi, H.: MUSE: Textual Attributes
+GuidedPortraitPaintingGeneration.In:2021IEEE4thInternationalConference
+onMultimediaInformationProcessingandRetrieval(MIPR),pp.386–392(2021)
+18. Jang, J., Shin, S., and Kim, Y.: Music2Video: Automatic Generation of Music
+Video with fusion of audio and text, (2022). arXiv: 2201.03809v1 [cs.SD]
+19. MISC
+
+16 K Crowson, S Biderman et al.
+20. Kingma, D.P., and Ba, J.: Adam: A Method for Stochastic Optimization, (2014).
+arXiv: 1412.6980v9 [cs.LG]
+21. Kwon, G., and Ye, J.C.: CLIPstyler: Image Style Transfer with a Single Text
+Condition, (2021). arXiv: 2112.00374v2 [cs.CV]
+22. Lester, B., Al-Rfou, R., and Constant, N.: The Power of Scale for Parameter-
+Efficient Prompt Tuning, (2021). arXiv: 2104.08691v2 [cs.CL]
+23. Li, B., Qi, X., Lukasiewicz, T., and Torr, P.H.: Manigan: Text-guided image ma-
+nipulation.In:ProceedingsoftheIEEE/CVFConferenceonComputerVisionand
+Pattern Recognition, pp. 7880–7889 (2020)
+24. Liu, X., Lin, Z., Zhang, J., Zhao, H., Tran, Q., Wang, X., and Li, H.: Open-edit:
+Open-domain image manipulation with open-vocabulary instructions. In: Com-
+puterVision–ECCV2020:16thEuropeanConference,Glasgow,UK,August23–28,
+2020, Proceedings, Part XI 16, pp. 89–106 (2020)
+25. Liu, X., Gong, C., Wu, L., Zhang, S., Su, H., and Liu, Q.: FuseDream: Training-
+Free Text-to-Image Generation with Improved CLIP+GAN Space Optimization,
+(2021). arXiv: 2112.01573v1 [cs.CV]
+26. Matena, M., and Raffel, C.: Merging Models with Fisher-Weighted Averaging,
+(2021). arXiv: 2111.09832v1 [cs.LG]
+27. Michel, O., Bar-On, R., Liu, R., Benaim, S., and Hanocka, R.: Text2Mesh: Text-
+Driven Neural Stylization for Meshes, (2021). arXiv: 2112.03221v1 [cs.CV]
+28. Mitchell,E.,Lin,C.,Bosselut,A.,Finn,C.,andManning,C.D.:FastModelEditing
+at Scale, (2021). arXiv: 2110.11309v1 [cs.LG]
+29. Mordvintsev,A.,Olah,C.,andTyka,M.:DeepDream-acodeexampleforvisualiz-
+ing Neural Networks, (2015). https://ai.googleblog.com/2015/07/deepdream-
+code-example-for-visualizing.html
+30. Murdock,R.:“TheTamingTransformersdecoderreallyjustgoes!Andthisiswith
+verylittlework.”https://twitter.com/advadnoun/status/1367556678896394240
+31. Murdock, R.: “Working on using the RN50x4 version of CLIP with the Taming
+TransformersVQGAN.”https://twitter.com/advadnoun/status/1368081153375105027
+32. Nam, S., Kim, Y., and Kim, S.J.: Text-Adaptive Generative Adversarial Net-
+works: Manipulating Images with Natural Language. In: Bengio, S., Wallach, H.,
+Larochelle,H.,Grauman,K.,Cesa-Bianchi,N.,andGarnett,R. (eds.)Advancesin
+NeuralInformationProcessingSystems,pp.42–51.CurranAssociates,Inc.(2018)
+33. Nichol,A.,Dhariwal,P.,Ramesh,A.,Shyam,P.,Mishkin,P.,McGrew,B.,Sutskever,
+I., and Chen, M.: GLIDE: Towards Photorealistic Image Generation and Editing
+with Text-Guided Diffusion Models, (2021). arXiv: 2112.10741v3 [cs.CV]
+34. Ntavelis, E., Romero, A., Kastanis, I., Van Gool, L., and Timofte, R.: SESAME:
+semanticeditingofscenesbyadding,manipulatingorerasingobjects.In:European
+Conference on Computer Vision, pp. 394–411 (2020)
+35. Oord,A.vanden,Vinyals,O.,andKavukcuoglu,K.:NeuralDiscreteRepresenta-
+tion Learning. In: Advances in Neural Information Processing Systems, pp. 6309–
+6318. Curran Associates, Inc. (2017)
+36. Patashnik, O., Wu, Z., Shechtman, E., Cohen-Or, D., and Lischinski, D.: Style-
+CLIP: Text-Driven Manipulation of StyleGAN Imagery. In: Proceedings of the
+IEEE/CVF International Conference on Computer Vision, pp. 2085–2094 (2021)
+37. Radford, A., Kim, J.W., Hallacy, C., Ramesh, A., Goh, G., Agarwal, S., Sastry,
+G., Askell, A., Mishkin, P., Clark, J., Krueger, G., and Sutskever, I.: Learning
+Transferable Visual Models From Natural Language Supervision. In: Meila, M.,
+andZhang,T. (eds.)Proceedingsofthe38thInternationalConferenceonMachine
+Learning.ProceedingsofMachineLearningResearch,pp.8748–8763.PMLR(2021)
+
+VQGAN-CLIP: Open Domain Image Generation 17
+38. Ramesh, A., Pavlov, M., Goh, G., Gray, S., Voss, C., Radford, A., Chen, M.,
+andSutskever,I.:Zero-ShotText-to-ImageGeneration.In:Meila,M.,andZhang,
+T. (eds.) Proceedings of the 38th International Conference on Machine Learning.
+Proceedings of Machine Learning Research, pp. 8821–8831. PMLR (2021)
+39. Riba,E.,Mishkin,D.,Ponsa,D.,Rublee,E.,andBradski,G.R.:Kornia:anOpen
+SourceDifferentiableComputerVisionLibraryforPyTorch.In:2020IEEEWinter
+Conference on Applications of Computer Vision (WACV), pp. 3663–3672 (2020)
+40. Sayers,D.,Sousa-Silva,R.,Ho¨hn,S.,Ahmedi,L.,Allkivi-Metsoja,K.,Anastasiou,
+D.,Benˇuˇs,Sˇ.,Bowker,L.,Bytyc¸i,E.,Catala,A.,C¸epani,A.,Chaco´n-Beltra´n,R.,
+Dadi,S.,Dalipi,F.,Despotovic,V.,Doczekalska,A.,Drude,S.,Fort,K.,Fuchs,R.,
+Galinski, C., Gobbo, F., Gungor, T., Guo, S., Ho¨ckner, K., La´ncos, P., Libal, T.,
+Jantunen,T.,Jones,D.,Klimova,B.,Korkmaz,E.,MauˇcecMirjam,S.,Melo,M.,
+Meunier,F.,Migge,B.,MititeluVerginica,B.,N´ev´eol,A.,Rossi,A.,Pareja-Lora,
+A.,Sanchez-Stockhammer,C.,S¸ahin,A.,Soltan,A.,Soria,C.,Shaikh,S.,Turchi,
+M., and Yildirim Yayilgan, S.: The Dawn of the Human-Machine Era: A forecast
+of new and emerging language technologies. (2021)
+41. Selvaraju, R.R., Cogswell, M., Das, A., Vedantam, R., Parikh, D., and Batra,
+D.: Grad-CAM: Visual Explanations from Deep Networks via Gradient-based Lo-
+calization. In: 2017 IEEE International Conference on Computer Vision (ICCV),
+pp. 618–626 (2017)
+42. Sharir,O.,Peleg,B.,andShoham,Y.:TheCostofTrainingNLPModels:AConcise
+Overview. (2020)
+43. Shocher, A., Gandelsman, Y., Mosseri, I., Yarom, M., Irani, M., Freeman, W.T.,
+and Dekel, T.: Semantic Pyramid for Image Generation. In: Proceedings of the
+IEEE/CVF Conference on Computer Vision and Pattern Recognition, pp. 7457–
+7466 (2020). doi: 10.1109/CVPR42600.2020.00748
+44. Simonyan, K., Vedaldi, A., and Zisserman, A.: Deep Inside Convolutional Net-
+works: Visualising Image Classification Models and Saliency Maps, (2014). arXiv:
+1312.6034v2 [cs.CV]
+45. Snell, C.: Alien Dreams: An Emerging Art Scene, (2020). https://ml.berkeley.
+edu/blog/posts/clip-art/
+46. Tian,Y.,andHa,D.:ModernEvolutionStrategiesforCreativity:FittingConcrete
+Images and Abstract Concepts, (2021). arXiv: 2109.08857v2 [cs.NE]
+47. Tsimpoukelli, M., Menick, J., Cabi, S., Eslami, S.A., Vinyals, O., and Hill, F.:
+Multimodal Few-Shot Learning with Frozen Language Models. In: Advances in
+Neural Information Processing Systems (2021)
+48. Underwood,T.:Mappingthelatentspacesofculture,(2021).https://tedunderwood.
+com/2021/10/21/latent-spaces-of-culture/
+49. Wang,Z.,Liu,W.,He,Q.,Wu,X.,andYi,Z.:CLIP-GEN:Language-FreeTraining
+of a Text-to-Image Generator with CLIP, (2022). arXiv: 2203.00386v1 [cs.CV]
+50. Wu, H.-H., Seetharaman, P., Kumar, K., and Bello, J.P.: Wav2CLIP: Learning
+RobustAudioRepresentationsFromCLIP,(2021).arXiv:2110.11499v2[cs.SD]
+51. Yang, Z., and Buehler, M.J.: Words to Matter: De novo Architected Materials
+Design Using Transformer Neural Networks. Frontiers in Materials 8, 417 (2021)
+52. Yosinski,J.,Clune,J.,Nguyen,A.,Fuchs,T.,andLipson,H.:UnderstandingNeu-
+ral Networks Through Deep Visualization, (2015). arXiv: 1506.06579v1 [cs.CV]

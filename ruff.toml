@@ -1,0 +1,10 @@
+# Ruff configuration file
+# See https://docs.astral.sh/ruff/configuration/
+
+# Line length
+line-length = 100
+
+# Allow imports after load_dotenv() - this is intentional
+[lint]
+# Ignore import order errors for files that need load_dotenv() first
+ignore = ["E402"]
