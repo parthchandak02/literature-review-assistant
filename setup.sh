@@ -1,9 +1,9 @@
 #!/bin/bash
-# Setup script for Research Article Writer
+# Setup script for Literature Review Assistant
 
 set -e
 
-echo "Research Article Writer - Setup Script"
+echo "Literature Review Assistant - Setup Script"
 echo "======================================"
 
 # Check if uv is installed

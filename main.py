@@ -2,7 +2,7 @@
 """
 Main Entry Point
 
-Research Article Writer Agentic AI System
+Literature Review Assistant - Agentic AI System
 """
 
 import os
@@ -20,7 +20,7 @@ load_dotenv()
 def parse_args():
     """Parse command line arguments."""
     parser = argparse.ArgumentParser(
-        description="Research Article Writer Agentic AI System",
+        description="Literature Review Assistant - Agentic AI System",
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
 
@@ -156,7 +156,7 @@ def main():
         os.environ["LOG_TO_FILE"] = "true"
         os.environ["LOG_FILE"] = args.log_file
 
-    print("Research Article Writer Agentic AI System")
+    print("Literature Review Assistant - Agentic AI System")
     print("=" * 50)
     if args.debug:
         print("DEBUG MODE ENABLED")

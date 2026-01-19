@@ -1,4 +1,4 @@
-# Research Article Writer Agentic AI System
+# Literature Review Assistant - Agentic AI System
 
 End-to-end agentic system that automates systematic literature reviews from search to publication-ready articles, including PRISMA 2020-compliant flow diagrams and visualizations.
 
@@ -502,7 +502,7 @@ python main.py --verbose --no-metrics --no-costs
 ## Project Structure
 
 ```
-research-article-writer/
+literature-review-assistant/
 ├── src/
 │   ├── config/                # Configuration management
 │   │   ├── config_loader.py   # YAML config loader with template replacement

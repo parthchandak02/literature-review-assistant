@@ -1,7 +1,7 @@
 .PHONY: setup install test clean run
 
 setup:
-	@echo "Setting up Research Article Writer..."
+	@echo "Setting up Literature Review Assistant..."
 	@if ! command -v uv &> /dev/null; then \
 		echo "Installing uv..."; \
 		curl -LsSf https://astral.sh/uv/install.sh | sh; \

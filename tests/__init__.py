@@ -1,3 +1,3 @@
 """
-Test suite for research article writer agentic system.
+Test suite for Literature Review Assistant - Agentic AI System.
 """

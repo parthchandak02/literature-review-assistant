@@ -1,1 +1,1 @@
-"""Research Article Writer Agentic System."""
+"""Literature Review Assistant - Agentic AI System."""
