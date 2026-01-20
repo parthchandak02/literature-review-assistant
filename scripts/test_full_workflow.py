@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-End-to-End Workflow Test Script
+[Recurring Usage Script] End-to-End Workflow Test
 
 Tests the complete research paper generation workflow with real database connectors.
 Validates outputs at each phase and reports any issues found.

@@ -104,19 +104,43 @@ Key Findings:
 {chr(10).join(f"- {finding}" for finding in key_findings)}
 """
 
+        # Build limitations section with two types
+        limitations_text = "\n\nLimitations to Address:\n"
+        limitations_text += "You MUST include TWO types of limitations:\n"
+        limitations_text += "1. Limitations of the evidence (study quality, heterogeneity, publication bias, etc.) - ~200-300 words\n"
+        limitations_text += "2. Limitations of the review process (search strategy, screening, extraction, etc.) - ~200-300 words\n"
+        limitations_text += "Total limitations section should be 400-600 words.\n"
+        
         if limitations:
-            prompt += f"\nLimitations:\n{chr(10).join(f'- {lim}' for lim in limitations)}"
+            limitations_text += f"\nSuggested limitations:\n{chr(10).join(f'- {lim}' for lim in limitations)}"
         else:
             # Add default limitations based on study count
             if num_studies == 0:
-                prompt += "\nLimitations:\n- No studies met inclusion criteria, limiting ability to draw conclusions"
+                limitations_text += "\nEvidence limitations:\n- No studies met inclusion criteria, limiting ability to draw conclusions"
+                limitations_text += "\nReview process limitations:\n- Search may have missed relevant studies, language restrictions"
             elif num_studies == 1:
-                prompt += "\nLimitations:\n- Only one study was included, limiting generalizability and synthesis"
+                limitations_text += "\nEvidence limitations:\n- Only one study was included, limiting generalizability and synthesis"
+                limitations_text += "\nReview process limitations:\n- Single reviewer screening, potential for bias"
             else:
-                prompt += "\nLimitations:\n- Limited number of included studies may affect generalizability"
+                limitations_text += "\nEvidence limitations:\n- Limited number of included studies may affect generalizability"
+                limitations_text += "\nReview process limitations:\n- Potential for publication bias, language restrictions"
+        
+        prompt += limitations_text
 
+        # Build implications section with three subsections
+        implications_text = "\n\nImplications to Address:\n"
+        implications_text += "You MUST include THREE subsections:\n"
+        implications_text += "1. Implications for Practice (specific, actionable recommendations for practitioners) - ~120-150 words\n"
+        implications_text += "2. Implications for Policy (regulatory, funding, policy recommendations) - ~120-150 words\n"
+        implications_text += "3. Implications for Research (future research directions, methodological improvements) - ~120-150 words\n"
+        implications_text += "Total implications section should be 350-400 words.\n"
+        
         if implications:
-            prompt += f"\nImplications:\n{chr(10).join(f'- {imp}' for imp in implications)}"
+            implications_text += f"\nSuggested implications:\n{chr(10).join(f'- {imp}' for imp in implications)}"
+        else:
+            implications_text += "\nGenerate specific, actionable implications for each category."
+        
+        prompt += implications_text
 
         constraint_text = """
 CRITICAL OUTPUT CONSTRAINTS:
@@ -149,11 +173,20 @@ This systematic review demonstrates that the intervention produces moderate to l
 Please write a discussion section that includes:
 1. Summary of Search Results (explain why no studies were found)
 2. Research Gaps (identify gaps in the literature)
-3. Implications for Future Research (what research is needed)
-4. Limitations (acknowledge limitations of the review process)
-5. Conclusions (brief conclusion about the state of the field)
+3. Implications for Practice (what practitioners should know - ~120-150 words)
+4. Implications for Policy (policy recommendations - ~120-150 words)
+5. Implications for Research (what research is needed - ~120-150 words)
+6. Limitations of the Evidence (no studies found, evidence gaps - ~200-300 words)
+7. Limitations of the Review Process (search strategy, screening, extraction - ~200-300 words)
+8. Conclusions (brief conclusion about the state of the field)
 
-Write in present tense for interpretations, use appropriate academic language, and acknowledge the limitation of having no included studies. Begin immediately with the summary of findings - do not include any introductory phrases."""
+CRITICAL REQUIREMENTS:
+- Limitations section MUST be split into two subsections: "Limitations of the Evidence" and "Limitations of the Review Process"
+- Total limitations section: 400-600 words
+- Implications section MUST have three subsections: "Implications for Practice", "Implications for Policy", "Implications for Research"
+- Total implications section: 350-400 words
+- Write in present tense for interpretations, use appropriate academic language, and acknowledge the limitation of having no included studies
+- Begin immediately with the summary of findings - do not include any introductory phrases"""
         elif num_studies == 1:
             prompt += constraint_text + """
 
@@ -161,12 +194,21 @@ Please write a discussion section that includes:
 1. Summary of Main Findings (detailed findings from the single study)
 2. Interpretation of Results (what the findings mean)
 3. Comparison with Existing Literature (how findings relate to prior research)
-4. Implications for Practice (practical applications)
-5. Implications for Research (future research directions)
-6. Limitations (acknowledge the limitation of having only one study, plus other limitations)
-7. Conclusions (brief conclusion)
+4. Implications for Practice (specific, actionable recommendations - ~120-150 words)
+5. Implications for Policy (regulatory, funding, policy recommendations - ~120-150 words)
+6. Implications for Research (future research directions, methodological improvements - ~120-150 words)
+7. Limitations of the Evidence (acknowledge the limitation of having only one study, study quality - ~200-300 words)
+8. Limitations of the Review Process (search strategy, screening, extraction - ~200-300 words)
+9. Conclusions (brief conclusion)
 
-Write in present tense for interpretations, use SINGULAR language (e.g., "the study" not "studies"), use appropriate citations (use [Citation X] format), and ensure logical flow. IMPORTANT: Do not use plural language like "studies" or "multiple studies". Begin immediately with the summary of main findings - do not include any introductory phrases."""
+CRITICAL REQUIREMENTS:
+- Limitations section MUST be split into two subsections: "Limitations of the Evidence" and "Limitations of the Review Process"
+- Total limitations section: 400-600 words
+- Implications section MUST have three subsections: "Implications for Practice", "Implications for Policy", "Implications for Research"
+- Total implications section: 350-400 words
+- Write in present tense for interpretations, use SINGULAR language (e.g., "the study" not "studies"), use appropriate citations (use [Citation X] format), and ensure logical flow
+- IMPORTANT: Do not use plural language like "studies" or "multiple studies"
+- Begin immediately with the summary of main findings - do not include any introductory phrases"""
         else:
             prompt += constraint_text + """
 
@@ -174,12 +216,20 @@ Please write a detailed discussion section that includes:
 1. Summary of Main Findings (synthesize key findings across studies)
 2. Interpretation of Results (what the findings mean)
 3. Comparison with Existing Literature (how findings relate to prior research)
-4. Implications for Practice (practical applications)
-5. Implications for Research (future research directions)
-6. Limitations (acknowledge study limitations)
-7. Conclusions (brief conclusion)
+4. Implications for Practice (specific, actionable recommendations - ~120-150 words)
+5. Implications for Policy (regulatory, funding, policy recommendations - ~120-150 words)
+6. Implications for Research (future research directions, methodological improvements - ~120-150 words)
+7. Limitations of the Evidence (study quality, heterogeneity, publication bias - ~200-300 words)
+8. Limitations of the Review Process (search strategy, screening, extraction - ~200-300 words)
+9. Conclusions (brief conclusion)
 
-Write in present tense for interpretations, use appropriate citations (use [Citation X] format), and ensure logical flow. Begin immediately with the summary of main findings - do not include any introductory phrases."""
+CRITICAL REQUIREMENTS:
+- Limitations section MUST be split into two subsections: "Limitations of the Evidence" and "Limitations of the Review Process"
+- Total limitations section: 400-600 words
+- Implications section MUST have three subsections: "Implications for Practice", "Implications for Policy", "Implications for Research"
+- Total implications section: 350-400 words
+- Write in present tense for interpretations, use appropriate citations (use [Citation X] format), and ensure logical flow
+- Begin immediately with the summary of main findings - do not include any introductory phrases"""
 
         return prompt
 

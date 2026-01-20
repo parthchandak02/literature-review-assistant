@@ -1,8 +1,8 @@
 """Tests for IEEEFormatter."""
 
 import pytest
-from research_article_writer.src.citations.ieee_formatter import IEEEFormatter
-from research_article_writer.src.search.database_connectors import Paper
+from src.citations.ieee_formatter import IEEEFormatter
+from src.search.database_connectors import Paper
 
 
 def test_format_journal_article():

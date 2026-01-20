@@ -1,17 +1,11 @@
-#!/usr/bin/env python3
 """
 Test Helpers
 
 Utilities for generating mock test data and managing test state.
 """
 
-import sys
-from pathlib import Path
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any
 from dataclasses import asdict
-
-# Add parent directory to path
-sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from src.search.connectors.base import Paper
 from src.screening.base_agent import ScreeningResult, InclusionDecision

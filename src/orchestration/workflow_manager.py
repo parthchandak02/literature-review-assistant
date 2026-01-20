@@ -61,8 +61,11 @@ from src.search.database_connectors import (
     SemanticScholarConnector,
     CrossrefConnector,
     ScopusConnector,
+    ACMConnector,
 )
 from src.search.cache import SearchCache
+from src.search.proxy_manager import ProxyManager, create_proxy_manager_from_config
+from src.search.integrity_checker import IntegrityChecker, create_integrity_checker_from_config
 from src.deduplication import Deduplicator
 from src.screening.title_abstract_agent import TitleAbstractScreener
 from src.screening.fulltext_agent import FullTextScreener
@@ -127,6 +130,7 @@ class WorkflowManager:
         self.eligible_papers: List[Paper] = []
         self.final_papers: List[Paper] = []
         self.extracted_data: List[ExtractedData] = []
+        self.quality_assessment_data: Optional[Dict[str, Any]] = None
         
         # Initialize PDF retriever
         cache_dir = self.config.get("workflow", {}).get("cache", {}).get("cache_dir", "data/cache")
@@ -163,6 +167,251 @@ class WorkflowManager:
         logger.info("=" * 60)
         logger.info("Starting systematic review workflow")
         logger.info(f"Topic: {self.topic_context.topic}")
+        
+        # Auto-detect and resume from existing checkpoint if available
+        if start_from_phase is None and self.save_checkpoints:
+            existing_checkpoint = self._find_existing_checkpoint_by_topic()
+            if existing_checkpoint:
+                logger.info("=" * 60)
+                logger.info(f"Found existing checkpoint for this topic!")
+                logger.info(f"  Workflow ID: {existing_checkpoint['workflow_id']}")
+                logger.info(f"  Latest phase: {existing_checkpoint['latest_phase']}")
+                logger.info(f"  Resuming from checkpoint...")
+                logger.info("=" * 60)
+                
+                # Load all prerequisite checkpoints in order
+                checkpoint_dir = Path(existing_checkpoint["checkpoint_dir"])
+                phase_dependencies = {
+                    "search_databases": [],
+                    "deduplication": ["search_databases"],
+                    "title_abstract_screening": ["deduplication"],
+                    "fulltext_screening": ["title_abstract_screening"],
+                    "paper_enrichment": ["fulltext_screening"],
+                    "data_extraction": ["paper_enrichment"],  # paper_enrichment may not exist, will fallback to fulltext_screening data
+                    "quality_assessment": ["data_extraction"],
+                    "article_writing": ["data_extraction"],  # Need final_papers from data_extraction for citations
+                }
+                
+                # Get all phases we need to load (dependencies + latest phase)
+                # Build full dependency chain recursively
+                def get_all_dependencies(phase: str, visited: set = None) -> List[str]:
+                    """Recursively get all dependencies for a phase."""
+                    if visited is None:
+                        visited = set()
+                    if phase in visited:
+                        return []
+                    visited.add(phase)
+                    
+                    deps = phase_dependencies.get(phase, [])
+                    all_deps = []
+                    for dep in deps:
+                        all_deps.extend(get_all_dependencies(dep, visited))
+                        all_deps.append(dep)
+                    return all_deps
+                
+                phases_to_load = get_all_dependencies(existing_checkpoint["latest_phase"])
+                phases_to_load.append(existing_checkpoint["latest_phase"])
+                # Remove duplicates while preserving order
+                seen = set()
+                phases_to_load = [p for p in phases_to_load if not (p in seen or seen.add(p))]
+                logger.info(f"Checkpoint dependency chain for '{existing_checkpoint['latest_phase']}': {phases_to_load}")
+                
+                # Load checkpoints in dependency order
+                loaded_phases = []
+                serializer = StateSerializer()
+                
+                # Accumulate state from all checkpoints before loading
+                # This prevents later checkpoints from overwriting data from earlier phases
+                accumulated_state = {"data": {}}
+                
+                for phase in phases_to_load:
+                    checkpoint_file = checkpoint_dir / f"{phase}_state.json"
+                    exists = checkpoint_file.exists()
+                    if exists:
+                        logger.debug(f"Found checkpoint: {phase}")
+                        try:
+                            checkpoint_data = self._load_phase_state(str(checkpoint_file))
+                            
+                            # Merge checkpoint data into accumulated state
+                            # Later phases override earlier ones for same keys, but preserve keys only in earlier phases
+                            if "data" in checkpoint_data:
+                                # Log what data keys we're merging
+                                data_keys = list(checkpoint_data["data"].keys())
+                                logger.debug(f"  Merging data keys from {phase}: {data_keys}")
+                                # Update existing keys, but don't remove keys that don't exist in later checkpoints
+                                for key, value in checkpoint_data["data"].items():
+                                    accumulated_state["data"][key] = value
+                            
+                            # Merge other top-level keys (use latest phase's values)
+                            for key in ["prisma_counts", "database_breakdown", "topic_context", "workflow_id"]:
+                                if key in checkpoint_data:
+                                    accumulated_state[key] = checkpoint_data[key]
+                            
+                            loaded_phases.append(phase)
+                            logger.info(f"Loaded checkpoint data from: {phase}")
+                        except Exception as e:
+                            logger.error(f"Failed to load checkpoint file {phase}: {e}", exc_info=True)
+                            # Continue loading other phases even if one fails
+                    else:
+                        logger.debug(f"Missing checkpoint: {phase} (will skip, may use data from later phases)")
+                
+                if not loaded_phases:
+                    logger.error("Failed to load any checkpoints! Starting from scratch.")
+                    existing_checkpoint = None  # Reset to start fresh
+                else:
+                    logger.info(f"Successfully loaded {len(loaded_phases)} checkpoint(s) out of {len(phases_to_load)} attempted: {', '.join(loaded_phases)}")
+                    if len(loaded_phases) < len(phases_to_load):
+                        missing = set(phases_to_load) - set(loaded_phases)
+                        logger.warning(f"Missing checkpoints (will use available data): {', '.join(missing)}")
+                    
+                    # Handle missing paper_enrichment: use eligible_papers from fulltext_screening as final_papers
+                    if "paper_enrichment" not in loaded_phases and "fulltext_screening" in loaded_phases:
+                        if "eligible_papers" in accumulated_state.get("data", {}) and "final_papers" not in accumulated_state.get("data", {}):
+                            logger.info("paper_enrichment checkpoint missing, using eligible_papers from fulltext_screening as final_papers")
+                            accumulated_state["data"]["final_papers"] = accumulated_state["data"]["eligible_papers"]
+                    
+                    # Log accumulated state summary before loading
+                    data_keys = list(accumulated_state.get("data", {}).keys())
+                    logger.debug(f"Accumulated state data keys: {data_keys}")
+                    
+                    # Now load the accumulated state once
+                    try:
+                        self.load_state_from_dict(accumulated_state)
+                        logger.info(
+                            f"Restored state: {len(self.all_papers)} all papers, "
+                            f"{len(self.unique_papers)} unique, {len(self.screened_papers)} screened, "
+                            f"{len(self.eligible_papers)} eligible, {len(self.final_papers)} final"
+                        )
+                        
+                        # Populate results["outputs"] with checkpoint data if available
+                        if "article_sections" in accumulated_state.get("data", {}):
+                            if not hasattr(self, "_results"):
+                                self._results = {"outputs": {}}
+                            self._results["outputs"]["article_sections"] = accumulated_state["data"]["article_sections"]
+                    except Exception as load_error:
+                        logger.warning(f"Error loading accumulated state: {load_error}", exc_info=True)
+                        # Try manual fallback loading from accumulated_state
+                        if "data" in accumulated_state:
+                            try:
+                                if "all_papers" in accumulated_state["data"]:
+                                    self.all_papers = serializer.deserialize_papers(accumulated_state["data"]["all_papers"])
+                            except Exception as e:
+                                logger.debug(f"Failed to load all_papers: {e}")
+                            
+                            try:
+                                if "unique_papers" in accumulated_state["data"]:
+                                    self.unique_papers = serializer.deserialize_papers(accumulated_state["data"]["unique_papers"])
+                            except Exception as e:
+                                logger.debug(f"Failed to load unique_papers: {e}")
+                            
+                            try:
+                                if "screened_papers" in accumulated_state["data"]:
+                                    self.screened_papers = serializer.deserialize_papers(accumulated_state["data"]["screened_papers"])
+                            except Exception as e:
+                                logger.debug(f"Failed to load screened_papers: {e}")
+                            
+                            try:
+                                if "eligible_papers" in accumulated_state["data"]:
+                                    self.eligible_papers = serializer.deserialize_papers(accumulated_state["data"]["eligible_papers"])
+                            except Exception as e:
+                                logger.debug(f"Failed to load eligible_papers: {e}")
+                            
+                            try:
+                                if "final_papers" in accumulated_state["data"]:
+                                    self.final_papers = serializer.deserialize_papers(accumulated_state["data"]["final_papers"])
+                            except Exception as e:
+                                logger.debug(f"Failed to load final_papers: {e}")
+                            
+                            try:
+                                if "title_abstract_results" in accumulated_state["data"]:
+                                    self.title_abstract_results = serializer.deserialize_screening_results(
+                                        accumulated_state["data"]["title_abstract_results"]
+                                    )
+                            except Exception as e:
+                                logger.debug(f"Failed to load title_abstract_results: {e}")
+                            
+                            try:
+                                if "fulltext_results" in accumulated_state["data"]:
+                                    self.fulltext_results = serializer.deserialize_screening_results(
+                                        accumulated_state["data"]["fulltext_results"]
+                                    )
+                            except Exception as e:
+                                logger.debug(f"Failed to load fulltext_results: {e}")
+                            
+                            try:
+                                if "extracted_data" in accumulated_state["data"]:
+                                    self.extracted_data = serializer.deserialize_extracted_data(
+                                        accumulated_state["data"]["extracted_data"]
+                                    )
+                            except Exception as e:
+                                logger.debug(f"Failed to load extracted_data: {e}")
+                            
+                            # Try to restore PRISMA counts manually
+                            try:
+                                if "prisma_counts" in accumulated_state:
+                                    counts = accumulated_state["prisma_counts"]
+                                    if "found" in counts:
+                                        db_breakdown = accumulated_state.get("database_breakdown", {})
+                                        self.prisma_counter.set_found(counts["found"], db_breakdown if db_breakdown else None)
+                                    if "no_dupes" in counts:
+                                        self.prisma_counter.set_no_dupes(counts["no_dupes"])
+                                    if "screened" in counts:
+                                        self.prisma_counter.set_screened(counts["screened"])
+                                    if "screen_exclusions" in counts:
+                                        self.prisma_counter.set_screen_exclusions(counts["screen_exclusions"])
+                                    if "full_text_sought" in counts:
+                                        self.prisma_counter.set_full_text_sought(counts["full_text_sought"])
+                                    if "full_text_not_retrieved" in counts:
+                                        self.prisma_counter.set_full_text_not_retrieved(counts["full_text_not_retrieved"])
+                                    if "full_text_assessed" in counts:
+                                        self.prisma_counter.set_full_text_assessed(counts["full_text_assessed"])
+                                    if "full_text_exclusions" in counts:
+                                        self.prisma_counter.set_full_text_exclusions(counts["full_text_exclusions"])
+                                    if "qualitative" in counts:
+                                        self.prisma_counter.set_qualitative(counts["qualitative"])
+                                    if "quantitative" in counts:
+                                        self.prisma_counter.set_quantitative(counts["quantitative"])
+                            except Exception as e:
+                                logger.debug(f"Failed to restore PRISMA counts: {e}")
+                            
+                            logger.info(
+                                f"Fallback restore: {len(self.all_papers)} all papers, "
+                                f"{len(self.unique_papers)} unique, {len(self.screened_papers)} screened, "
+                                f"{len(self.eligible_papers)} eligible, {len(self.final_papers)} final"
+                            )
+                
+                # Update workflow_id and checkpoint_dir from checkpoint
+                latest_checkpoint_file = checkpoint_dir / f"{existing_checkpoint['latest_phase']}_state.json"
+                if latest_checkpoint_file.exists():
+                    latest_checkpoint_data = self._load_phase_state(str(latest_checkpoint_file))
+                    if "workflow_id" in latest_checkpoint_data:
+                        self.workflow_id = latest_checkpoint_data["workflow_id"]
+                        self.checkpoint_dir = Path("data/checkpoints") / self.workflow_id
+                
+                # Map phase name to phase number (next phase to run)
+                phase_to_next_number = {
+                    "search_databases": 3,  # Next: deduplication
+                    "deduplication": 4,  # Next: title_abstract_screening
+                    "title_abstract_screening": 5,  # Next: fulltext_screening
+                    "fulltext_screening": 7,  # Next: paper_enrichment
+                    "paper_enrichment": 7,  # Next: data_extraction
+                    "data_extraction": 8,  # Next: quality_assessment/prisma
+                    "quality_assessment": 9,  # Next: prisma/visualization/writing
+                    "prisma_generation": 9,  # Next: visualization/writing
+                    "visualization_generation": 10,  # Next: article_writing
+                    "article_writing": 11,  # Next: report_generation
+                    "report_generation": 12,  # Next: export/search_strategies
+                }
+                
+                start_from_phase = phase_to_next_number.get(existing_checkpoint["latest_phase"], None)
+                if start_from_phase:
+                    logger.info(f"Resuming from phase {start_from_phase} (completed: {existing_checkpoint['latest_phase']})")
+                    logger.info(f"Loaded state: {len(self.all_papers)} papers, {len(self.unique_papers)} unique, {len(self.screened_papers)} screened")
+                    if self.title_abstract_results:
+                        logger.info(f"Found {len(self.title_abstract_results)} title/abstract screening results - will reuse")
+                    if self.fulltext_results:
+                        logger.info(f"Found {len(self.fulltext_results)} fulltext screening results - will reuse")
+        
         if start_from_phase:
             logger.info(f"Resuming from phase {start_from_phase}")
         logger.info("=" * 60)
@@ -171,11 +420,30 @@ class WorkflowManager:
 
         try:
             # Phase 1: Build search strategy
+            # Always build search strategy, even when resuming (needed for article writing)
             if not start_from_phase or start_from_phase == 1:
                 with workflow_phase_context("build_search_strategy"):
                     self._build_search_strategy()
                     if self.debug_config.show_state_transitions:
                         logger.info("Search strategy built successfully")
+            else:
+                # If resuming, always rebuild search strategy (needed for article writing and exports)
+                # This ensures search_strategy is available even when resuming from later phases
+                if self.search_strategy is None:
+                    logger.info("Rebuilding search strategy (required for article writing)")
+                    try:
+                        self._build_search_strategy()
+                        logger.info("Search strategy rebuilt successfully")
+                    except Exception as e:
+                        logger.error(f"Failed to rebuild search strategy: {e}", exc_info=True)
+                        raise
+                else:
+                    # Even if search_strategy exists, rebuild to ensure it's current
+                    logger.debug("Rebuilding search strategy to ensure it's current")
+                    try:
+                        self._build_search_strategy()
+                    except Exception as e:
+                        logger.warning(f"Failed to rebuild search strategy (will use existing): {e}")
 
             # Phase 2: Search databases
             if not start_from_phase or start_from_phase <= 2:
@@ -255,21 +523,29 @@ class WorkflowManager:
                 with workflow_phase_context("fulltext_screening"):
                     self._screen_fulltext()
                     # PRISMA tracking: "sought" = papers that passed title/abstract screening
-                    self.prisma_counter.set_full_text_sought(len(self.screened_papers))
+                    sought_count = len(self.screened_papers)
+                    self.prisma_counter.set_full_text_sought(sought_count)
                     # "not_retrieved" = papers where full-text was unavailable
-                    self.prisma_counter.set_full_text_not_retrieved(self.fulltext_unavailable_count)
-                    # "assessed" = ALL papers evaluated for eligibility (with or without full-text)
-                    # Papers without full-text are still assessed using title/abstract fallback
-                    self.prisma_counter.set_full_text_assessed(len(self.screened_papers))
+                    not_retrieved_count = self.fulltext_unavailable_count
+                    self.prisma_counter.set_full_text_not_retrieved(not_retrieved_count)
+                    # "assessed" = papers actually assessed for eligibility
+                    # If all papers are assessed (including those without full-text using fallback):
+                    #   assessed = sought
+                    # If only papers with full-text are assessed:
+                    #   assessed = sought - not_retrieved
+                    # We assess all papers (with or without full-text), so assessed = sought
+                    assessed_count = sought_count
+                    self.prisma_counter.set_full_text_assessed(assessed_count)
                     excluded_at_fulltext = len(self.screened_papers) - len(self.eligible_papers)
                     self.prisma_counter.set_full_text_exclusions(excluded_at_fulltext)
                     logger.info(
                         f"Full-text screened {len(self.screened_papers)} papers, {len(self.eligible_papers)} eligible, {excluded_at_fulltext} excluded"
                     )
                     logger.info(
-                        f"PRISMA: sought={len(self.screened_papers)}, "
-                        f"not_retrieved={self.fulltext_unavailable_count}, "
-                        f"assessed={len(self.screened_papers)}"
+                        f"PRISMA: sought={sought_count}, "
+                        f"not_retrieved={not_retrieved_count}, "
+                        f"assessed={assessed_count} "
+                        f"(sought - not_retrieved = {sought_count - not_retrieved_count} papers with full-text)"
                     )
                     
                     # Save checkpoint after fulltext screening
@@ -302,12 +578,37 @@ class WorkflowManager:
                     if self.save_checkpoints:
                         self._save_phase_state("data_extraction")
 
-            # Phase 8: Generate PRISMA Diagram
+            # Phase 8: Quality Assessment (Risk of Bias + GRADE)
+            if not start_from_phase or start_from_phase <= 8:
+                with workflow_phase_context("quality_assessment"):
+                    quality_assessment_data = self._quality_assessment()
+                    results["outputs"]["quality_assessment"] = quality_assessment_data
+                    logger.info("Quality assessment phase complete")
+                    
+                    # Save checkpoint after quality assessment
+                    if self.save_checkpoints:
+                        self._save_phase_state("quality_assessment")
+
+            # Initialize outputs that may be needed even when resuming
+            prisma_path = None
+            viz_paths = []
+            article_sections = {}
+            
+            # Phase 9: Generate PRISMA Diagram
             if not start_from_phase or start_from_phase <= 8:
                 with workflow_phase_context("prisma_generation"):
                     prisma_path = self._generate_prisma_diagram()
                     results["outputs"]["prisma_diagram"] = prisma_path
                     logger.info(f"PRISMA diagram generated: {prisma_path}")
+            else:
+                # When resuming, try to load PRISMA path from results or generate it
+                if "prisma_diagram" in results.get("outputs", {}):
+                    prisma_path = results["outputs"]["prisma_diagram"]
+                else:
+                    # Generate PRISMA diagram if not found
+                    logger.info("PRISMA diagram not found in checkpoint, generating...")
+                    prisma_path = self._generate_prisma_diagram()
+                    results["outputs"]["prisma_diagram"] = prisma_path
 
             # Phase 9: Generate Visualizations
             if not start_from_phase or start_from_phase <= 9:
@@ -315,26 +616,114 @@ class WorkflowManager:
                     viz_paths = self._generate_visualizations()
                     results["outputs"]["visualizations"] = viz_paths
                     logger.info(f"Generated {len(viz_paths)} visualizations")
+            else:
+                # When resuming, try to load visualizations from results
+                if "visualizations" in results.get("outputs", {}):
+                    viz_paths = results["outputs"]["visualizations"]
+                else:
+                    # Generate visualizations if not found
+                    logger.info("Visualizations not found in checkpoint, generating...")
+                    viz_paths = self._generate_visualizations()
+                    results["outputs"]["visualizations"] = viz_paths
 
             # Phase 10: Write Article Sections
-            if not start_from_phase or start_from_phase <= 10:
-                with workflow_phase_context("article_writing"):
-                    article_sections = self._write_article()
-                    results["outputs"]["article_sections"] = article_sections
-                    logger.info(f"Wrote {len(article_sections)} article sections")
-                    
-                    # Store article sections for checkpoint
-                    self._article_sections = article_sections
-                    
-                    # Save checkpoint after writing
-                    if self.save_checkpoints:
-                        self._save_phase_state("article_writing")
+            # Check if article_sections were already loaded from checkpoint
+            if hasattr(self, "_article_sections") and self._article_sections:
+                # Article sections already loaded from checkpoint during initialization
+                article_sections = self._article_sections
+                results["outputs"]["article_sections"] = article_sections
+                logger.info(f"Using {len(article_sections)} article sections loaded from checkpoint")
+            else:
+                # Check if article_writing checkpoint exists
+                article_writing_checkpoint = None
+                if self.checkpoint_dir and self.checkpoint_dir.exists():
+                    article_writing_checkpoint = self.checkpoint_dir / "article_writing_state.json"
+                    if not article_writing_checkpoint.exists():
+                        article_writing_checkpoint = None
+                
+                if article_writing_checkpoint and article_writing_checkpoint.exists():
+                    # Load article sections from checkpoint
+                    logger.info("Found article_writing checkpoint, loading article sections...")
+                    try:
+                        with open(article_writing_checkpoint, "r") as f:
+                            checkpoint_data = json.load(f)
+                        article_sections = checkpoint_data.get("data", {}).get("article_sections", {})
+                        if article_sections:
+                            self._article_sections = article_sections
+                            results["outputs"]["article_sections"] = article_sections
+                            logger.info(f"Loaded {len(article_sections)} article sections from checkpoint")
+                        else:
+                            raise ValueError("No article_sections found in checkpoint data")
+                    except Exception as e:
+                        logger.warning(f"Failed to load article_writing checkpoint: {e}. Regenerating...")
+                        with workflow_phase_context("article_writing"):
+                            article_sections = self._write_article()
+                            results["outputs"]["article_sections"] = article_sections
+                            logger.info(f"Wrote {len(article_sections)} article sections")
+                            self._article_sections = article_sections
+                            if self.save_checkpoints:
+                                self._save_phase_state("article_writing")
+                elif not start_from_phase or start_from_phase <= 10:
+                    # No checkpoint found, generate article sections
+                    with workflow_phase_context("article_writing"):
+                        article_sections = self._write_article()
+                        results["outputs"]["article_sections"] = article_sections
+                        logger.info(f"Wrote {len(article_sections)} article sections")
+                        
+                        # Store article sections for checkpoint
+                        self._article_sections = article_sections
+                        
+                        # Save checkpoint after writing
+                        if self.save_checkpoints:
+                            self._save_phase_state("article_writing")
+                else:
+                    # When resuming from later phase, try to load article sections from results
+                    if "article_sections" in results.get("outputs", {}):
+                        article_sections = results["outputs"]["article_sections"]
+                    else:
+                        # Generate article sections if not found
+                        logger.info("Article sections not found in checkpoint, generating...")
+                        article_sections = self._write_article()
+                        results["outputs"]["article_sections"] = article_sections
 
-            # Phase 11: Generate Final Report
+            # Phase 12: Generate Final Report
             with workflow_phase_context("report_generation"):
                 report_path = self._generate_final_report(article_sections, prisma_path, viz_paths)
                 results["outputs"]["final_report"] = report_path
                 logger.info(f"Final report generated: {report_path}")
+
+            # Phase 13: Export Search Strategies
+            supplementary_config = self.config.get("supplementary_materials", {})
+            if supplementary_config.get("search_strategies", True):
+                with workflow_phase_context("search_strategy_export"):
+                    search_strategies_path = self._export_search_strategies()
+                    if search_strategies_path:
+                        results["outputs"]["search_strategies"] = search_strategies_path
+                        logger.info(f"Search strategies exported: {search_strategies_path}")
+
+            # Phase 14: Generate PRISMA Checklist
+            with workflow_phase_context("prisma_checklist"):
+                checklist_path = self._generate_prisma_checklist(str(report_path))
+                if checklist_path:
+                    results["outputs"]["prisma_checklist"] = checklist_path
+                    logger.info(f"PRISMA checklist generated: {checklist_path}")
+
+            # Phase 15: Generate Data Extraction Forms
+            supplementary_config = self.config.get("supplementary_materials", {})
+            if supplementary_config.get("extracted_data", True):
+                with workflow_phase_context("extraction_forms"):
+                    extraction_form_path = self._generate_extraction_forms()
+                    if extraction_form_path:
+                        results["outputs"]["extraction_form"] = extraction_form_path
+                        logger.info(f"Extraction form generated: {extraction_form_path}")
+
+            # Phase 16: Export to Additional Formats
+            export_config = self.config.get("output", {}).get("formats", [])
+            if "latex" in export_config or "word" in export_config:
+                with workflow_phase_context("export"):
+                    export_paths = self._export_report(article_sections, prisma_path, viz_paths)
+                    results["outputs"]["exports"] = export_paths
+                    logger.info(f"Exported to additional formats: {export_paths}")
 
             # Save workflow state
             state_path = self._save_workflow_state()
@@ -376,7 +765,7 @@ class WorkflowManager:
         logger.info(f"Failed: {summary['total_failed']}")
         logger.info(f"Success rate: {summary['overall_success_rate']:.2%}")
 
-        if summary["agents"]:
+        if summary.get("agents") and len(summary["agents"]) > 0:
             logger.info("\nPer-Agent Metrics:")
             for agent_name, agent_metrics in summary["agents"].items():
                 logger.info(f"  {agent_name}:")
@@ -433,18 +822,48 @@ class WorkflowManager:
         language = self.config["workflow"].get("language", "English")
         self.search_strategy.set_language(language)
 
-    def _create_connector(self, db_name: str, cache: Optional[SearchCache] = None) -> Optional[DatabaseConnector]:
+    def _create_connector(
+        self,
+        db_name: str,
+        cache: Optional[SearchCache] = None,
+        proxy_manager: Optional[ProxyManager] = None,
+        integrity_checker: Optional[IntegrityChecker] = None,
+        persistent_session: bool = True,
+        cookie_jar: Optional[str] = None,
+    ) -> Optional[DatabaseConnector]:
         """
         Create appropriate connector based on database name and available API keys.
         
         Args:
             db_name: Name of the database
             cache: Optional search cache instance
+            proxy_manager: Optional proxy manager instance
+            integrity_checker: Optional integrity checker instance
+            persistent_session: Whether to use persistent HTTP sessions
+            cookie_jar: Path to cookie jar directory
             
         Returns:
             DatabaseConnector instance or None if database should be skipped
         """
-        return DatabaseConnectorFactory.create_connector(db_name, cache)
+        # Create database-specific integrity checker if needed
+        db_integrity_checker = integrity_checker
+        if integrity_checker:
+            # Create a copy with database name for better error messages
+            from src.search.integrity_checker import IntegrityChecker
+            db_integrity_checker = IntegrityChecker(
+                required_fields=integrity_checker.required_fields,
+                action=integrity_checker.action.value,
+                database=db_name,
+            )
+        
+        return DatabaseConnectorFactory.create_connector(
+            db_name,
+            cache,
+            proxy_manager,
+            db_integrity_checker,
+            persistent_session,
+            cookie_jar,
+        )
 
     def _validate_database_config(self) -> Dict[str, bool]:
         """
@@ -475,11 +894,33 @@ class WorkflowManager:
             cache_dir = self.config["workflow"]["cache"].get("cache_dir", "data/cache")
             cache = SearchCache(cache_dir=cache_dir)
 
+        # Get proxy manager if enabled
+        proxy_manager = None
+        proxy_config = self.config["workflow"].get("proxy", {})
+        if proxy_config.get("enabled", False):
+            proxy_manager = create_proxy_manager_from_config(proxy_config)
+            if proxy_manager.has_proxy():
+                logger.info("Proxy support enabled and configured")
+            else:
+                logger.warning("Proxy enabled but configuration failed, continuing without proxy")
+                proxy_manager = None
+
+        # Get integrity checker if enabled
+        integrity_checker = None
+        integrity_config = self.config["workflow"].get("integrity", {})
+        if integrity_config.get("enabled", True):
+            integrity_checker = create_integrity_checker_from_config(integrity_config)
+
+        # Get session configuration
+        session_config = self.config["workflow"].get("session", {})
+        persistent_session = session_config.get("persistent", True)
+        cookie_jar = session_config.get("cookie_jar", "data/cookies")
+
         # Add connectors (use real connectors when API keys available)
         connectors_added = 0
         for db_name in databases:
             logger.info(f"Adding connector for {db_name}...")
-            connector = self._create_connector(db_name, cache)
+            connector = self._create_connector(db_name, cache, proxy_manager, integrity_checker, persistent_session, cookie_jar)
             if connector:
                 self.searcher.add_connector(connector)
                 connectors_added += 1
@@ -527,8 +968,57 @@ class WorkflowManager:
             breakdown[db] = breakdown.get(db, 0) + 1
         return breakdown
 
+    def _get_paper_key(self, paper: Paper) -> str:
+        """Get a unique key for a paper (for matching purposes)."""
+        # Prefer DOI, fallback to title
+        if paper.doi:
+            return f"doi:{paper.doi.lower().strip()}"
+        elif paper.title:
+            return f"title:{paper.title.lower().strip()[:100]}"
+        else:
+            # Last resort: use first author + year if available
+            author = paper.authors[0] if paper.authors else "unknown"
+            year = paper.year if paper.year else "unknown"
+            return f"author_year:{author.lower().strip()}_{year}"
+    
+    def _find_existing_screening_result(self, paper: Paper, existing_results: List) -> Optional[Any]:
+        """Find existing screening result for a paper."""
+        paper_key = self._get_paper_key(paper)
+        
+        for result in existing_results:
+            # Try to match by paper metadata stored in result
+            # Results may have paper title/DOI stored, or we need to match by index
+            # For now, we'll match by checking if we have results for all papers
+            # This is a simplified approach - in practice, results should store paper identifiers
+            pass
+        
+        return None
+    
     def _screen_title_abstract(self):
         """Screen papers based on title and abstract using two-stage approach."""
+        # Check if we already have screening results loaded from checkpoint
+        if self.title_abstract_results and len(self.title_abstract_results) > 0:
+            if len(self.title_abstract_results) == len(self.unique_papers):
+                logger.info(f"Found existing title/abstract screening results for {len(self.title_abstract_results)} papers")
+                logger.info("Reusing existing results - skipping LLM calls")
+                
+                # Reconstruct screened_papers from results
+                self.screened_papers = []
+                for i, result in enumerate(self.title_abstract_results):
+                    if result.decision.value == "include":
+                        if i < len(self.unique_papers):
+                            self.screened_papers.append(self.unique_papers[i])
+                
+                logger.info(
+                    f"Title/abstract screening complete (from checkpoint): {len(self.screened_papers)}/{len(self.unique_papers)} papers included"
+                )
+                return
+            else:
+                logger.warning(
+                    f"Mismatch: have {len(self.title_abstract_results)} screening results but {len(self.unique_papers)} papers. "
+                    f"Will re-screen."
+                )
+        
         self.screened_papers = []
         self.title_abstract_results = []  # Store results for validation
 
@@ -769,6 +1259,29 @@ class WorkflowManager:
 
     def _screen_fulltext(self):
         """Screen papers based on full-text (if available)."""
+        # Check if we already have fulltext screening results loaded from checkpoint
+        if self.fulltext_results and len(self.fulltext_results) > 0:
+            if len(self.fulltext_results) == len(self.screened_papers):
+                logger.info(f"Found existing full-text screening results for {len(self.fulltext_results)} papers")
+                logger.info("Reusing existing results - skipping LLM calls")
+                
+                # Reconstruct eligible_papers from results
+                self.eligible_papers = []
+                for i, result in enumerate(self.fulltext_results):
+                    if result.decision.value == "include":
+                        if i < len(self.screened_papers):
+                            self.eligible_papers.append(self.screened_papers[i])
+                
+                logger.info(
+                    f"Full-text screening complete (from checkpoint): {len(self.eligible_papers)}/{len(self.screened_papers)} papers eligible"
+                )
+                return
+            else:
+                logger.warning(
+                    f"Mismatch: have {len(self.fulltext_results)} fulltext results but {len(self.screened_papers)} screened papers. "
+                    f"Will re-screen."
+                )
+        
         self.eligible_papers = []
         self.fulltext_results = []  # Store results for validation
 
@@ -1042,6 +1555,122 @@ class WorkflowManager:
         findings = [extracted.to_dict() for extracted in self.extracted_data]
         self.topic_context.accumulate_findings(findings)
 
+    def _quality_assessment(self) -> Dict[str, Any]:
+        """
+        Quality assessment phase: Generate template or load assessments.
+        
+        Returns:
+            Dictionary with risk of bias and GRADE assessment data
+        """
+        from ..quality import (
+            QualityAssessmentTemplateGenerator,
+            RiskOfBiasAssessor,
+            GRADEAssessor,
+        )
+
+        # Get quality assessment config
+        qa_config = self.config.get("quality_assessment", {})
+        risk_of_bias_tool = qa_config.get("risk_of_bias_tool", "RoB 2")
+        grade_assessment = qa_config.get("grade_assessment", True)
+        
+        # Get template path
+        template_path_template = qa_config.get(
+            "template_path", 
+            f"data/quality_assessments/{{workflow_id}}_assessments.json"
+        )
+        template_path = template_path_template.format(workflow_id=self.workflow_id)
+        template_path_obj = Path(template_path)
+        template_path_obj.parent.mkdir(parents=True, exist_ok=True)
+
+        # Initialize assessors
+        template_generator = QualityAssessmentTemplateGenerator(risk_of_bias_tool)
+        rob_assessor = RiskOfBiasAssessor()
+        grade_assessor = GRADEAssessor()
+
+        # Check if assessment file exists
+        if not template_path_obj.exists():
+            # Generate template and stop workflow
+            logger.info("Quality assessment template not found. Generating template...")
+            
+            # Infer GRADE outcomes from extracted data
+            grade_outcomes = []
+            if grade_assessment:
+                all_outcomes = set()
+                for data in self.extracted_data:
+                    all_outcomes.update(data.outcomes)
+                grade_outcomes = sorted(list(all_outcomes))[:10]  # Limit to 10 outcomes
+            
+            template_path_str = template_generator.generate_template(
+                self.extracted_data,
+                str(template_path_obj),
+                grade_outcomes=grade_outcomes if grade_outcomes else None,
+            )
+            
+            logger.error("=" * 60)
+            logger.error("QUALITY ASSESSMENT REQUIRED")
+            logger.error("=" * 60)
+            logger.error(f"Quality assessment template generated at: {template_path_str}")
+            logger.error("")
+            logger.error("Please complete the quality assessments in the template file:")
+            logger.error(f"  1. Open: {template_path_str}")
+            logger.error(f"  2. Complete risk of bias assessments for all studies")
+            if grade_assessment:
+                logger.error(f"  3. Complete GRADE assessments for all outcomes")
+            logger.error(f"  4. Save the file")
+            logger.error(f"  5. Re-run the workflow (it will resume from this point)")
+            logger.error("")
+            logger.error("The workflow will stop here until assessments are completed.")
+            logger.error("=" * 60)
+            
+            raise RuntimeError(
+                f"Quality assessment template generated at {template_path_str}. "
+                "Please complete the assessments and re-run the workflow."
+            )
+
+        # Load assessments
+        logger.info(f"Loading quality assessments from {template_path_obj}")
+        
+        risk_of_bias_assessments = []
+        grade_assessments_list = []
+        
+        try:
+            risk_of_bias_assessments = rob_assessor.load_assessments(str(template_path_obj))
+            logger.info(f"Loaded {len(risk_of_bias_assessments)} risk of bias assessments")
+        except Exception as e:
+            logger.warning(f"Could not load risk of bias assessments: {e}")
+        
+        if grade_assessment:
+            try:
+                grade_assessments_list = grade_assessor.load_assessments(str(template_path_obj))
+                logger.info(f"Loaded {len(grade_assessments_list)} GRADE assessments")
+            except Exception as e:
+                logger.warning(f"Could not load GRADE assessments: {e}")
+
+        # Generate summary tables and narratives
+        risk_of_bias_table = ""
+        risk_of_bias_summary = ""
+        if risk_of_bias_assessments:
+            risk_of_bias_table = rob_assessor.generate_summary_table(risk_of_bias_assessments)
+            risk_of_bias_summary = rob_assessor.generate_narrative_summary(risk_of_bias_assessments)
+
+        grade_table = ""
+        grade_summary = ""
+        if grade_assessments_list:
+            grade_table = grade_assessor.generate_evidence_profile_table(grade_assessments_list)
+            grade_summary = grade_assessor.generate_narrative_summary(grade_assessments_list)
+
+        # Store for use in writing agents
+        self.quality_assessment_data = {
+            "risk_of_bias_assessments": risk_of_bias_assessments,
+            "risk_of_bias_table": risk_of_bias_table,
+            "risk_of_bias_summary": risk_of_bias_summary,
+            "grade_assessments": grade_assessments_list,
+            "grade_table": grade_table,
+            "grade_summary": grade_summary,
+        }
+
+        return self.quality_assessment_data
+
     def _generate_prisma_diagram(self) -> str:
         """Generate PRISMA flow diagram."""
         generator = PRISMAGenerator(self.prisma_counter)
@@ -1072,6 +1701,36 @@ class WorkflowManager:
         subject_path = self.chart_generator.papers_by_subject(self.final_papers)
         if subject_path:
             paths["papers_by_subject"] = subject_path
+
+        # Quality assessment visualizations
+        if self.quality_assessment_data:
+            # Risk of bias plot
+            rob_assessments = self.quality_assessment_data.get("risk_of_bias_assessments", [])
+            if rob_assessments:
+                # Convert to list of dicts for visualization
+                rob_data = []
+                for assessment in rob_assessments:
+                    rob_data.append({
+                        "study_id": assessment.study_id if hasattr(assessment, 'study_id') else assessment.get("study_id", ""),
+                        "domains": assessment.domains if hasattr(assessment, 'domains') else assessment.get("domains", {}),
+                    })
+                rob_plot_path = self.chart_generator.generate_risk_of_bias_plot(rob_data)
+                if rob_plot_path:
+                    paths["risk_of_bias_plot"] = rob_plot_path
+
+            # GRADE evidence profile
+            grade_assessments = self.quality_assessment_data.get("grade_assessments", [])
+            if grade_assessments:
+                # Convert to list of dicts for visualization
+                grade_data = []
+                for assessment in grade_assessments:
+                    grade_data.append({
+                        "outcome": assessment.outcome if hasattr(assessment, 'outcome') else assessment.get("outcome", ""),
+                        "certainty": assessment.certainty if hasattr(assessment, 'certainty') else assessment.get("certainty", ""),
+                    })
+                grade_plot_path = self.chart_generator.generate_grade_evidence_profile(grade_data)
+                if grade_plot_path:
+                    paths["grade_evidence_profile"] = grade_plot_path
 
         return paths
 
@@ -1114,6 +1773,17 @@ class WorkflowManager:
         with console.status(
             f"[bold cyan][2/4] Writing Methods with {self.methods_writer.llm_model}..."
         ):
+            # Ensure search_strategy exists (rebuild if None, e.g., when resuming from checkpoint)
+            if self.search_strategy is None:
+                logger.warning("search_strategy is None, rebuilding it for article writing")
+                try:
+                    self._build_search_strategy()
+                    if self.search_strategy is None:
+                        raise RuntimeError("Failed to build search strategy - search_strategy is still None after _build_search_strategy()")
+                except Exception as e:
+                    logger.error(f"Failed to build search strategy: {e}", exc_info=True)
+                    raise RuntimeError(f"Cannot write Methods section without search strategy: {e}") from e
+            
             search_strategy_desc = self.search_strategy.get_strategy_description()
             databases = self.config["workflow"]["databases"]
             inclusion_criteria = [
@@ -1134,6 +1804,29 @@ class WorkflowManager:
                 metadata={"section": "methods"},
             )
 
+            # Get full search strategies for all databases
+            # Ensure search_strategy exists (should already be set above, but double-check)
+            if self.search_strategy is None:
+                logger.error("search_strategy is None when getting database queries - this should not happen")
+                raise RuntimeError("search_strategy is None - cannot get database queries")
+            full_search_strategies = self.search_strategy.get_database_queries()
+            # Filter to only databases that were actually searched
+            searched_db_strategies = {
+                db: query for db, query in full_search_strategies.items() if db in databases
+            }
+            
+            # Get protocol information from config
+            protocol_info = self.config.get("protocol", {})
+            
+            # Build automation details
+            automation_details = (
+                "Large language models (LLMs) were used to assist with: "
+                "(1) title/abstract screening for borderline cases after keyword pre-filtering, "
+                "(2) full-text screening, and "
+                "(3) structured data extraction. "
+                "All LLM outputs were verified and supplemented by human reviewers to ensure accuracy."
+            )
+
             methods = self.methods_writer.write(
                 search_strategy_desc,
                 databases,
@@ -1143,6 +1836,9 @@ class WorkflowManager:
                 "Structured data extraction using LLM",
                 self.prisma_counter.get_counts(),
                 topic_context=writing_context,
+                full_search_strategies=searched_db_strategies,
+                protocol_info=protocol_info,
+                automation_details=automation_details,
             )
             sections["methods"] = methods
         console.print("[green]✓[/green] Methods section complete")
@@ -1164,11 +1860,27 @@ class WorkflowManager:
                 metadata={"section": "results"},
             )
 
+            # Get quality assessment data if available
+            risk_of_bias_summary = None
+            risk_of_bias_table = None
+            grade_assessments = None
+            grade_table = None
+            
+            if self.quality_assessment_data:
+                risk_of_bias_summary = self.quality_assessment_data.get("risk_of_bias_summary")
+                risk_of_bias_table = self.quality_assessment_data.get("risk_of_bias_table")
+                grade_assessments = self.quality_assessment_data.get("grade_summary")
+                grade_table = self.quality_assessment_data.get("grade_table")
+
             results = self.results_writer.write(
                 self.extracted_data,
                 self.prisma_counter.get_counts(),
                 key_findings[:10],  # Top 10 findings
                 topic_context=writing_context,
+                risk_of_bias_summary=risk_of_bias_summary,
+                risk_of_bias_table=risk_of_bias_table,
+                grade_assessments=grade_assessments,
+                grade_table=grade_table,
             )
             sections["results"] = results
         console.print("[green]✓[/green] Results section complete")
@@ -1231,18 +1943,53 @@ class WorkflowManager:
         citation_manager = CitationManager(self.final_papers)
 
         with open(report_path, "w") as f:
-            f.write("# Systematic Review Report\n\n")
-            # Fix: Use topic_context instead of config dict
-            research_question = self.topic_context.research_question or self.topic_context.topic
-            f.write(f"## Research Question\n\n{research_question}\n\n")
-            f.write("---\n\n")
+            # Generate topic-specific title
+            topic = self.topic_context.topic or "Systematic Review"
+            title = f"{topic}: A Systematic Review"
+            f.write(f"# {title}\n\n")
             
             # Abstract
             abstract = article_sections.get("abstract", "")
             if abstract:
                 f.write("## Abstract\n\n")
+                f.write("**Systematic Review**\n\n")
                 f.write(abstract)
                 f.write("\n\n---\n\n")
+            
+            # Keywords - aggregate from topic context and papers
+            keywords = self.topic_context.keywords if hasattr(self.topic_context, 'keywords') else []
+            
+            # Also extract keywords from included papers
+            paper_keywords = []
+            for paper in self.final_papers:
+                if paper.keywords:
+                    if isinstance(paper.keywords, list):
+                        paper_keywords.extend(paper.keywords)
+                    elif isinstance(paper.keywords, str):
+                        # Handle comma-separated keywords
+                        paper_keywords.extend([kw.strip() for kw in paper.keywords.split(",")])
+            
+            # Combine and deduplicate keywords
+            all_keywords = list(set(keywords + paper_keywords))
+            
+            # Prioritize topic keywords, then add paper keywords
+            # Remove duplicates while preserving order
+            seen = set()
+            keywords_to_use = []
+            for kw in keywords + paper_keywords:
+                kw_lower = kw.lower().strip()
+                if kw_lower and kw_lower not in seen:
+                    seen.add(kw_lower)
+                    keywords_to_use.append(kw.strip())
+            
+            # Limit to 5-10 keywords for IEEE
+            keywords_to_use = keywords_to_use[:10]
+            
+            if keywords_to_use:
+                keywords_text = ", ".join(keywords_to_use)
+                f.write("## Keywords\n\n")
+                f.write(f"**Keywords:** {keywords_text}\n\n")
+                f.write("---\n\n")
 
             # Introduction (with citation processing)
             intro_text = citation_manager.extract_and_map_citations(article_sections["introduction"])
@@ -1256,33 +2003,115 @@ class WorkflowManager:
             f.write(methods_text)
             f.write("\n\n---\n\n")
 
-            # PRISMA Diagram
-            f.write("## PRISMA Flow Diagram\n\n")
-            f.write(f"![PRISMA Diagram]({prisma_path})\n\n")
-            f.write("---\n\n")
-
             # Results (with citation processing)
             results_text = citation_manager.extract_and_map_citations(article_sections["results"])
-            f.write("## Results\n\n")
-            f.write(results_text)
-            f.write("\n\n---\n\n")
-
-            # Visualizations
+            
+            # Insert PRISMA diagram into Results section after Study Selection subsection
+            # Find the end of Study Selection subsection or insert after first paragraph
+            prisma_insertion_point = results_text.find("### Study Selection")
+            if prisma_insertion_point != -1:
+                # Find the end of Study Selection subsection (next ### or end of text)
+                next_subsection = results_text.find("\n### ", prisma_insertion_point + 1)
+                if next_subsection == -1:
+                    # No next subsection, insert before end
+                    insertion_pos = len(results_text)
+                else:
+                    # Insert before next subsection
+                    insertion_pos = next_subsection
+                
+                # Insert PRISMA diagram
+                prisma_section = f"\n\n![PRISMA Diagram]({prisma_path})\n\n"
+                prisma_section += "**Figure 1:** PRISMA 2020 flow diagram showing the study selection process.\n\n"
+                results_text = results_text[:insertion_pos] + prisma_section + results_text[insertion_pos:]
+            else:
+                # If Study Selection subsection not found, insert PRISMA diagram at the beginning
+                prisma_section = f"![PRISMA Diagram]({prisma_path})\n\n"
+                prisma_section += "**Figure 1:** PRISMA 2020 flow diagram showing the study selection process.\n\n\n"
+                results_text = prisma_section + results_text
+            
+            # Insert visualizations into Results section after Synthesis subsection
+            figure_num = 2  # PRISMA diagram is Figure 1
             if viz_paths:
-                f.write("## Visualizations\n\n")
+                # Build visualizations section
+                viz_section = "\n\n"
                 for name, path in viz_paths.items():
-                    f.write(f"### {name.replace('_', ' ').title()}\n\n")
+                    viz_name = name.replace('_', ' ').title()
                     # Handle HTML files (network graph) differently from images
                     if path.endswith('.html'):
-                        f.write(f"[Interactive {name.replace('_', ' ').title()}]({path})\n\n")
+                        viz_section += f"[Interactive {viz_name}]({path})\n\n"
                         # Also try to reference PNG version if it exists
                         png_path = path.replace('.html', '.png')
                         png_full_path = self.output_dir / Path(png_path).name
                         if png_full_path.exists():
-                            f.write(f"![{name}]({png_path})\n\n")
+                            caption = f"**Figure {figure_num}:** {viz_name} showing bibliometric analysis of included studies.\n\n"
+                            viz_section += f"![{name}]({png_path})\n\n"
+                            viz_section += caption
+                            figure_num += 1
                     else:
-                        f.write(f"![{name}]({path})\n\n")
-                f.write("---\n\n")
+                        caption = f"**Figure {figure_num}:** {viz_name} showing bibliometric analysis of included studies.\n\n"
+                        viz_section += f"![{name}]({path})\n\n"
+                        viz_section += caption
+                        figure_num += 1
+                
+                # Find Synthesis subsection using multiple patterns (3-level and 4-level headers)
+                synthesis_patterns = [
+                    "### Synthesis",
+                    "### Results of Syntheses",
+                    "### Synthesis of Results",
+                    "#### Synthesis",
+                    "#### Synthesis of Findings",
+                    "#### Results of Syntheses",
+                    "#### Synthesis of Results"
+                ]
+                
+                synthesis_insertion_point = -1
+                for pattern in synthesis_patterns:
+                    synthesis_insertion_point = results_text.find(pattern)
+                    if synthesis_insertion_point != -1:
+                        break
+                
+                if synthesis_insertion_point != -1:
+                    # Find end of Synthesis subsection (next subsection at any level)
+                    # Check for both 3-level (###) and 4-level (####) headers
+                    next_subsection_3 = results_text.find("\n### ", synthesis_insertion_point + 1)
+                    next_subsection_4 = results_text.find("\n#### ", synthesis_insertion_point + 1)
+                    
+                    # Find the earliest next subsection
+                    next_subsection = -1
+                    if next_subsection_3 != -1 and next_subsection_4 != -1:
+                        next_subsection = min(next_subsection_3, next_subsection_4)
+                    elif next_subsection_3 != -1:
+                        next_subsection = next_subsection_3
+                    elif next_subsection_4 != -1:
+                        next_subsection = next_subsection_4
+                    
+                    if next_subsection == -1:
+                        # No next subsection found, check for separator before inserting
+                        separator_pos = results_text.find("\n---\n", synthesis_insertion_point)
+                        if separator_pos != -1:
+                            insertion_pos = separator_pos
+                        else:
+                            insertion_pos = len(results_text)
+                    else:
+                        insertion_pos = next_subsection
+                    
+                    results_text = results_text[:insertion_pos] + viz_section + results_text[insertion_pos:]
+                else:
+                    # No synthesis subsection found, insert before separator or at end
+                    # Check for separator that marks end of Results section
+                    separator_pos = results_text.find("\n---\n")
+                    if separator_pos != -1:
+                        # Insert before separator to keep visualizations in Results section
+                        insertion_pos = separator_pos
+                        results_text = results_text[:insertion_pos] + viz_section + results_text[insertion_pos:]
+                    else:
+                        # No separator found, append at end
+                        results_text = results_text + viz_section
+            
+            # Write the modified results text
+            f.write("## Results\n\n")
+            f.write(results_text)
+            f.write("\n\n---\n\n")
 
             # Discussion (with citation processing)
             discussion_text = citation_manager.extract_and_map_citations(article_sections["discussion"])
@@ -1295,12 +2124,223 @@ class WorkflowManager:
             f.write(references_section)
             f.write("\n---\n\n")
 
-            # Summary
-            f.write("## Summary\n\n")
-            f.write(f"This systematic review included {len(self.final_papers)} studies. ")
-            f.write("Key findings and implications are discussed above.\n")
+            # Registration (PRISMA 2020: Other Information)
+            protocol_info = self.config.get("protocol", {})
+            f.write("## Registration\n\n")
+            if protocol_info.get("registered", False):
+                registry = protocol_info.get("registry", "PROSPERO")
+                reg_number = protocol_info.get("registration_number", "")
+                reg_url = protocol_info.get("url", "")
+                if reg_number:
+                    f.write(f"This systematic review was registered with {registry} (registration number: {reg_number}).")
+                    if reg_url:
+                        f.write(f" The protocol can be accessed at: {reg_url}")
+                    f.write("\n\n")
+                else:
+                    f.write(f"This systematic review was registered with {registry}.\n\n")
+            else:
+                f.write("This systematic review was not registered.\n\n")
+            f.write("---\n\n")
+            
+            # Funding Statement (PRISMA 2020: Other Information)
+            funding_config = self.config.get("funding", {})
+            f.write("## Funding\n\n")
+            funding_source = funding_config.get("source", "No funding received")
+            grant_number = funding_config.get("grant_number", "")
+            funder = funding_config.get("funder", "")
+            
+            if grant_number:
+                f.write(f"This work was supported by {funder} (grant number: {grant_number}).\n\n")
+            elif funder:
+                f.write(f"This work was supported by {funder}.\n\n")
+            else:
+                f.write(f"{funding_source}.\n\n")
+            f.write("---\n\n")
+
+            # Conflicts of Interest Statement (PRISMA 2020: Other Information)
+            coi_config = self.config.get("conflicts_of_interest", {})
+            f.write("## Conflicts of Interest\n\n")
+            coi_statement = coi_config.get("statement", "The authors declare no conflicts of interest.")
+            f.write(f"{coi_statement}\n\n")
+            f.write("---\n\n")
+
+            # Data Availability Statement (PRISMA 2020: Other Information)
+            supplementary_config = self.config.get("supplementary_materials", {})
+            f.write("## Data Availability Statement\n\n")
+            available_materials = []
+            if supplementary_config.get("search_strategies", True):
+                available_materials.append("Full search strategies for all databases")
+            if supplementary_config.get("extracted_data", True):
+                available_materials.append("Extracted data from included studies")
+            if supplementary_config.get("analysis_code", False):
+                available_materials.append("Analysis code")
+            
+            if available_materials:
+                f.write("The following materials are available as supplementary materials:\n\n")
+                for material in available_materials:
+                    f.write(f"- {material}\n")
+                f.write("\n")
+            else:
+                f.write("Data availability information is not specified.\n\n")
 
         return str(report_path)
+
+    def _export_report(
+        self,
+        article_sections: Dict[str, str],
+        prisma_path: str,
+        viz_paths: Dict[str, str],
+    ) -> Dict[str, str]:
+        """Export report to LaTeX and Word formats."""
+        from ..citations import CitationManager
+        from ..export.latex_exporter import LaTeXExporter
+        from ..export.word_exporter import WordExporter
+
+        export_paths = {}
+        citation_manager = CitationManager(self.final_papers)
+
+        # Aggregate keywords from topic context and papers
+        keywords = self.topic_context.keywords if hasattr(self.topic_context, 'keywords') else []
+        paper_keywords = []
+        for paper in self.final_papers:
+            if paper.keywords:
+                if isinstance(paper.keywords, list):
+                    paper_keywords.extend(paper.keywords)
+                elif isinstance(paper.keywords, str):
+                    paper_keywords.extend([kw.strip() for kw in paper.keywords.split(",")])
+        
+        # Combine and deduplicate keywords
+        seen = set()
+        all_keywords = []
+        for kw in keywords + paper_keywords:
+            kw_lower = kw.lower().strip()
+            if kw_lower and kw_lower not in seen:
+                seen.add(kw_lower)
+                all_keywords.append(kw.strip())
+        
+        # Limit to 5-10 keywords for IEEE
+        all_keywords = all_keywords[:10]
+        
+        # Prepare report data
+        report_data = {
+            "title": f"Systematic Review: {self.topic_context.topic}",
+            "abstract": article_sections.get("abstract", ""),
+            "keywords": all_keywords,
+            "introduction": citation_manager.extract_and_map_citations(article_sections.get("introduction", "")),
+            "methods": citation_manager.extract_and_map_citations(article_sections.get("methods", "")),
+            "results": citation_manager.extract_and_map_citations(article_sections.get("results", "")),
+            "discussion": citation_manager.extract_and_map_citations(article_sections.get("discussion", "")),
+            "references": citation_manager.get_references(),
+            "figures": [],
+        }
+
+        # Add figures
+        if prisma_path:
+            report_data["figures"].append({
+                "path": prisma_path,
+                "caption": "PRISMA 2020 flow diagram showing the study selection process.",
+            })
+
+        for name, path in viz_paths.items():
+            if not path.endswith('.html'):
+                report_data["figures"].append({
+                    "path": path,
+                    "caption": f"{name.replace('_', ' ').title()} showing bibliometric analysis of included studies.",
+                })
+
+        # Export to LaTeX if requested
+        export_config = self.config.get("output", {}).get("formats", [])
+        if "latex" in export_config:
+            latex_exporter = LaTeXExporter()
+            latex_path = self.output_dir / "final_report.tex"
+            latex_exporter.export(report_data, str(latex_path), journal="IEEE")
+            export_paths["latex"] = str(latex_path)
+            logger.info(f"LaTeX export generated: {latex_path}")
+
+        # Export to Word if requested
+        if "word" in export_config or "docx" in export_config:
+            word_exporter = WordExporter()
+            word_path = self.output_dir / "final_report.docx"
+            word_exporter.export(report_data, str(word_path))
+            export_paths["word"] = str(word_path)
+            logger.info(f"Word export generated: {word_path}")
+
+        # Export to BibTeX if requested
+        if "bibtex" in export_config:
+            bibtex_path = self.output_dir / "references.bib"
+            citation_manager.export_bibtex(str(bibtex_path))
+            export_paths["bibtex"] = str(bibtex_path)
+            logger.info(f"BibTeX file generated: {bibtex_path}")
+
+        # Export to RIS if requested
+        if "ris" in export_config:
+            ris_path = self.output_dir / "references.ris"
+            citation_manager.export_ris(str(ris_path))
+            export_paths["ris"] = str(ris_path)
+            logger.info(f"RIS file generated: {ris_path}")
+
+        return export_paths
+
+    def _export_search_strategies(self) -> Optional[str]:
+        """Export search strategies to markdown file."""
+        try:
+            # Get search strategies from search_strategy builder
+            # Ensure search_strategy exists
+            if self.search_strategy is None:
+                logger.warning("search_strategy is None, rebuilding it for export")
+                self._build_search_strategy()
+            database_queries = self.search_strategy.get_database_queries()
+            databases_searched = self.config["workflow"]["databases"]
+
+            output_path = self.output_dir / "search_strategies.md"
+            with open(output_path, "w", encoding="utf-8") as f:
+                f.write("# Search Strategies\n\n")
+                f.write("This document contains the complete search strategies used for all databases.\n\n")
+                f.write("---\n\n")
+
+                for db_name in databases_searched:
+                    if db_name in database_queries:
+                        f.write(f"## {db_name}\n\n")
+                        f.write("**Full Search Strategy:**\n\n")
+                        f.write("```\n")
+                        f.write(database_queries[db_name])
+                        f.write("\n```\n\n")
+                        f.write("---\n\n")
+
+            logger.info(f"Search strategies exported to {output_path}")
+            return str(output_path)
+        except Exception as e:
+            logger.warning(f"Could not export search strategies: {e}")
+            return None
+
+    def _generate_extraction_forms(self) -> Optional[str]:
+        """Generate data extraction form templates."""
+        from ..export.extraction_form_generator import ExtractionFormGenerator
+
+        try:
+            generator = ExtractionFormGenerator()
+            form_path = self.output_dir / "data_extraction_form.md"
+            path = generator.generate_form(str(form_path), format="markdown")
+            return path
+        except Exception as e:
+            logger.warning(f"Could not generate extraction form: {e}")
+            return None
+
+    def _generate_prisma_checklist(self, report_path: str) -> Optional[str]:
+        """Generate PRISMA 2020 checklist file."""
+        from ..prisma.checklist_generator import PRISMAChecklistGenerator
+
+        try:
+            with open(report_path, "r", encoding="utf-8") as f:
+                report_content = f.read()
+
+            generator = PRISMAChecklistGenerator()
+            checklist_path = self.output_dir / "prisma_checklist.json"
+            path = generator.generate_checklist(report_content, str(checklist_path))
+            return path
+        except Exception as e:
+            logger.warning(f"Could not generate PRISMA checklist: {e}")
+            return None
 
     def _save_workflow_state(self) -> str:
         """Save workflow state to JSON."""
@@ -1334,6 +2374,96 @@ class WorkflowManager:
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         topic_slug = self.topic_context.topic.lower().replace(" ", "_")[:30]
         return f"workflow_{topic_slug}_{timestamp}"
+    
+    def _find_existing_checkpoint_by_topic(self) -> Optional[Dict[str, Any]]:
+        """
+        Find existing checkpoint for the same topic.
+        
+        Returns:
+            Dictionary with checkpoint_path and latest_phase, or None if not found
+        """
+        checkpoint_base = Path("data/checkpoints")
+        if not checkpoint_base.exists():
+            logger.debug("Checkpoint directory does not exist")
+            return None
+        
+        current_topic = self.topic_context.topic.lower().strip()
+        logger.debug(f"Looking for checkpoints matching topic: '{current_topic}'")
+        
+        workflow_dirs = [d for d in checkpoint_base.iterdir() if d.is_dir()]
+        logger.debug(f"Found {len(workflow_dirs)} workflow directories to check")
+        
+        # Look through all workflow directories
+        for workflow_dir in workflow_dirs:
+            # Check if this workflow matches our topic
+            # Look for any checkpoint file to read topic_context
+            checkpoint_files = list(workflow_dir.glob("*_state.json"))
+            if not checkpoint_files:
+                logger.debug(f"No checkpoint files found in {workflow_dir.name}")
+                continue
+            
+            logger.debug(f"Checking workflow {workflow_dir.name} ({len(checkpoint_files)} checkpoint files)")
+            
+            # Try to find the latest checkpoint and check its topic
+            latest_checkpoint = max(checkpoint_files, key=lambda p: p.stat().st_mtime)
+            
+            try:
+                with open(latest_checkpoint, "r") as f:
+                    checkpoint_data = json.load(f)
+                
+                # Check if topic matches
+                checkpoint_topic = checkpoint_data.get("topic_context", {}).get("topic", "").lower().strip()
+                logger.debug(f"  Checkpoint topic: '{checkpoint_topic}'")
+                
+                if checkpoint_topic == current_topic:
+                    logger.info(f"  Topic match found in workflow {workflow_dir.name}!")
+                    # Find the latest phase checkpoint (check all possible phases)
+                    phase_order = [
+                        "report_generation",
+                        "article_writing",
+                        "visualization_generation",
+                        "prisma_generation",
+                        "quality_assessment",
+                        "data_extraction",
+                        "paper_enrichment",
+                        "fulltext_screening",
+                        "title_abstract_screening",
+                        "deduplication",
+                        "search_databases",
+                    ]
+                    
+                    latest_phase = None
+                    latest_phase_time = 0
+                    
+                    for checkpoint_file in checkpoint_files:
+                        try:
+                            with open(checkpoint_file, "r") as cf:
+                                cp_data = json.load(cf)
+                                phase = cp_data.get("phase", "")
+                                if phase in phase_order:
+                                    mtime = checkpoint_file.stat().st_mtime
+                                    if mtime > latest_phase_time:
+                                        latest_phase_time = mtime
+                                        latest_phase = phase
+                        except Exception as e:
+                            logger.debug(f"Error reading checkpoint file {checkpoint_file}: {e}")
+                            continue
+                    
+                    if latest_phase:
+                        logger.info(f"  Latest phase found: {latest_phase}")
+                        return {
+                            "checkpoint_dir": str(workflow_dir),
+                            "latest_phase": latest_phase,
+                            "workflow_id": workflow_dir.name,
+                        }
+                else:
+                    logger.debug(f"  Topic mismatch: '{checkpoint_topic}' != '{current_topic}'")
+            except Exception as e:
+                logger.debug(f"Error checking checkpoint {latest_checkpoint}: {e}")
+                continue
+        
+        logger.debug("No matching checkpoint found for this topic")
+        return None
 
     def _get_phase_dependencies(self, phase_name: str) -> List[str]:
         """Get list of phases that must complete before this phase."""
@@ -1417,6 +2547,7 @@ class WorkflowManager:
                 "data": self._serialize_phase_data(phase_name),
                 "dependencies": self._get_phase_dependencies(phase_name),
                 "prisma_counts": self.prisma_counter.get_counts(),
+                "database_breakdown": self.prisma_counter.get_database_breakdown(),
             }
             
             checkpoint_file = self.checkpoint_dir / f"{phase_name}_state.json"
@@ -1478,7 +2609,34 @@ class WorkflowManager:
         
         # Load PRISMA counts
         if "prisma_counts" in state:
-            self.prisma_counter.set_counts(state["prisma_counts"])
+            try:
+                counts = state["prisma_counts"]
+                # Restore counts using individual setters
+                if "found" in counts:
+                    db_breakdown = state.get("database_breakdown", {})
+                    self.prisma_counter.set_found(counts["found"], db_breakdown if db_breakdown else None)
+                if "found_other" in counts:
+                    self.prisma_counter.set_found_other(counts["found_other"])
+                if "no_dupes" in counts:
+                    self.prisma_counter.set_no_dupes(counts["no_dupes"])
+                if "screened" in counts:
+                    self.prisma_counter.set_screened(counts["screened"])
+                if "screen_exclusions" in counts:
+                    self.prisma_counter.set_screen_exclusions(counts["screen_exclusions"])
+                if "full_text_sought" in counts:
+                    self.prisma_counter.set_full_text_sought(counts["full_text_sought"])
+                if "full_text_not_retrieved" in counts:
+                    self.prisma_counter.set_full_text_not_retrieved(counts["full_text_not_retrieved"])
+                if "full_text_assessed" in counts:
+                    self.prisma_counter.set_full_text_assessed(counts["full_text_assessed"])
+                if "full_text_exclusions" in counts:
+                    self.prisma_counter.set_full_text_exclusions(counts["full_text_exclusions"])
+                if "qualitative" in counts:
+                    self.prisma_counter.set_qualitative(counts["qualitative"])
+                if "quantitative" in counts:
+                    self.prisma_counter.set_quantitative(counts["quantitative"])
+            except Exception as e:
+                logger.warning(f"Failed to restore PRISMA counts: {e}")
         
         # Load topic context if provided
         if "topic_context" in state:

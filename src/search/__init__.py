@@ -8,6 +8,7 @@ from .database_connectors import (
     SemanticScholarConnector,
     CrossrefConnector,
     ScopusConnector,
+    ACMConnector,
     MockConnector,
 )
 from .search_strategy import SearchStrategyBuilder, SearchTerm
@@ -33,6 +34,7 @@ __all__ = [
     "SemanticScholarConnector",
     "CrossrefConnector",
     "ScopusConnector",
+    "ACMConnector",
     "MockConnector",
     "MultiDatabaseSearcher",
     "SearchStrategyBuilder",

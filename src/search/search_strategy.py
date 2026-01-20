@@ -114,6 +114,8 @@ class SearchStrategyBuilder:
             return self._build_semantic_scholar_query()
         elif db_lower == "crossref":
             return self._build_crossref_query()
+        elif db_lower == "acm":
+            return self._build_acm_query()
         else:
             return self.build_query("generic")
 
@@ -249,6 +251,27 @@ class SearchStrategyBuilder:
         # This query string is for the query.bibliographic parameter
         return combined
 
+    def _build_acm_query(self) -> str:
+        """Build ACM-specific query."""
+        # ACM uses simple text search, similar to Semantic Scholar
+        queries = []
+        for group in self.term_groups:
+            terms = [group.main_term] + group.synonyms
+            term_parts = [f'"{term}"' for term in terms]
+            queries.append("(" + " OR ".join(term_parts) + ")")
+
+        combined = " AND ".join(queries)
+
+        # ACM date filtering might be done via UI, but we can add year filter
+        # Note: ACM search interface may handle date filtering separately
+        if self.date_range:
+            start, end = self.date_range
+            # ACM search typically handles dates via UI filters
+            # We include it in query as a note, but actual filtering may need to be done separately
+            combined += f" [year: {start or 'any'} to {end or 'present'}]"
+
+        return combined
+
     def get_strategy_description(self) -> str:
         """Get human-readable description of search strategy."""
         desc = "Search Strategy:\n\n"
@@ -281,6 +304,7 @@ class SearchStrategyBuilder:
             "arXiv",
             "Semantic Scholar",
             "Crossref",
+            "ACM",
         ]
 
         queries = {}

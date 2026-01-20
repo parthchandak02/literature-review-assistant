@@ -19,7 +19,7 @@ topic:
 #   Perplexity: sonar-pro, sonar-reasoning-pro, sonar
 agents:
   search_agent:
-    role: "{topic} Literature Search Specialist"
+    role: "Literature Search Specialist"
     goal: "Find comprehensive literature on {topic} across multiple databases"
     backstory: "Expert researcher specializing in {domain} with deep knowledge of {topic}"
     # Flash: Optimized for speed, efficiency, and scale. Best price-performance for search tasks.
@@ -31,7 +31,7 @@ agents:
     
   # Title/Abstract Screening - uses Pro for quality-critical borderline cases (only ~4 papers need LLM)
   title_abstract_screener:
-    role: "{topic} Title/Abstract Screening Specialist"
+    role: "Title/Abstract Screening Specialist"
     goal: "Screen papers based on title and abstract for relevance to {topic} and {research_question}"
     backstory: "Expert reviewer with expertise in {domain}, focusing on {topic}. Handles borderline cases requiring careful judgment."
     # Pro: Advanced reasoning for complex multi-step logic. Higher accuracy for precision-critical tasks.
@@ -43,7 +43,7 @@ agents:
     
   # Full-text Screening - use Flash-Lite for bulk processing (89+ papers)
   fulltext_screener:
-    role: "{topic} Full-text Screening Specialist"
+    role: "Full-text Screening Specialist"
     goal: "Screen papers based on full-text content for relevance to {topic} and {research_question}"
     backstory: "Efficient reviewer specializing in {topic}. Optimized for high-volume screening tasks."
     # Flash-Lite: Optimized for bulk screening tasks. 4x cheaper than Pro ($0.10 vs $1.25 per 1M tokens).
@@ -60,7 +60,7 @@ agents:
   # DEPRECATED: Use title_abstract_screener and fulltext_screener instead
   # Kept for backward compatibility - will be used as fallback if new configs are missing
   screening_agent:
-    role: "{topic} Screening Specialist"
+    role: "Screening Specialist"
     goal: "Screen papers for relevance to {topic} and {research_question}"
     backstory: "Meticulous reviewer with expertise in {domain}, focusing on {topic}"
     # Pro: Advanced reasoning for complex multi-step logic. Higher accuracy for precision-critical tasks.
@@ -71,7 +71,7 @@ agents:
     max_iterations: 10
     
   extraction_agent:
-    role: "{topic} Data Extraction Specialist"
+    role: "Data Extraction Specialist"
     goal: "Extract structured data from papers related to {topic}"
     backstory: "Detail-oriented analyst specializing in {domain} research on {topic}"
     # Pro: Handles complex extraction with 90%+ accuracy. Better at structured output and complex reasoning.
@@ -82,7 +82,7 @@ agents:
     max_iterations: 5
     
   introduction_writer:
-    role: "{topic} Introduction Writer"
+    role: "Introduction Writer"
     goal: "Write compelling introduction for systematic review on {topic}"
     backstory: "Skilled academic writer with expertise in {domain}, specializing in {topic}"
     # Pro: Better for professional reports, strategic documents, analytical workflows.
@@ -93,7 +93,7 @@ agents:
     max_iterations: 3
     
   methods_writer:
-    role: "{topic} Methods Writer"
+    role: "Methods Writer"
     goal: "Write detailed methods section for {topic} systematic review"
     backstory: "Methodology expert in {domain} research, focusing on {topic}"
     # Pro: Better for technical writing, code review, and structured documentation.
@@ -104,7 +104,7 @@ agents:
     max_iterations: 3
     
   results_writer:
-    role: "{topic} Results Writer"
+    role: "Results Writer"
     goal: "Synthesize and present results for {topic} systematic review"
     backstory: "Data synthesis expert in {domain}, specializing in {topic}"
     # Pro: Better for synthesizing large datasets, making sense of complex information.
@@ -115,7 +115,7 @@ agents:
     max_iterations: 3
     
   discussion_writer:
-    role: "{topic} Discussion Writer"
+    role: "Discussion Writer"
     goal: "Write comprehensive discussion for {topic} systematic review"
     backstory: "Critical analysis expert in {domain}, focusing on {topic}"
     # Pro: Best for critical analysis, complex reasoning, and nuanced interpretation.
@@ -127,7 +127,7 @@ agents:
 
 # Workflow Settings
 workflow:
-  databases: ["PubMed", "arXiv", "Semantic Scholar", "Crossref", "Scopus"]
+  databases: ["PubMed", "arXiv", "Semantic Scholar", "Crossref", "ACM"]
   date_range:
     start: null  # null means no start limit
     end: 2025
@@ -173,12 +173,38 @@ workflow:
       max_results: 100
       rate_limit: 5
       requires_api_key: true
+    ACM:
+      enabled: true
+      max_results: 100
+      rate_limit: 2  # Conservative rate limit for web scraping
+      requires_api_key: false
   
   # Caching settings
   cache:
     enabled: true
     ttl_hours: 24  # Time-to-live for cached results
     cache_dir: "data/cache"
+  
+  # Proxy settings
+  proxy:
+    enabled: false
+    type: "none"  # Options: none, http, socks5, scraperapi, free
+    http_proxy: "${HTTP_PROXY}"  # HTTP proxy URL (e.g., "http://proxy.example.com:8080")
+    https_proxy: "${HTTPS_PROXY}"  # HTTPS proxy URL (defaults to http_proxy if not specified)
+    scraperapi_key: "${SCRAPERAPI_KEY}"  # ScraperAPI key (required for scraperapi type)
+    rotation_on_failure: true  # Rotate proxy on failure
+    timeout: 5.0  # Timeout for proxy health checks (seconds)
+  
+  # Integrity checking settings
+  integrity:
+    enabled: true
+    required_fields: ["title", "authors"]  # Fields that must be present
+    action: "warn"  # Options: warn (log warning) or raise (raise exception)
+  
+  # Session management settings
+  session:
+    persistent: true  # Use persistent HTTP sessions with cookie handling
+    cookie_jar: "data/cookies"  # Directory for storing cookies
   
   # Search logging (PRISMA compliance)
   search_logging:
@@ -211,9 +237,39 @@ search_terms:
   low_income: ["low-income", "underserved", "vulnerable populations", "health disparities", "socioeconomic", "health equity"]
   health_equity: ["health equity", "health disparities", "access to care", "barriers to healthcare"]
 
+# Protocol Registration
+protocol:
+  registered: false  # Set to true if protocol is registered
+  registry: "PROSPERO"  # Options: "PROSPERO", "OSF", "Other"
+  registration_number: ""  # Fill in if registered (e.g., "CRD42025XXXXXX")
+  url: ""  # Fill in if registered (e.g., "https://www.crd.york.ac.uk/prospero/display_record.php?ID=CRD42025XXXXXX")
+
+# Supplementary Materials
+supplementary_materials:
+  search_strategies: true  # Include full search strategies
+  extracted_data: true  # Include extracted data
+  analysis_code: false  # Include analysis code if available
+  other_materials: []  # List any other supplementary materials
+
+# Quality Assessment Configuration
+quality_assessment:
+  risk_of_bias_tool: "RoB 2"  # Options: "RoB 2", "ROBINS-I", "CASP"
+  grade_assessment: true  # Enable GRADE certainty assessment
+  template_path: "data/quality_assessments/{workflow_id}_assessments.json"  # Path template for assessment file
+
+# Funding Information
+funding:
+  source: "No funding received"  # Update with actual funding source if applicable
+  grant_number: ""  # Grant number if applicable
+  funder: ""  # Funder name if applicable
+
+# Conflicts of Interest
+conflicts_of_interest:
+  statement: "The authors declare no conflicts of interest."  # Update as needed
+
 # Output Configuration
 output:
   directory: "data/outputs"
-  formats: ["markdown", "json"]
+  formats: ["markdown", "json", "bibtex", "ris"]  # ris: Research Information Systems format
   generate_prisma: true
   generate_charts: true

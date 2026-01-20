@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Test Data Generator
+[Utility Script] Test Data Generator
 
 Generate test fixtures from checkpoints or create mock data.
 """
@@ -22,7 +22,7 @@ from rich.console import Console
 from rich.progress import Progress, SpinnerColumn, TextColumn
 
 from src.testing.stage_loader import StageLoader
-from scripts.test_helpers import (
+from tests.fixtures.test_helpers import (
     create_mock_papers,
     create_mock_screening_results,
     create_mock_extracted_data,

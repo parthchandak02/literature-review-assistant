@@ -1,0 +1,64 @@
+graph TD
+    Start[Start: main.py] --> Phase1[Phase 1: Build Search Strategy]
+    Phase1 --> Phase2[Phase 2: Search Databases]
+    Phase2 --> Phase3[Phase 3: Deduplication]
+    Phase3 --> Phase4[Phase 4: Title/Abstract Screening]
+    Phase4 --> Phase5[Phase 5: Full-text Screening]
+    Phase5 --> Phase6[Phase 6: Final Inclusion]
+    Phase6 --> Phase6_5[Phase 6.5: Paper Enrichment]
+    Phase6_5 --> Phase7[Phase 7: Data Extraction]
+    Phase7 --> Phase8[Phase 8: Quality Assessment]
+    Phase8 --> Phase9[Phase 9: PRISMA Diagram Generation]
+    Phase9 --> Phase10[Phase 10: Visualization Generation]
+    Phase10 --> Phase11[Phase 11: Article Writing]
+    Phase11 --> Phase12[Phase 12: Final Report Compilation]
+    Phase12 --> End[End: Output Files]
+    
+    Phase1 -.Checkpoint.-> CP1[Checkpoint: search_strategy]
+    Phase2 -.Checkpoint.-> CP2[Checkpoint: search_databases]
+    Phase3 -.Checkpoint.-> CP3[Checkpoint: deduplication]
+    Phase4 -.Checkpoint.-> CP4[Checkpoint: title_abstract_screening]
+    Phase5 -.Checkpoint.-> CP5[Checkpoint: fulltext_screening]
+    Phase6_5 -.Checkpoint.-> CP6[Checkpoint: paper_enrichment]
+    Phase7 -.Checkpoint.-> CP7[Checkpoint: data_extraction]
+    Phase8 -.Checkpoint.-> CP8[Checkpoint: quality_assessment]
+    Phase11 -.Checkpoint.-> CP9[Checkpoint: article_writing]
+    
+    CP2 --> State[Workflow State]
+    CP3 --> State
+    CP4 --> State
+    CP5 --> State
+    CP6 --> State
+    CP7 --> State
+    CP8 --> State
+    CP9 --> State
+    
+    State -.Resume.-> Phase1
+    State -.Resume.-> Phase2
+    State -.Resume.-> Phase3
+    State -.Resume.-> Phase4
+    State -.Resume.-> Phase5
+    State -.Resume.-> Phase6_5
+    State -.Resume.-> Phase7
+    State -.Resume.-> Phase8
+    State -.Resume.-> Phase11
+    
+    Phase11 --> Intro[Introduction Agent]
+    Phase11 --> Methods[Methods Agent]
+    Phase11 --> Results[Results Agent]
+    Phase11 --> Discussion[Discussion Agent]
+    Phase11 --> Abstract[Abstract Agent]
+    
+    Intro --> Phase12
+    Methods --> Phase12
+    Results --> Phase12
+    Discussion --> Phase12
+    Abstract --> Phase12
+    
+    Phase12 --> Report[final_report.md]
+    Phase12 --> Checklist[prisma_checklist.json]
+    Phase12 --> Strategies[search_strategies.md]
+    Phase12 --> ExtractionForm[data_extraction_form.md]
+    Phase12 --> BibTeX[references.bib]
+    Phase12 --> PRISMADiagram[prisma_diagram.png]
+    Phase12 --> Visualizations[*.png, *.html]

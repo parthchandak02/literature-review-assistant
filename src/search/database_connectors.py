@@ -9,6 +9,9 @@ This module maintains backward compatibility by re-exporting from the refactored
 
 # Re-export base classes and Paper for backward compatibility
 from .connectors.base import Paper, DatabaseConnector
+from .proxy_manager import ProxyManager
+from .integrity_checker import IntegrityChecker
+from ..utils.html_utils import html_unescape, clean_abstract
 
 # Re-export connectors (will be imported from individual files once created)
 # For now, keep the implementations here but mark them for migration
@@ -42,8 +45,19 @@ class PubMedConnector(DatabaseConnector):
         api_key: Optional[str] = None,
         email: Optional[str] = None,
         cache: Optional[SearchCache] = None,
+        proxy_manager: Optional[ProxyManager] = None,
+        integrity_checker: Optional[IntegrityChecker] = None,
+        persistent_session: bool = True,
+        cookie_jar: Optional[str] = None,
     ):
-        super().__init__(api_key or os.getenv("PUBMED_API_KEY"), cache)
+        super().__init__(
+            api_key or os.getenv("PUBMED_API_KEY"),
+            cache,
+            proxy_manager,
+            integrity_checker,
+            persistent_session,
+            cookie_jar,
+        )
         self.email = email or os.getenv("PUBMED_EMAIL")
         self.base_url = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils"
 
@@ -76,7 +90,11 @@ class PubMedConnector(DatabaseConnector):
             if self.email:
                 params["email"] = self.email
 
-            response = requests.get(search_url, params=params, timeout=30)
+            session = self._get_session()
+            request_kwargs = self._get_request_kwargs()
+            request_kwargs.setdefault("timeout", 30)
+            
+            response = session.get(search_url, params=params, **request_kwargs)
             response.raise_for_status()
             search_data = response.json()
 
@@ -108,7 +126,7 @@ class PubMedConnector(DatabaseConnector):
                 if self.api_key:
                     fetch_params["api_key"] = self.api_key
 
-                fetch_response = requests.get(fetch_url, params=fetch_params, timeout=30)
+                fetch_response = session.get(fetch_url, params=fetch_params, **request_kwargs)
                 fetch_response.raise_for_status()
 
                 # Parse XML
@@ -132,6 +150,9 @@ class PubMedConnector(DatabaseConnector):
             logger.error(f"Error searching PubMed: {e}")
             raise DatabaseSearchError(f"PubMed search error: {e}") from e
 
+        # Validate papers
+        papers = self._validate_papers(papers)
+
         # Cache results
         if self.cache and papers:
             self.cache.set(query, "PubMed", papers)
@@ -145,7 +166,7 @@ class PubMedConnector(DatabaseConnector):
         try:
             # Title (PubMed XML doesn't use namespaces)
             title_elem = article.find(".//ArticleTitle", namespace)
-            title = title_elem.text if title_elem is not None and title_elem.text else ""
+            title = html_unescape(title_elem.text) if title_elem is not None and title_elem.text else ""
 
             # Abstract
             abstract_elems = article.findall(".//AbstractText", namespace)
@@ -153,12 +174,12 @@ class PubMedConnector(DatabaseConnector):
             for elem in abstract_elems:
                 if elem.text:
                     label = elem.get("Label", "")
-                    text = elem.text
+                    text = html_unescape(elem.text)
                     if label:
                         abstract_parts.append(f"{label}: {text}")
                     else:
                         abstract_parts.append(text)
-            abstract = " ".join(abstract_parts) if abstract_parts else ""
+            abstract = clean_abstract(" ".join(abstract_parts) if abstract_parts else "")
 
             # Authors
             authors = []
@@ -241,8 +262,21 @@ class PubMedConnector(DatabaseConnector):
 class ArxivConnector(DatabaseConnector):
     """arXiv connector using official arxiv Python library."""
 
-    def __init__(self, cache: Optional[SearchCache] = None):
-        super().__init__(cache=cache)
+    def __init__(
+        self,
+        cache: Optional[SearchCache] = None,
+        proxy_manager: Optional[ProxyManager] = None,
+        integrity_checker: Optional[IntegrityChecker] = None,
+        persistent_session: bool = True,
+        cookie_jar: Optional[str] = None,
+    ):
+        super().__init__(
+            cache=cache,
+            proxy_manager=proxy_manager,
+            integrity_checker=integrity_checker,
+            persistent_session=persistent_session,
+            cookie_jar=cookie_jar,
+        )
         try:
             import arxiv
 
@@ -306,6 +340,9 @@ class ArxivConnector(DatabaseConnector):
             logger.error(f"Error searching arXiv: {e}")
             raise DatabaseSearchError(f"arXiv search error: {e}") from e
 
+        # Validate papers
+        papers = self._validate_papers(papers)
+
         # Cache results
         if self.cache and papers:
             self.cache.set(query, "arXiv", papers)
@@ -319,8 +356,23 @@ class ArxivConnector(DatabaseConnector):
 class SemanticScholarConnector(DatabaseConnector):
     """Semantic Scholar connector."""
 
-    def __init__(self, api_key: Optional[str] = None, cache: Optional[SearchCache] = None):
-        super().__init__(api_key or os.getenv("SEMANTIC_SCHOLAR_API_KEY"), cache)
+    def __init__(
+        self,
+        api_key: Optional[str] = None,
+        cache: Optional[SearchCache] = None,
+        proxy_manager: Optional[ProxyManager] = None,
+        integrity_checker: Optional[IntegrityChecker] = None,
+        persistent_session: bool = True,
+        cookie_jar: Optional[str] = None,
+    ):
+        super().__init__(
+            api_key or os.getenv("SEMANTIC_SCHOLAR_API_KEY"),
+            cache,
+            proxy_manager,
+            integrity_checker,
+            persistent_session,
+            cookie_jar,
+        )
         self.base_url = "https://api.semanticscholar.org/graph/v1/paper/search"
 
     @retry_with_backoff(max_attempts=3)
@@ -352,7 +404,11 @@ class SemanticScholarConnector(DatabaseConnector):
                 if self.api_key:
                     headers["x-api-key"] = self.api_key
 
-                response = requests.get(self.base_url, params=params, headers=headers, timeout=30)
+                session = self._get_session()
+                request_kwargs = self._get_request_kwargs()
+                request_kwargs.setdefault("timeout", 30)
+                
+                response = session.get(self.base_url, params=params, headers=headers, **request_kwargs)
 
                 if response.status_code == 429:
                     raise RateLimitError("Semantic Scholar rate limit exceeded")
@@ -431,6 +487,9 @@ class SemanticScholarConnector(DatabaseConnector):
             logger.error(f"Error searching Semantic Scholar: {e}")
             raise DatabaseSearchError(f"Semantic Scholar search error: {e}") from e
 
+        # Validate papers
+        papers = self._validate_papers(papers)
+
         # Cache results
         if self.cache and papers:
             self.cache.set(query, "Semantic Scholar", papers)
@@ -444,8 +503,22 @@ class SemanticScholarConnector(DatabaseConnector):
 class CrossrefConnector(DatabaseConnector):
     """Crossref connector using REST API."""
 
-    def __init__(self, email: Optional[str] = None, cache: Optional[SearchCache] = None):
-        super().__init__(cache=cache)
+    def __init__(
+        self,
+        email: Optional[str] = None,
+        cache: Optional[SearchCache] = None,
+        proxy_manager: Optional[ProxyManager] = None,
+        integrity_checker: Optional[IntegrityChecker] = None,
+        persistent_session: bool = True,
+        cookie_jar: Optional[str] = None,
+    ):
+        super().__init__(
+            cache=cache,
+            proxy_manager=proxy_manager,
+            integrity_checker=integrity_checker,
+            persistent_session=persistent_session,
+            cookie_jar=cookie_jar,
+        )
         self.email = email or os.getenv("CROSSREF_EMAIL", "user@example.com")
         self.base_url = "https://api.crossref.org/works"
 
@@ -474,7 +547,11 @@ class CrossrefConnector(DatabaseConnector):
                     "mailto": self.email,
                 }
 
-                response = requests.get(self.base_url, params=params, timeout=30)
+                session = self._get_session()
+                request_kwargs = self._get_request_kwargs()
+                request_kwargs.setdefault("timeout", 30)
+                
+                response = session.get(self.base_url, params=params, **request_kwargs)
 
                 if response.status_code == 429:
                     raise RateLimitError("Crossref rate limit exceeded")
@@ -619,6 +696,9 @@ class CrossrefConnector(DatabaseConnector):
             logger.error(f"Error searching Crossref: {e}")
             raise DatabaseSearchError(f"Crossref search error: {e}") from e
 
+        # Validate papers
+        papers = self._validate_papers(papers)
+
         # Cache results
         if self.cache and papers:
             self.cache.set(query, "Crossref", papers)
@@ -632,9 +712,28 @@ class CrossrefConnector(DatabaseConnector):
 class ScopusConnector(DatabaseConnector):
     """Scopus connector (requires API key)."""
 
-    def __init__(self, api_key: Optional[str] = None, cache: Optional[SearchCache] = None):
-        super().__init__(api_key or os.getenv("SCOPUS_API_KEY"), cache)
+    def __init__(
+        self,
+        api_key: Optional[str] = None,
+        cache: Optional[SearchCache] = None,
+        proxy_manager: Optional[ProxyManager] = None,
+        integrity_checker: Optional[IntegrityChecker] = None,
+        view: Optional[str] = None,
+        persistent_session: bool = True,
+        cookie_jar: Optional[str] = None,
+    ):
+        super().__init__(
+            api_key or os.getenv("SCOPUS_API_KEY"),
+            cache,
+            proxy_manager,
+            integrity_checker,
+            persistent_session,
+            cookie_jar,
+        )
         self.base_url = "https://api.elsevier.com/content/search/scopus"
+        # View: STANDARD (basic fields) or COMPLETE (all fields, requires subscription)
+        # If None, defaults to COMPLETE if subscriber, STANDARD otherwise
+        self.view = view
 
     @retry_with_backoff(max_attempts=3)
     def search(self, query: str, max_results: int = 100) -> List[Paper]:
@@ -654,18 +753,25 @@ class ScopusConnector(DatabaseConnector):
         try:
             headers = {"Accept": "application/json", "X-ELS-APIKey": self.api_key}
 
+            # Determine view: COMPLETE for subscribers (more fields), STANDARD otherwise
+            view = self.view or "COMPLETE"  # Default to COMPLETE for richer data
+            
             params = {
                 "query": query,
                 "count": min(max_results, 25),  # Scopus API limit per request
                 "start": 0,
-                "view": "COMPLETE",  # Required to get abstracts and full author info
+                "view": view,
             }
 
             while len(papers) < max_results:
                 rate_limiter = self._get_rate_limiter()
                 rate_limiter.acquire()
 
-                response = requests.get(self.base_url, headers=headers, params=params, timeout=30)
+                session = self._get_session()
+                request_kwargs = self._get_request_kwargs()
+                request_kwargs.setdefault("timeout", 30)
+                
+                response = session.get(self.base_url, headers=headers, params=params, **request_kwargs)
 
                 if response.status_code == 401:
                     raise APIKeyError("Invalid Scopus API key")
@@ -773,6 +879,9 @@ class ScopusConnector(DatabaseConnector):
             logger.error(f"Error searching Scopus: {e}")
             raise DatabaseSearchError(f"Scopus search error: {e}") from e
 
+        # Validate papers
+        papers = self._validate_papers(papers)
+
         # Cache results
         if self.cache and papers:
             self.cache.set(query, "Scopus", papers)
@@ -781,6 +890,247 @@ class ScopusConnector(DatabaseConnector):
 
     def get_database_name(self) -> str:
         return "Scopus"
+
+
+class ACMConnector(DatabaseConnector):
+    """ACM Digital Library connector using web scraping."""
+
+    def __init__(
+        self,
+        cache: Optional[SearchCache] = None,
+        proxy_manager: Optional[ProxyManager] = None,
+        integrity_checker: Optional[IntegrityChecker] = None,
+        persistent_session: bool = True,
+        cookie_jar: Optional[str] = None,
+    ):
+        super().__init__(
+            api_key=None,
+            cache=cache,
+            proxy_manager=proxy_manager,
+            integrity_checker=integrity_checker,
+            persistent_session=persistent_session,
+            cookie_jar=cookie_jar,
+        )
+        self.base_url = "https://dl.acm.org"
+        self.search_url = f"{self.base_url}/action/doSearch"
+
+    @retry_with_backoff(max_attempts=3)
+    def search(self, query: str, max_results: int = 100) -> List[Paper]:
+        """Search ACM Digital Library."""
+        # Check cache first
+        if self.cache:
+            cached = self.cache.get(query, "ACM")
+            if cached:
+                return cached[:max_results]
+
+        papers = []
+
+        try:
+            from bs4 import BeautifulSoup
+
+            # ACM search parameters
+            page_size = 20  # ACM typically shows 20 results per page
+            start_page = 0
+            pages_needed = (max_results + page_size - 1) // page_size
+
+            for page in range(pages_needed):
+                if len(papers) >= max_results:
+                    break
+
+                rate_limiter = self._get_rate_limiter()
+                rate_limiter.acquire()
+
+                params = {
+                    "AllField": query,
+                    "pageSize": page_size,
+                    "startPage": start_page + page,
+                }
+
+                headers = {
+                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
+                }
+
+                session = self._get_session()
+                request_kwargs = self._get_request_kwargs()
+                request_kwargs.setdefault("timeout", 30)
+                
+                response = session.get(self.search_url, params=params, headers=headers, **request_kwargs)
+                response.raise_for_status()
+
+                # Parse HTML
+                soup = BeautifulSoup(response.content, "html.parser")
+                page_papers = self._parse_search_results(soup)
+
+                if not page_papers:
+                    # No more results
+                    break
+
+                papers.extend(page_papers)
+
+                if len(page_papers) < page_size:
+                    # Last page
+                    break
+
+        except ImportError:
+            raise ImportError("beautifulsoup4 required for ACM connector. Install with: pip install beautifulsoup4")
+        except requests.RequestException as e:
+            logger.error(f"Network error searching ACM: {e}")
+            raise NetworkError(f"ACM search failed: {e}") from e
+        except Exception as e:
+            logger.error(f"Error searching ACM: {e}")
+            raise DatabaseSearchError(f"ACM search error: {e}") from e
+
+        # Limit to max_results
+        papers = papers[:max_results]
+
+        # Validate papers
+        papers = self._validate_papers(papers)
+
+        # Cache results
+        if self.cache and papers:
+            self.cache.set(query, "ACM", papers)
+
+        return papers
+
+    def _parse_search_results(self, soup) -> List[Paper]:
+        """Parse HTML search results page."""
+        papers = []
+
+        try:
+            # ACM search results are typically in divs with class "search__item" or similar
+            # Try multiple possible selectors
+            result_items = (
+                soup.find_all("div", class_="search__item")
+                or soup.find_all("div", class_="search-result-item")
+                or soup.find_all("div", class_="item")
+                or soup.find_all("article", class_="search-result-item")
+            )
+
+            if not result_items:
+                # Try finding by data attributes or other patterns
+                result_items = soup.find_all("div", {"data-testid": "search-result-item"})
+
+            for item in result_items:
+                try:
+                    paper = self._extract_paper_from_item(item)
+                    if paper:
+                        papers.append(paper)
+                except Exception as e:
+                    logger.warning(f"Error parsing ACM result item: {e}")
+                    continue
+
+        except Exception as e:
+            logger.warning(f"Error parsing ACM search results: {e}")
+
+        return papers
+
+    def _extract_paper_from_item(self, item) -> Optional[Paper]:
+        """Extract paper metadata from a single result item."""
+        try:
+            # Title - try multiple selectors
+            title_elem = (
+                item.find("h5", class_="hlFld-Title")
+                or item.find("span", class_="hlFld-Title")
+                or item.find("a", class_="hlFld-Title")
+                or item.find("h3")
+                or item.find("h4")
+            )
+            title = title_elem.get_text(strip=True) if title_elem else ""
+
+            if not title:
+                return None
+
+            # Authors - try multiple selectors
+            authors = []
+            author_links = item.find_all("a", class_="author-name") or item.find_all("span", class_="author-name")
+            if not author_links:
+                # Try finding by text pattern
+                author_section = item.find("div", class_="authors") or item.find("span", class_="authors")
+                if author_section:
+                    author_links = author_section.find_all("a")
+
+            for author_link in author_links:
+                author_name = author_link.get_text(strip=True)
+                if author_name:
+                    authors.append(author_name)
+
+            # Abstract
+            abstract_elem = (
+                item.find("div", class_="abstract")
+                or item.find("span", class_="abstract")
+                or item.find("p", class_="abstract")
+            )
+            abstract = abstract_elem.get_text(strip=True) if abstract_elem else ""
+
+            # DOI
+            doi = None
+            doi_link = item.find("a", href=lambda x: x and "doi.org" in x) if item else None
+            if doi_link:
+                href = doi_link.get("href", "")
+                # Extract DOI from URL
+                if "doi.org/" in href:
+                    doi = href.split("doi.org/")[-1]
+            else:
+                # Try finding DOI in text
+                doi_text = item.get_text()
+                import re
+                doi_match = re.search(r"10\.\d+/[^\s]+", doi_text)
+                if doi_match:
+                    doi = doi_match.group(0)
+
+            # URL
+            url = None
+            title_link = title_elem.find("a") if title_elem else None
+            if title_link:
+                href = title_link.get("href", "")
+                if href:
+                    if href.startswith("/"):
+                        url = f"{self.base_url}{href}"
+                    elif href.startswith("http"):
+                        url = href
+
+            # Year
+            year = None
+            year_elem = item.find("span", class_="year") or item.find("div", class_="year")
+            if year_elem:
+                year_text = year_elem.get_text(strip=True)
+                import re
+                year_match = re.search(r"\d{4}", year_text)
+                if year_match:
+                    try:
+                        year = int(year_match.group(0))
+                    except ValueError:
+                        pass
+
+            # Venue/Journal
+            venue = None
+            venue_elem = (
+                item.find("span", class_="venue")
+                or item.find("div", class_="venue")
+                or item.find("span", class_="publication")
+            )
+            if venue_elem:
+                venue = venue_elem.get_text(strip=True)
+
+            paper = Paper(
+                title=title,
+                abstract=abstract,
+                authors=authors if authors else [],
+                year=year,
+                doi=doi,
+                journal=venue,
+                database="ACM",
+                url=url,
+            )
+
+            return paper
+
+        except Exception as e:
+            logger.warning(f"Error extracting paper from ACM item: {e}")
+            return None
+
+    def get_database_name(self) -> str:
+        return "ACM"
 
 
 class MockConnector(DatabaseConnector):

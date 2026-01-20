@@ -1,8 +1,8 @@
 """Tests for CitationManager."""
 
 import pytest
-from research_article_writer.src.citations import CitationManager
-from research_article_writer.src.search.database_connectors import Paper
+from src.citations import CitationManager
+from src.search.database_connectors import Paper
 
 
 @pytest.fixture
@@ -86,3 +86,24 @@ def test_empty_papers():
     assert "[1]" in result
     references = manager.generate_references_section()
     assert "No citations found" in references
+
+
+def test_generate_bibtex_references(sample_papers):
+    """Test BibTeX references generation."""
+    manager = CitationManager(sample_papers)
+    manager.extract_and_map_citations("See [Citation 1].")
+    bibtex = manager.generate_bibtex_references()
+    assert "@article" in bibtex or "@inproceedings" in bibtex or "@misc" in bibtex
+    assert "Test Paper 1" in bibtex
+
+
+def test_export_bibtex(sample_papers, tmp_path):
+    """Test BibTeX export to file."""
+    manager = CitationManager(sample_papers)
+    manager.extract_and_map_citations("See [Citation 1].")
+    output_path = tmp_path / "test.bib"
+    result_path = manager.export_bibtex(str(output_path))
+    assert output_path.exists()
+    assert result_path == str(output_path)
+    content = output_path.read_text()
+    assert "@article" in content or "@inproceedings" in content or "@misc" in content

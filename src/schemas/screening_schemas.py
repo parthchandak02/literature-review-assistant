@@ -4,7 +4,7 @@ Pydantic schemas for screening agent outputs.
 
 from enum import Enum
 from typing import Optional, List
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, ConfigDict
 
 
 class InclusionDecision(str, Enum):
@@ -36,8 +36,8 @@ class ScreeningResultSchema(BaseModel):
             raise ValueError("Confidence must be between 0.0 and 1.0")
         return v
 
-    class Config:
-        json_schema_extra = {
+    model_config = ConfigDict(
+        json_schema_extra={
             "example": {
                 "decision": "include",
                 "confidence": 0.85,
@@ -45,6 +45,7 @@ class ScreeningResultSchema(BaseModel):
                 "exclusion_reason": None,
             }
         }
+    )
 
 
 class ScreeningRequestSchema(BaseModel):

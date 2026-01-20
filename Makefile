@@ -18,7 +18,7 @@ install:
 	fi
 
 run:
-	@python main.py
+	@if [ -d .venv ]; then .venv/bin/python main.py; else python3 main.py; fi
 
 clean:
 	@echo "Cleaning up..."
@@ -27,7 +27,24 @@ clean:
 
 test:
 	@echo "Running tests..."
-	@python -m pytest tests/ || echo "No tests directory found"
+	@if [ -d .venv ]; then .venv/bin/python -m pytest tests/ || echo "No tests directory found"; else python3 -m pytest tests/ || echo "No tests directory found"; fi
+
+test-prisma:
+	@echo "Running PRISMA 2020 tests..."
+	@if [ -d .venv ]; then .venv/bin/python scripts/run_prisma_tests.py; else python3 scripts/run_prisma_tests.py; fi
+
+test-all:
+	@echo "Running all tests..."
+	@if [ -d .venv ]; then .venv/bin/python -m pytest tests/ -v || echo "No tests directory found"; else python3 -m pytest tests/ -v || echo "No tests directory found"; fi
+
+test-report:
+	@echo "Generating test report..."
+	@if [ -d .venv ]; then .venv/bin/python scripts/run_prisma_tests.py; else python3 scripts/run_prisma_tests.py; fi
+	@echo "Test report saved to data/test_outputs/"
+
+test-status:
+	@echo "Checking test status..."
+	@if [ -d .venv ]; then .venv/bin/python scripts/check_test_status.py; else python3 scripts/check_test_status.py; fi
 
 lint:
 	@echo "Running Ruff linter and formatter..."
@@ -37,9 +54,13 @@ lint:
 
 help:
 	@echo "Available commands:"
-	@echo "  make setup    - Create virtual environment"
-	@echo "  make install  - Install dependencies"
-	@echo "  make run      - Run the workflow"
-	@echo "  make clean    - Clean generated files"
-	@echo "  make test     - Run tests"
-	@echo "  make lint     - Run Ruff linter and formatter"
+	@echo "  make setup       - Create virtual environment"
+	@echo "  make install     - Install dependencies"
+	@echo "  make run         - Run the workflow"
+	@echo "  make clean       - Clean generated files"
+	@echo "  make test        - Run all tests"
+	@echo "  make test-prisma - Run PRISMA 2020 tests with reports"
+	@echo "  make test-all    - Run all tests (verbose)"
+	@echo "  make test-report - Generate test report"
+	@echo "  make test-status - Check test status (quick)"
+	@echo "  make lint        - Run Ruff linter and formatter"

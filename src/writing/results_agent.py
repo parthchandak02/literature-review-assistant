@@ -39,6 +39,10 @@ class ResultsWriter(BaseScreeningAgent):
         prisma_counts: Dict[str, int],
         key_findings: Optional[List[str]] = None,
         topic_context: Optional[Dict[str, Any]] = None,
+        risk_of_bias_summary: Optional[str] = None,
+        risk_of_bias_table: Optional[str] = None,
+        grade_assessments: Optional[str] = None,
+        grade_table: Optional[str] = None,
     ) -> str:
         """
         Write results section.
@@ -47,6 +51,10 @@ class ResultsWriter(BaseScreeningAgent):
             extracted_data: List of extracted data from included studies
             prisma_counts: PRISMA flow counts
             key_findings: Optional list of key findings to highlight
+            risk_of_bias_summary: Narrative summary of risk of bias assessments
+            risk_of_bias_table: Markdown table of risk of bias assessments
+            grade_assessments: Narrative summary of GRADE assessments
+            grade_table: Markdown table of GRADE evidence profile
 
         Returns:
             Results text
@@ -56,7 +64,14 @@ class ResultsWriter(BaseScreeningAgent):
             original_context = self.topic_context
             self.topic_context = topic_context
 
-        prompt = self._build_results_prompt(extracted_data, prisma_counts, key_findings)
+        # Generate study characteristics table
+        study_characteristics_table = self._generate_study_characteristics_table(extracted_data)
+        
+        prompt = self._build_results_prompt(
+            extracted_data, prisma_counts, key_findings,
+            study_characteristics_table, risk_of_bias_summary, risk_of_bias_table,
+            grade_assessments, grade_table
+        )
 
         if not self.llm_client:
             result = self._fallback_results(extracted_data, prisma_counts)
@@ -72,11 +87,70 @@ class ResultsWriter(BaseScreeningAgent):
         result = clean_writing_output(result)
         return result
 
+    def _generate_study_characteristics_table(
+        self, extracted_data: List[ExtractedData]
+    ) -> str:
+        """
+        Generate markdown table of study characteristics.
+
+        Args:
+            extracted_data: List of extracted study data
+
+        Returns:
+            Markdown table string
+        """
+        if not extracted_data:
+            return "No studies included."
+
+        # Build table header
+        header = "| Study ID | Author, Year | Country | Design | Population | Intervention | Outcomes | Key Findings |\n"
+        separator = "|" + "|".join(["---"] * 8) + "|\n"
+
+        rows = []
+        for i, data in enumerate(extracted_data, 1):
+            study_id = f"Study {i}"
+            
+            # Extract author and year
+            author_year = ""
+            if data.authors:
+                first_author = data.authors[0].split(",")[0] if "," in data.authors[0] else data.authors[0]
+                author_year = f"{first_author} et al."
+            if data.year:
+                author_year += f", {data.year}"
+            if not author_year:
+                author_year = "Not specified"
+            
+            # Truncate long fields for table
+            country = (data.country or "Not specified")[:30]
+            design = (data.study_design or "Not specified")[:30]
+            population = (data.participants or "Not specified")[:50]
+            intervention = (data.interventions or "Not specified")[:50]
+            outcomes = ", ".join(data.outcomes[:3])[:50] if data.outcomes else "Not specified"
+            if len(data.outcomes) > 3:
+                outcomes += "..."
+            key_findings = ", ".join(data.key_findings[:2])[:50] if data.key_findings else "Not specified"
+            if len(data.key_findings) > 2:
+                key_findings += "..."
+
+            row = (
+                f"| {study_id} | {author_year} | {country} | {design} | "
+                f"{population} | {intervention} | {outcomes} | {key_findings} |\n"
+            )
+            rows.append(row)
+
+        table = header + separator + "".join(rows)
+        return table
+
     def _build_results_prompt(
         self,
         extracted_data: List[ExtractedData],
         prisma_counts: Dict[str, int],
         key_findings: Optional[List[str]],
+        study_characteristics_table: str,
+        risk_of_bias_summary: Optional[str] = None,
+        risk_of_bias_table: Optional[str] = None,
+        grade_assessments: Optional[str] = None,
+        grade_table: Optional[str] = None,
     ) -> str:
         """Build prompt for results writing."""
         num_studies = len(extracted_data)
@@ -124,6 +198,21 @@ Study {i}: {data.title}
                 f"\nKey Findings to Highlight:\n{chr(10).join(f'- {f}' for f in key_findings)}"
             )
 
+        # Add study characteristics table
+        prompt += f"\n\nStudy Characteristics Table:\n{study_characteristics_table}\n"
+
+        # Add risk of bias information if available
+        if risk_of_bias_table:
+            prompt += f"\n\nRisk of Bias Assessment Table:\n{risk_of_bias_table}\n"
+        if risk_of_bias_summary:
+            prompt += f"\n\nRisk of Bias Summary:\n{risk_of_bias_summary}\n"
+
+        # Add GRADE information if available
+        if grade_table:
+            prompt += f"\n\nGRADE Evidence Profile Table:\n{grade_table}\n"
+        if grade_assessments:
+            prompt += f"\n\nGRADE Assessments Summary:\n{grade_assessments}\n"
+
         constraint_text = """
 CRITICAL OUTPUT CONSTRAINTS:
 - Begin IMMEDIATELY with substantive content - do NOT start with phrases like "Here is a results section..." or "Of course. Here is..."
@@ -158,28 +247,39 @@ Please write a results section that includes:
 2. Explanation of why no studies met inclusion criteria
 3. Summary of search results and screening process
 
-Write in past tense and use appropriate academic language. Begin immediately with the study selection summary - do not include any introductory phrases."""
+Write in past tense and use appropriate academic language. Begin immediately with the study selection summary - do not include any introductory phrases.
+- DO NOT include a "Results" subsection header (### Results) - the Results section header is already provided, start directly with "### Study Selection" """
         elif num_studies == 1:
             prompt += constraint_text + """
 
 Please write a results section that includes:
 1. Study Selection (PRISMA flow summary)
-2. Study Characteristics (detailed description of the single included study)
-3. Key Findings (detailed findings from the single study)
-4. Note the limitation of having only one study
+2. Study Characteristics (include the study characteristics table provided above)
+3. Risk of Bias in Studies (if risk of bias table is provided above, include it)
+4. Key Findings (detailed findings from the single study)
+5. Note the limitation of having only one study
 
-Write in past tense, use SINGULAR language (e.g., "the study" not "studies"), and use appropriate academic language. Begin immediately with the study selection summary - do not include any introductory phrases."""
+Write in past tense, use SINGULAR language (e.g., "the study" not "studies"), and use appropriate academic language. Begin immediately with the study selection summary - do not include any introductory phrases.
+- DO NOT include a "Results" subsection header (### Results) - the Results section header is already provided, start directly with "### Study Selection" """
         else:
             prompt += constraint_text + """
 
 Please write a detailed results section that includes:
-1. Study Selection (PRISMA flow summary)
-2. Study Characteristics (overview of included studies)
-3. Key Findings Synthesis (synthesize findings across studies)
-4. Patterns and Themes (identify common patterns)
-5. Quantitative Results (if applicable)
+1. Study Selection (PRISMA flow summary - note that the PRISMA diagram will be inserted separately)
+2. Study Characteristics (include the study characteristics table provided above - it is already formatted as a markdown table)
+3. Risk of Bias in Studies (if risk of bias table is provided above, include it and write a narrative summary)
+4. Results of Individual Studies (synthesize findings across studies)
+5. Results of Syntheses (identify common patterns and themes, include quantitative results if applicable with effect sizes, confidence intervals, p-values)
+6. Reporting Biases (assessment of publication bias, selective outcome reporting, and other reporting biases)
+7. Certainty of Evidence (if GRADE table is provided above, include it and write a narrative summary)
 
-Write in past tense, synthesize findings across studies, and use appropriate academic language. Begin immediately with the study selection summary - do not include any introductory phrases."""
+IMPORTANT: 
+- Include the study characteristics table exactly as provided above
+- If risk of bias information is provided, include the table and write a narrative summary (150-200 words)
+- If GRADE information is provided, include the GRADE evidence profile table and write a narrative summary
+- Write in past tense, synthesize findings across studies, and use appropriate academic language
+- Begin immediately with the study selection summary - do not include any introductory phrases
+- DO NOT include a "Results" subsection header (### Results) - the Results section header is already provided, start directly with "### Study Selection" """
 
         return prompt
 

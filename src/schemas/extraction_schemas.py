@@ -2,8 +2,8 @@
 Pydantic schemas for data extraction agent outputs.
 """
 
-from typing import Optional, List
-from pydantic import BaseModel, Field
+from typing import Optional, List, Any
+from pydantic import BaseModel, Field, field_validator, ConfigDict
 
 
 class ExtractedDataSchema(BaseModel):
@@ -31,6 +31,22 @@ class ExtractedDataSchema(BaseModel):
         default=None, description="Description of interventions or treatments"
     )
     outcomes: List[str] = Field(default_factory=list, description="List of measured outcomes")
+    # Additional fields for study characteristics table
+    country: Optional[str] = Field(
+        default=None, description="Country where study was conducted"
+    )
+    setting: Optional[str] = Field(
+        default=None, description="Study setting (e.g., hospital, community, online)"
+    )
+    sample_size: Optional[int] = Field(
+        default=None, description="Number of participants in the study"
+    )
+    detailed_outcomes: List[str] = Field(
+        default_factory=list, description="Detailed outcome measures with units and measurement methods"
+    )
+    quantitative_results: Optional[str] = Field(
+        default=None, description="Quantitative results including effect sizes, confidence intervals, p-values, and statistical tests"
+    )
     key_findings: List[str] = Field(
         default_factory=list, description="List of key findings/results"
     )
@@ -50,8 +66,52 @@ class ExtractedDataSchema(BaseModel):
         default_factory=list, description="Accessibility features mentioned"
     )
 
-    class Config:
-        json_schema_extra = {
+    @field_validator(
+        "authors",
+        "study_objectives",
+        "outcomes",
+        "detailed_outcomes",
+        "key_findings",
+        "ux_strategies",
+        "adaptivity_frameworks",
+        "patient_populations",
+        "accessibility_features",
+        mode="before",
+    )
+    @classmethod
+    def normalize_list_fields(cls, v: Any) -> List[str]:
+        """
+        Normalize list fields: convert strings to empty arrays.
+        
+        This provides defense-in-depth in case normalization in the agent
+        didn't catch all cases.
+        """
+        if isinstance(v, str):
+            # Check if it's a "not available" string
+            v_lower = v.lower().strip()
+            not_available = [
+                "not applicable",
+                "not available",
+                "n/a",
+                "na",
+                "none",
+                "null",
+                "",
+            ]
+            if v_lower in not_available or v_lower.startswith("not "):
+                return []
+            # If it's a single string value, wrap it in a list
+            return [v]
+        elif isinstance(v, list):
+            return v
+        elif v is None:
+            return []
+        else:
+            # Try to convert to list
+            return [str(v)]
+
+    model_config = ConfigDict(
+        json_schema_extra={
             "example": {
                 "title": "Adaptive Telemedicine Interface Design",
                 "authors": ["Smith, J.", "Doe, A."],
@@ -79,8 +139,17 @@ class ExtractedDataSchema(BaseModel):
                     "Screen reader support",
                     "High contrast mode",
                 ],
+                "country": "United States",
+                "setting": "Academic medical center",
+                "sample_size": 100,
+                "detailed_outcomes": [
+                    "User satisfaction score (1-10 scale)",
+                    "Task completion rate (%)",
+                ],
+                "quantitative_results": "Mean satisfaction score: 7.5 (95% CI: 7.1-7.9), p<0.001. Task completion: 85% vs 72% (OR=2.1, 95% CI: 1.3-3.4)",
             }
         }
+    )
 
 
 class ExtractionRequestSchema(BaseModel):

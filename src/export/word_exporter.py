@@ -129,11 +129,23 @@ class WordExporter:
 
         # Simple markdown parsing
         lines = text.split("\n")
-        for line in lines:
-            line = line.strip()
+        i = 0
+        while i < len(lines):
+            line = lines[i].strip()
             if not line:
                 doc.add_paragraph()
+                i += 1
                 continue
+
+            # Check for markdown table
+            if line.startswith("|") and "---" in lines[i+1] if i+1 < len(lines) else False:
+                # Parse table
+                table = self._parse_markdown_table(lines, i)
+                if table:
+                    self._add_table(doc, table)
+                    # Skip table lines
+                    i += len(table["rows"]) + 2  # Header + separator + rows
+                    continue
 
             # Headers
             if line.startswith("###"):
@@ -146,6 +158,64 @@ class WordExporter:
                 # Regular paragraph
                 para = doc.add_paragraph()
                 self._add_formatted_text(para, line)
+            
+            i += 1
+
+    def _parse_markdown_table(self, lines: List[str], start_idx: int) -> Optional[Dict[str, Any]]:
+        """Parse markdown table from lines."""
+        if start_idx >= len(lines):
+            return None
+
+        header_line = lines[start_idx]
+        if not header_line.startswith("|"):
+            return None
+
+        # Parse header
+        headers = [cell.strip() for cell in header_line.split("|")[1:-1]]
+
+        # Check separator
+        if start_idx + 1 >= len(lines):
+            return None
+        separator_line = lines[start_idx + 1]
+        if "---" not in separator_line:
+            return None
+
+        # Parse rows
+        rows = []
+        i = start_idx + 2
+        while i < len(lines):
+            row_line = lines[i]
+            if not row_line.startswith("|"):
+                break
+            row_cells = [cell.strip() for cell in row_line.split("|")[1:-1]]
+            if len(row_cells) == len(headers):
+                rows.append(row_cells)
+            i += 1
+
+        return {"headers": headers, "rows": rows}
+
+    def _add_table(self, doc: Document, table: Dict[str, Any]):
+        """Add table to Word document."""
+        from docx.shared import Inches
+
+        num_cols = len(table["headers"])
+        num_rows = len(table["rows"])
+
+        word_table = doc.add_table(rows=num_rows + 1, cols=num_cols)
+        word_table.style = "Light Grid Accent 1"
+
+        # Add header row
+        header_cells = word_table.rows[0].cells
+        for i, header in enumerate(table["headers"]):
+            header_cells[i].text = header
+            header_cells[i].paragraphs[0].runs[0].bold = True
+
+        # Add data rows
+        for row_idx, row_data in enumerate(table["rows"]):
+            cells = word_table.rows[row_idx + 1].cells
+            for col_idx, cell_data in enumerate(row_data):
+                if col_idx < len(cells):
+                    cells[col_idx].text = cell_data
 
     def _add_formatted_text(self, para, text: str):
         """Add formatted text to paragraph."""

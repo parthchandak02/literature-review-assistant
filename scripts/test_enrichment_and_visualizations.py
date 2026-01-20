@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Test Enrichment and Regenerate Visualizations
+[Temporary Testing Script] Enrichment and Visualization Test
 
 Tests the paper enrichment functionality and regenerates visualizations
 with enriched data to verify the fixes from the enhanced visualization plan.

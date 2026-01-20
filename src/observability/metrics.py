@@ -132,6 +132,7 @@ class MetricsCollector:
                 "total_successful": 0,
                 "total_failed": 0,
                 "overall_success_rate": 0.0,
+                "agents": {},  # Always include agents key, even if empty
             }
 
         total_calls = sum(m.total_calls for m in self.metrics.values())

@@ -127,8 +127,11 @@ Please write a well-structured introduction that includes:
 2. Importance and relevance of the topic
 3. Identification of research gaps
 4. Clear statement of the research question
-5. Justification for conducting this systematic review
-6. Overview of the review's contribution
+5. Explicit Objectives section with bullet points listing the specific objectives of this systematic review (e.g., "The objectives of this systematic review are: (1) to identify..., (2) to assess..., (3) to synthesize...")
+6. Justification for conducting this systematic review
+7. Overview of the review's contribution
+
+CRITICAL REQUIREMENT: You MUST include an explicit "Objectives" paragraph or subsection with bullet points listing the specific objectives. This is required by PRISMA 2020 (Item #4).
 
 Write in academic style, use appropriate citations (use [Citation X] format), and ensure the introduction flows logically. Begin immediately with the background content - do not include any introductory phrases."""
 

@@ -42,6 +42,9 @@ class MethodsWriter(BaseScreeningAgent):
         data_extraction_process: str,
         prisma_counts: Optional[Dict[str, int]] = None,
         topic_context: Optional[Dict[str, Any]] = None,
+        full_search_strategies: Optional[Dict[str, str]] = None,
+        protocol_info: Optional[Dict[str, Any]] = None,
+        automation_details: Optional[str] = None,
     ) -> str:
         """
         Write methods section.
@@ -54,6 +57,9 @@ class MethodsWriter(BaseScreeningAgent):
             screening_process: Description of screening process
             data_extraction_process: Description of data extraction process
             prisma_counts: PRISMA flow counts (optional)
+            full_search_strategies: Dictionary mapping database names to full search queries
+            protocol_info: Protocol registration information (registry, number, url)
+            automation_details: Details about automation tools used (LLM for screening/extraction)
 
         Returns:
             Methods text
@@ -71,6 +77,9 @@ class MethodsWriter(BaseScreeningAgent):
             screening_process,
             data_extraction_process,
             prisma_counts,
+            full_search_strategies,
+            protocol_info,
+            automation_details,
         )
 
         if not self.llm_client:
@@ -98,14 +107,55 @@ class MethodsWriter(BaseScreeningAgent):
         screening_process: str,
         data_extraction_process: str,
         prisma_counts: Optional[Dict[str, int]],
+        full_search_strategies: Optional[Dict[str, str]] = None,
+        protocol_info: Optional[Dict[str, Any]] = None,
+        automation_details: Optional[str] = None,
     ) -> str:
         """Build prompt for methods writing."""
+        # Build protocol registration text
+        protocol_text = ""
+        if protocol_info:
+            if protocol_info.get("registered"):
+                registry = protocol_info.get("registry", "PROSPERO")
+                reg_number = protocol_info.get("registration_number", "")
+                reg_url = protocol_info.get("url", "")
+                if reg_number:
+                    protocol_text = f"The review protocol was registered with {registry} (registration number: {reg_number})."
+                    if reg_url:
+                        protocol_text += f" The protocol can be accessed at: {reg_url}"
+                else:
+                    protocol_text = f"The review protocol was registered with {registry}."
+            else:
+                protocol_text = "The review protocol was not registered."
+        else:
+            protocol_text = "Protocol registration information not available."
+
+        # Build full search strategies text
+        search_strategies_text = ""
+        if full_search_strategies:
+            search_strategies_text = "\n\nFull Search Strategies:\n\n"
+            for db_name, query in full_search_strategies.items():
+                search_strategies_text += f"{db_name}:\n{query}\n\n"
+        else:
+            search_strategies_text = "\n\nFull search strategies for all databases are provided in the supplementary materials."
+
+        # Build automation details text
+        automation_text = ""
+        if automation_details:
+            automation_text = f"\n\nAutomation Tools:\n{automation_details}"
+        else:
+            automation_text = "\n\nAutomation: Large language models (LLMs) were used to assist with title/abstract screening, full-text screening, and data extraction. All LLM outputs were verified and supplemented by human reviewers."
+
         prompt = f"""Write a comprehensive methods section for a systematic review following PRISMA 2020 guidelines.
 
-Search Strategy:
+{protocol_text}
+
+Search Strategy Overview:
 {search_strategy}
+{search_strategies_text}
 
 Databases Searched: {", ".join(databases)}
+{automation_text}
 
 Inclusion Criteria:
 {chr(10).join(f"- {criterion}" for criterion in inclusion_criteria)}
@@ -155,14 +205,18 @@ This systematic review followed PRISMA 2020 guidelines. We registered the protoc
 [END - NO CLOSING REMARKS]
 
 Please write a detailed methods section that includes:
-1. Search Strategy (databases, search terms, date ranges)
-2. Eligibility Criteria (inclusion and exclusion)
-3. Study Selection Process (screening stages)
-4. Data Extraction Methods
-5. Quality Assessment (if applicable)
-6. Data Synthesis Methods
+1. Protocol and Registration (if registered, include registry name and registration number)
+2. Eligibility Criteria (inclusion and exclusion criteria using PICOS framework)
+3. Information Sources (all databases searched with dates)
+4. Search Strategy (include full search strategies for all databases - these are provided above)
+5. Study Selection Process (screening stages, number of reviewers, automation tools used)
+6. Data Collection Process (data extraction methods, automation tools used)
+7. Risk of Bias Assessment (methods used to assess risk of bias)
+8. Reporting Bias Assessment (methods used to assess reporting biases, such as publication bias, selective outcome reporting, etc.)
+9. Certainty Assessment (GRADE or other methods used to assess certainty of evidence)
+10. Data Synthesis Methods (narrative synthesis, meta-analysis if applicable)
 
-Write in past tense, use PRISMA 2020 terminology, and ensure all methodological details are clearly described. Begin immediately with the search strategy or protocol details - do not include any introductory phrases."""
+IMPORTANT: Include the full search strategies for ALL databases in the methods section. The full search queries are provided above. Write in past tense, use PRISMA 2020 terminology, and ensure all methodological details are clearly described. Begin immediately with protocol registration or search strategy - do not include any introductory phrases."""
 
         return prompt
 

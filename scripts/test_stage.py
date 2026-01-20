@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """
-Stage Testing CLI Tool
+[Recurring Usage Script] Stage Testing CLI Tool
 
 Test individual workflow stages using checkpoints or test fixtures.
+Used by: python main.py --test-stage
 """
 
 import os

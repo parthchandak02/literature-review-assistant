@@ -15,9 +15,12 @@ from ..search.database_connectors import (
     SemanticScholarConnector,
     CrossrefConnector,
     ScopusConnector,
+    ACMConnector,
     MockConnector,
 )
 from ..search.cache import SearchCache
+from ..search.proxy_manager import ProxyManager
+from ..search.integrity_checker import IntegrityChecker, create_integrity_checker_from_config
 
 logger = logging.getLogger(__name__)
 
@@ -27,7 +30,12 @@ class DatabaseConnectorFactory:
 
     @staticmethod
     def create_connector(
-        db_name: str, cache: Optional[SearchCache] = None
+        db_name: str,
+        cache: Optional[SearchCache] = None,
+        proxy_manager: Optional[ProxyManager] = None,
+        integrity_checker: Optional[IntegrityChecker] = None,
+        persistent_session: bool = True,
+        cookie_jar: Optional[str] = None,
     ) -> Optional[DatabaseConnector]:
         """
         Create appropriate connector based on database name and available API keys.
@@ -35,6 +43,10 @@ class DatabaseConnectorFactory:
         Args:
             db_name: Name of the database
             cache: Optional search cache instance
+            proxy_manager: Optional proxy manager instance
+            integrity_checker: Optional integrity checker instance
+            persistent_session: Whether to use persistent HTTP sessions
+            cookie_jar: Path to cookie jar directory
 
         Returns:
             DatabaseConnector instance or None if database should be skipped
@@ -49,14 +61,28 @@ class DatabaseConnectorFactory:
                     f"PubMed: Using real connector (API key: {'SET' if api_key else 'NOT SET'}, "
                     f"Email: {'SET' if email else 'NOT SET'})"
                 )
-                return PubMedConnector(api_key=api_key, email=email, cache=cache)
+                return PubMedConnector(
+                    api_key=api_key,
+                    email=email,
+                    cache=cache,
+                    proxy_manager=proxy_manager,
+                    integrity_checker=integrity_checker,
+                    persistent_session=persistent_session,
+                    cookie_jar=cookie_jar,
+                )
             else:
                 logger.warning("PubMed: No API key or email set, using mock connector")
                 return MockConnector("PubMed")
 
         elif db_lower == "arxiv":
             logger.info("arXiv: Using real connector (no API key needed)")
-            return ArxivConnector(cache=cache)
+            return ArxivConnector(
+                cache=cache,
+                proxy_manager=proxy_manager,
+                integrity_checker=integrity_checker,
+                persistent_session=persistent_session,
+                cookie_jar=cookie_jar,
+            )
 
         elif db_lower == "semantic scholar":
             api_key = os.getenv("SEMANTIC_SCHOLAR_API_KEY")
@@ -64,7 +90,14 @@ class DatabaseConnectorFactory:
                 logger.info("Semantic Scholar: Using real connector (API key: SET)")
             else:
                 logger.info("Semantic Scholar: Using real connector (no API key, lower rate limits)")
-            return SemanticScholarConnector(api_key=api_key, cache=cache)
+            return SemanticScholarConnector(
+                api_key=api_key,
+                cache=cache,
+                proxy_manager=proxy_manager,
+                integrity_checker=integrity_checker,
+                persistent_session=persistent_session,
+                cookie_jar=cookie_jar,
+            )
 
         elif db_lower == "crossref":
             email = os.getenv("CROSSREF_EMAIL")
@@ -72,16 +105,43 @@ class DatabaseConnectorFactory:
                 logger.info("Crossref: Using real connector (Email: SET)")
             else:
                 logger.info("Crossref: Using real connector (no email, lower rate limits)")
-            return CrossrefConnector(email=email, cache=cache)
+            return CrossrefConnector(
+                email=email,
+                cache=cache,
+                proxy_manager=proxy_manager,
+                integrity_checker=integrity_checker,
+                persistent_session=persistent_session,
+                cookie_jar=cookie_jar,
+            )
 
         elif db_lower == "scopus":
             api_key = os.getenv("SCOPUS_API_KEY")
             if api_key:
                 logger.info("Scopus: Using real connector (API key: SET)")
-                return ScopusConnector(api_key=api_key, cache=cache)
+                # Check for view configuration (COMPLETE for subscribers, STANDARD otherwise)
+                view = os.getenv("SCOPUS_VIEW", "COMPLETE")  # Default to COMPLETE
+                return ScopusConnector(
+                    api_key=api_key,
+                    cache=cache,
+                    proxy_manager=proxy_manager,
+                    integrity_checker=integrity_checker,
+                    view=view,
+                    persistent_session=persistent_session,
+                    cookie_jar=cookie_jar,
+                )
             else:
                 logger.warning("Scopus: API key required but not set, skipping")
                 return None  # Skip Scopus if no key
+
+        elif db_lower == "acm":
+            logger.info("ACM: Using real connector (web scraping, no API key needed)")
+            return ACMConnector(
+                cache=cache,
+                proxy_manager=proxy_manager,
+                integrity_checker=integrity_checker,
+                persistent_session=persistent_session,
+                cookie_jar=cookie_jar,
+            )
 
         else:
             logger.warning(f"Unknown database: {db_name}, using mock connector")
@@ -120,6 +180,9 @@ class DatabaseConnectorFactory:
             elif db_lower == "scopus":
                 can_use = bool(os.getenv("SCOPUS_API_KEY"))
                 reason = "API key required" if not can_use else "API key available"
+            elif db_lower == "acm":
+                can_use = True  # Works without API key (web scraping)
+                reason = "Works without API key (web scraping)"
             else:
                 can_use = False
                 reason = "Unknown database"

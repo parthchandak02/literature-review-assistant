@@ -3,12 +3,27 @@ LaTeX Exporter
 
 Exports systematic review reports to LaTeX format for journal submission.
 Supports IEEE and other journal templates.
+
+Uses pylatexenc for proper LaTeX escaping and markdown library for conversion.
 """
 
 import re
 from pathlib import Path
 from typing import Dict, List, Optional, Any
 import logging
+
+try:
+    from pylatexenc.latexencode import unicode_to_latex
+    PYLATEXENC_AVAILABLE = True
+except ImportError:
+    PYLATEXENC_AVAILABLE = False
+
+try:
+    import markdown
+    from markdown.extensions import tables, fenced_code
+    MARKDOWN_AVAILABLE = True
+except ImportError:
+    MARKDOWN_AVAILABLE = False
 
 logger = logging.getLogger(__name__)
 
@@ -124,8 +139,11 @@ class LaTeXExporter:
         # Abstract
         abstract = report_data.get("abstract", "")
         if abstract:
+            # For IEEE, convert structured abstract to unstructured if needed
+            # IEEE requires unstructured abstract (150-250 words)
+            abstract_text = self._convert_to_unstructured_abstract(abstract)
             lines.append("\\begin{abstract}")
-            lines.append(self._escape_latex(abstract))
+            lines.append(self._escape_latex(abstract_text))
             lines.append("\\end{abstract}")
             lines.append("")
 
@@ -201,11 +219,19 @@ class LaTeXExporter:
         return "\n".join(lines)
 
     def _escape_latex(self, text: str) -> str:
-        """Escape special LaTeX characters."""
+        """Escape special LaTeX characters using pylatexenc if available."""
         if not text:
             return ""
         
-        # LaTeX special characters that need escaping
+        # Use pylatexenc for proper Unicode and LaTeX escaping if available
+        if PYLATEXENC_AVAILABLE:
+            try:
+                # pylatexenc handles Unicode, special chars, and LaTeX commands properly
+                return unicode_to_latex(text, non_ascii_only=False)
+            except Exception as e:
+                logger.debug(f"pylatexenc encoding failed, using fallback: {e}")
+        
+        # Fallback to manual escaping if pylatexenc not available
         special_chars = {
             "\\": "\\textbackslash{}",
             "{": "\\{",
@@ -230,60 +256,229 @@ class LaTeXExporter:
         if not markdown_text:
             return ""
         
-        # Remove markdown headers (already handled by sections)
-        text = re.sub(r"^#+\s+(.+)$", r"\\textbf{\1}", markdown_text, flags=re.MULTILINE)
+        lines = markdown_text.split("\n")
+        result_lines = []
+        i = 0
         
-        # Convert bold **text** to \textbf{text}
-        text = re.sub(r"\*\*(.+?)\*\*", r"\\textbf{\1}", text)
+        while i < len(lines):
+            line = lines[i]
+            
+            # Check for markdown table
+            if line.startswith("|") and i + 1 < len(lines) and "---" in lines[i + 1]:
+                # Parse and convert table
+                table_latex = self._convert_markdown_table_to_latex(lines, i)
+                if table_latex:
+                    result_lines.append(table_latex)
+                    # Skip table lines
+                    while i < len(lines) and (lines[i].startswith("|") or "---" in lines[i]):
+                        i += 1
+                    continue
+            
+            # Remove markdown headers (already handled by sections)
+            if line.startswith("#"):
+                # Skip headers as they're handled by sections
+                i += 1
+                continue
+            
+            # Convert bold **text** to \textbf{text}
+            line = re.sub(r"\*\*(.+?)\*\*", r"\\textbf{\1}", line)
+            
+            # Convert italic *text* to \textit{text}
+            line = re.sub(r"(?<!\*)\*([^*]+?)\*(?!\*)", r"\\textit{\1}", line)
+            
+            # Convert citations [X] to \cite{X}
+            line = re.sub(r"\[(\d+)\]", r"\\cite{\1}", line)
+            
+            # Escape remaining special characters
+            line = self._escape_latex(line)
+            
+            result_lines.append(line)
+            i += 1
         
-        # Convert italic *text* to \textit{text}
-        text = re.sub(r"(?<!\*)\*([^*]+?)\*(?!\*)", r"\\textit{\1}", text)
+        return "\n".join(result_lines)
+
+    def _convert_markdown_table_to_latex(self, lines: List[str], start_idx: int) -> Optional[str]:
+        """Convert markdown table to LaTeX table using booktabs for professional formatting."""
+        if start_idx >= len(lines):
+            return None
+
+        header_line = lines[start_idx]
+        if not header_line.startswith("|"):
+            return None
+
+        # Parse header
+        headers = [cell.strip() for cell in header_line.split("|")[1:-1]]
+
+        # Check separator
+        if start_idx + 1 >= len(lines):
+            return None
+        separator_line = lines[start_idx + 1]
+
+        # Parse rows
+        table_rows = []
+        i = start_idx + 2
+        while i < len(lines):
+            row_line = lines[i]
+            if not row_line.startswith("|"):
+                break
+            row_cells = [cell.strip() for cell in row_line.split("|")[1:-1]]
+            if len(row_cells) == len(headers):
+                table_rows.append(row_cells)
+            i += 1
+
+        if not table_rows:
+            return None
+
+        # Determine column alignment based on content
+        # For study characteristics tables, use appropriate alignment
+        alignments = []
+        for col_idx in range(len(headers)):
+            # Check if column contains mostly numbers (right-align) or text (left-align)
+            has_numbers = False
+            for row in table_rows[:min(5, len(table_rows))]:  # Sample first 5 rows
+                if col_idx < len(row) and row[col_idx]:
+                    # Check if cell looks like a number
+                    cell = row[col_idx].strip()
+                    if cell.replace(".", "").replace(",", "").isdigit() or "Study" in cell:
+                        has_numbers = True
+                        break
+            alignments.append("r" if has_numbers else "l")
+
+        # Generate LaTeX table with booktabs
+        latex_lines = []
+        latex_lines.append("\\begin{table*}[!t]")  # Use table* for full-width tables
+        latex_lines.append("\\centering")
+        latex_lines.append("\\begin{tabular}{" + "".join(alignments) + "}")
+        latex_lines.append("\\toprule")
+
+        # Header row
+        header_cells = [self._escape_latex(h) for h in headers]
+        latex_lines.append(" & ".join([f"\\textbf{{{h}}}" for h in header_cells]) + " \\\\")
+        latex_lines.append("\\midrule")
+
+        # Data rows
+        for row in table_rows:
+            row_cells = [self._escape_latex(cell) for cell in row]
+            # Ensure all rows have same number of cells as headers
+            while len(row_cells) < len(headers):
+                row_cells.append("")
+            latex_lines.append(" & ".join(row_cells[:len(headers)]) + " \\\\")
+
+        latex_lines.append("\\bottomrule")
+        latex_lines.append("\\end{tabular}")
         
-        # Convert citations [X] to \cite{X}
-        text = re.sub(r"\[(\d+)\]", r"\\cite{\1}", text)
+        # Try to extract caption from context (if available)
+        caption = "Study characteristics table"
+        if "Study ID" in headers:
+            caption = "Study characteristics of included studies"
+        elif "Risk" in " ".join(headers) or "Bias" in " ".join(headers):
+            caption = "Risk of bias assessment"
+        elif "Outcome" in " ".join(headers):
+            caption = "GRADE evidence profile"
         
-        # Convert line breaks to LaTeX line breaks
-        text = text.replace("\n\n", "\n\n")
-        
-        # Escape remaining special characters
-        text = self._escape_latex(text)
-        
-        return text
+        latex_lines.append(f"\\caption{{{self._escape_latex(caption)}}}")
+        latex_lines.append("\\label{tab:study_characteristics}")
+        latex_lines.append("\\end{table*}")
+
+        return "\n".join(latex_lines)
 
     def _format_ieee_reference(self, ref: Dict[str, Any], number: int) -> str:
         """Format a single reference in IEEE style."""
-        # This will use the existing IEEEFormatter logic
-        # For now, create basic format
-        authors = ref.get("authors", [])
-        title = ref.get("title", "")
-        journal = ref.get("journal", "")
-        year = ref.get("year", "")
-        doi = ref.get("doi", "")
+        from ..search.connectors.base import Paper
+        from ..citations.ieee_formatter import IEEEFormatter
         
-        # Format authors
-        if authors:
-            if len(authors) >= 6:
-                author_str = f"{authors[0]} et al."
-            elif len(authors) == 1:
-                author_str = authors[0]
-            elif len(authors) == 2:
-                author_str = f"{authors[0]} and {authors[1]}"
+        # Create a Paper object from the reference dict to use IEEEFormatter
+        paper = Paper(
+            title=ref.get("title", ""),
+            abstract="",  # Not needed for citation
+            authors=ref.get("authors", []),
+            year=ref.get("year"),
+            journal=ref.get("journal"),
+            doi=ref.get("doi"),
+            url=ref.get("url"),
+        )
+        
+        # Use IEEEFormatter to format the citation
+        formatted = IEEEFormatter.format_citation(paper, number)
+        
+        # Remove the citation number prefix [X] since LaTeX \bibitem handles numbering
+        # IEEEFormatter returns "[X] Author, "Title," Journal, year."
+        # We need: "Author, \"Title,\" Journal, year."
+        formatted = re.sub(r"^\[\d+\]\s*", "", formatted)
+        
+        # Escape LaTeX special characters
+        return self._escape_latex(formatted)
+
+    def _convert_to_unstructured_abstract(self, abstract: str) -> str:
+        """
+        Convert structured abstract (PRISMA 2020 or other structured formats) to unstructured.
+        
+        IEEE requires unstructured abstract (150-250 words, single paragraph).
+        This method extracts content from structured abstracts and converts to paragraph format.
+        
+        Args:
+            abstract: Abstract text (may be structured or unstructured)
+            
+        Returns:
+            Unstructured abstract text suitable for IEEE format
+        """
+        if not abstract:
+            return ""
+        
+        # Check if abstract is structured (has labels like "Background:", "Objectives:", etc.)
+        structured_patterns = [
+            r"Background\s*:",
+            r"Objectives?\s*:",
+            r"Methods?\s*:",
+            r"Results?\s*:",
+            r"Conclusions?\s*:",
+            r"Eligibility\s*:",
+            r"Information\s*sources?\s*:",
+        ]
+        
+        is_structured = any(re.search(pattern, abstract, re.IGNORECASE) for pattern in structured_patterns)
+        
+        if not is_structured:
+            # Already unstructured, return as-is (but ensure single paragraph)
+            return " ".join(abstract.split())
+        
+        # Convert structured to unstructured
+        # Extract content after labels and combine into paragraph
+        lines = abstract.split("\n")
+        content_parts = []
+        
+        for line in lines:
+            line = line.strip()
+            if not line:
+                continue
+            
+            # Skip if it's just a label
+            if re.match(r"^[A-Z][a-z]+(\s+[A-Z][a-z]+)?\s*:?\s*$", line):
+                continue
+            
+            # Remove labels and extract content
+            # Pattern: "Label: content" -> "content"
+            match = re.match(r"^[A-Z][^:]*:\s*(.+)$", line)
+            if match:
+                content_parts.append(match.group(1).strip())
             else:
-                author_str = ", ".join(authors[:-1]) + f", and {authors[-1]}"
-        else:
-            author_str = "[No authors]"
+                # No label, just content
+                content_parts.append(line)
         
-        parts = [author_str]
-        if title:
-            parts.append(f'"{self._escape_latex(title)}"')
-        if journal:
-            parts.append(self._escape_latex(journal))
-        if year:
-            parts.append(str(year))
-        if doi:
-            parts.append(f"doi: {doi}")
+        # Combine into single paragraph
+        unstructured = " ".join(content_parts)
         
-        return ", ".join(parts) + "."
+        # Ensure word count is reasonable (150-250 words for IEEE)
+        words = unstructured.split()
+        if len(words) > 250:
+            # Truncate to ~250 words
+            unstructured = " ".join(words[:250]) + "..."
+        elif len(words) < 150 and len(content_parts) > 0:
+            # If too short, try to expand from original abstract
+            # For now, just return what we have
+            pass
+        
+        return unstructured
 
     def _get_relative_figure_path(self, fig_path: str, output_dir: Path) -> str:
         """Get relative path for figure from LaTeX file location."""

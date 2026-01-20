@@ -10,6 +10,7 @@ ENV/
 env/
 
 # IDE
+.cursor/
 .vscode/
 .idea/
 *.swp
@@ -20,9 +21,16 @@ env/
 data/raw/
 data/processed/
 data/outputs/
+data/test_outputs/
+data/cache/
 *.csv
 *.xlsx
+
+# JSON files (but allow config files)
 *.json
+!package.json
+!tsconfig.json
+!jsconfig.json
 
 # API Keys and Environment
 .env
@@ -39,6 +47,18 @@ Thumbs.db
 
 # Logs
 *.log
+
+# Status and report files (generated)
+*_STATUS.md
+*_REPORT.md
+*_VERIFICATION.md
+*_READINESS_REPORT.md
+WORKFLOW_*.md
+PRISMA_*.md
+IEEE_*.md
+
+# Temporary/remediation scripts (one-off fixes)
+scripts/remediate_current_paper.py
 
 # Test coverage
 .coverage

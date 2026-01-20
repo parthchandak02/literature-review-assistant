@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Workflow Output Validation Script
+[Recurring Usage Script] Workflow Output Validation
 
 Validates outputs from the research paper generation workflow:
 - Validates papers have required fields
@@ -23,6 +23,7 @@ from rich.console import Console
 from rich.table import Table
 from rich.panel import Panel
 from PIL import Image
+from src.validation.prisma_validator import PRISMAValidator
 
 # Load environment variables
 load_dotenv()
@@ -293,6 +294,22 @@ class WorkflowOutputValidator:
             
             if metrics["sections_missing"]:
                 console.print(f"  [yellow]Missing sections: {', '.join(metrics['sections_missing'])}[/yellow]")
+            
+            # PRISMA 2020 compliance check
+            try:
+                prisma_validator = PRISMAValidator()
+                prisma_results = prisma_validator.validate_report(str(report_file))
+                metrics["prisma_compliance"] = {
+                    "score": prisma_results["compliance_score"],
+                    "missing_items": len(prisma_results["missing_items"]),
+                    "missing_items_list": prisma_results["missing_items"],
+                }
+                console.print(f"  PRISMA 2020 Compliance: {prisma_results['compliance_score']:.1%}")
+                if prisma_results["missing_items"]:
+                    console.print(f"  [yellow]Missing PRISMA items: {len(prisma_results['missing_items'])}[/yellow]")
+            except Exception as e:
+                self.warnings.append(f"Could not validate PRISMA compliance: {e}")
+                metrics["prisma_compliance"] = {"error": str(e)}
             
             # Validation checks
             if metrics["content_length"] < 1000:

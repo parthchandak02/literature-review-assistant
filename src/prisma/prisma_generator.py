@@ -225,26 +225,53 @@ class PRISMAGenerator:
                 f"This may indicate a data consistency issue - all included papers must have been assessed."
             )
             # Auto-fix: set assessed to at least included if it's less
-            # This handles edge cases where assessed count wasn't properly tracked
+            # BUT: ensure this doesn't violate the relationship with sought and not_retrieved
+            # If assessed would exceed sought, we need to adjust not_retrieved instead
             if assessed < included:
-                logger.warning(
-                    f"Auto-correcting PRISMA counts: assessed ({assessed}) < included ({included}). "
-                    f"Setting assessed to {included}."
-                )
-                assessed = included
-                counts["full_text_assessed"] = included
+                # Check if we can safely increase assessed without violating sought relationship
+                # If assessed = sought, then all papers were assessed (including those without full-text)
+                # If assessed < sought, we can increase it up to sought
+                max_assessed = sought  # Can't assess more than sought
+                if included <= max_assessed:
+                    logger.warning(
+                        f"Auto-correcting PRISMA counts: assessed ({assessed}) < included ({included}). "
+                        f"Setting assessed to {included}."
+                    )
+                    assessed = included
+                    counts["full_text_assessed"] = included
+                else:
+                    # If included > sought, there's a data consistency issue
+                    warnings.append(
+                        f"Cannot auto-correct: included ({included}) > sought ({sought}). "
+                        f"This indicates a serious data consistency issue."
+                    )
         
-        # Validation rule 4: assessed + excluded should approximately equal sought
-        # (all papers that were assessed should either be included or excluded)
-        total_assessed = assessed
-        if total_assessed > 0:
-            # Allow small discrepancy for papers with uncertain status
-            expected_total = sought
-            if abs(total_assessed - expected_total) > 5 and total_assessed != sought:
-                warnings.append(
-                    f"Assessed count ({assessed}) doesn't match sought ({sought}). "
-                    f"Note: Papers without full-text may still be assessed using title/abstract."
-                )
+        # Validation rule 4: Check relationship between sought, assessed, and not_retrieved
+        # According to PRISMA 2020:
+        # - If all papers are assessed (including those without full-text): assessed = sought
+        # - If only papers with full-text are assessed: assessed = sought - not_retrieved
+        # - The relationship: sought >= assessed >= (sought - not_retrieved)
+        
+        # Check if assessed + not_retrieved exceeds sought (indicates double-counting)
+        if assessed + not_retrieved > sought:
+            warnings.append(
+                f"Sought split mismatch: assessed ({assessed}) + not_retrieved ({not_retrieved}) = "
+                f"{assessed + not_retrieved} > sought ({sought}). "
+                f"This violates PRISMA rules. "
+                f"Fix: Adjust one of: reports.sought, reports.assessed, reports.not_retrieved so they add up consistently. "
+                f"Rule: Typically: db_registers.reports.sought = db_registers.reports.assessed + db_registers.reports.not_retrieved "
+                f"(and likewise for other_methods.* if provided)."
+            )
+        
+        # Check if assessed is within valid range
+        min_assessable = max(0, sought - not_retrieved)  # Minimum: papers with full-text
+        max_assessable = sought  # Maximum: all papers
+        if assessed < min_assessable or assessed > max_assessable:
+            warnings.append(
+                f"Assessed count ({assessed}) is outside valid range [{min_assessable}, {max_assessable}]. "
+                f"Sought: {sought}, Not retrieved: {not_retrieved}. "
+                f"Note: Papers without full-text may still be assessed using title/abstract."
+            )
         
         is_valid = len(warnings) == 0
         return is_valid, warnings

@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """
-Database Health Check Script
+[Recurring Usage Script] Database Health Check
 
 Tests all configured database connectors and reports their status.
+Used by: python main.py --test-databases
 """
 
 import os

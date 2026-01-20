@@ -51,4 +51,25 @@ def get_test_workflow_config() -> Dict[str, Any]:
             "generate_prisma": True,
             "generate_charts": True,
         },
+        "quality_assessment": {
+            "enabled": True,
+            "risk_of_bias_tool": "RoB 2",
+            "grade_outcomes": ["Primary outcome", "Secondary outcome"],
+            "template_path": None,  # Will be generated if not provided
+        },
+        "protocol": {
+            "registered": True,
+            "registry": "PROSPERO",
+            "registration_number": "CRD123456",
+            "url": "https://www.crd.york.ac.uk/prospero/display_record.php?ID=CRD123456",
+        },
+        "funding": {
+            "source": "National Institute of Health",
+            "grant_number": "R01-TEST-123",
+        },
+        "supplementary_materials": {
+            "include_search_strategies": True,
+            "include_extraction_forms": True,
+            "include_prisma_checklist": True,
+        },
     }

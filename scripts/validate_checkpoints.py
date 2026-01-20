@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Checkpoint Validation Script
+[Utility Script] Checkpoint Validation
 
 Validates checkpoint files from workflow runs to ensure they can be loaded
 and contain expected data structures.

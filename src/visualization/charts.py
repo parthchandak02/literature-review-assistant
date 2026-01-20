@@ -8,7 +8,7 @@ import matplotlib.pyplot as plt
 import pandas as pd
 import re
 import logging
-from typing import List, Optional, Dict, Set
+from typing import List, Optional, Dict, Set, Any
 from pathlib import Path
 from collections import Counter
 from ..search.database_connectors import Paper
@@ -900,3 +900,198 @@ class ChartGenerator:
                     score += (overlap / union) * 0.5
         
         return min(score, 1.0)
+
+    def generate_risk_of_bias_plot(
+        self,
+        assessments: List[Dict[str, Any]],
+        output_path: Optional[str] = None,
+    ) -> str:
+        """
+        Generate traffic light style risk of bias plot.
+
+        Args:
+            assessments: List of risk of bias assessments with domains and ratings
+            output_path: Optional output path (default: auto-generated)
+
+        Returns:
+            Path to saved chart
+        """
+        if not assessments:
+            return ""
+
+        # Prepare data for plotting
+        study_ids = []
+        domains = []
+        ratings = []
+
+        for assessment in assessments:
+            study_id = assessment.get("study_id", "Unknown")
+            domains_dict = assessment.get("domains", {})
+            
+            for domain, rating in domains_dict.items():
+                study_ids.append(study_id)
+                domains.append(domain[:30])  # Truncate long domain names
+                ratings.append(rating)
+
+        if not study_ids:
+            return ""
+
+        # Create DataFrame
+        df = pd.DataFrame({
+            "Study": study_ids,
+            "Domain": domains,
+            "Rating": ratings
+        })
+
+        # Map ratings to colors and numeric values
+        rating_map = {
+            "Low": (0, 1, 0),  # Green
+            "Some concerns": (1, 1, 0),  # Yellow
+            "High": (1, 0.5, 0),  # Orange
+            "Critical": (1, 0, 0),  # Red
+        }
+
+        # Get unique studies and domains
+        unique_studies = df["Study"].unique()
+        unique_domains = df["Domain"].unique()
+
+        # Create figure
+        fig, ax = plt.subplots(figsize=(max(8, len(unique_studies) * 0.8), max(6, len(unique_domains) * 0.6)))
+        
+        # Create grid for traffic lights
+        y_positions = {domain: i for i, domain in enumerate(unique_domains)}
+        x_positions = {study: i for i, study in enumerate(unique_studies)}
+
+        # Plot traffic lights
+        for _, row in df.iterrows():
+            study_idx = x_positions[row["Study"]]
+            domain_idx = y_positions[row["Domain"]]
+            rating = row["Rating"]
+            
+            color = rating_map.get(rating, (0.5, 0.5, 0.5))  # Gray for unknown
+            circle = plt.Circle((study_idx, domain_idx), 0.3, color=color, zorder=2)
+            ax.add_patch(circle)
+
+        # Set labels and ticks
+        ax.set_xticks(range(len(unique_studies)))
+        ax.set_xticklabels(unique_studies, rotation=45, ha="right")
+        ax.set_yticks(range(len(unique_domains)))
+        ax.set_yticklabels(unique_domains)
+        ax.set_xlabel("Study", fontsize=12)
+        ax.set_ylabel("Risk of Bias Domain", fontsize=12)
+        ax.set_title("Risk of Bias Assessment (Traffic Light Plot)", fontsize=14, fontweight="bold")
+        ax.set_xlim(-0.5, len(unique_studies) - 0.5)
+        ax.set_ylim(-0.5, len(unique_domains) - 0.5)
+        ax.grid(True, alpha=0.3)
+
+        # Add legend
+        from matplotlib.patches import Patch
+        legend_elements = [
+            Patch(facecolor=color, label=rating)
+            for rating, color in rating_map.items()
+        ]
+        ax.legend(handles=legend_elements, loc="upper left", bbox_to_anchor=(1, 1))
+
+        plt.tight_layout()
+
+        # Save
+        if not output_path:
+            output_path = self.output_dir / "risk_of_bias_plot.png"
+        else:
+            output_path = Path(output_path)
+            output_path.parent.mkdir(parents=True, exist_ok=True)
+
+        plt.savefig(output_path, dpi=300, bbox_inches="tight")
+        plt.close()
+
+        return str(output_path)
+
+    def generate_grade_evidence_profile(
+        self,
+        assessments: List[Dict[str, Any]],
+        output_path: Optional[str] = None,
+    ) -> str:
+        """
+        Generate GRADE evidence profile visualization.
+
+        Args:
+            assessments: List of GRADE assessments with outcomes and certainty ratings
+            output_path: Optional output path (default: auto-generated)
+
+        Returns:
+            Path to saved chart
+        """
+        if not assessments:
+            return ""
+
+        # Prepare data
+        outcomes = []
+        certainty_levels = []
+        certainty_numeric = []
+
+        certainty_map = {
+            "High": 4,
+            "Moderate": 3,
+            "Low": 2,
+            "Very Low": 1,
+        }
+
+        for assessment in assessments:
+            outcome = assessment.get("outcome", "Unknown")
+            certainty = assessment.get("certainty", "")
+            outcomes.append(outcome[:40])  # Truncate long outcome names
+            certainty_levels.append(certainty)
+            certainty_numeric.append(certainty_map.get(certainty, 0))
+
+        if not outcomes:
+            return ""
+
+        # Create figure
+        fig, ax = plt.subplots(figsize=(10, max(6, len(outcomes) * 0.8)))
+
+        # Create horizontal bar chart
+        y_pos = range(len(outcomes))
+        colors = []
+        for certainty in certainty_levels:
+            if certainty == "High":
+                colors.append((0, 0.8, 0))  # Green
+            elif certainty == "Moderate":
+                colors.append((0.8, 0.8, 0))  # Yellow
+            elif certainty == "Low":
+                colors.append((1, 0.5, 0))  # Orange
+            elif certainty == "Very Low":
+                colors.append((1, 0, 0))  # Red
+            else:
+                colors.append((0.5, 0.5, 0.5))  # Gray
+
+        bars = ax.barh(y_pos, certainty_numeric, color=colors, alpha=0.7)
+
+        # Set labels
+        ax.set_yticks(y_pos)
+        ax.set_yticklabels(outcomes)
+        ax.set_xlabel("Certainty Level", fontsize=12)
+        ax.set_ylabel("Outcome", fontsize=12)
+        ax.set_title("GRADE Evidence Profile", fontsize=14, fontweight="bold")
+        ax.set_xlim(0, 5)
+        ax.set_xticks([1, 2, 3, 4])
+        ax.set_xticklabels(["Very Low", "Low", "Moderate", "High"])
+
+        # Add value labels on bars
+        for i, (bar, certainty) in enumerate(zip(bars, certainty_levels)):
+            width = bar.get_width()
+            ax.text(width + 0.1, bar.get_y() + bar.get_height() / 2,
+                   certainty, ha="left", va="center", fontweight="bold")
+
+        plt.tight_layout()
+
+        # Save
+        if not output_path:
+            output_path = self.output_dir / "grade_evidence_profile.png"
+        else:
+            output_path = Path(output_path)
+            output_path.parent.mkdir(parents=True, exist_ok=True)
+
+        plt.savefig(output_path, dpi=300, bbox_inches="tight")
+        plt.close()
+
+        return str(output_path)

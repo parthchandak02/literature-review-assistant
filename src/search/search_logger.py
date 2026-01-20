@@ -224,6 +224,59 @@ class SearchLogger:
         logger.info(f"Search summary CSV generated: {csv_path}")
         return csv_path
 
+    def export_search_strategies(self, output_path: Optional[str] = None) -> Path:
+        """
+        Export all search strategies to a markdown file.
+
+        Args:
+            output_path: Optional output path (default: auto-generated)
+
+        Returns:
+            Path to exported search strategies file
+        """
+        if output_path is None:
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            output_path = self.output_dir / f"search_strategies_{timestamp}.md"
+        else:
+            output_path = Path(output_path)
+
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+
+        with open(output_path, "w", encoding="utf-8") as f:
+            f.write("# Search Strategies\n\n")
+            f.write("This document contains the complete search strategies used for all databases.\n\n")
+            f.write("---\n\n")
+
+            strategies = self._generate_strategies_section()
+
+            for db_name, strategy_data in strategies.items():
+                f.write(f"## {db_name}\n\n")
+                f.write(f"**Search Date:** {strategy_data.get('search_date', 'Not specified')}\n\n")
+                f.write(f"**Query:** {strategy_data.get('query', 'Not specified')}\n\n")
+                
+                full_strategy = strategy_data.get("full_search_strategy", "")
+                if full_strategy:
+                    f.write("**Full Search Strategy:**\n\n")
+                    f.write("```\n")
+                    f.write(full_strategy)
+                    f.write("\n```\n\n")
+                else:
+                    f.write("**Full Search Strategy:** Not available\n\n")
+
+                limits = strategy_data.get("limits", {})
+                if limits.get("date_range") or limits.get("language"):
+                    f.write("**Limits:**\n")
+                    if limits.get("date_range"):
+                        f.write(f"- Date range: {limits['date_range']}\n")
+                    if limits.get("language"):
+                        f.write(f"- Language: {limits['language']}\n")
+                    f.write("\n")
+
+                f.write("---\n\n")
+
+        logger.info(f"Search strategies exported to {output_path}")
+        return output_path
+
     def _generate_sources_section(self) -> Dict[str, Any]:
         """Generate PRISMA-S information sources section."""
         databases_searched = set()
