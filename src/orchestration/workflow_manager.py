@@ -2256,9 +2256,11 @@ class WorkflowManager:
         """Write all article sections."""
         sections = {}
 
+        console.print()
         logger.info("Starting article writing phase...")
         logger.info("This will generate Introduction, Methods, Results, and Discussion sections.")
         logger.info("Each section requires an LLM call and may take some time.")
+        console.print()
 
         # Extract style patterns before writing
         self._extract_style_patterns()
@@ -2304,7 +2306,9 @@ class WorkflowManager:
                 )
             
             sections["introduction"] = intro
+        console.print()
         console.print("[green]✓[/green] Introduction section complete")
+        console.print()
 
         # Methods
         with console.status(
@@ -2390,7 +2394,9 @@ class WorkflowManager:
                 )
             
             sections["methods"] = methods
+        console.print()
         console.print("[green]✓[/green] Methods section complete")
+        console.print()
 
         # Results
         with console.status(
@@ -2444,7 +2450,9 @@ class WorkflowManager:
                 )
             
             sections["results"] = results
+        console.print()
         console.print("[green]✓[/green] Results section complete")
+        console.print()
 
         # Discussion
         with console.status(
@@ -2483,7 +2491,9 @@ class WorkflowManager:
                 )
             
             sections["discussion"] = discussion
+        console.print()
         console.print("[green]✓[/green] Discussion section complete")
+        console.print()
 
         # Abstract (generate after all sections are written)
         with console.status(
@@ -2505,10 +2515,13 @@ class WorkflowManager:
                 )
             
             sections["abstract"] = abstract
+        console.print()
         console.print("[green]✓[/green] Abstract generation complete")
+        console.print()
         console.print(
             "[bold green]Article writing phase complete - all 5 sections generated[/bold green]"
         )
+        console.print()
 
         return sections
 

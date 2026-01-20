@@ -93,6 +93,82 @@ Search logs (PRISMA-compliant) are saved to `data/outputs/workflow_{topic}_{time
 
 The system executes 16+ sequential phases: Build Search Strategy, Search Databases, Deduplication, Title/Abstract Screening, Full-text Screening, Paper Enrichment, Data Extraction, Quality Assessment, PRISMA Diagram Generation, Visualization Generation, Article Writing, Final Report Compilation, Search Strategy Export, PRISMA Checklist Generation, Data Extraction Forms, Export to Formats, Manubot Export (optional), and Submission Package Generation (optional).
 
+### Workflow Diagram
+
+The following diagram illustrates the complete end-to-end workflow, showing all phases, data flow, and key technologies used:
+
+```mermaid
+flowchart TD
+    Start([Start: python main.py]) --> BuildStrategy[Phase 1: Build Search Strategy<br/>LLM: Gemini Flash]
+    BuildStrategy --> SearchDB[Phase 2: Search Databases<br/>PubMed, arXiv, Semantic Scholar,<br/>Crossref, ACM]
+    SearchDB --> Dedup[Phase 3: Deduplication<br/>Fuzzy Matching]
+    Dedup --> TitleScreen[Phase 4: Title/Abstract Screening<br/>LLM: Gemini Flash-Lite]
+    TitleScreen --> FullTextScreen[Phase 5: Full-text Screening<br/>LLM: Gemini Flash-Lite<br/>PDF Retrieval]
+    FullTextScreen --> Enrich[Phase 6: Paper Enrichment<br/>Metadata Completion]
+    Enrich --> Extract[Phase 7: Data Extraction<br/>LLM: Gemini Pro<br/>Structured Output]
+    
+    Extract --> Quality[Phase 8: Quality Assessment<br/>RoB 2, GRADE]
+    Extract --> PRISMA[Phase 9: PRISMA Diagram<br/>prisma-flow-diagram]
+    Extract --> Viz[Phase 10: Visualizations<br/>matplotlib, networkx]
+    Extract --> Write[Phase 11: Article Writing<br/>LLM: Gemini Pro<br/>Introduction, Methods,<br/>Results, Discussion, Abstract]
+    
+    Quality --> Report[Phase 12: Report Generation<br/>Markdown Compilation]
+    PRISMA --> Report
+    Viz --> Report
+    Write --> Report
+    
+    Report --> Manubot{Manubot Export?<br/>Optional}
+    Report --> Submit{Submission Package?<br/>Optional}
+    
+    Manubot -->|Yes| ManubotPhase[Phase 17: Manubot Export<br/>manubot, CSL styles]
+    Submit -->|Yes| SubmitPhase[Phase 18: Submission Package<br/>PDF, DOCX, HTML<br/>LaTeX templates]
+    
+    ManubotPhase --> End([End: Output Files])
+    SubmitPhase --> End
+    Report --> End
+```
+
+**Note**: If the diagram doesn't render properly, view it on GitHub or use a Mermaid viewer like [mermaid.live](https://mermaid.live).
+
+### Technology Stack
+
+The system uses the following technologies and tools:
+
+**LLM Providers** (at least one required):
+- OpenAI (GPT models)
+- Anthropic (Claude models)
+- Google GenAI (Gemini models - Flash, Flash-Lite, Pro)
+- Perplexity (Sonar models)
+
+**Academic Databases**:
+- PubMed (free, optional API key)
+- arXiv (free)
+- Semantic Scholar (free, optional API key)
+- Crossref (free, email recommended)
+- ACM (free, web scraping)
+- Google Scholar (optional, requires proxy)
+- Scopus (optional, requires API key)
+
+**Core Libraries**:
+- LangChain & LangGraph - Agent orchestration
+- pandas - Data manipulation
+- matplotlib & networkx - Visualizations
+- pydantic - Structured data validation
+- PyPDF2 & pdfplumber - PDF processing
+- manubot - Citation resolution
+- pandoc - Document conversion (system dependency)
+
+**Export Formats**:
+- Markdown - Primary output format
+- LaTeX - Academic manuscript templates
+- DOCX - Microsoft Word format
+- PDF - Generated via Pandoc
+- HTML - Web-friendly format
+- BibTeX & RIS - Citation formats
+
+**Citation Styles** (via CSL):
+- IEEE, APA, Nature, PLOS ONE, PLOS Computational Biology, BMJ, AMA, Vancouver, Harvard, Chicago, MLA
+
 **Checkpoint System**: The workflow automatically saves checkpoints after each phase in `data/checkpoints/workflow_{id}/`, allowing you to resume from any point. When running `python main.py` with the same topic, it automatically resumes from the latest checkpoint. Each workflow run gets a unique ID based on topic and timestamp, ensuring outputs and checkpoints are organized separately.
 
 **Force Fresh Start**: To ignore checkpoints and start from scratch:
@@ -110,6 +186,102 @@ python main.py --no-save-checkpoints
 ```
 
 **Phase Registry Architecture**: The workflow uses a Phase Registry pattern for declarative phase management with automatic dependency resolution, simplifying workflow execution and making it easy to add new phases.
+
+## Quality Assessment Workflow
+
+The workflow includes a manual quality assessment phase that requires human input to assess risk of bias and certainty of evidence.
+
+### How It Works
+
+1. **Template Generation**: After data extraction, the workflow generates a quality assessment template file at `data/quality_assessments/workflow_{id}_assessments.json`
+2. **Manual Assessment**: You must complete the template by filling in:
+   - **Risk of Bias (RoB 2)**: Domain assessments for each study (randomization, deviations, missing data, measurement, selection)
+   - **GRADE Assessments**: Certainty ratings, downgrade/upgrade reasons, and justifications for each outcome
+3. **Resume Workflow**: After completing the assessments, re-run `python main.py` - it will automatically resume from the quality assessment phase
+
+### Assessment File Format
+
+The assessment file contains:
+- `studies`: Array of study assessments with RoB 2 domain ratings ("Low", "Some concerns", "High", "Critical", or "Not applicable")
+- `grade_assessments`: Array of GRADE assessments with certainty ratings ("High", "Moderate", "Low", "Very Low")
+
+### Example
+
+```bash
+# Workflow stops at quality_assessment phase
+python main.py
+# Output: Quality assessment template generated at data/quality_assessments/workflow_xxx_assessments.json
+
+# Edit the file to complete assessments
+# Then re-run - workflow resumes automatically
+python main.py
+```
+
+**Note**: The workflow uses checkpoints, so running `python main.py` with the same topic automatically resumes from the latest checkpoint (quality_assessment phase).
+
+## IEEE Compliance
+
+The system generates IEEE-compliant manuscripts with automatic format conversion.
+
+### IEEE Requirements
+
+- **Abstract Format**: Unstructured (150-250 words), automatically converted from PRISMA structured format
+- **Citation Style**: Square brackets `[1]` format
+- **Author Format**: Last, F.I. (e.g., "Smith, J.A.")
+- **LaTeX Template**: `IEEEtran` document class, two-column format
+- **Keywords**: "Index Terms" section (5-10 keywords)
+- **Section Headings**: IEEE-compliant formatting
+
+### Automatic Conversion
+
+When generating IEEE submission packages:
+- Structured PRISMA abstracts are automatically converted to unstructured format
+- Citations are formatted in IEEE style `[1]`
+- LaTeX templates use `IEEEtran` document class
+- Keywords are formatted as "Index Terms"
+
+### Validation
+
+Check IEEE compliance:
+
+```bash
+python scripts/generate_ieee_readiness_report.py
+```
+
+This generates `IEEE_READINESS_REPORT.md` with:
+- Code compliance checks
+- Abstract format validation
+- Citation style verification
+- Template compliance status
+
+## PRISMA 2020 Methodology
+
+The system follows PRISMA 2020 (Preferred Reporting Items for Systematic Reviews and Meta-Analyses) guidelines for systematic review reporting.
+
+### PRISMA Compliance
+
+- **PRISMA Flow Diagram**: Automatically generated showing identification, screening, eligibility, and inclusion stages
+- **Structured Abstract**: Includes Background, Objectives, Eligibility criteria, Information sources, Risk of bias, Synthesis methods, Results, Limitations, Interpretation, Funding, and Registration
+- **Full Search Strategies**: Complete search queries for all databases included in Methods section
+- **PRISMA Checklist**: Generated checklist validating compliance with 27 PRISMA 2020 items
+
+### Compliance Validation
+
+Check PRISMA compliance:
+
+```bash
+python -c "from src.validation.prisma_validator import PRISMAValidator; v = PRISMAValidator(); r = v.validate_report('data/outputs/workflow_xxx/final_report.md'); print(f'Compliance: {r[\"compliance_score\"]:.1%}')"
+```
+
+### PRISMA Outputs
+
+Generated outputs include:
+- `prisma_diagram.png` - PRISMA 2020 flow diagram
+- `prisma_checklist.json` - PRISMA compliance checklist
+- `search_strategies.md` - Full search strategies for all databases
+- Methods section includes complete PRISMA-compliant reporting
+
+**Note**: For IEEE submission, the abstract is automatically converted from structured (PRISMA) to unstructured format while maintaining PRISMA compliance in the full report.
 
 ## Text Humanization
 
@@ -434,14 +606,6 @@ git_manager.create_branch("revisions")
 status = git_manager.get_status()
 print(status)
 ```
-
-### CI/CD Integration
-
-GitHub Actions workflow (`.github/workflows/manuscript-build.yml`) automatically:
-- Runs workflow on push/PR
-- Builds Manubot manuscript
-- Generates PDF/DOCX/HTML
-- Uploads artifacts
 
 ### Configuration
 
@@ -781,6 +945,13 @@ python main.py --debug
 python main.py --verbose
 ```
 
+Verbose mode provides enhanced output formatting with:
+- Rich console formatting for better readability
+- Formatted PRISMA validation warnings in yellow panels
+- Clear visual separation with Rich Rules
+- Improved spacing around major workflow phases
+- Formatted LLM request/response panels with timing information
+
 **Log to File:**
 ```bash
 python main.py --verbose --log-to-file --log-file logs/workflow.log
@@ -880,6 +1051,7 @@ This architecture simplifies workflow management and makes it easy to add new ph
 - **Multi-Journal Support**: Generate submission packages for multiple journals
 - **Submission Package Builder**: Complete packages with all required files
 - **CSL Citation Styles**: Support for IEEE, APA, Nature, PLOS, and more
+- **Enhanced Output Formatting**: Rich console formatting for improved readability in verbose mode, including formatted PRISMA warnings and LLM call displays
 
 ## Bibliometric Features (Optional)
 

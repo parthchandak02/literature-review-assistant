@@ -9,9 +9,13 @@ import os
 import sys
 import argparse
 from dotenv import load_dotenv
+from rich.console import Console
+from rich.rule import Rule
 from src.orchestration.workflow_manager import WorkflowManager
 from src.config.debug_config import DebugLevel
 from src.utils.logging_config import setup_logging, LogLevel
+
+console = Console()
 
 # Load environment variables from .env file
 load_dotenv()
@@ -239,13 +243,14 @@ def main():
         os.environ["LOG_TO_FILE"] = "true"
         os.environ["LOG_FILE"] = args.log_file
 
-    print("Literature Review Assistant - Agentic AI System")
-    print("=" * 50)
+    console.print()
+    console.print(Rule("[bold cyan]Literature Review Assistant - Agentic AI System[/bold cyan]", style="cyan"))
     if args.debug:
-        print("DEBUG MODE ENABLED")
+        console.print("[bold yellow]DEBUG MODE ENABLED[/bold yellow]")
     elif args.verbose:
-        print("VERBOSE MODE ENABLED")
-    print("=" * 50)
+        console.print("[bold cyan]VERBOSE MODE ENABLED[/bold cyan]")
+    console.print(Rule(style="cyan"))
+    console.print()
 
     # Get config path
     config_path = args.config

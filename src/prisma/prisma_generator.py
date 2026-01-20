@@ -5,11 +5,15 @@ Wrapper around prisma-flow-diagram package that tracks study counts
 through the workflow and generates PRISMA 2020-compliant diagrams.
 """
 
-from typing import Dict, Optional, Any
+from typing import Dict, Optional, Any, List
 from pathlib import Path
 import logging
+from rich.console import Console
+from rich.panel import Panel
+from rich.text import Text
 
 logger = logging.getLogger(__name__)
+console = Console()
 
 
 class PRISMACounter:
@@ -233,9 +237,10 @@ class PRISMAGenerator:
                 # If assessed < sought, we can increase it up to sought
                 max_assessed = sought  # Can't assess more than sought
                 if included <= max_assessed:
-                    logger.warning(
-                        f"Auto-correcting PRISMA counts: assessed ({assessed}) < included ({included}). "
-                        f"Setting assessed to {included}."
+                    # Log auto-correction (less critical, use dim style)
+                    console.print(
+                        f"[dim yellow]Auto-correcting PRISMA counts: assessed ({assessed}) < included ({included}). "
+                        f"Setting assessed to {included}.[/dim yellow]"
                     )
                     assessed = included
                     counts["full_text_assessed"] = included
@@ -284,11 +289,26 @@ class PRISMAGenerator:
             # Validate PRISMA counts before generating
             is_valid, warnings = self._validate_prisma_counts(counts)
             if warnings:
-                import logging
-                logger = logging.getLogger(__name__)
-                logger.warning("PRISMA validation warnings:")
-                for warning in warnings:
-                    logger.warning(f"  {warning}")
+                # Format warnings with Rich for better visibility
+                warning_text = Text()
+                warning_text.append("PRISMA Validation Warnings\n", style="bold yellow")
+                warning_text.append("\n")
+                for i, warning in enumerate(warnings, 1):
+                    warning_text.append(f"{i}. ", style="yellow")
+                    warning_text.append(warning, style="yellow")
+                    if i < len(warnings):
+                        warning_text.append("\n\n")
+                
+                console.print()
+                console.print(
+                    Panel(
+                        warning_text,
+                        title="[bold yellow]PRISMA Validation[/bold yellow]",
+                        border_style="yellow",
+                        padding=(1, 2),
+                    )
+                )
+                console.print()
             
             db_registers, included = self._map_counts_to_library_format(counts)
             

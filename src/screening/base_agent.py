@@ -609,10 +609,11 @@ Output must be suitable for direct insertion into an academic publication withou
             # Execute with circuit breaker protection
             result = self.circuit_breaker.call(_make_llm_call)
 
-            # Log total duration
+            # Log total duration (includes retry/circuit breaker overhead)
             total_duration = time.time() - start_time
             if self.debug_config.show_llm_calls or self.debug_config.enabled:
-                console.print(f"[dim]Total LLM call time: {total_duration:.2f}s[/dim]")
+                console.print(f"[dim]Total LLM call time (including overhead): {total_duration:.2f}s[/dim]")
+                console.print()  # Add spacing after LLM call display
 
             # Track metrics
             if self.debug_config.show_metrics:

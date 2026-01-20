@@ -60,6 +60,9 @@ IEEE_*.md
 # Temporary/remediation scripts (one-off fixes)
 scripts/remediate_current_paper.py
 
+# Reference documentation (not used in codebase)
+reference-docs/
+
 # Test coverage
 .coverage
 htmlcov/
