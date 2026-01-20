@@ -111,12 +111,83 @@ def parse_args():
         help="Disable checkpoint saving",
     )
 
+    # Manuscript pipeline commands
+    parser.add_argument(
+        "--manubot-export",
+        action="store_true",
+        help="Export to Manubot structure after workflow completion",
+    )
+
+    parser.add_argument(
+        "--build-package",
+        action="store_true",
+        help="Build submission package after workflow completion",
+    )
+
+    parser.add_argument(
+        "--journal",
+        type=str,
+        help="Journal name for submission package (e.g., 'ieee', 'nature', 'plos')",
+    )
+
+    parser.add_argument(
+        "--resolve-citation",
+        type=str,
+        help="Resolve a single citation from identifier (e.g., 'doi:10.1038/...' or 'pmid:12345678')",
+    )
+
+    parser.add_argument(
+        "--list-journals",
+        action="store_true",
+        help="List available journals and exit",
+    )
+
+    parser.add_argument(
+        "--validate-submission",
+        type=str,
+        help="Validate submission package for journal (requires --journal)",
+    )
+
     return parser.parse_args()
 
 
 def main():
     """Main entry point."""
     args = parse_args()
+
+    # Handle list-journals flag
+    if args.list_journals:
+        from src.export.journal_selector import JournalSelector
+        
+        selector = JournalSelector()
+        journals = selector.list_journals()
+        print("Available Journals:")
+        print("=" * 50)
+        for journal in journals:
+            config = selector.get_journal_config(journal)
+            if config:
+                print(f"  {journal}: {config.get('name', journal)}")
+        sys.exit(0)
+
+    # Handle resolve-citation flag
+    if args.resolve_citation:
+        from src.citations.manubot_resolver import ManubotCitationResolver
+        
+        resolver = ManubotCitationResolver()
+        try:
+            csl_item = resolver.resolve_from_identifier(args.resolve_citation)
+            paper = resolver.csl_to_paper(csl_item)
+            print(f"Resolved citation: {args.resolve_citation}")
+            print("=" * 50)
+            print(f"Title: {paper.title}")
+            print(f"Authors: {', '.join(paper.authors) if paper.authors else 'N/A'}")
+            print(f"Year: {paper.year or 'N/A'}")
+            print(f"Journal: {paper.journal or 'N/A'}")
+            print(f"DOI: {paper.doi or 'N/A'}")
+        except Exception as e:
+            print(f"Error resolving citation: {e}")
+            sys.exit(1)
+        sys.exit(0)
 
     # Handle test-databases flag
     if args.test_databases:
@@ -252,6 +323,84 @@ def main():
     # Run workflow
     try:
         results = manager.run()
+
+        # Handle manuscript pipeline commands
+        if args.manubot_export or args.build_package:
+            from pathlib import Path
+            from src.export.manubot_exporter import ManubotExporter
+            from src.citations import CitationManager
+
+            # Get article sections from results or workflow manager
+            article_sections = getattr(manager, "_article_sections", {})
+            if not article_sections and "article_sections" in results.get("outputs", {}):
+                article_sections = results["outputs"]["article_sections"]
+
+            if article_sections:
+                citation_manager = CitationManager(manager.final_papers)
+                
+                # Manubot export
+                if args.manubot_export:
+                    manubot_config = manager.config.get("manubot", {})
+                    if manubot_config.get("enabled", True):
+                        output_dir = Path(manager.output_dir) / manubot_config.get("output_dir", "manuscript")
+                        exporter = ManubotExporter(output_dir, citation_manager)
+                        
+                        metadata = {
+                            "title": f"{manager.topic_context.topic}: A Systematic Review",
+                            "keywords": manager.topic_context.keywords if hasattr(manager.topic_context, 'keywords') else [],
+                        }
+                        
+                        manuscript_dir = exporter.export(
+                            article_sections,
+                            metadata,
+                            citation_style=manubot_config.get("citation_style", "ieee"),
+                            auto_resolve_citations=manubot_config.get("auto_resolve_citations", True),
+                        )
+                        results["outputs"]["manubot_export"] = str(manuscript_dir)
+                        print(f"\nManubot structure exported to: {manuscript_dir}")
+
+                # Build submission package
+                if args.build_package:
+                    journal = args.journal or manager.config.get("submission", {}).get("default_journal", "ieee")
+                    from src.export.submission_package import SubmissionPackageBuilder
+                    
+                    manuscript_path = Path(results["outputs"].get("final_report", ""))
+                    if not manuscript_path.exists():
+                        manuscript_path = Path(manager.output_dir) / "final_report.md"
+                    
+                    if manuscript_path.exists():
+                        builder = SubmissionPackageBuilder(Path(manager.output_dir))
+                        submission_config = manager.config.get("submission", {})
+                        
+                        package_dir = builder.build_package(
+                            results["outputs"],
+                            journal,
+                            manuscript_path,
+                            generate_pdf=submission_config.get("generate_pdf", True),
+                            generate_docx=submission_config.get("generate_docx", True),
+                            generate_html=submission_config.get("generate_html", True),
+                            include_supplementary=submission_config.get("include_supplementary", True),
+                        )
+                        results["outputs"]["submission_package"] = str(package_dir)
+                        print(f"\nSubmission package created: {package_dir}")
+
+        # Handle validate-submission
+        if args.validate_submission:
+            from src.export.submission_checklist import SubmissionChecklistGenerator
+            from pathlib import Path
+            
+            journal = args.journal or args.validate_submission
+            package_dir = Path(args.validate_submission) if Path(args.validate_submission).is_dir() else Path(manager.output_dir) / f"submission_package_{journal}"
+            
+            if package_dir.exists():
+                generator = SubmissionChecklistGenerator()
+                checklist = generator.generate_checklist(journal, package_dir)
+                print("\n" + "=" * 50)
+                print("Submission Checklist:")
+                print("=" * 50)
+                print(checklist)
+            else:
+                print(f"Submission package not found: {package_dir}")
 
         if not args.debug and not args.verbose:
             print("\n" + "=" * 50)

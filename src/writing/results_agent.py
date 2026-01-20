@@ -43,6 +43,7 @@ class ResultsWriter(BaseScreeningAgent):
         risk_of_bias_table: Optional[str] = None,
         grade_assessments: Optional[str] = None,
         grade_table: Optional[str] = None,
+        style_patterns: Optional[Dict[str, Dict[str, List[str]]]] = None,
     ) -> str:
         """
         Write results section.
@@ -70,7 +71,7 @@ class ResultsWriter(BaseScreeningAgent):
         prompt = self._build_results_prompt(
             extracted_data, prisma_counts, key_findings,
             study_characteristics_table, risk_of_bias_summary, risk_of_bias_table,
-            grade_assessments, grade_table
+            grade_assessments, grade_table, style_patterns
         )
 
         if not self.llm_client:
@@ -151,6 +152,7 @@ class ResultsWriter(BaseScreeningAgent):
         risk_of_bias_table: Optional[str] = None,
         grade_assessments: Optional[str] = None,
         grade_table: Optional[str] = None,
+        style_patterns: Optional[Dict[str, Dict[str, List[str]]]] = None,
     ) -> str:
         """Build prompt for results writing."""
         num_studies = len(extracted_data)
@@ -213,7 +215,27 @@ Study {i}: {data.title}
         if grade_assessments:
             prompt += f"\n\nGRADE Assessments Summary:\n{grade_assessments}\n"
 
-        constraint_text = """
+        # Add style guidelines if patterns available
+        style_guidelines = ""
+        if style_patterns and "results" in style_patterns:
+            results_patterns = style_patterns["results"]
+            style_guidelines = "\n\nSTYLE GUIDELINES (based on analysis of included papers in this review):\n"
+            style_guidelines += "- Vary sentence structures: mix simple, compound, and complex sentences\n"
+            style_guidelines += "- Use natural academic vocabulary with domain-specific terms from the field\n"
+            style_guidelines += "- Integrate citations naturally: vary placement and phrasing\n"
+            style_guidelines += "- Create natural flow: avoid formulaic transitions\n"
+            style_guidelines += "- Maintain scholarly tone: precise but not robotic\n"
+            
+            if results_patterns.get("sentence_openings"):
+                examples = results_patterns["sentence_openings"][:3]
+                style_guidelines += f"\nWRITING PATTERNS FROM INCLUDED PAPERS:\n"
+                style_guidelines += f"Sentence opening examples: {', '.join(examples[:3])}\n"
+            
+            if results_patterns.get("vocabulary"):
+                vocab = results_patterns["vocabulary"][:5]
+                style_guidelines += f"Domain vocabulary examples: {', '.join(vocab)}\n"
+
+        constraint_text = style_guidelines + """
 CRITICAL OUTPUT CONSTRAINTS:
 - Begin IMMEDIATELY with substantive content - do NOT start with phrases like "Here is a results section..." or "Of course. Here is..."
 - NO conversational preamble, acknowledgments, or meta-commentary whatsoever

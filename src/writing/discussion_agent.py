@@ -41,6 +41,7 @@ class DiscussionWriter(BaseScreeningAgent):
         limitations: Optional[List[str]] = None,
         implications: Optional[List[str]] = None,
         topic_context: Optional[Dict[str, Any]] = None,
+        style_patterns: Optional[Dict[str, Dict[str, List[str]]]] = None,
     ) -> str:
         """
         Write discussion section.
@@ -61,7 +62,7 @@ class DiscussionWriter(BaseScreeningAgent):
             self.topic_context = topic_context
 
         prompt = self._build_discussion_prompt(
-            research_question, key_findings, extracted_data, limitations, implications
+            research_question, key_findings, extracted_data, limitations, implications, style_patterns
         )
 
         if not self.llm_client:
@@ -85,6 +86,7 @@ class DiscussionWriter(BaseScreeningAgent):
         extracted_data: List[ExtractedData],
         limitations: Optional[List[str]],
         implications: Optional[List[str]],
+        style_patterns: Optional[Dict[str, Dict[str, List[str]]]] = None,
     ) -> str:
         """Build prompt for discussion writing."""
         num_studies = len(extracted_data)
@@ -142,7 +144,27 @@ Key Findings:
         
         prompt += implications_text
 
-        constraint_text = """
+        # Add style guidelines if patterns available
+        style_guidelines = ""
+        if style_patterns and "discussion" in style_patterns:
+            discussion_patterns = style_patterns["discussion"]
+            style_guidelines = "\n\nSTYLE GUIDELINES (based on analysis of included papers in this review):\n"
+            style_guidelines += "- Vary sentence structures: mix simple, compound, and complex sentences\n"
+            style_guidelines += "- Use natural academic vocabulary with domain-specific terms from the field\n"
+            style_guidelines += "- Integrate citations naturally: vary placement and phrasing\n"
+            style_guidelines += "- Create natural flow: avoid formulaic transitions\n"
+            style_guidelines += "- Maintain scholarly tone: precise but not robotic\n"
+            
+            if discussion_patterns.get("sentence_openings"):
+                examples = discussion_patterns["sentence_openings"][:3]
+                style_guidelines += f"\nWRITING PATTERNS FROM INCLUDED PAPERS:\n"
+                style_guidelines += f"Sentence opening examples: {', '.join(examples[:3])}\n"
+            
+            if discussion_patterns.get("vocabulary"):
+                vocab = discussion_patterns["vocabulary"][:5]
+                style_guidelines += f"Domain vocabulary examples: {', '.join(vocab)}\n"
+
+        constraint_text = style_guidelines + """
 CRITICAL OUTPUT CONSTRAINTS:
 - Begin IMMEDIATELY with substantive content - do NOT start with phrases like "Let me now discuss..." or "Of course. As an expert..."
 - NO conversational preamble, acknowledgments, or meta-commentary whatsoever

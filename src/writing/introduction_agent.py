@@ -39,6 +39,7 @@ class IntroductionWriter(BaseScreeningAgent):
         background_context: Optional[str] = None,
         gap_description: Optional[str] = None,
         topic_context: Optional[Dict[str, Any]] = None,
+        style_patterns: Optional[Dict[str, Dict[str, List[str]]]] = None,
     ) -> str:
         """
         Write introduction section.
@@ -49,6 +50,7 @@ class IntroductionWriter(BaseScreeningAgent):
             background_context: Background context (optional)
             gap_description: Description of research gap (optional)
             topic_context: Optional topic context
+            style_patterns: Optional style patterns extracted from eligible papers
 
         Returns:
             Introduction text
@@ -59,7 +61,7 @@ class IntroductionWriter(BaseScreeningAgent):
             self.topic_context = topic_context
 
         prompt = self._build_introduction_prompt(
-            research_question, justification, background_context, gap_description
+            research_question, justification, background_context, gap_description, style_patterns
         )
 
         if not self.llm_client:
@@ -82,6 +84,7 @@ class IntroductionWriter(BaseScreeningAgent):
         justification: str,
         background_context: Optional[str],
         gap_description: Optional[str],
+        style_patterns: Optional[Dict[str, Dict[str, List[str]]]] = None,
     ) -> str:
         """Build prompt for introduction writing."""
         prompt = f"""Write a comprehensive introduction section for a systematic review research article.
@@ -97,7 +100,27 @@ Justification: {justification}
         if gap_description:
             prompt += f"\nResearch Gap: {gap_description}"
 
-        prompt += """
+        # Add style guidelines if patterns available
+        style_guidelines = ""
+        if style_patterns and "introduction" in style_patterns:
+            intro_patterns = style_patterns["introduction"]
+            style_guidelines = "\n\nSTYLE GUIDELINES (based on analysis of included papers in this review):\n"
+            style_guidelines += "- Vary sentence structures: mix simple, compound, and complex sentences\n"
+            style_guidelines += "- Use natural academic vocabulary with domain-specific terms from the field\n"
+            style_guidelines += "- Integrate citations naturally: vary placement and phrasing\n"
+            style_guidelines += "- Create natural flow: avoid formulaic transitions\n"
+            style_guidelines += "- Maintain scholarly tone: precise but not robotic\n"
+            
+            if intro_patterns.get("sentence_openings"):
+                examples = intro_patterns["sentence_openings"][:3]
+                style_guidelines += f"\nWRITING PATTERNS FROM INCLUDED PAPERS:\n"
+                style_guidelines += f"Sentence opening examples: {', '.join(examples[:3])}\n"
+            
+            if intro_patterns.get("vocabulary"):
+                vocab = intro_patterns["vocabulary"][:5]
+                style_guidelines += f"Domain vocabulary examples: {', '.join(vocab)}\n"
+
+        prompt += style_guidelines + """
 
 CRITICAL OUTPUT CONSTRAINTS:
 - Begin IMMEDIATELY with substantive content - do NOT start with phrases like "Here is an introduction for..." or "Of course. Here is..."

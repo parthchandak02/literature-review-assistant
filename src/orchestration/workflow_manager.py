@@ -85,6 +85,9 @@ from src.utils.pdf_retriever import PDFRetriever
 from src.utils.screening_validator import ScreeningValidator, ScreeningStage
 from src.utils.state_serialization import StateSerializer
 from src.enrichment.paper_enricher import PaperEnricher
+from .phase_registry import PhaseRegistry, PhaseDefinition
+from .checkpoint_manager import CheckpointManager
+from .phase_executor import PhaseExecutor
 
 
 class WorkflowManager:
@@ -117,6 +120,8 @@ class WorkflowManager:
         self.results_writer = initializer.results_writer
         self.discussion_writer = initializer.discussion_writer
         self.abstract_generator = initializer.abstract_generator
+        self.style_pattern_extractor = initializer.style_pattern_extractor
+        self.humanization_agent = initializer.humanization_agent
         self.handoff_protocol = initializer.handoff_protocol
         self.debug_config = initializer.debug_config
         self.metrics = initializer.metrics
@@ -131,6 +136,7 @@ class WorkflowManager:
         self.final_papers: List[Paper] = []
         self.extracted_data: List[ExtractedData] = []
         self.quality_assessment_data: Optional[Dict[str, Any]] = None
+        self.style_patterns: Dict[str, Dict[str, List[str]]] = {}
         
         # Initialize PDF retriever
         cache_dir = self.config.get("workflow", {}).get("cache", {}).get("cache_dir", "data/cache")
@@ -148,10 +154,369 @@ class WorkflowManager:
         self.paper_enricher = PaperEnricher()
         
         # Checkpoint management
+        self.save_checkpoints = True  # Can be disabled via CLI
+        
+        # Generate workflow_id (will be updated if resuming from checkpoint in run())
         self.workflow_id = self._generate_workflow_id()
         self.checkpoint_dir = Path("data/checkpoints") / self.workflow_id
         self.checkpoint_dir.mkdir(parents=True, exist_ok=True)
-        self.save_checkpoints = True  # Can be disabled via CLI
+        
+        # Update output directory to be workflow-specific to prevent overwriting
+        # This ensures each topic/workflow gets its own output directory
+        # Note: This will be updated in run() if resuming from checkpoint
+        base_output_dir = self.output_dir
+        workflow_output_dir = base_output_dir / self.workflow_id
+        workflow_output_dir.mkdir(parents=True, exist_ok=True)
+        self.output_dir = workflow_output_dir
+        
+        # Update ChartGenerator to use workflow-specific output directory
+        # (ChartGenerator was initialized with base directory, needs update)
+        self.chart_generator.output_dir = workflow_output_dir
+        
+        # Initialize phase registry and executor
+        self.phase_registry = self._register_all_phases()
+        self.checkpoint_manager = CheckpointManager(self)
+        self.phase_executor = PhaseExecutor(self.phase_registry, self.checkpoint_manager)
+        
+        # Load screening safeguard configuration
+        self.safeguard_config = self.config.get("screening_safeguards", {})
+        self.min_papers_threshold = self.safeguard_config.get("minimum_papers", 10)
+        self.enable_manual_review = self.safeguard_config.get("enable_manual_review", True)
+        
+        logger.info(f"Output directory: {self.output_dir}")
+
+    def _register_all_phases(self) -> PhaseRegistry:
+        """Register all workflow phases with registry."""
+        registry = PhaseRegistry()
+        
+        # Phase 1: Build search strategy
+        registry.register(PhaseDefinition(
+            name="build_search_strategy",
+            phase_number=1,
+            dependencies=[],
+            handler=self._build_search_strategy,
+            checkpoint=False,  # Always rebuilds
+            description="Build search strategy"
+        ))
+        
+        # Phase 2: Search databases
+        registry.register(PhaseDefinition(
+            name="search_databases",
+            phase_number=2,
+            dependencies=["build_search_strategy"],
+            handler=self._search_databases_phase,
+            description="Search multiple databases for papers"
+        ))
+        
+        # Phase 3: Deduplication
+        registry.register(PhaseDefinition(
+            name="deduplication",
+            phase_number=3,
+            dependencies=["search_databases"],
+            handler=self._deduplication_phase,
+            description="Remove duplicate papers"
+        ))
+        
+        # Phase 4: Title/Abstract Screening
+        registry.register(PhaseDefinition(
+            name="title_abstract_screening",
+            phase_number=4,
+            dependencies=["deduplication"],
+            handler=self._title_abstract_screening_phase,
+            description="Screen papers by title and abstract"
+        ))
+        
+        # Phase 5: Full-text Screening
+        registry.register(PhaseDefinition(
+            name="fulltext_screening",
+            phase_number=5,
+            dependencies=["title_abstract_screening"],
+            handler=self._fulltext_screening_phase,
+            description="Screen papers by full-text"
+        ))
+        
+        # Phase 6.5: Paper Enrichment
+        registry.register(PhaseDefinition(
+            name="paper_enrichment",
+            phase_number=7,
+            dependencies=["fulltext_screening"],
+            handler=self._enrich_papers,
+            description="Enrich papers with missing metadata"
+        ))
+        
+        # Phase 7: Data Extraction
+        registry.register(PhaseDefinition(
+            name="data_extraction",
+            phase_number=7,
+            dependencies=["paper_enrichment"],
+            handler=self._extract_data,
+            description="Extract structured data from papers"
+        ))
+        
+        # Phase 8: Quality Assessment
+        registry.register(PhaseDefinition(
+            name="quality_assessment",
+            phase_number=8,
+            dependencies=["data_extraction"],
+            handler=self._quality_assessment,
+            description="Assess quality and risk of bias"
+        ))
+        
+        # Phase 9: PRISMA Generation
+        registry.register(PhaseDefinition(
+            name="prisma_generation",
+            phase_number=9,
+            dependencies=["data_extraction"],
+            handler=self._generate_prisma_diagram,
+            description="Generate PRISMA flow diagram"
+        ))
+        
+        # Phase 10: Visualization Generation
+        registry.register(PhaseDefinition(
+            name="visualization_generation",
+            phase_number=10,
+            dependencies=["data_extraction"],
+            handler=self._generate_visualizations,
+            description="Generate bibliometric visualizations"
+        ))
+        
+        # Phase 11: Article Writing
+        registry.register(PhaseDefinition(
+            name="article_writing",
+            phase_number=11,
+            dependencies=["data_extraction"],
+            handler=self._write_article,
+            description="Write article sections (Introduction, Methods, Results, Discussion, Abstract)"
+        ))
+        
+        # Phase 12: Report Generation
+        registry.register(PhaseDefinition(
+            name="report_generation",
+            phase_number=12,
+            dependencies=["article_writing", "prisma_generation", "visualization_generation"],
+            handler=self._report_generation_phase,
+            description="Generate final report"
+        ))
+        
+        # Phase 17: Manubot Export
+        registry.register(PhaseDefinition(
+            name="manubot_export",
+            phase_number=17,
+            dependencies=["article_writing"],
+            handler=self._manubot_export_phase,
+            required=False,
+            config_key="manubot.enabled",
+            description="Export to Manubot structure"
+        ))
+        
+        # Phase 18: Submission Package
+        registry.register(PhaseDefinition(
+            name="submission_package",
+            phase_number=18,
+            dependencies=["article_writing", "report_generation"],
+            handler=self._submission_package_phase,
+            required=False,
+            config_key="submission.enabled",
+            description="Generate submission package"
+        ))
+        
+        return registry
+    
+    def _search_databases_phase(self) -> List[Paper]:
+        """Wrapper for search_databases phase with checkpoint handling."""
+        search_results = self._search_databases()
+        self.all_papers = search_results
+        self.prisma_counter.set_found(len(self.all_papers), self._get_database_breakdown())
+        logger.info(
+            f"Found {len(self.all_papers)} papers across {len(self.config['workflow']['databases'])} databases"
+        )
+        
+        if self.debug_config.show_metrics:
+            db_breakdown = self._get_database_breakdown()
+            for db, count in db_breakdown.items():
+                logger.info(f"  - {db}: {count} papers")
+        
+        # List all papers with titles and authors
+        logger.info("=" * 60)
+        logger.info("ALL PAPERS FOUND:")
+        logger.info("=" * 60)
+        for i, paper in enumerate(self.all_papers, 1):
+            title = paper.title if paper.title else "[No title]"
+            authors_str = ", ".join(paper.authors) if paper.authors else "[No authors]"
+            database = paper.database if paper.database else "Unknown"
+            year = f" ({paper.year})" if paper.year else ""
+            doi_str = f" [DOI: {paper.doi}]" if paper.doi else ""
+            
+            logger.info(f"\n[{i}] {title}{year}")
+            logger.info(f"    Authors: {authors_str}")
+            logger.info(f"    Database: {database}{doi_str}")
+        logger.info("=" * 60)
+        
+        return search_results
+    
+    def _deduplication_phase(self):
+        """Wrapper for deduplication phase with checkpoint handling."""
+        dedup_result = self.deduplicator.deduplicate_papers(self.all_papers)
+        self.unique_papers = dedup_result.unique_papers
+        self.prisma_counter.set_no_dupes(len(self.unique_papers))
+        logger.info(
+            f"Removed {dedup_result.duplicates_removed} duplicates, {len(self.unique_papers)} unique papers remain"
+        )
+    
+    def _title_abstract_screening_phase(self):
+        """Wrapper for title/abstract screening phase with PRISMA tracking."""
+        self._screen_title_abstract()
+        self.prisma_counter.set_screened(len(self.screened_papers))
+        excluded_at_screening = len(self.unique_papers) - len(self.screened_papers)
+        self.prisma_counter.set_screen_exclusions(excluded_at_screening)
+        logger.info(
+            f"Screened {len(self.unique_papers)} papers, {len(self.screened_papers)} included, {excluded_at_screening} excluded"
+        )
+        
+        # Calculate and validate screening statistics
+        if self.title_abstract_results:
+            stats = self.screening_validator.calculate_statistics(
+                self.unique_papers,
+                self.title_abstract_results,
+                ScreeningStage.TITLE_ABSTRACT
+            )
+            self.screening_validator.log_statistics(ScreeningStage.TITLE_ABSTRACT)
+    
+    def _fulltext_screening_phase(self):
+        """Wrapper for fulltext screening phase with PRISMA tracking."""
+        self._screen_fulltext()
+        # PRISMA tracking: "sought" = papers that passed title/abstract screening
+        sought_count = len(self.screened_papers)
+        self.prisma_counter.set_full_text_sought(sought_count)
+        # "not_retrieved" = papers where full-text was unavailable
+        not_retrieved_count = self.fulltext_unavailable_count
+        self.prisma_counter.set_full_text_not_retrieved(not_retrieved_count)
+        # "assessed" = papers actually assessed for eligibility
+        # We assess all papers (with or without full-text), so assessed = sought
+        assessed_count = sought_count
+        self.prisma_counter.set_full_text_assessed(assessed_count)
+        excluded_at_fulltext = len(self.screened_papers) - len(self.eligible_papers)
+        self.prisma_counter.set_full_text_exclusions(excluded_at_fulltext)
+        logger.info(
+            f"Full-text screened {len(self.screened_papers)} papers, {len(self.eligible_papers)} eligible, {excluded_at_fulltext} excluded"
+        )
+        logger.info(
+            f"PRISMA: sought={sought_count}, "
+            f"not_retrieved={not_retrieved_count}, "
+            f"assessed={assessed_count} "
+            f"(sought - not_retrieved = {sought_count - not_retrieved_count} papers with full-text)"
+        )
+        
+        # Phase 6: Final inclusion (happens automatically after fulltext screening)
+        self.final_papers = self.eligible_papers
+        self.prisma_counter.set_qualitative(len(self.final_papers))
+        self.prisma_counter.set_quantitative(len(self.final_papers))
+        logger.info(f"Final included studies: {len(self.final_papers)}")
+    
+    def _report_generation_phase(self) -> str:
+        """Wrapper for report generation phase."""
+        # Get article sections from previous phase
+        article_sections = getattr(self, "_article_sections", {})
+        
+        # Get PRISMA path (may need to generate if not available)
+        prisma_path = None
+        if hasattr(self, "_prisma_path"):
+            prisma_path = self._prisma_path
+        else:
+            prisma_path = self._generate_prisma_diagram()
+            self._prisma_path = prisma_path
+        
+        # Get visualization paths (may need to generate if not available)
+        viz_paths = {}
+        if hasattr(self, "_viz_paths"):
+            viz_paths = self._viz_paths
+        else:
+            viz_paths = self._generate_visualizations()
+            self._viz_paths = viz_paths
+        
+        report_path = self._generate_final_report(article_sections, prisma_path, viz_paths)
+        return report_path
+    
+    def _manubot_export_phase(self) -> Optional[str]:
+        """Wrapper for manubot export phase."""
+        article_sections = getattr(self, "_article_sections", {})
+        manubot_path = self._export_manubot_structure(article_sections)
+        if manubot_path:
+            self._manubot_export_path = manubot_path
+        return manubot_path
+    
+    def _submission_package_phase(self) -> Optional[str]:
+        """Wrapper for submission package phase."""
+        article_sections = getattr(self, "_article_sections", {})
+        report_path = getattr(self, "_report_path", None)
+        if not report_path:
+            # Generate report if not available
+            prisma_path = getattr(self, "_prisma_path", None) or self._generate_prisma_diagram()
+            viz_paths = getattr(self, "_viz_paths", {}) or self._generate_visualizations()
+            report_path = self._generate_final_report(article_sections, prisma_path, viz_paths)
+            self._report_path = report_path
+        
+        # Get all outputs
+        outputs = {
+            "article_sections": article_sections,
+            "final_report": report_path,
+            "prisma_diagram": getattr(self, "_prisma_path", None),
+            "visualizations": getattr(self, "_viz_paths", {}),
+        }
+        
+        package_path = self._generate_submission_package(outputs, article_sections, report_path)
+        if package_path:
+            self._submission_package_path = package_path
+        return package_path
+    
+    def _should_run_phase(self, phase: PhaseDefinition) -> bool:
+        """
+        Check if phase should run based on config.
+        
+        Args:
+            phase: Phase definition
+            
+        Returns:
+            True if phase should run
+        """
+        if phase.config_key:
+            # Check config (e.g., "manubot.enabled")
+            keys = phase.config_key.split(".")
+            value = self.config
+            for key in keys:
+                if isinstance(value, dict):
+                    value = value.get(key, {})
+                else:
+                    return False
+            return value.get("enabled", False) if isinstance(value, dict) else bool(value)
+        return True
+    
+    def _determine_start_phase(self, checkpoint: Dict[str, Any]) -> Optional[int]:
+        """
+        Determine start phase from checkpoint.
+        
+        Args:
+            checkpoint: Checkpoint dictionary with latest_phase
+            
+        Returns:
+            Phase number to start from, or None
+        """
+        # Map phase name to phase number (next phase to run)
+        phase_to_next_number = {
+            "search_databases": 3,  # Next: deduplication
+            "deduplication": 4,  # Next: title_abstract_screening
+            "title_abstract_screening": 5,  # Next: fulltext_screening
+            "fulltext_screening": 7,  # Next: paper_enrichment
+            "paper_enrichment": 7,  # Next: data_extraction
+            "data_extraction": 8,  # Next: quality_assessment/prisma
+            "quality_assessment": 9,  # Next: prisma/visualization/writing
+            "prisma_generation": 9,  # Next: visualization/writing
+            "visualization_generation": 10,  # Next: article_writing
+            "article_writing": 11,  # Next: report_generation
+            "report_generation": 12,  # Next: export/search_strategies
+            "manubot_export": 18,  # Next: submission_package
+        }
+        return phase_to_next_number.get(checkpoint.get("latest_phase"), None)
 
     def run(self, start_from_phase: Optional[int] = None) -> Dict[str, Any]:
         """
@@ -170,7 +535,7 @@ class WorkflowManager:
         
         # Auto-detect and resume from existing checkpoint if available
         if start_from_phase is None and self.save_checkpoints:
-            existing_checkpoint = self._find_existing_checkpoint_by_topic()
+            existing_checkpoint = self.checkpoint_manager.find_by_topic(self.topic_context.topic)
             if existing_checkpoint:
                 logger.info("=" * 60)
                 logger.info(f"Found existing checkpoint for this topic!")
@@ -178,6 +543,18 @@ class WorkflowManager:
                 logger.info(f"  Latest phase: {existing_checkpoint['latest_phase']}")
                 logger.info(f"  Resuming from checkpoint...")
                 logger.info("=" * 60)
+                
+                # Update workflow_id and output_dir to match checkpoint
+                self.workflow_id = existing_checkpoint["workflow_id"]
+                base_output_dir = Path(self.config["output"]["directory"])
+                workflow_output_dir = base_output_dir / self.workflow_id
+                workflow_output_dir.mkdir(parents=True, exist_ok=True)
+                self.output_dir = workflow_output_dir
+                
+                # Update ChartGenerator to use workflow-specific output directory
+                self.chart_generator.output_dir = workflow_output_dir
+                
+                logger.info(f"Using output directory: {self.output_dir}")
                 
                 # Load all prerequisite checkpoints in order
                 checkpoint_dir = Path(existing_checkpoint["checkpoint_dir"])
@@ -190,6 +567,8 @@ class WorkflowManager:
                     "data_extraction": ["paper_enrichment"],  # paper_enrichment may not exist, will fallback to fulltext_screening data
                     "quality_assessment": ["data_extraction"],
                     "article_writing": ["data_extraction"],  # Need final_papers from data_extraction for citations
+                    "manubot_export": ["article_writing"],
+                    "submission_package": ["article_writing", "report_generation"],
                 }
                 
                 # Get all phases we need to load (dependencies + latest phase)
@@ -230,7 +609,7 @@ class WorkflowManager:
                     if exists:
                         logger.debug(f"Found checkpoint: {phase}")
                         try:
-                            checkpoint_data = self._load_phase_state(str(checkpoint_file))
+                            checkpoint_data = self.checkpoint_manager.load_phase(str(checkpoint_file))
                             
                             # Merge checkpoint data into accumulated state
                             # Later phases override earlier ones for same keys, but preserve keys only in earlier phases
@@ -383,27 +762,14 @@ class WorkflowManager:
                 # Update workflow_id and checkpoint_dir from checkpoint
                 latest_checkpoint_file = checkpoint_dir / f"{existing_checkpoint['latest_phase']}_state.json"
                 if latest_checkpoint_file.exists():
-                    latest_checkpoint_data = self._load_phase_state(str(latest_checkpoint_file))
-                    if "workflow_id" in latest_checkpoint_data:
+                    latest_checkpoint_data = self.checkpoint_manager.load_phase(str(latest_checkpoint_file))
+                    if latest_checkpoint_data and "workflow_id" in latest_checkpoint_data:
                         self.workflow_id = latest_checkpoint_data["workflow_id"]
                         self.checkpoint_dir = Path("data/checkpoints") / self.workflow_id
+                        self.checkpoint_manager.checkpoint_dir = self.checkpoint_dir
                 
-                # Map phase name to phase number (next phase to run)
-                phase_to_next_number = {
-                    "search_databases": 3,  # Next: deduplication
-                    "deduplication": 4,  # Next: title_abstract_screening
-                    "title_abstract_screening": 5,  # Next: fulltext_screening
-                    "fulltext_screening": 7,  # Next: paper_enrichment
-                    "paper_enrichment": 7,  # Next: data_extraction
-                    "data_extraction": 8,  # Next: quality_assessment/prisma
-                    "quality_assessment": 9,  # Next: prisma/visualization/writing
-                    "prisma_generation": 9,  # Next: visualization/writing
-                    "visualization_generation": 10,  # Next: article_writing
-                    "article_writing": 11,  # Next: report_generation
-                    "report_generation": 12,  # Next: export/search_strategies
-                }
-                
-                start_from_phase = phase_to_next_number.get(existing_checkpoint["latest_phase"], None)
+                # Determine start phase from checkpoint
+                start_from_phase = self._determine_start_phase(existing_checkpoint)
                 if start_from_phase:
                     logger.info(f"Resuming from phase {start_from_phase} (completed: {existing_checkpoint['latest_phase']})")
                     logger.info(f"Loaded state: {len(self.all_papers)} papers, {len(self.unique_papers)} unique, {len(self.screened_papers)} screened")
@@ -419,278 +785,134 @@ class WorkflowManager:
         results = {"phase": "initialization", "outputs": {}}
 
         try:
-            # Phase 1: Build search strategy
-            # Always build search strategy, even when resuming (needed for article writing)
-            if not start_from_phase or start_from_phase == 1:
+            # Phase 1: Build search strategy (always runs, even when resuming)
+            # This ensures search_strategy is available for article writing and exports
+            try:
                 with workflow_phase_context("build_search_strategy"):
                     self._build_search_strategy()
                     if self.debug_config.show_state_transitions:
                         logger.info("Search strategy built successfully")
-            else:
-                # If resuming, always rebuild search strategy (needed for article writing and exports)
-                # This ensures search_strategy is available even when resuming from later phases
+            except Exception as e:
                 if self.search_strategy is None:
-                    logger.info("Rebuilding search strategy (required for article writing)")
-                    try:
-                        self._build_search_strategy()
-                        logger.info("Search strategy rebuilt successfully")
-                    except Exception as e:
-                        logger.error(f"Failed to rebuild search strategy: {e}", exc_info=True)
-                        raise
+                    logger.error(f"Failed to rebuild search strategy: {e}", exc_info=True)
+                    raise
                 else:
-                    # Even if search_strategy exists, rebuild to ensure it's current
-                    logger.debug("Rebuilding search strategy to ensure it's current")
-                    try:
-                        self._build_search_strategy()
-                    except Exception as e:
-                        logger.warning(f"Failed to rebuild search strategy (will use existing): {e}")
-
-            # Phase 2: Search databases
-            if not start_from_phase or start_from_phase <= 2:
-                with workflow_phase_context("search_databases"):
-                    search_results = self._search_databases()
-                    self.all_papers = search_results
-                    self.prisma_counter.set_found(len(self.all_papers), self._get_database_breakdown())
-                    logger.info(
-                        f"Found {len(self.all_papers)} papers across {len(self.config['workflow']['databases'])} databases"
-                    )
-
-                    if self.debug_config.show_metrics:
-                        db_breakdown = self._get_database_breakdown()
-                        for db, count in db_breakdown.items():
-                            logger.info(f"  - {db}: {count} papers")
-                    
-                    # List all papers with titles and authors
-                    logger.info("=" * 60)
-                    logger.info("ALL PAPERS FOUND:")
-                    logger.info("=" * 60)
-                    for i, paper in enumerate(self.all_papers, 1):
-                        title = paper.title if paper.title else "[No title]"
-                        authors_str = ", ".join(paper.authors) if paper.authors else "[No authors]"
-                        database = paper.database if paper.database else "Unknown"
-                        year = f" ({paper.year})" if paper.year else ""
-                        doi_str = f" [DOI: {paper.doi}]" if paper.doi else ""
-                        
-                        logger.info(f"\n[{i}] {title}{year}")
-                        logger.info(f"    Authors: {authors_str}")
-                        logger.info(f"    Database: {database}{doi_str}")
-                    logger.info("=" * 60)
-                    
-                    # Save checkpoint after search
-                    if self.save_checkpoints:
-                        self._save_phase_state("search_databases")
-
-            # Phase 3: Deduplication
-            if not start_from_phase or start_from_phase <= 3:
-                with workflow_phase_context("deduplication"):
-                    dedup_result = self.deduplicator.deduplicate_papers(self.all_papers)
-                    self.unique_papers = dedup_result.unique_papers
-                    self.prisma_counter.set_no_dupes(len(self.unique_papers))
-                    logger.info(
-                        f"Removed {dedup_result.duplicates_removed} duplicates, {len(self.unique_papers)} unique papers remain"
-                    )
-                    
-                    # Save checkpoint after deduplication
-                    if self.save_checkpoints:
-                        self._save_phase_state("deduplication")
-
-            # Phase 4: Title/Abstract Screening
-            if not start_from_phase or start_from_phase <= 4:
-                with workflow_phase_context("title_abstract_screening"):
-                    self._screen_title_abstract()
-                    self.prisma_counter.set_screened(len(self.screened_papers))
-                    excluded_at_screening = len(self.unique_papers) - len(self.screened_papers)
-                    self.prisma_counter.set_screen_exclusions(excluded_at_screening)
-                    logger.info(
-                        f"Screened {len(self.unique_papers)} papers, {len(self.screened_papers)} included, {excluded_at_screening} excluded"
-                    )
-                    
-                    # Calculate and validate screening statistics
-                    if self.title_abstract_results:
-                        stats = self.screening_validator.calculate_statistics(
-                            self.unique_papers,
-                            self.title_abstract_results,
-                            ScreeningStage.TITLE_ABSTRACT
-                        )
-                        self.screening_validator.log_statistics(ScreeningStage.TITLE_ABSTRACT)
-                    
-                    # Save checkpoint after title screening
-                    if self.save_checkpoints:
-                        self._save_phase_state("title_abstract_screening")
-
-            # Phase 5: Full-text Screening
-            if not start_from_phase or start_from_phase <= 5:
-                with workflow_phase_context("fulltext_screening"):
-                    self._screen_fulltext()
-                    # PRISMA tracking: "sought" = papers that passed title/abstract screening
-                    sought_count = len(self.screened_papers)
-                    self.prisma_counter.set_full_text_sought(sought_count)
-                    # "not_retrieved" = papers where full-text was unavailable
-                    not_retrieved_count = self.fulltext_unavailable_count
-                    self.prisma_counter.set_full_text_not_retrieved(not_retrieved_count)
-                    # "assessed" = papers actually assessed for eligibility
-                    # If all papers are assessed (including those without full-text using fallback):
-                    #   assessed = sought
-                    # If only papers with full-text are assessed:
-                    #   assessed = sought - not_retrieved
-                    # We assess all papers (with or without full-text), so assessed = sought
-                    assessed_count = sought_count
-                    self.prisma_counter.set_full_text_assessed(assessed_count)
-                    excluded_at_fulltext = len(self.screened_papers) - len(self.eligible_papers)
-                    self.prisma_counter.set_full_text_exclusions(excluded_at_fulltext)
-                    logger.info(
-                        f"Full-text screened {len(self.screened_papers)} papers, {len(self.eligible_papers)} eligible, {excluded_at_fulltext} excluded"
-                    )
-                    logger.info(
-                        f"PRISMA: sought={sought_count}, "
-                        f"not_retrieved={not_retrieved_count}, "
-                        f"assessed={assessed_count} "
-                        f"(sought - not_retrieved = {sought_count - not_retrieved_count} papers with full-text)"
-                    )
-                    
-                    # Save checkpoint after fulltext screening
-                    if self.save_checkpoints:
-                        self._save_phase_state("fulltext_screening")
-
-            # Phase 6: Final inclusion
-            self.final_papers = self.eligible_papers
-            self.prisma_counter.set_qualitative(len(self.final_papers))
-            self.prisma_counter.set_quantitative(len(self.final_papers))
-            logger.info(f"Final included studies: {len(self.final_papers)}")
-
-            # Phase 6.5: Enrich papers with missing metadata (affiliations, etc.)
-            if not start_from_phase or start_from_phase <= 7:
-                with workflow_phase_context("paper_enrichment"):
-                    self._enrich_papers()
-                    logger.info(f"Enriched {len(self.final_papers)} papers with metadata")
-                    
-                    # Save checkpoint after enrichment
-                    if self.save_checkpoints:
-                        self._save_phase_state("paper_enrichment")
-
-            # Phase 7: Data Extraction
-            if not start_from_phase or start_from_phase <= 7:
-                with workflow_phase_context("data_extraction"):
-                    self._extract_data()
-                    logger.info(f"Extracted data from {len(self.extracted_data)} studies")
-                    
-                    # Save checkpoint after extraction
-                    if self.save_checkpoints:
-                        self._save_phase_state("data_extraction")
-
-            # Phase 8: Quality Assessment (Risk of Bias + GRADE)
-            if not start_from_phase or start_from_phase <= 8:
-                with workflow_phase_context("quality_assessment"):
-                    quality_assessment_data = self._quality_assessment()
-                    results["outputs"]["quality_assessment"] = quality_assessment_data
-                    logger.info("Quality assessment phase complete")
-                    
-                    # Save checkpoint after quality assessment
-                    if self.save_checkpoints:
-                        self._save_phase_state("quality_assessment")
-
-            # Initialize outputs that may be needed even when resuming
-            prisma_path = None
-            viz_paths = []
-            article_sections = {}
+                    logger.warning(f"Failed to rebuild search strategy (will use existing): {e}")
             
-            # Phase 9: Generate PRISMA Diagram
-            if not start_from_phase or start_from_phase <= 8:
-                with workflow_phase_context("prisma_generation"):
-                    prisma_path = self._generate_prisma_diagram()
-                    results["outputs"]["prisma_diagram"] = prisma_path
-                    logger.info(f"PRISMA diagram generated: {prisma_path}")
-            else:
-                # When resuming, try to load PRISMA path from results or generate it
-                if "prisma_diagram" in results.get("outputs", {}):
-                    prisma_path = results["outputs"]["prisma_diagram"]
-                else:
-                    # Generate PRISMA diagram if not found
-                    logger.info("PRISMA diagram not found in checkpoint, generating...")
-                    prisma_path = self._generate_prisma_diagram()
-                    results["outputs"]["prisma_diagram"] = prisma_path
-
-            # Phase 9: Generate Visualizations
-            if not start_from_phase or start_from_phase <= 9:
-                with workflow_phase_context("visualization_generation"):
-                    viz_paths = self._generate_visualizations()
-                    results["outputs"]["visualizations"] = viz_paths
-                    logger.info(f"Generated {len(viz_paths)} visualizations")
-            else:
-                # When resuming, try to load visualizations from results
-                if "visualizations" in results.get("outputs", {}):
-                    viz_paths = results["outputs"]["visualizations"]
-                else:
-                    # Generate visualizations if not found
-                    logger.info("Visualizations not found in checkpoint, generating...")
-                    viz_paths = self._generate_visualizations()
-                    results["outputs"]["visualizations"] = viz_paths
-
-            # Phase 10: Write Article Sections
-            # Check if article_sections were already loaded from checkpoint
-            if hasattr(self, "_article_sections") and self._article_sections:
-                # Article sections already loaded from checkpoint during initialization
-                article_sections = self._article_sections
-                results["outputs"]["article_sections"] = article_sections
-                logger.info(f"Using {len(article_sections)} article sections loaded from checkpoint")
-            else:
-                # Check if article_writing checkpoint exists
-                article_writing_checkpoint = None
-                if self.checkpoint_dir and self.checkpoint_dir.exists():
-                    article_writing_checkpoint = self.checkpoint_dir / "article_writing_state.json"
-                    if not article_writing_checkpoint.exists():
-                        article_writing_checkpoint = None
+            # Phase 6: Final inclusion (happens automatically after fulltext screening)
+            # This is not a registered phase but happens automatically
+            # We'll handle it in the phase execution loop
+            
+            # Execute phases using registry
+            execution_order = self.phase_registry.get_execution_order()
+            
+            # Track outputs for phases that need them
+            prisma_path = None
+            viz_paths = {}
+            article_sections = {}
+            report_path = None
+            
+            for phase_name in execution_order:
+                phase = self.phase_registry.get_phase(phase_name)
+                if not phase:
+                    continue
                 
-                if article_writing_checkpoint and article_writing_checkpoint.exists():
-                    # Load article sections from checkpoint
-                    logger.info("Found article_writing checkpoint, loading article sections...")
-                    try:
-                        with open(article_writing_checkpoint, "r") as f:
-                            checkpoint_data = json.load(f)
-                        article_sections = checkpoint_data.get("data", {}).get("article_sections", {})
-                        if article_sections:
-                            self._article_sections = article_sections
-                            results["outputs"]["article_sections"] = article_sections
-                            logger.info(f"Loaded {len(article_sections)} article sections from checkpoint")
-                        else:
-                            raise ValueError("No article_sections found in checkpoint data")
-                    except Exception as e:
-                        logger.warning(f"Failed to load article_writing checkpoint: {e}. Regenerating...")
-                        with workflow_phase_context("article_writing"):
-                            article_sections = self._write_article()
-                            results["outputs"]["article_sections"] = article_sections
-                            logger.info(f"Wrote {len(article_sections)} article sections")
-                            self._article_sections = article_sections
-                            if self.save_checkpoints:
-                                self._save_phase_state("article_writing")
-                elif not start_from_phase or start_from_phase <= 10:
-                    # No checkpoint found, generate article sections
-                    with workflow_phase_context("article_writing"):
-                        article_sections = self._write_article()
+                # Skip if before start phase
+                if start_from_phase and phase.phase_number < start_from_phase:
+                    continue
+                
+                # Check if phase should run (config-based for optional phases)
+                if not self._should_run_phase(phase):
+                    logger.info(f"Skipping phase '{phase_name}': disabled in config")
+                    continue
+                
+                # Special handling for final inclusion (not a registered phase)
+                if phase_name == "fulltext_screening":
+                    # After fulltext screening, set final papers
+                    # We'll do this after the phase executes
+                    pass
+                
+                # Execute phase
+                try:
+                    phase_result = self.phase_executor.execute_phase(
+                        phase_name, self, {"start_from_phase": start_from_phase}
+                    )
+                    
+                    # Store results based on phase
+                    if phase_name == "search_databases":
+                        # Already handled in wrapper
+                        pass
+                    elif phase_name == "prisma_generation":
+                        prisma_path = phase_result
+                        results["outputs"]["prisma_diagram"] = prisma_path
+                        self._prisma_path = prisma_path
+                    elif phase_name == "visualization_generation":
+                        viz_paths = phase_result
+                        results["outputs"]["visualizations"] = viz_paths
+                        self._viz_paths = viz_paths
+                    elif phase_name == "article_writing":
+                        article_sections = phase_result
                         results["outputs"]["article_sections"] = article_sections
-                        logger.info(f"Wrote {len(article_sections)} article sections")
-                        
-                        # Store article sections for checkpoint
                         self._article_sections = article_sections
-                        
-                        # Save checkpoint after writing
-                        if self.save_checkpoints:
-                            self._save_phase_state("article_writing")
-                else:
-                    # When resuming from later phase, try to load article sections from results
-                    if "article_sections" in results.get("outputs", {}):
-                        article_sections = results["outputs"]["article_sections"]
+                    elif phase_name == "report_generation":
+                        report_path = phase_result
+                        results["outputs"]["final_report"] = report_path
+                        self._report_path = report_path
+                    elif phase_name == "quality_assessment":
+                        results["outputs"]["quality_assessment"] = phase_result
+                    elif phase_name == "manubot_export":
+                        if phase_result:
+                            results["outputs"]["manubot_export"] = phase_result
+                    elif phase_name == "submission_package":
+                        if phase_result:
+                            results["outputs"]["submission_package"] = phase_result
+                    
+                    # Final inclusion is handled in _fulltext_screening_phase wrapper
+                
+                except Exception as e:
+                    if phase.required:
+                        logger.error(f"Required phase '{phase_name}' failed: {e}", exc_info=True)
+                        raise
                     else:
-                        # Generate article sections if not found
-                        logger.info("Article sections not found in checkpoint, generating...")
-                        article_sections = self._write_article()
-                        results["outputs"]["article_sections"] = article_sections
+                        logger.warning(f"Optional phase '{phase_name}' failed: {e}")
+                        continue
+            
+            # Handle phases not in registry (supplementary phases)
+            # These run after main phases complete
+            if not start_from_phase or start_from_phase <= 12:
+                # Phase 13: Export Search Strategies
+                supplementary_config = self.config.get("supplementary_materials", {})
+                if supplementary_config.get("search_strategies", True):
+                    with workflow_phase_context("search_strategy_export"):
+                        search_strategies_path = self._export_search_strategies()
+                        if search_strategies_path:
+                            results["outputs"]["search_strategies"] = search_strategies_path
+                            logger.info(f"Search strategies exported: {search_strategies_path}")
 
-            # Phase 12: Generate Final Report
-            with workflow_phase_context("report_generation"):
-                report_path = self._generate_final_report(article_sections, prisma_path, viz_paths)
-                results["outputs"]["final_report"] = report_path
-                logger.info(f"Final report generated: {report_path}")
+                # Phase 14: Generate PRISMA Checklist
+                if report_path:
+                    with workflow_phase_context("prisma_checklist"):
+                        checklist_path = self._generate_prisma_checklist(str(report_path))
+                        if checklist_path:
+                            results["outputs"]["prisma_checklist"] = checklist_path
+                            logger.info(f"PRISMA checklist generated: {checklist_path}")
+
+                # Phase 15: Generate Data Extraction Forms
+                supplementary_config = self.config.get("supplementary_materials", {})
+                if supplementary_config.get("extracted_data", True):
+                    with workflow_phase_context("extraction_forms"):
+                        extraction_form_path = self._generate_extraction_forms()
+                        if extraction_form_path:
+                            results["outputs"]["extraction_form"] = extraction_form_path
+                            logger.info(f"Extraction form generated: {extraction_form_path}")
+
+                # Phase 16: Export to Additional Formats
+                export_config = self.config.get("output", {}).get("formats", [])
+                if "latex" in export_config or "word" in export_config:
+                    with workflow_phase_context("export"):
+                        export_paths = self._export_report(article_sections, prisma_path, viz_paths)
+                        results["outputs"]["exports"] = export_paths
+                        logger.info(f"Exported to additional formats: {export_paths}")
 
             # Phase 13: Export Search Strategies
             supplementary_config = self.config.get("supplementary_materials", {})
@@ -724,6 +946,32 @@ class WorkflowManager:
                     export_paths = self._export_report(article_sections, prisma_path, viz_paths)
                     results["outputs"]["exports"] = export_paths
                     logger.info(f"Exported to additional formats: {export_paths}")
+
+            # Phase 17: Manubot Export
+            manubot_config = self.config.get("manubot", {})
+            if manubot_config.get("enabled", False):
+                with workflow_phase_context("manubot_export"):
+                    manubot_path = self._export_manubot_structure(article_sections)
+                    if manubot_path:
+                        results["outputs"]["manubot_export"] = manubot_path
+                        self._manubot_export_path = manubot_path
+                        logger.info(f"Manubot structure exported: {manubot_path}")
+                        self._save_phase_state("manubot_export")
+
+            # Phase 18: Submission Package Generation
+            submission_config = self.config.get("submission", {})
+            if submission_config.get("enabled", False):
+                with workflow_phase_context("submission_package"):
+                    package_path = self._generate_submission_package(
+                        results["outputs"],
+                        article_sections,
+                        report_path,
+                    )
+                    if package_path:
+                        results["outputs"]["submission_package"] = package_path
+                        self._submission_package_path = package_path
+                        logger.info(f"Submission package generated: {package_path}")
+                        self._save_phase_state("submission_package")
 
             # Save workflow state
             state_path = self._save_workflow_state()
@@ -1252,6 +1500,32 @@ class WorkflowManager:
             f"Title/abstract screening complete: {len(self.screened_papers)}/{len(self.unique_papers)} papers included"
         )
 
+        # Check minimum paper safeguard
+        safeguard_result = self._check_minimum_papers_safeguard(
+            stage="title_abstract",
+            included_count=len(self.screened_papers),
+            total_count=len(self.unique_papers),
+            min_papers=self.min_papers_threshold
+        )
+
+        if not safeguard_result['meets_threshold']:
+            logger.warning("=" * 60)
+            logger.warning("MINIMUM PAPER THRESHOLD NOT MET")
+            logger.warning("=" * 60)
+            logger.warning(f"Only {len(self.screened_papers)} papers passed title/abstract screening.")
+            logger.warning("Recommendations:")
+            for rec in safeguard_result['recommendations']:
+                logger.warning(f"  - {rec}")
+            
+            if safeguard_result['borderline_papers']:
+                logger.warning(f"\nTop {len(safeguard_result['borderline_papers'])} borderline papers:")
+                for i, bp in enumerate(safeguard_result['borderline_papers'], 1):
+                    logger.warning(f"  {i}. {bp['paper'].title[:60]}... (confidence: {bp['confidence']:.2f})")
+            
+            logger.warning("=" * 60)
+            logger.warning("Consider reviewing inclusion/exclusion criteria before proceeding.")
+            logger.warning("=" * 60)
+
         # Enrich topic context
         self.topic_context.enrich(
             [f"Screened {len(self.unique_papers)} papers, {len(self.screened_papers)} included"]
@@ -1275,6 +1549,61 @@ class WorkflowManager:
                 logger.info(
                     f"Full-text screening complete (from checkpoint): {len(self.eligible_papers)}/{len(self.screened_papers)} papers eligible"
                 )
+                
+                # Check minimum paper safeguard even when resuming from checkpoint
+                safeguard_result = self._check_minimum_papers_safeguard(
+                    stage="fulltext",
+                    included_count=len(self.eligible_papers),
+                    total_count=len(self.screened_papers),
+                    min_papers=self.min_papers_threshold
+                )
+
+                if not safeguard_result['meets_threshold']:
+                    logger.error("=" * 60)
+                    logger.error("CRITICAL: MINIMUM PAPER THRESHOLD NOT MET")
+                    logger.error("=" * 60)
+                    logger.error(f"Only {len(self.eligible_papers)} papers passed full-text screening.")
+                    logger.error("This may indicate:")
+                    logger.error("  1. Inclusion criteria are too strict")
+                    logger.error("  2. Exclusion criteria are too broad")
+                    logger.error("  3. Search strategy needs refinement")
+                    logger.error("")
+                    logger.error("Recommendations:")
+                    for rec in safeguard_result['recommendations']:
+                        logger.error(f"  - {rec}")
+                    
+                    if safeguard_result['borderline_papers']:
+                        logger.error(f"\nTop {len(safeguard_result['borderline_papers'])} borderline papers:")
+                        for i, bp in enumerate(safeguard_result['borderline_papers'], 1):
+                            logger.error(f"  {i}. {bp['paper'].title[:60]}... (confidence: {bp['confidence']:.2f})")
+                            if bp['result'].exclusion_reason:
+                                logger.error(f"      Exclusion reason: {bp['result'].exclusion_reason}")
+                        
+                        # Export borderline papers for manual review
+                        if self.safeguard_config.get("show_borderline_papers", True):
+                            borderline_output_path = self.output_dir / "borderline_papers_for_review.json"
+                            self._export_borderline_papers(safeguard_result['borderline_papers'], borderline_output_path)
+                    
+                    logger.error("=" * 60)
+                    logger.error("WORKFLOW PAUSED FOR MANUAL REVIEW")
+                    logger.error("=" * 60)
+                    logger.error("Options:")
+                    logger.error("  1. Review and relax criteria in config/workflow.yaml")
+                    logger.error("  2. Review borderline papers and manually include if appropriate")
+                    logger.error("  3. Adjust search strategy to find more relevant papers")
+                    logger.error("  4. Continue with current results (not recommended for systematic review)")
+                    logger.error("")
+                    logger.error("After making changes, re-run the workflow.")
+                    logger.error("=" * 60)
+                    
+                    # Raise exception to stop workflow if manual review is enabled
+                    if self.enable_manual_review:
+                        raise RuntimeError(
+                            f"Minimum paper threshold not met: {len(self.eligible_papers)} papers included "
+                            f"(required: {self.min_papers_threshold}). Please review screening criteria and borderline papers. "
+                            f"See logs above for recommendations."
+                        )
+                
                 return
             else:
                 logger.warning(
@@ -1436,6 +1765,60 @@ class WorkflowManager:
             )
             self.screening_validator.log_statistics(ScreeningStage.FULL_TEXT)
 
+        # Check minimum paper safeguard
+        safeguard_result = self._check_minimum_papers_safeguard(
+            stage="fulltext",
+            included_count=len(self.eligible_papers),
+            total_count=len(self.screened_papers),
+            min_papers=self.min_papers_threshold
+        )
+
+        if not safeguard_result['meets_threshold']:
+            logger.error("=" * 60)
+            logger.error("CRITICAL: MINIMUM PAPER THRESHOLD NOT MET")
+            logger.error("=" * 60)
+            logger.error(f"Only {len(self.eligible_papers)} papers passed full-text screening.")
+            logger.error("This may indicate:")
+            logger.error("  1. Inclusion criteria are too strict")
+            logger.error("  2. Exclusion criteria are too broad")
+            logger.error("  3. Search strategy needs refinement")
+            logger.error("")
+            logger.error("Recommendations:")
+            for rec in safeguard_result['recommendations']:
+                logger.error(f"  - {rec}")
+            
+            if safeguard_result['borderline_papers']:
+                logger.error(f"\nTop {len(safeguard_result['borderline_papers'])} borderline papers:")
+                for i, bp in enumerate(safeguard_result['borderline_papers'], 1):
+                    logger.error(f"  {i}. {bp['paper'].title[:60]}... (confidence: {bp['confidence']:.2f})")
+                    if bp['result'].exclusion_reason:
+                        logger.error(f"      Exclusion reason: {bp['result'].exclusion_reason}")
+                
+                # Export borderline papers for manual review
+                if self.safeguard_config.get("show_borderline_papers", True):
+                    borderline_output_path = self.output_dir / "borderline_papers_for_review.json"
+                    self._export_borderline_papers(safeguard_result['borderline_papers'], borderline_output_path)
+            
+            logger.error("=" * 60)
+            logger.error("WORKFLOW PAUSED FOR MANUAL REVIEW")
+            logger.error("=" * 60)
+            logger.error("Options:")
+            logger.error("  1. Review and relax criteria in config/workflow.yaml")
+            logger.error("  2. Review borderline papers and manually include if appropriate")
+            logger.error("  3. Adjust search strategy to find more relevant papers")
+            logger.error("  4. Continue with current results (not recommended for systematic review)")
+            logger.error("")
+            logger.error("After making changes, re-run the workflow.")
+            logger.error("=" * 60)
+            
+            # Raise exception to stop workflow if manual review is enabled
+            if self.enable_manual_review:
+                raise RuntimeError(
+                    f"Minimum paper threshold not met: {len(self.eligible_papers)} papers included "
+                    f"(required: {self.min_papers_threshold}). Please review screening criteria and borderline papers. "
+                    f"See logs above for recommendations."
+                )
+
         # Enrich topic context
         self.topic_context.enrich(
             [
@@ -1443,6 +1826,94 @@ class WorkflowManager:
                 f"Full-text available for {self.fulltext_available_count} papers"
             ]
         )
+
+    def _check_minimum_papers_safeguard(self, stage: str, included_count: int, total_count: int, min_papers: int = None) -> Dict[str, Any]:
+        """
+        Check if minimum paper threshold is met and provide recommendations.
+        
+        Args:
+            stage: Screening stage name ('title_abstract' or 'fulltext')
+            included_count: Number of papers included
+            total_count: Total papers screened
+            min_papers: Minimum required papers (defaults to self.min_papers_threshold)
+        
+        Returns:
+            Dict with 'meets_threshold', 'recommendations', 'borderline_papers'
+        """
+        if min_papers is None:
+            min_papers = self.min_papers_threshold
+        
+        meets_threshold = included_count >= min_papers
+        inclusion_rate = (included_count / total_count * 100) if total_count > 0 else 0
+        
+        recommendations = []
+        borderline_papers = []
+        
+        if not meets_threshold:
+            recommendations.append(
+                f"Inclusion rate is {inclusion_rate:.1f}% ({included_count}/{total_count} papers). "
+                f"Consider reviewing screening criteria."
+            )
+            
+            # Find borderline papers (excluded but with low confidence, meaning close match)
+            if stage == "fulltext" and hasattr(self, 'fulltext_results'):
+                for i, result in enumerate(self.fulltext_results):
+                    if result.decision.value == "exclude" and result.confidence < 0.7:
+                        if i < len(self.screened_papers):
+                            borderline_papers.append({
+                                'paper': self.screened_papers[i],
+                                'result': result,
+                                'confidence': result.confidence
+                            })
+            elif stage == "title_abstract" and hasattr(self, 'title_abstract_results'):
+                for i, result in enumerate(self.title_abstract_results):
+                    if result.decision.value == "exclude" and result.confidence < 0.7:
+                        if i < len(self.unique_papers):
+                            borderline_papers.append({
+                                'paper': self.unique_papers[i],
+                                'result': result,
+                                'confidence': result.confidence
+                            })
+            
+            # Sort borderline papers by confidence (highest first)
+            borderline_papers.sort(key=lambda x: x['confidence'], reverse=True)
+            
+            if borderline_papers:
+                recommendations.append(
+                    f"Found {len(borderline_papers)} borderline papers that were excluded. "
+                    f"Review these papers to determine if criteria should be relaxed."
+                )
+        
+        return {
+            'meets_threshold': meets_threshold,
+            'inclusion_rate': inclusion_rate,
+            'recommendations': recommendations,
+            'borderline_papers': borderline_papers[:min_papers - included_count] if not meets_threshold else []
+        }
+
+    def _export_borderline_papers(self, borderline_papers: List[Dict], output_path: Path):
+        """Export borderline papers to a JSON file for manual review."""
+        import json
+        export_data = []
+        for bp in borderline_papers:
+            paper = bp['paper']
+            result = bp['result']
+            export_data.append({
+                'title': paper.title,
+                'abstract': paper.abstract[:500] if paper.abstract else '',
+                'authors': paper.authors[:3] if paper.authors else [],
+                'year': paper.year,
+                'doi': paper.doi,
+                'url': paper.url,
+                'screening_confidence': bp['confidence'],
+                'exclusion_reason': result.exclusion_reason,
+                'reasoning': result.reasoning
+            })
+        
+        with open(output_path, 'w') as f:
+            json.dump(export_data, f, indent=2)
+        
+        logger.info(f"Exported {len(export_data)} borderline papers to {output_path}")
 
     def _enrich_papers(self):
         """Enrich papers with missing metadata (affiliations, countries, etc.)."""
@@ -1734,6 +2205,53 @@ class WorkflowManager:
 
         return paths
 
+    def _extract_style_patterns(self):
+        """Extract writing style patterns from eligible papers."""
+        if not self.final_papers:
+            logger.warning("No eligible papers to extract patterns from")
+            self.style_patterns = {}
+            return
+        
+        # Check if style extraction is enabled
+        writing_config = self.config.get("writing", {})
+        style_extraction_config = writing_config.get("style_extraction", {})
+        
+        if not style_extraction_config.get("enabled", True):
+            logger.info("Style pattern extraction is disabled")
+            self.style_patterns = {}
+            return
+        
+        if not self.style_pattern_extractor:
+            logger.warning("Style pattern extractor not initialized")
+            self.style_patterns = {}
+            return
+        
+        logger.info(f"Extracting style patterns from {len(self.final_papers)} eligible papers...")
+        
+        max_papers = style_extraction_config.get("max_papers")
+        min_papers = style_extraction_config.get("min_papers", 3)
+        
+        if len(self.final_papers) < min_papers:
+            logger.warning(
+                f"Not enough papers for pattern extraction "
+                f"({len(self.final_papers)} < {min_papers})"
+            )
+            self.style_patterns = {}
+            return
+        
+        try:
+            self.style_patterns = self.style_pattern_extractor.extract_patterns(
+                self.final_papers,
+                domain=self.topic_context.domain,
+                max_papers=max_papers,
+            )
+            logger.info(
+                f"Successfully extracted style patterns from {len(self.final_papers)} papers"
+            )
+        except Exception as e:
+            logger.error(f"Error extracting style patterns: {e}", exc_info=True)
+            self.style_patterns = {}
+
     def _write_article(self) -> Dict[str, str]:
         """Write all article sections."""
         sections = {}
@@ -1742,8 +2260,16 @@ class WorkflowManager:
         logger.info("This will generate Introduction, Methods, Results, and Discussion sections.")
         logger.info("Each section requires an LLM call and may take some time.")
 
+        # Extract style patterns before writing
+        self._extract_style_patterns()
+
         # Get topic context for writing agents
         writing_context = self.topic_context.get_for_agent("introduction_writer")
+        
+        # Check if humanization is enabled
+        writing_config = self.config.get("writing", {})
+        humanization_config = writing_config.get("humanization", {})
+        humanization_enabled = humanization_config.get("enabled", True) and self.humanization_agent is not None
 
         # Introduction
         with console.status(
@@ -1764,8 +2290,19 @@ class WorkflowManager:
             )
 
             intro = self.intro_writer.write(
-                research_question, justification, topic_context=writing_context
+                research_question, justification, topic_context=writing_context, style_patterns=self.style_patterns
             )
+            
+            # Humanize if enabled
+            if humanization_enabled:
+                logger.debug("Humanizing introduction section...")
+                intro = self.humanization_agent.humanize_section(
+                    intro,
+                    "introduction",
+                    style_patterns=self.style_patterns,
+                    context={"domain": self.topic_context.domain, "topic": self.topic_context.topic},
+                )
+            
             sections["introduction"] = intro
         console.print("[green]✓[/green] Introduction section complete")
 
@@ -1839,7 +2376,19 @@ class WorkflowManager:
                 full_search_strategies=searched_db_strategies,
                 protocol_info=protocol_info,
                 automation_details=automation_details,
+                style_patterns=self.style_patterns,
             )
+            
+            # Humanize if enabled
+            if humanization_enabled:
+                logger.debug("Humanizing methods section...")
+                methods = self.humanization_agent.humanize_section(
+                    methods,
+                    "methods",
+                    style_patterns=self.style_patterns,
+                    context={"domain": self.topic_context.domain, "topic": self.topic_context.topic},
+                )
+            
             sections["methods"] = methods
         console.print("[green]✓[/green] Methods section complete")
 
@@ -1881,7 +2430,19 @@ class WorkflowManager:
                 risk_of_bias_table=risk_of_bias_table,
                 grade_assessments=grade_assessments,
                 grade_table=grade_table,
+                style_patterns=self.style_patterns,
             )
+            
+            # Humanize if enabled
+            if humanization_enabled:
+                logger.debug("Humanizing results section...")
+                results = self.humanization_agent.humanize_section(
+                    results,
+                    "results",
+                    style_patterns=self.style_patterns,
+                    context={"domain": self.topic_context.domain, "topic": self.topic_context.topic},
+                )
+            
             sections["results"] = results
         console.print("[green]✓[/green] Results section complete")
 
@@ -1908,7 +2469,19 @@ class WorkflowManager:
                 ],
                 ["Implications for practice", "Future research directions"],
                 topic_context=writing_context,
+                style_patterns=self.style_patterns,
             )
+            
+            # Humanize if enabled
+            if humanization_enabled:
+                logger.debug("Humanizing discussion section...")
+                discussion = self.humanization_agent.humanize_section(
+                    discussion,
+                    "discussion",
+                    style_patterns=self.style_patterns,
+                    context={"domain": self.topic_context.domain, "topic": self.topic_context.topic},
+                )
+            
             sections["discussion"] = discussion
         console.print("[green]✓[/green] Discussion section complete")
 
@@ -1918,8 +2491,19 @@ class WorkflowManager:
         ):
             research_question = self.topic_context.research_question or self.topic_context.topic
             abstract = self.abstract_generator.generate(
-                research_question, self.final_papers, sections
+                research_question, self.final_papers, sections, style_patterns=self.style_patterns
             )
+            
+            # Humanize if enabled
+            if humanization_enabled:
+                logger.debug("Humanizing abstract...")
+                abstract = self.humanization_agent.humanize_section(
+                    abstract,
+                    "abstract",
+                    style_patterns=self.style_patterns,
+                    context={"domain": self.topic_context.domain, "topic": self.topic_context.topic},
+                )
+            
             sections["abstract"] = abstract
         console.print("[green]✓[/green] Abstract generation complete")
         console.print(
@@ -1948,12 +2532,13 @@ class WorkflowManager:
             title = f"{topic}: A Systematic Review"
             f.write(f"# {title}\n\n")
             
-            # Abstract
+            # Abstract (with citation processing)
             abstract = article_sections.get("abstract", "")
             if abstract:
+                abstract_text = citation_manager.extract_and_map_citations(abstract)
                 f.write("## Abstract\n\n")
                 f.write("**Systematic Review**\n\n")
-                f.write(abstract)
+                f.write(abstract_text)
                 f.write("\n\n---\n\n")
             
             # Keywords - aggregate from topic context and papers
@@ -2342,6 +2927,122 @@ class WorkflowManager:
             logger.warning(f"Could not generate PRISMA checklist: {e}")
             return None
 
+    def _export_manubot_structure(
+        self, article_sections: Dict[str, str]
+    ) -> Optional[str]:
+        """
+        Export article sections to Manubot structure.
+
+        Args:
+            article_sections: Dictionary with section names and content
+
+        Returns:
+            Path to Manubot manuscript directory, or None if disabled
+        """
+        from ..export.manubot_exporter import ManubotExporter
+        from ..citations import CitationManager
+
+        manubot_config = self.config.get("manubot", {})
+        if not manubot_config.get("enabled", False):
+            return None
+
+        try:
+            # Get output directory
+            output_dir_name = manubot_config.get("output_dir", "manuscript")
+            manuscript_dir = self.output_dir / output_dir_name
+
+            # Initialize citation manager
+            citation_manager = CitationManager(self.final_papers)
+
+            # Create exporter
+            exporter = ManubotExporter(manuscript_dir, citation_manager)
+
+            # Prepare metadata
+            metadata = {
+                "title": f"{self.topic_context.topic}: A Systematic Review",
+                "keywords": (
+                    self.topic_context.keywords
+                    if hasattr(self.topic_context, "keywords")
+                    else []
+                ),
+            }
+
+            # Export
+            citation_style = manubot_config.get("citation_style", "ieee")
+            auto_resolve = manubot_config.get("auto_resolve_citations", True)
+
+            manuscript_path = exporter.export(
+                article_sections,
+                metadata,
+                citation_style=citation_style,
+                auto_resolve_citations=auto_resolve,
+            )
+
+            logger.info(f"Manubot structure exported to {manuscript_path}")
+            return str(manuscript_path)
+
+        except Exception as e:
+            logger.error(f"Failed to export Manubot structure: {e}", exc_info=True)
+            return None
+
+    def _generate_submission_package(
+        self,
+        workflow_outputs: Dict[str, Any],
+        article_sections: Dict[str, str],
+        report_path: str,
+    ) -> Optional[str]:
+        """
+        Generate submission package for journal.
+
+        Args:
+            workflow_outputs: Dictionary with workflow output paths
+            article_sections: Dictionary with article sections
+            report_path: Path to final report markdown
+
+        Returns:
+            Path to submission package directory, or None if disabled
+        """
+        from ..export.submission_package import SubmissionPackageBuilder
+        from pathlib import Path
+
+        submission_config = self.config.get("submission", {})
+        if not submission_config.get("enabled", False):
+            return None
+
+        try:
+            # Get journal
+            journal = submission_config.get("default_journal", "ieee")
+
+            # Get manuscript path
+            manuscript_path = Path(report_path)
+            if not manuscript_path.exists():
+                manuscript_path = self.output_dir / "final_report.md"
+
+            if not manuscript_path.exists():
+                logger.warning("Manuscript file not found for submission package")
+                return None
+
+            # Create builder
+            builder = SubmissionPackageBuilder(self.output_dir)
+
+            # Build package
+            package_dir = builder.build_package(
+                workflow_outputs,
+                journal,
+                manuscript_path,
+                generate_pdf=submission_config.get("generate_pdf", True),
+                generate_docx=submission_config.get("generate_docx", True),
+                generate_html=submission_config.get("generate_html", True),
+                include_supplementary=submission_config.get("include_supplementary", True),
+            )
+
+            logger.info(f"Submission package generated: {package_dir}")
+            return str(package_dir)
+
+        except Exception as e:
+            logger.error(f"Failed to generate submission package: {e}", exc_info=True)
+            return None
+
     def _save_workflow_state(self) -> str:
         """Save workflow state to JSON."""
         state_path = self.output_dir / "workflow_state.json"
@@ -2379,91 +3080,12 @@ class WorkflowManager:
         """
         Find existing checkpoint for the same topic.
         
+        This is a wrapper around CheckpointManager.find_by_topic() for backward compatibility.
+        
         Returns:
             Dictionary with checkpoint_path and latest_phase, or None if not found
         """
-        checkpoint_base = Path("data/checkpoints")
-        if not checkpoint_base.exists():
-            logger.debug("Checkpoint directory does not exist")
-            return None
-        
-        current_topic = self.topic_context.topic.lower().strip()
-        logger.debug(f"Looking for checkpoints matching topic: '{current_topic}'")
-        
-        workflow_dirs = [d for d in checkpoint_base.iterdir() if d.is_dir()]
-        logger.debug(f"Found {len(workflow_dirs)} workflow directories to check")
-        
-        # Look through all workflow directories
-        for workflow_dir in workflow_dirs:
-            # Check if this workflow matches our topic
-            # Look for any checkpoint file to read topic_context
-            checkpoint_files = list(workflow_dir.glob("*_state.json"))
-            if not checkpoint_files:
-                logger.debug(f"No checkpoint files found in {workflow_dir.name}")
-                continue
-            
-            logger.debug(f"Checking workflow {workflow_dir.name} ({len(checkpoint_files)} checkpoint files)")
-            
-            # Try to find the latest checkpoint and check its topic
-            latest_checkpoint = max(checkpoint_files, key=lambda p: p.stat().st_mtime)
-            
-            try:
-                with open(latest_checkpoint, "r") as f:
-                    checkpoint_data = json.load(f)
-                
-                # Check if topic matches
-                checkpoint_topic = checkpoint_data.get("topic_context", {}).get("topic", "").lower().strip()
-                logger.debug(f"  Checkpoint topic: '{checkpoint_topic}'")
-                
-                if checkpoint_topic == current_topic:
-                    logger.info(f"  Topic match found in workflow {workflow_dir.name}!")
-                    # Find the latest phase checkpoint (check all possible phases)
-                    phase_order = [
-                        "report_generation",
-                        "article_writing",
-                        "visualization_generation",
-                        "prisma_generation",
-                        "quality_assessment",
-                        "data_extraction",
-                        "paper_enrichment",
-                        "fulltext_screening",
-                        "title_abstract_screening",
-                        "deduplication",
-                        "search_databases",
-                    ]
-                    
-                    latest_phase = None
-                    latest_phase_time = 0
-                    
-                    for checkpoint_file in checkpoint_files:
-                        try:
-                            with open(checkpoint_file, "r") as cf:
-                                cp_data = json.load(cf)
-                                phase = cp_data.get("phase", "")
-                                if phase in phase_order:
-                                    mtime = checkpoint_file.stat().st_mtime
-                                    if mtime > latest_phase_time:
-                                        latest_phase_time = mtime
-                                        latest_phase = phase
-                        except Exception as e:
-                            logger.debug(f"Error reading checkpoint file {checkpoint_file}: {e}")
-                            continue
-                    
-                    if latest_phase:
-                        logger.info(f"  Latest phase found: {latest_phase}")
-                        return {
-                            "checkpoint_dir": str(workflow_dir),
-                            "latest_phase": latest_phase,
-                            "workflow_id": workflow_dir.name,
-                        }
-                else:
-                    logger.debug(f"  Topic mismatch: '{checkpoint_topic}' != '{current_topic}'")
-            except Exception as e:
-                logger.debug(f"Error checking checkpoint {latest_checkpoint}: {e}")
-                continue
-        
-        logger.debug("No matching checkpoint found for this topic")
-        return None
+        return self.checkpoint_manager.find_by_topic(self.topic_context.topic)
 
     def _get_phase_dependencies(self, phase_name: str) -> List[str]:
         """Get list of phases that must complete before this phase."""
@@ -2478,6 +3100,8 @@ class WorkflowManager:
             "visualization_generation": ["data_extraction"],
             "article_writing": ["data_extraction"],
             "report_generation": ["article_writing", "prisma_generation", "visualization_generation"],
+            "manubot_export": ["article_writing"],
+            "submission_package": ["article_writing", "report_generation"],
         }
         return dependencies.get(phase_name, [])
 
@@ -2522,6 +3146,17 @@ class WorkflowManager:
         elif phase_name == "article_writing":
             # Article sections are already dicts, just need to ensure serializable
             data = {
+                "style_patterns": self.style_patterns,
+                "article_sections": self._get_article_sections_dict(),
+            }
+        elif phase_name == "manubot_export":
+            data = {
+                "manubot_export_path": str(getattr(self, "_manubot_export_path", "")),
+                "article_sections": self._get_article_sections_dict(),
+            }
+        elif phase_name == "submission_package":
+            data = {
+                "submission_package_path": str(getattr(self, "_submission_package_path", "")),
                 "article_sections": self._get_article_sections_dict(),
             }
         
@@ -2534,35 +3169,23 @@ class WorkflowManager:
         return getattr(self, "_article_sections", {})
 
     def _save_phase_state(self, phase_name: str) -> Optional[str]:
-        """Save state after phase completion."""
-        if not self.save_checkpoints:
-            return None
-            
-        try:
-            checkpoint_data = {
-                "phase": phase_name,
-                "timestamp": datetime.now().isoformat(),
-                "workflow_id": self.workflow_id,
-                "topic_context": self.topic_context.to_dict(),
-                "data": self._serialize_phase_data(phase_name),
-                "dependencies": self._get_phase_dependencies(phase_name),
-                "prisma_counts": self.prisma_counter.get_counts(),
-                "database_breakdown": self.prisma_counter.get_database_breakdown(),
-            }
-            
-            checkpoint_file = self.checkpoint_dir / f"{phase_name}_state.json"
-            with open(checkpoint_file, "w") as f:
-                json.dump(checkpoint_data, f, indent=2, default=str)
-            
-            logger.info(f"Saved checkpoint for phase: {phase_name}")
-            return str(checkpoint_file)
-        except Exception as e:
-            logger.warning(f"Failed to save checkpoint for {phase_name}: {e}")
-            return None
+        """
+        Save state after phase completion.
+        
+        This is a wrapper around CheckpointManager.save_phase() for backward compatibility.
+        """
+        return self.checkpoint_manager.save_phase(phase_name)
 
     def _load_phase_state(self, checkpoint_path: str) -> Dict[str, Any]:
-        """Load state from checkpoint file."""
-        checkpoint_file = Path(checkpoint_path)
+        """
+        Load state from checkpoint file.
+        
+        This is a wrapper around CheckpointManager.load_phase() for backward compatibility.
+        """
+        checkpoint_data = self.checkpoint_manager.load_phase(checkpoint_path)
+        if checkpoint_data is None:
+            return {}
+        return checkpoint_data
         if not checkpoint_file.exists():
             raise FileNotFoundError(f"Checkpoint file not found: {checkpoint_path}")
         
@@ -2602,6 +3225,10 @@ class WorkflowManager:
             self.extracted_data = serializer.deserialize_extracted_data(
                 state["data"]["extracted_data"]
             )
+        
+        # Load style patterns
+        if "style_patterns" in state.get("data", {}):
+            self.style_patterns = state["data"]["style_patterns"]
         
         # Load article sections
         if "article_sections" in state.get("data", {}):

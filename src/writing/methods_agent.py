@@ -45,6 +45,7 @@ class MethodsWriter(BaseScreeningAgent):
         full_search_strategies: Optional[Dict[str, str]] = None,
         protocol_info: Optional[Dict[str, Any]] = None,
         automation_details: Optional[str] = None,
+        style_patterns: Optional[Dict[str, Dict[str, List[str]]]] = None,
     ) -> str:
         """
         Write methods section.
@@ -80,6 +81,7 @@ class MethodsWriter(BaseScreeningAgent):
             full_search_strategies,
             protocol_info,
             automation_details,
+            style_patterns,
         )
 
         if not self.llm_client:
@@ -110,6 +112,7 @@ class MethodsWriter(BaseScreeningAgent):
         full_search_strategies: Optional[Dict[str, str]] = None,
         protocol_info: Optional[Dict[str, Any]] = None,
         automation_details: Optional[str] = None,
+        style_patterns: Optional[Dict[str, Dict[str, List[str]]]] = None,
     ) -> str:
         """Build prompt for methods writing."""
         # Build protocol registration text
@@ -178,7 +181,27 @@ PRISMA Flow:
 - Studies included: {prisma_counts.get("quantitative", prisma_counts.get("qualitative", 0))}
 """
 
-        prompt += """
+        # Add style guidelines if patterns available
+        style_guidelines = ""
+        if style_patterns and "methods" in style_patterns:
+            methods_patterns = style_patterns["methods"]
+            style_guidelines = "\n\nSTYLE GUIDELINES (based on analysis of included papers in this review):\n"
+            style_guidelines += "- Vary sentence structures: mix simple, compound, and complex sentences\n"
+            style_guidelines += "- Use natural academic vocabulary with domain-specific terms from the field\n"
+            style_guidelines += "- Integrate citations naturally: vary placement and phrasing\n"
+            style_guidelines += "- Create natural flow: avoid formulaic transitions\n"
+            style_guidelines += "- Maintain scholarly tone: precise but not robotic\n"
+            
+            if methods_patterns.get("sentence_openings"):
+                examples = methods_patterns["sentence_openings"][:3]
+                style_guidelines += f"\nWRITING PATTERNS FROM INCLUDED PAPERS:\n"
+                style_guidelines += f"Sentence opening examples: {', '.join(examples[:3])}\n"
+            
+            if methods_patterns.get("vocabulary"):
+                vocab = methods_patterns["vocabulary"][:5]
+                style_guidelines += f"Domain vocabulary examples: {', '.join(vocab)}\n"
+
+        prompt += style_guidelines + """
 
 CRITICAL OUTPUT CONSTRAINTS:
 - Begin IMMEDIATELY with substantive content - do NOT start with phrases like "Here is a methods section..." or "The following describes..."

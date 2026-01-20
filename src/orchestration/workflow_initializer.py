@@ -40,6 +40,9 @@ from src.writing.methods_agent import MethodsWriter
 from src.writing.results_agent import ResultsWriter
 from src.writing.discussion_agent import DiscussionWriter
 from src.writing.abstract_agent import AbstractGenerator
+from src.writing.style_pattern_extractor import StylePatternExtractor
+from src.writing.humanization_agent import HumanizationAgent
+from src.utils.pdf_retriever import PDFRetriever
 
 
 class WorkflowInitializer:
@@ -134,6 +137,36 @@ class WorkflowInitializer:
         self.abstract_generator = AbstractGenerator(
             llm_provider, llm_api_key, agent_topic_context, abstract_config
         )
+
+        # Style pattern extractor and humanization agent
+        writing_config = self.config.get("writing", {})
+        style_extraction_config = writing_config.get("style_extraction", {})
+        humanization_config = writing_config.get("humanization", {})
+        
+        # Initialize PDF retriever for style extraction (reuses cached full-text)
+        pdf_cache_dir = str(self.output_dir / "pdf_cache")
+        pdf_retriever = PDFRetriever(cache_dir=pdf_cache_dir)
+        
+        # Style pattern extractor
+        if style_extraction_config.get("enabled", True):
+            self.style_pattern_extractor = StylePatternExtractor(
+                llm_provider=llm_provider,
+                api_key=llm_api_key,
+                agent_config=style_extraction_config,
+                pdf_retriever=pdf_retriever,
+            )
+        else:
+            self.style_pattern_extractor = None
+        
+        # Humanization agent
+        if humanization_config.get("enabled", True):
+            self.humanization_agent = HumanizationAgent(
+                llm_provider=llm_provider,
+                api_key=llm_api_key,
+                agent_config=humanization_config,
+            )
+        else:
+            self.humanization_agent = None
 
         # Handoff protocol
         self.handoff_protocol = HandoffProtocol()

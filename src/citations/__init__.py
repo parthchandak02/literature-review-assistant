@@ -8,5 +8,14 @@ from .citation_manager import CitationManager
 from .ieee_formatter import IEEEFormatter
 from .bibtex_formatter import BibTeXFormatter
 from .ris_formatter import RISFormatter
+from .manubot_resolver import ManubotCitationResolver
+from .csl_formatter import CSLFormatter
 
-__all__ = ["CitationManager", "IEEEFormatter", "BibTeXFormatter", "RISFormatter"]
+__all__ = [
+    "CitationManager",
+    "IEEEFormatter",
+    "BibTeXFormatter",
+    "RISFormatter",
+    "ManubotCitationResolver",
+    "CSLFormatter",
+]

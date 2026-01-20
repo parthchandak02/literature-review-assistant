@@ -1,0 +1,43 @@
+% Nature Template
+% Basic Nature article template for LaTeX
+
+\documentclass[12pt]{article}
+
+% Required packages
+\usepackage{natbib}
+\usepackage{graphicx}
+\usepackage{amsmath}
+\usepackage{booktabs}
+\usepackage{url}
+\usepackage{hyperref}
+
+% Nature-specific formatting
+\usepackage[margin=1in]{geometry}
+\setlength{\parindent}{0pt}
+\setlength{\parskip}{6pt}
+
+\begin{document}
+
+% Title
+\title{${title}}
+\author{${authors}}
+\date{\today}
+
+\maketitle
+
+% Abstract
+\begin{abstract}
+${abstract}
+\end{abstract}
+
+% Keywords
+\textbf{Keywords:} ${keywords}
+
+% Main content will be inserted here
+${content}
+
+% References
+\bibliographystyle{nature}
+\bibliography{references}
+
+\end{document}

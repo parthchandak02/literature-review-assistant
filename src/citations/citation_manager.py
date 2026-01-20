@@ -5,9 +5,12 @@ Extracts citations from text, maps them to papers, and generates References sect
 """
 
 import re
-from typing import Dict, List, Set, Any
+import logging
+from typing import Dict, List, Set, Any, Optional
 from ..search.database_connectors import Paper
 from .ieee_formatter import IEEEFormatter
+
+logger = logging.getLogger(__name__)
 
 
 class CitationManager:
@@ -23,13 +26,66 @@ class CitationManager:
         self.papers = papers
         self.citation_map: Dict[int, int] = {}  # citation_number -> paper_index
         self.used_citations: Set[int] = set()  # Track which citations are used
+        
+        # Initialize Manubot resolver (optional)
+        try:
+            from .manubot_resolver import ManubotCitationResolver
+            self.manubot_resolver = ManubotCitationResolver()
+        except ImportError:
+            self.manubot_resolver = None
+            logger.debug("Manubot resolver not available")
 
-    def extract_and_map_citations(self, text: str) -> str:
+    def add_citation_from_identifier(self, identifier: str) -> int:
+        """
+        Add citation by resolving from identifier (DOI, PMID, arXiv, etc.).
+
+        Args:
+            identifier: Identifier string (DOI, PMID, arXiv ID, or citekey)
+
+        Returns:
+            Citation number (1-based index)
+
+        Raises:
+            ImportError: If Manubot is not installed
+            ValueError: If identifier resolution fails
+        """
+        if not self.manubot_resolver:
+            raise ImportError(
+                "Manubot resolver not available. Install with: pip install manubot"
+            )
+
+        # Resolve citation
+        csl_item = self.manubot_resolver.resolve_from_identifier(identifier)
+        
+        # Convert to Paper object
+        paper = self.manubot_resolver.csl_to_paper(csl_item)
+        
+        # Add to papers list
+        self.papers.append(paper)
+        paper_index = len(self.papers) - 1
+        
+        # Assign citation number
+        citation_number = len(self.papers)
+        self.citation_map[citation_number] = paper_index
+        self.used_citations.add(citation_number)
+        
+        logger.info(f"Added citation from identifier {identifier}: {paper.title[:50]}...")
+        return citation_number
+
+    def extract_and_map_citations(self, text: str, auto_resolve: bool = False) -> str:
         """
         Extract citations from text and replace with numbered citations.
 
+        Supports multiple citation formats:
+        - [Citation X] - Placeholder format
+        - [X] - Numbered citations
+        - [@doi:10.1038/...] - Manubot DOI format (if auto_resolve=True)
+        - [@pmid:12345678] - Manubot PMID format (if auto_resolve=True)
+        - [@arxiv:1407.3561] - Manubot arXiv format (if auto_resolve=True)
+
         Args:
-            text: Text containing [Citation X] placeholders or already [X] format
+            text: Text containing citation placeholders
+            auto_resolve: If True, automatically resolve Manubot-style citations
 
         Returns:
             Text with citations replaced as [X]
@@ -97,6 +153,22 @@ class CitationManager:
         
         # Replace to track citations (but keep format unchanged)
         result = re.sub(existing_citation_pattern, track_existing_citations, result)
+
+        # Handle Manubot-style citations if auto_resolve is enabled
+        if auto_resolve and self.manubot_resolver:
+            def resolve_manubot_citation(match):
+                """Resolve Manubot-style citation and replace with numbered citation."""
+                citekey = match.group(1)  # Extract citekey from [@citekey]
+                try:
+                    citation_number = self.add_citation_from_identifier(citekey)
+                    return f"[{citation_number}]"
+                except Exception as e:
+                    logger.warning(f"Failed to resolve citation {citekey}: {e}")
+                    return match.group(0)  # Keep original if resolution fails
+
+            # Pattern for Manubot citations: [@doi:...], [@pmid:...], [@arxiv:...], etc.
+            manubot_pattern = r"\[@([^\]]+)\]"
+            result = re.sub(manubot_pattern, resolve_manubot_citation, result)
 
         return result
 

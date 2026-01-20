@@ -1,0 +1,68 @@
+# Journal Configuration
+# Defines journal specifications for submission package generation
+
+journals:
+  ieee:
+    name: "IEEE Transactions"
+    citation_style: "ieee"
+    template: "ieee.latex"
+    max_pages: 12
+    figure_format: "png"
+    required_sections:
+      - "abstract"
+      - "introduction"
+      - "methods"
+      - "results"
+      - "discussion"
+    optional_sections:
+      - "acknowledgments"
+      - "appendix"
+  
+  nature:
+    name: "Nature"
+    citation_style: "nature"
+    template: "nature.latex"
+    max_pages: 6
+    figure_format: "tiff"
+    required_sections:
+      - "abstract"
+      - "introduction"
+      - "methods"
+      - "results"
+      - "discussion"
+    optional_sections:
+      - "acknowledgments"
+      - "author_contributions"
+      - "data_availability"
+  
+  plos:
+    name: "PLOS ONE"
+    citation_style: "plos-one"
+    template: "plos.latex"
+    max_pages: null  # No strict limit
+    figure_format: "png"
+    required_sections:
+      - "abstract"
+      - "introduction"
+      - "methods"
+      - "results"
+      - "discussion"
+    optional_sections:
+      - "supporting_information"
+      - "acknowledgments"
+  
+  apa:
+    name: "APA Style"
+    citation_style: "apa"
+    template: null  # No LaTeX template, use DOCX
+    max_pages: null
+    figure_format: "png"
+    required_sections:
+      - "abstract"
+      - "introduction"
+      - "methods"
+      - "results"
+      - "discussion"
+    optional_sections:
+      - "references"
+      - "appendix"

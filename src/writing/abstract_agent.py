@@ -94,6 +94,7 @@ class AbstractGenerator(BaseScreeningAgent):
         research_question: str,
         included_papers: List[Paper],
         article_sections: Dict[str, str],
+        style_patterns: Optional[Dict[str, Dict[str, List[str]]]] = None,
     ) -> str:
         """
         Generate abstract from research question and article sections.
@@ -110,15 +111,15 @@ class AbstractGenerator(BaseScreeningAgent):
             if self.structured:
                 if self.prisma_2020_format:
                     return self._generate_prisma_2020_abstract(
-                        research_question, included_papers, article_sections
+                        research_question, included_papers, article_sections, style_patterns
                     )
                 else:
                     return self._generate_structured_abstract(
-                        research_question, included_papers, article_sections
+                        research_question, included_papers, article_sections, style_patterns
                     )
             else:
                 return self._generate_unstructured_abstract(
-                    research_question, included_papers, article_sections
+                    research_question, included_papers, article_sections, style_patterns
                 )
 
     def _generate_prisma_2020_abstract(
@@ -126,6 +127,7 @@ class AbstractGenerator(BaseScreeningAgent):
         research_question: str,
         included_papers: List[Paper],
         article_sections: Dict[str, str],
+        style_patterns: Optional[Dict[str, Dict[str, List[str]]]] = None,
     ) -> str:
         """Generate PRISMA 2020 structured abstract with 12 elements."""
         methods_text = article_sections.get("methods", "")
@@ -171,6 +173,15 @@ Funding: {funding_source}
 
 Generate a structured abstract with all 12 elements clearly labeled. Total word limit: 250-300 words. Format each element on a new line with the label followed by a colon."""
 
+        # Add style guidelines if patterns available (use introduction patterns for abstract)
+        if style_patterns and "introduction" in style_patterns:
+            intro_patterns = style_patterns["introduction"]
+            style_guidelines = "\n\nSTYLE GUIDELINES (based on analysis of included papers):\n"
+            style_guidelines += "- Use natural academic vocabulary with domain-specific terms\n"
+            style_guidelines += "- Vary sentence structures\n"
+            style_guidelines += "- Maintain scholarly tone: precise but not robotic\n"
+            prompt += style_guidelines
+
         # If no LLM client, use fallback immediately
         if not self.llm_client:
             return self._fallback_prisma_2020_abstract(research_question, included_papers, registration_number, registry, funding_source)
@@ -200,6 +211,7 @@ Generate a structured abstract with all 12 elements clearly labeled. Total word 
         research_question: str,
         included_papers: List[Paper],
         article_sections: Dict[str, str],
+        style_patterns: Optional[Dict[str, Dict[str, List[str]]]] = None,
     ) -> str:
         """Generate structured abstract (Background, Objective, Methods, Results, Conclusions)."""
         # If no LLM client, use fallback
@@ -253,6 +265,7 @@ Generate a structured abstract with these sections. Total word limit: approximat
         research_question: str,
         included_papers: List[Paper],
         article_sections: Dict[str, str],
+        style_patterns: Optional[Dict[str, Dict[str, List[str]]]] = None,
     ) -> str:
         """Generate unstructured abstract (single paragraph)."""
         # If no LLM client, use fallback

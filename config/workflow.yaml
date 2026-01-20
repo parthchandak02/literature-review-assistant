@@ -3,12 +3,12 @@
 
 # Research Topic Configuration
 topic:
-  topic: "LLM-Powered Health Literacy Chatbots for Low-Income Communities"
-  keywords: ["health literacy", "chatbots", "LLM", "low-income", "health equity", "digital health", "conversational AI", "health communication"]
-  domain: "public health"
-  scope: "Focus on LLM-powered chatbots designed to improve health literacy in underserved and low-income populations"
-  research_question: "What is the effectiveness of LLM-powered health literacy chatbots in improving health outcomes and health literacy among low-income and underserved populations?"
-  context: "Health literacy disparities disproportionately affect low-income communities. LLM-powered chatbots offer potential for scalable, accessible health information delivery, but evidence of effectiveness in underserved populations is limited."
+  topic: "Rapid Prototyping Frameworks for Physical AI in Dense Urban Environments"
+  keywords: ["rapid prototyping", "physical AI", "robotics", "autonomous systems", "dense urban environments", "hardware prototyping", "software prototyping", "user-centered design", "deployment risk", "iteration cycles", "manufacturing systems", "autonomous vehicles"]
+  domain: "robotics and autonomous systems"
+  scope: "Focus on rapid prototyping methodologies (hardware + software) that enable faster iteration cycles for physical AI robots operating in dense urban environments, with emphasis on user-centered design principles to reduce deployment risk"
+  research_question: "What rapid prototyping methodologies (hardware + software) enable 10x faster iteration cycles for physical AI robots operating in dense urban environments, and how do user-centered design principles reduce deployment risk?"
+  context: "Physical AI is emerging as a #1 trend in 2026 (IBM, ABI Research reports). Dense urban environments like the SF Bay Area present unique challenges for physical AI robots, requiring rapid iteration cycles and user-centered design approaches. This research combines rapid prototyping expertise, robotics, and autonomous systems to create reusable frameworks with high industry adoption potential."
 
 # Agent Configurations
 # Model selection guide based on pricing research (2025):
@@ -29,14 +29,16 @@ agents:
     temperature: 0.1
     max_iterations: 5
     
-  # Title/Abstract Screening - uses Pro for quality-critical borderline cases (only ~4 papers need LLM)
+  # Title/Abstract Screening - uses Flash-Lite for maximum cost efficiency
   title_abstract_screener:
     role: "Title/Abstract Screening Specialist"
     goal: "Screen papers based on title and abstract for relevance to {topic} and {research_question}"
     backstory: "Expert reviewer with expertise in {domain}, focusing on {topic}. Handles borderline cases requiring careful judgment."
-    # Pro: Advanced reasoning for complex multi-step logic. Higher accuracy for precision-critical tasks.
-    # Only used for borderline papers after keyword pre-filtering, so cost is minimal (~4 papers).
-    llm_model: "gemini-2.5-pro"
+    # Flash-Lite: Best cost efficiency for classification tasks. 3x cheaper than Flash ($0.10 vs $0.30 input, $0.40 vs $2.50 output).
+    # 12.5x cheaper than Pro ($0.10 vs $1.25 input, $0.40 vs $10.00 output).
+    # Perfect for title/abstract screening where keyword pre-filtering handles most cases, but LLM is needed for uncertain papers.
+    # Flash-Lite provides sufficient accuracy for classification tasks while minimizing costs.
+    llm_model: "gemini-2.5-flash-lite"
     tools: ["title_screener"]
     temperature: 0.2
     max_iterations: 10
@@ -121,6 +123,18 @@ agents:
     # Pro: Best for critical analysis, complex reasoning, and nuanced interpretation.
     # Handles multi-step logic and provides deeper insights for discussion sections.
     llm_model: "gemini-2.5-pro"
+    tools: []
+    temperature: 0.2
+    max_iterations: 3
+    
+  abstract_generator:
+    role: "Abstract Generator"
+    goal: "Generate concise abstract summarizing {topic} systematic review"
+    backstory: "Expert academic writer specializing in {domain}, skilled at creating compelling abstracts"
+    # Flash: Sufficient quality for abstract generation. Abstracts are shorter and less complex than full sections.
+    # 60-75% cheaper than Pro ($0.30 vs $1.25 input, $2.50 vs $10.00 output).
+    # Flash provides good quality for abstract generation while maintaining cost efficiency.
+    llm_model: "gemini-2.5-flash"
     tools: []
     temperature: 0.2
     max_iterations: 3
@@ -216,26 +230,35 @@ workflow:
 # Inclusion/Exclusion Criteria
 criteria:
   inclusion:
-    - "Studies on LLM/chatbot interventions for health literacy"
-    - "Focus on low-income/underserved populations"
-    - "Health communication outcomes"
-    - "Accessibility features"
-    - "Evaluation studies"
+    - "Studies on rapid prototyping frameworks or methodologies"
+    - "Focus on physical AI, robotics, or autonomous systems"
+    - "Application in dense urban environments or similar complex settings"
+    - "Integration of hardware and software prototyping"
+    - "User-centered design principles or approaches"
+    - "Evaluation of iteration cycles, development speed, or deployment risk"
     - "Published in English and peer-reviewed journals or conferences"
   exclusion:
-    - "Non-LLM chatbots (rule-based or simple keyword matching)"
-    - "General health apps without chatbot component"
-    - "Studies not focused on low-income populations"
+    - "Studies focused only on software prototyping without hardware components"
+    - "Studies focused only on hardware prototyping without software integration"
+    - "Non-urban environments (e.g., industrial, agricultural, underwater)"
+    - "Non-rapid prototyping approaches (traditional development cycles)"
     - "Opinion pieces or non-peer-reviewed sources"
     - "Conference abstracts without full papers"
 
+# Screening Safeguards
+screening_safeguards:
+  minimum_papers: 10  # Minimum papers required to pass full-text screening
+  enable_manual_review: true  # Pause workflow for manual review if threshold not met
+  show_borderline_papers: true  # Show borderline papers for review
+
 # Search Terms (will be merged with topic keywords if provided)
 search_terms:
-  health_literacy: ["health literacy", "health information seeking", "patient education", "health communication"]
-  chatbots: ["chatbot", "conversational agent", "virtual assistant", "chat bot", "dialogue system"]
-  llm: ["large language model", "LLM", "GPT", "generative AI", "language model"]
-  low_income: ["low-income", "underserved", "vulnerable populations", "health disparities", "socioeconomic", "health equity"]
-  health_equity: ["health equity", "health disparities", "access to care", "barriers to healthcare"]
+  rapid_prototyping: ["rapid prototyping", "rapid iteration", "prototyping methodologies", "hardware prototyping", "software prototyping", "iterative design", "agile prototyping"]
+  physical_ai: ["physical AI", "embodied AI", "robotic AI", "autonomous robots", "physical intelligence", "robot learning"]
+  dense_urban: ["dense urban environments", "urban robotics", "city environments", "urban navigation", "urban mobility", "autonomous vehicles"]
+  iteration_cycles: ["iteration cycles", "development cycles", "design iteration", "rapid iteration", "faster iteration", "10x iteration"]
+  user_centered_design: ["user-centered design", "human-centered design", "user experience", "UX design", "design thinking", "user research"]
+  deployment_risk: ["deployment risk", "risk reduction", "safety deployment", "production deployment", "field deployment"]
 
 # Protocol Registration
 protocol:
@@ -250,6 +273,22 @@ supplementary_materials:
   extracted_data: true  # Include extracted data
   analysis_code: false  # Include analysis code if available
   other_materials: []  # List any other supplementary materials
+
+# Writing Configuration
+writing:
+  style_extraction:
+    enabled: true                    # Enable/disable style pattern extraction
+    model: "gemini-2.5-pro"          # LLM model for section extraction
+    max_papers: null                 # Max papers to analyze (null = all eligible)
+    min_papers: 3                    # Minimum papers required for pattern extraction
+  
+  humanization:
+    enabled: true                    # Enable/disable humanization
+    model: "gemini-2.5-pro"          # LLM model for humanization
+    temperature: 0.3                  # Temperature for variation
+    max_iterations: 2                # Max refinement iterations
+    naturalness_threshold: 0.75      # Minimum naturalness score
+    section_specific: true            # Use section-specific strategies
 
 # Quality Assessment Configuration
 quality_assessment:
@@ -273,3 +312,21 @@ output:
   formats: ["markdown", "json", "bibtex", "ris"]  # ris: Research Information Systems format
   generate_prisma: true
   generate_charts: true
+
+# Manubot Configuration
+manubot:
+  enabled: true  # Set to true to enable Manubot export
+  output_dir: "manuscript"  # Relative to data/outputs/
+  citation_style: "ieee"  # Options: "ieee", "apa", "nature", "plos", etc.
+  auto_resolve_citations: true  # Automatically resolve citations from DOI/PMID
+  generate_manubot_yaml: true  # Generate manubot.yaml configuration file
+
+# Submission Package Configuration
+submission:
+  enabled: true  # Set to true to enable submission package generation
+  default_journal: "ieee"  # Default journal for submission package
+  generate_pdf: true  # Generate PDF manuscript
+  generate_docx: true  # Generate Word document
+  generate_html: true  # Generate HTML version
+  include_supplementary: true  # Include supplementary materials
+  validate_before_package: true  # Validate submission before packaging

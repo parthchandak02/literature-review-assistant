@@ -1,0 +1,38 @@
+% PLOS Template
+% Basic PLOS article template for LaTeX
+
+\documentclass[10pt]{article}
+
+% Required packages
+\usepackage{graphicx}
+\usepackage{amsmath}
+\usepackage{booktabs}
+\usepackage{url}
+\usepackage{hyperref}
+\usepackage{natbib}
+
+% PLOS-specific formatting
+\usepackage[margin=1in]{geometry}
+
+\begin{document}
+
+% Title
+\title{${title}}
+\author{${authors}}
+\date{\today}
+
+\maketitle
+
+% Abstract
+\begin{abstract}
+${abstract}
+\end{abstract}
+
+% Main content will be inserted here
+${content}
+
+% References
+\bibliographystyle{plos2015}
+\bibliography{references}
+
+\end{document}

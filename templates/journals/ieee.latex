@@ -1,0 +1,36 @@
+% IEEE Template
+% Basic IEEE article template for LaTeX
+
+\documentclass[journal]{IEEEtran}
+
+% Required packages
+\usepackage{graphicx}
+\usepackage{amsmath}
+\usepackage{booktabs}
+\usepackage{url}
+\usepackage{hyperref}
+
+\begin{document}
+
+% Title and author will be inserted here
+\title{${title}}
+\author{${authors}}
+
+\maketitle
+
+% Abstract
+\begin{abstract}
+${abstract}
+\end{abstract}
+
+% Keywords
+\textbf{Index Terms}---${keywords}
+
+% Main content will be inserted here
+${content}
+
+% References
+\bibliographystyle{IEEEtran}
+\bibliography{references}
+
+\end{document}
