@@ -9,6 +9,7 @@ This module maintains backward compatibility by re-exporting from the refactored
 
 # Re-export base classes and Paper for backward compatibility
 from .connectors.base import Paper, DatabaseConnector
+from .models import Author, Affiliation
 from .proxy_manager import ProxyManager
 from .integrity_checker import IntegrityChecker
 from ..utils.html_utils import html_unescape, clean_abstract
@@ -854,6 +855,34 @@ class ScopusConnector(DatabaseConnector):
                             if isinstance(first_link, dict):
                                 url = first_link.get("@href")
 
+                    # Extract citation count
+                    citation_count = None
+                    if "citedby-count" in entry:
+                        try:
+                            citation_count = int(entry["citedby-count"])
+                        except (ValueError, TypeError):
+                            pass
+                    
+                    # Extract EID (Scopus ID)
+                    eid = entry.get("eid", "")
+                    
+                    # Extract subject areas
+                    subject_areas = []
+                    if "subject-area" in entry:
+                        subj_list = entry["subject-area"] if isinstance(entry["subject-area"], list) else [entry["subject-area"]]
+                        for subj in subj_list:
+                            if isinstance(subj, dict) and "$" in subj:
+                                subject_areas.append(subj["$"])
+                            elif isinstance(subj, str):
+                                subject_areas.append(subj)
+                    
+                    # Extract author IDs for potential coauthor lookup
+                    author_ids = []
+                    if "author" in entry and isinstance(entry["author"], list):
+                        for author in entry["author"]:
+                            if isinstance(author, dict) and "authid" in author:
+                                author_ids.append(author["authid"])
+
                     paper = Paper(
                         title=entry.get("dc:title", ""),
                         abstract=abstract,
@@ -864,6 +893,10 @@ class ScopusConnector(DatabaseConnector):
                         database="Scopus",
                         url=url,
                         affiliations=affiliations if affiliations else None,
+                        citation_count=citation_count,
+                        eid=eid,
+                        subject_areas=subject_areas if subject_areas else None,
+                        scopus_id=eid,  # Store EID as scopus_id
                     )
                     papers.append(paper)
 
@@ -890,6 +923,182 @@ class ScopusConnector(DatabaseConnector):
 
     def get_database_name(self) -> str:
         return "Scopus"
+    
+    def get_author_by_id(self, author_id: str) -> Optional["Author"]:
+        """
+        Retrieve author information by Scopus author ID using pybliometrics.
+        
+        Args:
+            author_id: Scopus author ID
+            
+        Returns:
+            Author object with bibliometric data, or None if pybliometrics not available
+        """
+        try:
+            from pybliometrics.scopus import AuthorRetrieval
+            from .models import Author, Affiliation
+        except ImportError:
+            logger.warning("pybliometrics not available. Install with: pip install pybliometrics or pip install -e '.[bibliometrics]'")
+            return None
+        
+        if not self.api_key:
+            logger.warning("Scopus API key required for author retrieval")
+            return None
+        
+        try:
+            # Set API key for pybliometrics
+            import pybliometrics
+            pybliometrics.init()
+            
+            # Retrieve author
+            au = AuthorRetrieval(author_id, view="ENHANCED")
+            
+            # Convert to our Author model
+            current_affiliations = []
+            if au.affiliation_current:
+                for aff in au.affiliation_current:
+                    current_affiliations.append(Affiliation(
+                        name=aff.preferred_name or "",
+                        id=str(aff.id) if aff.id else None,
+                        city=aff.city,
+                        country=aff.country,
+                        country_code=aff.country_code,
+                        address=aff.address_part,
+                        postal_code=aff.postal_code,
+                        organization_domain=aff.org_domain,
+                        organization_url=aff.org_URL,
+                    ))
+            
+            historical_affiliations = []
+            if au.affiliation_history:
+                for aff in au.affiliation_history:
+                    historical_affiliations.append(Affiliation(
+                        name=aff.preferred_name or "",
+                        id=str(aff.id) if aff.id else None,
+                        city=aff.city,
+                        country=aff.country,
+                        country_code=aff.country_code,
+                    ))
+            
+            subject_areas = []
+            if au.subject_areas:
+                subject_areas = [area.area for area in au.subject_areas]
+            
+            author = Author(
+                name=au.indexed_name or "",
+                id=str(au.identifier),
+                given_name=au.given_name,
+                surname=au.surname,
+                indexed_name=au.indexed_name,
+                initials=au.initials,
+                orcid=au.orcid,
+                h_index=int(au.h_index) if au.h_index else None,
+                citation_count=int(au.citation_count) if au.citation_count else None,
+                cited_by_count=int(au.cited_by_count) if au.cited_by_count else None,
+                document_count=int(au.document_count) if au.document_count else None,
+                coauthor_count=int(au.coauthor_count) if au.coauthor_count else None,
+                current_affiliations=current_affiliations,
+                historical_affiliations=historical_affiliations,
+                subject_areas=subject_areas,
+                first_publication_year=au.publication_range[0] if au.publication_range else None,
+                last_publication_year=au.publication_range[1] if au.publication_range else None,
+                database="Scopus",
+                url=au.url,
+                profile_url=au.scopus_author_link,
+            )
+            
+            return author
+            
+        except Exception as e:
+            logger.error(f"Error retrieving author {author_id}: {e}")
+            return None
+    
+    def get_affiliation_by_id(self, affiliation_id: str) -> Optional["Affiliation"]:
+        """
+        Retrieve affiliation information by Scopus affiliation ID using pybliometrics.
+        
+        Args:
+            affiliation_id: Scopus affiliation ID
+            
+        Returns:
+            Affiliation object, or None if pybliometrics not available
+        """
+        try:
+            from pybliometrics.scopus import AffiliationRetrieval
+            from .models import Affiliation
+        except ImportError:
+            logger.warning("pybliometrics not available. Install with: pip install pybliometrics or pip install -e '.[bibliometrics]'")
+            return None
+        
+        if not self.api_key:
+            logger.warning("Scopus API key required for affiliation retrieval")
+            return None
+        
+        try:
+            import pybliometrics
+            pybliometrics.init()
+            
+            aff = AffiliationRetrieval(affiliation_id)
+            
+            affiliation = Affiliation(
+                name=aff.preferred_name or "",
+                id=str(aff.identifier),
+                city=aff.city,
+                country=aff.country,
+                country_code=aff.country_code,
+                address=aff.address_part,
+                postal_code=aff.postal_code,
+                organization_domain=aff.org_domain,
+                organization_url=aff.org_URL,
+                author_count=int(aff.author_count) if aff.author_count else None,
+            )
+            
+            return affiliation
+            
+        except Exception as e:
+            logger.error(f"Error retrieving affiliation {affiliation_id}: {e}")
+            return None
+    
+    def search_authors(self, query: str, max_results: int = 25) -> List["Author"]:
+        """
+        Search for authors by name using pybliometrics.
+        
+        Args:
+            query: Author search query (e.g., "AUTHLAST(Smith) AND AUTHFIRST(John)")
+            max_results: Maximum number of results
+            
+        Returns:
+            List of Author objects
+        """
+        try:
+            from pybliometrics.scopus import AuthorSearch
+            from .models import Author, Affiliation
+        except ImportError:
+            logger.warning("pybliometrics not available. Install with: pip install pybliometrics or pip install -e '.[bibliometrics]'")
+            return []
+        
+        if not self.api_key:
+            logger.warning("Scopus API key required for author search")
+            return []
+        
+        try:
+            import pybliometrics
+            pybliometrics.init()
+            
+            search = AuthorSearch(query)
+            authors = []
+            
+            for result in search.results[:max_results]:
+                # Get full author details
+                author = self.get_author_by_id(result.identifier)
+                if author:
+                    authors.append(author)
+            
+            return authors
+            
+        except Exception as e:
+            logger.error(f"Error searching authors: {e}")
+            return []
 
 
 class ACMConnector(DatabaseConnector):

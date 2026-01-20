@@ -38,6 +38,18 @@ class Paper:
     affiliations: Optional[List[str]] = None
     subjects: Optional[List[str]] = None
     country: Optional[str] = None
+    
+    # Bibliometric fields (enhanced from pybliometrics and scholarly)
+    citation_count: Optional[int] = None  # Total citations
+    cited_by_count: Optional[int] = None  # Number of papers citing this paper
+    h_index: Optional[int] = None  # Author h-index (if available from author profile)
+    coauthors: Optional[List[str]] = None  # List of coauthor names
+    subject_areas: Optional[List[str]] = None  # Subject area classifications
+    related_papers: Optional[List[str]] = None  # Related paper IDs/DOIs
+    eid: Optional[str] = None  # Scopus EID
+    pubmed_id: Optional[str] = None  # PubMed ID
+    scopus_id: Optional[str] = None  # Scopus author/document ID
+    scholar_id: Optional[str] = None  # Google Scholar ID
 
 
 class DatabaseConnector(ABC):

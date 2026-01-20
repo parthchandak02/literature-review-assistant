@@ -139,9 +139,13 @@ class CitationManager:
                 citation_numbers.append(cit_num)
                 
                 # Track citation if it's within valid range
-                if cit_num <= len(self.papers) and cit_num > 0:
-                    paper_idx = cit_num - 1  # Convert to 0-indexed
-                    self.citation_map[cit_num] = paper_idx
+                # Also track citations even if papers list is empty (for placeholder citations)
+                if cit_num > 0:
+                    if cit_num <= len(self.papers):
+                        paper_idx = cit_num - 1  # Convert to 0-indexed
+                        self.citation_map[cit_num] = paper_idx
+                    # Always track used citations, even if paper doesn't exist
+                    # This allows References section to show citations were used
                     self.used_citations.add(cit_num)
             
             # Return unchanged (already in correct format)
@@ -196,6 +200,14 @@ class CitationManager:
                     paper = self.papers[paper_idx]
                     formatted = IEEEFormatter.format_citation(paper, cit_num)
                     references.append(formatted)
+                else:
+                    # Citation referenced but paper not available (e.g., placeholder citation)
+                    # Still include it in references with a note
+                    references.append(f"[{cit_num}] Citation referenced but paper data not available.")
+            else:
+                # Citation used but not mapped (citation number exceeds available papers)
+                # This can happen when writing agents generate citations for papers that don't exist
+                references.append(f"[{cit_num}] Citation referenced but paper data not available.")
 
         references.append("")  # Empty line at end
 

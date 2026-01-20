@@ -65,6 +65,26 @@ class ExtractedDataSchema(BaseModel):
     accessibility_features: List[str] = Field(
         default_factory=list, description="Accessibility features mentioned"
     )
+    
+    # Bibliometric fields (enhanced from pybliometrics and scholarly)
+    citation_count: Optional[int] = Field(
+        default=None, description="Total number of citations"
+    )
+    cited_by_count: Optional[int] = Field(
+        default=None, description="Number of papers citing this paper"
+    )
+    h_index: Optional[int] = Field(
+        default=None, description="Author h-index (if available from author profile)"
+    )
+    coauthors: List[str] = Field(
+        default_factory=list, description="List of coauthor names"
+    )
+    subject_areas: List[str] = Field(
+        default_factory=list, description="Subject area classifications"
+    )
+    related_papers: List[str] = Field(
+        default_factory=list, description="Related paper IDs or DOIs"
+    )
 
     @field_validator(
         "authors",
@@ -76,6 +96,9 @@ class ExtractedDataSchema(BaseModel):
         "adaptivity_frameworks",
         "patient_populations",
         "accessibility_features",
+        "coauthors",
+        "subject_areas",
+        "related_papers",
         mode="before",
     )
     @classmethod

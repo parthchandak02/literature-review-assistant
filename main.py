@@ -111,6 +111,18 @@ def parse_args():
         help="Disable checkpoint saving",
     )
 
+    parser.add_argument(
+        "--start-from-phase",
+        type=int,
+        help="Force start from a specific phase (1-based). Use --start-from-phase 1 to ignore all checkpoints and start fresh.",
+    )
+
+    parser.add_argument(
+        "--force-fresh",
+        action="store_true",
+        help="Force fresh start from phase 1, ignoring all checkpoints (equivalent to --start-from-phase 1)",
+    )
+
     # Manuscript pipeline commands
     parser.add_argument(
         "--manubot-export",
@@ -322,7 +334,14 @@ def main():
 
     # Run workflow
     try:
-        results = manager.run()
+        # Determine start phase
+        start_phase = None
+        if args.force_fresh:
+            start_phase = 1
+        elif args.start_from_phase:
+            start_phase = args.start_from_phase
+        
+        results = manager.run(start_from_phase=start_phase)
 
         # Handle manuscript pipeline commands
         if args.manubot_export or args.build_package:

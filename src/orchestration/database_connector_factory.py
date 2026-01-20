@@ -18,6 +18,12 @@ from ..search.database_connectors import (
     ACMConnector,
     MockConnector,
 )
+try:
+    from ..search.connectors.google_scholar_connector import GoogleScholarConnector
+    GOOGLE_SCHOLAR_AVAILABLE = True
+except ImportError:
+    GOOGLE_SCHOLAR_AVAILABLE = False
+    GoogleScholarConnector = None
 from ..search.cache import SearchCache
 from ..search.proxy_manager import ProxyManager
 from ..search.integrity_checker import IntegrityChecker, create_integrity_checker_from_config
@@ -143,6 +149,32 @@ class DatabaseConnectorFactory:
                 cookie_jar=cookie_jar,
             )
 
+        elif db_lower == "google scholar":
+            if not GOOGLE_SCHOLAR_AVAILABLE:
+                logger.warning(
+                    "Google Scholar: scholarly library not available. "
+                    "Install with: pip install scholarly or pip install -e '.[bibliometrics]'"
+                )
+                return None
+            
+            # Google Scholar requires proxy for reliable operation
+            use_proxy = proxy_manager is not None and proxy_manager.has_proxy()
+            if not use_proxy:
+                logger.warning(
+                    "Google Scholar: Proxy highly recommended to avoid CAPTCHAs. "
+                    "Consider enabling proxy in configuration."
+                )
+            
+            logger.info(f"Google Scholar: Using real connector (proxy: {'ENABLED' if use_proxy else 'DISABLED'})")
+            return GoogleScholarConnector(
+                cache=cache,
+                proxy_manager=proxy_manager,
+                integrity_checker=integrity_checker,
+                persistent_session=persistent_session,
+                cookie_jar=cookie_jar,
+                use_proxy=use_proxy,
+            )
+
         else:
             logger.warning(f"Unknown database: {db_name}, using mock connector")
             return MockConnector(db_name)
@@ -183,6 +215,9 @@ class DatabaseConnectorFactory:
             elif db_lower == "acm":
                 can_use = True  # Works without API key (web scraping)
                 reason = "Works without API key (web scraping)"
+            elif db_lower == "google scholar":
+                can_use = GOOGLE_SCHOLAR_AVAILABLE
+                reason = "scholarly library required" if not can_use else "Works without API key (proxy recommended)"
             else:
                 can_use = False
                 reason = "Unknown database"

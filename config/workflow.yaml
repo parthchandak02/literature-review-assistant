@@ -192,6 +192,29 @@ workflow:
       max_results: 100
       rate_limit: 2  # Conservative rate limit for web scraping
       requires_api_key: false
+    "Google Scholar":
+      enabled: false  # Requires proxy for reliable operation
+      max_results: 100
+      rate_limit: 1  # Very conservative - Google Scholar has strict rate limits
+      requires_api_key: false
+      requires_proxy: true  # Highly recommended to avoid CAPTCHAs
+  
+  # Bibliometrics settings (enhanced features from pybliometrics and scholarly)
+  bibliometrics:
+    enabled: false  # Enable bibliometric features (requires pybliometrics/scholarly)
+    include_author_metrics: true  # Include h-index, citation counts, etc.
+    include_citation_networks: true  # Build citation networks
+    include_subject_areas: true  # Include subject area classifications
+    include_coauthors: true  # Include coauthor information
+    include_affiliations: true  # Include detailed affiliation data
+  
+  # Google Scholar specific settings
+  google_scholar:
+    enabled: false  # Enable Google Scholar connector
+    use_proxy: true  # Required for reliable operation (avoids CAPTCHAs)
+    proxy_type: "scraperapi"  # Options: scraperapi, free, none
+    max_author_results: 10  # Max authors to retrieve per search
+    max_citation_results: 100  # Max citing papers to retrieve
   
   # Caching settings
   cache:

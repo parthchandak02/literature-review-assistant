@@ -54,11 +54,17 @@ Edit `config/workflow.yaml` to customize:
 ### Step 4: Run the Workflow
 
 ```bash
-# Basic run
+# Basic run (automatically resumes from latest checkpoint if available)
 python main.py
+
+# Force fresh start (ignore all checkpoints, start from scratch)
+python main.py --force-fresh
 
 # With manuscript pipeline features
 python main.py --manubot-export --build-package --journal ieee
+
+# Verbose output with logging
+python main.py --verbose --log-to-file --log-file logs/workflow.log
 
 # Or use Makefile
 make setup    # Create venv
@@ -89,7 +95,69 @@ The system executes 16+ sequential phases: Build Search Strategy, Search Databas
 
 **Checkpoint System**: The workflow automatically saves checkpoints after each phase in `data/checkpoints/workflow_{id}/`, allowing you to resume from any point. When running `python main.py` with the same topic, it automatically resumes from the latest checkpoint. Each workflow run gets a unique ID based on topic and timestamp, ensuring outputs and checkpoints are organized separately.
 
+**Force Fresh Start**: To ignore checkpoints and start from scratch:
+```bash
+# Force fresh start from phase 1 (ignores all checkpoints)
+python main.py --force-fresh
+
+# Or explicitly specify starting phase
+python main.py --start-from-phase 1
+```
+
+**Disable Checkpoint Saving**: To prevent saving new checkpoints:
+```bash
+python main.py --no-save-checkpoints
+```
+
 **Phase Registry Architecture**: The workflow uses a Phase Registry pattern for declarative phase management with automatic dependency resolution, simplifying workflow execution and making it easy to add new phases.
+
+## Text Humanization
+
+The system includes an advanced text humanization feature that improves the naturalness and human-like quality of generated manuscripts.
+
+### How It Works
+
+1. **Style Pattern Extraction**: After full-text screening, the system extracts writing patterns from eligible papers (reuses cached full-text, no additional API calls)
+2. **Enhanced Prompts**: Writing agents receive style guidelines based on extracted patterns
+3. **Naturalness Scoring**: LLM evaluates text quality across multiple dimensions
+4. **Post-Processing**: Text is refined iteratively until naturalness threshold is met
+
+### Configuration
+
+Enable/configure in `config/workflow.yaml`:
+
+```yaml
+writing:
+  style_extraction:
+    enabled: true                    # Extract writing patterns from eligible papers
+    model: "gemini-2.5-pro"          # LLM model for section extraction
+    max_papers: null                 # Max papers to analyze (null = all eligible)
+    min_papers: 3                    # Minimum papers required for pattern extraction
+  
+  humanization:
+    enabled: true                    # Enable text humanization post-processing
+    model: "gemini-2.5-pro"          # LLM model for humanization
+    temperature: 0.3                  # Temperature for variation
+    max_iterations: 2                # Max refinement iterations
+    naturalness_threshold: 0.75      # Minimum naturalness score (0.0-1.0)
+    section_specific: true            # Use section-specific strategies
+```
+
+### Naturalness Dimensions
+
+The system evaluates text across:
+- **Sentence Structure Diversity**: Variation in sentence types (simple, compound, complex)
+- **Vocabulary Richness**: Synonym usage and domain-specific terms
+- **Citation Naturalness**: Natural placement and varied phrasing
+- **Transition Quality**: Natural connectors, avoiding formulaic phrases
+- **Overall Human-Like Quality**: Weighted average of all dimensions
+
+### Efficiency Benefits
+
+- **No Additional API Calls**: Reuses full-text already retrieved during screening
+- **Domain-Relevant**: Patterns extracted from papers in the same topic area
+- **Workflow-Integrated**: Patterns extracted before writing, stored in checkpoints
+- **Automatic**: Runs automatically when enabled, no manual intervention needed
 
 ## Manuscript Pipeline
 
@@ -467,6 +535,23 @@ Note: Manubot features are optional. The system gracefully degrades if not insta
 - Install separately: `brew install pandoc` (macOS) or `apt-get install pandoc` (Linux)
 - Required for PDF/DOCX/HTML generation
 
+### Optional: Bibliometric Features
+
+**Bibliometric Dependencies** (for enhanced Scopus and Google Scholar features):
+```bash
+pip install -e ".[bibliometrics]"
+# or
+pip install pybliometrics scholarly
+```
+
+**pybliometrics** (for enhanced Scopus features):
+- Author profiles, citation metrics, affiliation details
+- Requires Scopus API key: `SCOPUS_API_KEY`
+
+**scholarly** (for Google Scholar integration):
+- Author search, citation tracking, related articles
+- Proxy highly recommended: Set `SCRAPERAPI_KEY` or enable proxy in config
+
 ### Optional: Database API Keys
 
 The system works with free databases by default (PubMed, arXiv, Semantic Scholar, Crossref), but API keys improve rate limits:
@@ -488,6 +573,25 @@ CROSSREF_EMAIL=your_email@example.com
 ```
 
 **Note**: arXiv and ACM work without any API key. PubMed, Semantic Scholar, and Crossref work without API keys but have lower rate limits.
+
+**Google Scholar** (Optional, requires bibliometrics dependencies):
+```bash
+# Install bibliometric dependencies
+pip install -e ".[bibliometrics]"
+
+# Set proxy (highly recommended to avoid CAPTCHAs)
+SCRAPERAPI_KEY=your_scraperapi_key
+# Or configure proxy in workflow.yaml
+```
+
+**Scopus** (Enhanced features with pybliometrics):
+```bash
+# Install bibliometric dependencies
+pip install -e ".[bibliometrics]"
+
+# Set API key
+SCOPUS_API_KEY=your_scopus_api_key
+```
 
 ## Configuration
 
@@ -554,6 +658,31 @@ When the threshold is not met, the workflow will:
 - Document any criteria adjustments in your methods section
 
 All agent configurations are in the YAML file - no code changes needed to modify agent behavior!
+
+**Text Humanization Configuration**:
+```yaml
+writing:
+  style_extraction:
+    enabled: true                    # Extract writing patterns from eligible papers
+    model: "gemini-2.5-pro"          # LLM model for section extraction
+    max_papers: null                 # Max papers to analyze (null = all eligible)
+    min_papers: 3                    # Minimum papers required for pattern extraction
+  
+  humanization:
+    enabled: true                    # Enable text humanization post-processing
+    model: "gemini-2.5-pro"          # LLM model for humanization
+    temperature: 0.3                  # Temperature for variation
+    max_iterations: 2                # Max refinement iterations
+    naturalness_threshold: 0.75      # Minimum naturalness score (0.0-1.0)
+    section_specific: true            # Use section-specific strategies
+```
+
+The humanization system:
+- Extracts writing style patterns from eligible papers (reuses full-text already retrieved)
+- Enhances writing agent prompts with extracted patterns
+- Post-processes generated text to improve naturalness
+- Scores text quality across multiple dimensions (sentence structure, vocabulary, citations, transitions)
+- Iteratively refines text until naturalness threshold is met
 
 ## Project Structure
 
@@ -631,6 +760,9 @@ python main.py
 
 # Run again - should resume from latest checkpoint
 python main.py
+
+# Force fresh start (ignore checkpoints)
+python main.py --force-fresh
 
 # Verify phases 17-18 checkpoints exist
 ls -la data/checkpoints/workflow_*/manubot_export_state.json
@@ -731,13 +863,15 @@ This architecture simplifies workflow management and makes it easy to add new ph
 ## Features
 
 - **Phase Registry Architecture**: Declarative phase management with automatic dependency resolution
-- **Multi-Database Search**: PubMed, arXiv, Semantic Scholar, Crossref, ACM
+- **Multi-Database Search**: PubMed, arXiv, Semantic Scholar, Crossref, ACM, Google Scholar (optional)
+- **Bibliometric Features**: Author profiles, citation metrics, citation networks (requires optional dependencies)
 - **PRISMA 2020 Compliance**: Automatic PRISMA-compliant reports and diagrams
 - **LLM-Powered Screening**: Intelligent screening with cost optimization
 - **Screening Safeguards**: Automatic detection of low inclusion rates with borderline paper identification
 - **Structured Data Extraction**: Pydantic schemas for type-safe extraction
 - **Quality Assessment**: Risk of bias (RoB 2, ROBINS-I) and GRADE assessments
-- **Automatic Checkpointing**: Resume from any phase
+- **Automatic Checkpointing**: Resume from any phase, force fresh start with `--force-fresh`
+- **Text Humanization**: Style pattern extraction from eligible papers and LLM-based naturalness refinement
 - **Bibliometric Visualizations**: Charts and interactive network graphs
 - **Citation Management**: IEEE-formatted references and BibTeX export
 - **Export Formats**: LaTeX and Word document export
@@ -746,6 +880,129 @@ This architecture simplifies workflow management and makes it easy to add new ph
 - **Multi-Journal Support**: Generate submission packages for multiple journals
 - **Submission Package Builder**: Complete packages with all required files
 - **CSL Citation Styles**: Support for IEEE, APA, Nature, PLOS, and more
+
+## Bibliometric Features (Optional)
+
+The system includes enhanced bibliometric capabilities powered by pybliometrics (Scopus) and scholarly (Google Scholar). These features are optional and require additional dependencies.
+
+### Installation
+
+Install bibliometric dependencies:
+
+```bash
+pip install -e ".[bibliometrics]"
+# or
+pip install pybliometrics scholarly
+```
+
+### Features
+
+**Enhanced Scopus Connector:**
+- Author profile retrieval with h-index, citation counts, coauthors
+- Affiliation details (institution, country, city)
+- Subject area classifications
+- Citation metrics per author
+
+**Google Scholar Connector:**
+- Publication search
+- Author search and profiles
+- Citation tracking (find papers citing a given paper)
+- Related articles discovery
+
+**Author Service:**
+- Unified interface for author retrieval across databases
+- Author profile aggregation from multiple sources
+- Bibliometric metrics collection
+
+**Citation Network Builder:**
+- Build citation networks from papers
+- Track citation relationships
+- Export network graphs for visualization
+
+### Configuration
+
+Enable bibliometric features in `config/workflow.yaml`:
+
+```yaml
+workflow:
+  databases: ["PubMed", "arXiv", "Semantic Scholar", "Crossref", "ACM", "Google Scholar"]
+  
+  # Bibliometrics settings
+  bibliometrics:
+    enabled: true
+    include_author_metrics: true
+    include_citation_networks: true
+    include_subject_areas: true
+    include_coauthors: true
+    include_affiliations: true
+  
+  # Google Scholar specific settings
+  google_scholar:
+    enabled: true
+    use_proxy: true  # Highly recommended to avoid CAPTCHAs
+    proxy_type: "scraperapi"  # Options: scraperapi, free, none
+```
+
+### Usage Examples
+
+**Retrieve Author Profile:**
+
+```python
+from src.search.author_service import AuthorService
+from src.search.database_connectors import ScopusConnector
+
+# Create connectors
+scopus = ScopusConnector(api_key="your_scopus_key")
+connectors = {"Scopus": scopus}
+
+# Create author service
+author_service = AuthorService(connectors)
+
+# Get author by ID
+author = author_service.get_author("12345678", database="Scopus")
+print(f"Author: {author.name}, h-index: {author.h_index}")
+
+# Search authors
+authors = author_service.search_author("John Smith", database="Scopus")
+```
+
+**Build Citation Network:**
+
+```python
+from src.search.citation_network import CitationNetworkBuilder
+from src.search.connectors.google_scholar_connector import GoogleScholarConnector
+
+# Create citation network builder
+gs_connector = GoogleScholarConnector(use_proxy=True)
+network_builder = CitationNetworkBuilder(google_scholar_connector=gs_connector)
+
+# Add papers and build network
+network_data = network_builder.build_network_from_papers(papers)
+stats = network_builder.get_citation_statistics()
+
+# Export as NetworkX graph
+G = network_builder.export_networkx_graph()
+```
+
+**Enhanced Scopus Search:**
+
+```python
+from src.search.database_connectors import ScopusConnector
+
+scopus = ScopusConnector(api_key="your_key")
+
+# Search papers (now includes citation_count, subject_areas, eid)
+papers = scopus.search("machine learning", max_results=10)
+
+# Retrieve author by ID
+author = scopus.get_author_by_id("12345678")
+
+# Retrieve affiliation details
+affiliation = scopus.get_affiliation_by_id("60105007")
+
+# Search authors
+authors = scopus.search_authors("AUTHLAST(Smith) AND AUTHFIRST(John)")
+```
 
 ## Examples
 
