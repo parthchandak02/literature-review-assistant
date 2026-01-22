@@ -113,7 +113,7 @@ Justification: {justification}
             
             if intro_patterns.get("sentence_openings"):
                 examples = intro_patterns["sentence_openings"][:3]
-                style_guidelines += f"\nWRITING PATTERNS FROM INCLUDED PAPERS:\n"
+                style_guidelines += "\nWRITING PATTERNS FROM INCLUDED PAPERS:\n"
                 style_guidelines += f"Sentence opening examples: {', '.join(examples[:3])}\n"
             
             if intro_patterns.get("vocabulary"):

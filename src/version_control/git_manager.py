@@ -6,7 +6,6 @@ Manages Git operations for manuscript version control.
 
 import logging
 from pathlib import Path
-from typing import Optional
 
 try:
     import git

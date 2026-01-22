@@ -5,7 +5,6 @@ Integration tests for search workflow.
 from src.search.database_connectors import MultiDatabaseSearcher, MockConnector
 from src.search.cache import SearchCache
 from src.search.search_logger import SearchLogger
-from src.deduplication import Deduplicator
 
 
 class TestSearchWorkflow:
@@ -39,25 +38,6 @@ class TestSearchWorkflow:
 
         assert len(results1) == len(results2)
         assert results1[0].title == results2[0].title
-
-    def test_deduplication_workflow(self):
-        """Test deduplication in search workflow."""
-        # Create papers with duplicates
-        papers = [
-            MockConnector("DB1").search("query", max_results=3)[0],
-            MockConnector("DB2").search("query", max_results=3)[0],
-        ]
-
-        # Add a duplicate
-        duplicate = papers[0]
-        duplicate.database = "DB2"
-        papers.append(duplicate)
-
-        deduplicator = Deduplicator(similarity_threshold=85)
-        result = deduplicator.deduplicate_papers(papers)
-
-        assert len(result.unique_papers) <= len(papers)
-        assert result.duplicates_removed >= 0
 
     def test_search_logging(self, tmp_path):
         """Test PRISMA-compliant search logging."""

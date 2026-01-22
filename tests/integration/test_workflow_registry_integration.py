@@ -2,8 +2,6 @@
 Integration tests for workflow registry system.
 """
 
-import pytest
-from pathlib import Path
 from src.orchestration.workflow_manager import WorkflowManager
 
 

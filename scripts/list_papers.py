@@ -135,7 +135,7 @@ def display_papers(papers: List[Dict], title: str = "Papers Found"):
     papers_with_authors = sum(1 for p in papers if (p.get("authors") if isinstance(p, dict) else p.authors))
     papers_with_doi = sum(1 for p in papers if (p.get("doi") if isinstance(p, dict) else p.doi))
     
-    console.print(f"\n[bold]Summary:[/bold]")
+    console.print("\n[bold]Summary:[/bold]")
     console.print(f"  Total papers: {len(papers)}")
     console.print(f"  With titles: {papers_with_titles}/{len(papers)} ({papers_with_titles/len(papers)*100:.1f}%)")
     console.print(f"  With authors: {papers_with_authors}/{len(papers)} ({papers_with_authors/len(papers)*100:.1f}%)")

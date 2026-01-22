@@ -12,12 +12,10 @@ Usage:
     python scripts/visualize_project.py [--format png|svg|html] [--output-dir OUTPUT_DIR]
 """
 
-import os
 import sys
 import subprocess
-import json
 from pathlib import Path
-from typing import Dict, List, Optional, Set, Tuple
+from typing import Dict, List, Optional, Set
 import argparse
 
 # Add project root to path
@@ -352,7 +350,7 @@ Generated visualizations for: {project_root.name}
         if file.exists():
             report += f"- `{file.name}` - {file.stat().st_size} bytes\n"
     
-    report += f"""
+    report += """
 ## How to Use
 
 ### Dependency Graphs
@@ -452,7 +450,7 @@ def main():
     output_dir = project_root / args.output_dir
     output_dir.mkdir(parents=True, exist_ok=True)
     
-    console.print(f"[bold cyan]Project Visualization Tool[/bold cyan]")
+    console.print("[bold cyan]Project Visualization Tool[/bold cyan]")
     console.print(f"Project root: {project_root}")
     console.print(f"Output directory: {output_dir}\n")
     
@@ -512,7 +510,7 @@ def main():
         if file.exists():
             console.print(f"  - {file.relative_to(project_root)}")
     
-    console.print(f"\n[bold]Next steps:[/bold]")
+    console.print("\n[bold]Next steps:[/bold]")
     console.print("1. View workflow_diagram.mmd at https://mermaid.live/")
     console.print("2. Open PNG files in an image viewer")
     console.print("3. Read VISUALIZATION_SUMMARY.md for details")

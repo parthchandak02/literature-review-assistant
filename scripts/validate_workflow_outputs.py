@@ -9,11 +9,10 @@ Validates outputs from the research paper generation workflow:
 - Validates final report contains all sections
 """
 
-import os
 import sys
 import json
 from pathlib import Path
-from typing import Dict, List, Tuple, Optional
+from typing import Dict, Tuple, Optional
 from dotenv import load_dotenv
 
 # Add parent directory to path

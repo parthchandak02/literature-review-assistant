@@ -1,5 +1,7 @@
 """
-Unit tests for deduplication module.
+Unit tests for src/deduplication.py
+
+Tests the Deduplicator class and deduplication functionality.
 """
 
 from src.deduplication import Deduplicator

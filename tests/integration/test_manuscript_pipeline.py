@@ -3,11 +3,9 @@ Integration tests for manuscript pipeline
 """
 
 import pytest
-from pathlib import Path
 from src.export.manubot_exporter import ManubotExporter
 from src.export.submission_package import SubmissionPackageBuilder
 from src.citations import CitationManager
-from src.search.connectors.base import Paper
 
 
 class TestManuscriptPipeline:

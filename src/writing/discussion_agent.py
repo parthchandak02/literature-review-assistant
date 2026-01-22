@@ -157,7 +157,7 @@ Key Findings:
             
             if discussion_patterns.get("sentence_openings"):
                 examples = discussion_patterns["sentence_openings"][:3]
-                style_guidelines += f"\nWRITING PATTERNS FROM INCLUDED PAPERS:\n"
+                style_guidelines += "\nWRITING PATTERNS FROM INCLUDED PAPERS:\n"
                 style_guidelines += f"Sentence opening examples: {', '.join(examples[:3])}\n"
             
             if discussion_patterns.get("vocabulary"):

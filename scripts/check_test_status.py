@@ -49,7 +49,7 @@ def check_status():
     try:
         dt = datetime.strptime(timestamp, "%Y%m%d_%H%M%S")
         formatted_time = dt.strftime("%Y-%m-%d %H:%M:%S")
-    except:
+    except Exception:
         formatted_time = timestamp
     
     # Create status table

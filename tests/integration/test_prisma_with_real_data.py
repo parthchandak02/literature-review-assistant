@@ -5,7 +5,6 @@ Tests that PRISMA diagram is generated correctly and matches workflow counts.
 """
 
 import pytest
-import os
 import yaml
 from pathlib import Path
 from typing import Dict
@@ -15,7 +14,6 @@ from PIL import Image
 load_dotenv()
 
 from src.orchestration.workflow_manager import WorkflowManager
-from src.prisma.prisma_generator import PRISMACounter, PRISMAGenerator
 
 
 def get_test_config() -> Dict:
@@ -175,7 +173,7 @@ class TestPRISMAWithRealData:
         assert counts["no_dupes"] <= counts["found"], \
             "Unique papers should be <= total papers"
         
-        print(f"\nPRISMA Counts Match:")
+        print("\nPRISMA Counts Match:")
         print(f"  Found: {counts['found']} == {len(papers)} papers")
         print(f"  No dupes: {counts['no_dupes']} == {len(workflow_manager.unique_papers)} unique")
 
@@ -218,7 +216,7 @@ class TestPRISMAWithRealData:
                 assert width > 0 and height > 0, "PRISMA diagram should have non-zero dimensions"
                 assert width >= 800, "PRISMA diagram should be at least 800px wide"
                 
-                print(f"\nPRISMA Diagram Valid:")
+                print("\nPRISMA Diagram Valid:")
                 print(f"  Path: {prisma_path}")
                 print(f"  Format: {img.format}")
                 print(f"  Dimensions: {width}x{height}")
@@ -271,7 +269,7 @@ class TestPRISMAWithRealData:
                 assert actual_counts[key] == expected_counts[key], \
                     f"Count mismatch for {key}: {actual_counts[key]} != {expected_counts[key]}"
             
-            print(f"\nPRISMA Counts Verified:")
+            print("\nPRISMA Counts Verified:")
             for key, value in expected_counts.items():
                 print(f"  {key}: {value}")
             
@@ -316,12 +314,12 @@ class TestPRISMAWithRealData:
             assert "screened" in counts or "no_dupes" in counts
             assert counts.get("screened", counts.get("no_dupes", 0)) <= counts["no_dupes"]
             
-            print(f"\nPRISMA with Screening:")
+            print("\nPRISMA with Screening:")
             print(f"  Found: {counts.get('found', 0)}")
             print(f"  No dupes: {counts.get('no_dupes', 0)}")
             print(f"  Screened: {counts.get('screened', 0)}")
             
-        except Exception as e:
+        except Exception:
             # Screening may fail, but PRISMA should still work
             prisma_path = workflow_manager._generate_prisma_diagram()
             assert Path(prisma_path).exists()

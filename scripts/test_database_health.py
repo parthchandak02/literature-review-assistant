@@ -24,7 +24,6 @@ from src.search.database_connectors import (
     ScopusConnector,
     Paper,
 )
-from src.search.exceptions import DatabaseSearchError, APIKeyError, RateLimitError, NetworkError
 
 # Load environment variables
 load_dotenv()
@@ -130,7 +129,7 @@ class DatabaseHealthChecker:
                 sample = results[0].title[:60] + "..." if len(results[0].title) > 60 else results[0].title
                 status = "WORKING"
                 if email:
-                    status += f" (Email: SET)"
+                    status += " (Email: SET)"
                 else:
                     status += " (No email, lower rate limits)"
                 return True, status, results, sample

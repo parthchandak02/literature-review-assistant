@@ -5,7 +5,6 @@ Unit tests for PRISMA checklist generator.
 import pytest
 import json
 from pathlib import Path
-from tempfile import TemporaryDirectory
 
 from src.prisma.checklist_generator import PRISMAChecklistGenerator
 

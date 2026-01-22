@@ -1,5 +1,12 @@
 """
-Unit tests for state management (checkpoint manager and state store).
+Unit tests for src/state/ modules
+
+Tests:
+- src/state/checkpoint_manager.py (CheckpointManager, WorkflowCheckpoint)
+- src/state/state_store.py (FileStateStore)
+
+Note: These are different from src/orchestration/checkpoint_manager.py
+which is tested in tests/unit/orchestration/test_checkpoint_manager.py
 """
 
 from pathlib import Path

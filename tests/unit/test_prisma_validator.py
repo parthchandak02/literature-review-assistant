@@ -5,7 +5,6 @@ Unit tests for PRISMA validator.
 import pytest
 import json
 from pathlib import Path
-from tempfile import TemporaryDirectory
 
 from src.validation.prisma_validator import PRISMAValidator
 

@@ -4,9 +4,8 @@ State Serialization Utilities
 Serialize and deserialize workflow state objects (Paper, ScreeningResult, ExtractedData).
 """
 
-from typing import List, Dict, Any, Optional
-from dataclasses import asdict, dataclass
-import json
+from typing import List, Dict, Any
+from dataclasses import asdict
 from enum import Enum
 
 from ..search.connectors.base import Paper
@@ -96,7 +95,7 @@ class StateSerializer:
                 journal=item_dict.get("journal"),
                 doi=item_dict.get("doi"),
                 study_objectives=item_dict.get("study_objectives", []),
-                methodology=item_dict.get("methodology", ""),
+                methodology=item_dict.get("methodology"),
                 study_design=item_dict.get("study_design"),
                 participants=item_dict.get("participants"),
                 interventions=item_dict.get("interventions"),

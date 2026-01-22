@@ -2,9 +2,7 @@
 Tests for Submission Package Builder
 """
 
-import pytest
-from pathlib import Path
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 from src.export.submission_package import SubmissionPackageBuilder
 
 

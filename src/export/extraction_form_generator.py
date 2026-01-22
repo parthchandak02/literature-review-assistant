@@ -6,7 +6,7 @@ Generates data extraction form templates for systematic reviews.
 
 import json
 from pathlib import Path
-from typing import Dict, List, Optional, Any
+from typing import Dict, List, Any
 import logging
 
 from ..schemas.extraction_schemas import ExtractedDataSchema

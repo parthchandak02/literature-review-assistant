@@ -2,11 +2,8 @@
 Tests for Manubot Exporter
 """
 
-import pytest
-from pathlib import Path
 from src.export.manubot_exporter import ManubotExporter
 from src.citations import CitationManager
-from src.search.connectors.base import Paper
 
 
 class TestManubotExporter:

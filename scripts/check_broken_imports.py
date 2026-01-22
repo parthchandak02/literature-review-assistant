@@ -11,7 +11,7 @@ Analyzes all Python files in the project to find:
 import ast
 import sys
 from pathlib import Path
-from collections import defaultdict, deque
+from collections import defaultdict
 from typing import Dict, Set, List, Tuple
 import logging
 

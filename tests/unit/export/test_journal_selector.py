@@ -2,8 +2,6 @@
 Tests for Journal Selector
 """
 
-import pytest
-from pathlib import Path
 from src.export.journal_selector import JournalSelector
 
 

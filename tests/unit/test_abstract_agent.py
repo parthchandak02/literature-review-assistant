@@ -3,7 +3,6 @@ Unit tests for abstract agent PRISMA 2020 format.
 """
 
 import pytest
-from unittest.mock import Mock, patch
 from src.writing.abstract_agent import AbstractGenerator
 from src.search.connectors.base import Paper
 

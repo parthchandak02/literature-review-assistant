@@ -31,7 +31,7 @@ class ExtractedData:
     journal: Optional[str]
     doi: Optional[str]
     study_objectives: List[str]
-    methodology: str
+    methodology: Optional[str]
     study_design: Optional[str]
     participants: Optional[str]
     interventions: Optional[str]
@@ -248,7 +248,7 @@ Never return strings like "Not applicable." or "N/A" for list fields.
 
 For each field:
 - study_objectives: List of main research objectives (always return array, use [] if none found)
-- methodology: Description of research methodology (use null if not available)
+- methodology: Description of research methodology (use null if not available, NOT empty string "")
 - study_design: Type of study (e.g., RCT, case study, survey) (use null if not available)
 - participants: Description of study participants (use null if not available)
 - interventions: Description of interventions or treatments (use null if not available)
@@ -269,6 +269,7 @@ Examples of correct format:
 - If no outcomes found: "outcomes": [] (NOT "outcomes": "Not applicable.")
 - If no authors found: "authors": [] (NOT "authors": "N/A")
 - If no journal found: "journal": null (NOT "journal": "Not available")
+- If no methodology found: "methodology": null (NOT "methodology": "" or "methodology": "Not available")
 
 Return ONLY valid JSON matching this exact structure:
 {{
@@ -278,8 +279,8 @@ Return ONLY valid JSON matching this exact structure:
   "journal": null,
   "doi": null,
   "study_objectives": ["objective1", "objective2"],
-  "methodology": "description",
-  "study_design": "type",
+  "methodology": "description" or null,
+  "study_design": "type" or null,
   "participants": "description",
   "interventions": "description",
   "outcomes": ["outcome1", "outcome2"],
@@ -637,7 +638,7 @@ Return ONLY valid JSON matching this exact structure:
                     journal=None,
                     doi=None,
                     study_objectives=data.get("study_objectives", []),
-                    methodology=data.get("methodology", ""),
+                    methodology=data.get("methodology"),
                     study_design=data.get("study_design"),
                     participants=data.get("participants"),
                     interventions=data.get("interventions"),
@@ -688,7 +689,7 @@ Return ONLY valid JSON matching this exact structure:
             journal=None,
             doi=None,
             study_objectives=[],
-            methodology="Not extracted",
+            methodology=None,
             study_design=None,
             participants=None,
             interventions=None,

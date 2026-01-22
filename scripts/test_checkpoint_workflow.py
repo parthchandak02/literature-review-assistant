@@ -239,7 +239,7 @@ class CheckpointWorkflowTester:
                 try:
                     pass_rate = float(pass_rate_line[0].split(":")[1].strip().rstrip("%")) / 100
                     checks["pass_rate"] = pass_rate >= 0.9  # At least 90% pass rate
-                except:
+                except Exception:
                     pass
 
             if all_passed_line:

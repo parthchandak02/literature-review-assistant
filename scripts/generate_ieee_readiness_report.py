@@ -8,11 +8,9 @@ Comprehensive status report checking all improvements and IEEE compliance.
 import json
 from pathlib import Path
 from datetime import datetime
-from typing import Dict, List, Any, Optional
+from typing import Dict, Any
 from rich.console import Console
-from rich.table import Table
 from rich.panel import Panel
-from rich import box
 
 console = Console()
 

@@ -1,5 +1,9 @@
 """
-Unit tests for Pydantic schemas.
+Unit tests for src/schemas/
+
+Tests Pydantic schemas for:
+- Screening results (src/schemas/screening_schemas.py)
+- Extracted data (src/schemas/extraction_schemas.py)
 """
 
 import pytest
@@ -103,6 +107,20 @@ def test_extracted_data_schema_defaults():
     assert data.year is None
     assert data.study_objectives == []
     assert data.outcomes == []
+
+
+def test_extracted_data_schema_null_methodology():
+    """Test that schema accepts null methodology."""
+    data = ExtractedDataSchema(
+        title="Test Paper",
+        authors=[],
+        year=2024,
+        study_objectives=["Objective 1"],
+        methodology=None,  # Should be accepted
+    )
+    
+    assert data.methodology is None
+    assert data.title == "Test Paper"
 
 
 def test_extraction_request_schema():

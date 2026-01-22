@@ -7,7 +7,7 @@ Validates generated reports against PRISMA 2020 checklist (27 items + 12 abstrac
 import re
 import json
 from pathlib import Path
-from typing import Dict, List, Optional, Any
+from typing import Dict, Optional, Any
 import logging
 
 logger = logging.getLogger(__name__)

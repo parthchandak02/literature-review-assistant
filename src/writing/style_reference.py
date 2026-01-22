@@ -4,7 +4,7 @@ Style Reference Data Structure
 Defines the data structure for storing writing style patterns extracted from papers.
 """
 
-from typing import Dict, List, Optional, Any
+from typing import Dict, List, Optional
 
 
 class StylePatterns:

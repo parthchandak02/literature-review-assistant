@@ -2,8 +2,6 @@
 Backward compatibility tests for workflow refactoring.
 """
 
-import pytest
-from pathlib import Path
 from src.orchestration.workflow_manager import WorkflowManager
 
 

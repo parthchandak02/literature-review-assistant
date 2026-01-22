@@ -4,7 +4,6 @@ Unit tests for LLM provider integrations.
 
 import os
 from unittest.mock import Mock, patch
-import pytest
 from src.screening.base_agent import (
     BaseScreeningAgent,
     get_default_model_for_provider,

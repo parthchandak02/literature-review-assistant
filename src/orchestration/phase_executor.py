@@ -7,7 +7,7 @@ Handles phase execution with dependency checking and checkpointing.
 from typing import Dict, Any, Optional, List
 from ..utils.logging_config import get_logger
 from ..utils.log_context import workflow_phase_context
-from .phase_registry import PhaseRegistry, PhaseDefinition
+from .phase_registry import PhaseRegistry
 from .checkpoint_manager import CheckpointManager
 
 logger = get_logger(__name__)

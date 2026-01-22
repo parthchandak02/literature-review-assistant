@@ -3,8 +3,7 @@ Tests for Git Manager
 """
 
 import pytest
-from pathlib import Path
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 from src.version_control.git_manager import GitManuscriptManager, GITPYTHON_AVAILABLE
 
 

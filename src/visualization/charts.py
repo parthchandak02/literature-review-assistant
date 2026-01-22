@@ -8,7 +8,7 @@ import matplotlib.pyplot as plt
 import pandas as pd
 import re
 import logging
-from typing import List, Optional, Dict, Set, Any
+from typing import List, Optional, Dict, Any
 from pathlib import Path
 from collections import Counter
 from ..search.database_connectors import Paper

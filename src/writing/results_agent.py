@@ -44,6 +44,7 @@ class ResultsWriter(BaseScreeningAgent):
         grade_assessments: Optional[str] = None,
         grade_table: Optional[str] = None,
         style_patterns: Optional[Dict[str, Dict[str, List[str]]]] = None,
+        output_dir: Optional[str] = None,
     ) -> str:
         """
         Write results section.
@@ -68,16 +69,29 @@ class ResultsWriter(BaseScreeningAgent):
         # Generate study characteristics table
         study_characteristics_table = self._generate_study_characteristics_table(extracted_data)
         
+        # Set output_dir for tools if provided
+        if output_dir:
+            # Update tool output directories if tools are registered
+            for tool_name in ["generate_mermaid_diagram", "generate_thematic_table", "generate_topic_analysis_table"]:
+                tool = self.tool_registry.get_tool(tool_name)
+                if tool and hasattr(tool.execute_fn, "__defaults__"):
+                    # Tools will use output_dir parameter if provided
+                    pass
+        
         prompt = self._build_results_prompt(
             extracted_data, prisma_counts, key_findings,
             study_characteristics_table, risk_of_bias_summary, risk_of_bias_table,
-            grade_assessments, grade_table, style_patterns
+            grade_assessments, grade_table, style_patterns, output_dir
         )
 
         if not self.llm_client:
             result = self._fallback_results(extracted_data, prisma_counts)
         else:
-            response = self._call_llm(prompt)
+            # Use tool calling if tools are available
+            if self.tool_registry.list_tools():
+                response = self._call_llm_with_tools(prompt, max_iterations=10)
+            else:
+                response = self._call_llm(prompt)
             result = response
 
         # Restore original context
@@ -153,6 +167,7 @@ class ResultsWriter(BaseScreeningAgent):
         grade_assessments: Optional[str] = None,
         grade_table: Optional[str] = None,
         style_patterns: Optional[Dict[str, Dict[str, List[str]]]] = None,
+        output_dir: Optional[str] = None,
     ) -> str:
         """Build prompt for results writing."""
         num_studies = len(extracted_data)
@@ -228,7 +243,7 @@ Study {i}: {data.title}
             
             if results_patterns.get("sentence_openings"):
                 examples = results_patterns["sentence_openings"][:3]
-                style_guidelines += f"\nWRITING PATTERNS FROM INCLUDED PAPERS:\n"
+                style_guidelines += "\nWRITING PATTERNS FROM INCLUDED PAPERS:\n"
                 style_guidelines += f"Sentence opening examples: {', '.join(examples[:3])}\n"
             
             if results_patterns.get("vocabulary"):
@@ -284,7 +299,136 @@ Please write a results section that includes:
 Write in past tense, use SINGULAR language (e.g., "the study" not "studies"), and use appropriate academic language. Begin immediately with the study selection summary - do not include any introductory phrases.
 - DO NOT include a "Results" subsection header (### Results) - the Results section header is already provided, start directly with "### Study Selection" """
         else:
-            prompt += constraint_text + """
+            # Add tool calling instructions and Mermaid diagram guide
+            tool_instructions = ""
+            mermaid_guide = ""
+            
+            if self.tool_registry.list_tools():
+                tool_instructions = """
+AVAILABLE TOOLS FOR GENERATING TABLES AND DIAGRAMS:
+
+You have access to the following tools that you should use when appropriate:
+
+1. generate_thematic_table - Generate a thematic analysis table
+   - Use when: You identify themes from the extracted data
+   - Parameters: 
+     * themes (array, REQUIRED): List of theme names you've identified
+     * output_dir (string, optional): Use """ + (output_dir or "data/outputs") + """ (defaults to configured directory)
+     * extracted_data (array, optional): Can pass empty array [] - tool will work from prompt context
+     * theme_descriptions (object, optional): Dictionary mapping theme names to descriptions
+   - Returns: Path to markdown table file - reference this in your text
+
+2. generate_topic_analysis_table - Generate a topic-specific summary table
+   - Use when: You want to create a focused analysis table for a specific topic (e.g., "bias prevalence", "governance", "usability")
+   - Parameters:
+     * topic_focus (string, REQUIRED): Focus area (e.g., "bias prevalence", "governance", "usability")
+     * output_dir (string, optional): Use """ + (output_dir or "data/outputs") + """ (defaults to configured directory)
+     * extracted_data (array, optional): Can pass empty array [] - tool will work from prompt context
+     * focus_areas (array, optional): List of specific focus areas within the topic
+   - Returns: Path to markdown table file - reference this in your text
+
+3. generate_mermaid_diagram - Generate a Mermaid diagram dynamically
+   - Use when: You want to visualize data (themes, percentages, flows, timelines, etc.)
+   - Parameters:
+     * diagram_type (string): One of: pie, mindmap, flowchart, gantt, sankey, treemap, quadrant, xy, sequence, timeline
+     * mermaid_code (string): Complete Mermaid syntax code (see guide below)
+     * output_dir (string): Use """ + (output_dir or "data/outputs") + """
+     * diagram_title (string, optional): Title for the diagram file
+   - Returns: Path to SVG file - reference this in your text as a figure
+
+TOOL USAGE INSTRUCTIONS:
+- Analyze your data and decide when tables or diagrams would enhance the results section
+- Call tools BEFORE writing about the data they represent
+- For extracted_data parameter: You can pass an empty array [] or a simplified representation - the tool will extract information from the study data you've described in the prompt
+- Reference the generated file paths in your text (e.g., "Table 1 shows..." or "Figure 2 illustrates...")
+- Organize results by themes/topics and use tools to generate supporting tables/figures for each theme
+
+MERMAID DIAGRAM TYPE GUIDE:
+
+Choose the appropriate diagram type based on your data:
+
+1. PIE CHART - For percentages, proportions, distributions
+   Example: "65% of studies showed bias" -> use diagram_type="pie"
+   Syntax example:
+   ```
+   pie title "Bias Prevalence"
+       "Bias Present" : 65
+       "No Bias" : 35
+   ```
+
+2. MINDMAP - For themes/concepts radiating from central topic
+   Example: Thematic framework with 5 themes -> use diagram_type="mindmap"
+   Syntax example:
+   ```
+   mindmap
+     root((Central Topic))
+       Theme1
+       Theme2
+       Theme3
+   ```
+
+3. FLOWCHART - For processes, workflows, decision trees
+   Example: Study selection process -> use diagram_type="flowchart"
+   Syntax example:
+   ```
+   flowchart TD
+       Start[Start] --> Process[Process]
+       Process --> End[End]
+   ```
+
+4. GANTT CHART - For timelines, publication trends
+   Example: Publication timeline by year -> use diagram_type="gantt"
+   Syntax example:
+   ```
+   gantt
+       title Publication Timeline
+       dateFormat YYYY
+       section Studies
+       Study 1 :2020, 2021
+   ```
+
+5. SANKEY - For flows, transformations
+   Example: Papers through screening stages -> use diagram_type="sankey"
+   Syntax example:
+   ```
+   sankey-beta
+       flows
+       Start --> Stage1 : 3561
+       Stage1 --> Stage2 : 3200
+   ```
+
+6. TREEMAP - For hierarchical data, nested categories
+   Example: Theme hierarchies -> use diagram_type="treemap"
+   Syntax example:
+   ```
+   treemap
+       root Root
+           Branch1
+           Branch2
+   ```
+
+7. QUADRANT CHART - For two-dimensional comparisons
+   Example: Effectiveness vs. cost -> use diagram_type="quadrant"
+
+8. XY CHART - For scatter plots, correlations
+   Example: Effectiveness vs. sample size -> use diagram_type="xy"
+
+9. SEQUENCE DIAGRAM - For interactions over time
+   Example: Data extraction process -> use diagram_type="sequence"
+
+10. TIMELINE - For chronological events
+    Example: Publication timeline -> use diagram_type="timeline"
+
+DECISION PROCESS FOR DIAGRAMS:
+1. Analyze your data: What type of data? (percentages, themes, processes, timelines, flows, hierarchies)
+2. Choose diagram type: Match data type to diagram type (see guide above)
+3. Generate Mermaid code: Use syntax examples as templates, adapt to your data
+4. Call generate_mermaid_diagram tool with diagram_type and mermaid_code
+5. Reference the SVG file path in your text (e.g., "Figure 2 shows the thematic framework...")
+"""
+                mermaid_guide = tool_instructions
+
+            prompt += constraint_text + mermaid_guide + """
 
 Please write a detailed results section that includes:
 1. Study Selection (PRISMA flow summary - note that the PRISMA diagram will be inserted separately)
@@ -292,6 +436,9 @@ Please write a detailed results section that includes:
 3. Risk of Bias in Studies (if risk of bias table is provided above, include it and write a narrative summary)
 4. Results of Individual Studies (synthesize findings across studies)
 5. Results of Syntheses (identify common patterns and themes, include quantitative results if applicable with effect sizes, confidence intervals, p-values)
+   - ORGANIZE BY THEMES: Structure subsections by identified themes (e.g., 4.1 Theme 1, 4.2 Theme 2, etc.)
+   - USE TOOLS: Generate thematic tables and diagrams using available tools to support your analysis
+   - Generate at least 2-3 topic-specific tables and 1-2 diagrams (mindmap for themes, pie charts for percentages, etc.)
 6. Reporting Biases (assessment of publication bias, selective outcome reporting, and other reporting biases)
 7. Certainty of Evidence (if GRADE table is provided above, include it and write a narrative summary)
 
@@ -301,7 +448,9 @@ IMPORTANT:
 - If GRADE information is provided, include the GRADE evidence profile table and write a narrative summary
 - Write in past tense, synthesize findings across studies, and use appropriate academic language
 - Begin immediately with the study selection summary - do not include any introductory phrases
-- DO NOT include a "Results" subsection header (### Results) - the Results section header is already provided, start directly with "### Study Selection" """
+- DO NOT include a "Results" subsection header (### Results) - the Results section header is already provided, start directly with "### Study Selection"
+- USE TOOLS ACTIVELY: Call generate_thematic_table, generate_topic_analysis_table, and generate_mermaid_diagram tools when appropriate
+- Reference generated tables and figures in your text (e.g., "Table 1 shows..." or "Figure 2 illustrates...") """
 
         return prompt
 

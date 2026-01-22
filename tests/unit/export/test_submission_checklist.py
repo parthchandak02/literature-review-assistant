@@ -2,8 +2,6 @@
 Tests for Submission Checklist Generator
 """
 
-import pytest
-from pathlib import Path
 from src.export.submission_checklist import SubmissionChecklistGenerator
 
 

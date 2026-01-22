@@ -2,7 +2,6 @@
 Unit tests for stage validators.
 """
 
-import pytest
 from src.testing.stage_validators import (
     StageValidator,
     CitationValidator,

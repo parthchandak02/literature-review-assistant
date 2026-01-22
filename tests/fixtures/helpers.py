@@ -76,7 +76,7 @@ def create_mock_screening_results(
         else:
             decision = InclusionDecision.EXCLUDE
             confidence = 0.5 + random.random() * 0.3  # 0.5-0.8
-            reasoning = f"Paper does not meet inclusion criteria"
+            reasoning = "Paper does not meet inclusion criteria"
             exclusion_reason = "Not relevant to research question"
         
         result = ScreeningResult(

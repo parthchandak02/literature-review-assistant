@@ -2,10 +2,16 @@
 Tests for Author Service
 """
 
+"""
+Unit tests for src/search/author_service.py
+
+Tests the AuthorService class and author-related functionality.
+"""
+
 import pytest
-from unittest.mock import Mock, MagicMock
+from unittest.mock import Mock
 from src.search.author_service import AuthorService
-from src.search.models import Author, Affiliation
+from src.search.models import Author
 
 
 @pytest.fixture

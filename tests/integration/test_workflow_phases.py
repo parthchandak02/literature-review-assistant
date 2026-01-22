@@ -6,7 +6,7 @@ import pytest
 from pathlib import Path
 import tempfile
 from src.orchestration.workflow_manager import WorkflowManager
-from tests.fixtures.test_configs import get_test_workflow_config
+from tests.fixtures.workflow_configs import get_test_workflow_config
 
 
 @pytest.fixture
@@ -30,17 +30,6 @@ def test_search_strategy_building(temp_workflow_config):
 
     assert manager.search_strategy is not None
     assert len(manager.search_strategy.term_groups) > 0
-
-
-def test_deduplication_phase(sample_papers):
-    """Test deduplication phase."""
-    from src.deduplication import Deduplicator
-
-    deduplicator = Deduplicator(similarity_threshold=85)
-    result = deduplicator.deduplicate_papers(sample_papers)
-
-    assert len(result.unique_papers) <= len(sample_papers)
-    assert result.duplicates_removed >= 0
 
 
 def test_prisma_generation():

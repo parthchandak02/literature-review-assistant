@@ -7,12 +7,9 @@ Inspired by scholarly's ProxyGenerator but adapted for our use case.
 
 import os
 import logging
-import time
-import random
 from typing import Optional, Dict, Any, Callable
 from enum import Enum
 import requests
-from pathlib import Path
 
 logger = logging.getLogger(__name__)
 

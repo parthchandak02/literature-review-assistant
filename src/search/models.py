@@ -6,7 +6,6 @@ Author, Affiliation, and bibliometric data models for enhanced database connecto
 
 from dataclasses import dataclass, field
 from typing import List, Optional, Dict, Any
-from datetime import datetime
 
 
 @dataclass

@@ -9,6 +9,8 @@ from .database_connectors import (
     CrossrefConnector,
     ScopusConnector,
     ACMConnector,
+    SpringerConnector,
+    IEEEXploreConnector,
     MockConnector,
 )
 try:
@@ -51,6 +53,8 @@ __all__ = [
     "CrossrefConnector",
     "ScopusConnector",
     "ACMConnector",
+    "SpringerConnector",
+    "IEEEXploreConnector",
     "GoogleScholarConnector",
     "MockConnector",
     "MultiDatabaseSearcher",

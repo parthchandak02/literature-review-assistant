@@ -6,7 +6,7 @@ import pytest
 import yaml
 from src.orchestration.workflow_manager import WorkflowManager
 from src.state.checkpoint_manager import CheckpointManager
-from tests.fixtures.test_configs import get_test_workflow_config
+from tests.fixtures.workflow_configs import get_test_workflow_config
 
 
 @pytest.fixture

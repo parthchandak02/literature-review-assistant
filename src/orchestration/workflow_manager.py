@@ -4,8 +4,8 @@ Workflow Manager
 Main orchestrator that coordinates all phases of the systematic review workflow.
 """
 
-import os
 import json
+import os
 from pathlib import Path
 from typing import Dict, List, Optional, Any
 from dotenv import load_dotenv
@@ -24,11 +24,9 @@ from rich.progress import (
     SpinnerColumn,
 )
 
-from ..utils.logging_config import setup_logging, LogLevel, get_logger
+from ..utils.logging_config import get_logger
 from ..utils.log_context import workflow_phase_context
-from ..config.debug_config import load_debug_config, get_debug_config_from_env, DebugLevel
-from ..observability.metrics import get_metrics_collector
-from ..observability.cost_tracker import get_cost_tracker
+from ..config.debug_config import DebugLevel
 
 try:
     from ..observability.tracing import (
@@ -50,35 +48,13 @@ except ImportError:
 logger = get_logger(__name__)
 console = Console()
 
-from src.prisma.prisma_generator import PRISMACounter, PRISMAGenerator
+from src.prisma.prisma_generator import PRISMAGenerator
 from src.search.search_strategy import SearchStrategyBuilder
-from src.search.multi_database_searcher import MultiDatabaseSearcher
 from src.search.connectors.base import Paper, DatabaseConnector
-from src.search.database_connectors import (
-    MockConnector,
-    PubMedConnector,
-    ArxivConnector,
-    SemanticScholarConnector,
-    CrossrefConnector,
-    ScopusConnector,
-    ACMConnector,
-)
 from src.search.cache import SearchCache
 from src.search.proxy_manager import ProxyManager, create_proxy_manager_from_config
 from src.search.integrity_checker import IntegrityChecker, create_integrity_checker_from_config
-from src.deduplication import Deduplicator
-from src.screening.title_abstract_agent import TitleAbstractScreener
-from src.screening.fulltext_agent import FullTextScreener
-from src.extraction.data_extractor_agent import DataExtractorAgent, ExtractedData
-from src.visualization.charts import ChartGenerator
-from src.writing.introduction_agent import IntroductionWriter
-from src.writing.methods_agent import MethodsWriter
-from src.writing.results_agent import ResultsWriter
-from src.writing.discussion_agent import DiscussionWriter
-from src.writing.abstract_agent import AbstractGenerator
-from src.config.config_loader import ConfigLoader
-from src.orchestration.topic_propagator import TopicContext
-from src.orchestration.handoff_protocol import HandoffProtocol
+from src.extraction.data_extractor_agent import ExtractedData
 from src.orchestration.workflow_initializer import WorkflowInitializer
 from src.orchestration.database_connector_factory import DatabaseConnectorFactory
 from src.utils.pdf_retriever import PDFRetriever
@@ -375,7 +351,7 @@ class WorkflowManager:
         
         # Calculate and validate screening statistics
         if self.title_abstract_results:
-            stats = self.screening_validator.calculate_statistics(
+            self.screening_validator.calculate_statistics(
                 self.unique_papers,
                 self.title_abstract_results,
                 ScreeningStage.TITLE_ABSTRACT
@@ -432,6 +408,24 @@ class WorkflowManager:
             viz_paths = self._viz_paths
         else:
             viz_paths = self._generate_visualizations()
+            self._viz_paths = viz_paths
+        
+        # Merge article-generated files (e.g., mermaid diagrams) into viz_paths
+        if hasattr(self, "_article_generated_files"):
+            article_files = self._article_generated_files
+            if article_files:
+                logger.info(f"Merging {len(article_files)} article-generated files into visualizations")
+                viz_paths.update(article_files)
+                self._viz_paths = viz_paths
+        
+        # Also scan for mermaid diagrams as fallback
+        mermaid_diagrams = self._collect_mermaid_diagrams()
+        if mermaid_diagrams:
+            logger.info(f"Found {len(mermaid_diagrams)} additional mermaid diagrams via scan")
+            # Only add diagrams not already in viz_paths
+            for name, path in mermaid_diagrams.items():
+                if name not in viz_paths:
+                    viz_paths[name] = path
             self._viz_paths = viz_paths
         
         report_path = self._generate_final_report(article_sections, prisma_path, viz_paths)
@@ -538,10 +532,10 @@ class WorkflowManager:
             existing_checkpoint = self.checkpoint_manager.find_by_topic(self.topic_context.topic)
             if existing_checkpoint:
                 logger.info("=" * 60)
-                logger.info(f"Found existing checkpoint for this topic!")
+                logger.info("Found existing checkpoint for this topic!")
                 logger.info(f"  Workflow ID: {existing_checkpoint['workflow_id']}")
                 logger.info(f"  Latest phase: {existing_checkpoint['latest_phase']}")
-                logger.info(f"  Resuming from checkpoint...")
+                logger.info("  Resuming from checkpoint...")
                 logger.info("=" * 60)
                 
                 # Update workflow_id and output_dir to match checkpoint
@@ -767,6 +761,14 @@ class WorkflowManager:
                         self.workflow_id = latest_checkpoint_data["workflow_id"]
                         self.checkpoint_dir = Path("data/checkpoints") / self.workflow_id
                         self.checkpoint_manager.checkpoint_dir = self.checkpoint_dir
+                        
+                        # Update output directory to match workflow_id and ensure it exists
+                        base_output_dir = Path(self.config.get("output", {}).get("directory", "data/outputs"))
+                        workflow_output_dir = base_output_dir / self.workflow_id
+                        workflow_output_dir.mkdir(parents=True, exist_ok=True)
+                        self.output_dir = workflow_output_dir
+                        # Update ChartGenerator to use correct output directory
+                        self.chart_generator.output_dir = workflow_output_dir
                 
                 # Determine start phase from checkpoint
                 start_from_phase = self._determine_start_phase(existing_checkpoint)
@@ -1134,7 +1136,7 @@ class WorkflowManager:
         logger.info(f"Max results per database: {max_results}")
 
         # Validate database configuration
-        validation = self._validate_database_config()
+        self._validate_database_config()
         
         # Get cache if enabled
         cache = None
@@ -1231,7 +1233,7 @@ class WorkflowManager:
     
     def _find_existing_screening_result(self, paper: Paper, existing_results: List) -> Optional[Any]:
         """Find existing screening result for a paper."""
-        paper_key = self._get_paper_key(paper)
+        self._get_paper_key(paper)
         
         for result in existing_results:
             # Try to match by paper metadata stored in result
@@ -1394,7 +1396,7 @@ class WorkflowManager:
                 console=console,
             ) as progress:
                 task = progress.add_task(
-                    f"[cyan]LLM screening borderline papers...",
+                    "[cyan]LLM screening borderline papers...",
                     total=len(keyword_filtered_papers),
                 )
 
@@ -1459,11 +1461,11 @@ class WorkflowManager:
                         if result.decision.value == "include":
                             self.screened_papers.append(paper)
                             if is_verbose:
-                                progress.log(f"  [green]Paper included via LLM[/green]")
+                                progress.log("  [green]Paper included via LLM[/green]")
                             logger.debug(f"Paper included via LLM: {paper_title}")
                         else:
                             if is_verbose:
-                                progress.log(f"  [red]Paper excluded via LLM[/red]")
+                                progress.log("  [red]Paper excluded via LLM[/red]")
                             logger.debug(f"Paper excluded via LLM: {paper_title}")
 
                     except Exception as e:
@@ -1474,7 +1476,7 @@ class WorkflowManager:
                         self.title_abstract_results.append(keyword_result)  # Store fallback result
                         if keyword_result.decision.value == "include":
                             self.screened_papers.append(paper)
-                            logger.warning(f"Using keyword result due to LLM error: included")
+                            logger.warning("Using keyword result due to LLM error: included")
 
                     progress.advance(task)
                     
@@ -1691,7 +1693,7 @@ class WorkflowManager:
                         )
                     else:
                         progress.log(
-                            f"  [dim]-> Full-text not available, falling back to title/abstract screening[/dim]"
+                            "  [dim]-> Full-text not available, falling back to title/abstract screening[/dim]"
                         )
                     progress.log(
                         f"  [dim]-> Calling LLM ({self.fulltext_screener.llm_model})...[/dim]"
@@ -1711,7 +1713,7 @@ class WorkflowManager:
 
                 # Verbose output for decision (using progress.log to work with progress bar)
                 if is_verbose:
-                    decision_str = result.decision.value.upper()
+                    result.decision.value.upper()
                     confidence_str = f"{result.confidence:.2f}"
                     reasoning_preview = result.reasoning[:100] if result.reasoning else "No reasoning"
                     
@@ -1734,10 +1736,10 @@ class WorkflowManager:
                 if result.decision.value == "include":
                     self.eligible_papers.append(paper)
                     if is_verbose:
-                        progress.log(f"  [green]Paper eligible[/green]")
+                        progress.log("  [green]Paper eligible[/green]")
                 else:
                     if is_verbose:
-                        progress.log(f"  [red]Paper excluded[/red]")
+                        progress.log("  [red]Paper excluded[/red]")
 
                 progress.advance(task)
 
@@ -1758,7 +1760,7 @@ class WorkflowManager:
         
         # Calculate and validate screening statistics
         if self.fulltext_results:
-            stats = self.screening_validator.calculate_statistics(
+            self.screening_validator.calculate_statistics(
                 self.screened_papers,
                 self.fulltext_results,
                 ScreeningStage.FULL_TEXT
@@ -1973,8 +1975,8 @@ class WorkflowManager:
                         f"[cyan]{paper_title}...[/cyan]"
                     )
                     progress.log(
-                        f"  [dim]-> Building extraction prompt with fields: study_objectives, methodology, "
-                        f"study_design, participants, interventions, outcomes, key_findings, limitations...[/dim]"
+                        "  [dim]-> Building extraction prompt with fields: study_objectives, methodology, "
+                        "study_design, participants, interventions, outcomes, key_findings, limitations...[/dim]"
                     )
                     progress.log(
                         f"  [dim]-> Calling LLM ({self.extractor.llm_model}) for structured extraction...[/dim]"
@@ -2047,7 +2049,7 @@ class WorkflowManager:
         # Get template path
         template_path_template = qa_config.get(
             "template_path", 
-            f"data/quality_assessments/{{workflow_id}}_assessments.json"
+            "data/quality_assessments/{workflow_id}_assessments.json"
         )
         template_path = template_path_template.format(workflow_id=self.workflow_id)
         template_path_obj = Path(template_path)
@@ -2060,7 +2062,7 @@ class WorkflowManager:
 
         # Check if assessment file exists
         if not template_path_obj.exists():
-            # Generate template and stop workflow
+            # Generate template
             logger.info("Quality assessment template not found. Generating template...")
             
             # Infer GRADE outcomes from extracted data
@@ -2077,26 +2079,61 @@ class WorkflowManager:
                 grade_outcomes=grade_outcomes if grade_outcomes else None,
             )
             
-            logger.error("=" * 60)
-            logger.error("QUALITY ASSESSMENT REQUIRED")
-            logger.error("=" * 60)
-            logger.error(f"Quality assessment template generated at: {template_path_str}")
-            logger.error("")
-            logger.error("Please complete the quality assessments in the template file:")
-            logger.error(f"  1. Open: {template_path_str}")
-            logger.error(f"  2. Complete risk of bias assessments for all studies")
-            if grade_assessment:
-                logger.error(f"  3. Complete GRADE assessments for all outcomes")
-            logger.error(f"  4. Save the file")
-            logger.error(f"  5. Re-run the workflow (it will resume from this point)")
-            logger.error("")
-            logger.error("The workflow will stop here until assessments are completed.")
-            logger.error("=" * 60)
+            # Check if auto-fill is enabled
+            auto_fill = qa_config.get("auto_fill", True)  # Default to True
+            if auto_fill:
+                logger.info("Auto-filling quality assessments using LLM...")
+                try:
+                    from ..quality.auto_filler import auto_fill_assessments
+                    # Get LLM provider/model from config
+                    agents_config = self.config.get("agents", {})
+                    extraction_config = agents_config.get("extraction_agent", {})
+                    llm_provider = os.getenv("LLM_PROVIDER", "gemini")
+                    llm_model = extraction_config.get("llm_model", "gemini-2.5-pro")
+                    
+                    success = auto_fill_assessments(
+                        template_path_str,
+                        self.extracted_data,
+                        llm_provider=llm_provider,
+                        llm_model=llm_model
+                    )
+                    if success:
+                        logger.info("Quality assessments auto-filled successfully!")
+                    else:
+                        logger.warning("Auto-fill failed, but template is ready for manual completion")
+                        raise RuntimeError(
+                            f"Quality assessment template generated at {template_path_str}. "
+                            "Auto-fill failed. Please complete the assessments manually and re-run the workflow."
+                        )
+                except ImportError as e:
+                    logger.warning(f"Could not import auto-fill module: {e}. Falling back to manual assessment.")
+                    auto_fill = False
+                except Exception as e:
+                    logger.warning(f"Auto-fill failed: {e}. Falling back to manual assessment.")
+                    auto_fill = False
             
-            raise RuntimeError(
-                f"Quality assessment template generated at {template_path_str}. "
-                "Please complete the assessments and re-run the workflow."
-            )
+            # If auto-fill is disabled or failed, stop workflow
+            if not auto_fill:
+                logger.error("=" * 60)
+                logger.error("QUALITY ASSESSMENT REQUIRED")
+                logger.error("=" * 60)
+                logger.error(f"Quality assessment template generated at: {template_path_str}")
+                logger.error("")
+                logger.error("Please complete the quality assessments in the template file:")
+                logger.error(f"  1. Open: {template_path_str}")
+                logger.error("  2. Complete risk of bias assessments for all studies")
+                if grade_assessment:
+                    logger.error("  3. Complete GRADE assessments for all outcomes")
+                logger.error("  4. Save the file")
+                logger.error("  5. Re-run the workflow (it will resume from this point)")
+                logger.error("")
+                logger.error("The workflow will stop here until assessments are completed.")
+                logger.error("=" * 60)
+                
+                raise RuntimeError(
+                    f"Quality assessment template generated at {template_path_str}. "
+                    "Please complete the assessments and re-run the workflow."
+                )
 
         # Load assessments
         logger.info(f"Loading quality assessments from {template_path_obj}")
@@ -2204,6 +2241,52 @@ class WorkflowManager:
                     paths["grade_evidence_profile"] = grade_plot_path
 
         return paths
+    
+    def _collect_mermaid_diagrams(self) -> Dict[str, str]:
+        """
+        Scan output directory for mermaid diagram SVG files (fallback method).
+        
+        This method scans the output directory for SVG files that match mermaid
+        diagram naming patterns and adds them to visualizations.
+        
+        Returns:
+            Dictionary mapping diagram names to relative file paths
+        """
+        mermaid_paths = {}
+        output_path = Path(self.output_dir)
+        
+        if not output_path.exists():
+            return mermaid_paths
+        
+        # Look for SVG files matching mermaid naming pattern (diagram_type_title.svg)
+        svg_files = list(output_path.glob("*.svg"))
+        
+        for svg_file in svg_files:
+            stem = svg_file.stem
+            # Check if it matches mermaid diagram naming patterns
+            # Mermaid diagrams typically have format: {diagram_type}_{title}.svg
+            # e.g., pie_bias_prevalence.svg, mindmap_themes.svg, flowchart_process.svg
+            mermaid_types = [
+                "pie", "mindmap", "flowchart", "gantt", "sankey", "treemap",
+                "quadrant", "xy", "sequence", "timeline", "state", "class",
+                "er", "journey", "block", "architecture"
+            ]
+            
+            # Check if filename starts with a known mermaid diagram type
+            for diagram_type in mermaid_types:
+                if stem.startswith(f"{diagram_type}_"):
+                    # This looks like a mermaid diagram
+                    diagram_name = stem.replace('_', ' ').title()
+                    # Use relative path for report
+                    rel_path = svg_file.name
+                    mermaid_paths[stem] = rel_path
+                    logger.debug(f"Found mermaid diagram: {stem} -> {rel_path}")
+                    break
+        
+        if mermaid_paths:
+            logger.info(f"Collected {len(mermaid_paths)} mermaid diagram(s) via directory scan")
+        
+        return mermaid_paths
 
     def _extract_style_patterns(self):
         """Extract writing style patterns from eligible papers."""
@@ -2381,6 +2464,7 @@ class WorkflowManager:
                 protocol_info=protocol_info,
                 automation_details=automation_details,
                 style_patterns=self.style_patterns,
+                output_dir=str(self.output_dir),
             )
             
             # Humanize if enabled
@@ -2437,6 +2521,7 @@ class WorkflowManager:
                 grade_assessments=grade_assessments,
                 grade_table=grade_table,
                 style_patterns=self.style_patterns,
+                output_dir=str(self.output_dir),
             )
             
             # Humanize if enabled
@@ -2453,6 +2538,26 @@ class WorkflowManager:
         console.print()
         console.print("[green]✓[/green] Results section complete")
         console.print()
+        
+        # Collect generated files from results_writer (e.g., mermaid diagrams)
+        generated_files = {}
+        if hasattr(self.results_writer, 'get_generated_files'):
+            files = self.results_writer.get_generated_files()
+            for file_path in files:
+                # Extract diagram name from path
+                file_name = Path(file_path).stem
+                # Make path relative to output_dir for report
+                try:
+                    rel_path = Path(file_path).relative_to(self.output_dir)
+                    generated_files[file_name] = str(rel_path)
+                    logger.info(f"Collected generated file: {file_name} -> {rel_path}")
+                except ValueError:
+                    # File is not relative to output_dir, use absolute path
+                    generated_files[file_name] = file_path
+                    logger.info(f"Collected generated file: {file_name} -> {file_path}")
+        
+        # Store generated files for later use
+        self._article_generated_files = generated_files
 
         # Discussion
         with console.status(
@@ -2497,7 +2602,7 @@ class WorkflowManager:
 
         # Abstract (generate after all sections are written)
         with console.status(
-            f"[bold cyan][5/5] Generating Abstract..."
+            "[bold cyan][5/5] Generating Abstract..."
         ):
             research_question = self.topic_context.research_question or self.topic_context.topic
             abstract = self.abstract_generator.generate(
@@ -2522,6 +2627,13 @@ class WorkflowManager:
             "[bold green]Article writing phase complete - all 5 sections generated[/bold green]"
         )
         console.print()
+        
+        # Log generated files summary
+        if generated_files:
+            console.print(f"[cyan]Generated {len(generated_files)} file(s) during writing:[/cyan]")
+            for name, path in generated_files.items():
+                console.print(f"  - {name}: {path}")
+        console.print()
 
         return sections
 
@@ -2535,6 +2647,9 @@ class WorkflowManager:
         from ..citations import CitationManager
 
         report_path = self.output_dir / "final_report.md"
+        
+        # Ensure output directory exists
+        report_path.parent.mkdir(parents=True, exist_ok=True)
 
         # Initialize citation manager with included papers
         citation_manager = CitationManager(self.final_papers)
@@ -2568,7 +2683,7 @@ class WorkflowManager:
                         paper_keywords.extend([kw.strip() for kw in paper.keywords.split(",")])
             
             # Combine and deduplicate keywords
-            all_keywords = list(set(keywords + paper_keywords))
+            list(set(keywords + paper_keywords))
             
             # Prioritize topic keywords, then add paper keywords
             # Remove duplicates while preserving order
@@ -2645,7 +2760,14 @@ class WorkflowManager:
                             viz_section += f"![{name}]({png_path})\n\n"
                             viz_section += caption
                             figure_num += 1
+                    elif path.endswith('.svg'):
+                        # Handle SVG files (from Mermaid diagrams)
+                        caption = f"**Figure {figure_num}:** {viz_name} showing analysis of included studies.\n\n"
+                        viz_section += f"![{name}]({path})\n\n"
+                        viz_section += caption
+                        figure_num += 1
                     else:
+                        # Handle PNG, JPG, etc.
                         caption = f"**Figure {figure_num}:** {viz_name} showing bibliometric analysis of included studies.\n\n"
                         viz_section += f"![{name}]({path})\n\n"
                         viz_section += caption
@@ -3198,13 +3320,6 @@ class WorkflowManager:
         checkpoint_data = self.checkpoint_manager.load_phase(checkpoint_path)
         if checkpoint_data is None:
             return {}
-        return checkpoint_data
-        if not checkpoint_file.exists():
-            raise FileNotFoundError(f"Checkpoint file not found: {checkpoint_path}")
-        
-        with open(checkpoint_file, "r") as f:
-            checkpoint_data = json.load(f)
-        
         return checkpoint_data
 
     def load_state_from_dict(self, state: Dict[str, Any]) -> None:

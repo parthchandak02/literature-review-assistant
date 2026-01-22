@@ -3,7 +3,6 @@ Integration tests for checkpoint resumption.
 """
 
 import pytest
-import json
 import tempfile
 from pathlib import Path
 from src.orchestration.workflow_manager import WorkflowManager

@@ -7,7 +7,6 @@ They are skipped if required API keys are not available.
 
 import os
 import pytest
-from typing import List
 from src.search.database_connectors import (
     PubMedConnector,
     ArxivConnector,
@@ -16,7 +15,7 @@ from src.search.database_connectors import (
     ScopusConnector,
     Paper,
 )
-from src.search.exceptions import DatabaseSearchError, APIKeyError
+from src.search.exceptions import DatabaseSearchError
 
 
 # Test query that should return results

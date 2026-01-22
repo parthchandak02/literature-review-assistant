@@ -5,7 +5,6 @@ Unit tests for extraction form generator.
 import pytest
 import json
 from pathlib import Path
-from tempfile import TemporaryDirectory
 
 from src.export.extraction_form_generator import ExtractionFormGenerator
 
@@ -84,7 +83,6 @@ def test_word_form_generation(generator, tmp_path):
 def test_word_form_fallback(generator, tmp_path, monkeypatch):
     """Test Word form falls back to markdown if python-docx unavailable."""
     # Mock ImportError for docx
-    import sys
     original_import = __import__
     
     def mock_import(name, *args, **kwargs):

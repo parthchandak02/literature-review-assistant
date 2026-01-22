@@ -20,7 +20,7 @@ class ExtractedDataSchema(BaseModel):
     study_objectives: List[str] = Field(
         default_factory=list, description="List of main research objectives"
     )
-    methodology: str = Field(default="", description="Description of research methodology")
+    methodology: Optional[str] = Field(default=None, description="Description of research methodology")
     study_design: Optional[str] = Field(
         default=None, description="Type of study (e.g., RCT, case study, survey)"
     )

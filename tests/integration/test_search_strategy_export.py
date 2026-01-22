@@ -2,12 +2,9 @@
 Integration tests for search strategy export.
 """
 
-import pytest
 from pathlib import Path
-from tempfile import TemporaryDirectory
 
 from src.orchestration.workflow_manager import WorkflowManager
-from tests.fixtures.test_configs import get_test_workflow_config
 
 
 def test_markdown_generation(tmp_path, monkeypatch):

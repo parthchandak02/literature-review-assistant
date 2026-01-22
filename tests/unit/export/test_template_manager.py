@@ -2,7 +2,6 @@
 Tests for Template Manager
 """
 
-import pytest
 from pathlib import Path
 from unittest.mock import patch
 from src.export.template_manager import TemplateManager

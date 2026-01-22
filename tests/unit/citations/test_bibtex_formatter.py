@@ -2,7 +2,6 @@
 Tests for BibTeX Formatter
 """
 
-import pytest
 from src.citations.bibtex_formatter import BibTeXFormatter
 from src.search.connectors.base import Paper
 

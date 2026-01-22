@@ -46,6 +46,7 @@ class MethodsWriter(BaseScreeningAgent):
         protocol_info: Optional[Dict[str, Any]] = None,
         automation_details: Optional[str] = None,
         style_patterns: Optional[Dict[str, Dict[str, List[str]]]] = None,
+        output_dir: Optional[str] = None,
     ) -> str:
         """
         Write methods section.
@@ -82,6 +83,7 @@ class MethodsWriter(BaseScreeningAgent):
             protocol_info,
             automation_details,
             style_patterns,
+            output_dir,
         )
 
         if not self.llm_client:
@@ -89,7 +91,11 @@ class MethodsWriter(BaseScreeningAgent):
                 search_strategy, databases, inclusion_criteria, exclusion_criteria
             )
         else:
-            response = self._call_llm(prompt)
+            # Use tool calling if tools are available
+            if self.tool_registry.list_tools():
+                response = self._call_llm_with_tools(prompt, max_iterations=10)
+            else:
+                response = self._call_llm(prompt)
             result = response
 
         # Restore original context
@@ -113,6 +119,7 @@ class MethodsWriter(BaseScreeningAgent):
         protocol_info: Optional[Dict[str, Any]] = None,
         automation_details: Optional[str] = None,
         style_patterns: Optional[Dict[str, Dict[str, List[str]]]] = None,
+        output_dir: Optional[str] = None,
     ) -> str:
         """Build prompt for methods writing."""
         # Build protocol registration text
@@ -194,7 +201,7 @@ PRISMA Flow:
             
             if methods_patterns.get("sentence_openings"):
                 examples = methods_patterns["sentence_openings"][:3]
-                style_guidelines += f"\nWRITING PATTERNS FROM INCLUDED PAPERS:\n"
+                style_guidelines += "\nWRITING PATTERNS FROM INCLUDED PAPERS:\n"
                 style_guidelines += f"Sentence opening examples: {', '.join(examples[:3])}\n"
             
             if methods_patterns.get("vocabulary"):
@@ -240,6 +247,28 @@ Please write a detailed methods section that includes:
 10. Data Synthesis Methods (narrative synthesis, meta-analysis if applicable)
 
 IMPORTANT: Include the full search strategies for ALL databases in the methods section. The full search queries are provided above. Write in past tense, use PRISMA 2020 terminology, and ensure all methodological details are clearly described. Begin immediately with protocol registration or search strategy - do not include any introductory phrases."""
+
+        # Add tool calling instructions if tools are available
+        if self.tool_registry.list_tools():
+            tool_instructions = f"""
+AVAILABLE TOOLS FOR GENERATING TABLES:
+
+You have access to the following tool that you should use:
+
+1. generate_inclusion_exclusion_table - Generate an inclusion/exclusion criteria table
+   - Use when: Writing the Eligibility Criteria subsection
+   - Parameters: inclusion_criteria (array), exclusion_criteria (array), output_dir (string)
+   - Returns: Path to markdown table file - reference this in your text
+
+TOOL USAGE INSTRUCTIONS:
+- Call generate_inclusion_exclusion_table tool when writing the Eligibility Criteria subsection
+- Use output_dir: {output_dir or "data/outputs"} for the tool call
+- Reference the generated table file path in your text (e.g., "Table 1 shows the inclusion and exclusion criteria...")
+- Include the table in your methods section text
+"""
+            prompt += tool_instructions
+
+        return prompt
 
         return prompt
 

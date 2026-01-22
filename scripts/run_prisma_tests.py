@@ -7,13 +7,11 @@ Generates reports and tracks test execution.
 Used by: make test-prisma
 """
 
-import pytest
 import json
 import sys
 from pathlib import Path
 from datetime import datetime
 from rich.console import Console
-from rich.table import Table
 from rich.panel import Panel
 
 console = Console()
@@ -187,7 +185,7 @@ def run_tests():
     console.print("\n" + "=" * 70)
     console.print(Panel(summary, title="[bold green]Test Summary[/bold green]"))
     console.print("=" * 70)
-    console.print(f"\n[bold]Results saved to:[/bold]")
+    console.print("\n[bold]Results saved to:[/bold]")
     console.print(f"  JSON: {json_output}")
     console.print(f"  TXT:  {txt_output}")
     if html_output.exists():
@@ -200,7 +198,7 @@ def run_tests():
 def generate_summary(results: dict, duration: float, exit_code: int) -> str:
     """Generate human-readable test summary."""
     lines = []
-    lines.append(f"Test Execution Summary")
+    lines.append("Test Execution Summary")
     lines.append(f"{'=' * 70}")
     lines.append(f"Timestamp: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     lines.append(f"Duration: {duration:.2f} seconds")

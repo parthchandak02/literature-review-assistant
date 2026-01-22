@@ -2,10 +2,8 @@
 Integration tests for PRISMA checklist generation.
 """
 
-import pytest
 import json
 from pathlib import Path
-from tempfile import TemporaryDirectory
 
 from src.prisma.checklist_generator import PRISMAChecklistGenerator
 from tests.fixtures.mock_report_sections import get_sample_report_markdown

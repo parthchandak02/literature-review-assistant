@@ -1,4 +1,8 @@
-"""Tests for CitationManager."""
+"""
+Unit tests for src/citations/citation_manager.py
+
+Tests the CitationManager class and citation handling functionality.
+"""
 
 import pytest
 from src.citations import CitationManager

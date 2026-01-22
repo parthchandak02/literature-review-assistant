@@ -6,7 +6,7 @@ Generates assessment templates that users can fill out manually.
 
 import json
 from pathlib import Path
-from typing import List, Dict, Any, Optional
+from typing import List, Optional
 import logging
 
 from ..extraction.data_extractor_agent import ExtractedData

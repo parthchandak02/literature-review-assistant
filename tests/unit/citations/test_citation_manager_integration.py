@@ -3,7 +3,7 @@ Tests for CitationManager Integration with Manubot
 """
 
 import pytest
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 from src.citations import CitationManager
 from src.search.connectors.base import Paper
 

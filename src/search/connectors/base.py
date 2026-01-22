@@ -10,7 +10,7 @@ from abc import ABC, abstractmethod
 import logging
 import requests
 from pathlib import Path
-import os
+import certifi
 
 from ..cache import SearchCache
 from ..rate_limiter import get_rate_limiter
@@ -82,13 +82,18 @@ class DatabaseConnector(ABC):
 
     def _get_session(self) -> requests.Session:
         """
-        Get or create HTTP session with proxy support and cookie persistence.
+        Get or create HTTP session with proxy support, SSL configuration, and cookie persistence.
 
         Returns:
             requests.Session instance
         """
         if self._session is None:
             self._session = requests.Session()
+            
+            # Configure SSL certificate verification using certifi's CA bundle
+            # This fixes SSL CERTIFICATE_VERIFY_FAILED errors on macOS
+            self._session.verify = certifi.where()
+            logger.debug(f"Configured SSL certificates from: {certifi.where()}")
             
             # Configure proxies if available
             if self.proxy_manager and self.proxy_manager.has_proxy():
@@ -126,12 +131,14 @@ class DatabaseConnector(ABC):
 
     def _get_request_kwargs(self) -> Dict:
         """
-        Get keyword arguments for requests (proxies, timeout, etc.).
+        Get keyword arguments for requests (proxies, timeout, SSL verification, etc.).
 
         Returns:
             Dictionary with request parameters
         """
-        kwargs = {}
+        kwargs = {
+            "verify": certifi.where()  # Use certifi's CA bundle for SSL verification
+        }
         
         if self.proxy_manager and self.proxy_manager.has_proxy():
             proxies = self.proxy_manager.get_proxies()

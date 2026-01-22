@@ -12,10 +12,10 @@ Tests error handling throughout the workflow:
 
 import pytest
 import os
-from unittest.mock import Mock, patch, MagicMock
+from unittest.mock import Mock, patch
 from src.orchestration.workflow_manager import WorkflowManager
 from src.search.database_connectors import DatabaseConnector, DatabaseSearchError, NetworkError, APIKeyError
-from tests.fixtures.test_configs import get_test_workflow_config
+from tests.fixtures.workflow_configs import get_test_workflow_config
 import yaml
 from dotenv import load_dotenv
 

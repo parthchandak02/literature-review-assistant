@@ -9,11 +9,10 @@ and contain expected data structures.
 import json
 import sys
 from pathlib import Path
-from typing import Dict, List, Any, Optional
+from typing import Dict, List, Any
 import argparse
 from rich.console import Console
 from rich.table import Table
-from rich.panel import Panel
 
 # Add project root to path
 project_root = Path(__file__).parent.parent
@@ -370,7 +369,7 @@ class CheckpointValidator:
 
     def generate_report(self, results: Dict[str, Any]) -> None:
         """Generate validation report."""
-        console.print(f"\n[bold cyan]Checkpoint Validation Report[/bold cyan]")
+        console.print("\n[bold cyan]Checkpoint Validation Report[/bold cyan]")
         console.print(f"Workflow Directory: {results['workflow_dir']}")
         console.print(f"Checkpoints Found: {results['checkpoints_found']}\n")
 

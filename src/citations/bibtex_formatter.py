@@ -5,7 +5,7 @@ Formats citations according to BibTeX format for LaTeX bibliography files.
 """
 
 import re
-from typing import List, Optional, Set
+from typing import List, Set
 from ..search.connectors.base import Paper
 
 

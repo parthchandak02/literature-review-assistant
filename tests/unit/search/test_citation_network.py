@@ -3,7 +3,7 @@ Tests for Citation Network Builder
 """
 
 import pytest
-from src.search.citation_network import CitationNetworkBuilder, CitationEdge
+from src.search.citation_network import CitationNetworkBuilder
 from src.search.connectors.base import Paper
 
 

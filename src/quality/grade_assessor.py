@@ -6,7 +6,7 @@ Processes GRADE assessments and generates evidence profile tables and narratives
 
 import json
 from pathlib import Path
-from typing import List, Dict, Any, Optional
+from typing import List
 import logging
 
 from .quality_assessment_schemas import GRADEAssessment

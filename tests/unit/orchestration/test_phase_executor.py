@@ -3,7 +3,7 @@ Unit tests for PhaseExecutor.
 """
 
 import pytest
-from unittest.mock import Mock, MagicMock
+from unittest.mock import Mock
 from src.orchestration.phase_executor import PhaseExecutor
 from src.orchestration.phase_registry import PhaseRegistry, PhaseDefinition
 from src.orchestration.checkpoint_manager import CheckpointManager

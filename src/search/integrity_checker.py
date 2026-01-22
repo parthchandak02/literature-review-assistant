@@ -6,7 +6,7 @@ Inspired by pybliometrics' integrity checking system.
 """
 
 import logging
-from typing import List, Optional, Set, Union
+from typing import List, Optional
 from enum import Enum
 
 from .connectors.base import Paper

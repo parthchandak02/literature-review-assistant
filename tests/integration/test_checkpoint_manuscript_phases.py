@@ -4,8 +4,7 @@ Integration tests for checkpoint resumption with manuscript phases (17-18)
 
 import pytest
 import json
-from pathlib import Path
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 from src.orchestration.workflow_manager import WorkflowManager
 from src.search.connectors.base import Paper
 

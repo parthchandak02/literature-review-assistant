@@ -3,8 +3,7 @@ Tests for Pandoc Converter
 """
 
 import pytest
-from pathlib import Path
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 from src.export.pandoc_converter import PandocConverter, PYPANDOC_AVAILABLE
 
 

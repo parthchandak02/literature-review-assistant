@@ -2,11 +2,10 @@
 Unit tests for CheckpointManager.
 """
 
-import pytest
 import json
 import tempfile
 from pathlib import Path
-from unittest.mock import Mock, MagicMock
+from unittest.mock import Mock
 from src.orchestration.checkpoint_manager import CheckpointManager
 
 

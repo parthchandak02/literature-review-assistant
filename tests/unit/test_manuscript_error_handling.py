@@ -3,8 +3,7 @@ Error handling tests for manuscript features
 """
 
 import pytest
-from pathlib import Path
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 from src.citations.manubot_resolver import ManubotCitationResolver
 from src.export.pandoc_converter import PandocConverter
 from src.export.submission_package import SubmissionPackageBuilder

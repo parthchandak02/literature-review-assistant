@@ -1,6 +1,5 @@
 """Tests for IEEEFormatter."""
 
-import pytest
 from src.citations.ieee_formatter import IEEEFormatter
 from src.search.database_connectors import Paper
 

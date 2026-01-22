@@ -5,8 +5,6 @@ Tests the integration of bibliometric components with the workflow.
 """
 
 import pytest
-import os
-from unittest.mock import Mock, patch, MagicMock
 from src.search.connectors.base import Paper
 from src.search.database_connectors import ScopusConnector
 from src.search.author_service import AuthorService

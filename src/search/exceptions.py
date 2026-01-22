@@ -43,3 +43,9 @@ class InvalidQueryError(DatabaseSearchError):
     """Raised when query is invalid."""
 
     pass
+
+
+class ForbiddenError(DatabaseSearchError):
+    """Raised when access is forbidden (403). Does not trigger retries."""
+
+    pass

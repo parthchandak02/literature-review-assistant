@@ -7,10 +7,10 @@ Supports multiple retrieval methods with fallback strategies.
 
 import os
 import logging
-from typing import Optional, Dict, Any
+from typing import Optional, Any
 from pathlib import Path
 import requests
-from urllib.parse import urlparse
+import certifi
 
 logger = logging.getLogger(__name__)
 
@@ -86,7 +86,7 @@ class PDFRetriever:
         # Try Unpaywall API (free, legal)
         try:
             unpaywall_url = f"https://api.unpaywall.org/v2/{doi}?email=research@example.com"
-            response = requests.get(unpaywall_url, timeout=10)
+            response = requests.get(unpaywall_url, timeout=10, verify=certifi.where())
             if response.status_code == 200:
                 data = response.json()
                 pdf_url = data.get("best_oa_location", {}).get("url_for_pdf")
@@ -98,7 +98,7 @@ class PDFRetriever:
         # Try direct DOI resolution
         try:
             doi_url = f"https://doi.org/{doi}"
-            response = requests.get(doi_url, allow_redirects=True, timeout=10)
+            response = requests.get(doi_url, allow_redirects=True, timeout=10, verify=certifi.where())
             final_url = response.url
             if final_url.endswith(".pdf"):
                 return self._download_and_extract_pdf(final_url)
@@ -126,7 +126,7 @@ class PDFRetriever:
 
         # Try to find PDF link on the page (simple heuristic)
         try:
-            response = requests.get(url, timeout=10)
+            response = requests.get(url, timeout=10, verify=certifi.where())
             if response.status_code == 200:
                 content = response.text
                 # Look for PDF links (simple pattern matching)
@@ -188,7 +188,7 @@ class PDFRetriever:
                         return f.read()
 
             # Download PDF
-            response = requests.get(pdf_url, timeout=30, stream=True)
+            response = requests.get(pdf_url, timeout=30, stream=True, verify=certifi.where())
             response.raise_for_status()
 
             # Check if it's actually a PDF

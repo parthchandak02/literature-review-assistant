@@ -5,8 +5,7 @@ Resolves citations from identifiers (DOI, PubMed ID, arXiv ID, etc.) using Manub
 """
 
 import logging
-from typing import Dict, Any, Optional, List
-from pathlib import Path
+from typing import Dict, Any
 
 try:
     from manubot.cite.citekey import citekey_to_csl_item

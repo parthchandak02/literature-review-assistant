@@ -2,7 +2,6 @@
 Unit tests for state serialization utilities.
 """
 
-import pytest
 from src.utils.state_serialization import StateSerializer
 from src.search.connectors.base import Paper
 from src.screening.base_agent import ScreeningResult, InclusionDecision

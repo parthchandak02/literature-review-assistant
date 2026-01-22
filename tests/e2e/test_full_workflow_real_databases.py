@@ -9,15 +9,13 @@ import pytest
 import os
 import yaml
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Dict
 from dotenv import load_dotenv
 
 # Load environment variables
 load_dotenv()
 
 from src.orchestration.workflow_manager import WorkflowManager
-from src.search.database_connectors import Paper
-from src.prisma.prisma_generator import PRISMACounter
 
 # Test configuration
 TEST_TOPIC = "health literacy chatbots"
@@ -199,7 +197,7 @@ class TestFullWorkflowRealDatabases:
             f"Only {papers_with_titles}/{len(papers)} papers have titles"
         
         # Log quality metrics
-        print(f"\nSearch Quality Metrics:")
+        print("\nSearch Quality Metrics:")
         print(f"  Total papers: {len(papers)}")
         print(f"  With titles: {papers_with_titles}/{len(papers)} ({papers_with_titles/len(papers)*100:.1f}%)")
         print(f"  With abstracts: {papers_with_abstracts}/{len(papers)} ({papers_with_abstracts/len(papers)*100:.1f}%)")
@@ -209,7 +207,7 @@ class TestFullWorkflowRealDatabases:
         # Verify database breakdown
         db_breakdown = workflow_manager._get_database_breakdown()
         assert len(db_breakdown) > 0, "Should have results from at least one database"
-        print(f"\nDatabase Breakdown:")
+        print("\nDatabase Breakdown:")
         for db, count in db_breakdown.items():
             print(f"  {db}: {count} papers")
 
@@ -234,7 +232,7 @@ class TestFullWorkflowRealDatabases:
         assert len(dedup_result.unique_papers) <= len(papers)
         assert dedup_result.duplicates_removed >= 0
         
-        print(f"\nDeduplication Results:")
+        print("\nDeduplication Results:")
         print(f"  Original papers: {len(papers)}")
         print(f"  Unique papers: {len(dedup_result.unique_papers)}")
         print(f"  Duplicates removed: {dedup_result.duplicates_removed}")
@@ -273,7 +271,7 @@ class TestFullWorkflowRealDatabases:
             # Verify screening worked
             assert len(workflow_manager.screened_papers) <= len(workflow_manager.unique_papers)
             
-            print(f"\nScreening Results:")
+            print("\nScreening Results:")
             print(f"  Papers screened: {len(workflow_manager.unique_papers)}")
             print(f"  Papers included: {len(workflow_manager.screened_papers)}")
             print(f"  Papers excluded: {len(workflow_manager.unique_papers) - len(workflow_manager.screened_papers)}")
@@ -307,7 +305,7 @@ class TestFullWorkflowRealDatabases:
         assert counts["no_dupes"] == len(workflow_manager.unique_papers)
         assert counts["no_dupes"] <= counts["found"]
         
-        print(f"\nPRISMA Counts:")
+        print("\nPRISMA Counts:")
         for key, value in counts.items():
             print(f"  {key}: {value}")
 
@@ -345,7 +343,7 @@ class TestFullWorkflowRealDatabases:
             file_size = Path(prisma_path).stat().st_size
             assert file_size > 0, "PRISMA diagram file should not be empty"
             
-            print(f"\nPRISMA Diagram Generated:")
+            print("\nPRISMA Diagram Generated:")
             print(f"  Path: {prisma_path}")
             print(f"  Size: {file_size} bytes")
             
@@ -383,7 +381,7 @@ class TestFullWorkflowRealDatabases:
                 report_content = Path(outputs["final_report"]).read_text()
                 assert len(report_content) > 0
             
-            print(f"\nWorkflow Results:")
+            print("\nWorkflow Results:")
             print(f"  Phase: {results.get('phase', 'unknown')}")
             print(f"  Outputs: {list(outputs.keys())}")
             

@@ -3,7 +3,7 @@ Tests for Google Scholar Connector
 """
 
 import pytest
-from unittest.mock import Mock, patch, MagicMock
+from unittest.mock import patch, MagicMock
 from src.search.connectors.google_scholar_connector import GoogleScholarConnector
 from src.search.connectors.base import Paper
 

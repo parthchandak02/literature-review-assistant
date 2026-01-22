@@ -2,7 +2,6 @@
 Unit tests for writing agents.
 """
 
-from unittest.mock import Mock, patch
 from src.writing.introduction_agent import IntroductionWriter
 from src.writing.methods_agent import MethodsWriter
 from src.writing.results_agent import ResultsWriter

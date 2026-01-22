@@ -196,7 +196,6 @@ class WordExporter:
 
     def _add_table(self, doc: Document, table: Dict[str, Any]):
         """Add table to Word document."""
-        from docx.shared import Inches
 
         num_cols = len(table["headers"])
         num_rows = len(table["rows"])

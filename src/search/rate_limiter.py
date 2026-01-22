@@ -85,6 +85,9 @@ RATE_LIMITERS = {
     "Crossref": RateLimiter(max_requests=10.0, time_window=1.0),  # Conservative limit
     "Scopus": RateLimiter(max_requests=9.0, time_window=1.0),  # 9 req/sec typical
     "IEEE": RateLimiter(max_requests=5.0, time_window=1.0),
+    "IEEE Xplore": RateLimiter(max_requests=2.0, time_window=1.0),  # Conservative for web scraping
+    "ACM": RateLimiter(max_requests=2.0, time_window=1.0),  # Conservative for web scraping
+    "Springer": RateLimiter(max_requests=2.0, time_window=1.0),  # Conservative for web scraping
 }
 
 

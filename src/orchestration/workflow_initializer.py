@@ -6,7 +6,7 @@ Handles initialization of all workflow components.
 
 import os
 from pathlib import Path
-from typing import Dict, List, Optional, Any
+from typing import Optional
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -28,7 +28,6 @@ except ImportError:
         return None
 
 from src.prisma.prisma_generator import PRISMACounter
-from src.search.search_strategy import SearchStrategyBuilder
 from src.search.multi_database_searcher import MultiDatabaseSearcher
 from src.deduplication import Deduplicator
 from src.screening.title_abstract_agent import TitleAbstractScreener
@@ -132,6 +131,9 @@ class WorkflowInitializer:
             llm_provider, llm_api_key, agent_topic_context, discussion_config
         )
         
+        # Register tools for writing agents
+        self._register_writing_tools()
+        
         # Abstract generator
         abstract_config = agents_config.get("abstract_generator", {})
         self.abstract_generator = AbstractGenerator(
@@ -192,3 +194,50 @@ class WorkflowInitializer:
                 verbose=self.debug_config.level in [LogLevel.DETAILED, LogLevel.FULL],
                 debug=self.debug_config.level == LogLevel.FULL,
             )
+    
+    def _register_writing_tools(self):
+        """Register tools for writing agents."""
+        import logging
+        logger = logging.getLogger(__name__)
+        
+        try:
+            from ..tools.mermaid_diagram_tool import create_mermaid_diagram_tool, MERMAID_AVAILABLE
+            from ..tools.table_generator_tool import create_table_generator_tools, TABULATE_AVAILABLE
+            
+            if not MERMAID_AVAILABLE:
+                logger.warning("mermaid-py not installed. Mermaid diagram tool will not be available.")
+            if not TABULATE_AVAILABLE:
+                logger.warning("tabulate not installed. Table generation tools will not be available.")
+            
+            if not MERMAID_AVAILABLE and not TABULATE_AVAILABLE:
+                logger.warning("Neither mermaid-py nor tabulate are installed. Tool calling will be disabled.")
+                return
+            
+            output_dir = str(self.output_dir)
+            
+            # Register Mermaid diagram tool if available
+            if MERMAID_AVAILABLE:
+                try:
+                    mermaid_tool = create_mermaid_diagram_tool(output_dir)
+                    self.results_writer.register_tool(mermaid_tool)
+                    self.methods_writer.register_tool(mermaid_tool)
+                    logger.info("Registered Mermaid diagram tool for writing agents")
+                except Exception as e:
+                    logger.warning(f"Failed to register Mermaid diagram tool: {e}")
+            
+            # Register table generation tools if available
+            if TABULATE_AVAILABLE:
+                try:
+                    table_tools = create_table_generator_tools(output_dir)
+                    for tool in table_tools:
+                        self.results_writer.register_tool(tool)
+                        self.methods_writer.register_tool(tool)
+                    logger.info(f"Registered {len(table_tools)} table generation tools for writing agents")
+                except Exception as e:
+                    logger.warning(f"Failed to register table generation tools: {e}")
+            
+        except ImportError as e:
+            # Tools are optional - log warning but don't fail
+            logger.warning(f"Could not import writing tools: {e}. Tool calling will be disabled.")
+        except Exception as e:
+            logger.warning(f"Error registering writing tools: {e}. Tool calling may be disabled.", exc_info=True)

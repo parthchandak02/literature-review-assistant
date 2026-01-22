@@ -2,10 +2,8 @@
 Integration tests for CLI manuscript commands
 """
 
-import pytest
 import sys
 from pathlib import Path
-from unittest.mock import patch, MagicMock
 import subprocess
 
 

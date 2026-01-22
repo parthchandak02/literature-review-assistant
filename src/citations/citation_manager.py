@@ -6,7 +6,7 @@ Extracts citations from text, maps them to papers, and generates References sect
 
 import re
 import logging
-from typing import Dict, List, Set, Any, Optional
+from typing import Dict, List, Set, Any
 from ..search.database_connectors import Paper
 from .ieee_formatter import IEEEFormatter
 

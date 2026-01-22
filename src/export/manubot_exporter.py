@@ -7,7 +7,7 @@ Generates structured markdown files in content/ directory with manubot.yaml conf
 
 import logging
 from pathlib import Path
-from typing import Dict, List, Optional, Any
+from typing import Dict, Optional, Any
 from datetime import datetime
 import yaml
 

@@ -16,14 +16,20 @@ tests/
 ├── integration/       # Integration tests (by feature/workflow)
 │   ├── search/        # Search workflow tests
 │   ├── workflow/      # Workflow integration tests
+│   ├── test_enrichment_and_visualizations.py  # Moved from scripts/
+│   ├── test_humanization_integration.py       # Moved from scripts/
 │   └── ...
 ├── e2e/              # End-to-end tests (by user journey)
 │   ├── test_full_workflow.py
+│   ├── test_workflow_comprehensive.py          # Moved from scripts/
+│   ├── test_manuscript_pipeline_e2e.py         # Moved from scripts/
 │   └── ...
 └── fixtures/         # Shared test data and utilities
     ├── mock_papers.py
     └── ...
 ```
+
+**Note**: During cleanup (2025-01), several test scripts were moved from `scripts/` to their proper test directories and converted to pytest format.
 
 ## Naming Conventions
 

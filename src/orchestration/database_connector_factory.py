@@ -16,6 +16,8 @@ from ..search.database_connectors import (
     CrossrefConnector,
     ScopusConnector,
     ACMConnector,
+    SpringerConnector,
+    IEEEXploreConnector,
     MockConnector,
 )
 try:
@@ -26,7 +28,7 @@ except ImportError:
     GoogleScholarConnector = None
 from ..search.cache import SearchCache
 from ..search.proxy_manager import ProxyManager
-from ..search.integrity_checker import IntegrityChecker, create_integrity_checker_from_config
+from ..search.integrity_checker import IntegrityChecker
 
 logger = logging.getLogger(__name__)
 
@@ -149,6 +151,26 @@ class DatabaseConnectorFactory:
                 cookie_jar=cookie_jar,
             )
 
+        elif db_lower == "springer":
+            logger.info("Springer: Using real connector (web scraping, no API key needed)")
+            return SpringerConnector(
+                cache=cache,
+                proxy_manager=proxy_manager,
+                integrity_checker=integrity_checker,
+                persistent_session=persistent_session,
+                cookie_jar=cookie_jar,
+            )
+
+        elif db_lower in ["ieee", "ieee xplore"]:
+            logger.info("IEEE Xplore: Using real connector (web scraping, no API key needed)")
+            return IEEEXploreConnector(
+                cache=cache,
+                proxy_manager=proxy_manager,
+                integrity_checker=integrity_checker,
+                persistent_session=persistent_session,
+                cookie_jar=cookie_jar,
+            )
+
         elif db_lower == "google scholar":
             if not GOOGLE_SCHOLAR_AVAILABLE:
                 logger.warning(
@@ -213,6 +235,12 @@ class DatabaseConnectorFactory:
                 can_use = bool(os.getenv("SCOPUS_API_KEY"))
                 reason = "API key required" if not can_use else "API key available"
             elif db_lower == "acm":
+                can_use = True  # Works without API key (web scraping)
+                reason = "Works without API key (web scraping)"
+            elif db_lower == "springer":
+                can_use = True  # Works without API key (web scraping)
+                reason = "Works without API key (web scraping)"
+            elif db_lower in ["ieee", "ieee xplore"]:
                 can_use = True  # Works without API key (web scraping)
                 reason = "Works without API key (web scraping)"
             elif db_lower == "google scholar":

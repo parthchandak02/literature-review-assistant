@@ -1137,6 +1137,57 @@ class ACMConnector(DatabaseConnector):
         try:
             from bs4 import BeautifulSoup
 
+            session = self._get_session()
+            request_kwargs = self._get_request_kwargs()
+            request_kwargs.setdefault("timeout", 30)
+            
+            # Enhanced browser headers to avoid 403 errors
+            headers = {
+                "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
+                "Accept-Language": "en-US,en;q=0.9",
+                "Accept-Encoding": "gzip, deflate, br",
+                "Referer": "https://dl.acm.org/",
+                "Connection": "keep-alive",
+                "Upgrade-Insecure-Requests": "1",
+                "Sec-Fetch-Dest": "document",
+                "Sec-Fetch-Mode": "navigate",
+                "Sec-Fetch-Site": "same-origin",
+                "Sec-Fetch-User": "?1",
+            }
+            
+            # Visit homepage first to establish session and get cookies
+            try:
+                logger.debug("Visiting ACM homepage to establish session...")
+                homepage_response = session.get(
+                    self.base_url,
+                    headers=headers,
+                    **request_kwargs
+                )
+                # Check for 403 on homepage - if we get it here, we'll likely get it on search too
+                if homepage_response.status_code == 403:
+                    logger.warning(
+                        f"ACM Digital Library returned 403 Forbidden on homepage. "
+                        f"This may be due to anti-scraping measures. "
+                        f"Skipping ACM search for this query."
+                    )
+                    return []
+                homepage_response.raise_for_status()
+                # Save cookies if persistent session is enabled
+                self._save_session_cookies()
+            except requests.HTTPError as e:
+                # Check if it's a 403 error
+                if hasattr(e.response, 'status_code') and e.response.status_code == 403:
+                    logger.warning(
+                        f"ACM Digital Library returned 403 Forbidden. "
+                        f"This may be due to anti-scraping measures. "
+                        f"Skipping ACM search for this query."
+                    )
+                    return []
+                logger.warning(f"Failed to visit ACM homepage: {e}. Continuing with search anyway...")
+            except requests.RequestException as e:
+                logger.warning(f"Failed to visit ACM homepage: {e}. Continuing with search anyway...")
+
             # ACM search parameters
             page_size = 20  # ACM typically shows 20 results per page
             start_page = 0
@@ -1148,22 +1199,30 @@ class ACMConnector(DatabaseConnector):
 
                 rate_limiter = self._get_rate_limiter()
                 rate_limiter.acquire()
+                
+                # Add delay between page requests to avoid rate limiting
+                if page > 0:
+                    import time
+                    time.sleep(1.0)  # 1 second delay between pages
 
                 params = {
                     "AllField": query,
                     "pageSize": page_size,
                     "startPage": start_page + page,
                 }
-
-                headers = {
-                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
-                }
-
-                session = self._get_session()
-                request_kwargs = self._get_request_kwargs()
-                request_kwargs.setdefault("timeout", 30)
                 
                 response = session.get(self.search_url, params=params, headers=headers, **request_kwargs)
+                
+                # Handle 403 errors gracefully
+                if response.status_code == 403:
+                    logger.warning(
+                        f"ACM Digital Library returned 403 Forbidden. "
+                        f"This may be due to anti-scraping measures. "
+                        f"Skipping ACM search for this query."
+                    )
+                    # Return empty list instead of raising error
+                    return []
+                
                 response.raise_for_status()
 
                 # Parse HTML
@@ -1182,6 +1241,17 @@ class ACMConnector(DatabaseConnector):
 
         except ImportError:
             raise ImportError("beautifulsoup4 required for ACM connector. Install with: pip install beautifulsoup4")
+        except requests.HTTPError as e:
+            # Check if it's a 403 error - don't retry on 403
+            if hasattr(e.response, 'status_code') and e.response.status_code == 403:
+                logger.warning(
+                    f"ACM Digital Library returned 403 Forbidden. "
+                    f"This may be due to anti-scraping measures. "
+                    f"Skipping ACM search for this query."
+                )
+                return []
+            logger.error(f"HTTP error searching ACM: {e}")
+            raise NetworkError(f"ACM search failed: {e}") from e
         except requests.RequestException as e:
             logger.error(f"Network error searching ACM: {e}")
             raise NetworkError(f"ACM search failed: {e}") from e
@@ -1207,17 +1277,49 @@ class ACMConnector(DatabaseConnector):
 
         try:
             # ACM search results are typically in divs with class "search__item" or similar
-            # Try multiple possible selectors
-            result_items = (
-                soup.find_all("div", class_="search__item")
-                or soup.find_all("div", class_="search-result-item")
-                or soup.find_all("div", class_="item")
-                or soup.find_all("article", class_="search-result-item")
-            )
+            # Try multiple possible selectors in order of likelihood
+            result_items = []
+            
+            # Try most common selectors first
+            selectors = [
+                ("div", {"class": "search__item"}),
+                ("div", {"class": "search-result-item"}),
+                ("article", {"class": "search-result-item"}),
+                ("div", {"class": "item"}),
+                ("div", {"data-testid": "search-result-item"}),
+                ("li", {"class": "search__item"}),
+                ("div", {"class": "hlFld-Title"}),  # Sometimes results are grouped differently
+            ]
+            
+            for tag, attrs in selectors:
+                if isinstance(attrs, dict) and "class" in attrs:
+                    result_items = soup.find_all(tag, class_=attrs["class"])
+                elif isinstance(attrs, dict) and "data-testid" in attrs:
+                    result_items = soup.find_all(tag, {"data-testid": attrs["data-testid"]})
+                else:
+                    result_items = soup.find_all(tag, attrs)
+                
+                if result_items:
+                    logger.debug(f"Found {len(result_items)} ACM results using selector: {tag} with {attrs}")
+                    break
+            
+            # If still no results, try finding by structure (title links)
+            if not result_items:
+                # Look for title links which are always present
+                title_links = soup.find_all("a", href=lambda x: x and "/doi/" in str(x))
+                if title_links:
+                    # Group by parent containers
+                    seen_parents = set()
+                    for link in title_links:
+                        parent = link.find_parent("div") or link.find_parent("article") or link.find_parent("li")
+                        if parent and id(parent) not in seen_parents:
+                            result_items.append(parent)
+                            seen_parents.add(id(parent))
+                    logger.debug(f"Found {len(result_items)} ACM results by grouping title links")
 
             if not result_items:
-                # Try finding by data attributes or other patterns
-                result_items = soup.find_all("div", {"data-testid": "search-result-item"})
+                logger.warning("No ACM search results found - page structure may have changed")
+                return papers
 
             for item in result_items:
                 try:
@@ -1236,90 +1338,238 @@ class ACMConnector(DatabaseConnector):
     def _extract_paper_from_item(self, item) -> Optional[Paper]:
         """Extract paper metadata from a single result item."""
         try:
-            # Title - try multiple selectors
-            title_elem = (
-                item.find("h5", class_="hlFld-Title")
-                or item.find("span", class_="hlFld-Title")
-                or item.find("a", class_="hlFld-Title")
-                or item.find("h3")
-                or item.find("h4")
-            )
+            import re
+            
+            # Title - try multiple selectors with better fallbacks
+            title_elem = None
+            title_selectors = [
+                ("h5", {"class": "hlFld-Title"}),
+                ("span", {"class": "hlFld-Title"}),
+                ("a", {"class": "hlFld-Title"}),
+                ("h3", {}),
+                ("h4", {}),
+                ("h2", {}),
+                ("a", {"href": lambda x: x and "/doi/" in str(x)}),  # DOI link often contains title
+            ]
+            
+            for tag, attrs in title_selectors:
+                if "class" in attrs:
+                    title_elem = item.find(tag, class_=attrs["class"])
+                elif "href" in attrs:
+                    title_elem = item.find(tag, href=attrs["href"])
+                else:
+                    title_elem = item.find(tag)
+                if title_elem:
+                    break
+            
             title = title_elem.get_text(strip=True) if title_elem else ""
+            
+            # If title is in a link, get it from the link text
+            if not title and title_elem and title_elem.name == "a":
+                title = title_elem.get_text(strip=True)
+            
+            # Fallback: extract from any text that looks like a title (longest text block)
+            if not title:
+                text_blocks = [elem.get_text(strip=True) for elem in item.find_all(["h1", "h2", "h3", "h4", "h5", "h6", "a", "span"])]
+                if text_blocks:
+                    # Find longest non-empty text block that's not too short
+                    title = max([t for t in text_blocks if len(t) > 10], key=len, default="")
 
             if not title:
                 return None
 
-            # Authors - try multiple selectors
+            # Authors - try multiple selectors with better extraction
             authors = []
-            author_links = item.find_all("a", class_="author-name") or item.find_all("span", class_="author-name")
+            author_selectors = [
+                ("a", {"class": "author-name"}),
+                ("span", {"class": "author-name"}),
+                ("a", {"class": lambda x: x and "author" in str(x).lower()}),
+                ("span", {"class": lambda x: x and "author" in str(x).lower()}),
+            ]
+            
+            author_links = []
+            for tag, attrs in author_selectors:
+                if "class" in attrs:
+                    author_links = item.find_all(tag, class_=attrs["class"])
+                elif "class" in attrs and callable(attrs["class"]):
+                    author_links = item.find_all(tag, class_=attrs["class"])
+                if author_links:
+                    break
+            
+            # If no author links found, try finding by text pattern
             if not author_links:
-                # Try finding by text pattern
-                author_section = item.find("div", class_="authors") or item.find("span", class_="authors")
+                author_section = (
+                    item.find("div", class_="authors")
+                    or item.find("span", class_="authors")
+                    or item.find("div", class_="author")
+                    or item.find("span", class_="author")
+                )
                 if author_section:
                     author_links = author_section.find_all("a")
+                    if not author_links:
+                        # Try extracting from text (comma or semicolon separated)
+                        author_text = author_section.get_text(strip=True)
+                        if author_text:
+                            # Split by common separators
+                            authors = [a.strip() for a in re.split(r'[,;]', author_text) if a.strip()]
 
             for author_link in author_links:
                 author_name = author_link.get_text(strip=True)
-                if author_name:
+                if author_name and author_name not in authors:
                     authors.append(author_name)
+            
+            # If still no authors, try regex pattern matching
+            if not authors:
+                item_text = item.get_text()
+                # Look for patterns like "Author1, Author2, Author3"
+                author_pattern = r'([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*(?:\s+[A-Z]\.?)?)'
+                potential_authors = re.findall(author_pattern, item_text[:500])  # Limit to first 500 chars
+                # Filter out common false positives
+                false_positives = {"Abstract", "Journal", "Conference", "Proceedings", "Volume", "Issue", "Pages"}
+                authors = [a for a in potential_authors[:10] if a not in false_positives]  # Limit to 10
 
-            # Abstract
-            abstract_elem = (
-                item.find("div", class_="abstract")
-                or item.find("span", class_="abstract")
-                or item.find("p", class_="abstract")
-            )
+            # Abstract - improved extraction with better selectors
+            abstract_elem = None
+            abstract_selectors = [
+                ("div", {"class": "abstract"}),
+                ("span", {"class": "abstract"}),
+                ("p", {"class": "abstract"}),
+                ("div", {"class": "snippet"}),
+                ("span", {"class": "snippet"}),
+                ("p", {"class": "snippet"}),
+            ]
+            
+            for tag, attrs in abstract_selectors:
+                abstract_elem = item.find(tag, class_=attrs["class"])
+                if abstract_elem:
+                    break
+            
             abstract = abstract_elem.get_text(strip=True) if abstract_elem else ""
+            
+            # Handle truncated abstracts (look for "..." or "more" indicators)
+            if abstract and len(abstract) < 50:
+                # Might be truncated, try to find full abstract
+                full_abstract_elem = item.find("div", {"data-abstract": True}) or item.find("span", {"data-abstract": True})
+                if full_abstract_elem:
+                    abstract = full_abstract_elem.get("data-abstract", abstract)
 
-            # DOI
+            # DOI - improved extraction
             doi = None
-            doi_link = item.find("a", href=lambda x: x and "doi.org" in x) if item else None
+            # Try DOI link first
+            doi_link = item.find("a", href=lambda x: x and ("doi.org" in str(x) or "/doi/" in str(x)))
             if doi_link:
                 href = doi_link.get("href", "")
                 # Extract DOI from URL
                 if "doi.org/" in href:
-                    doi = href.split("doi.org/")[-1]
+                    doi = href.split("doi.org/")[-1].split("?")[0]  # Remove query params
+                elif "/doi/" in href:
+                    doi = href.split("/doi/")[-1].split("?")[0]
             else:
-                # Try finding DOI in text
+                # Try finding DOI in text using regex
                 doi_text = item.get_text()
-                import re
-                doi_match = re.search(r"10\.\d+/[^\s]+", doi_text)
+                doi_match = re.search(r"10\.\d+/[^\s\)]+", doi_text)
                 if doi_match:
-                    doi = doi_match.group(0)
+                    doi = doi_match.group(0).rstrip(".,;:)]}")
 
-            # URL
+            # URL - improved extraction
             url = None
-            title_link = title_elem.find("a") if title_elem else None
-            if title_link:
-                href = title_link.get("href", "")
+            # Try title link first
+            if title_elem and title_elem.name == "a":
+                href = title_elem.get("href", "")
                 if href:
                     if href.startswith("/"):
                         url = f"{self.base_url}{href}"
                     elif href.startswith("http"):
                         url = href
+            else:
+                # Try DOI link
+                if doi_link:
+                    href = doi_link.get("href", "")
+                    if href:
+                        if href.startswith("/"):
+                            url = f"{self.base_url}{href}"
+                        elif href.startswith("http"):
+                            url = href
+                else:
+                    # Try any link with /doi/ in it
+                    doi_url_link = item.find("a", href=lambda x: x and "/doi/" in str(x))
+                    if doi_url_link:
+                        href = doi_url_link.get("href", "")
+                        if href.startswith("/"):
+                            url = f"{self.base_url}{href}"
+                        elif href.startswith("http"):
+                            url = href
 
-            # Year
+            # Year - improved extraction with better patterns
             year = None
-            year_elem = item.find("span", class_="year") or item.find("div", class_="year")
+            year_elem = (
+                item.find("span", class_="year")
+                or item.find("div", class_="year")
+                or item.find("span", class_="date")
+                or item.find("div", class_="date")
+            )
+            
             if year_elem:
                 year_text = year_elem.get_text(strip=True)
-                import re
-                year_match = re.search(r"\d{4}", year_text)
+                year_match = re.search(r"\b(19|20)\d{2}\b", year_text)
                 if year_match:
                     try:
                         year = int(year_match.group(0))
+                        # Sanity check: year should be reasonable
+                        if year < 1900 or year > 2030:
+                            year = None
+                    except ValueError:
+                        pass
+            
+            # If no year found, try searching in the entire item text
+            if not year:
+                item_text = item.get_text()
+                year_match = re.search(r"\b(19|20)\d{2}\b", item_text)
+                if year_match:
+                    try:
+                        year = int(year_match.group(0))
+                        if year < 1900 or year > 2030:
+                            year = None
                     except ValueError:
                         pass
 
-            # Venue/Journal
+            # Venue/Journal - improved extraction
             venue = None
-            venue_elem = (
-                item.find("span", class_="venue")
-                or item.find("div", class_="venue")
-                or item.find("span", class_="publication")
-            )
-            if venue_elem:
-                venue = venue_elem.get_text(strip=True)
+            venue_selectors = [
+                ("span", {"class": "venue"}),
+                ("div", {"class": "venue"}),
+                ("span", {"class": "publication"}),
+                ("div", {"class": "publication"}),
+                ("span", {"class": "journal"}),
+                ("div", {"class": "journal"}),
+                ("a", {"class": "venue"}),
+            ]
+            
+            for tag, attrs in venue_selectors:
+                venue_elem = item.find(tag, class_=attrs["class"])
+                if venue_elem:
+                    venue = venue_elem.get_text(strip=True)
+                    break
+            
+            # If no venue found, try looking for publication info in text
+            if not venue:
+                item_text = item.get_text()
+                # Look for patterns like "In: Journal Name" or "Proceedings of..."
+                venue_match = re.search(r"(?:In:|Proceedings of|Journal:)\s*([A-Z][^,\.]+)", item_text)
+                if venue_match:
+                    venue = venue_match.group(1).strip()
+
+            # Citation count (if available)
+            citation_count = None
+            citation_elem = item.find("span", class_="citation") or item.find("div", class_="citation")
+            if citation_elem:
+                citation_text = citation_elem.get_text(strip=True)
+                citation_match = re.search(r"(\d+)", citation_text)
+                if citation_match:
+                    try:
+                        citation_count = int(citation_match.group(1))
+                    except ValueError:
+                        pass
 
             paper = Paper(
                 title=title,
@@ -1330,6 +1580,7 @@ class ACMConnector(DatabaseConnector):
                 journal=venue,
                 database="ACM",
                 url=url,
+                citation_count=citation_count,
             )
 
             return paper
@@ -1340,6 +1591,752 @@ class ACMConnector(DatabaseConnector):
 
     def get_database_name(self) -> str:
         return "ACM"
+
+
+class SpringerConnector(DatabaseConnector):
+    """Springer Link connector using web scraping."""
+
+    def __init__(
+        self,
+        cache: Optional[SearchCache] = None,
+        proxy_manager: Optional[ProxyManager] = None,
+        integrity_checker: Optional[IntegrityChecker] = None,
+        persistent_session: bool = True,
+        cookie_jar: Optional[str] = None,
+    ):
+        super().__init__(
+            api_key=None,
+            cache=cache,
+            proxy_manager=proxy_manager,
+            integrity_checker=integrity_checker,
+            persistent_session=persistent_session,
+            cookie_jar=cookie_jar,
+        )
+        self.base_url = "https://link.springer.com"
+        self.search_url = f"{self.base_url}/search"
+
+    @retry_with_backoff(max_attempts=3)
+    def search(self, query: str, max_results: int = 100) -> List[Paper]:
+        """Search Springer Link."""
+        # Check cache first
+        if self.cache:
+            cached = self.cache.get(query, "Springer")
+            if cached:
+                return cached[:max_results]
+
+        papers = []
+
+        try:
+            from bs4 import BeautifulSoup
+            import time
+
+            session = self._get_session()
+            request_kwargs = self._get_request_kwargs()
+            request_kwargs.setdefault("timeout", 30)
+            
+            # Enhanced browser headers
+            headers = {
+                "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
+                "Accept-Language": "en-US,en;q=0.9",
+                "Accept-Encoding": "gzip, deflate, br",
+                "Referer": "https://link.springer.com/",
+                "Connection": "keep-alive",
+                "Upgrade-Insecure-Requests": "1",
+            }
+            
+            # Visit homepage first to establish session
+            try:
+                logger.debug("Visiting Springer homepage to establish session...")
+                homepage_response = session.get(
+                    self.base_url,
+                    headers=headers,
+                    **request_kwargs
+                )
+                if homepage_response.status_code == 403:
+                    logger.warning(
+                        f"Springer Link returned 403 Forbidden on homepage. "
+                        f"This may be due to anti-scraping measures. "
+                        f"Skipping Springer search for this query."
+                    )
+                    return []
+                homepage_response.raise_for_status()
+                self._save_session_cookies()
+            except requests.HTTPError as e:
+                if hasattr(e.response, 'status_code') and e.response.status_code == 403:
+                    logger.warning(
+                        f"Springer Link returned 403 Forbidden. "
+                        f"Skipping Springer search for this query."
+                    )
+                    return []
+                logger.warning(f"Failed to visit Springer homepage: {e}. Continuing with search anyway...")
+            except requests.RequestException as e:
+                logger.warning(f"Failed to visit Springer homepage: {e}. Continuing with search anyway...")
+
+            # Springer search parameters
+            page_size = 20  # Springer typically shows 20 results per page
+            pages_needed = (max_results + page_size - 1) // page_size
+
+            for page in range(pages_needed):
+                if len(papers) >= max_results:
+                    break
+
+                rate_limiter = self._get_rate_limiter()
+                rate_limiter.acquire()
+                
+                # Add delay between page requests
+                if page > 0:
+                    time.sleep(1.0)
+
+                params = {
+                    "query": query,
+                    "page": page + 1,
+                }
+                
+                response = session.get(self.search_url, params=params, headers=headers, **request_kwargs)
+                
+                if response.status_code == 403:
+                    logger.warning(
+                        f"Springer Link returned 403 Forbidden. "
+                        f"Skipping Springer search for this query."
+                    )
+                    return []
+                
+                response.raise_for_status()
+
+                # Parse HTML
+                soup = BeautifulSoup(response.content, "html.parser")
+                page_papers = self._parse_search_results(soup)
+
+                if not page_papers:
+                    break
+
+                papers.extend(page_papers)
+
+                if len(page_papers) < page_size:
+                    break
+
+        except ImportError:
+            raise ImportError("beautifulsoup4 required for Springer connector. Install with: pip install beautifulsoup4")
+        except requests.HTTPError as e:
+            if hasattr(e.response, 'status_code') and e.response.status_code == 403:
+                logger.warning(
+                    f"Springer Link returned 403 Forbidden. "
+                    f"Skipping Springer search for this query."
+                )
+                return []
+            logger.error(f"HTTP error searching Springer: {e}")
+            raise NetworkError(f"Springer search failed: {e}") from e
+        except requests.RequestException as e:
+            logger.error(f"Network error searching Springer: {e}")
+            raise NetworkError(f"Springer search failed: {e}") from e
+        except Exception as e:
+            logger.error(f"Error searching Springer: {e}")
+            raise DatabaseSearchError(f"Springer search error: {e}") from e
+
+        # Limit to max_results
+        papers = papers[:max_results]
+
+        # Validate papers
+        papers = self._validate_papers(papers)
+
+        # Cache results
+        if self.cache and papers:
+            self.cache.set(query, "Springer", papers)
+
+        return papers
+
+    def _parse_search_results(self, soup) -> List[Paper]:
+        """Parse HTML search results page."""
+        papers = []
+
+        try:
+            # Springer search results are typically in list items or divs
+            result_items = []
+            
+            selectors = [
+                ("li", {"class": "search-result-item"}),
+                ("div", {"class": "search-result-item"}),
+                ("article", {"class": "search-result-item"}),
+                ("li", {"class": "result-item"}),
+                ("div", {"class": "result-item"}),
+                ("li", {"data-testid": "search-result-item"}),
+            ]
+            
+            for tag, attrs in selectors:
+                if "class" in attrs:
+                    result_items = soup.find_all(tag, class_=attrs["class"])
+                elif "data-testid" in attrs:
+                    result_items = soup.find_all(tag, {"data-testid": attrs["data-testid"]})
+                if result_items:
+                    logger.debug(f"Found {len(result_items)} Springer results using selector: {tag} with {attrs}")
+                    break
+            
+            # Fallback: find by title links
+            if not result_items:
+                title_links = soup.find_all("a", href=lambda x: x and "/article/" in str(x))
+                if title_links:
+                    seen_parents = set()
+                    for link in title_links:
+                        parent = link.find_parent("li") or link.find_parent("div") or link.find_parent("article")
+                        if parent and id(parent) not in seen_parents:
+                            result_items.append(parent)
+                            seen_parents.add(id(parent))
+                    logger.debug(f"Found {len(result_items)} Springer results by grouping title links")
+
+            if not result_items:
+                logger.warning("No Springer search results found - page structure may have changed")
+                return papers
+
+            for item in result_items:
+                try:
+                    paper = self._extract_paper_from_item(item)
+                    if paper:
+                        papers.append(paper)
+                except Exception as e:
+                    logger.warning(f"Error parsing Springer result item: {e}")
+                    continue
+
+        except Exception as e:
+            logger.warning(f"Error parsing Springer search results: {e}")
+
+        return papers
+
+    def _extract_paper_from_item(self, item) -> Optional[Paper]:
+        """Extract paper metadata from a single result item."""
+        try:
+            import re
+            
+            # Title
+            title_elem = None
+            title_selectors = [
+                ("h3", {}),
+                ("h2", {}),
+                ("h4", {}),
+                ("a", {"class": "title"}),
+                ("span", {"class": "title"}),
+                ("a", {"href": lambda x: x and "/article/" in str(x)}),
+            ]
+            
+            for tag, attrs in title_selectors:
+                if "class" in attrs:
+                    title_elem = item.find(tag, class_=attrs["class"])
+                elif "href" in attrs:
+                    title_elem = item.find(tag, href=attrs["href"])
+                else:
+                    title_elem = item.find(tag)
+                if title_elem:
+                    break
+            
+            title = title_elem.get_text(strip=True) if title_elem else ""
+            
+            if not title:
+                return None
+
+            # Authors
+            authors = []
+            author_selectors = [
+                ("span", {"class": "authors"}),
+                ("div", {"class": "authors"}),
+                ("a", {"class": "author"}),
+                ("span", {"class": "author"}),
+            ]
+            
+            author_links = []
+            for tag, attrs in author_selectors:
+                author_links = item.find_all(tag, class_=attrs["class"])
+                if author_links:
+                    break
+            
+            if not author_links:
+                author_section = item.find("div", class_="authors") or item.find("span", class_="authors")
+                if author_section:
+                    author_links = author_section.find_all("a")
+                    if not author_links:
+                        author_text = author_section.get_text(strip=True)
+                        if author_text:
+                            authors = [a.strip() for a in re.split(r'[,;]', author_text) if a.strip()]
+
+            for author_link in author_links:
+                author_name = author_link.get_text(strip=True)
+                if author_name and author_name not in authors:
+                    authors.append(author_name)
+
+            # Abstract
+            abstract_elem = (
+                item.find("p", class_="snippet")
+                or item.find("div", class_="snippet")
+                or item.find("span", class_="snippet")
+                or item.find("p", class_="abstract")
+            )
+            abstract = abstract_elem.get_text(strip=True) if abstract_elem else ""
+
+            # DOI
+            doi = None
+            doi_link = item.find("a", href=lambda x: x and ("doi.org" in str(x) or "/doi/" in str(x)))
+            if doi_link:
+                href = doi_link.get("href", "")
+                if "doi.org/" in href:
+                    doi = href.split("doi.org/")[-1].split("?")[0]
+                elif "/doi/" in href:
+                    doi = href.split("/doi/")[-1].split("?")[0]
+            else:
+                doi_text = item.get_text()
+                doi_match = re.search(r"10\.\d+/[^\s\)]+", doi_text)
+                if doi_match:
+                    doi = doi_match.group(0).rstrip(".,;:)]}")
+
+            # URL
+            url = None
+            if title_elem and title_elem.name == "a":
+                href = title_elem.get("href", "")
+                if href:
+                    if href.startswith("/"):
+                        url = f"{self.base_url}{href}"
+                    elif href.startswith("http"):
+                        url = href
+            else:
+                article_link = item.find("a", href=lambda x: x and "/article/" in str(x))
+                if article_link:
+                    href = article_link.get("href", "")
+                    if href.startswith("/"):
+                        url = f"{self.base_url}{href}"
+                    elif href.startswith("http"):
+                        url = href
+
+            # Year
+            year = None
+            year_elem = (
+                item.find("span", class_="year")
+                or item.find("div", class_="year")
+                or item.find("span", class_="date")
+            )
+            
+            if year_elem:
+                year_text = year_elem.get_text(strip=True)
+                year_match = re.search(r"\b(19|20)\d{2}\b", year_text)
+                if year_match:
+                    try:
+                        year = int(year_match.group(0))
+                        if year < 1900 or year > 2030:
+                            year = None
+                    except ValueError:
+                        pass
+            
+            if not year:
+                item_text = item.get_text()
+                year_match = re.search(r"\b(19|20)\d{2}\b", item_text)
+                if year_match:
+                    try:
+                        year = int(year_match.group(0))
+                        if year < 1900 or year > 2030:
+                            year = None
+                    except ValueError:
+                        pass
+
+            # Journal
+            journal = None
+            journal_elem = (
+                item.find("span", class_="journal")
+                or item.find("div", class_="journal")
+                or item.find("a", class_="journal")
+            )
+            if journal_elem:
+                journal = journal_elem.get_text(strip=True)
+
+            paper = Paper(
+                title=title,
+                abstract=abstract,
+                authors=authors if authors else [],
+                year=year,
+                doi=doi,
+                journal=journal,
+                database="Springer",
+                url=url,
+            )
+
+            return paper
+
+        except Exception as e:
+            logger.warning(f"Error extracting paper from Springer item: {e}")
+            return None
+
+    def get_database_name(self) -> str:
+        return "Springer"
+
+
+class IEEEXploreConnector(DatabaseConnector):
+    """IEEE Xplore connector using web scraping."""
+
+    def __init__(
+        self,
+        cache: Optional[SearchCache] = None,
+        proxy_manager: Optional[ProxyManager] = None,
+        integrity_checker: Optional[IntegrityChecker] = None,
+        persistent_session: bool = True,
+        cookie_jar: Optional[str] = None,
+    ):
+        super().__init__(
+            api_key=None,
+            cache=cache,
+            proxy_manager=proxy_manager,
+            integrity_checker=integrity_checker,
+            persistent_session=persistent_session,
+            cookie_jar=cookie_jar,
+        )
+        self.base_url = "https://ieeexplore.ieee.org"
+        self.search_url = f"{self.base_url}/search/searchresult.jsp"
+
+    @retry_with_backoff(max_attempts=3)
+    def search(self, query: str, max_results: int = 100) -> List[Paper]:
+        """Search IEEE Xplore."""
+        # Check cache first
+        if self.cache:
+            cached = self.cache.get(query, "IEEE Xplore")
+            if cached:
+                return cached[:max_results]
+
+        papers = []
+
+        try:
+            from bs4 import BeautifulSoup
+            import time
+
+            session = self._get_session()
+            request_kwargs = self._get_request_kwargs()
+            request_kwargs.setdefault("timeout", 30)
+            
+            # Enhanced browser headers
+            headers = {
+                "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
+                "Accept-Language": "en-US,en;q=0.9",
+                "Accept-Encoding": "gzip, deflate, br",
+                "Referer": "https://ieeexplore.ieee.org/",
+                "Connection": "keep-alive",
+                "Upgrade-Insecure-Requests": "1",
+            }
+            
+            # Visit homepage first to establish session
+            try:
+                logger.debug("Visiting IEEE Xplore homepage to establish session...")
+                homepage_response = session.get(
+                    self.base_url,
+                    headers=headers,
+                    **request_kwargs
+                )
+                if homepage_response.status_code == 403:
+                    logger.warning(
+                        f"IEEE Xplore returned 403 Forbidden on homepage. "
+                        f"This may be due to anti-scraping measures. "
+                        f"Skipping IEEE Xplore search for this query."
+                    )
+                    return []
+                homepage_response.raise_for_status()
+                self._save_session_cookies()
+            except requests.HTTPError as e:
+                if hasattr(e.response, 'status_code') and e.response.status_code == 403:
+                    logger.warning(
+                        f"IEEE Xplore returned 403 Forbidden. "
+                        f"Skipping IEEE Xplore search for this query."
+                    )
+                    return []
+                logger.warning(f"Failed to visit IEEE Xplore homepage: {e}. Continuing with search anyway...")
+            except requests.RequestException as e:
+                logger.warning(f"Failed to visit IEEE Xplore homepage: {e}. Continuing with search anyway...")
+
+            # IEEE Xplore search parameters
+            page_size = 25  # IEEE typically shows 25 results per page
+            pages_needed = (max_results + page_size - 1) // page_size
+
+            for page in range(pages_needed):
+                if len(papers) >= max_results:
+                    break
+
+                rate_limiter = self._get_rate_limiter()
+                rate_limiter.acquire()
+                
+                # Add delay between page requests
+                if page > 0:
+                    time.sleep(1.5)  # Slightly longer delay for IEEE
+
+                params = {
+                    "queryText": query,
+                    "pageNumber": page + 1,
+                    "rowsPerPage": page_size,
+                }
+                
+                response = session.get(self.search_url, params=params, headers=headers, **request_kwargs)
+                
+                if response.status_code == 403:
+                    logger.warning(
+                        f"IEEE Xplore returned 403 Forbidden. "
+                        f"Skipping IEEE Xplore search for this query."
+                    )
+                    return []
+                
+                response.raise_for_status()
+
+                # Parse HTML
+                soup = BeautifulSoup(response.content, "html.parser")
+                page_papers = self._parse_search_results(soup)
+
+                if not page_papers:
+                    break
+
+                papers.extend(page_papers)
+
+                if len(page_papers) < page_size:
+                    break
+
+        except ImportError:
+            raise ImportError("beautifulsoup4 required for IEEE Xplore connector. Install with: pip install beautifulsoup4")
+        except requests.HTTPError as e:
+            if hasattr(e.response, 'status_code') and e.response.status_code == 403:
+                logger.warning(
+                    f"IEEE Xplore returned 403 Forbidden. "
+                    f"Skipping IEEE Xplore search for this query."
+                )
+                return []
+            logger.error(f"HTTP error searching IEEE Xplore: {e}")
+            raise NetworkError(f"IEEE Xplore search failed: {e}") from e
+        except requests.RequestException as e:
+            logger.error(f"Network error searching IEEE Xplore: {e}")
+            raise NetworkError(f"IEEE Xplore search failed: {e}") from e
+        except Exception as e:
+            logger.error(f"Error searching IEEE Xplore: {e}")
+            raise DatabaseSearchError(f"IEEE Xplore search error: {e}") from e
+
+        # Limit to max_results
+        papers = papers[:max_results]
+
+        # Validate papers
+        papers = self._validate_papers(papers)
+
+        # Cache results
+        if self.cache and papers:
+            self.cache.set(query, "IEEE Xplore", papers)
+
+        return papers
+
+    def _parse_search_results(self, soup) -> List[Paper]:
+        """Parse HTML search results page."""
+        papers = []
+
+        try:
+            # IEEE Xplore search results are typically in list items or divs
+            result_items = []
+            
+            selectors = [
+                ("li", {"class": "List-item"}),
+                ("div", {"class": "List-item"}),
+                ("li", {"class": "result-item"}),
+                ("div", {"class": "result-item"}),
+                ("article", {"class": "result-item"}),
+                ("li", {"data-testid": "search-result-item"}),
+            ]
+            
+            for tag, attrs in selectors:
+                if "class" in attrs:
+                    result_items = soup.find_all(tag, class_=attrs["class"])
+                elif "data-testid" in attrs:
+                    result_items = soup.find_all(tag, {"data-testid": attrs["data-testid"]})
+                if result_items:
+                    logger.debug(f"Found {len(result_items)} IEEE Xplore results using selector: {tag} with {attrs}")
+                    break
+            
+            # Fallback: find by title links
+            if not result_items:
+                title_links = soup.find_all("a", href=lambda x: x and "/document/" in str(x))
+                if title_links:
+                    seen_parents = set()
+                    for link in title_links:
+                        parent = link.find_parent("li") or link.find_parent("div") or link.find_parent("article")
+                        if parent and id(parent) not in seen_parents:
+                            result_items.append(parent)
+                            seen_parents.add(id(parent))
+                    logger.debug(f"Found {len(result_items)} IEEE Xplore results by grouping title links")
+
+            if not result_items:
+                logger.warning("No IEEE Xplore search results found - page structure may have changed")
+                return papers
+
+            for item in result_items:
+                try:
+                    paper = self._extract_paper_from_item(item)
+                    if paper:
+                        papers.append(paper)
+                except Exception as e:
+                    logger.warning(f"Error parsing IEEE Xplore result item: {e}")
+                    continue
+
+        except Exception as e:
+            logger.warning(f"Error parsing IEEE Xplore search results: {e}")
+
+        return papers
+
+    def _extract_paper_from_item(self, item) -> Optional[Paper]:
+        """Extract paper metadata from a single result item."""
+        try:
+            import re
+            
+            # Title
+            title_elem = None
+            title_selectors = [
+                ("h3", {}),
+                ("h2", {}),
+                ("h4", {}),
+                ("a", {"class": "title"}),
+                ("span", {"class": "title"}),
+                ("a", {"href": lambda x: x and "/document/" in str(x)}),
+            ]
+            
+            for tag, attrs in title_selectors:
+                if "class" in attrs:
+                    title_elem = item.find(tag, class_=attrs["class"])
+                elif "href" in attrs:
+                    title_elem = item.find(tag, href=attrs["href"])
+                else:
+                    title_elem = item.find(tag)
+                if title_elem:
+                    break
+            
+            title = title_elem.get_text(strip=True) if title_elem else ""
+            
+            if not title:
+                return None
+
+            # Authors
+            authors = []
+            author_selectors = [
+                ("span", {"class": "authors"}),
+                ("div", {"class": "authors"}),
+                ("a", {"class": "author"}),
+                ("span", {"class": "author"}),
+            ]
+            
+            author_links = []
+            for tag, attrs in author_selectors:
+                author_links = item.find_all(tag, class_=attrs["class"])
+                if author_links:
+                    break
+            
+            if not author_links:
+                author_section = item.find("div", class_="authors") or item.find("span", class_="authors")
+                if author_section:
+                    author_links = author_section.find_all("a")
+                    if not author_links:
+                        author_text = author_section.get_text(strip=True)
+                        if author_text:
+                            authors = [a.strip() for a in re.split(r'[,;]', author_text) if a.strip()]
+
+            for author_link in author_links:
+                author_name = author_link.get_text(strip=True)
+                if author_name and author_name not in authors:
+                    authors.append(author_name)
+
+            # Abstract
+            abstract_elem = (
+                item.find("p", class_="abstract")
+                or item.find("div", class_="abstract")
+                or item.find("span", class_="abstract")
+                or item.find("p", class_="snippet")
+            )
+            abstract = abstract_elem.get_text(strip=True) if abstract_elem else ""
+
+            # DOI
+            doi = None
+            doi_link = item.find("a", href=lambda x: x and ("doi.org" in str(x) or "/doi/" in str(x)))
+            if doi_link:
+                href = doi_link.get("href", "")
+                if "doi.org/" in href:
+                    doi = href.split("doi.org/")[-1].split("?")[0]
+                elif "/doi/" in href:
+                    doi = href.split("/doi/")[-1].split("?")[0]
+            else:
+                doi_text = item.get_text()
+                doi_match = re.search(r"10\.\d+/[^\s\)]+", doi_text)
+                if doi_match:
+                    doi = doi_match.group(0).rstrip(".,;:)]}")
+
+            # URL
+            url = None
+            if title_elem and title_elem.name == "a":
+                href = title_elem.get("href", "")
+                if href:
+                    if href.startswith("/"):
+                        url = f"{self.base_url}{href}"
+                    elif href.startswith("http"):
+                        url = href
+            else:
+                doc_link = item.find("a", href=lambda x: x and "/document/" in str(x))
+                if doc_link:
+                    href = doc_link.get("href", "")
+                    if href.startswith("/"):
+                        url = f"{self.base_url}{href}"
+                    elif href.startswith("http"):
+                        url = href
+
+            # Year
+            year = None
+            year_elem = (
+                item.find("span", class_="year")
+                or item.find("div", class_="year")
+                or item.find("span", class_="date")
+            )
+            
+            if year_elem:
+                year_text = year_elem.get_text(strip=True)
+                year_match = re.search(r"\b(19|20)\d{2}\b", year_text)
+                if year_match:
+                    try:
+                        year = int(year_match.group(0))
+                        if year < 1900 or year > 2030:
+                            year = None
+                    except ValueError:
+                        pass
+            
+            if not year:
+                item_text = item.get_text()
+                year_match = re.search(r"\b(19|20)\d{2}\b", item_text)
+                if year_match:
+                    try:
+                        year = int(year_match.group(0))
+                        if year < 1900 or year > 2030:
+                            year = None
+                    except ValueError:
+                        pass
+
+            # Journal/Conference
+            journal = None
+            journal_elem = (
+                item.find("span", class_="publication")
+                or item.find("div", class_="publication")
+                or item.find("a", class_="publication")
+                or item.find("span", class_="journal")
+            )
+            if journal_elem:
+                journal = journal_elem.get_text(strip=True)
+
+            paper = Paper(
+                title=title,
+                abstract=abstract,
+                authors=authors if authors else [],
+                year=year,
+                doi=doi,
+                journal=journal,
+                database="IEEE Xplore",
+                url=url,
+            )
+
+            return paper
+
+        except Exception as e:
+            logger.warning(f"Error extracting paper from IEEE Xplore item: {e}")
+            return None
+
+    def get_database_name(self) -> str:
+        return "IEEE Xplore"
 
 
 class MockConnector(DatabaseConnector):

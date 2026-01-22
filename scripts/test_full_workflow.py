@@ -11,18 +11,16 @@ import sys
 import json
 import time
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, Optional, Tuple
 from dotenv import load_dotenv
 
 # Add parent directory to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from src.orchestration.workflow_manager import WorkflowManager
-from src.search.database_connectors import Paper
 from rich.console import Console
 from rich.table import Table
 from rich.panel import Panel
-from rich.progress import Progress, SpinnerColumn, TextColumn
 
 # Load environment variables
 load_dotenv()
@@ -306,7 +304,7 @@ class WorkflowTester:
                 "counts": self.workflow_manager.prisma_counter.get_counts(),
             }
             
-            console.print(f"  [green]PRISMA diagram generated[/green]")
+            console.print("  [green]PRISMA diagram generated[/green]")
             console.print(f"  Path: {prisma_path}")
             console.print(f"  Size: {file_size} bytes")
             

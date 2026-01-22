@@ -7,8 +7,8 @@ Enriches Paper objects with missing metadata by fetching from Crossref API using
 import logging
 import os
 import requests
+import certifi
 from typing import List, Optional
-from pathlib import Path
 
 from ..search.connectors.base import Paper
 from ..search.database_connectors import CrossrefConnector
@@ -123,7 +123,7 @@ class PaperEnricher:
             url = f"https://api.crossref.org/works/{normalized_doi}"
             params = {"mailto": self.crossref.email}
 
-            response = requests.get(url, params=params, timeout=30)
+            response = requests.get(url, params=params, timeout=30, verify=certifi.where())
 
             if response.status_code == 404:
                 logger.debug(f"DOI not found in Crossref: {normalized_doi}")

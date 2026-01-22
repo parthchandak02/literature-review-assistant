@@ -3,8 +3,7 @@ Tests for Manubot Citation Resolver
 """
 
 import pytest
-from unittest.mock import patch, MagicMock
-from pathlib import Path
+from unittest.mock import patch
 from src.citations.manubot_resolver import ManubotCitationResolver, MANUBOT_AVAILABLE
 from src.search.connectors.base import Paper
 
@@ -312,7 +311,6 @@ class TestManubotCitationResolver:
         
         # Mock citekey_to_csl_item to simulate timeout
         with patch("src.citations.manubot_resolver.citekey_to_csl_item") as mock_cite:
-            import time
             mock_cite.side_effect = TimeoutError("Request timed out")
             
             with pytest.raises(ValueError) as exc_info:
