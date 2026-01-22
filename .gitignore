@@ -87,3 +87,8 @@ htmlcov/
 docs/dependency_analysis/
 docs/*/dependency_*.json
 docs/*/import_analysis.json
+
+# Generated visualization files (pydeps, graphviz, etc.)
+*.svg
+!lib/**/*.svg
+!templates/**/*.svg
