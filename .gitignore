@@ -66,7 +66,7 @@ IEEE_*.md
 
 # Temporary/remediation scripts (one-off fixes)
 scripts/remediate_current_paper.py
-scripts/auto_fill_quality_assessments.py  # Replaced by src/quality/auto_filler.py module
+scripts/auto_fill_quality_assessments.py
 scripts/migrate_tests.py  # One-time migration tool, can be archived after migration complete
 
 # Reference documentation (not used in codebase)
