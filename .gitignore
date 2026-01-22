@@ -8,6 +8,7 @@ __pycache__/
 venv/
 ENV/
 env/
+test_venv/
 
 # IDE
 .cursor/
@@ -23,8 +24,13 @@ data/processed/
 data/outputs/
 data/test_outputs/
 data/cache/
+data/checkpoints/
+data/cookies
+data/cookies/
+data/quality_assessments/
 *.csv
 *.xlsx
+*.db
 
 # JSON files (but allow config files)
 *.json
@@ -47,6 +53,7 @@ Thumbs.db
 
 # Logs
 *.log
+logs/
 
 # Status and report files (generated)
 *_STATUS.md
@@ -59,6 +66,8 @@ IEEE_*.md
 
 # Temporary/remediation scripts (one-off fixes)
 scripts/remediate_current_paper.py
+scripts/auto_fill_quality_assessments.py  # Replaced by src/quality/auto_filler.py module
+scripts/migrate_tests.py  # One-time migration tool, can be archived after migration complete
 
 # Reference documentation (not used in codebase)
 reference-docs/
@@ -69,3 +78,12 @@ htmlcov/
 *.cover
 .hypothesis/
 .pytest_cache/
+
+# Cache directories
+.ruff_cache/
+.mypy_cache/
+
+# Generated analysis files
+docs/dependency_analysis/
+docs/*/dependency_*.json
+docs/*/import_analysis.json

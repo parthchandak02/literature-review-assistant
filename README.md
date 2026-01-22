@@ -1,8 +1,48 @@
 # Literature Review Assistant - Agentic AI System
 
+![Python Version](https://img.shields.io/badge/python-%3E%3D3.8-blue.svg)
+![License](https://img.shields.io/badge/license-MIT-green.svg)
+![Version](https://img.shields.io/badge/version-0.1.0-blue.svg)
+
 End-to-end agentic system that automates systematic literature reviews from search to publication-ready articles, including PRISMA 2020-compliant flow diagrams and visualizations.
 
+## Table of Contents
+
+- [Prerequisites](#prerequisites)
+- [Quick Start](#quick-start)
+- [Workflow Overview](#workflow-overview)
+- [How Checkpoints Work](#how-checkpoints-work)
+- [API Keys Required](#api-keys-required)
+- [Configuration](#configuration)
+- [Features](#features)
+- [Documentation](#documentation)
+- [Testing](#testing)
+- [Development](#development)
+- [Contributing](#contributing)
+- [Troubleshooting](#troubleshooting)
+- [License](#license)
+- [Recent Changes](#recent-changes)
+
+## Prerequisites
+
+Before you begin, ensure you have the following installed:
+
+- **Python >=3.8** - Required runtime
+- **uv** - Package manager (install from [https://github.com/astral-sh/uv](https://github.com/astral-sh/uv))
+- **Pandoc** - System-level dependency for PDF/DOCX/HTML generation
+  - macOS: `brew install pandoc`
+  - Linux: `apt-get install pandoc` or `yum install pandoc`
+  - Windows: Download from [https://pandoc.org/installing.html](https://pandoc.org/installing.html)
+- **At least one LLM API key** - Required for core functionality (see [API Keys Required](#api-keys-required) section)
+  - OpenAI, Anthropic, Google GenAI (Gemini), or Perplexity
+
+Optional but recommended:
+- **Manubot** - For citation resolution (`uv pip install manubot` or `uv pip install -e ".[manubot-full]"`)
+- **Bibliometric dependencies** - For enhanced Scopus/Google Scholar features (`uv pip install -e ".[bibliometrics]"`)
+
 ## Quick Start
+
+> **Note**: Ensure you have met all [Prerequisites](#prerequisites) before starting.
 
 ### Step 1: Setup Environment
 
@@ -16,20 +56,6 @@ uv pip install -e .
 
 # Install optional dependencies for manuscript pipeline (optional but recommended)
 uv pip install -e ".[manubot-full]"
-
-# Or install individually:
-uv pip install manubot gitpython pypandoc
-
-# Install Pandoc (system-level dependency, required for PDF/DOCX generation)
-# macOS:
-brew install pandoc
-
-# Linux:
-# apt-get install pandoc
-# or
-# yum install pandoc
-
-# Windows: Download from https://pandoc.org/installing.html
 ```
 
 ### Step 2: Configure Environment Variables
@@ -51,6 +77,8 @@ Edit `config/workflow.yaml` to customize:
 - Agent configurations (LLM models, temperature, tools)
 - Inclusion/exclusion criteria
 
+See [Configuration Reference](docs/CONFIGURATION.md) for complete configuration options.
+
 ### Step 4: Run the Workflow
 
 ```bash
@@ -64,7 +92,7 @@ python main.py --force-fresh
 python main.py --manubot-export --build-package --journal ieee
 
 # Verbose output with logging
-python main.py --verbose --log-to-file --log-file logs/workflow.log
+python main.py --verbose --log-to-file
 
 # Or use Makefile
 make setup    # Create venv
@@ -75,64 +103,72 @@ make run      # Run workflow
 ### Step 5: Check Outputs
 
 Results are saved to `data/outputs/workflow_{topic}_{timestamp}/`:
-- Each workflow run gets its own directory to prevent overwriting
 - `final_report.md` - Complete systematic review article
-- `references.bib` - BibTeX citation file (if BibTeX export enabled)
 - `prisma_diagram.png` - PRISMA 2020 flow diagram
-- `papers_per_year.png` - Publication timeline
-- `network_graph.html` - Interactive citation/co-occurrence network
-- `papers_by_country.png` - Geographic distribution
-- `papers_by_subject.png` - Subject area distribution
+- `references.bib` - BibTeX citation file
+- Visualizations (publication timeline, network graphs, geographic distribution)
 - `workflow_state.json` - Workflow metadata
-
-Search logs (PRISMA-compliant) are saved to `data/outputs/workflow_{topic}_{timestamp}/search_logs/`:
-- `prisma_search_report_*.json` - PRISMA-S compliant search report
-- `search_summary_*.csv` - CSV summary of all searches
 
 ## Workflow Overview
 
-The system executes 16+ sequential phases: Build Search Strategy, Search Databases, Deduplication, Title/Abstract Screening, Full-text Screening, Paper Enrichment, Data Extraction, Quality Assessment, PRISMA Diagram Generation, Visualization Generation, Article Writing, Final Report Compilation, Search Strategy Export, PRISMA Checklist Generation, Data Extraction Forms, Export to Formats, Manubot Export (optional), and Submission Package Generation (optional).
+The system executes 16+ sequential phases: Build Search Strategy, Search Databases, Deduplication, Title/Abstract Screening, Full-text Screening, Paper Enrichment, Data Extraction, Quality Assessment, PRISMA Diagram Generation, Visualization Generation, Article Writing, Final Report Compilation, and optional phases for Manubot Export and Submission Package Generation.
 
-### Workflow Diagram
-
-The following diagram illustrates the complete end-to-end workflow, showing all phases, data flow, and key technologies used:
+### Complete Workflow Diagram
 
 ```mermaid
 flowchart TD
-    Start([Start: python main.py]) --> BuildStrategy[Phase 1: Build Search Strategy<br/>LLM: Gemini Flash]
-    BuildStrategy --> SearchDB[Phase 2: Search Databases<br/>PubMed, arXiv, Semantic Scholar,<br/>Crossref, ACM]
-    SearchDB --> Dedup[Phase 3: Deduplication<br/>Fuzzy Matching]
-    Dedup --> TitleScreen[Phase 4: Title/Abstract Screening<br/>LLM: Gemini Flash-Lite]
-    TitleScreen --> FullTextScreen[Phase 5: Full-text Screening<br/>LLM: Gemini Flash-Lite<br/>PDF Retrieval]
-    FullTextScreen --> Enrich[Phase 6: Paper Enrichment<br/>Metadata Completion]
-    Enrich --> Extract[Phase 7: Data Extraction<br/>LLM: Gemini Pro<br/>Structured Output]
+    Start([Start: python main.py]) --> CheckpointCheck{Check for existing checkpoint?}
     
-    Extract --> Quality[Phase 8: Quality Assessment<br/>RoB 2, GRADE]
-    Extract --> PRISMA[Phase 9: PRISMA Diagram<br/>prisma-flow-diagram]
-    Extract --> Viz[Phase 10: Visualizations<br/>matplotlib, networkx]
-    Extract --> Write[Phase 11: Article Writing<br/>LLM: Gemini Pro<br/>Introduction, Methods,<br/>Results, Discussion, Abstract]
+    subgraph CheckpointSystem["Checkpoint System"]
+        CheckpointCheck -->|Found| LoadCheckpoint["Load checkpoint data:<br/>Papers, Screening results,<br/>Extracted data"]
+        CheckpointCheck -->|Not found| StartFresh[Start fresh workflow]
+        LoadCheckpoint --> ResumePhase["Resume from last<br/>completed phase"]
+        ResumePhase --> StartFresh
+    end
     
-    Quality --> Report[Phase 12: Report Generation<br/>Markdown Compilation]
-    PRISMA --> Report
-    Viz --> Report
-    Write --> Report
+    StartFresh --> Phase1["Phase 1: Build Search Strategy<br/>LLM: Gemini Flash"]
+    Phase1 --> Phase2["Phase 2: Search Databases<br/>PubMed, arXiv, Semantic Scholar,<br/>Crossref, ACM, Springer, IEEE"]
+    Phase2 -.->|Auto-save| CP2["[CP 2]"]
+    Phase2 --> Phase3["Phase 3: Deduplication<br/>Fuzzy matching"]
+    Phase3 -.->|Auto-save| CP3["[CP 3]"]
+    Phase3 --> Phase4["Phase 4: Title/Abstract Screening<br/>LLM: Gemini Flash-Lite"]
+    Phase4 -.->|Auto-save| CP4["[CP 4]"]
+    Phase4 --> Phase5["Phase 5: Full-text Screening<br/>LLM: Gemini Flash-Lite<br/>PDF Retrieval"]
+    Phase5 -.->|Auto-save| CP5["[CP 5]"]
+    Phase5 --> Phase6["Phase 6: Paper Enrichment<br/>Metadata completion via Crossref"]
+    Phase6 -.->|Auto-save| CP6["[CP 6]"]
+    Phase6 --> Phase7["Phase 7: Data Extraction<br/>LLM: Gemini Pro<br/>Structured output"]
+    Phase7 -.->|Auto-save| CP7["[CP 7]"]
+    Phase7 --> Phase8["Phase 8: Quality Assessment<br/>RoB 2, GRADE<br/>LLM auto-fill"]
+    Phase8 -.->|Auto-save| CP8["[CP 8]"]
     
-    Report --> Manubot{Manubot Export?<br/>Optional}
-    Report --> Submit{Submission Package?<br/>Optional}
+    Phase8 --> Phase9["Phase 9: PRISMA Diagram<br/>prisma-flow-diagram"]
+    Phase8 --> Phase10["Phase 10: Visualizations<br/>matplotlib, networkx"]
+    Phase8 --> Phase11["Phase 11: Article Writing<br/>LLM: Gemini Pro<br/>Introduction, Methods,<br/>Results, Discussion, Abstract"]
     
-    Manubot -->|Yes| ManubotPhase[Phase 17: Manubot Export<br/>manubot, CSL styles]
-    Submit -->|Yes| SubmitPhase[Phase 18: Submission Package<br/>PDF, DOCX, HTML<br/>LaTeX templates]
+    Phase9 --> Phase12["Phase 12: Report Generation<br/>Markdown compilation"]
+    Phase10 --> Phase12
+    Phase11 --> Phase12
     
-    ManubotPhase --> End([End: Output Files])
-    SubmitPhase --> End
-    Report --> End
+    Phase12 --> End([Complete!<br/>Outputs in data/outputs/])
+    
+    Phase11 -.->|Optional| Phase17["Phase 17: Manubot Export<br/>manubot, CSL styles<br/>(Optional)"]
+    Phase17 --> End
+    
+    Phase12 -.->|Optional| Phase18["Phase 18: Submission Package<br/>PDF, DOCX, HTML<br/>LaTeX templates<br/>(Optional)"]
+    Phase18 --> End
 ```
+
+**Key Features:**
+- **Automatic checkpointing**: Phases 2-8 save checkpoints automatically (Phase 1 always rebuilds)
+- **Resume capability**: Restarting automatically detects and resumes from last checkpoint
+- **Parallel execution**: Phases 9-11 run simultaneously after phase 8 completes
+- **Optional phases**: Manubot export (after Phase 11) and submission package (after Phase 12) are optional
+- **Topic matching**: Checkpoints are matched by research topic name, allowing separate workflows per topic
 
 **Note**: If the diagram doesn't render properly, view it on GitHub or use a Mermaid viewer like [mermaid.live](https://mermaid.live).
 
 ### Technology Stack
-
-The system uses the following technologies and tools:
 
 **LLM Providers** (at least one required):
 - OpenAI (GPT models)
@@ -158,493 +194,29 @@ The system uses the following technologies and tools:
 - manubot - Citation resolution
 - pandoc - Document conversion (system dependency)
 
-**Export Formats**:
-- Markdown - Primary output format
-- LaTeX - Academic manuscript templates
-- DOCX - Microsoft Word format
-- PDF - Generated via Pandoc
-- HTML - Web-friendly format
-- BibTeX & RIS - Citation formats
+## How Checkpoints Work
 
-**Citation Styles** (via CSL):
-- IEEE, APA, Nature, PLOS ONE, PLOS Computational Biology, BMJ, AMA, Vancouver, Harvard, Chicago, MLA
+Checkpoints are saved snapshots of your workflow's progress after each phase completes. Think of them like save points - if something interrupts your workflow, you can resume exactly where you left off.
 
-**Checkpoint System**: The workflow automatically saves checkpoints after each phase in `data/checkpoints/workflow_{id}/`, allowing you to resume from any point. When running `python main.py` with the same topic, it automatically resumes from the latest checkpoint. Each workflow run gets a unique ID based on topic and timestamp, ensuring outputs and checkpoints are organized separately.
+**How It Works:**
+1. **Automatic Saving**: After phases 2-8 complete, the system automatically saves checkpoint files containing all papers, screening results, extracted data, and current phase number
+2. **Automatic Resumption**: When you run `python main.py` with the same topic, the system detects existing checkpoints, loads previous results, and continues from the next phase
+3. **Topic Matching**: Checkpoints are matched by topic name, so different research topics have separate checkpoint chains
+
+**Example:**
+```bash
+# First run - completes phases 1-5, saves checkpoints
+python main.py  # Topic: "Financial Trading Systems"
+
+# Later run - automatically resumes from phase 6
+python main.py  # Detects existing checkpoints, resumes from phase 6
+```
+
+**Checkpoint Location**: `data/checkpoints/workflow_{topic}_{timestamp}/`
 
 **Force Fresh Start**: To ignore checkpoints and start from scratch:
 ```bash
-# Force fresh start from phase 1 (ignores all checkpoints)
-python main.py --force-fresh
-
-# Or explicitly specify starting phase
-python main.py --start-from-phase 1
-```
-
-**Disable Checkpoint Saving**: To prevent saving new checkpoints:
-```bash
-python main.py --no-save-checkpoints
-```
-
-**Phase Registry Architecture**: The workflow uses a Phase Registry pattern for declarative phase management with automatic dependency resolution, simplifying workflow execution and making it easy to add new phases.
-
-## Quality Assessment Workflow
-
-The workflow includes a manual quality assessment phase that requires human input to assess risk of bias and certainty of evidence.
-
-### How It Works
-
-1. **Template Generation**: After data extraction, the workflow generates a quality assessment template file at `data/quality_assessments/workflow_{id}_assessments.json`
-2. **Manual Assessment**: You must complete the template by filling in:
-   - **Risk of Bias (RoB 2)**: Domain assessments for each study (randomization, deviations, missing data, measurement, selection)
-   - **GRADE Assessments**: Certainty ratings, downgrade/upgrade reasons, and justifications for each outcome
-3. **Resume Workflow**: After completing the assessments, re-run `python main.py` - it will automatically resume from the quality assessment phase
-
-### Assessment File Format
-
-The assessment file contains:
-- `studies`: Array of study assessments with RoB 2 domain ratings ("Low", "Some concerns", "High", "Critical", or "Not applicable")
-- `grade_assessments`: Array of GRADE assessments with certainty ratings ("High", "Moderate", "Low", "Very Low")
-
-### Example
-
-```bash
-# Workflow stops at quality_assessment phase
-python main.py
-# Output: Quality assessment template generated at data/quality_assessments/workflow_xxx_assessments.json
-
-# Edit the file to complete assessments
-# Then re-run - workflow resumes automatically
-python main.py
-```
-
-**Note**: The workflow uses checkpoints, so running `python main.py` with the same topic automatically resumes from the latest checkpoint (quality_assessment phase).
-
-## IEEE Compliance
-
-The system generates IEEE-compliant manuscripts with automatic format conversion.
-
-### IEEE Requirements
-
-- **Abstract Format**: Unstructured (150-250 words), automatically converted from PRISMA structured format
-- **Citation Style**: Square brackets `[1]` format
-- **Author Format**: Last, F.I. (e.g., "Smith, J.A.")
-- **LaTeX Template**: `IEEEtran` document class, two-column format
-- **Keywords**: "Index Terms" section (5-10 keywords)
-- **Section Headings**: IEEE-compliant formatting
-
-### Automatic Conversion
-
-When generating IEEE submission packages:
-- Structured PRISMA abstracts are automatically converted to unstructured format
-- Citations are formatted in IEEE style `[1]`
-- LaTeX templates use `IEEEtran` document class
-- Keywords are formatted as "Index Terms"
-
-### Validation
-
-Check IEEE compliance:
-
-```bash
-python scripts/generate_ieee_readiness_report.py
-```
-
-This generates `IEEE_READINESS_REPORT.md` with:
-- Code compliance checks
-- Abstract format validation
-- Citation style verification
-- Template compliance status
-
-## PRISMA 2020 Methodology
-
-The system follows PRISMA 2020 (Preferred Reporting Items for Systematic Reviews and Meta-Analyses) guidelines for systematic review reporting.
-
-### PRISMA Compliance
-
-- **PRISMA Flow Diagram**: Automatically generated showing identification, screening, eligibility, and inclusion stages
-- **Structured Abstract**: Includes Background, Objectives, Eligibility criteria, Information sources, Risk of bias, Synthesis methods, Results, Limitations, Interpretation, Funding, and Registration
-- **Full Search Strategies**: Complete search queries for all databases included in Methods section
-- **PRISMA Checklist**: Generated checklist validating compliance with 27 PRISMA 2020 items
-
-### Compliance Validation
-
-Check PRISMA compliance:
-
-```bash
-python -c "from src.validation.prisma_validator import PRISMAValidator; v = PRISMAValidator(); r = v.validate_report('data/outputs/workflow_xxx/final_report.md'); print(f'Compliance: {r[\"compliance_score\"]:.1%}')"
-```
-
-### PRISMA Outputs
-
-Generated outputs include:
-- `prisma_diagram.png` - PRISMA 2020 flow diagram
-- `prisma_checklist.json` - PRISMA compliance checklist
-- `search_strategies.md` - Full search strategies for all databases
-- Methods section includes complete PRISMA-compliant reporting
-
-**Note**: For IEEE submission, the abstract is automatically converted from structured (PRISMA) to unstructured format while maintaining PRISMA compliance in the full report.
-
-## Text Humanization
-
-The system includes an advanced text humanization feature that improves the naturalness and human-like quality of generated manuscripts.
-
-### How It Works
-
-1. **Style Pattern Extraction**: After full-text screening, the system extracts writing patterns from eligible papers (reuses cached full-text, no additional API calls)
-2. **Enhanced Prompts**: Writing agents receive style guidelines based on extracted patterns
-3. **Naturalness Scoring**: LLM evaluates text quality across multiple dimensions
-4. **Post-Processing**: Text is refined iteratively until naturalness threshold is met
-
-### Configuration
-
-Enable/configure in `config/workflow.yaml`:
-
-```yaml
-writing:
-  style_extraction:
-    enabled: true                    # Extract writing patterns from eligible papers
-    model: "gemini-2.5-pro"          # LLM model for section extraction
-    max_papers: null                 # Max papers to analyze (null = all eligible)
-    min_papers: 3                    # Minimum papers required for pattern extraction
-  
-  humanization:
-    enabled: true                    # Enable text humanization post-processing
-    model: "gemini-2.5-pro"          # LLM model for humanization
-    temperature: 0.3                  # Temperature for variation
-    max_iterations: 2                # Max refinement iterations
-    naturalness_threshold: 0.75      # Minimum naturalness score (0.0-1.0)
-    section_specific: true            # Use section-specific strategies
-```
-
-### Naturalness Dimensions
-
-The system evaluates text across:
-- **Sentence Structure Diversity**: Variation in sentence types (simple, compound, complex)
-- **Vocabulary Richness**: Synonym usage and domain-specific terms
-- **Citation Naturalness**: Natural placement and varied phrasing
-- **Transition Quality**: Natural connectors, avoiding formulaic phrases
-- **Overall Human-Like Quality**: Weighted average of all dimensions
-
-### Efficiency Benefits
-
-- **No Additional API Calls**: Reuses full-text already retrieved during screening
-- **Domain-Relevant**: Patterns extracted from papers in the same topic area
-- **Workflow-Integrated**: Patterns extracted before writing, stored in checkpoints
-- **Automatic**: Runs automatically when enabled, no manual intervention needed
-
-## Manuscript Pipeline
-
-The system includes an integrated manuscript pipeline for generating submission-ready packages. Phases 17-18 are automatically executed when enabled in configuration.
-
-### Enabling Manuscript Pipeline
-
-Edit `config/workflow.yaml`:
-
-```yaml
-manubot:
-  enabled: true  # Enable Manubot export (Phase 17)
-  output_dir: "manuscript"
-  citation_style: "ieee"
-  auto_resolve_citations: true
-
-submission:
-  enabled: true  # Enable submission package generation (Phase 18)
-  default_journal: "ieee"
-  generate_pdf: true
-  generate_docx: true
-  generate_html: true
-```
-
-### Manubot Integration (Phase 17)
-
-Export your systematic review to Manubot-compatible structure:
-
-```bash
-# Automatic execution when enabled in config
-python main.py
-
-# Or manual export
-python main.py --manubot-export
-```
-
-This creates a `manuscript/` directory with:
-- `content/` - Structured markdown files for each section
-- `manubot.yaml` - Manubot configuration
-- Organized sections ready for collaborative editing
-
-**Checkpoint Support**: Phase 17 checkpoints are saved automatically, allowing resumption from this phase.
-
-### Submission Package Generation (Phase 18)
-
-Build complete submission packages for journals:
-
-```bash
-# Automatic execution when enabled in config
-python main.py
-
-# Or manual package building
-python main.py --build-package --journal ieee
-```
-
-This generates a `submission_package_ieee/` directory containing:
-- Manuscript in PDF, DOCX, and HTML formats
-- Figures directory with all visualizations
-- Supplementary materials (search strategies, PRISMA checklist, etc.)
-- References in BibTeX and RIS formats
-- Submission checklist for validation
-
-**Checkpoint Support**: Phase 18 checkpoints are saved automatically, allowing resumption from this phase.
-
-## Citation Resolution
-
-The system supports automatic citation resolution from identifiers using Manubot. This allows you to cite papers without manually entering metadata.
-
-### Supported Identifier Types
-
-- **DOI**: `doi:10.1038/nbt.3780` or `10.1038/nbt.3780`
-- **PubMed ID**: `pmid:29424689` or `29424689`
-- **arXiv ID**: `arxiv:1407.3561` or `arXiv:1407.3561`
-- **Generic citekeys**: Any Manubot-supported citekey format
-
-### Manual Resolution
-
-Resolve a single citation from command line:
-
-```bash
-python main.py --resolve-citation doi:10.1038/nbt.3780
-python main.py --resolve-citation pmid:29424689
-python main.py --resolve-citation arxiv:1407.3561
-```
-
-### Auto-Resolution
-
-Enable automatic citation resolution during export:
-
-```yaml
-manubot:
-  enabled: true
-  auto_resolve_citations: true
-```
-
-When enabled, citations in Manubot format (`[@doi:...]`, `[@pmid:...]`) are automatically resolved and added to the citation list during manuscript export.
-
-### Error Handling
-
-If citation resolution fails:
-- Verify identifier format is correct
-- Check internet connection
-- Try manual resolution: `python main.py --resolve-citation doi:10.1038/...`
-- Some identifiers may require Manubot package: `pip install manubot`
-
-### Journal Support
-
-List available journals:
-
-```bash
-python main.py --list-journals
-```
-
-Validate submission package:
-
-```bash
-python main.py --validate-submission --journal ieee
-```
-
-## CSL Citation Styles
-
-The system supports Citation Style Language (CSL) styles for flexible citation formatting.
-
-### Supported Styles
-
-- IEEE
-- APA
-- Nature
-- PLOS ONE
-- PLOS Computational Biology
-- BMJ
-- AMA
-- Vancouver
-- Harvard
-- Chicago
-- MLA
-
-### Changing Citation Style
-
-Edit `config/workflow.yaml`:
-
-```yaml
-manubot:
-  citation_style: "apa"  # Change from "ieee" to "apa"
-```
-
-### Custom Styles
-
-1. Download CSL style from https://github.com/citation-style-language/styles
-2. Place in `data/cache/csl_styles/`
-3. Reference by filename (without .csl extension)
-
-Styles are automatically downloaded and cached on first use.
-
-## Submission Packages
-
-Generate complete submission packages for journal submission with all required files.
-
-### Package Contents
-
-A submission package includes:
-- Manuscript in PDF, DOCX, and HTML formats
-- Figures directory with all visualizations
-- Tables directory (if applicable)
-- Supplementary materials (search strategies, PRISMA checklist, data extraction forms)
-- References in BibTeX and RIS formats
-- Submission checklist for validation
-
-### Building Packages
-
-#### Single Journal
-
-```bash
-python main.py --build-package --journal ieee
-```
-
-#### Multiple Journals
-
-Edit `config/workflow.yaml`:
-
-```yaml
-submission:
-  enabled: true
-  journals: ["ieee", "nature", "plos"]
-```
-
-Or use Python:
-
-```python
-from src.export.submission_package import SubmissionPackageBuilder
-from pathlib import Path
-
-# Note: Use workflow-specific output directory (e.g., data/outputs/workflow_{topic}_{timestamp}/)
-builder = SubmissionPackageBuilder(Path("data/outputs/workflow_{topic}_{timestamp}"))
-packages = builder.build_for_multiple_journals(
-    workflow_outputs,
-    journals=["ieee", "nature", "plos"],
-    manuscript_markdown=Path("data/outputs/workflow_{topic}_{timestamp}/final_report.md"),
-)
-```
-
-### Validation
-
-Validate submission package:
-
-```bash
-python main.py --validate-submission --journal ieee
-```
-
-Or check the `submission_checklist.md` file in the package directory.
-
-### Journal-Specific Requirements
-
-Each journal has specific requirements defined in `config/journals.yaml`:
-- Required sections
-- Page limits
-- Figure formats
-- Citation styles
-
-## Journal Templates
-
-The system includes LaTeX templates for journal-specific formatting.
-
-### Available Templates
-
-Templates are in `templates/journals/`:
-- `ieee.latex` - IEEE Transactions template
-- `nature.latex` - Nature template
-- `plos.latex` - PLOS template
-
-### Custom Templates
-
-Create custom template:
-
-```python
-from src.export.template_manager import TemplateManager
-
-manager = TemplateManager()
-template_content = """
-% Custom Template
-\\documentclass{article}
-...
-"""
-manager.create_custom_template("myjournal", template_content)
-```
-
-Templates are automatically used when generating PDFs via Pandoc.
-
-## Git Integration
-
-The system includes Git integration for manuscript version control.
-
-### Initialize Repository
-
-```python
-from src.version_control.git_manager import GitManuscriptManager
-from pathlib import Path
-
-# Note: Use workflow-specific manuscript directory (e.g., data/outputs/workflow_{topic}_{timestamp}/manuscript)
-git_manager = GitManuscriptManager(Path("data/outputs/workflow_{topic}_{timestamp}/manuscript"))
-git_manager.initialize_repo()
-git_manager.commit_changes("Initial manuscript export")
-```
-
-### Create Branch
-
-```python
-git_manager.create_branch("revisions")
-```
-
-### Check Status
-
-```python
-status = git_manager.get_status()
-print(status)
-```
-
-### Configuration
-
-Enable Manubot and submission package generation in `config/workflow.yaml`:
-
-```yaml
-manubot:
-  enabled: true
-  output_dir: "manuscript"
-  citation_style: "ieee"
-  auto_resolve_citations: true
-
-submission:
-  enabled: true
-  default_journal: "ieee"
-  generate_pdf: true
-  generate_docx: true
-  generate_html: true
-  include_supplementary: true
-  validate_before_package: true
-```
-
-### Journal Configuration
-
-Configure journals in `config/journals.yaml`:
-
-```yaml
-journals:
-  ieee:
-    name: "IEEE Transactions"
-    citation_style: "ieee"
-    template: "ieee.latex"
-    max_pages: 12
-    required_sections:
-      - "abstract"
-      - "introduction"
-      - "methods"
-      - "results"
-      - "discussion"
+python main.py --force-fresh  # Ignores all checkpoints, starts from phase 1
 ```
 
 ## API Keys Required
@@ -665,15 +237,12 @@ ANTHROPIC_API_KEY=sk-ant-your-key-here
 LLM_PROVIDER=anthropic
 ```
 
-**Option 3: Google GenAI (Gemini)**
+**Option 3: Google GenAI (Gemini)** (Recommended)
 ```bash
-# Use GOOGLE_API_KEY (preferred) or GEMINI_API_KEY
 GOOGLE_API_KEY=your-key-here
 # OR
 GEMINI_API_KEY=your-key-here
 LLM_PROVIDER=google
-# OR
-LLM_PROVIDER=gemini
 ```
 Get API key from: https://aistudio.google.com/app/apikey
 
@@ -686,91 +255,31 @@ Get API key from: https://www.perplexity.ai/settings/api
 
 **Note**: If no API keys are provided, the system will use fallback keyword-based methods (limited functionality).
 
-### Optional: Manuscript Pipeline Dependencies
+### Optional Database API Keys
 
-**Manubot** (for citation resolution):
-```bash
-pip install manubot
-```
-Note: Manubot features are optional. The system gracefully degrades if not installed.
+The system works with free databases by default, but API keys improve rate limits:
 
-**Pandoc** (for PDF/DOCX/HTML generation):
-- System-level dependency (not a Python package)
-- Install separately: `brew install pandoc` (macOS) or `apt-get install pandoc` (Linux)
-- Required for PDF/DOCX/HTML generation
+- **PubMed/NCBI**: `PUBMED_API_KEY` and `PUBMED_EMAIL` (optional but recommended)
+- **Semantic Scholar**: `SEMANTIC_SCHOLAR_API_KEY` (optional but recommended)
+- **Crossref**: `CROSSREF_EMAIL` (email recommended)
+- **Scopus**: `SCOPUS_API_KEY` (requires bibliometrics dependencies)
+- **Google Scholar**: `SCRAPERAPI_KEY` for proxy (requires bibliometrics dependencies)
 
-### Optional: Bibliometric Features
-
-**Bibliometric Dependencies** (for enhanced Scopus and Google Scholar features):
-```bash
-pip install -e ".[bibliometrics]"
-# or
-pip install pybliometrics scholarly
-```
-
-**pybliometrics** (for enhanced Scopus features):
-- Author profiles, citation metrics, affiliation details
-- Requires Scopus API key: `SCOPUS_API_KEY`
-
-**scholarly** (for Google Scholar integration):
-- Author search, citation tracking, related articles
-- Proxy highly recommended: Set `SCRAPERAPI_KEY` or enable proxy in config
-
-### Optional: Database API Keys
-
-The system works with free databases by default (PubMed, arXiv, Semantic Scholar, Crossref), but API keys improve rate limits:
-
-**PubMed/NCBI** (Optional but recommended):
-```bash
-PUBMED_API_KEY=your_key
-PUBMED_EMAIL=your_email@example.com
-```
-
-**Semantic Scholar** (Optional but recommended):
-```bash
-SEMANTIC_SCHOLAR_API_KEY=your_key
-```
-
-**Crossref** (Email recommended):
-```bash
-CROSSREF_EMAIL=your_email@example.com
-```
-
-**Note**: arXiv and ACM work without any API key. PubMed, Semantic Scholar, and Crossref work without API keys but have lower rate limits.
-
-**Google Scholar** (Optional, requires bibliometrics dependencies):
-```bash
-# Install bibliometric dependencies
-pip install -e ".[bibliometrics]"
-
-# Set proxy (highly recommended to avoid CAPTCHAs)
-SCRAPERAPI_KEY=your_scraperapi_key
-# Or configure proxy in workflow.yaml
-```
-
-**Scopus** (Enhanced features with pybliometrics):
-```bash
-# Install bibliometric dependencies
-pip install -e ".[bibliometrics]"
-
-# Set API key
-SCOPUS_API_KEY=your_scopus_api_key
-```
+See [Advanced Features](docs/ADVANCED_FEATURES.md) for bibliometric features setup.
 
 ## Configuration
 
-### Workflow Configuration
+The system uses a unified YAML configuration file (`config/workflow.yaml`) for all settings.
 
-The system uses a unified YAML configuration file (`config/workflow.yaml`) for all settings:
+### Basic Configuration
 
 **Research Topic**:
 ```yaml
 topic:
-  topic: "LLM-Powered Health Literacy Chatbots for Low-Income Communities"
-  keywords: ["health literacy", "chatbots", "LLM", "low-income"]
-  domain: "public health"
-  scope: "Focus on LLM-powered chatbots designed to improve health literacy"
-  research_question: "What is the effectiveness of LLM-powered health literacy chatbots?"
+  topic: "Your Research Topic"
+  keywords: ["keyword1", "keyword2"]
+  domain: "your domain"
+  research_question: "Your research question?"
 ```
 
 **Workflow Settings**:
@@ -787,93 +296,41 @@ workflow:
 ```yaml
 criteria:
   inclusion:
-    - "Studies on LLM/chatbot interventions for health literacy"
+    - "Your inclusion criteria"
   exclusion:
-    - "Non-LLM chatbots (rule-based or simple keyword matching)"
+    - "Your exclusion criteria"
 ```
 
-**Screening Safeguards**:
-```yaml
-screening_safeguards:
-  minimum_papers: 10  # Minimum papers required to pass full-text screening
-  enable_manual_review: true  # Pause workflow for manual review if threshold not met
-  show_borderline_papers: true  # Show borderline papers for review
-```
+See [Configuration Reference](docs/CONFIGURATION.md) for complete configuration options including agent settings, quality assessment, text humanization, and more.
 
-The screening safeguard system monitors inclusion rates and flags when fewer than the minimum required papers pass screening. This helps identify when:
-- Inclusion criteria are too strict
-- Exclusion criteria are too broad
-- Search strategy needs refinement
+## Features
 
-When the threshold is not met, the workflow will:
-- Display warnings/errors with recommendations
-- Identify borderline papers (excluded but with low confidence)
-- Export borderline papers to `borderline_papers_for_review.json` for manual review
-- Pause the workflow (if `enable_manual_review: true`) to allow criteria adjustment
+- **Phase Registry Architecture**: Declarative phase management with automatic dependency resolution
+- **Multi-Database Search**: PubMed, arXiv, Semantic Scholar, Crossref, ACM, Google Scholar (optional)
+- **Robust Error Handling**: Graceful handling of database access issues with automatic fallback
+- **PRISMA 2020 Compliance**: Automatic PRISMA-compliant reports and diagrams
+- **LLM-Powered Screening**: Intelligent screening with cost optimization
+- **Screening Safeguards**: Automatic detection of low inclusion rates with borderline paper identification
+- **Structured Data Extraction**: Pydantic schemas for type-safe extraction with optional fields support
+- **Quality Assessment**: Risk of bias (RoB 2, ROBINS-I) and GRADE assessments with automatic LLM-based filling
+- **Automatic Checkpointing**: Resume from any phase, force fresh start with `--force-fresh`
+- **Text Humanization**: Style pattern extraction from eligible papers and LLM-based naturalness refinement
+- **Bibliometric Visualizations**: Charts and interactive network graphs
+- **Citation Management**: IEEE-formatted references and BibTeX export
+- **Export Formats**: LaTeX, Word, PDF, HTML document export
+- **Manubot Integration**: Export to Manubot structure for collaborative writing
+- **Automatic Citation Resolution**: Resolve citations from DOI, PubMed ID, arXiv ID
+- **Multi-Journal Support**: Generate submission packages for multiple journals
+- **CSL Citation Styles**: Support for IEEE, APA, Nature, PLOS, and more
 
-**Interpreting Safeguard Warnings**:
-- **Title/Abstract Stage**: Warning only - workflow continues but recommends reviewing criteria
-- **Full-Text Stage**: Error - workflow pauses (if enabled) requiring manual review before proceeding
+## Documentation
 
-**Best Practices**:
-- Review borderline papers to determine if criteria should be relaxed
-- Adjust inclusion/exclusion criteria in `config/workflow.yaml` if needed
-- Consider refining search strategy if too few papers are found initially
-- Document any criteria adjustments in your methods section
-
-All agent configurations are in the YAML file - no code changes needed to modify agent behavior!
-
-**Text Humanization Configuration**:
-```yaml
-writing:
-  style_extraction:
-    enabled: true                    # Extract writing patterns from eligible papers
-    model: "gemini-2.5-pro"          # LLM model for section extraction
-    max_papers: null                 # Max papers to analyze (null = all eligible)
-    min_papers: 3                    # Minimum papers required for pattern extraction
-  
-  humanization:
-    enabled: true                    # Enable text humanization post-processing
-    model: "gemini-2.5-pro"          # LLM model for humanization
-    temperature: 0.3                  # Temperature for variation
-    max_iterations: 2                # Max refinement iterations
-    naturalness_threshold: 0.75      # Minimum naturalness score (0.0-1.0)
-    section_specific: true            # Use section-specific strategies
-```
-
-The humanization system:
-- Extracts writing style patterns from eligible papers (reuses full-text already retrieved)
-- Enhances writing agent prompts with extracted patterns
-- Post-processes generated text to improve naturalness
-- Scores text quality across multiple dimensions (sentence structure, vocabulary, citations, transitions)
-- Iteratively refines text until naturalness threshold is met
-
-## Project Structure
-
-```
-literature-review-assistant/
-├── src/                    # Source code
-│   ├── orchestration/     # Workflow orchestration
-│   │   ├── workflow_manager.py      # Main orchestrator
-│   │   ├── phase_registry.py        # Phase registry system
-│   │   ├── checkpoint_manager.py    # Checkpoint management
-│   │   ├── phase_executor.py        # Phase execution logic
-│   │   └── ...
-│   ├── search/            # Database connectors & search
-│   ├── screening/         # Screening agents
-│   ├── extraction/        # Data extraction agents
-│   ├── writing/           # Article writing agents
-│   ├── prisma/            # PRISMA diagram generation
-│   └── ...
-├── tests/                 # Test suite
-├── scripts/               # Utility scripts
-├── config/
-│   └── workflow.yaml      # Workflow configuration
-├── data/
-│   └── outputs/           # Generated outputs
-├── main.py                # Entry point
-└── README.md             # This file
-```
+- **[Advanced Features](docs/ADVANCED_FEATURES.md)** - Bibliometric features, Git integration, quality assessment, manuscript pipeline, citation resolution, CSL styles, submission packages, journal templates, text humanization, visualization tools
+- **[Configuration Reference](docs/CONFIGURATION.md)** - Complete configuration options and settings
+- **[Examples](docs/EXAMPLES.md)** - Code examples and use cases
+- **[Troubleshooting Guide](docs/TROUBLESHOOTING.md)** - Detailed troubleshooting for common issues
+- **[Architecture](docs/ARCHITECTURE.md)** - Architecture overview, design patterns, and module dependencies
+- **[Development Guide](DEVELOPMENT.md)** - Developer setup, testing strategy, contributing guidelines, development workflow
 
 ## Testing
 
@@ -894,29 +351,6 @@ python scripts/test_database_health.py
 python scripts/test_full_workflow.py
 ```
 
-**Test Manuscript Pipeline (E2E):**
-```bash
-python scripts/test_manuscript_pipeline_e2e.py
-```
-
-**Validate Outputs:**
-```bash
-python scripts/validate_workflow_outputs.py
-```
-
-**PRISMA Tests:**
-```bash
-make test-prisma
-# or
-python scripts/run_prisma_tests.py
-```
-
-**Test Phase Registry System:**
-```bash
-pytest tests/unit/orchestration/ -v
-pytest tests/integration/test_workflow_registry_integration.py -v
-```
-
 **Test Checkpoint Resumption:**
 ```bash
 # Run workflow once to create checkpoints
@@ -924,38 +358,28 @@ python main.py
 
 # Run again - should resume from latest checkpoint
 python main.py
-
-# Force fresh start (ignore checkpoints)
-python main.py --force-fresh
-
-# Verify phases 17-18 checkpoints exist
-ls -la data/checkpoints/workflow_*/manubot_export_state.json
-ls -la data/checkpoints/workflow_*/submission_package_state.json
 ```
 
-## Debugging
+## Available Scripts
 
-**Enable Debug Mode:**
-```bash
-python main.py --debug
-```
+The project includes utility scripts in the `scripts/` directory:
 
-**Verbose Output:**
-```bash
-python main.py --verbose
-```
+**Test Infrastructure:**
+- `scripts/analyze_test_structure.py` - Analyze test structure and create mapping
+- `scripts/test_discovery.py` - Find tests for source files, identify missing tests
+- `scripts/validate_test_mapping.py` - Validate test structure and naming conventions
 
-Verbose mode provides enhanced output formatting with:
-- Rich console formatting for better readability
-- Formatted PRISMA validation warnings in yellow panels
-- Clear visual separation with Rich Rules
-- Improved spacing around major workflow phases
-- Formatted LLM request/response panels with timing information
+**Development Tools:**
+- `scripts/check_broken_imports.py` - Check for broken imports and circular dependencies
+- `scripts/list_papers.py` - List all papers from workflow runs
+- `scripts/organize_outputs.py` - Organize orphaned output files
 
-**Log to File:**
-```bash
-python main.py --verbose --log-to-file --log-file logs/workflow.log
-```
+**Workflow Utilities:**
+- `scripts/validate_checkpoints.py` - Validate checkpoint files
+- `scripts/validate_prisma_compliance.py` - Validate PRISMA 2020 compliance
+- `scripts/validate_workflow_outputs.py` - Validate workflow outputs
+
+See the `scripts/` directory for available utility scripts. Key scripts include test discovery tools, validation scripts, and workflow utilities.
 
 ## Development
 
@@ -974,292 +398,69 @@ ruff format src/ main.py
 
 **Dependencies**: Managed via `uv` (see `pyproject.toml`)
 
-## Architecture
+## Contributing
 
-The workflow uses a Phase Registry pattern for declarative phase management:
-- **PhaseRegistry**: Registers phases with dependencies and metadata
-- **CheckpointManager**: Centralized checkpoint save/load
-- **PhaseExecutor**: Handles phase execution with dependency checking
+Contributions are welcome! Please follow these guidelines:
 
-This architecture simplifies workflow management and makes it easy to add new phases.
+### Reporting Issues
+
+- Use the GitHub issue tracker to report bugs or request features
+- Include: clear description, steps to reproduce, expected vs actual behavior, environment details, relevant error messages
+
+### Submitting Pull Requests
+
+1. **Fork the repository** and create a feature branch
+2. **Follow code style**: The project uses `ruff` for linting and formatting
+   ```bash
+   ruff check --fix src/ main.py
+   ruff format src/ main.py
+   ```
+3. **Write tests**: Add tests for new features or bug fixes
+   ```bash
+   pytest tests/ -v
+   ```
+4. **Update documentation**: Update README.md or relevant docs if needed
+5. **Test your changes**: Ensure all tests pass before submitting
+
+### Code Style Guidelines
+
+- Follow PEP 8 style guide
+- Use `ruff` for automatic formatting and linting
+- Type hints are encouraged for new code
+- Document complex functions and classes with docstrings
+
+See [Contributing](#contributing) section above for complete guidelines.
 
 ## Troubleshooting
 
-**"No papers found"**
-- Check search query is not too specific
-- Verify databases are enabled in `config/workflow.yaml`
-- Test database connectors: `python scripts/test_database_health.py`
+**Common Issues:**
 
-**"LLM API Error"**
-- Verify LLM API key is set (`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, etc.)
-- Check API key is valid and has credits
-- Try a different LLM provider
+- **"No papers found"** - Check search query is not too specific, verify databases are enabled in `config/workflow.yaml`
+- **"ACM 403 Forbidden Error"** - Expected behavior, system automatically handles and continues with other databases
+- **"LLM API Error"** - Verify LLM API key is set and valid, check API key has credits
+- **"Rate limit exceeded"** - Wait a few minutes and retry, set API keys for higher rate limits
 
-**"Rate limit exceeded"**
-- Wait a few minutes and retry
-- Set API keys for higher rate limits
-- Enable caching to reduce API calls
-
-**SSL Certificate Errors**
-- Update certificates: `pip install --upgrade certifi`
-- Set certificate path: `export SSL_CERT_FILE=$(python -m certifi)`
-
-**"Manubot not available"**
-- Install Manubot: `pip install manubot`
-- Citation resolution features will be disabled if not installed
-
-**"Pandoc not found"**
-- Install Pandoc on your system (see Quick Start Step 1)
-- PDF/DOCX/HTML generation requires Pandoc
-- System-level installation required (not a Python package)
-
-**"Citation resolution failed"**
-- Verify identifier format (DOI, PMID, etc.)
-- Check internet connection
-- Try manual resolution: `python main.py --resolve-citation doi:10.1038/...`
-- Some identifiers may require network access
-
-**"Submission package incomplete"**
-- Check `submission_checklist.md` for missing items
-- Verify all workflow phases completed successfully
-- Ensure figures and supplementary materials exist
-- Run validation: `python main.py --validate-submission --journal ieee`
-
-**"CSL style not found"**
-- Styles are downloaded automatically on first use
-- Check internet connection
-- Manually download from https://github.com/citation-style-language/styles
-- Place in `data/cache/csl_styles/`
-
-## Features
-
-- **Phase Registry Architecture**: Declarative phase management with automatic dependency resolution
-- **Multi-Database Search**: PubMed, arXiv, Semantic Scholar, Crossref, ACM, Google Scholar (optional)
-- **Bibliometric Features**: Author profiles, citation metrics, citation networks (requires optional dependencies)
-- **PRISMA 2020 Compliance**: Automatic PRISMA-compliant reports and diagrams
-- **LLM-Powered Screening**: Intelligent screening with cost optimization
-- **Screening Safeguards**: Automatic detection of low inclusion rates with borderline paper identification
-- **Structured Data Extraction**: Pydantic schemas for type-safe extraction
-- **Quality Assessment**: Risk of bias (RoB 2, ROBINS-I) and GRADE assessments
-- **Automatic Checkpointing**: Resume from any phase, force fresh start with `--force-fresh`
-- **Text Humanization**: Style pattern extraction from eligible papers and LLM-based naturalness refinement
-- **Bibliometric Visualizations**: Charts and interactive network graphs
-- **Citation Management**: IEEE-formatted references and BibTeX export
-- **Export Formats**: LaTeX and Word document export
-- **Manubot Integration**: Export to Manubot structure for collaborative writing
-- **Automatic Citation Resolution**: Resolve citations from DOI, PubMed ID, arXiv ID
-- **Multi-Journal Support**: Generate submission packages for multiple journals
-- **Submission Package Builder**: Complete packages with all required files
-- **CSL Citation Styles**: Support for IEEE, APA, Nature, PLOS, and more
-- **Enhanced Output Formatting**: Rich console formatting for improved readability in verbose mode, including formatted PRISMA warnings and LLM call displays
-
-## Bibliometric Features (Optional)
-
-The system includes enhanced bibliometric capabilities powered by pybliometrics (Scopus) and scholarly (Google Scholar). These features are optional and require additional dependencies.
-
-### Installation
-
-Install bibliometric dependencies:
-
-```bash
-pip install -e ".[bibliometrics]"
-# or
-pip install pybliometrics scholarly
-```
-
-### Features
-
-**Enhanced Scopus Connector:**
-- Author profile retrieval with h-index, citation counts, coauthors
-- Affiliation details (institution, country, city)
-- Subject area classifications
-- Citation metrics per author
-
-**Google Scholar Connector:**
-- Publication search
-- Author search and profiles
-- Citation tracking (find papers citing a given paper)
-- Related articles discovery
-
-**Author Service:**
-- Unified interface for author retrieval across databases
-- Author profile aggregation from multiple sources
-- Bibliometric metrics collection
-
-**Citation Network Builder:**
-- Build citation networks from papers
-- Track citation relationships
-- Export network graphs for visualization
-
-### Configuration
-
-Enable bibliometric features in `config/workflow.yaml`:
-
-```yaml
-workflow:
-  databases: ["PubMed", "arXiv", "Semantic Scholar", "Crossref", "ACM", "Google Scholar"]
-  
-  # Bibliometrics settings
-  bibliometrics:
-    enabled: true
-    include_author_metrics: true
-    include_citation_networks: true
-    include_subject_areas: true
-    include_coauthors: true
-    include_affiliations: true
-  
-  # Google Scholar specific settings
-  google_scholar:
-    enabled: true
-    use_proxy: true  # Highly recommended to avoid CAPTCHAs
-    proxy_type: "scraperapi"  # Options: scraperapi, free, none
-```
-
-### Usage Examples
-
-**Retrieve Author Profile:**
-
-```python
-from src.search.author_service import AuthorService
-from src.search.database_connectors import ScopusConnector
-
-# Create connectors
-scopus = ScopusConnector(api_key="your_scopus_key")
-connectors = {"Scopus": scopus}
-
-# Create author service
-author_service = AuthorService(connectors)
-
-# Get author by ID
-author = author_service.get_author("12345678", database="Scopus")
-print(f"Author: {author.name}, h-index: {author.h_index}")
-
-# Search authors
-authors = author_service.search_author("John Smith", database="Scopus")
-```
-
-**Build Citation Network:**
-
-```python
-from src.search.citation_network import CitationNetworkBuilder
-from src.search.connectors.google_scholar_connector import GoogleScholarConnector
-
-# Create citation network builder
-gs_connector = GoogleScholarConnector(use_proxy=True)
-network_builder = CitationNetworkBuilder(google_scholar_connector=gs_connector)
-
-# Add papers and build network
-network_data = network_builder.build_network_from_papers(papers)
-stats = network_builder.get_citation_statistics()
-
-# Export as NetworkX graph
-G = network_builder.export_networkx_graph()
-```
-
-**Enhanced Scopus Search:**
-
-```python
-from src.search.database_connectors import ScopusConnector
-
-scopus = ScopusConnector(api_key="your_key")
-
-# Search papers (now includes citation_count, subject_areas, eid)
-papers = scopus.search("machine learning", max_results=10)
-
-# Retrieve author by ID
-author = scopus.get_author_by_id("12345678")
-
-# Retrieve affiliation details
-affiliation = scopus.get_affiliation_by_id("60105007")
-
-# Search authors
-authors = scopus.search_authors("AUTHLAST(Smith) AND AUTHFIRST(John)")
-```
-
-## Examples
-
-### Citation Resolution
-
-Resolve citations during workflow:
-
-```bash
-# Resolve single citation
-python main.py --resolve-citation doi:10.1038/nbt.3780
-
-# Use in manuscript (auto-resolved if enabled)
-# Write: "Previous work [@doi:10.1038/nbt.3780] showed..."
-# System resolves to: "Previous work [1] showed..."
-```
-
-### Multi-Journal Submission
-
-Generate packages for multiple journals:
-
-```python
-from src.export.submission_package import SubmissionPackageBuilder
-from pathlib import Path
-
-builder = SubmissionPackageBuilder(Path("data/outputs"))
-packages = builder.build_for_multiple_journals(
-    workflow_outputs,
-    journals=["ieee", "nature", "plos"],
-    manuscript_markdown=Path("data/outputs/final_report.md"),
-)
-
-for journal, package_dir in packages.items():
-    print(f"{journal}: {package_dir}")
-```
-
-### Custom Template
-
-Create and use custom journal template:
-
-```python
-from src.export.template_manager import TemplateManager
-
-manager = TemplateManager()
-template_content = """
-\\documentclass{article}
-\\usepackage{...}
-\\begin{document}
-$body$
-\\end{document}
-"""
-manager.create_custom_template("myjournal", template_content)
-```
-
-### Git Workflow
-
-Version control for manuscript:
-
-```python
-from src.version_control.git_manager import GitManuscriptManager
-from pathlib import Path
-
-# Initialize repository
-git_manager = GitManuscriptManager(Path("data/outputs/manuscript"))
-git_manager.initialize_repo()
-
-# Make changes to manuscript files...
-
-# Commit changes
-git_manager.commit_changes("Updated introduction section")
-
-# Create revision branch
-git_manager.create_branch("revision-round-1")
-git_manager.commit_changes("Addressed reviewer comments")
-```
-
-### Complete Workflow with Manuscript Pipeline
-
-```bash
-# Run full workflow with Manubot export and submission package
-python main.py --manubot-export --build-package --journal ieee
-
-# Or enable in config/workflow.yaml and run normally
-python main.py
-```
+See [Troubleshooting Guide](docs/TROUBLESHOOTING.md) for detailed solutions to common issues.
 
 ## License
 
 MIT
+
+## Recent Changes
+
+### Version 0.1.0
+
+**Quality Assessment Auto-Fill**
+- Automatic LLM-based quality assessment filling (enabled by default)
+- CLI flags: `--no-auto-fill-qa` to disable, `--auto-fill-qa` to enable
+- Configuration via `config/workflow.yaml` with `quality_assessment.auto_fill: true/false`
+- Graceful fallback to manual assessment mode if auto-fill fails
+
+**Enhanced Error Handling**
+- Graceful handling of ACM Digital Library 403 errors with automatic fallback
+- Improved error handling across all database connectors
+- Fixed optional field handling for methodology and other optional extraction fields
+
+**Improved Data Extraction**
+- Optional fields support: Methodology and other fields properly optional in extraction schemas
+- Better null handling for missing or null values in extracted data
