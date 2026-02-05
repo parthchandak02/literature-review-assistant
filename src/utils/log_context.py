@@ -5,8 +5,11 @@ Log context management for adding context to logs.
 import logging
 from contextlib import contextmanager
 import time
+from rich.rule import Rule
+from rich.console import Console
 
 logger = logging.getLogger(__name__)
+console = Console()
 
 
 class LogContext:
@@ -94,9 +97,11 @@ def workflow_phase_context(phase: str, **extra_context):
     context = {"phase": phase, **extra_context}
 
     with LogContext(**context):
+        console.print(Rule(f"[dim]Phase: {phase}[/dim]", style="dim"))
         logger.info(f"=== Phase: {phase} ===")
         try:
             yield
+            console.print(Rule(f"[dim]Phase {phase} completed[/dim]", style="dim"))
             logger.info(f"=== Phase {phase} completed ===")
         except Exception as e:
             logger.error(f"=== Phase {phase} failed: {e} ===", exc_info=True)

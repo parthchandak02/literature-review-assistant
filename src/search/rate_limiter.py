@@ -88,6 +88,7 @@ RATE_LIMITERS = {
     "IEEE Xplore": RateLimiter(max_requests=2.0, time_window=1.0),  # Conservative for web scraping
     "ACM": RateLimiter(max_requests=2.0, time_window=1.0),  # Conservative for web scraping
     "Springer": RateLimiter(max_requests=2.0, time_window=1.0),  # Conservative for web scraping
+    "Perplexity": RateLimiter(max_requests=5.0, time_window=1.0),  # Conservative limit for Search API
 }
 
 

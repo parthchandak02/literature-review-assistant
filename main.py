@@ -82,14 +82,10 @@ def parse_args():
     parser.add_argument(
         "--log-file",
         type=str,
+        nargs='?',
+        const='logs/workflow.log',
         default=None,
-        help="Path to log file (enables file logging if specified, default: logs/workflow.log if --log-to-file is used)",
-    )
-
-    parser.add_argument(
-        "--log-to-file",
-        action="store_true",
-        help="Enable file logging to default location (logs/workflow.log)",
+        help="Enable file logging. Use --log-file to log to default location (logs/workflow.log) or --log-file <path> to specify custom path",
     )
 
     parser.add_argument("--no-metrics", action="store_true", help="Disable metrics display")
@@ -100,6 +96,12 @@ def parse_args():
         "--test-databases",
         action="store_true",
         help="Test database connectors and exit (does not run workflow)",
+    )
+
+    parser.add_argument(
+        "--resume",
+        action="store_true",
+        help="Automatically find and resume from the latest checkpoint for this topic (this is the default behavior - flag makes it explicit)",
     )
 
     parser.add_argument(
@@ -263,7 +265,7 @@ def main():
         verbose = debug_level in [DebugLevel.DETAILED, DebugLevel.FULL]
 
     # Simplified log file handling: if --log-file is specified, enable file logging
-    log_to_file = args.log_to_file or args.log_file is not None
+    log_to_file = args.log_file is not None
     log_file = args.log_file if args.log_file is not None else "logs/workflow.log"
 
     # Setup logging
@@ -391,6 +393,10 @@ def main():
             start_phase = 1
         elif args.start_from_phase:
             start_phase = args.start_from_phase
+        elif args.resume:
+            # --resume flag: explicitly enable automatic checkpoint detection
+            # (this is the default behavior, but --resume makes it explicit)
+            start_phase = None  # Let automatic detection handle it
         
         results = manager.run(start_from_phase=start_phase)
 

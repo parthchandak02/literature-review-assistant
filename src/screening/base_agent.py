@@ -387,6 +387,7 @@ Output must be suitable for direct insertion into an academic publication withou
             prompt_preview = (
                 enhanced_prompt[:200] + "..." if len(enhanced_prompt) > 200 else enhanced_prompt
             )
+            console.print()
             console.print(
                 Panel(
                     f"[bold cyan]LLM Call[/bold cyan]\n"
@@ -414,38 +415,52 @@ Output must be suitable for direct insertion into an academic publication withou
                         temperature=self.temperature,
                     )
 
-                    # Track cost if enabled
-                    if self.debug_config.show_costs and hasattr(response, "usage"):
-                        from ..observability.cost_tracker import get_cost_tracker
-
-                        cost_tracker = get_cost_tracker()
-                        cost_tracker.record_call(
-                            "openai",
-                            model_to_use,
-                            type(
-                                "Usage",
-                                (),
-                                {
-                                    "prompt_tokens": response.usage.prompt_tokens,
-                                    "completion_tokens": response.usage.completion_tokens,
-                                    "total_tokens": response.usage.total_tokens,
-                                },
-                            )(),
-                            agent_name=self.role,
-                        )
-
                     duration = time.time() - call_start_time
                     content = response.choices[0].message.content or ""
                     tokens = response.usage.total_tokens if hasattr(response, "usage") else None
+
+                    # Track cost and calculate for display
+                    cost = 0.0
+                    if self.debug_config.show_costs and hasattr(response, "usage"):
+                        from ..observability.cost_tracker import get_cost_tracker, TokenUsage
+
+                        cost_tracker = get_cost_tracker()
+                        usage_obj = type(
+                            "Usage",
+                            (),
+                            {
+                                "prompt_tokens": response.usage.prompt_tokens,
+                                "completion_tokens": response.usage.completion_tokens,
+                                "total_tokens": response.usage.total_tokens,
+                            },
+                        )()
+                        cost_tracker.record_call(
+                            "openai",
+                            model_to_use,
+                            usage_obj,
+                            agent_name=self.role,
+                        )
+                        # Calculate cost for display
+                        cost = cost_tracker._calculate_cost(
+                            "openai",
+                            model_to_use,
+                            TokenUsage(
+                                prompt_tokens=response.usage.prompt_tokens,
+                                completion_tokens=response.usage.completion_tokens,
+                                total_tokens=response.usage.total_tokens,
+                            ),
+                        )
 
                     # Enhanced logging with Rich console
                     if self.debug_config.show_llm_calls or self.debug_config.enabled:
                         response_preview = content[:200] + "..." if len(content) > 200 else content
                         token_info = f"\n[yellow]Tokens:[/yellow] {tokens}" if tokens else ""
+                        cost_info = f"\n[yellow]Cost:[/yellow] ${cost:.6f}" if cost > 0 else ""
+                        console.print()
                         console.print(
                             Panel(
                                 f"[bold green]LLM Response[/bold green]\n"
-                                f"[yellow]Duration:[/yellow] {duration:.2f}s{token_info}\n"
+                                f"[yellow]Duration:[/yellow] {duration:.2f}s{token_info}{cost_info}\n"
                                 f"[yellow]Response preview:[/yellow]\n{response_preview}",
                                 title="[bold]← LLM Response[/bold]",
                                 border_style="green",
@@ -468,37 +483,52 @@ Output must be suitable for direct insertion into an academic publication withou
                         messages=[{"role": "user", "content": enhanced_prompt}],
                     )
 
-                    # Track cost if enabled
+                    duration = time.time() - call_start_time
+                    content = response.content[0].text if response.content else ""
+
+                    # Track cost and calculate for display
+                    cost = 0.0
                     if self.debug_config.show_costs and hasattr(response, "usage"):
-                        from ..observability.cost_tracker import get_cost_tracker
+                        from ..observability.cost_tracker import get_cost_tracker, TokenUsage
 
                         cost_tracker = get_cost_tracker()
+                        usage_obj = type(
+                            "Usage",
+                            (),
+                            {
+                                "input_tokens": response.usage.input_tokens,
+                                "output_tokens": response.usage.output_tokens,
+                                "total_tokens": response.usage.input_tokens
+                                + response.usage.output_tokens,
+                            },
+                        )()
                         cost_tracker.record_call(
                             "anthropic",
                             anthropic_model,
-                            type(
-                                "Usage",
-                                (),
-                                {
-                                    "input_tokens": response.usage.input_tokens,
-                                    "output_tokens": response.usage.output_tokens,
-                                    "total_tokens": response.usage.input_tokens
-                                    + response.usage.output_tokens,
-                                },
-                            )(),
+                            usage_obj,
                             agent_name=self.role,
                         )
-
-                    duration = time.time() - call_start_time
-                    content = response.content[0].text if response.content else ""
+                        # Calculate cost for display
+                        cost = cost_tracker._calculate_cost(
+                            "anthropic",
+                            anthropic_model,
+                            TokenUsage(
+                                prompt_tokens=response.usage.input_tokens,
+                                completion_tokens=response.usage.output_tokens,
+                                total_tokens=response.usage.input_tokens
+                                + response.usage.output_tokens,
+                            ),
+                        )
 
                     # Enhanced logging with Rich console
                     if self.debug_config.show_llm_calls or self.debug_config.enabled:
                         response_preview = content[:200] + "..." if len(content) > 200 else content
+                        cost_info = f"\n[yellow]Cost:[/yellow] ${cost:.6f}" if cost > 0 else ""
+                        console.print()
                         console.print(
                             Panel(
                                 f"[bold green]LLM Response[/bold green]\n"
-                                f"[yellow]Duration:[/yellow] {duration:.2f}s\n"
+                                f"[yellow]Duration:[/yellow] {duration:.2f}s{cost_info}\n"
                                 f"[yellow]Response preview:[/yellow]\n{response_preview}",
                                 title="[bold]← LLM Response[/bold]",
                                 border_style="green",
@@ -525,24 +555,48 @@ Output must be suitable for direct insertion into an academic publication withou
                         config=config,
                     )
 
-                    # Track cost if enabled
-                    if self.debug_config.show_costs:
-                        from ..observability.cost_tracker import get_cost_tracker
-
-                        cost_tracker = get_cost_tracker()
-                        # Google GenAI cost tracking would need usage info if available
-                        # For now, we'll skip detailed cost tracking
-
                     duration = time.time() - call_start_time
                     content = response.text if hasattr(response, "text") else str(response)
+                    model_name = getattr(self, "llm_model_name", self.llm_model)
+
+                    # Extract usage_metadata and track cost
+                    cost = 0.0
+                    if self.debug_config.show_costs:
+                        from ..observability.cost_tracker import get_cost_tracker, TokenUsage, LLMCostTracker
+
+                        cost_tracker = get_cost_tracker()
+                        llm_cost_tracker = LLMCostTracker(cost_tracker)
+
+                        # Extract usage_metadata from Gemini response
+                        if hasattr(response, "usage_metadata") and response.usage_metadata:
+                            usage_metadata = response.usage_metadata
+                            prompt_tokens = getattr(usage_metadata, "prompt_token_count", 0)
+                            completion_tokens = getattr(usage_metadata, "candidates_token_count", 0)
+                            total_tokens = getattr(usage_metadata, "total_token_count", 0)
+
+                            # Track cost
+                            llm_cost_tracker.track_gemini_response(response, model_name, agent_name=self.role)
+
+                            # Calculate cost for display
+                            cost = cost_tracker._calculate_cost(
+                                "gemini",
+                                model_name,
+                                TokenUsage(
+                                    prompt_tokens=prompt_tokens,
+                                    completion_tokens=completion_tokens,
+                                    total_tokens=total_tokens,
+                                ),
+                            )
 
                     # Enhanced logging with Rich console
                     if self.debug_config.show_llm_calls or self.debug_config.enabled:
                         response_preview = content[:200] + "..." if len(content) > 200 else content
+                        cost_info = f"\n[yellow]Cost:[/yellow] ${cost:.6f}" if cost > 0 else ""
+                        console.print()
                         console.print(
                             Panel(
                                 f"[bold green]LLM Response[/bold green]\n"
-                                f"[yellow]Duration:[/yellow] {duration:.2f}s\n"
+                                f"[yellow]Duration:[/yellow] {duration:.2f}s{cost_info}\n"
                                 f"[yellow]Response preview:[/yellow]\n{response_preview}",
                                 title="[bold]← LLM Response[/bold]",
                                 border_style="green",
@@ -586,6 +640,7 @@ Output must be suitable for direct insertion into an academic publication withou
                     # Enhanced logging with Rich console
                     if self.debug_config.show_llm_calls or self.debug_config.enabled:
                         response_preview = content[:200] + "..." if len(content) > 200 else content
+                        console.print()
                         console.print(
                             Panel(
                                 f"[bold green]LLM Response[/bold green]\n"

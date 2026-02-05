@@ -13,7 +13,7 @@ import logging
 logger = logging.getLogger(__name__)
 
 
-# Pricing per 1M tokens (as of 2024, approximate)
+# Pricing per 1M tokens (as of 2026)
 PRICING = {
     "openai": {
         "gpt-4": {"input": 30.0, "output": 60.0},  # $30/$60 per 1M tokens
@@ -25,6 +25,18 @@ PRICING = {
         "claude-3-opus-20240229": {"input": 15.0, "output": 75.0},
         "claude-3-sonnet-20240229": {"input": 3.0, "output": 15.0},
         "claude-3-haiku-20240307": {"input": 0.25, "output": 1.25},
+    },
+    "gemini": {
+        "gemini-2.5-pro": {
+            "input_under_200k": 1.25,
+            "input_over_200k": 2.50,
+            "output_under_200k": 10.00,
+            "output_over_200k": 15.00,
+        },
+        "gemini-2.5-flash": {"input": 0.30, "output": 2.50},
+        "gemini-2.5-flash-lite": {"input": 0.10, "output": 0.40},
+        "gemini-1.5-pro": {"input": 1.25, "output": 5.00},
+        "gemini-1.5-flash": {"input": 0.075, "output": 0.30},
     },
 }
 
@@ -89,6 +101,12 @@ class CostTracker:
                 completion_tokens=getattr(usage, "output_tokens", 0),
                 total_tokens=getattr(usage, "input_tokens", 0) + getattr(usage, "output_tokens", 0),
             )
+        elif provider == "gemini":
+            token_usage = TokenUsage(
+                prompt_tokens=getattr(usage, "prompt_tokens", 0),
+                completion_tokens=getattr(usage, "completion_tokens", 0),
+                total_tokens=getattr(usage, "total_tokens", 0),
+            )
         else:
             token_usage = TokenUsage()
 
@@ -141,8 +159,27 @@ class CostTracker:
 
         pricing = provider_pricing[model_key]
 
-        input_cost = (token_usage.prompt_tokens / 1_000_000) * pricing["input"]
-        output_cost = (token_usage.completion_tokens / 1_000_000) * pricing["output"]
+        # Handle tiered pricing for Gemini Pro models
+        if provider == "gemini" and "pro" in model_key.lower():
+            # Gemini Pro models have tiered pricing based on prompt token count
+            threshold = 200000  # 200K tokens threshold
+            if token_usage.prompt_tokens <= threshold:
+                input_rate = pricing.get("input_under_200k", pricing.get("input", 0))
+                output_rate = pricing.get("output_under_200k", pricing.get("output", 0))
+            else:
+                input_rate = pricing.get("input_over_200k", pricing.get("input", 0))
+                output_rate = pricing.get("output_over_200k", pricing.get("output", 0))
+        elif provider == "gemini" and "flash" in model_key.lower():
+            # Flash models use simple pricing (no tiering)
+            input_rate = pricing.get("input", 0)
+            output_rate = pricing.get("output", 0)
+        else:
+            # Standard pricing for OpenAI and Anthropic
+            input_rate = pricing.get("input", 0)
+            output_rate = pricing.get("output", 0)
+
+        input_cost = (token_usage.prompt_tokens / 1_000_000) * input_rate
+        output_cost = (token_usage.completion_tokens / 1_000_000) * output_rate
 
         return input_cost + output_cost
 
@@ -210,6 +247,33 @@ class LLMCostTracker:
                 total_tokens=usage.input_tokens + usage.output_tokens,
             )
             self.cost_tracker.record_call("anthropic", model, token_usage, agent_name)
+
+    def track_gemini_response(self, response: Any, model: str, agent_name: Optional[str] = None):
+        """
+        Track cost from Gemini API response.
+
+        Args:
+            response: Gemini API response object
+            model: Model name
+            agent_name: Optional agent name
+        """
+        if hasattr(response, "usage_metadata") and response.usage_metadata:
+            usage_metadata = response.usage_metadata
+            prompt_tokens = getattr(usage_metadata, "prompt_token_count", 0)
+            completion_tokens = getattr(usage_metadata, "candidates_token_count", 0)
+            total_tokens = getattr(usage_metadata, "total_token_count", 0)
+
+            # Create usage object compatible with record_call
+            usage_obj = type(
+                "Usage",
+                (),
+                {
+                    "prompt_tokens": prompt_tokens,
+                    "completion_tokens": completion_tokens,
+                    "total_tokens": total_tokens,
+                },
+            )()
+            self.cost_tracker.record_call("gemini", model, usage_obj, agent_name)
 
 
 # Global cost tracker instance

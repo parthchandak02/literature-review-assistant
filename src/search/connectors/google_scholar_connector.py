@@ -16,11 +16,13 @@ from ..proxy_manager import ProxyManager
 logger = logging.getLogger(__name__)
 
 try:
-    import scholarly
+    from scholarly import scholarly
     from scholarly import ProxyGenerator
     SCHOLARLY_AVAILABLE = True
 except ImportError:
     SCHOLARLY_AVAILABLE = False
+    scholarly = None
+    ProxyGenerator = None
     # Don't log warning here - will be logged when connector is instantiated
 
 

@@ -134,13 +134,19 @@ class AbstractGenerator(BaseScreeningAgent):
         results_text = article_sections.get("results", "")
         discussion_text = article_sections.get("discussion", "")
         
-        # Extract protocol registration info from config if available
-        protocol_info = self.topic_context.get("protocol", {}) if isinstance(self.topic_context, dict) else {}
+        # Extract protocol registration info from config (unified location in topic section)
+        if self.config:
+            protocol_info = self.config.get("topic", {}).get("protocol", {})
+        else:
+            protocol_info = self.topic_context.get("protocol", {}) if isinstance(self.topic_context, dict) else {}
         registration_number = protocol_info.get("registration_number", "")
         registry = protocol_info.get("registry", "PROSPERO")
         
-        # Extract funding info from config if available
-        funding_info = self.topic_context.get("funding", {}) if isinstance(self.topic_context, dict) else {}
+        # Extract funding info from config (unified location in topic section)
+        if self.config:
+            funding_info = self.config.get("topic", {}).get("funding", {})
+        else:
+            funding_info = self.topic_context.get("funding", {}) if isinstance(self.topic_context, dict) else {}
         funding_source = funding_info.get("source", "No funding received")
 
         prompt = f"""Generate a PRISMA 2020 structured abstract for a systematic review with exactly 12 elements:

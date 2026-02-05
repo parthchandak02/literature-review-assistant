@@ -81,8 +81,18 @@ class HumanizationAgent(BaseScreeningAgent):
         Returns:
             Humanized text
         """
+        # Handle None or empty text
+        if text is None:
+            logger.warning(f"Received None text for {section_type} section, cannot humanize")
+            return ""
+        
+        if not isinstance(text, str):
+            logger.warning(f"Received non-string text for {section_type} section (type: {type(text)}), converting to string")
+            text = str(text)
+        
         if not text or len(text.strip()) < 50:
-            logger.warning(f"Text too short to humanize: {len(text)} chars")
+            text_length = len(text) if text else 0
+            logger.warning(f"Text too short to humanize: {text_length} chars")
             return text
 
         # Get initial naturalness score

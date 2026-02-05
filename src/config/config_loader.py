@@ -123,7 +123,7 @@ class ConfigLoader:
         Raises:
             ValueError: If configuration is invalid
         """
-        required_sections = ["topic", "agents", "workflow", "criteria", "output"]
+        required_sections = ["topic", "agents", "workflow", "output"]
 
         for section in required_sections:
             if section not in config:
@@ -134,6 +134,10 @@ class ConfigLoader:
         if isinstance(topic_config, dict):
             if "topic" not in topic_config:
                 raise ValueError("Topic configuration must include 'topic' field")
+            # Check if criteria are in topic section (unified location)
+            if "inclusion" in topic_config and "exclusion" in topic_config:
+                if not isinstance(topic_config["inclusion"], list) or not isinstance(topic_config["exclusion"], list):
+                    raise ValueError("Topic inclusion/exclusion must be lists")
         elif not isinstance(topic_config, str):
             raise ValueError("Topic must be a string or dictionary")
 
@@ -146,10 +150,18 @@ class ConfigLoader:
         if "databases" not in workflow:
             raise ValueError("Workflow must include 'databases' list")
 
-        # Validate criteria
-        criteria = config["criteria"]
-        if "inclusion" not in criteria or "exclusion" not in criteria:
-            raise ValueError("Criteria must include 'inclusion' and 'exclusion' lists")
+        # Validate criteria (must be in topic section)
+        topic_has_criteria = (
+            isinstance(topic_config, dict) and 
+            "inclusion" in topic_config and 
+            "exclusion" in topic_config
+        )
+        
+        if not topic_has_criteria:
+            raise ValueError("No inclusion/exclusion criteria found. Add them to topic.inclusion and topic.exclusion sections.")
+        
+        if not isinstance(topic_config["inclusion"], list) or not isinstance(topic_config["exclusion"], list):
+            raise ValueError("Topic inclusion/exclusion must be lists")
 
     def get_config(self) -> Dict[str, Any]:
         """
