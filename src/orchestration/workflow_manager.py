@@ -16,6 +16,8 @@ from datetime import datetime
 load_dotenv()
 
 from rich.console import Console
+from rich.panel import Panel
+from rich.rule import Rule
 from rich.progress import (
     Progress,
     BarColumn,
@@ -61,6 +63,8 @@ from src.utils.pdf_retriever import PDFRetriever
 from src.utils.screening_validator import ScreeningValidator, ScreeningStage
 from src.utils.state_serialization import StateSerializer
 from src.enrichment.paper_enricher import PaperEnricher
+from src.search.bibliometric_enricher import BibliometricEnricher
+from src.search.author_service import AuthorService
 from .phase_registry import PhaseRegistry, PhaseDefinition
 from .checkpoint_manager import CheckpointManager
 from .phase_executor import PhaseExecutor
@@ -128,6 +132,33 @@ class WorkflowManager:
         
         # Initialize paper enricher
         self.paper_enricher = PaperEnricher()
+        
+        # Initialize bibliometric enricher if enabled
+        bibliometrics_config = self.config.get("workflow", {}).get("bibliometrics", {})
+        bibliometrics_enabled = bibliometrics_config.get("enabled", False)
+        
+        self.bibliometric_enricher = None
+        if bibliometrics_enabled:
+            # Get connectors from searcher for AuthorService
+            connectors_dict = {}
+            for connector in self.searcher.connectors:
+                db_name = connector.get_database_name()
+                connectors_dict[db_name] = connector
+            
+            # Create AuthorService with available connectors
+            author_service = AuthorService(connectors_dict) if connectors_dict else None
+            
+            # Initialize BibliometricEnricher
+            self.bibliometric_enricher = BibliometricEnricher(
+                author_service=author_service,
+                enabled=True,
+                include_author_metrics=bibliometrics_config.get("include_author_metrics", True),
+                include_citation_networks=bibliometrics_config.get("include_citation_networks", False),
+                include_subject_areas=bibliometrics_config.get("include_subject_areas", True),
+            )
+            logger.info("Bibliometric enrichment enabled")
+        else:
+            logger.debug("Bibliometric enrichment disabled in config")
         
         # Checkpoint management
         self.save_checkpoints = True  # Can be disabled via CLI
@@ -485,16 +516,19 @@ class WorkflowManager:
             return value.get("enabled", False) if isinstance(value, dict) else bool(value)
         return True
     
-    def _determine_start_phase(self, checkpoint: Dict[str, Any]) -> Optional[int]:
+    def _determine_start_phase(self, checkpoint: Optional[Dict[str, Any]]) -> Optional[int]:
         """
         Determine start phase from checkpoint.
         
         Args:
-            checkpoint: Checkpoint dictionary with latest_phase
+            checkpoint: Checkpoint dictionary with latest_phase, or None
             
         Returns:
             Phase number to start from, or None
         """
+        if checkpoint is None:
+            return None
+        
         # Map phase name to phase number (next phase to run)
         phase_to_next_number = {
             "search_databases": 3,  # Next: deduplication
@@ -509,6 +543,7 @@ class WorkflowManager:
             "article_writing": 11,  # Next: report_generation
             "report_generation": 12,  # Next: export/search_strategies
             "manubot_export": 18,  # Next: submission_package
+            "submission_package": 19,  # All phases complete - skip everything
         }
         return phase_to_next_number.get(checkpoint.get("latest_phase"), None)
 
@@ -523,6 +558,10 @@ class WorkflowManager:
             Dictionary with workflow results and output paths
         """
         workflow_start = time.time()
+        console.print()
+        console.print(Rule("[bold cyan]Starting Systematic Review Workflow[/bold cyan]", style="cyan"))
+        console.print(f"[bold]Topic:[/bold] {self.topic_context.topic}")
+        console.print()
         logger.info("=" * 60)
         logger.info("Starting systematic review workflow")
         logger.info(f"Topic: {self.topic_context.topic}")
@@ -531,6 +570,17 @@ class WorkflowManager:
         if start_from_phase is None and self.save_checkpoints:
             existing_checkpoint = self.checkpoint_manager.find_by_topic(self.topic_context.topic)
             if existing_checkpoint:
+                console.print()
+                console.print(Panel(
+                    f"[bold green]Found existing checkpoint for this topic![/bold green]\n\n"
+                    f"[bold]Workflow ID:[/bold] {existing_checkpoint['workflow_id']}\n"
+                    f"[bold]Latest phase:[/bold] {existing_checkpoint['latest_phase']}\n\n"
+                    f"[dim]Resuming from checkpoint...[/dim]",
+                    title="[bold green]Checkpoint Detected[/bold green]",
+                    border_style="green",
+                    padding=(1, 2)
+                ))
+                console.print()
                 logger.info("=" * 60)
                 logger.info("Found existing checkpoint for this topic!")
                 logger.info(f"  Workflow ID: {existing_checkpoint['workflow_id']}")
@@ -590,6 +640,14 @@ class WorkflowManager:
                 logger.info(f"Checkpoint dependency chain for '{existing_checkpoint['latest_phase']}': {phases_to_load}")
                 
                 # Load checkpoints in dependency order
+                console.print()
+                console.print(Panel(
+                    f"[bold cyan]Loading {len(phases_to_load)} checkpoint(s)...[/bold cyan]",
+                    border_style="cyan",
+                    padding=(1, 2)
+                ))
+                console.print()
+                
                 loaded_phases = []
                 serializer = StateSerializer()
                 
@@ -598,8 +656,33 @@ class WorkflowManager:
                 accumulated_state = {"data": {}}
                 
                 for phase in phases_to_load:
+                    # Special handling for article_writing phase - check for section-level checkpoints
+                    if phase == "article_writing":
+                        section_checkpoints = self._load_existing_sections()
+                        if section_checkpoints:
+                            logger.info(f"Found {len(section_checkpoints)} article section checkpoints")
+                            # Load section checkpoints even if phase-level doesn't exist
+                            accumulated_state["data"]["article_sections"] = section_checkpoints
+                            loaded_phases.append(phase)
+                            console.print(f"[green]✓[/green] Loaded: [cyan]{phase}[/cyan] ({len(section_checkpoints)} sections)")
+                            logger.info(f"Loaded {len(section_checkpoints)} article sections from checkpoints")
+                            continue
+                    
+                    # Try to load phase-level checkpoint
                     checkpoint_file = checkpoint_dir / f"{phase}_state.json"
                     exists = checkpoint_file.exists()
+                    
+                    # If checkpoint doesn't exist locally, try to find fallback in related workflows
+                    if not exists:
+                        logger.debug(f"Missing checkpoint: {phase}, searching for fallback...")
+                        fallback_checkpoint = self.checkpoint_manager._find_fallback_checkpoint(
+                            phase, self.topic_context.topic
+                        )
+                        if fallback_checkpoint:
+                            checkpoint_file = fallback_checkpoint
+                            exists = True
+                            logger.info(f"Using fallback checkpoint for {phase} from {fallback_checkpoint.parent.name}")
+                    
                     if exists:
                         logger.debug(f"Found checkpoint: {phase}")
                         try:
@@ -621,6 +704,7 @@ class WorkflowManager:
                                     accumulated_state[key] = checkpoint_data[key]
                             
                             loaded_phases.append(phase)
+                            console.print(f"[green]✓[/green] Loaded: [cyan]{phase}[/cyan]")
                             logger.info(f"Loaded checkpoint data from: {phase}")
                         except Exception as e:
                             logger.error(f"Failed to load checkpoint file {phase}: {e}", exc_info=True)
@@ -629,9 +713,25 @@ class WorkflowManager:
                         logger.debug(f"Missing checkpoint: {phase} (will skip, may use data from later phases)")
                 
                 if not loaded_phases:
-                    logger.error("Failed to load any checkpoints! Starting from scratch.")
-                    existing_checkpoint = None  # Reset to start fresh
+                    # Check if we have any useful data (like article sections) before giving up
+                    has_article_sections = "article_sections" in accumulated_state.get("data", {})
+                    has_any_data = bool(accumulated_state.get("data", {}))
+                    
+                    if has_article_sections or has_any_data:
+                        logger.warning("No phase-level checkpoints loaded, but found partial data. Continuing with available state.")
+                        loaded_phases.append("partial")  # Mark as having partial data
+                    else:
+                        logger.error("Failed to load any checkpoints! Starting from scratch.")
+                        existing_checkpoint = None  # Reset to start fresh
                 else:
+                    console.print()
+                    console.print(Panel(
+                        f"[bold green]Successfully loaded {len(loaded_phases)} checkpoint(s)[/bold green]\n\n"
+                        f"[dim]{', '.join(loaded_phases)}[/dim]",
+                        border_style="green",
+                        padding=(1, 2)
+                    ))
+                    console.print()
                     logger.info(f"Successfully loaded {len(loaded_phases)} checkpoint(s) out of {len(phases_to_load)} attempted: {', '.join(loaded_phases)}")
                     if len(loaded_phases) < len(phases_to_load):
                         missing = set(phases_to_load) - set(loaded_phases)
@@ -657,10 +757,25 @@ class WorkflowManager:
                         )
                         
                         # Populate results["outputs"] with checkpoint data if available
+                        # Try loading from accumulated_state first (for backward compatibility)
+                        article_sections = {}
                         if "article_sections" in accumulated_state.get("data", {}):
+                            article_sections = accumulated_state["data"]["article_sections"]
+                        
+                        # Also load from individual section checkpoint files (new approach)
+                        # This ensures we get all sections even if accumulated_state is incomplete
+                        section_checkpoints = self._load_existing_sections()
+                        if section_checkpoints:
+                            # Merge with any sections from accumulated_state (section files take precedence)
+                            article_sections.update(section_checkpoints)
+                        
+                        if article_sections:
                             if not hasattr(self, "_results"):
                                 self._results = {"outputs": {}}
-                            self._results["outputs"]["article_sections"] = accumulated_state["data"]["article_sections"]
+                            self._results["outputs"]["article_sections"] = article_sections
+                            # Store article sections for use in _write_article resume
+                            self._article_sections = article_sections
+                            logger.info(f"Loaded {len(article_sections)} article sections for resume: {', '.join(article_sections.keys())}")
                     except Exception as load_error:
                         logger.warning(f"Error loading accumulated state: {load_error}", exc_info=True)
                         # Try manual fallback loading from accumulated_state
@@ -754,25 +869,47 @@ class WorkflowManager:
                             )
                 
                 # Update workflow_id and checkpoint_dir from checkpoint
-                latest_checkpoint_file = checkpoint_dir / f"{existing_checkpoint['latest_phase']}_state.json"
-                if latest_checkpoint_file.exists():
-                    latest_checkpoint_data = self.checkpoint_manager.load_phase(str(latest_checkpoint_file))
-                    if latest_checkpoint_data and "workflow_id" in latest_checkpoint_data:
-                        self.workflow_id = latest_checkpoint_data["workflow_id"]
-                        self.checkpoint_dir = Path("data/checkpoints") / self.workflow_id
-                        self.checkpoint_manager.checkpoint_dir = self.checkpoint_dir
-                        
-                        # Update output directory to match workflow_id and ensure it exists
-                        base_output_dir = Path(self.config.get("output", {}).get("directory", "data/outputs"))
-                        workflow_output_dir = base_output_dir / self.workflow_id
-                        workflow_output_dir.mkdir(parents=True, exist_ok=True)
-                        self.output_dir = workflow_output_dir
-                        # Update ChartGenerator to use correct output directory
-                        self.chart_generator.output_dir = workflow_output_dir
+                if existing_checkpoint is not None:
+                    latest_checkpoint_file = checkpoint_dir / f"{existing_checkpoint['latest_phase']}_state.json"
+                    if latest_checkpoint_file.exists():
+                        latest_checkpoint_data = self.checkpoint_manager.load_phase(str(latest_checkpoint_file))
+                        if latest_checkpoint_data and "workflow_id" in latest_checkpoint_data:
+                            self.workflow_id = latest_checkpoint_data["workflow_id"]
+                            self.checkpoint_dir = Path("data/checkpoints") / self.workflow_id
+                            self.checkpoint_manager.checkpoint_dir = self.checkpoint_dir
+                            
+                            # Update output directory to match workflow_id and ensure it exists
+                            base_output_dir = Path(self.config.get("output", {}).get("directory", "data/outputs"))
+                            workflow_output_dir = base_output_dir / self.workflow_id
+                            workflow_output_dir.mkdir(parents=True, exist_ok=True)
+                            self.output_dir = workflow_output_dir
+                            # Update ChartGenerator to use correct output directory
+                            self.chart_generator.output_dir = workflow_output_dir
                 
                 # Determine start phase from checkpoint
                 start_from_phase = self._determine_start_phase(existing_checkpoint)
-                if start_from_phase:
+                if start_from_phase and existing_checkpoint is not None:
+                    resume_info_lines = [
+                        f"[bold cyan]Resuming from phase {start_from_phase}[/bold cyan]",
+                        "",
+                        f"[bold]Completed phase:[/bold] {existing_checkpoint['latest_phase']}",
+                        f"[bold]Loaded state:[/bold] {len(self.all_papers)} papers, "
+                        f"{len(self.unique_papers)} unique, {len(self.screened_papers)} screened"
+                    ]
+                    if self.title_abstract_results:
+                        resume_info_lines.append(f"[dim]Found {len(self.title_abstract_results)} title/abstract screening results - will reuse[/dim]")
+                    if self.fulltext_results:
+                        resume_info_lines.append(f"[dim]Found {len(self.fulltext_results)} fulltext screening results - will reuse[/dim]")
+                    
+                    console.print()
+                    console.print(Panel(
+                        "\n".join(resume_info_lines),
+                        title="[bold cyan]Resume Information[/bold cyan]",
+                        border_style="cyan",
+                        padding=(1, 2)
+                    ))
+                    console.print()
+                    
                     logger.info(f"Resuming from phase {start_from_phase} (completed: {existing_checkpoint['latest_phase']})")
                     logger.info(f"Loaded state: {len(self.all_papers)} papers, {len(self.unique_papers)} unique, {len(self.screened_papers)} screened")
                     if self.title_abstract_results:
@@ -814,6 +951,15 @@ class WorkflowManager:
             article_sections = {}
             report_path = None
             
+            # Load report_path from checkpoint if resuming
+            if start_from_phase:
+                report_path = getattr(self, "_report_path", None)
+                if report_path is None:
+                    # Try to find final_report.md in output directory
+                    potential_report = self.output_dir / "final_report.md"
+                    if potential_report.exists():
+                        report_path = str(potential_report)
+            
             for phase_name in execution_order:
                 phase = self.phase_registry.get_phase(phase_name)
                 if not phase:
@@ -821,10 +967,37 @@ class WorkflowManager:
                 
                 # Skip if before start phase
                 if start_from_phase and phase.phase_number < start_from_phase:
+                    # Display prominent Rich Panel for checkpoint-skipped phase
+                    console.print()
+                    console.print(Panel(
+                        f"[bold yellow]SKIPPED[/bold yellow] - Already completed\n\n"
+                        f"{phase.description or phase_name}\n\n"
+                        f"[dim]Phase {phase.phase_number} - Completed in checkpoint[/dim]\n"
+                        f"[dim]Resuming from phase {start_from_phase}[/dim]",
+                        title=f"[bold yellow]Phase {phase.phase_number}: {phase_name}[/bold yellow]",
+                        border_style="yellow",
+                        padding=(1, 2),
+                        expand=False
+                    ))
+                    console.print()
+                    console.print()  # Extra newline for better separation
                     continue
                 
                 # Check if phase should run (config-based for optional phases)
                 if not self._should_run_phase(phase):
+                    # Display Rich Panel for config-disabled phase
+                    console.print()
+                    console.print(Panel(
+                        f"[bold cyan]SKIPPED[/bold cyan] - Disabled in configuration\n\n"
+                        f"{phase.description or phase_name}\n\n"
+                        f"[dim]Phase {phase.phase_number} - Optional phase disabled[/dim]",
+                        title=f"[bold cyan]Phase {phase.phase_number}: {phase_name}[/bold cyan]",
+                        border_style="cyan",
+                        padding=(1, 2),
+                        expand=False
+                    ))
+                    console.print()
+                    console.print()  # Extra newline for better separation
                     logger.info(f"Skipping phase '{phase_name}': disabled in config")
                     continue
                 
@@ -870,6 +1043,11 @@ class WorkflowManager:
                             results["outputs"]["submission_package"] = phase_result
                     
                     # Final inclusion is handled in _fulltext_screening_phase wrapper
+                    
+                    # Add visual separator between phases
+                    console.print()
+                    console.print(Rule(style="dim"))
+                    console.print()
                 
                 except Exception as e:
                     if phase.required:
@@ -950,30 +1128,43 @@ class WorkflowManager:
                     logger.info(f"Exported to additional formats: {export_paths}")
 
             # Phase 17: Manubot Export
-            manubot_config = self.config.get("manubot", {})
-            if manubot_config.get("enabled", False):
-                with workflow_phase_context("manubot_export"):
-                    manubot_path = self._export_manubot_structure(article_sections)
-                    if manubot_path:
-                        results["outputs"]["manubot_export"] = manubot_path
-                        self._manubot_export_path = manubot_path
-                        logger.info(f"Manubot structure exported: {manubot_path}")
-                        self._save_phase_state("manubot_export")
+            # Skip if all phases are complete (start_from_phase >= 19 means everything is done)
+            if not (start_from_phase and start_from_phase >= 19):
+                manubot_config = self.config.get("manubot", {})
+                if manubot_config.get("enabled", False):
+                    with workflow_phase_context("manubot_export"):
+                        manubot_path = self._export_manubot_structure(article_sections)
+                        if manubot_path:
+                            results["outputs"]["manubot_export"] = manubot_path
+                            self._manubot_export_path = manubot_path
+                            logger.info(f"Manubot structure exported: {manubot_path}")
+                            self._save_phase_state("manubot_export")
 
             # Phase 18: Submission Package Generation
-            submission_config = self.config.get("submission", {})
-            if submission_config.get("enabled", False):
-                with workflow_phase_context("submission_package"):
-                    package_path = self._generate_submission_package(
-                        results["outputs"],
-                        article_sections,
-                        report_path,
-                    )
-                    if package_path:
-                        results["outputs"]["submission_package"] = package_path
-                        self._submission_package_path = package_path
-                        logger.info(f"Submission package generated: {package_path}")
-                        self._save_phase_state("submission_package")
+            # Skip if all phases are complete (start_from_phase >= 19 means everything is done)
+            if not (start_from_phase and start_from_phase >= 19):
+                submission_config = self.config.get("submission", {})
+                if submission_config.get("enabled", False):
+                    with workflow_phase_context("submission_package"):
+                        # Load report_path from checkpoint if not set
+                        if report_path is None:
+                            report_path = getattr(self, "_report_path", None)
+                        if report_path is None:
+                            # Try to find final_report.md in output directory
+                            report_path = self.output_dir / "final_report.md"
+                            if not report_path.exists():
+                                report_path = None
+                        
+                        package_path = self._generate_submission_package(
+                            results["outputs"],
+                            article_sections,
+                            report_path,
+                        )
+                        if package_path:
+                            results["outputs"]["submission_package"] = package_path
+                            self._submission_package_path = package_path
+                            logger.info(f"Submission package generated: {package_path}")
+                            self._save_phase_state("submission_package")
 
             # Save workflow state
             state_path = self._save_workflow_state()
@@ -1047,19 +1238,13 @@ class WorkflowManager:
         """Build search strategy."""
         self.search_strategy = SearchStrategyBuilder()
 
-        # Get search terms from config
-        search_terms = self.config.get("search_terms", {})
-
-        # Merge with topic keywords if available
+        # Use topic keywords as the unified search term system
         if self.topic_context.keywords:
-            # Add topic keywords as a search term group
+            # Add topic keywords as a single search term group (all ORed together)
             self.search_strategy.add_term_group(
                 self.topic_context.topic.lower().replace(" ", "_"),
                 self.topic_context.keywords,
             )
-
-        for main_term, synonyms in search_terms.items():
-            self.search_strategy.add_term_group(main_term, synonyms)
 
         # Set date range
         date_range = self.config["workflow"].get("date_range", {})
@@ -1274,16 +1459,27 @@ class WorkflowManager:
 
         logger.info(f"Starting title/abstract screening of {len(self.unique_papers)} papers...")
 
-        # Get criteria from config
-        inclusion_criteria = self.config["criteria"]["inclusion"]
-        exclusion_criteria = self.config["criteria"]["exclusion"]
+        # Get criteria from config (unified location in topic section)
+        if "inclusion" not in self.config.get("topic", {}) or "exclusion" not in self.config.get("topic", {}):
+            raise ValueError("No inclusion/exclusion criteria found in config. Add them to topic.inclusion and topic.exclusion sections.")
+        
+        inclusion_criteria = self.config["topic"]["inclusion"]
+        exclusion_criteria = self.config["topic"]["exclusion"]
 
         # Apply template replacement to criteria
         inclusion_criteria = [self.topic_context.inject_into_prompt(c) for c in inclusion_criteria]
         exclusion_criteria = [self.topic_context.inject_into_prompt(c) for c in exclusion_criteria]
 
-        # Get search_terms from config for comprehensive keyword matching
-        search_terms = self.config.get("search_terms", {})
+        # Use topic keywords as unified keyword system
+        # Convert topic.keywords to search_terms format for _fallback_screen
+        topic_keywords = self.topic_context.keywords if hasattr(self.topic_context, 'keywords') else []
+        search_terms = {}
+        if topic_keywords:
+            # Create a single search term group from topic keywords
+            # This ensures all keywords are ORed together (not ANDed)
+            search_terms = {
+                "topic_keywords": topic_keywords
+            }
 
         # Get topic context for screening agent
         screening_context = self.topic_context.get_for_agent("screening_agent")
@@ -1306,7 +1502,7 @@ class WorkflowManager:
         ]
         
         for i, paper in enumerate(self.unique_papers, 1):
-            # Use enhanced fallback keyword matching with search_terms
+            # Use enhanced fallback keyword matching with topic keywords (unified system)
             keyword_result = self.title_screener._fallback_screen(
                 paper.title or "",
                 paper.abstract or "",
@@ -1619,9 +1815,12 @@ class WorkflowManager:
         logger.info(f"Starting full-text screening of {len(self.screened_papers)} papers...")
         logger.info("This may take a while as each paper requires an LLM call.")
 
-        # Get criteria from config
-        inclusion_criteria = self.config["criteria"]["inclusion"]
-        exclusion_criteria = self.config["criteria"]["exclusion"]
+        # Get criteria from config (unified location in topic section)
+        if "inclusion" not in self.config.get("topic", {}) or "exclusion" not in self.config.get("topic", {}):
+            raise ValueError("No inclusion/exclusion criteria found in config. Add them to topic.inclusion and topic.exclusion sections.")
+        
+        inclusion_criteria = self.config["topic"]["inclusion"]
+        exclusion_criteria = self.config["topic"]["exclusion"]
 
         # Apply template replacement to criteria
         inclusion_criteria = [self.topic_context.inject_into_prompt(c) for c in inclusion_criteria]
@@ -1920,7 +2119,14 @@ class WorkflowManager:
     def _enrich_papers(self):
         """Enrich papers with missing metadata (affiliations, countries, etc.)."""
         logger.info(f"Enriching {len(self.final_papers)} papers with missing metadata...")
+        
+        # First, enrich with Crossref data (affiliations, etc.)
         self.final_papers = self.paper_enricher.enrich_papers(self.final_papers)
+        
+        # Then, enrich with bibliometric data if enabled
+        if self.bibliometric_enricher:
+            self.final_papers = self.bibliometric_enricher.enrich_papers(self.final_papers)
+        
         logger.info("Paper enrichment complete")
 
     def _extract_data(self):
@@ -2091,11 +2297,21 @@ class WorkflowManager:
                     llm_provider = os.getenv("LLM_PROVIDER", "gemini")
                     llm_model = extraction_config.get("llm_model", "gemini-2.5-pro")
                     
+                    # Determine verbose mode for quality assessment
+                    is_verbose = self.debug_config.enabled and self.debug_config.level in [
+                        DebugLevel.DETAILED,
+                        DebugLevel.FULL,
+                    ]
+                    
+                    if is_verbose:
+                        logger.info("Verbose mode enabled - showing detailed LLM call information")
+                    
                     success = auto_fill_assessments(
                         template_path_str,
                         self.extracted_data,
                         llm_provider=llm_provider,
-                        llm_model=llm_model
+                        llm_model=llm_model,
+                        debug_config=self.debug_config
                     )
                     if success:
                         logger.info("Quality assessments auto-filled successfully!")
@@ -2335,14 +2551,140 @@ class WorkflowManager:
             logger.error(f"Error extracting style patterns: {e}", exc_info=True)
             self.style_patterns = {}
 
-    def _write_article(self) -> Dict[str, str]:
-        """Write all article sections."""
-        sections = {}
+    def _save_section_checkpoint(self, section_name: str, sections: Dict[str, str]) -> None:
+        """
+        Save checkpoint after a section completes.
+        
+        Args:
+            section_name: Name of the section (e.g., 'introduction', 'methods')
+            sections: Dictionary of all completed sections
+        """
+        if not self.save_checkpoints:
+            return
+        
+        writing_config = self.config.get("writing", {})
+        checkpoint_per_section = writing_config.get("checkpoint_per_section", True)
+        
+        if not checkpoint_per_section:
+            return
+        
+        try:
+            # Save individual section checkpoint file
+            checkpoint_data = {
+                "phase": "article_writing",
+                "section_name": section_name,
+                "timestamp": datetime.now().isoformat(),
+                "workflow_id": self.workflow_id,
+                "topic_context": self.topic_context.to_dict(),
+                "data": {
+                    "section_content": sections[section_name],
+                },
+                "style_patterns": self.style_patterns,
+                "prisma_counts": self.prisma_counter.get_counts(),
+            }
+            
+            checkpoint_file = self.checkpoint_dir / f"article_writing_{section_name}_state.json"
+            with open(checkpoint_file, "w") as f:
+                import json
+                json.dump(checkpoint_data, f, indent=2, default=str)
+            
+            logger.info(f"Saved checkpoint after {section_name} section completion: {checkpoint_file.name}")
+        except Exception as e:
+            logger.warning(f"Failed to save section checkpoint for {section_name}: {e}")
 
+    def _load_existing_sections(self) -> Dict[str, str]:
+        """
+        Load existing sections from checkpoint if available.
+        Scans for all article_writing_*_state.json files and loads each section individually.
+        
+        Returns:
+            Dictionary of existing sections, empty dict if none found
+        """
+        sections = {}
+        checkpoint_pattern = "article_writing_*_state.json"
+        
+        for checkpoint_file in self.checkpoint_dir.glob(checkpoint_pattern):
+            # Extract section name from filename: article_writing_introduction_state.json -> introduction
+            section_name = checkpoint_file.stem.replace("article_writing_", "").replace("_state", "")
+            
+            try:
+                import json
+                with open(checkpoint_file, "r") as f:
+                    checkpoint_data = json.load(f)
+                
+                # Validate workflow_id matches
+                if checkpoint_data.get("workflow_id") == self.workflow_id:
+                    if "data" in checkpoint_data and "section_content" in checkpoint_data["data"]:
+                        sections[section_name] = checkpoint_data["data"]["section_content"]
+                        logger.info(f"Loaded {section_name} section from checkpoint: {checkpoint_file.name}")
+                else:
+                    logger.debug(f"Skipping checkpoint {checkpoint_file.name} - workflow_id mismatch")
+            except Exception as e:
+                logger.warning(f"Failed to load checkpoint {checkpoint_file.name}: {e}")
+        
+        if sections:
+            logger.info(f"Found {len(sections)} existing sections: {', '.join(sections.keys())}")
+        
+        return sections
+
+    def _write_section_with_retry(
+        self,
+        section_name: str,
+        writer_func: callable,
+        fallback_func: callable,
+        *args,
+        **kwargs
+    ) -> str:
+        """
+        Write a section with retry logic.
+        
+        Args:
+            section_name: Name of the section
+            writer_func: Function to write the section
+            fallback_func: Fallback function if all retries fail
+            *args, **kwargs: Arguments to pass to writer_func
+            
+        Returns:
+            Section text (from writer or fallback)
+        """
+        writing_config = self.config.get("writing", {})
+        retry_count = writing_config.get("retry_count", 2)
+        max_attempts = retry_count + 1  # Initial attempt + retries
+        
+        for attempt in range(max_attempts):
+            try:
+                logger.info(f"Writing {section_name} section - attempt {attempt + 1}/{max_attempts}")
+                result = writer_func(*args, **kwargs)
+                if result is not None and result.strip():
+                    if attempt > 0:
+                        logger.info(f"{section_name} section succeeded on attempt {attempt + 1}")
+                    return result
+                else:
+                    logger.warning(f"{section_name} section returned empty result on attempt {attempt + 1}")
+            except Exception as e:
+                logger.warning(f"{section_name} section failed on attempt {attempt + 1}: {e}")
+            
+            # Immediate retry - no delay
+            if attempt < max_attempts - 1:
+                logger.info(f"Retrying {section_name} section immediately (attempt {attempt + 2}/{max_attempts})...")
+        
+        # All retries failed, use fallback
+        logger.error(f"All {max_attempts} attempts failed for {section_name} section, using fallback")
+        return fallback_func(*args, **kwargs)
+
+    def _write_article(self) -> Dict[str, str]:
+        """Write all article sections with checkpointing and retry support."""
+        # Load existing sections from checkpoint if resuming
+        sections = self._load_existing_sections()
+        completed_sections = list(sections.keys())
+        
         console.print()
         logger.info("Starting article writing phase...")
-        logger.info("This will generate Introduction, Methods, Results, and Discussion sections.")
-        logger.info("Each section requires an LLM call and may take some time.")
+        if completed_sections:
+            logger.info(f"Resuming from checkpoint - already completed: {', '.join(completed_sections)}")
+        else:
+            logger.info("This will generate Introduction, Methods, Results, and Discussion sections.")
+            logger.info("Each section requires an LLM call and may take some time.")
         console.print()
 
         # Extract style patterns before writing
@@ -2357,187 +2699,223 @@ class WorkflowManager:
         humanization_enabled = humanization_config.get("enabled", True) and self.humanization_agent is not None
 
         # Introduction
-        with console.status(
-            f"[bold cyan][1/4] Writing Introduction with {self.intro_writer.llm_model}..."
-        ):
-            research_question = self.topic_context.research_question or self.topic_context.topic
-            justification = (
-                self.topic_context.context or f"Systematic review of {self.topic_context.topic}"
-            )
-
-            self.handoff_protocol.create_handoff(
-                from_agent="extraction_agent",
-                to_agent="introduction_writer",
-                stage="writing",
-                topic_context=self.topic_context,
-                data={"research_question": research_question},
-                metadata={"section": "introduction"},
-            )
-
-            intro = self.intro_writer.write(
-                research_question, justification, topic_context=writing_context, style_patterns=self.style_patterns
-            )
-            
-            # Humanize if enabled
-            if humanization_enabled:
-                logger.debug("Humanizing introduction section...")
-                intro = self.humanization_agent.humanize_section(
-                    intro,
-                    "introduction",
-                    style_patterns=self.style_patterns,
-                    context={"domain": self.topic_context.domain, "topic": self.topic_context.topic},
+        if "introduction" not in sections:
+            with console.status(
+                f"[bold cyan][1/5] Writing Introduction with {self.intro_writer.llm_model}..."
+            ):
+                research_question = self.topic_context.research_question or self.topic_context.topic
+                justification = (
+                    self.topic_context.context or f"Systematic review of {self.topic_context.topic}"
                 )
-            
-            sections["introduction"] = intro
-        console.print()
-        console.print("[green]✓[/green] Introduction section complete")
-        console.print()
+
+                self.handoff_protocol.create_handoff(
+                    from_agent="extraction_agent",
+                    to_agent="introduction_writer",
+                    stage="writing",
+                    topic_context=self.topic_context,
+                    data={"research_question": research_question},
+                    metadata={"section": "introduction"},
+                )
+
+                intro = self._write_section_with_retry(
+                    "introduction",
+                    self.intro_writer.write,
+                    self.intro_writer._fallback_introduction,
+                    research_question,
+                    justification,
+                    topic_context=writing_context,
+                    style_patterns=self.style_patterns
+                )
+                
+                # Humanize if enabled
+                if humanization_enabled and intro:
+                    logger.debug("Humanizing introduction section...")
+                    intro = self.humanization_agent.humanize_section(
+                        intro,
+                        "introduction",
+                        style_patterns=self.style_patterns,
+                        context={"domain": self.topic_context.domain, "topic": self.topic_context.topic},
+                    )
+                
+                sections["introduction"] = intro
+                self._save_section_checkpoint("introduction", sections)
+            console.print()
+            console.print("[green]✓[/green] Introduction section complete")
+            console.print()
+        else:
+            logger.info("Introduction section already exists in checkpoint, skipping")
+            console.print()
+            console.print("[yellow]⊘[/yellow] Introduction section (already completed)")
+            console.print()
 
         # Methods
-        with console.status(
-            f"[bold cyan][2/4] Writing Methods with {self.methods_writer.llm_model}..."
-        ):
-            # Ensure search_strategy exists (rebuild if None, e.g., when resuming from checkpoint)
-            if self.search_strategy is None:
-                logger.warning("search_strategy is None, rebuilding it for article writing")
-                try:
-                    self._build_search_strategy()
-                    if self.search_strategy is None:
-                        raise RuntimeError("Failed to build search strategy - search_strategy is still None after _build_search_strategy()")
-                except Exception as e:
-                    logger.error(f"Failed to build search strategy: {e}", exc_info=True)
-                    raise RuntimeError(f"Cannot write Methods section without search strategy: {e}") from e
-            
-            search_strategy_desc = self.search_strategy.get_strategy_description()
-            databases = self.config["workflow"]["databases"]
-            inclusion_criteria = [
-                self.topic_context.inject_into_prompt(c)
-                for c in self.config["criteria"]["inclusion"]
-            ]
-            exclusion_criteria = [
-                self.topic_context.inject_into_prompt(c)
-                for c in self.config["criteria"]["exclusion"]
-            ]
+        if "methods" not in sections:
+            with console.status(
+                f"[bold cyan][2/5] Writing Methods with {self.methods_writer.llm_model}..."
+            ):
+                # Ensure search_strategy exists (rebuild if None, e.g., when resuming from checkpoint)
+                if self.search_strategy is None:
+                    logger.warning("search_strategy is None, rebuilding it for article writing")
+                    try:
+                        self._build_search_strategy()
+                        if self.search_strategy is None:
+                            raise RuntimeError("Failed to build search strategy - search_strategy is still None after _build_search_strategy()")
+                    except Exception as e:
+                        logger.error(f"Failed to build search strategy: {e}", exc_info=True)
+                        raise RuntimeError(f"Cannot write Methods section without search strategy: {e}") from e
+                
+                search_strategy_desc = self.search_strategy.get_strategy_description()
+                databases = self.config["workflow"]["databases"]
+                inclusion_criteria = [
+                    self.topic_context.inject_into_prompt(c)
+                    for c in self.config.get("topic", {}).get("inclusion", [])
+                ]
+                exclusion_criteria = [
+                    self.topic_context.inject_into_prompt(c)
+                    for c in self.config.get("topic", {}).get("exclusion", [])
+                ]
 
-            self.handoff_protocol.create_handoff(
-                from_agent="introduction_writer",
-                to_agent="methods_writer",
-                stage="writing",
-                topic_context=self.topic_context,
-                data={"databases": databases},
-                metadata={"section": "methods"},
-            )
-
-            # Get full search strategies for all databases
-            # Ensure search_strategy exists (should already be set above, but double-check)
-            if self.search_strategy is None:
-                logger.error("search_strategy is None when getting database queries - this should not happen")
-                raise RuntimeError("search_strategy is None - cannot get database queries")
-            full_search_strategies = self.search_strategy.get_database_queries()
-            # Filter to only databases that were actually searched
-            searched_db_strategies = {
-                db: query for db, query in full_search_strategies.items() if db in databases
-            }
-            
-            # Get protocol information from config
-            protocol_info = self.config.get("protocol", {})
-            
-            # Build automation details
-            automation_details = (
-                "Large language models (LLMs) were used to assist with: "
-                "(1) title/abstract screening for borderline cases after keyword pre-filtering, "
-                "(2) full-text screening, and "
-                "(3) structured data extraction. "
-                "All LLM outputs were verified and supplemented by human reviewers to ensure accuracy."
-            )
-
-            methods = self.methods_writer.write(
-                search_strategy_desc,
-                databases,
-                inclusion_criteria,
-                exclusion_criteria,
-                "Two-stage screening: title/abstract then full-text",
-                "Structured data extraction using LLM",
-                self.prisma_counter.get_counts(),
-                topic_context=writing_context,
-                full_search_strategies=searched_db_strategies,
-                protocol_info=protocol_info,
-                automation_details=automation_details,
-                style_patterns=self.style_patterns,
-                output_dir=str(self.output_dir),
-            )
-            
-            # Humanize if enabled
-            if humanization_enabled:
-                logger.debug("Humanizing methods section...")
-                methods = self.humanization_agent.humanize_section(
-                    methods,
-                    "methods",
-                    style_patterns=self.style_patterns,
-                    context={"domain": self.topic_context.domain, "topic": self.topic_context.topic},
+                self.handoff_protocol.create_handoff(
+                    from_agent="introduction_writer",
+                    to_agent="methods_writer",
+                    stage="writing",
+                    topic_context=self.topic_context,
+                    data={"databases": databases},
+                    metadata={"section": "methods"},
                 )
-            
-            sections["methods"] = methods
-        console.print()
-        console.print("[green]✓[/green] Methods section complete")
-        console.print()
+
+                # Get full search strategies for all databases
+                # Ensure search_strategy exists (should already be set above, but double-check)
+                if self.search_strategy is None:
+                    logger.error("search_strategy is None when getting database queries - this should not happen")
+                    raise RuntimeError("search_strategy is None - cannot get database queries")
+                full_search_strategies = self.search_strategy.get_database_queries()
+                # Filter to only databases that were actually searched
+                searched_db_strategies = {
+                    db: query for db, query in full_search_strategies.items() if db in databases
+                }
+                
+                # Get protocol information from config
+                protocol_info = self.config.get("protocol", {})
+                
+                # Build automation details
+                automation_details = (
+                    "Large language models (LLMs) were used to assist with: "
+                    "(1) title/abstract screening for borderline cases after keyword pre-filtering, "
+                    "(2) full-text screening, and "
+                    "(3) structured data extraction. "
+                    "All LLM outputs were verified and supplemented by human reviewers to ensure accuracy."
+                )
+
+                methods = self._write_section_with_retry(
+                    "methods",
+                    self.methods_writer.write,
+                    self.methods_writer._fallback_methods,
+                    search_strategy_desc,
+                    databases,
+                    inclusion_criteria,
+                    exclusion_criteria,
+                    "Two-stage screening: title/abstract then full-text",
+                    "Structured data extraction using LLM",
+                    self.prisma_counter.get_counts(),
+                    topic_context=writing_context,
+                    full_search_strategies=searched_db_strategies,
+                    protocol_info=protocol_info,
+                    automation_details=automation_details,
+                    style_patterns=self.style_patterns,
+                    output_dir=str(self.output_dir),
+                )
+                
+                # Humanize if enabled
+                if humanization_enabled and methods:
+                    logger.debug("Humanizing methods section...")
+                    methods = self.humanization_agent.humanize_section(
+                        methods,
+                        "methods",
+                        style_patterns=self.style_patterns,
+                        context={"domain": self.topic_context.domain, "topic": self.topic_context.topic},
+                    )
+                
+                sections["methods"] = methods
+                self._save_section_checkpoint("methods", sections)
+            console.print()
+            console.print("[green]✓[/green] Methods section complete")
+            console.print()
+        else:
+            logger.info("Methods section already exists in checkpoint, skipping")
+            console.print()
+            console.print("[yellow]⊘[/yellow] Methods section (already completed)")
+            console.print()
 
         # Results
-        with console.status(
-            f"[bold cyan][3/4] Writing Results with {self.results_writer.llm_model}..."
-        ):
-            key_findings = []
-            for data in self.extracted_data:
-                key_findings.extend(data.key_findings[:2])  # Top 2 findings per study
+        if "results" not in sections:
+            with console.status(
+                f"[bold cyan][3/5] Writing Results with {self.results_writer.llm_model}..."
+            ):
+                key_findings = []
+                for data in self.extracted_data:
+                    key_findings.extend(data.key_findings[:2])  # Top 2 findings per study
 
-            self.handoff_protocol.create_handoff(
-                from_agent="methods_writer",
-                to_agent="results_writer",
-                stage="writing",
-                topic_context=self.topic_context,
-                data={"extracted_data_count": len(self.extracted_data)},
-                metadata={"section": "results"},
-            )
-
-            # Get quality assessment data if available
-            risk_of_bias_summary = None
-            risk_of_bias_table = None
-            grade_assessments = None
-            grade_table = None
-            
-            if self.quality_assessment_data:
-                risk_of_bias_summary = self.quality_assessment_data.get("risk_of_bias_summary")
-                risk_of_bias_table = self.quality_assessment_data.get("risk_of_bias_table")
-                grade_assessments = self.quality_assessment_data.get("grade_summary")
-                grade_table = self.quality_assessment_data.get("grade_table")
-
-            results = self.results_writer.write(
-                self.extracted_data,
-                self.prisma_counter.get_counts(),
-                key_findings[:10],  # Top 10 findings
-                topic_context=writing_context,
-                risk_of_bias_summary=risk_of_bias_summary,
-                risk_of_bias_table=risk_of_bias_table,
-                grade_assessments=grade_assessments,
-                grade_table=grade_table,
-                style_patterns=self.style_patterns,
-                output_dir=str(self.output_dir),
-            )
-            
-            # Humanize if enabled
-            if humanization_enabled:
-                logger.debug("Humanizing results section...")
-                results = self.humanization_agent.humanize_section(
-                    results,
-                    "results",
-                    style_patterns=self.style_patterns,
-                    context={"domain": self.topic_context.domain, "topic": self.topic_context.topic},
+                self.handoff_protocol.create_handoff(
+                    from_agent="methods_writer",
+                    to_agent="results_writer",
+                    stage="writing",
+                    topic_context=self.topic_context,
+                    data={"extracted_data_count": len(self.extracted_data)},
+                    metadata={"section": "results"},
                 )
-            
-            sections["results"] = results
-        console.print()
-        console.print("[green]✓[/green] Results section complete")
-        console.print()
+
+                # Get quality assessment data if available
+                risk_of_bias_summary = None
+                risk_of_bias_table = None
+                grade_assessments = None
+                grade_table = None
+                
+                if self.quality_assessment_data:
+                    risk_of_bias_summary = self.quality_assessment_data.get("risk_of_bias_summary")
+                    risk_of_bias_table = self.quality_assessment_data.get("risk_of_bias_table")
+                    grade_assessments = self.quality_assessment_data.get("grade_summary")
+                    grade_table = self.quality_assessment_data.get("grade_table")
+
+                def results_fallback():
+                    return self.results_writer._fallback_results(self.extracted_data, self.prisma_counter.get_counts())
+                
+                results = self._write_section_with_retry(
+                    "results",
+                    self.results_writer.write,
+                    results_fallback,
+                    self.extracted_data,
+                    self.prisma_counter.get_counts(),
+                    key_findings[:10],  # Top 10 findings
+                    topic_context=writing_context,
+                    risk_of_bias_summary=risk_of_bias_summary,
+                    risk_of_bias_table=risk_of_bias_table,
+                    grade_assessments=grade_assessments,
+                    grade_table=grade_table,
+                    style_patterns=self.style_patterns,
+                    output_dir=str(self.output_dir),
+                )
+                
+                # Humanize if enabled
+                if humanization_enabled and results:
+                    logger.debug("Humanizing results section...")
+                    results = self.humanization_agent.humanize_section(
+                        results,
+                        "results",
+                        style_patterns=self.style_patterns,
+                        context={"domain": self.topic_context.domain, "topic": self.topic_context.topic},
+                    )
+                
+                sections["results"] = results
+                self._save_section_checkpoint("results", sections)
+            console.print()
+            console.print("[green]✓[/green] Results section complete")
+            console.print()
+        else:
+            logger.info("Results section already exists in checkpoint, skipping")
+            console.print()
+            console.print("[yellow]⊘[/yellow] Results section (already completed)")
+            console.print()
         
         # Collect generated files from results_writer (e.g., mermaid diagrams)
         generated_files = {}
@@ -2560,69 +2938,102 @@ class WorkflowManager:
         self._article_generated_files = generated_files
 
         # Discussion
-        with console.status(
-            f"[bold cyan][4/4] Writing Discussion with {self.discussion_writer.llm_model}..."
-        ):
-            self.handoff_protocol.create_handoff(
-                from_agent="results_writer",
-                to_agent="discussion_writer",
-                stage="writing",
-                topic_context=self.topic_context,
-                data={"key_findings_count": len(key_findings[:10])},
-                metadata={"section": "discussion"},
-            )
-
-            discussion = self.discussion_writer.write(
-                research_question,
-                key_findings[:10],
-                self.extracted_data,
-                [
-                    "Limited to English-language publications",
-                    "Potential publication bias",
-                ],
-                ["Implications for practice", "Future research directions"],
-                topic_context=writing_context,
-                style_patterns=self.style_patterns,
-            )
-            
-            # Humanize if enabled
-            if humanization_enabled:
-                logger.debug("Humanizing discussion section...")
-                discussion = self.humanization_agent.humanize_section(
-                    discussion,
-                    "discussion",
-                    style_patterns=self.style_patterns,
-                    context={"domain": self.topic_context.domain, "topic": self.topic_context.topic},
+        if "discussion" not in sections:
+            with console.status(
+                f"[bold cyan][4/5] Writing Discussion with {self.discussion_writer.llm_model}..."
+            ):
+                key_findings = []
+                for data in self.extracted_data:
+                    key_findings.extend(data.key_findings[:2])  # Top 2 findings per study
+                
+                research_question = self.topic_context.research_question or self.topic_context.topic
+                
+                self.handoff_protocol.create_handoff(
+                    from_agent="results_writer",
+                    to_agent="discussion_writer",
+                    stage="writing",
+                    topic_context=self.topic_context,
+                    data={"key_findings_count": len(key_findings[:10])},
+                    metadata={"section": "discussion"},
                 )
-            
-            sections["discussion"] = discussion
-        console.print()
-        console.print("[green]✓[/green] Discussion section complete")
-        console.print()
+
+                discussion = self._write_section_with_retry(
+                    "discussion",
+                    self.discussion_writer.write,
+                    self.discussion_writer._fallback_discussion,
+                    research_question,
+                    key_findings[:10],
+                    self.extracted_data,
+                    [
+                        "Limited to English-language publications",
+                        "Potential publication bias",
+                    ],
+                    ["Implications for practice", "Future research directions"],
+                    topic_context=writing_context,
+                    style_patterns=self.style_patterns,
+                )
+                
+                # Humanize if enabled
+                if humanization_enabled and discussion:
+                    logger.debug("Humanizing discussion section...")
+                    discussion = self.humanization_agent.humanize_section(
+                        discussion,
+                        "discussion",
+                        style_patterns=self.style_patterns,
+                        context={"domain": self.topic_context.domain, "topic": self.topic_context.topic},
+                    )
+                
+                sections["discussion"] = discussion
+                self._save_section_checkpoint("discussion", sections)
+            console.print()
+            console.print("[green]✓[/green] Discussion section complete")
+            console.print()
+        else:
+            logger.info("Discussion section already exists in checkpoint, skipping")
+            console.print()
+            console.print("[yellow]⊘[/yellow] Discussion section (already completed)")
+            console.print()
 
         # Abstract (generate after all sections are written)
-        with console.status(
-            "[bold cyan][5/5] Generating Abstract..."
-        ):
-            research_question = self.topic_context.research_question or self.topic_context.topic
-            abstract = self.abstract_generator.generate(
-                research_question, self.final_papers, sections, style_patterns=self.style_patterns
-            )
-            
-            # Humanize if enabled
-            if humanization_enabled:
-                logger.debug("Humanizing abstract...")
-                abstract = self.humanization_agent.humanize_section(
-                    abstract,
+        if "abstract" not in sections:
+            with console.status(
+                "[bold cyan][5/5] Generating Abstract..."
+            ):
+                research_question = self.topic_context.research_question or self.topic_context.topic
+                
+                def abstract_fallback():
+                    return self.abstract_generator._fallback_abstract(research_question, self.final_papers)
+                
+                abstract = self._write_section_with_retry(
                     "abstract",
-                    style_patterns=self.style_patterns,
-                    context={"domain": self.topic_context.domain, "topic": self.topic_context.topic},
+                    self.abstract_generator.generate,
+                    abstract_fallback,
+                    research_question,
+                    self.final_papers,
+                    sections,
+                    style_patterns=self.style_patterns
                 )
-            
-            sections["abstract"] = abstract
-        console.print()
-        console.print("[green]✓[/green] Abstract generation complete")
-        console.print()
+                
+                # Humanize if enabled
+                if humanization_enabled and abstract:
+                    logger.debug("Humanizing abstract...")
+                    abstract = self.humanization_agent.humanize_section(
+                        abstract,
+                        "abstract",
+                        style_patterns=self.style_patterns,
+                        context={"domain": self.topic_context.domain, "topic": self.topic_context.topic},
+                    )
+                
+                sections["abstract"] = abstract
+                self._save_section_checkpoint("abstract", sections)
+            console.print()
+            console.print("[green]✓[/green] Abstract generation complete")
+            console.print()
+        else:
+            logger.info("Abstract already exists in checkpoint, skipping")
+            console.print()
+            console.print("[yellow]⊘[/yellow] Abstract (already completed)")
+            console.print()
         console.print(
             "[bold green]Article writing phase complete - all 5 sections generated[/bold green]"
         )
@@ -2845,7 +3256,7 @@ class WorkflowManager:
             f.write("\n---\n\n")
 
             # Registration (PRISMA 2020: Other Information)
-            protocol_info = self.config.get("protocol", {})
+            protocol_info = self.config.get("topic", {}).get("protocol", {})
             f.write("## Registration\n\n")
             if protocol_info.get("registered", False):
                 registry = protocol_info.get("registry", "PROSPERO")
@@ -2863,7 +3274,7 @@ class WorkflowManager:
             f.write("---\n\n")
             
             # Funding Statement (PRISMA 2020: Other Information)
-            funding_config = self.config.get("funding", {})
+            funding_config = self.config.get("topic", {}).get("funding", {})
             f.write("## Funding\n\n")
             funding_source = funding_config.get("source", "No funding received")
             grant_number = funding_config.get("grant_number", "")
@@ -2878,7 +3289,7 @@ class WorkflowManager:
             f.write("---\n\n")
 
             # Conflicts of Interest Statement (PRISMA 2020: Other Information)
-            coi_config = self.config.get("conflicts_of_interest", {})
+            coi_config = self.config.get("topic", {}).get("conflicts_of_interest", {})
             f.write("## Conflicts of Interest\n\n")
             coi_statement = coi_config.get("statement", "The authors declare no conflicts of interest.")
             f.write(f"{coi_statement}\n\n")
@@ -3148,8 +3559,12 @@ class WorkflowManager:
             # Get journal
             journal = submission_config.get("default_journal", "ieee")
 
-            # Get manuscript path
-            manuscript_path = Path(report_path)
+            # Get manuscript path - handle None case
+            if report_path is None:
+                manuscript_path = self.output_dir / "final_report.md"
+            else:
+                manuscript_path = Path(report_path)
+            
             if not manuscript_path.exists():
                 manuscript_path = self.output_dir / "final_report.md"
 
@@ -3279,10 +3694,26 @@ class WorkflowManager:
                 "final_papers": serializer.serialize_papers(self.final_papers),
             }
         elif phase_name == "article_writing":
-            # Article sections are already dicts, just need to ensure serializable
+            # Load all section checkpoints from individual files
+            sections_dict = {}
+            for checkpoint_file in self.checkpoint_dir.glob("article_writing_*_state.json"):
+                # Extract section name from filename: article_writing_introduction_state.json -> introduction
+                section_name = checkpoint_file.stem.replace("article_writing_", "").replace("_state", "")
+                try:
+                    import json
+                    with open(checkpoint_file, "r") as f:
+                        checkpoint_data = json.load(f)
+                    # Validate workflow_id matches
+                    if checkpoint_data.get("workflow_id") == self.workflow_id:
+                        if "data" in checkpoint_data and "section_content" in checkpoint_data["data"]:
+                            sections_dict[section_name] = checkpoint_data["data"]["section_content"]
+                except Exception as e:
+                    logger.warning(f"Failed to load section checkpoint {checkpoint_file.name} for serialization: {e}")
+            
             data = {
                 "style_patterns": self.style_patterns,
-                "article_sections": self._get_article_sections_dict(),
+                "article_sections": sections_dict,
+                "completed_sections": list(sections_dict.keys()),
             }
         elif phase_name == "manubot_export":
             data = {
@@ -3359,8 +3790,20 @@ class WorkflowManager:
             self.style_patterns = state["data"]["style_patterns"]
         
         # Load article sections
+        # Try loading from state first (for backward compatibility)
+        article_sections = {}
         if "article_sections" in state.get("data", {}):
-            self._article_sections = state["data"]["article_sections"]
+            article_sections = state["data"]["article_sections"]
+        
+        # Also load from individual section checkpoint files (new approach)
+        section_checkpoints = self._load_existing_sections()
+        if section_checkpoints:
+            # Merge with any sections from state (section files take precedence)
+            article_sections.update(section_checkpoints)
+        
+        if article_sections:
+            self._article_sections = article_sections
+            logger.info(f"Loaded {len(article_sections)} article sections: {', '.join(article_sections.keys())}")
         
         # Load PRISMA counts
         if "prisma_counts" in state:

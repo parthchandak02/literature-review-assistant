@@ -136,8 +136,9 @@ class WorkflowInitializer:
         
         # Abstract generator
         abstract_config = agents_config.get("abstract_generator", {})
+        # Pass full config so abstract generator can access topic.protocol and topic.funding
         self.abstract_generator = AbstractGenerator(
-            llm_provider, llm_api_key, agent_topic_context, abstract_config
+            llm_provider, llm_api_key, agent_topic_context, self.config
         )
 
         # Style pattern extractor and humanization agent

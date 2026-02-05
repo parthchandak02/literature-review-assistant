@@ -722,6 +722,7 @@ class ScopusConnector(DatabaseConnector):
         view: Optional[str] = None,
         persistent_session: bool = True,
         cookie_jar: Optional[str] = None,
+        subscriber: Optional[bool] = None,
     ):
         super().__init__(
             api_key or os.getenv("SCOPUS_API_KEY"),
@@ -735,10 +736,17 @@ class ScopusConnector(DatabaseConnector):
         # View: STANDARD (basic fields) or COMPLETE (all fields, requires subscription)
         # If None, defaults to COMPLETE if subscriber, STANDARD otherwise
         self.view = view
+        # Subscriber: True for institutional access, False for free tier
+        # Default to False (free tier) unless explicitly set or environment variable exists
+        if subscriber is None:
+            subscriber_env = os.getenv("SCOPUS_SUBSCRIBER", "false").lower()
+            self.subscriber = subscriber_env in ("true", "1", "yes")
+        else:
+            self.subscriber = subscriber
 
     @retry_with_backoff(max_attempts=3)
     def search(self, query: str, max_results: int = 100) -> List[Paper]:
-        """Search Scopus."""
+        """Search Scopus using pybliometrics."""
         if not self.api_key:
             logger.warning("Scopus API key required")
             return []
@@ -752,165 +760,119 @@ class ScopusConnector(DatabaseConnector):
         papers = []
 
         try:
-            headers = {"Accept": "application/json", "X-ELS-APIKey": self.api_key}
-
-            # Determine view: COMPLETE for subscribers (more fields), STANDARD otherwise
-            view = self.view or "COMPLETE"  # Default to COMPLETE for richer data
+            # Import pybliometrics
+            try:
+                import pybliometrics
+                from pybliometrics.scopus import ScopusSearch
+            except ImportError:
+                logger.error("pybliometrics not installed. Install with: uv pip install pybliometrics")
+                raise ImportError("pybliometrics required for Scopus search. Install with: uv pip install pybliometrics")
             
-            params = {
-                "query": query,
-                "count": min(max_results, 25),  # Scopus API limit per request
-                "start": 0,
-                "view": view,
-            }
-
-            while len(papers) < max_results:
-                rate_limiter = self._get_rate_limiter()
-                rate_limiter.acquire()
-
-                session = self._get_session()
-                request_kwargs = self._get_request_kwargs()
-                request_kwargs.setdefault("timeout", 30)
+            # Initialize pybliometrics with API key if not already configured
+            try:
+                pybliometrics.init(keys=[self.api_key])
+            except Exception as e:
+                # Config might already exist, that's OK
+                logger.debug(f"pybliometrics init note: {e}")
+            
+            # Determine view: COMPLETE for subscribers, STANDARD for free tier
+            view = self.view
+            if view is None:
+                view = "COMPLETE" if self.subscriber else "STANDARD"
+            
+            # Apply rate limiting
+            rate_limiter = self._get_rate_limiter()
+            rate_limiter.acquire()
+            
+            # Perform search using pybliometrics
+            logger.debug(f"Searching Scopus with pybliometrics (subscriber={self.subscriber}, view={view})")
+            search = ScopusSearch(
+                query,
+                subscriber=self.subscriber,
+                view=view,
+                verbose=False,
+                download=True
+            )
+            
+            # Get results size
+            results_size = search.get_results_size()
+            logger.info(f"Scopus search found {results_size} documents")
+            
+            if results_size == 0:
+                logger.warning("No results found in Scopus")
+                return []
+            
+            # Convert pybliometrics Document NamedTuple to Paper objects
+            for doc in search.results[:max_results]:
+                if len(papers) >= max_results:
+                    break
                 
-                response = session.get(self.base_url, headers=headers, params=params, **request_kwargs)
+                # Extract authors (semicolon-separated in pybliometrics)
+                authors = []
+                if doc.author_names:
+                    authors = [name.strip() for name in doc.author_names.split(";") if name.strip()]
+                
+                # Extract year from coverDate
+                year = None
+                if doc.coverDate:
+                    try:
+                        year = int(doc.coverDate[:4])
+                    except (ValueError, TypeError):
+                        pass
+                
+                # Extract affiliations (semicolon-separated)
+                affiliations = []
+                if doc.affilname:
+                    affiliations = [aff.strip() for aff in doc.affilname.split(";") if aff.strip()]
+                
+                # Extract subject areas (if available in authkeywords or other fields)
+                subject_areas = None
+                if doc.authkeywords:
+                    # Subject areas might be in authkeywords, but this is not standard
+                    # We'll leave it as None for now since pybliometrics doesn't expose it directly
+                    pass
+                
+                # Build URL from EID
+                url = None
+                if doc.eid:
+                    url = f"https://www.scopus.com/record/display.uri?eid={doc.eid}"
+                
+                paper = Paper(
+                    title=doc.title or "",
+                    abstract=doc.description or "",
+                    authors=authors,
+                    year=year,
+                    doi=doc.doi,
+                    journal=doc.publicationName or "",
+                    database="Scopus",
+                    url=url,
+                    affiliations=affiliations if affiliations else None,
+                    citation_count=doc.citedby_count if doc.citedby_count else None,
+                    eid=doc.eid,
+                    subject_areas=subject_areas,
+                    scopus_id=doc.eid,  # Store EID as scopus_id
+                )
+                papers.append(paper)
+            
+            logger.info(f"Retrieved {len(papers)} papers from Scopus")
 
-                if response.status_code == 401:
-                    raise APIKeyError("Invalid Scopus API key")
-
-                response.raise_for_status()
-                data = response.json()
-
-                if "search-results" not in data or "entry" not in data["search-results"]:
-                    break
-
-                for entry in data["search-results"]["entry"]:
-                    if len(papers) >= max_results:
-                        break
-
-                    # Extract abstract
-                    abstract = entry.get("dc:description", "")
-                    
-                    # Extract authors - handle both formats
-                    authors = []
-                    
-                    # Try detailed author array first (available with view=COMPLETE)
-                    if "author" in entry and isinstance(entry["author"], list):
-                        for author in entry["author"]:
-                            # Try ce:indexed-name first (most reliable)
-                            if "ce:indexed-name" in author:
-                                authors.append(author["ce:indexed-name"])
-                            # Fallback to given-name + surname
-                            elif "given-name" in author or "surname" in author:
-                                given = author.get("given-name", "")
-                                surname = author.get("surname", "")
-                                if surname:
-                                    name = f"{given} {surname}".strip()
-                                    if name:
-                                        authors.append(name)
-                            # Fallback to authname (legacy field)
-                            elif "authname" in author:
-                                authors.append(author["authname"])
-                    
-                    # Fallback to dc:creator string (semicolon-separated)
-                    if not authors and "dc:creator" in entry:
-                        creator_str = entry["dc:creator"]
-                        if creator_str:
-                            # Split by semicolon and clean up
-                            authors = [name.strip() for name in creator_str.split(";") if name.strip()]
-
-                    # Extract affiliations (available in COMPLETE view)
-                    affiliations = []
-                    if "affiliation" in entry:
-                        aff_list = entry["affiliation"] if isinstance(entry["affiliation"], list) else [entry["affiliation"]]
-                        for aff in aff_list:
-                            if isinstance(aff, dict):
-                                # Scopus provides affilname, affiliation-city, affiliation-country
-                                aff_name = aff.get("affilname", "")
-                                if aff_name and aff_name.strip():
-                                    affiliations.append(aff_name.strip())
-                            elif isinstance(aff, str) and aff.strip():
-                                affiliations.append(aff.strip())
-
-                    # Extract year
-                    year = None
-                    cover_date = entry.get("prism:coverDate", "")
-                    if cover_date:
-                        try:
-                            year = int(cover_date[:4])
-                        except (ValueError, TypeError):
-                            pass
-
-                    # Extract URL
-                    url = None
-                    if "link" in entry and entry["link"]:
-                        # Find the 'scopus' link or use first available
-                        for link in entry["link"]:
-                            if isinstance(link, dict):
-                                if link.get("@ref") == "scopus" or "@href" in link:
-                                    url = link.get("@href")
-                                    break
-                        # If no scopus link found, use first href
-                        if not url and entry["link"]:
-                            first_link = entry["link"][0]
-                            if isinstance(first_link, dict):
-                                url = first_link.get("@href")
-
-                    # Extract citation count
-                    citation_count = None
-                    if "citedby-count" in entry:
-                        try:
-                            citation_count = int(entry["citedby-count"])
-                        except (ValueError, TypeError):
-                            pass
-                    
-                    # Extract EID (Scopus ID)
-                    eid = entry.get("eid", "")
-                    
-                    # Extract subject areas
-                    subject_areas = []
-                    if "subject-area" in entry:
-                        subj_list = entry["subject-area"] if isinstance(entry["subject-area"], list) else [entry["subject-area"]]
-                        for subj in subj_list:
-                            if isinstance(subj, dict) and "$" in subj:
-                                subject_areas.append(subj["$"])
-                            elif isinstance(subj, str):
-                                subject_areas.append(subj)
-                    
-                    # Extract author IDs for potential coauthor lookup
-                    author_ids = []
-                    if "author" in entry and isinstance(entry["author"], list):
-                        for author in entry["author"]:
-                            if isinstance(author, dict) and "authid" in author:
-                                author_ids.append(author["authid"])
-
-                    paper = Paper(
-                        title=entry.get("dc:title", ""),
-                        abstract=abstract,
-                        authors=authors,
-                        year=year,
-                        doi=entry.get("prism:doi"),
-                        journal=entry.get("prism:publicationName", ""),
-                        database="Scopus",
-                        url=url,
-                        affiliations=affiliations if affiliations else None,
-                        citation_count=citation_count,
-                        eid=eid,
-                        subject_areas=subject_areas if subject_areas else None,
-                        scopus_id=eid,  # Store EID as scopus_id
-                    )
-                    papers.append(paper)
-
-                if len(data["search-results"]["entry"]) < params["count"]:
-                    break
-
-                params["start"] += params["count"]
-
-        except requests.RequestException as e:
-            logger.error(f"Network error searching Scopus: {e}")
-            raise NetworkError(f"Scopus search failed: {e}") from e
         except Exception as e:
-            logger.error(f"Error searching Scopus: {e}")
-            raise DatabaseSearchError(f"Scopus search error: {e}") from e
+            error_msg = str(e)
+            # Handle specific pybliometrics errors
+            if "400" in error_msg or "maximum number" in error_msg.lower():
+                logger.warning(f"Scopus API limit reached: {error_msg}")
+                logger.warning("This may be due to free tier restrictions. Consider:")
+                logger.warning("  1. Using more specific queries")
+                logger.warning("  2. Setting SCOPUS_SUBSCRIBER=true if you have institutional access")
+                logger.warning("  3. Waiting before retrying")
+                # Return empty list instead of raising error for API limits
+                return []
+            elif "401" in error_msg or "Invalid" in error_msg or "API key" in error_msg:
+                logger.error(f"Invalid Scopus API key: {error_msg}")
+                raise APIKeyError(f"Invalid Scopus API key: {error_msg}") from e
+            else:
+                logger.error(f"Error searching Scopus with pybliometrics: {e}")
+                raise DatabaseSearchError(f"Scopus search error: {e}") from e
 
         # Validate papers
         papers = self._validate_papers(papers)
@@ -1072,7 +1034,6 @@ class ScopusConnector(DatabaseConnector):
         """
         try:
             from pybliometrics.scopus import AuthorSearch
-            from .models import Author, Affiliation
         except ImportError:
             logger.warning("pybliometrics not available. Install with: pip install pybliometrics or pip install -e '.[bibliometrics]'")
             return []
@@ -1167,9 +1128,9 @@ class ACMConnector(DatabaseConnector):
                 # Check for 403 on homepage - if we get it here, we'll likely get it on search too
                 if homepage_response.status_code == 403:
                     logger.warning(
-                        f"ACM Digital Library returned 403 Forbidden on homepage. "
-                        f"This may be due to anti-scraping measures. "
-                        f"Skipping ACM search for this query."
+                        "ACM Digital Library returned 403 Forbidden on homepage. "
+                        "This may be due to anti-scraping measures. "
+                        "Skipping ACM search for this query."
                     )
                     return []
                 homepage_response.raise_for_status()
@@ -1179,9 +1140,9 @@ class ACMConnector(DatabaseConnector):
                 # Check if it's a 403 error
                 if hasattr(e.response, 'status_code') and e.response.status_code == 403:
                     logger.warning(
-                        f"ACM Digital Library returned 403 Forbidden. "
-                        f"This may be due to anti-scraping measures. "
-                        f"Skipping ACM search for this query."
+                        "ACM Digital Library returned 403 Forbidden. "
+                        "This may be due to anti-scraping measures. "
+                        "Skipping ACM search for this query."
                     )
                     return []
                 logger.warning(f"Failed to visit ACM homepage: {e}. Continuing with search anyway...")
@@ -1216,9 +1177,9 @@ class ACMConnector(DatabaseConnector):
                 # Handle 403 errors gracefully
                 if response.status_code == 403:
                     logger.warning(
-                        f"ACM Digital Library returned 403 Forbidden. "
-                        f"This may be due to anti-scraping measures. "
-                        f"Skipping ACM search for this query."
+                        "ACM Digital Library returned 403 Forbidden. "
+                        "This may be due to anti-scraping measures. "
+                        "Skipping ACM search for this query."
                     )
                     # Return empty list instead of raising error
                     return []
@@ -1245,9 +1206,9 @@ class ACMConnector(DatabaseConnector):
             # Check if it's a 403 error - don't retry on 403
             if hasattr(e.response, 'status_code') and e.response.status_code == 403:
                 logger.warning(
-                    f"ACM Digital Library returned 403 Forbidden. "
-                    f"This may be due to anti-scraping measures. "
-                    f"Skipping ACM search for this query."
+                    "ACM Digital Library returned 403 Forbidden. "
+                    "This may be due to anti-scraping measures. "
+                    "Skipping ACM search for this query."
                 )
                 return []
             logger.error(f"HTTP error searching ACM: {e}")
@@ -1655,9 +1616,9 @@ class SpringerConnector(DatabaseConnector):
                 )
                 if homepage_response.status_code == 403:
                     logger.warning(
-                        f"Springer Link returned 403 Forbidden on homepage. "
-                        f"This may be due to anti-scraping measures. "
-                        f"Skipping Springer search for this query."
+                        "Springer Link returned 403 Forbidden on homepage. "
+                        "This may be due to anti-scraping measures. "
+                        "Skipping Springer search for this query."
                     )
                     return []
                 homepage_response.raise_for_status()
@@ -1665,8 +1626,8 @@ class SpringerConnector(DatabaseConnector):
             except requests.HTTPError as e:
                 if hasattr(e.response, 'status_code') and e.response.status_code == 403:
                     logger.warning(
-                        f"Springer Link returned 403 Forbidden. "
-                        f"Skipping Springer search for this query."
+                        "Springer Link returned 403 Forbidden. "
+                        "Skipping Springer search for this query."
                     )
                     return []
                 logger.warning(f"Failed to visit Springer homepage: {e}. Continuing with search anyway...")
@@ -1697,8 +1658,8 @@ class SpringerConnector(DatabaseConnector):
                 
                 if response.status_code == 403:
                     logger.warning(
-                        f"Springer Link returned 403 Forbidden. "
-                        f"Skipping Springer search for this query."
+                        "Springer Link returned 403 Forbidden. "
+                        "Skipping Springer search for this query."
                     )
                     return []
                 
@@ -1721,8 +1682,8 @@ class SpringerConnector(DatabaseConnector):
         except requests.HTTPError as e:
             if hasattr(e.response, 'status_code') and e.response.status_code == 403:
                 logger.warning(
-                    f"Springer Link returned 403 Forbidden. "
-                    f"Skipping Springer search for this query."
+                    "Springer Link returned 403 Forbidden. "
+                    "Skipping Springer search for this query."
                 )
                 return []
             logger.error(f"HTTP error searching Springer: {e}")
@@ -1966,10 +1927,11 @@ class SpringerConnector(DatabaseConnector):
 
 
 class IEEEXploreConnector(DatabaseConnector):
-    """IEEE Xplore connector using web scraping."""
+    """IEEE Xplore connector using API (preferred) or web scraping (fallback)."""
 
     def __init__(
         self,
+        api_key: Optional[str] = None,
         cache: Optional[SearchCache] = None,
         proxy_manager: Optional[ProxyManager] = None,
         integrity_checker: Optional[IntegrityChecker] = None,
@@ -1977,7 +1939,7 @@ class IEEEXploreConnector(DatabaseConnector):
         cookie_jar: Optional[str] = None,
     ):
         super().__init__(
-            api_key=None,
+            api_key=api_key or os.getenv("IEEE_API_KEY"),
             cache=cache,
             proxy_manager=proxy_manager,
             integrity_checker=integrity_checker,
@@ -1986,16 +1948,144 @@ class IEEEXploreConnector(DatabaseConnector):
         )
         self.base_url = "https://ieeexplore.ieee.org"
         self.search_url = f"{self.base_url}/search/searchresult.jsp"
+        self.api_base_url = "https://ieeexploreapi.ieee.org/api/v1/search/articles"
+        self.use_api = bool(self.api_key)
 
     @retry_with_backoff(max_attempts=3)
     def search(self, query: str, max_results: int = 100) -> List[Paper]:
-        """Search IEEE Xplore."""
+        """Search IEEE Xplore using API if available, otherwise web scraping."""
         # Check cache first
         if self.cache:
             cached = self.cache.get(query, "IEEE Xplore")
             if cached:
                 return cached[:max_results]
 
+        # Try API first if API key is available
+        if self.use_api:
+            try:
+                return self._search_via_api(query, max_results)
+            except Exception as e:
+                logger.warning(f"IEEE Xplore API search failed: {e}. Falling back to web scraping.")
+                # Fall through to web scraping
+        
+        # Fallback to web scraping
+        return self._search_via_scraping(query, max_results)
+
+    def _search_via_api(self, query: str, max_results: int = 100) -> List[Paper]:
+        """Search IEEE Xplore using official API."""
+        papers = []
+        
+        try:
+            session = self._get_session()
+            request_kwargs = self._get_request_kwargs()
+            request_kwargs.setdefault("timeout", 60)  # API can be slower
+            
+            # IEEE Xplore API parameters
+            params = {
+                "apikey": self.api_key,
+                "querytext": query,
+                "max_records": min(max_results, 200),  # API limit is 200 per request
+                "start_record": 1,
+                "sort_order": "desc",
+                "sort_field": "article_title",
+            }
+            
+            response = session.get(self.api_base_url, params=params, **request_kwargs)
+            
+            if response.status_code == 401:
+                raise APIKeyError("Invalid IEEE Xplore API key")
+            elif response.status_code == 429:
+                raise RateLimitError("IEEE Xplore API rate limit exceeded")
+            
+            response.raise_for_status()
+            data = response.json()
+            
+            if "articles" not in data:
+                logger.warning("IEEE Xplore API returned unexpected response format")
+                return []
+            
+            for article in data["articles"]:
+                try:
+                    # Extract authors
+                    authors = []
+                    if "authors" in article and "authors" in article["authors"]:
+                        for author in article["authors"]["authors"]:
+                            if "full_name" in author:
+                                authors.append(author["full_name"])
+                    
+                    # Extract year
+                    year = None
+                    if "publication_year" in article:
+                        try:
+                            year = int(article["publication_year"])
+                        except (ValueError, TypeError):
+                            pass
+                    
+                    # Extract DOI
+                    doi = None
+                    if "doi" in article:
+                        doi = article["doi"]
+                    
+                    # Extract URL
+                    url = None
+                    if "html_url" in article:
+                        url = article["html_url"]
+                    elif "pdf_url" in article:
+                        url = article["pdf_url"]
+                    
+                    # Extract abstract
+                    abstract = article.get("abstract", "")
+                    
+                    # Extract keywords
+                    keywords = None
+                    if "index_terms" in article:
+                        if "ieee_terms" in article["index_terms"]:
+                            keywords = article["index_terms"]["ieee_terms"].get("terms", [])
+                        elif "author_terms" in article["index_terms"]:
+                            keywords = article["index_terms"]["author_terms"].get("terms", [])
+                    
+                    paper = Paper(
+                        title=article.get("title", ""),
+                        abstract=abstract,
+                        authors=authors,
+                        year=year,
+                        doi=doi,
+                        journal=article.get("publication_title", ""),
+                        database="IEEE Xplore",
+                        url=url,
+                        keywords=keywords,
+                    )
+                    papers.append(paper)
+                    
+                    if len(papers) >= max_results:
+                        break
+                        
+                except Exception as e:
+                    logger.warning(f"Error parsing IEEE Xplore API result: {e}")
+                    continue
+            
+        except APIKeyError:
+            raise
+        except RateLimitError:
+            raise
+        except requests.RequestException as e:
+            logger.error(f"Network error searching IEEE Xplore API: {e}")
+            raise NetworkError(f"IEEE Xplore API search failed: {e}") from e
+        except Exception as e:
+            logger.error(f"Error searching IEEE Xplore API: {e}")
+            raise DatabaseSearchError(f"IEEE Xplore API search error: {e}") from e
+        
+        # Validate papers
+        papers = self._validate_papers(papers)
+        
+        # Cache results
+        if self.cache and papers:
+            self.cache.set(query, "IEEE Xplore", papers)
+        
+        return papers
+
+    def _search_via_scraping(self, query: str, max_results: int = 100) -> List[Paper]:
+        """Search IEEE Xplore using web scraping (fallback method)."""
         papers = []
 
         try:
@@ -2004,7 +2094,7 @@ class IEEEXploreConnector(DatabaseConnector):
 
             session = self._get_session()
             request_kwargs = self._get_request_kwargs()
-            request_kwargs.setdefault("timeout", 30)
+            request_kwargs.setdefault("timeout", 60)  # Increased timeout for reliability
             
             # Enhanced browser headers
             headers = {
@@ -2017,33 +2107,48 @@ class IEEEXploreConnector(DatabaseConnector):
                 "Upgrade-Insecure-Requests": "1",
             }
             
-            # Visit homepage first to establish session
-            try:
-                logger.debug("Visiting IEEE Xplore homepage to establish session...")
-                homepage_response = session.get(
-                    self.base_url,
-                    headers=headers,
-                    **request_kwargs
-                )
-                if homepage_response.status_code == 403:
-                    logger.warning(
-                        f"IEEE Xplore returned 403 Forbidden on homepage. "
-                        f"This may be due to anti-scraping measures. "
-                        f"Skipping IEEE Xplore search for this query."
+            # Visit homepage first to establish session with retry logic
+            max_homepage_retries = 2
+            for retry in range(max_homepage_retries):
+                try:
+                    logger.debug(f"Visiting IEEE Xplore homepage to establish session (attempt {retry + 1})...")
+                    homepage_response = session.get(
+                        self.base_url,
+                        headers=headers,
+                        **request_kwargs
                     )
-                    return []
-                homepage_response.raise_for_status()
-                self._save_session_cookies()
-            except requests.HTTPError as e:
-                if hasattr(e.response, 'status_code') and e.response.status_code == 403:
-                    logger.warning(
-                        f"IEEE Xplore returned 403 Forbidden. "
-                        f"Skipping IEEE Xplore search for this query."
-                    )
-                    return []
-                logger.warning(f"Failed to visit IEEE Xplore homepage: {e}. Continuing with search anyway...")
-            except requests.RequestException as e:
-                logger.warning(f"Failed to visit IEEE Xplore homepage: {e}. Continuing with search anyway...")
+                    if homepage_response.status_code == 403:
+                        logger.warning(
+                            "IEEE Xplore returned 403 Forbidden on homepage. "
+                            "This may be due to anti-scraping measures. "
+                            "Skipping IEEE Xplore search for this query."
+                        )
+                        return []
+                    homepage_response.raise_for_status()
+                    self._save_session_cookies()
+                    break  # Success, exit retry loop
+                except requests.HTTPError as e:
+                    if hasattr(e.response, 'status_code') and e.response.status_code == 403:
+                        logger.warning(
+                            "IEEE Xplore returned 403 Forbidden. "
+                            "Skipping IEEE Xplore search for this query."
+                        )
+                        return []
+                    if retry < max_homepage_retries - 1:
+                        import time
+                        wait_time = 2 ** retry  # Exponential backoff
+                        logger.debug(f"Homepage request failed, retrying in {wait_time}s...")
+                        time.sleep(wait_time)
+                        continue
+                    logger.warning(f"Failed to visit IEEE Xplore homepage after {max_homepage_retries} attempts: {e}. Continuing with search anyway...")
+                except requests.RequestException as e:
+                    if retry < max_homepage_retries - 1:
+                        import time
+                        wait_time = 2 ** retry  # Exponential backoff
+                        logger.debug(f"Homepage request failed, retrying in {wait_time}s...")
+                        time.sleep(wait_time)
+                        continue
+                    logger.warning(f"Failed to visit IEEE Xplore homepage after {max_homepage_retries} attempts: {e}. Continuing with search anyway...")
 
             # IEEE Xplore search parameters
             page_size = 25  # IEEE typically shows 25 results per page
@@ -2070,8 +2175,8 @@ class IEEEXploreConnector(DatabaseConnector):
                 
                 if response.status_code == 403:
                     logger.warning(
-                        f"IEEE Xplore returned 403 Forbidden. "
-                        f"Skipping IEEE Xplore search for this query."
+                        "IEEE Xplore returned 403 Forbidden. "
+                        "Skipping IEEE Xplore search for this query."
                     )
                     return []
                 
@@ -2094,8 +2199,8 @@ class IEEEXploreConnector(DatabaseConnector):
         except requests.HTTPError as e:
             if hasattr(e.response, 'status_code') and e.response.status_code == 403:
                 logger.warning(
-                    f"IEEE Xplore returned 403 Forbidden. "
-                    f"Skipping IEEE Xplore search for this query."
+                    "IEEE Xplore returned 403 Forbidden. "
+                    "Skipping IEEE Xplore search for this query."
                 )
                 return []
             logger.error(f"HTTP error searching IEEE Xplore: {e}")
@@ -2339,6 +2444,298 @@ class IEEEXploreConnector(DatabaseConnector):
         return "IEEE Xplore"
 
 
+class PerplexityConnector(DatabaseConnector):
+    """Perplexity Search API connector with academic filter."""
+
+    def __init__(
+        self,
+        api_key: Optional[str] = None,
+        cache: Optional[SearchCache] = None,
+        proxy_manager: Optional[ProxyManager] = None,
+        integrity_checker: Optional[IntegrityChecker] = None,
+        persistent_session: bool = True,
+        cookie_jar: Optional[str] = None,
+    ):
+        super().__init__(
+            api_key or os.getenv("PERPLEXITY_SEARCH_API_KEY") or os.getenv("PERPLEXITY_API_KEY"),
+            cache,
+            proxy_manager,
+            integrity_checker,
+            persistent_session,
+            cookie_jar,
+        )
+        self.base_url = "https://api.perplexity.ai/search"
+
+    @retry_with_backoff(max_attempts=3)
+    def search(self, query: str, max_results: int = 100) -> List[Paper]:
+        """Search Perplexity with academic filter."""
+        if not self.api_key:
+            logger.warning("Perplexity API key required")
+            return []
+
+        # Check cache first
+        if self.cache:
+            cached = self.cache.get(query, "Perplexity")
+            if cached:
+                return cached[:max_results]
+
+        papers = []
+
+        try:
+            rate_limiter = self._get_rate_limiter()
+            rate_limiter.acquire()
+
+            # Prepare request
+            headers = {
+                "Authorization": f"Bearer {self.api_key}",
+                "Content-Type": "application/json",
+            }
+
+            # Perplexity Search API request body
+            # Note: search_mode is NOT supported by Search API, only by Chat Completions API
+            # Domain filtering options:
+            # - PERPLEXITY_DOMAIN_FILTER_MODE=allowlist (default): Include only academic domains (max 20)
+            # - PERPLEXITY_DOMAIN_FILTER_MODE=denylist: Exclude non-academic domains (max 20)
+            # - PERPLEXITY_DOMAIN_FILTER_MODE=none or PERPLEXITY_NO_DOMAIN_FILTER=true: No filtering
+            filter_mode = os.getenv("PERPLEXITY_DOMAIN_FILTER_MODE", "allowlist").lower()
+            if os.getenv("PERPLEXITY_NO_DOMAIN_FILTER", "false").lower() == "true":
+                filter_mode = "none"
+            
+            # Common non-academic domains to exclude (if using denylist mode)
+            # This allows us to capture ALL academic sources while filtering out noise
+            # Perplexity allows max 20 domains, prioritized by empirical analysis:
+            # Top domains from generic research queries: Wikipedia (14.9%), YouTube (6.9%), IBM (3.4%), etc.
+            non_academic_domains = [
+                # Wikipedia (most common - 14.9% of non-academic results)
+                "en.wikipedia.org",
+                # Video platforms (6.9% combined)
+                "youtube.com",
+                "youtu.be",
+                # Social media (high noise, low academic value)
+                "twitter.com",
+                "x.com",
+                "facebook.com",
+                "instagram.com",
+                "linkedin.com",
+                "reddit.com",
+                "quora.com",
+                "pinterest.com",
+                "tumblr.com",
+                # Tech company blogs (not peer-reviewed) - IBM (3.4%)
+                "ibm.com",
+                "aws.amazon.com",
+                "developers.google.com",
+                "cloud.google.com",
+                # Tutorial platforms (not academic papers)
+                "geeksforgeeks.org",
+                "w3schools.com",
+                "tutorialspoint.com",
+                "codecademy.com",
+            ]
+            
+            # Key academic domains (for allowlist mode - max 20)
+            # Using main domains covers subdomains (e.g., "springer.com" covers "link.springer.com")
+            academic_domains = [
+                # Preprint servers (highest priority - open access)
+                "arxiv.org",
+                "biorxiv.org",
+                "medrxiv.org",
+                "chemrxiv.org",
+                "ssrn.com",  # Social Science Research Network
+                # PubMed and medical databases
+                "pubmed.ncbi.nlm.nih.gov",
+                "ncbi.nlm.nih.gov",
+                "pmc.ncbi.nlm.nih.gov",
+                # Major academic publishers (main domains cover subdomains)
+                "nature.com",
+                "science.org",
+                "cell.com",
+                "springer.com",  # Covers springerlink.com, link.springer.com
+                "ieee.org",  # Covers ieeexplore.ieee.org
+                "acm.org",  # Covers dl.acm.org
+                "elsevier.com",  # Covers sciencedirect.com
+                "wiley.com",  # Covers onlinelibrary.wiley.com
+                "tandfonline.com",  # Taylor & Francis
+                "plos.org",  # Covers journals.plos.org
+                # Academic search engines and repositories
+                "semanticscholar.org",
+                "scholar.google.com",
+            ]
+            
+            request_body = {
+                "query": query,
+                "max_results": min(max_results, 20),  # Perplexity Search API allows max 20 per request
+            }
+            
+            # Apply domain filtering based on mode
+            if filter_mode == "allowlist":
+                # Include only academic domains (may miss some academic sources)
+                request_body["search_domain_filter"] = academic_domains
+            elif filter_mode == "denylist":
+                # Exclude non-academic domains (captures ALL academic sources, filters noise)
+                # Prefix domains with "-" for denylist mode
+                request_body["search_domain_filter"] = [f"-{domain}" for domain in non_academic_domains]
+            # else: filter_mode == "none" - no filtering applied
+
+            session = self._get_session()
+            request_kwargs = self._get_request_kwargs()
+            request_kwargs.setdefault("timeout", 30)
+
+            response = session.post(
+                self.base_url,
+                json=request_body,
+                headers=headers,
+                **request_kwargs
+            )
+
+            if response.status_code == 401:
+                error_detail = ""
+                try:
+                    error_data = response.json()
+                    error_detail = f" - {error_data.get('detail', response.text)}"
+                except Exception:
+                    error_detail = f" - {response.text[:200]}"
+                raise APIKeyError(f"Invalid Perplexity API key or key doesn't have Search API access{error_detail}")
+            elif response.status_code == 429:
+                raise RateLimitError("Perplexity rate limit exceeded")
+            elif response.status_code == 400:
+                # Get detailed error message
+                error_detail = ""
+                try:
+                    error_data = response.json()
+                    if isinstance(error_data, dict):
+                        error_detail = f" - {error_data.get('detail', error_data.get('message', response.text[:500]))}"
+                    else:
+                        error_detail = f" - {str(error_data)[:500]}"
+                except Exception:
+                    error_detail = f" - {response.text[:500]}"
+                logger.error(f"Perplexity API 400 error. Request body: {request_body}, Response: {error_detail}")
+                raise DatabaseSearchError(
+                    f"Perplexity API returned 400 Bad Request. "
+                    f"This usually means the request format is incorrect.{error_detail}"
+                )
+
+            response.raise_for_status()
+            data = response.json()
+
+            if "results" not in data:
+                return papers
+
+            # Convert results to Paper objects
+            import re
+            
+            for result in data["results"]:
+                if len(papers) >= max_results:
+                    break
+
+                # Extract title
+                title = result.get("title", "")
+
+                # Extract abstract from snippet
+                abstract = result.get("snippet", "")
+
+                # Extract URL
+                url = result.get("url", "")
+
+                # Extract year from date if available
+                year = None
+                date_str = result.get("date") or result.get("last_updated")
+                if date_str:
+                    try:
+                        # Try to parse year from date string (format: YYYY-MM-DD or similar)
+                        year_match = re.search(r"\b(19|20)\d{2}\b", str(date_str))
+                        if year_match:
+                            year = int(year_match.group(0))
+                            # Sanity check
+                            if year < 1900 or year > 2030:
+                                year = None
+                    except (ValueError, TypeError):
+                        pass
+
+                # Try to extract DOI from URL or snippet
+                doi = None
+                if url:
+                    # Check if URL contains DOI
+                    doi_match = re.search(r"10\.\d+/[^\s\)]+", url)
+                    if doi_match:
+                        doi = doi_match.group(0).rstrip(".,;:)]}")
+                if not doi and abstract:
+                    # Try to extract DOI from snippet
+                    doi_match = re.search(r"10\.\d+/[^\s\)]+", abstract)
+                    if doi_match:
+                        doi = doi_match.group(0).rstrip(".,;:)]}")
+
+                # Try to extract authors from snippet (may not always be available)
+                authors = []
+                if abstract:
+                    # Look for common author patterns in academic snippets
+                    # This is heuristic and may not always work
+                    author_patterns = [
+                        r"([A-Z][a-z]+(?:\s+[A-Z]\.?)?(?:\s+[A-Z][a-z]+)+)",  # First Last or First M. Last
+                    ]
+                    for pattern in author_patterns:
+                        matches = re.findall(pattern, abstract[:500])  # Check first 500 chars
+                        if matches:
+                            authors = matches[:5]  # Limit to 5 authors
+                            break
+
+                # Try to extract journal/venue from URL domain or snippet
+                journal = None
+                if url:
+                    try:
+                        from urllib.parse import urlparse
+                        parsed = urlparse(url)
+                        domain = parsed.netloc.lower()
+                        # Common academic domains
+                        if "arxiv.org" in domain:
+                            journal = "arXiv"
+                        elif "pubmed" in domain or "ncbi.nlm.nih.gov" in domain:
+                            journal = "PubMed"
+                        elif "ieee.org" in domain:
+                            journal = "IEEE"
+                        elif "springer.com" in domain:
+                            journal = "Springer"
+                        elif "acm.org" in domain:
+                            journal = "ACM"
+                        elif "doi.org" in domain:
+                            # Try to extract journal from DOI metadata later if needed
+                            pass
+                    except Exception:
+                        pass
+
+                # Create Paper object
+                paper = Paper(
+                    title=title,
+                    abstract=abstract,
+                    authors=authors if authors else [],
+                    year=year,
+                    doi=doi,
+                    journal=journal,
+                    database="Perplexity",
+                    url=url,
+                )
+                papers.append(paper)
+
+        except requests.RequestException as e:
+            logger.error(f"Network error searching Perplexity: {e}")
+            raise NetworkError(f"Perplexity search failed: {e}") from e
+        except Exception as e:
+            logger.error(f"Error searching Perplexity: {e}")
+            raise DatabaseSearchError(f"Perplexity search error: {e}") from e
+
+        # Validate papers
+        papers = self._validate_papers(papers)
+
+        # Cache results
+        if self.cache and papers:
+            self.cache.set(query, "Perplexity", papers)
+
+        return papers
+
+    def get_database_name(self) -> str:
+        return "Perplexity"
+
+
 class MockConnector(DatabaseConnector):
     """Mock connector for testing without API keys."""
 
@@ -2368,4 +2765,3 @@ class MockConnector(DatabaseConnector):
 
 
 # Re-export MultiDatabaseSearcher from new location
-from .multi_database_searcher import MultiDatabaseSearcher

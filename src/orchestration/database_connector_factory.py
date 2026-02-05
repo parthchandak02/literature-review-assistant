@@ -18,6 +18,7 @@ from ..search.database_connectors import (
     ACMConnector,
     SpringerConnector,
     IEEEXploreConnector,
+    PerplexityConnector,
     MockConnector,
 )
 try:
@@ -127,13 +128,18 @@ class DatabaseConnectorFactory:
             if api_key:
                 logger.info("Scopus: Using real connector (API key: SET)")
                 # Check for view configuration (COMPLETE for subscribers, STANDARD otherwise)
-                view = os.getenv("SCOPUS_VIEW", "COMPLETE")  # Default to COMPLETE
+                view = os.getenv("SCOPUS_VIEW")  # None = auto-detect based on subscriber
+                # Check for subscriber setting (default to False for free tier)
+                subscriber_env = os.getenv("SCOPUS_SUBSCRIBER", "false").lower()
+                subscriber = subscriber_env in ("true", "1", "yes")
+                logger.info(f"Scopus: subscriber={subscriber}, view={view or 'auto'}")
                 return ScopusConnector(
                     api_key=api_key,
                     cache=cache,
                     proxy_manager=proxy_manager,
                     integrity_checker=integrity_checker,
                     view=view,
+                    subscriber=subscriber,
                     persistent_session=persistent_session,
                     cookie_jar=cookie_jar,
                 )
@@ -162,8 +168,13 @@ class DatabaseConnectorFactory:
             )
 
         elif db_lower in ["ieee", "ieee xplore"]:
-            logger.info("IEEE Xplore: Using real connector (web scraping, no API key needed)")
+            api_key = os.getenv("IEEE_API_KEY")
+            if api_key:
+                logger.info("IEEE Xplore: Using real connector (API key: SET)")
+            else:
+                logger.info("IEEE Xplore: Using real connector (web scraping, no API key)")
             return IEEEXploreConnector(
+                api_key=api_key,
                 cache=cache,
                 proxy_manager=proxy_manager,
                 integrity_checker=integrity_checker,
@@ -196,6 +207,23 @@ class DatabaseConnectorFactory:
                 cookie_jar=cookie_jar,
                 use_proxy=use_proxy,
             )
+
+        elif db_lower == "perplexity":
+            # Use PERPLEXITY_SEARCH_API_KEY for search (separate from LLM API key)
+            api_key = os.getenv("PERPLEXITY_SEARCH_API_KEY") or os.getenv("PERPLEXITY_API_KEY")
+            if api_key:
+                logger.info("Perplexity: Using real connector for search (API key: SET)")
+                return PerplexityConnector(
+                    api_key=api_key,
+                    cache=cache,
+                    proxy_manager=proxy_manager,
+                    integrity_checker=integrity_checker,
+                    persistent_session=persistent_session,
+                    cookie_jar=cookie_jar,
+                )
+            else:
+                logger.warning("Perplexity: Search API key required but not set (PERPLEXITY_SEARCH_API_KEY), skipping")
+                return None  # Skip Perplexity if no key
 
         else:
             logger.warning(f"Unknown database: {db_name}, using mock connector")
@@ -246,6 +274,9 @@ class DatabaseConnectorFactory:
             elif db_lower == "google scholar":
                 can_use = GOOGLE_SCHOLAR_AVAILABLE
                 reason = "scholarly library required" if not can_use else "Works without API key (proxy recommended)"
+            elif db_lower == "perplexity":
+                can_use = bool(os.getenv("PERPLEXITY_SEARCH_API_KEY") or os.getenv("PERPLEXITY_API_KEY"))
+                reason = "Search API key required (PERPLEXITY_SEARCH_API_KEY)" if not can_use else "Search API key available"
             else:
                 can_use = False
                 reason = "Unknown database"

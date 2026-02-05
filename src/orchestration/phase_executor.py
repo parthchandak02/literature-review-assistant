@@ -5,12 +5,15 @@ Handles phase execution with dependency checking and checkpointing.
 """
 
 from typing import Dict, Any, Optional, List
+from rich.panel import Panel
+from rich.console import Console
 from ..utils.logging_config import get_logger
 from ..utils.log_context import workflow_phase_context
 from .phase_registry import PhaseRegistry
 from .checkpoint_manager import CheckpointManager
 
 logger = get_logger(__name__)
+console = Console()
 
 
 class PhaseExecutor:
@@ -63,6 +66,15 @@ class PhaseExecutor:
             )
         
         # Execute phase handler
+        console.print()
+        console.print(Panel(
+            f"{phase.description or phase_name}\n\n"
+            f"[dim]Phase {phase.phase_number}[/dim]",
+            title=f"[bold cyan]Executing Phase: {phase_name}[/bold cyan]",
+            border_style="cyan",
+            padding=(1, 2)
+        ))
+        console.print()
         logger.info(f"Executing phase: {phase_name} ({phase.description})")
         
         try:
@@ -73,6 +85,15 @@ class PhaseExecutor:
             if phase.checkpoint and self.checkpoint_manager.save_checkpoints:
                 self.checkpoint_manager.save_phase(phase_name)
             
+            console.print()
+            console.print(Panel(
+                f"[bold green]Phase completed successfully[/bold green]\n\n"
+                f"{phase.description or phase_name}",
+                title=f"[bold green]Phase {phase.phase_number}: {phase_name}[/bold green]",
+                border_style="green",
+                padding=(1, 2)
+            ))
+            console.print()
             logger.info(f"Phase '{phase_name}' completed successfully")
             return result
         
