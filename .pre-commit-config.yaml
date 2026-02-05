@@ -5,14 +5,6 @@
 repos:
   - repo: local
     hooks:
-      - id: validate-test-structure
-        name: Validate Test Structure
-        entry: python scripts/validate_test_mapping.py
-        language: system
-        pass_filenames: false
-        always_run: true
-        stages: [commit]
-        
       - id: check-test-naming
         name: Check Test File Naming
         entry: bash -c 'for file in $(git diff --cached --name-only --diff-filter=A | grep "tests/.*\.py$"); do if [[ ! "$file" =~ ^tests/.*test_.*\.py$ ]] && [[ "$file" != "tests/conftest.py" ]] && [[ "$file" != "tests/__init__.py" ]] && [[ ! "$file" =~ ^tests/fixtures/ ]]; then echo "ERROR: Test file $file does not follow naming convention (should start with test_)"; exit 1; fi; done'

@@ -2,13 +2,46 @@
 # Single YAML file for research topic, agents, workflow settings, and output config
 
 # Research Topic Configuration
+# Everything you need to configure for a new study is in this section
 topic:
-  topic: "Financial Trading System Integration with LLM-Based Market Analysis Agents"
-  keywords: ["financial trading", "LLM", "large language models", "market analysis", "trading systems", "algorithmic trading", "AI agents", "financial AI", "sentiment analysis", "market prediction", "trading automation", "NLP in finance", "GPT in trading", "neural networks trading"]
-  domain: "financial technology and algorithmic trading"
-  scope: "Focus on integration methodologies for incorporating LLM-based market analysis agents into financial trading systems, including real-time market data processing, sentiment analysis, trading signal generation, and automated execution strategies"
-  research_question: "How do LLM-based market analysis agents improve trading system performance, and what integration architectures enable effective real-time market analysis and automated trading decision-making?"
-  context: "Large Language Models (LLMs) have shown promise in financial market analysis through natural language processing of news, social media, and financial reports. The integration of LLM-based agents into trading systems represents an emerging area combining NLP, financial engineering, and automated trading. This research examines architectures, performance metrics, and implementation challenges for LLM-enhanced trading systems."
+  topic: "Robotic Medication Dispensing Systems for University Health Centers"
+  keywords: ["robotic medication dispensing", "automated pharmacy", "university health centers", "medication automation", "pharmacy robotics", "health center automation", "medication management systems", "robotic dispensing", "campus health", "student health services"]
+  domain: "healthcare automation and pharmacy technology"
+  scope: "Focus on robotic and automated medication dispensing systems specifically implemented in university health centers, including system architectures, patient safety measures, efficiency improvements, and integration with electronic health records"
+  research_question: "How do robotic medication dispensing systems improve medication safety, efficiency, and patient satisfaction in university health center settings, and what are the key implementation challenges and outcomes?"
+  context: "Robotic medication dispensing systems have been increasingly adopted in hospital pharmacies, but their implementation in university health centers presents unique challenges including high student volume, diverse medication needs, and integration with student health records. This research examines the effectiveness, safety outcomes, and implementation considerations for robotic dispensing systems in academic health center environments."
+  
+  # Inclusion/Exclusion Criteria
+  inclusion:
+    - "Studies on robotic or automated medication dispensing systems"
+    - "Implementation in university health centers, student health services, or campus health facilities"
+    - "Medication safety, accuracy, or efficiency outcomes"
+    - "Integration with electronic health records or pharmacy systems"
+    - "Patient satisfaction or user experience evaluations"
+    - "Published in English and peer-reviewed journals or conferences"
+  exclusion:
+    - "Hospital-only implementations without university health center context"
+    - "Non-robotic medication management systems (manual systems only)"
+    - "Studies without empirical evaluation or outcomes data"
+    - "Opinion pieces or non-peer-reviewed sources"
+    - "Conference abstracts without full papers"
+  
+  # Protocol Registration (PRISMA 2020)
+  protocol:
+    registered: false  # Set to true if protocol is registered
+    registry: "PROSPERO"  # Options: "PROSPERO", "OSF", "Other"
+    registration_number: ""  # Fill in if registered (e.g., "CRD42025XXXXXX")
+    url: ""  # Fill in if registered (e.g., "https://www.crd.york.ac.uk/prospero/display_record.php?ID=CRD42025XXXXXX")
+  
+  # Funding Information
+  funding:
+    source: "No funding received"  # Update with actual funding source if applicable
+    grant_number: ""  # Grant number if applicable
+    funder: ""  # Funder name if applicable
+  
+  # Conflicts of Interest
+  conflicts_of_interest:
+    statement: "The authors declare no conflicts of interest."  # Update as needed
 
 # Agent Configurations
 # Model selection guide based on pricing research (2025):
@@ -143,7 +176,7 @@ agents:
 
 # Workflow Settings
 workflow:
-  databases: ["PubMed", "arXiv", "Semantic Scholar", "Crossref", "ACM", "Springer", "IEEE Xplore"]
+  databases: ["PubMed", "arXiv", "Semantic Scholar", "Crossref", "Scopus", "ACM", "Springer", "IEEE Xplore", "Perplexity"]
   date_range:
     start: null  # null means no start limit
     end: 2025
@@ -175,7 +208,7 @@ workflow:
       requires_api_key: false
       requires_email: true  # Recommended
     Scopus:
-      enabled: false  # Requires API key
+      enabled: true  # Requires API key
       max_results: 100
       rate_limit: 9  # requests per second
       requires_api_key: true
@@ -200,20 +233,30 @@ workflow:
       rate_limit: 2  # Conservative rate limit for web scraping
       requires_api_key: false
     "Google Scholar":
-      enabled: false  # Requires proxy for reliable operation
+      enabled: true  # Requires proxy for reliable operation
       max_results: 100
       rate_limit: 1  # Very conservative - Google Scholar has strict rate limits
       requires_api_key: false
       requires_proxy: true  # Highly recommended to avoid CAPTCHAs
+    Perplexity:
+      enabled: true  # Requires PERPLEXITY_SEARCH_API_KEY (separate from LLM API key)
+      max_results: 100
+      rate_limit: 5  # requests per second (conservative)
+      requires_api_key: true
+      # Domain filtering mode: "allowlist" (include only academic domains, may miss some),
+      # "denylist" (exclude non-academic domains, captures all academic sources),
+      # or "none" (no filtering). Default: "allowlist"
+      # Set via PERPLEXITY_DOMAIN_FILTER_MODE environment variable
+      domain_filter_mode: "allowlist"  # Options: allowlist, denylist, none
   
   # Bibliometrics settings (enhanced features from pybliometrics and scholarly)
   bibliometrics:
-    enabled: false  # Enable bibliometric features (requires pybliometrics/scholarly)
+    enabled: true  # Enable bibliometric features (requires pybliometrics/scholarly)
     include_author_metrics: true  # Include h-index, citation counts, etc.
-    include_citation_networks: true  # Build citation networks
+    include_citation_networks: false  # Build citation networks (disabled for basic setup)
     include_subject_areas: true  # Include subject area classifications
-    include_coauthors: true  # Include coauthor information
-    include_affiliations: true  # Include detailed affiliation data
+    include_coauthors: false  # Include coauthor information (disabled for basic setup)
+    include_affiliations: false  # Include detailed affiliation data (disabled for basic setup)
   
   # Google Scholar specific settings
   google_scholar:
@@ -257,47 +300,13 @@ workflow:
     generate_prisma_report: true
     generate_csv_summary: true
   
-# Inclusion/Exclusion Criteria
-criteria:
-  inclusion:
-    - "Studies on LLM-based, AI agent, or machine learning systems for financial market analysis"
-    - "Integration of language models (GPT, BERT, etc.) or AI/ML models into trading systems"
-    - "Market analysis using NLP, sentiment analysis, text-based data, or AI/ML techniques"
-    - "Automated trading systems with AI/ML/NLP components"
-    - "Sentiment analysis or text mining applied to financial markets and trading"
-    - "Evaluation of trading performance, accuracy, or profitability metrics"
-    - "Published in English and peer-reviewed journals or conferences"
-  exclusion:
-    - "Studies without any AI/ML/NLP components (pure traditional statistical or rule-based trading strategies)"
-    - "Non-financial market applications (e.g., cryptocurrency-only without traditional markets)"
-    - "Pure theoretical papers without implementation or empirical evaluation"
-    - "Studies focused only on backtesting without real-world integration or system architecture"
-    - "Opinion pieces or non-peer-reviewed sources"
-    - "Conference abstracts without full papers"
-
 # Screening Safeguards
 screening_safeguards:
   minimum_papers: 5  # Minimum papers required to pass full-text screening (lowered to allow workflow to proceed)
   enable_manual_review: true  # Pause workflow for manual review if threshold not met
   show_borderline_papers: true  # Show borderline papers for review
 
-# Search Terms (will be merged with topic keywords if provided)
-search_terms:
-  llm_trading: ["LLM trading", "GPT trading", "language model trading", "transformer trading", "BERT finance", "NLP trading", "large language model finance"]
-  market_analysis: ["market analysis", "financial analysis", "market prediction", "price prediction", "trading signals", "market forecasting", "financial forecasting"]
-  trading_systems: ["trading systems", "algorithmic trading", "automated trading", "trading platforms", "execution systems", "trading infrastructure", "trading architecture"]
-  sentiment_analysis: ["sentiment analysis", "financial sentiment", "news sentiment", "market sentiment", "social media sentiment", "text sentiment finance"]
-  ai_agents: ["AI agents", "trading agents", "autonomous agents", "intelligent agents", "agent-based trading", "multi-agent systems"]
-  integration: ["system integration", "trading integration", "API integration", "real-time integration", "market data integration", "trading platform integration"]
-
-# Protocol Registration
-protocol:
-  registered: false  # Set to true if protocol is registered
-  registry: "PROSPERO"  # Options: "PROSPERO", "OSF", "Other"
-  registration_number: ""  # Fill in if registered (e.g., "CRD42025XXXXXX")
-  url: ""  # Fill in if registered (e.g., "https://www.crd.york.ac.uk/prospero/display_record.php?ID=CRD42025XXXXXX")
-
-# Supplementary Materials
+# Supplementary Materials (study-specific, but kept separate as it's more of a workflow setting)
 supplementary_materials:
   search_strategies: true  # Include full search strategies
   extracted_data: true  # Include extracted data
@@ -319,6 +328,9 @@ writing:
     max_iterations: 2                # Max refinement iterations
     naturalness_threshold: 0.75      # Minimum naturalness score
     section_specific: true            # Use section-specific strategies
+  
+  retry_count: 2                     # Number of retry attempts for section writing (default: 2, set to 0 to disable retries)
+  checkpoint_per_section: true       # Save checkpoint after each section completes (enables resume from last completed section)
 
 # Quality Assessment Configuration
 quality_assessment:
@@ -327,15 +339,6 @@ quality_assessment:
   auto_fill: true  # Automatically fill assessments using LLM (default: true, set to false for manual assessment)
   template_path: "data/quality_assessments/{workflow_id}_assessments.json"  # Path template for assessment file
 
-# Funding Information
-funding:
-  source: "No funding received"  # Update with actual funding source if applicable
-  grant_number: ""  # Grant number if applicable
-  funder: ""  # Funder name if applicable
-
-# Conflicts of Interest
-conflicts_of_interest:
-  statement: "The authors declare no conflicts of interest."  # Update as needed
 
 # Output Configuration
 output:
