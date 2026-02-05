@@ -7,7 +7,7 @@ for common Rich operations, ensuring consistent formatting across the applicatio
 
 from rich.console import Console
 from rich.panel import Panel
-from typing import Optional
+from typing import Optional, List, Tuple
 
 # Singleton console instance - used throughout the application
 console = Console()
@@ -113,4 +113,162 @@ def print_llm_response_panel(
         content=content,
         title="[bold]<- LLM Response[/bold]",
         border_style="green",
+    )
+
+
+def print_workflow_status_panel(
+    title: str,
+    message: str,
+    status_color: str = "cyan",
+    padding: Tuple[int, int] = (1, 2),
+    add_spacing: bool = True,
+) -> None:
+    """
+    Print workflow status panels (checkpoints, resume info, etc.)
+    
+    Args:
+        title: Panel title
+        message: Main message content
+        status_color: Border color (cyan, green, yellow, red)
+        padding: Panel padding as (vertical, horizontal) tuple
+        add_spacing: Whether to add blank line before panel
+    
+    Example:
+        print_workflow_status_panel(
+            title="Checkpoint Detected",
+            message="Found existing checkpoint!",
+            status_color="green",
+        )
+    """
+    if add_spacing:
+        console.print()
+    
+    console.print(
+        Panel(
+            message,
+            title=f"[bold {status_color}]{title}[/bold {status_color}]",
+            border_style=status_color,
+            padding=padding,
+        )
+    )
+
+
+def print_phase_panel(
+    phase_name: str,
+    phase_number: int,
+    description: str,
+    status: str = "executing",
+    padding: Tuple[int, int] = (1, 2),
+    expand: bool = True,
+    add_spacing: bool = True,
+) -> None:
+    """
+    Print phase execution status panels.
+    
+    Args:
+        phase_name: Name of the phase
+        phase_number: Phase number
+        description: Phase description
+        status: Phase status (executing, completed, skipped_checkpoint, skipped_disabled)
+        padding: Panel padding as (vertical, horizontal) tuple
+        expand: Whether panel should expand to full width
+        add_spacing: Whether to add blank line before panel
+    
+    Example:
+        print_phase_panel(
+            phase_name="search_databases",
+            phase_number=1,
+            description="Search multiple databases",
+            status="executing",
+        )
+    """
+    if add_spacing:
+        console.print()
+    
+    # Determine color and message based on status
+    if status == "executing":
+        color = "cyan"
+        status_text = ""
+        content = f"{description}\n\n[dim]Phase {phase_number}[/dim]"
+    elif status == "completed":
+        color = "green"
+        status_text = ""
+        content = f"[bold green]Phase completed successfully[/bold green]\n\n{description}"
+    elif status == "skipped_checkpoint":
+        color = "yellow"
+        status_text = "[bold yellow]SKIPPED[/bold yellow] - Already completed\n\n"
+        content = f"{status_text}{description}\n\n[dim]Phase {phase_number} - Completed in checkpoint[/dim]"
+    elif status == "skipped_disabled":
+        color = "cyan"
+        status_text = "[bold cyan]SKIPPED[/bold cyan] - Disabled in configuration\n\n"
+        content = f"{status_text}{description}\n\n[dim]Phase {phase_number} - Optional phase disabled[/dim]"
+    else:
+        color = "blue"
+        content = f"{description}\n\n[dim]Phase {phase_number}[/dim]"
+    
+    title_prefix = "Executing Phase" if status == "executing" else f"Phase {phase_number}"
+    
+    console.print(
+        Panel(
+            content,
+            title=f"[bold {color}]{title_prefix}: {phase_name}[/bold {color}]",
+            border_style=color,
+            padding=padding,
+            expand=expand,
+        )
+    )
+
+
+def print_checkpoint_panel(
+    phases_loaded: List[str],
+    phases_attempted: int,
+    status: str = "loading",
+    padding: Tuple[int, int] = (1, 2),
+    add_spacing: bool = True,
+) -> None:
+    """
+    Print checkpoint loading status panels.
+    
+    Args:
+        phases_loaded: List of phase names that were successfully loaded
+        phases_attempted: Total number of phases attempted to load
+        status: Loading status (loading, loaded, error)
+        padding: Panel padding as (vertical, horizontal) tuple
+        add_spacing: Whether to add blank line before panel
+    
+    Example:
+        print_checkpoint_panel(
+            phases_loaded=["search_databases", "deduplication"],
+            phases_attempted=3,
+            status="loaded",
+        )
+    """
+    if add_spacing:
+        console.print()
+    
+    num_loaded = len(phases_loaded)
+    
+    if status == "loading":
+        color = "cyan"
+        title = "Loading Checkpoints"
+        content = f"[bold cyan]Loading {phases_attempted} checkpoint(s)...[/bold cyan]"
+    elif status == "loaded":
+        color = "green"
+        title = "Checkpoints Loaded"
+        content = (
+            f"[bold green]Successfully loaded {num_loaded} checkpoint(s)[/bold green]\n\n"
+            f"[dim]{', '.join(phases_loaded)}[/dim]"
+        )
+    else:  # error
+        color = "red"
+        title = "Checkpoint Error"
+        content = f"[bold red]Failed to load checkpoints[/bold red]"
+    
+    console.print(
+        Panel(
+            content,
+            title=f"[bold {color}]{title}[/bold {color}]",
+            border_style=color,
+            padding=padding,
+        )
     )
