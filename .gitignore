@@ -71,6 +71,7 @@ scripts/migrate_tests.py  # One-time migration tool, can be archived after migra
 
 # Reference documentation (not used in codebase)
 reference-docs/
+references/
 
 # Test coverage
 .coverage
