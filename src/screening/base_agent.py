@@ -12,9 +12,11 @@ import json
 import logging
 import time
 
-from rich.console import Console
-from rich.panel import Panel
-
+from ..utils.rich_utils import (
+    console,
+    print_llm_request_panel,
+    print_llm_response_panel,
+)
 from ..utils.retry_strategies import (
     create_llm_retry_decorator,
     LLM_RETRY_CONFIG,
@@ -29,7 +31,6 @@ from ..tools.tool_registry import ToolRegistry, Tool
 from ..config.debug_config import get_debug_config_from_env
 
 logger = logging.getLogger(__name__)
-console = Console()
 
 
 def get_default_model_for_provider(provider: str) -> str:
@@ -387,18 +388,13 @@ Output must be suitable for direct insertion into an academic publication withou
             prompt_preview = (
                 enhanced_prompt[:200] + "..." if len(enhanced_prompt) > 200 else enhanced_prompt
             )
-            console.print()
-            console.print(
-                Panel(
-                    f"[bold cyan]LLM Call[/bold cyan]\n"
-                    f"[yellow]Model:[/yellow] {model_to_use} ({self.llm_provider})\n"
-                    f"[yellow]Agent:[/yellow] {self.role}\n"
-                    f"[yellow]Temperature:[/yellow] {self.temperature}\n"
-                    f"[yellow]Prompt length:[/yellow] {len(enhanced_prompt)} chars\n"
-                    f"[yellow]Prompt preview:[/yellow]\n{prompt_preview}",
-                    title="[bold]→ LLM Request[/bold]",
-                    border_style="cyan",
-                )
+            print_llm_request_panel(
+                model=model_to_use,
+                provider=self.llm_provider,
+                agent=self.role,
+                temperature=self.temperature,
+                prompt_length=len(enhanced_prompt),
+                prompt_preview=prompt_preview,
             )
 
         # Wrap LLM call with circuit breaker and retry
@@ -454,17 +450,11 @@ Output must be suitable for direct insertion into an academic publication withou
                     # Enhanced logging with Rich console
                     if self.debug_config.show_llm_calls or self.debug_config.enabled:
                         response_preview = content[:200] + "..." if len(content) > 200 else content
-                        token_info = f"\n[yellow]Tokens:[/yellow] {tokens}" if tokens else ""
-                        cost_info = f"\n[yellow]Cost:[/yellow] ${cost:.6f}" if cost > 0 else ""
-                        console.print()
-                        console.print(
-                            Panel(
-                                f"[bold green]LLM Response[/bold green]\n"
-                                f"[yellow]Duration:[/yellow] {duration:.2f}s{token_info}{cost_info}\n"
-                                f"[yellow]Response preview:[/yellow]\n{response_preview}",
-                                title="[bold]← LLM Response[/bold]",
-                                border_style="green",
-                            )
+                        print_llm_response_panel(
+                            duration=duration,
+                            response_preview=response_preview,
+                            tokens=tokens,
+                            cost=cost,
                         )
 
                     return content
@@ -523,16 +513,11 @@ Output must be suitable for direct insertion into an academic publication withou
                     # Enhanced logging with Rich console
                     if self.debug_config.show_llm_calls or self.debug_config.enabled:
                         response_preview = content[:200] + "..." if len(content) > 200 else content
-                        cost_info = f"\n[yellow]Cost:[/yellow] ${cost:.6f}" if cost > 0 else ""
-                        console.print()
-                        console.print(
-                            Panel(
-                                f"[bold green]LLM Response[/bold green]\n"
-                                f"[yellow]Duration:[/yellow] {duration:.2f}s{cost_info}\n"
-                                f"[yellow]Response preview:[/yellow]\n{response_preview}",
-                                title="[bold]← LLM Response[/bold]",
-                                border_style="green",
-                            )
+                        print_llm_response_panel(
+                            duration=duration,
+                            response_preview=response_preview,
+                            tokens=None,
+                            cost=cost,
                         )
 
                     return content
@@ -591,16 +576,11 @@ Output must be suitable for direct insertion into an academic publication withou
                     # Enhanced logging with Rich console
                     if self.debug_config.show_llm_calls or self.debug_config.enabled:
                         response_preview = content[:200] + "..." if len(content) > 200 else content
-                        cost_info = f"\n[yellow]Cost:[/yellow] ${cost:.6f}" if cost > 0 else ""
-                        console.print()
-                        console.print(
-                            Panel(
-                                f"[bold green]LLM Response[/bold green]\n"
-                                f"[yellow]Duration:[/yellow] {duration:.2f}s{cost_info}\n"
-                                f"[yellow]Response preview:[/yellow]\n{response_preview}",
-                                title="[bold]← LLM Response[/bold]",
-                                border_style="green",
-                            )
+                        print_llm_response_panel(
+                            duration=duration,
+                            response_preview=response_preview,
+                            tokens=None,
+                            cost=cost,
                         )
 
                     return content
@@ -640,15 +620,11 @@ Output must be suitable for direct insertion into an academic publication withou
                     # Enhanced logging with Rich console
                     if self.debug_config.show_llm_calls or self.debug_config.enabled:
                         response_preview = content[:200] + "..." if len(content) > 200 else content
-                        console.print()
-                        console.print(
-                            Panel(
-                                f"[bold green]LLM Response[/bold green]\n"
-                                f"[yellow]Duration:[/yellow] {duration:.2f}s\n"
-                                f"[yellow]Response preview:[/yellow]\n{response_preview}",
-                                title="[bold]← LLM Response[/bold]",
-                                border_style="green",
-                            )
+                        print_llm_response_panel(
+                            duration=duration,
+                            response_preview=response_preview,
+                            tokens=None,
+                            cost=None,
                         )
 
                     return content
