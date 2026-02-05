@@ -123,7 +123,13 @@ TEST_CONFIG = {
             "generate_prisma_report": True,
         },
     },
-    "criteria": {
+    "topic": {
+        "topic": "Health Literacy Chatbots",
+        "keywords": ["health literacy", "chatbot", "patient education"],
+        "domain": "healthcare technology",
+        "scope": "Focus on health literacy chatbots",
+        "research_question": "How do health literacy chatbots improve patient understanding?",
+        "context": "Health literacy chatbots are increasingly used in healthcare",
         "inclusion": [
             "Studies on health literacy chatbots",
             "Published in English",
