@@ -113,7 +113,7 @@ class ChartGenerator:
         for paper in papers:
             # Try multiple methods to get country
             country = None
-            
+
             # Method 1: Direct country field
             if paper.country:
                 country = paper.country
@@ -123,7 +123,7 @@ class ChartGenerator:
             # Method 3: Infer from journal/database
             elif paper.journal:
                 country = self._infer_country_from_journal(paper.journal)
-            
+
             # Normalize country name using pycountry if available
             if country and PYCOUNTRY_AVAILABLE:
                 try:
@@ -136,20 +136,20 @@ class ChartGenerator:
                             normalized = c.name
                     except (KeyError, AttributeError):
                         pass
-                    
+
                     # Try common name
                     if not normalized:
                         for c in pycountry.countries:
                             if hasattr(c, 'common_name') and c.common_name and c.common_name == country:
                                 normalized = c.name
                                 break
-                    
+
                     if normalized:
                         country = normalized
                 except Exception:
                     # If normalization fails, use original
                     pass
-            
+
             if country:
                 countries.append(country)
 
@@ -186,7 +186,7 @@ class ChartGenerator:
 
         # Create chart
         countries_list, counts_list = zip(*top_countries)
-        
+
         fig, ax = plt.subplots(figsize=(12, 6))
         ax.barh(range(len(countries_list)), counts_list, color="steelblue", alpha=0.7)
         ax.set_yticks(range(len(countries_list)))
@@ -217,7 +217,7 @@ class ChartGenerator:
         """Extract country from affiliation strings using pycountry and pattern matching."""
         if not affiliations:
             return None
-        
+
         # Common country patterns and abbreviations
         country_patterns = {
             r"\bUSA\b": "United States",
@@ -233,7 +233,7 @@ class ChartGenerator:
             r"\bKorea\b": "South Korea",  # Default to South Korea if ambiguous
             r"\bRepublic of Korea\b": "South Korea",
         }
-        
+
         # Build a set of all country names and common names from pycountry
         country_names = set()
         country_common_names = {}
@@ -246,19 +246,19 @@ class ChartGenerator:
                 # Also add alpha_2 and alpha_3 codes
                 country_names.add(country.alpha_2.upper())
                 country_names.add(country.alpha_3.upper())
-        
+
         # Search through affiliations (typically country is at the end)
         for affiliation in affiliations:
             if not affiliation:
                 continue
-                
+
             affiliation_upper = affiliation.upper()
-            
+
             # First try pattern matching for common abbreviations
             for pattern, country in country_patterns.items():
                 if re.search(pattern, affiliation_upper, re.IGNORECASE):
                     return country
-            
+
             # Try to find country name using pycountry
             if PYCOUNTRY_AVAILABLE:
                 # Split affiliation by common delimiters and check each part
@@ -268,7 +268,7 @@ class ChartGenerator:
                     part = part.strip()
                     if not part or len(part) < 2:
                         continue
-                    
+
                     # Check if it's a country code
                     if len(part) == 2 or len(part) == 3:
                         try:
@@ -277,7 +277,7 @@ class ChartGenerator:
                                 return country.name
                         except (KeyError, AttributeError):
                             pass
-                    
+
                     # Check if it matches a country name
                     if part in country_names:
                         if part in country_common_names:
@@ -291,7 +291,7 @@ class ChartGenerator:
                                     return country.name
                         except (KeyError, AttributeError):
                             pass
-                    
+
                     # Try fuzzy matching - check if part contains a country name
                     for country_name in country_names:
                         if len(country_name) > 3 and country_name in part:
@@ -301,13 +301,13 @@ class ChartGenerator:
                                     return country.name
                             except (KeyError, AttributeError):
                                 pass
-        
+
         return None
 
     def _infer_country_from_journal(self, journal: str) -> Optional[str]:
         """Infer country from journal name (limited accuracy)."""
         journal_lower = journal.lower()
-        
+
         # Some journals have country indicators
         if "american" in journal_lower or "usa" in journal_lower:
             return "United States"
@@ -315,7 +315,7 @@ class ChartGenerator:
             return "United Kingdom"
         elif "chinese" in journal_lower or "china" in journal_lower:
             return "China"
-        
+
         return None
 
     def papers_by_subject(
@@ -339,7 +339,7 @@ class ChartGenerator:
         subjects = []
         for paper in papers:
             paper_subjects = []
-            
+
             # Method 1: Use subjects field if available (highest priority)
             if paper.subjects:
                 for subject in paper.subjects:
@@ -348,18 +348,18 @@ class ChartGenerator:
                         normalized = self._normalize_subject(subject)
                         if normalized:
                             paper_subjects.append(normalized)
-            
+
             # Method 2: Use keywords (second priority)
             if not paper_subjects and paper.keywords:
                 normalized = [self._normalize_subject(kw) for kw in paper.keywords if kw]
                 paper_subjects.extend([s for s in normalized if s])
-            
+
             # Method 3: Infer from journal name (fallback)
             if not paper_subjects and paper.journal:
                 inferred = self._infer_subject_from_journal(paper.journal)
                 if inferred:
                     paper_subjects.append(inferred)
-            
+
             # Method 4: Infer from abstract/title keywords (last resort)
             if not paper_subjects:
                 # Try to extract key terms from title and abstract
@@ -368,7 +368,7 @@ class ChartGenerator:
                     text_to_analyze += paper.title.lower() + " "
                 if paper.abstract:
                     text_to_analyze += paper.abstract.lower()
-                
+
                 if text_to_analyze:
                     # Check for specific health subcategories first
                     if any(term in text_to_analyze for term in ["health equity", "health disparities"]):
@@ -391,7 +391,7 @@ class ChartGenerator:
                         paper_subjects.append("Artificial Intelligence")
                     elif any(term in text_to_analyze for term in ["nlp", "language model", "natural language"]):
                         paper_subjects.append("Natural Language Processing")
-            
+
             subjects.extend(paper_subjects)
 
         if not subjects:
@@ -427,7 +427,7 @@ class ChartGenerator:
 
         # Create chart
         subjects_list, counts_list = zip(*top_subjects)
-        
+
         fig, ax = plt.subplots(figsize=(12, 6))
         ax.barh(range(len(subjects_list)), counts_list, color="steelblue", alpha=0.7)
         ax.set_yticks(range(len(subjects_list)))
@@ -458,9 +458,9 @@ class ChartGenerator:
         """Normalize keyword to subject category using comprehensive taxonomy."""
         if not keyword:
             return ""
-        
+
         keyword_lower = keyword.lower().strip()
-        
+
         # Comprehensive subject mapping - ordered by specificity (most specific first)
         subject_mapping = [
             # Health/Medical Sciences - Specific subcategories first
@@ -489,7 +489,7 @@ class ChartGenerator:
             ("pharmacology", "Health Sciences"),
             ("nursing", "Health Sciences"),
             ("patient", "Health Sciences"),
-            
+
             # Artificial Intelligence & Machine Learning
             ("large language model", "Artificial Intelligence"),
             ("llm", "Artificial Intelligence"),
@@ -502,7 +502,7 @@ class ChartGenerator:
             ("artificial intelligence", "Artificial Intelligence"),
             ("ai", "Artificial Intelligence"),
             ("ml", "Machine Learning"),
-            
+
             # Natural Language Processing
             ("natural language processing", "Natural Language Processing"),
             ("nlp", "Natural Language Processing"),
@@ -510,7 +510,7 @@ class ChartGenerator:
             ("text mining", "Natural Language Processing"),
             ("computational linguistics", "Natural Language Processing"),
             ("speech recognition", "Natural Language Processing"),
-            
+
             # Computer Science
             ("computer science", "Computer Science"),
             ("software engineering", "Computer Science"),
@@ -521,7 +521,7 @@ class ChartGenerator:
             ("algorithm", "Computer Science"),
             ("programming", "Computer Science"),
             ("computing", "Computer Science"),
-            
+
             # Social Sciences
             ("social science", "Social Sciences"),
             ("sociology", "Social Sciences"),
@@ -531,34 +531,34 @@ class ChartGenerator:
             ("social", "Social Sciences"),
             ("anthropology", "Social Sciences"),
             ("economics", "Social Sciences"),
-            
+
             # Education
             ("education", "Education"),
             ("pedagogy", "Education"),
             ("learning", "Education"),
             ("teaching", "Education"),
-            
+
             # Engineering
             ("engineering", "Engineering"),
             ("electrical engineering", "Engineering"),
             ("mechanical engineering", "Engineering"),
-            
+
             # Mathematics & Statistics
             ("mathematics", "Mathematics"),
             ("statistics", "Mathematics"),
             ("statistical", "Mathematics"),
             ("math", "Mathematics"),
-            
+
             # Biology & Life Sciences
             ("biology", "Life Sciences"),
             ("biochemistry", "Life Sciences"),
             ("genetics", "Life Sciences"),
             ("molecular biology", "Life Sciences"),
-            
+
             # Physics
             ("physics", "Physics"),
             ("quantum", "Physics"),
-            
+
             # Chemistry
             ("chemistry", "Chemistry"),
             ("chemical", "Chemistry"),
@@ -576,49 +576,49 @@ class ChartGenerator:
         """Infer subject from journal name using comprehensive patterns."""
         if not journal:
             return None
-        
+
         journal_lower = journal.lower()
-        
+
         # Health/Medical journals
-        health_terms = ["health", "medical", "medicine", "clinical", "biomedical", 
+        health_terms = ["health", "medical", "medicine", "clinical", "biomedical",
                        "pharmacy", "nursing", "public health", "epidemiology",
                        "healthcare", "health care", "the lancet", "nejm", "jama",
                        "bmj", "nature medicine", "plos medicine"]
         if any(term in journal_lower for term in health_terms):
             return "Health Sciences"
-        
+
         # AI/ML journals
         ai_terms = ["artificial intelligence", "machine learning", "ai", "ml",
                    "neural", "deep learning", "ieee transactions on neural",
                    "jmlr", "icml", "neurips", "aaai", "ijcai"]
         if any(term in journal_lower for term in ai_terms):
             return "Artificial Intelligence"
-        
+
         # NLP journals
         nlp_terms = ["nlp", "natural language", "computational linguistics",
                     "acl", "emnlp", "naacl", "computational linguistics",
                     "language processing", "speech"]
         if any(term in journal_lower for term in nlp_terms):
             return "Natural Language Processing"
-        
+
         # Computer Science journals
         cs_terms = ["computer science", "computing", "software", "ieee transactions",
                    "acm", "information systems", "data science", "cybersecurity"]
         if any(term in journal_lower for term in cs_terms):
             return "Computer Science"
-        
+
         # Social Sciences journals
         social_terms = ["social science", "sociology", "psychology", "behavioral",
                        "anthropology", "economics", "social research"]
         if any(term in journal_lower for term in social_terms):
             return "Social Sciences"
-        
+
         # Education journals
         education_terms = ["education", "pedagogy", "learning", "teaching",
                           "educational", "instructional"]
         if any(term in journal_lower for term in education_terms):
             return "Education"
-        
+
         return None
 
     def network_graph(self, papers: List[Paper], output_path: Optional[str] = None) -> str:
@@ -728,12 +728,12 @@ class ChartGenerator:
         # Color nodes by year if available
         years = [p.year for p in papers]
         has_years = any(years)
-        
+
         if has_years:
             min_year = min(y for y in years if y)
             max_year = max(y for y in years if y)
             year_range = max_year - min_year if max_year > min_year else 1
-        
+
         # Color palette for years (viridis-like colors)
         year_colors = [
             "#440154", "#482777", "#3f4a8a", "#31688e", "#26828e",
@@ -744,7 +744,7 @@ class ChartGenerator:
         for i, paper in enumerate(papers):
             # Create label (shortened for display)
             label = paper.title[:50] + "..." if len(paper.title) > 50 else paper.title
-            
+
             # Create tooltip with full information
             tooltip_parts = [f"<b>{paper.title}</b>"]
             if paper.authors:
@@ -757,7 +757,7 @@ class ChartGenerator:
             if paper.journal:
                 tooltip_parts.append(f"Journal: {paper.journal}")
             tooltip = "<br>".join(tooltip_parts)
-            
+
             # Determine node color
             if has_years and paper.year:
                 # Map year to color index
@@ -766,11 +766,11 @@ class ChartGenerator:
                 node_color = year_colors[color_idx]
             else:
                 node_color = "#808080"  # Gray for unknown year
-            
+
             # Calculate node size based on degree (connectivity)
             degree = G.degree(i)
             node_size = 20 + (degree * 3)  # Base size + connectivity bonus
-            
+
             # Add node
             net.add_node(
                 i,
@@ -785,7 +785,7 @@ class ChartGenerator:
         # Add edges with weights
         edges = G.edges(data=True)
         max_weight = max((data.get("weight", 0.1) for _, _, data in edges), default=1.0)
-        
+
         for u, v, data in edges:
             weight = data.get("weight", 0.1)
             # Scale edge width based on weight
@@ -794,21 +794,21 @@ class ChartGenerator:
 
         # Save network
         net.save_graph(str(output_path))
-        
+
         # Also generate a static PNG version for compatibility
         png_path = output_path.with_suffix(".png")
         try:
             # Try to generate a static version using matplotlib as fallback
             import matplotlib.pyplot as plt
             pos = nx.spring_layout(G, k=2, iterations=100, seed=42)
-            
+
             fig, ax = plt.subplots(figsize=(14, 10))
-            
+
             # Draw edges
             edges_list = list(G.edges())
             weights_list = [G[u][v].get("weight", 0.1) for u, v in edges_list]
             nx.draw_networkx_edges(G, pos, alpha=0.3, width=[w * 2 for w in weights_list], ax=ax)
-            
+
             # Draw nodes
             node_colors_list = []
             for _i, paper in enumerate(papers):
@@ -817,21 +817,21 @@ class ChartGenerator:
                     node_colors_list.append(normalized)
                 else:
                     node_colors_list.append(0.5)
-            
+
             nx.draw_networkx_nodes(
                 G, pos, node_color=node_colors_list, node_size=800,
                 cmap=plt.cm.viridis, alpha=0.8, ax=ax
             )
-            
+
             # Draw labels
             labels = {i: papers[i].title[:30] + "..." if len(papers[i].title) > 30 else papers[i].title
                      for i in range(len(papers))}
             nx.draw_networkx_labels(G, pos, labels, font_size=7, ax=ax)
-            
-            ax.set_title("Network Visualization (Similarity-Based)\nInteractive version: " + str(output_path.name), 
+
+            ax.set_title("Network Visualization (Similarity-Based)\nInteractive version: " + str(output_path.name),
                         fontsize=14, fontweight="bold")
             ax.axis("off")
-            
+
             plt.tight_layout()
             plt.savefig(png_path, dpi=300, bbox_inches="tight")
             plt.close()
@@ -854,7 +854,7 @@ class ChartGenerator:
                     vectorizer = TfidfVectorizer(max_features=100, stop_words="english")
                     tfidf_matrix = vectorizer.fit_transform(abstracts)
                     cosine_sim = cosine_similarity(tfidf_matrix)
-                    
+
                     for i in range(n):
                         for j in range(n):
                             similarity_matrix[i][j] = float(cosine_sim[i][j])
@@ -878,7 +878,7 @@ class ChartGenerator:
     def _compute_overlap(self, paper1: Paper, paper2: Paper) -> float:
         """Compute overlap score between two papers based on keywords and authors."""
         score = 0.0
-        
+
         # Keyword overlap
         if paper1.keywords and paper2.keywords:
             keywords1 = set(kw.lower() for kw in paper1.keywords)
@@ -888,7 +888,7 @@ class ChartGenerator:
                 union = len(keywords1 | keywords2)
                 if union > 0:
                     score += (overlap / union) * 0.5
-        
+
         # Author overlap
         if paper1.authors and paper2.authors:
             authors1 = set(a.lower() for a in paper1.authors)
@@ -898,7 +898,7 @@ class ChartGenerator:
                 union = len(authors1 | authors2)
                 if union > 0:
                     score += (overlap / union) * 0.5
-        
+
         return min(score, 1.0)
 
     def generate_risk_of_bias_plot(
@@ -927,7 +927,7 @@ class ChartGenerator:
         for assessment in assessments:
             study_id = assessment.get("study_id", "Unknown")
             domains_dict = assessment.get("domains", {})
-            
+
             for domain, rating in domains_dict.items():
                 study_ids.append(study_id)
                 domains.append(domain[:30])  # Truncate long domain names
@@ -957,7 +957,7 @@ class ChartGenerator:
 
         # Create figure
         fig, ax = plt.subplots(figsize=(max(8, len(unique_studies) * 0.8), max(6, len(unique_domains) * 0.6)))
-        
+
         # Create grid for traffic lights
         y_positions = {domain: i for i, domain in enumerate(unique_domains)}
         x_positions = {study: i for i, study in enumerate(unique_studies)}
@@ -967,7 +967,7 @@ class ChartGenerator:
             study_idx = x_positions[row["Study"]]
             domain_idx = y_positions[row["Domain"]]
             rating = row["Rating"]
-            
+
             color = rating_map.get(rating, (0.5, 0.5, 0.5))  # Gray for unknown
             circle = plt.Circle((study_idx, domain_idx), 0.3, color=color, zorder=2)
             ax.add_patch(circle)

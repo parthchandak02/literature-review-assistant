@@ -11,7 +11,7 @@ from typing import List, Optional, Dict, Any
 @dataclass
 class Affiliation:
     """Represents an institutional affiliation."""
-    
+
     name: str
     id: Optional[str] = None  # Database-specific affiliation ID
     city: Optional[str] = None
@@ -25,7 +25,7 @@ class Affiliation:
     parent_affiliation_id: Optional[str] = None
     parent_affiliation_name: Optional[str] = None
     affiliation_type: Optional[str] = None  # e.g., "parent", "child"
-    
+
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary."""
         return {
@@ -48,7 +48,7 @@ class Affiliation:
 @dataclass
 class Author:
     """Represents an author with bibliometric data."""
-    
+
     name: str
     id: Optional[str] = None  # Database-specific author ID
     given_name: Optional[str] = None
@@ -57,7 +57,7 @@ class Author:
     initials: Optional[str] = None
     email: Optional[str] = None
     orcid: Optional[str] = None
-    
+
     # Bibliometric metrics
     h_index: Optional[int] = None
     i10_index: Optional[int] = None
@@ -66,28 +66,28 @@ class Author:
     citation_count: Optional[int] = None  # Total citations
     cited_by_count: Optional[int] = None  # Number of citing authors
     document_count: Optional[int] = None  # Number of publications
-    
+
     # Affiliation information
     current_affiliations: List[Affiliation] = field(default_factory=list)
     historical_affiliations: List[Affiliation] = field(default_factory=list)
-    
+
     # Subject areas and research interests
     subject_areas: List[str] = field(default_factory=list)
     research_interests: List[str] = field(default_factory=list)
-    
+
     # Coauthors
     coauthor_count: Optional[int] = None
     coauthors: List["Author"] = field(default_factory=list)
-    
+
     # Publication range
     first_publication_year: Optional[int] = None
     last_publication_year: Optional[int] = None
-    
+
     # Database-specific fields
     database: Optional[str] = None
     url: Optional[str] = None
     profile_url: Optional[str] = None
-    
+
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary."""
         return {

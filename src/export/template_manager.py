@@ -25,7 +25,7 @@ class TemplateManager:
             # Default to project templates directory
             project_root = Path(__file__).parent.parent.parent
             templates_dir = project_root / "templates" / "journals"
-        
+
         self.templates_dir = Path(templates_dir)
         self.templates_dir.mkdir(parents=True, exist_ok=True)
 
@@ -40,7 +40,7 @@ class TemplateManager:
             Path to template file, or None if not found
         """
         journal_lower = journal.lower()
-        
+
         # Try different possible template file names
         possible_names = [
             f"{journal_lower}.latex",
@@ -72,7 +72,7 @@ class TemplateManager:
             journal_name = template_file.stem
             if journal_name not in journals:
                 journals.append(journal_name)
-        
+
         return sorted(journals)
 
     def validate_template(self, template_path: Path) -> bool:

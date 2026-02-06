@@ -65,7 +65,7 @@ class ExtractedDataSchema(BaseModel):
     accessibility_features: List[str] = Field(
         default_factory=list, description="Accessibility features mentioned"
     )
-    
+
     # Bibliometric fields (enhanced from pybliometrics and scholarly)
     citation_count: Optional[int] = Field(
         default=None, description="Total number of citations"
@@ -105,7 +105,7 @@ class ExtractedDataSchema(BaseModel):
     def normalize_list_fields(cls, v: Any) -> List[str]:
         """
         Normalize list fields: convert strings to empty arrays.
-        
+
         This provides defense-in-depth in case normalization in the agent
         didn't catch all cases.
         """

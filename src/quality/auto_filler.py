@@ -25,16 +25,16 @@ logger = logging.getLogger(__name__)
 
 class QualityAssessmentAutoFiller:
     """Uses LLM to automatically fill quality assessments."""
-    
+
     def __init__(
-        self, 
-        llm_provider: str = "gemini", 
+        self,
+        llm_provider: str = "gemini",
         llm_model: str = "gemini-2.5-pro",
         debug_config: Optional[Any] = None
     ):
         """
         Initialize with LLM configuration.
-        
+
         Args:
             llm_provider: LLM provider to use
             llm_model: LLM model to use
@@ -44,7 +44,7 @@ class QualityAssessmentAutoFiller:
         self.llm_model = llm_model
         self.temperature = 0.2
         self.debug_config = debug_config
-        
+
         # Initialize LLM client
         if llm_provider == "gemini":
             from google import genai
@@ -59,23 +59,23 @@ class QualityAssessmentAutoFiller:
             )
         else:
             raise ValueError(f"Unsupported LLM provider: {llm_provider}")
-    
+
     def _call_llm(self, prompt: str) -> str:
         """
         Call LLM with prompt and show verbose output if enabled.
-        
+
         Args:
             prompt: Prompt to send to LLM
-            
+
         Returns:
             LLM response text
         """
         # Enhanced logging with Rich console
         should_show_verbose = (
-            self.debug_config and 
+            self.debug_config and
             (self.debug_config.show_llm_calls or self.debug_config.enabled)
         )
-        
+
         if should_show_verbose:
             prompt_preview = (
                 prompt[:200] + "..." if len(prompt) > 200 else prompt
@@ -88,7 +88,7 @@ class QualityAssessmentAutoFiller:
                 prompt_length=len(prompt),
                 prompt_preview=prompt_preview,
             )
-        
+
         if self.llm_provider == "gemini":
             from google.genai import types
             call_start_time = time.time()
@@ -99,7 +99,7 @@ class QualityAssessmentAutoFiller:
             )
             duration = time.time() - call_start_time
             response_text = response.text if hasattr(response, "text") else ""
-            
+
             # Enhanced logging with Rich console for response
             if should_show_verbose:
                 response_preview = (
@@ -111,14 +111,14 @@ class QualityAssessmentAutoFiller:
                     tokens=None,
                     cost=None,
                 )
-            
+
             return response_text
         return ""
-    
+
     def assess_risk_of_bias(self, study_title: str, study_design: str, extracted_data: Dict[str, Any]) -> Dict[str, str]:
         """
         Assess risk of bias for a study using LLM.
-        
+
         Returns:
             Dictionary with domain assessments and overall rating
         """
@@ -149,7 +149,7 @@ Return a JSON object with this structure:
   "notes": "Brief explanation of the assessment"
 }}
 """
-        
+
         try:
             response = self._call_llm(prompt)
             # Extract JSON from response
@@ -181,17 +181,17 @@ Return a JSON object with this structure:
                 "overall": "Some concerns",
                 "notes": f"Automated assessment - error occurred: {e}"
             }
-    
+
     def assess_grade(self, outcome: str, all_extracted_data: List[Dict[str, Any]]) -> Dict[str, Any]:
         """
         Assess GRADE certainty for an outcome.
-        
+
         Returns:
             Dictionary with GRADE assessment
         """
         # Count how many studies report this outcome
         studies_with_outcome = sum(1 for data in all_extracted_data if outcome.lower() in ' '.join(data.get('outcomes', [])).lower())
-        
+
         prompt = f"""Assess the GRADE certainty of evidence for this outcome based on the included studies.
 
 Outcome: {outcome}
@@ -216,7 +216,7 @@ Return a JSON object:
 Common downgrade reasons: "Risk of bias", "Inconsistency", "Indirectness", "Imprecision", "Publication bias"
 Common upgrade reasons: "Large effect", "Dose-response", "All plausible confounding"
 """
-        
+
         try:
             response = self._call_llm(prompt)
             json_match = re.search(r'\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}', response, re.DOTALL)
@@ -253,14 +253,14 @@ def auto_fill_assessments(
 ) -> bool:
     """
     Fill out quality assessments automatically.
-    
+
     Args:
         template_path: Path to quality assessment template JSON file
         extracted_data_list: List of ExtractedData objects
         llm_provider: LLM provider to use
         llm_model: LLM model to use
         debug_config: Optional debug configuration for verbose output
-    
+
     Returns:
         True if successful, False otherwise
     """
@@ -271,44 +271,44 @@ def auto_fill_assessments(
         TimeElapsedColumn,
         SpinnerColumn,
     )
-    
+
     template_path_obj = Path(template_path)
-    
+
     if not template_path_obj.exists():
         logger.error(f"Template file not found: {template_path}")
         return False
-    
+
     # Load template
     with open(template_path_obj, 'r') as f:
         template = json.load(f)
-    
+
     # Convert ExtractedData to dicts
     extracted_data_dicts = []
     for data in extracted_data_list:
         extracted_data_dicts.append(data.to_dict() if hasattr(data, 'to_dict') else data)
-    
+
     logger.info(f"Found {len(extracted_data_dicts)} extracted studies")
     logger.info(f"Found {len(template['studies'])} studies in template")
     logger.info(f"Found {len(template['grade_outcomes'])} outcomes to assess")
-    
+
     # Determine verbose mode
     is_verbose = (
-        debug_config and 
-        debug_config.enabled and 
+        debug_config and
+        debug_config.enabled and
         debug_config.level in [DebugLevel.DETAILED, DebugLevel.FULL]
     )
-    
+
     # Initialize filler
     try:
         filler = QualityAssessmentAutoFiller(
-            llm_provider=llm_provider, 
+            llm_provider=llm_provider,
             llm_model=llm_model,
             debug_config=debug_config
         )
     except Exception as e:
         logger.error(f"Failed to initialize LLM client: {e}")
         return False
-    
+
     # Fill risk of bias assessments with Rich progress bar
     logger.info("Assessing risk of bias for each study...")
     with Progress(
@@ -324,11 +324,11 @@ def auto_fill_assessments(
             "[cyan]Assessing risk of bias...",
             total=len(template['studies']),
         )
-        
+
         for i, study in enumerate(template['studies'], 1):
             study_title = study['study_title']
             study_design = study.get('study_design', 'Not specified')
-            
+
             # Find matching extracted data
             extracted_data = {}
             for data in extracted_data_dicts:
@@ -339,10 +339,10 @@ def auto_fill_assessments(
                 elif hasattr(data, 'title') and data.title.lower() == study_title.lower():
                     extracted_data = data.to_dict() if hasattr(data, 'to_dict') else {}
                     break
-            
+
             study_title_short = study_title[:50]
             progress.update(task, description=f"[cyan]Assessing: {study_title_short}...")
-            
+
             # Verbose output for risk of bias assessment
             if is_verbose:
                 progress.log(
@@ -355,10 +355,10 @@ def auto_fill_assessments(
                 progress.log(
                     f"  [dim]-> Calling LLM ({llm_model})...[/dim]"
                 )
-            
+
             # Assess risk of bias
             rob_assessment = filler.assess_risk_of_bias(study_title, study_design, extracted_data)
-            
+
             # Update template
             study['risk_of_bias']['domains'] = {
                 "Bias arising from the randomization process": rob_assessment.get("Bias arising from the randomization process", "Not applicable"),
@@ -369,16 +369,16 @@ def auto_fill_assessments(
             }
             study['risk_of_bias']['overall'] = rob_assessment.get('overall', 'Some concerns')
             study['risk_of_bias']['notes'] = rob_assessment.get('notes', 'Automated assessment')
-            
+
             # Verbose output for completion
             if is_verbose:
                 overall_rating = rob_assessment.get('overall', 'Some concerns')
                 progress.log(
                     f"  [green]Assessment complete[/green] - Overall: {overall_rating}"
                 )
-            
+
             progress.advance(task)
-    
+
     # Fill GRADE assessments with Rich progress bar
     logger.info("Assessing GRADE certainty for outcomes...")
     with Progress(
@@ -394,12 +394,12 @@ def auto_fill_assessments(
             "[cyan]Assessing GRADE certainty...",
             total=len(template['grade_assessments']),
         )
-        
+
         for i, grade_assessment in enumerate(template['grade_assessments'], 1):
             outcome = grade_assessment['outcome']
             outcome_short = outcome[:50]
             progress.update(task, description=f"[cyan]Assessing: {outcome_short}...")
-            
+
             # Verbose output for GRADE assessment
             if is_verbose:
                 progress.log(
@@ -412,16 +412,16 @@ def auto_fill_assessments(
                 progress.log(
                     f"  [dim]-> Calling LLM ({llm_model})...[/dim]"
                 )
-            
+
             # Assess GRADE
             grade_result = filler.assess_grade(outcome, extracted_data_dicts)
-            
+
             # Update template
             grade_assessment['certainty'] = grade_result.get('certainty', 'Moderate')
             grade_assessment['downgrade_reasons'] = grade_result.get('downgrade_reasons', [])
             grade_assessment['upgrade_reasons'] = grade_result.get('upgrade_reasons', [])
             grade_assessment['justification'] = grade_result.get('justification', 'Automated assessment')
-            
+
             # Verbose output for completion
             if is_verbose:
                 certainty = grade_result.get('certainty', 'Moderate')
@@ -430,12 +430,12 @@ def auto_fill_assessments(
                     f"  [green]Assessment complete[/green] - Certainty: {certainty}, "
                     f"Downgrades: {downgrade_count}"
                 )
-            
+
             progress.advance(task)
-    
+
     # Save filled template
     with open(template_path_obj, 'w') as f:
         json.dump(template, f, indent=2)
-    
+
     logger.info(f"Successfully filled assessments! Saved to: {template_path_obj}")
     return True

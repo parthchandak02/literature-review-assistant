@@ -31,7 +31,7 @@ class SubmissionChecklistGenerator:
             Checklist as markdown string
         """
         checks = self.validate_submission(package_dir, journal)
-        
+
         lines = [
             f"# Submission Checklist for {journal.upper()}",
             "",
@@ -91,7 +91,7 @@ class SubmissionChecklistGenerator:
         lines.append("")
         lines.append("## Summary")
         lines.append("")
-        
+
         total_checks = len(required_files) + len(content_checks) + len(formatting_checks)
         passed_checks = sum([
             checks.get("has_abstract", False),

@@ -130,10 +130,10 @@ class WorkflowInitializer:
         self.discussion_writer = DiscussionWriter(
             llm_provider, llm_api_key, agent_topic_context, discussion_config
         )
-        
+
         # Register tools for writing agents
         self._register_writing_tools()
-        
+
         # Abstract generator
         agents_config.get("abstract_generator", {})
         # Pass full config so abstract generator can access topic.protocol and topic.funding
@@ -145,11 +145,11 @@ class WorkflowInitializer:
         writing_config = self.config.get("writing", {})
         style_extraction_config = writing_config.get("style_extraction", {})
         humanization_config = writing_config.get("humanization", {})
-        
+
         # Initialize PDF retriever for style extraction (reuses cached full-text)
         pdf_cache_dir = str(self.output_dir / "pdf_cache")
         pdf_retriever = PDFRetriever(cache_dir=pdf_cache_dir)
-        
+
         # Style pattern extractor
         if style_extraction_config.get("enabled", True):
             self.style_pattern_extractor = StylePatternExtractor(
@@ -160,7 +160,7 @@ class WorkflowInitializer:
             )
         else:
             self.style_pattern_extractor = None
-        
+
         # Humanization agent
         if humanization_config.get("enabled", True):
             self.humanization_agent = HumanizationAgent(
@@ -195,27 +195,27 @@ class WorkflowInitializer:
                 verbose=self.debug_config.level in [LogLevel.DETAILED, LogLevel.FULL],
                 debug=self.debug_config.level == LogLevel.FULL,
             )
-    
+
     def _register_writing_tools(self):
         """Register tools for writing agents."""
         import logging
         logger = logging.getLogger(__name__)
-        
+
         try:
             from ..tools.mermaid_diagram_tool import create_mermaid_diagram_tool, MERMAID_AVAILABLE
             from ..tools.table_generator_tool import create_table_generator_tools, TABULATE_AVAILABLE
-            
+
             if not MERMAID_AVAILABLE:
                 logger.warning("mermaid-py not installed. Mermaid diagram tool will not be available.")
             if not TABULATE_AVAILABLE:
                 logger.warning("tabulate not installed. Table generation tools will not be available.")
-            
+
             if not MERMAID_AVAILABLE and not TABULATE_AVAILABLE:
                 logger.warning("Neither mermaid-py nor tabulate are installed. Tool calling will be disabled.")
                 return
-            
+
             output_dir = str(self.output_dir)
-            
+
             # Register Mermaid diagram tool if available
             if MERMAID_AVAILABLE:
                 try:
@@ -225,7 +225,7 @@ class WorkflowInitializer:
                     logger.info("Registered Mermaid diagram tool for writing agents")
                 except Exception as e:
                     logger.warning(f"Failed to register Mermaid diagram tool: {e}")
-            
+
             # Register table generation tools if available
             if TABULATE_AVAILABLE:
                 try:
@@ -236,7 +236,7 @@ class WorkflowInitializer:
                     logger.info(f"Registered {len(table_tools)} table generation tools for writing agents")
                 except Exception as e:
                     logger.warning(f"Failed to register table generation tools: {e}")
-            
+
         except ImportError as e:
             # Tools are optional - log warning but don't fail
             logger.warning(f"Could not import writing tools: {e}. Tool calling will be disabled.")

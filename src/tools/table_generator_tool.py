@@ -60,7 +60,7 @@ def generate_thematic_table(
                 # Look in key_findings, study_objectives, outcomes, etc.
                 # Handle both ExtractedData objects and dicts (from JSON)
                 text_to_search = ""
-                
+
                 # Get key_findings
                 if isinstance(data, dict):
                     key_findings = data.get("key_findings", [])
@@ -72,7 +72,7 @@ def generate_thematic_table(
                     study_objectives = getattr(data, "study_objectives", [])
                     outcomes = getattr(data, "outcomes", [])
                     title = getattr(data, "title", "") or ""
-                
+
                 # Build search text
                 if key_findings:
                     text_to_search += " ".join(
@@ -166,7 +166,7 @@ def generate_topic_analysis_table(
                     key_findings = getattr(data, "key_findings", [])
                     outcomes = getattr(data, "outcomes", [])
                     title = getattr(data, "title", "") or ""
-                
+
                 text_to_search = ""
                 if key_findings:
                     text_to_search += " ".join(

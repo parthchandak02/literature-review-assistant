@@ -218,7 +218,7 @@ class LaTeXExporter:
         """Escape special LaTeX characters using pylatexenc if available."""
         if not text:
             return ""
-        
+
         # Use pylatexenc for proper Unicode and LaTeX escaping if available
         if PYLATEXENC_AVAILABLE:
             try:
@@ -226,7 +226,7 @@ class LaTeXExporter:
                 return unicode_to_latex(text, non_ascii_only=False)
             except Exception as e:
                 logger.debug(f"pylatexenc encoding failed, using fallback: {e}")
-        
+
         # Fallback to manual escaping if pylatexenc not available
         special_chars = {
             "\\": "\\textbackslash{}",
@@ -240,25 +240,25 @@ class LaTeXExporter:
             "_": "\\_",
             "~": "\\textasciitilde{}",
         }
-        
+
         result = text
         for char, replacement in special_chars.items():
             result = result.replace(char, replacement)
-        
+
         return result
 
     def _markdown_to_latex(self, markdown_text: str) -> str:
         """Convert markdown text to LaTeX."""
         if not markdown_text:
             return ""
-        
+
         lines = markdown_text.split("\n")
         result_lines = []
         i = 0
-        
+
         while i < len(lines):
             line = lines[i]
-            
+
             # Check for markdown table
             if line.startswith("|") and i + 1 < len(lines) and "---" in lines[i + 1]:
                 # Parse and convert table
@@ -269,28 +269,28 @@ class LaTeXExporter:
                     while i < len(lines) and (lines[i].startswith("|") or "---" in lines[i]):
                         i += 1
                     continue
-            
+
             # Remove markdown headers (already handled by sections)
             if line.startswith("#"):
                 # Skip headers as they're handled by sections
                 i += 1
                 continue
-            
+
             # Convert bold **text** to \textbf{text}
             line = re.sub(r"\*\*(.+?)\*\*", r"\\textbf{\1}", line)
-            
+
             # Convert italic *text* to \textit{text}
             line = re.sub(r"(?<!\*)\*([^*]+?)\*(?!\*)", r"\\textit{\1}", line)
-            
+
             # Convert citations [X] to \cite{X}
             line = re.sub(r"\[(\d+)\]", r"\\cite{\1}", line)
-            
+
             # Escape remaining special characters
             line = self._escape_latex(line)
-            
+
             result_lines.append(line)
             i += 1
-        
+
         return "\n".join(result_lines)
 
     def _convert_markdown_table_to_latex(self, lines: List[str], start_idx: int) -> Optional[str]:
@@ -362,7 +362,7 @@ class LaTeXExporter:
 
         latex_lines.append("\\bottomrule")
         latex_lines.append("\\end{tabular}")
-        
+
         # Try to extract caption from context (if available)
         caption = "Study characteristics table"
         if "Study ID" in headers:
@@ -371,7 +371,7 @@ class LaTeXExporter:
             caption = "Risk of bias assessment"
         elif "Outcome" in " ".join(headers):
             caption = "GRADE evidence profile"
-        
+
         latex_lines.append(f"\\caption{{{self._escape_latex(caption)}}}")
         latex_lines.append("\\label{tab:study_characteristics}")
         latex_lines.append("\\end{table*}")
@@ -382,7 +382,7 @@ class LaTeXExporter:
         """Format a single reference in IEEE style."""
         from ..search.connectors.base import Paper
         from ..citations.ieee_formatter import IEEEFormatter
-        
+
         # Create a Paper object from the reference dict to use IEEEFormatter
         paper = Paper(
             title=ref.get("title", ""),
@@ -393,34 +393,34 @@ class LaTeXExporter:
             doi=ref.get("doi"),
             url=ref.get("url"),
         )
-        
+
         # Use IEEEFormatter to format the citation
         formatted = IEEEFormatter.format_citation(paper, number)
-        
+
         # Remove the citation number prefix [X] since LaTeX \bibitem handles numbering
         # IEEEFormatter returns "[X] Author, "Title," Journal, year."
         # We need: "Author, \"Title,\" Journal, year."
         formatted = re.sub(r"^\[\d+\]\s*", "", formatted)
-        
+
         # Escape LaTeX special characters
         return self._escape_latex(formatted)
 
     def _convert_to_unstructured_abstract(self, abstract: str) -> str:
         """
         Convert structured abstract (PRISMA 2020 or other structured formats) to unstructured.
-        
+
         IEEE requires unstructured abstract (150-250 words, single paragraph).
         This method extracts content from structured abstracts and converts to paragraph format.
-        
+
         Args:
             abstract: Abstract text (may be structured or unstructured)
-            
+
         Returns:
             Unstructured abstract text suitable for IEEE format
         """
         if not abstract:
             return ""
-        
+
         # Check if abstract is structured (has labels like "Background:", "Objectives:", etc.)
         structured_patterns = [
             r"Background\s*:",
@@ -431,27 +431,27 @@ class LaTeXExporter:
             r"Eligibility\s*:",
             r"Information\s*sources?\s*:",
         ]
-        
+
         is_structured = any(re.search(pattern, abstract, re.IGNORECASE) for pattern in structured_patterns)
-        
+
         if not is_structured:
             # Already unstructured, return as-is (but ensure single paragraph)
             return " ".join(abstract.split())
-        
+
         # Convert structured to unstructured
         # Extract content after labels and combine into paragraph
         lines = abstract.split("\n")
         content_parts = []
-        
+
         for line in lines:
             line = line.strip()
             if not line:
                 continue
-            
+
             # Skip if it's just a label
             if re.match(r"^[A-Z][a-z]+(\s+[A-Z][a-z]+)?\s*:?\s*$", line):
                 continue
-            
+
             # Remove labels and extract content
             # Pattern: "Label: content" -> "content"
             match = re.match(r"^[A-Z][^:]*:\s*(.+)$", line)
@@ -460,10 +460,10 @@ class LaTeXExporter:
             else:
                 # No label, just content
                 content_parts.append(line)
-        
+
         # Combine into single paragraph
         unstructured = " ".join(content_parts)
-        
+
         # Ensure word count is reasonable (150-250 words for IEEE)
         words = unstructured.split()
         if len(words) > 250:
@@ -473,7 +473,7 @@ class LaTeXExporter:
             # If too short, try to expand from original abstract
             # For now, just return what we have
             pass
-        
+
         return unstructured
 
     def _get_relative_figure_path(self, fig_path: str, output_dir: Path) -> str:

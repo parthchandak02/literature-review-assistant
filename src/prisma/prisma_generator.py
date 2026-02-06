@@ -71,7 +71,7 @@ class PRISMACounter:
     def set_full_text_exclusions(self, count: int):
         """Set full-text articles excluded."""
         self.counts["full_text_exclusions"] = count
-    
+
     # Backward compatibility
     def set_full_text(self, count: int):
         """Set full-text articles assessed (for backward compatibility)."""
@@ -132,20 +132,20 @@ class PRISMAGenerator:
     def _map_counts_to_library_format(self, counts: Dict[str, int]) -> tuple[Dict[str, Any], Dict[str, int]]:
         """
         Map PRISMACounter counts to the library's expected format.
-        
+
         Returns:
             Tuple of (db_registers dict, included dict)
         """
         # Calculate duplicates removed
         duplicates_removed = counts.get("found", 0) - counts.get("no_dupes", 0)
-        
+
         # Get database breakdown - can be dict or total count
         db_breakdown = self.counter.get_database_breakdown()
         if db_breakdown:
             databases_value = db_breakdown  # Library accepts dict for breakdown
         else:
             databases_value = counts.get("found", 0)  # Or total count
-        
+
         # Map to library format
         db_registers = {
             "identification": {
@@ -176,32 +176,32 @@ class PRISMAGenerator:
                 },
             },
         }
-        
+
         # Included studies - use qualitative if available, otherwise quantitative
         included_studies = counts.get("qualitative", 0) or counts.get("quantitative", 0)
         included = {
             "studies": included_studies,
             "reports": included_studies,  # Assuming one report per study
         }
-        
+
         return db_registers, included
 
     def _validate_prisma_counts(self, counts: Dict[str, int]) -> tuple[bool, List[str]]:
         """
         Validate PRISMA counts are consistent.
-        
+
         Returns:
             Tuple of (is_valid, list of warnings/errors)
         """
         warnings = []
-        
+
         # Get key counts
         sought = counts.get("full_text_sought", 0)
         not_retrieved = counts.get("full_text_not_retrieved", 0)
         assessed = counts.get("full_text_assessed", 0)
         counts.get("full_text_exclusions", 0)
         included = counts.get("qualitative", 0) or counts.get("quantitative", 0)
-        
+
         # Validation rule 1: assessed should not exceed sought
         # (all papers that were sought for full-text assessment)
         if assessed > sought:
@@ -209,7 +209,7 @@ class PRISMAGenerator:
                 f"Assessed ({assessed}) exceeds sought ({sought}). "
                 f"This violates PRISMA rules: assessed <= sought."
             )
-        
+
         # Validation rule 2: assessed should be at least sought - not_retrieved
         # (minimum: all papers with full-text available should be assessed)
         min_assessable = max(0, sought - not_retrieved)
@@ -219,7 +219,7 @@ class PRISMAGenerator:
                 f"At minimum, all papers with full-text ({sought} - {not_retrieved} = {min_assessable}) "
                 f"should be assessed."
             )
-        
+
         # Validation rule 3: included should not exceed assessed
         if included > assessed:
             warnings.append(
@@ -249,13 +249,13 @@ class PRISMAGenerator:
                         f"Cannot auto-correct: included ({included}) > sought ({sought}). "
                         f"This indicates a serious data consistency issue."
                     )
-        
+
         # Validation rule 4: Check relationship between sought, assessed, and not_retrieved
         # According to PRISMA 2020:
         # - If all papers are assessed (including those without full-text): assessed = sought
         # - If only papers with full-text are assessed: assessed = sought - not_retrieved
         # - The relationship: sought >= assessed >= (sought - not_retrieved)
-        
+
         # Check if assessed + not_retrieved exceeds sought (indicates double-counting)
         if assessed + not_retrieved > sought:
             warnings.append(
@@ -266,7 +266,7 @@ class PRISMAGenerator:
                 f"Rule: Typically: db_registers.reports.sought = db_registers.reports.assessed + db_registers.reports.not_retrieved "
                 f"(and likewise for other_methods.* if provided)."
             )
-        
+
         # Check if assessed is within valid range
         min_assessable = max(0, sought - not_retrieved)  # Minimum: papers with full-text
         max_assessable = sought  # Maximum: all papers
@@ -276,7 +276,7 @@ class PRISMAGenerator:
                 f"Sought: {sought}, Not retrieved: {not_retrieved}. "
                 f"Note: Papers without full-text may still be assessed using title/abstract."
             )
-        
+
         is_valid = len(warnings) == 0
         return is_valid, warnings
 
@@ -297,7 +297,7 @@ class PRISMAGenerator:
                     warning_text.append(warning, style="yellow")
                     if i < len(warnings):
                         warning_text.append("\n\n")
-                
+
                 console.print()
                 console.print(
                     Panel(
@@ -308,9 +308,9 @@ class PRISMAGenerator:
                     )
                 )
                 console.print()
-            
+
             db_registers, included = self._map_counts_to_library_format(counts)
-            
+
             # Call the library function
             self.plot_prisma2020_new(
                 db_registers=db_registers,
@@ -504,7 +504,7 @@ class PRISMAGenerator:
         sought_count = counts.get("full_text_sought", counts.get("full_text", 0))
         not_retrieved_count = counts.get("full_text_not_retrieved", 0)
         assessed_count = counts.get("full_text_assessed", sought_count - not_retrieved_count)
-        
+
         if not_retrieved_count > 0:
             ft_sought_text = f"Full-text articles sought\n{sought_count}\n(Not retrieved: {not_retrieved_count})"
             self._draw_box(

@@ -23,7 +23,7 @@ class IntegrityAction(Enum):
 class IntegrityChecker:
     """
     Validates field integrity for Paper objects.
-    
+
     Ensures required fields are present and checks field consistency.
     """
 
@@ -43,7 +43,7 @@ class IntegrityChecker:
         """
         if required_fields is None:
             required_fields = ["title", "authors"]
-        
+
         self.required_fields = set(required_fields)
         self.action = IntegrityAction(action.lower())
         self.database = database or "unknown"
@@ -62,11 +62,11 @@ class IntegrityChecker:
             AttributeError: If action is "raise" and integrity check fails
         """
         missing_fields = []
-        
+
         # Check required fields
         for field in self.required_fields:
             value = getattr(paper, field, None)
-            
+
             # Handle list fields (e.g., authors)
             if isinstance(value, list):
                 if not value or len(value) == 0:
@@ -84,13 +84,13 @@ class IntegrityChecker:
                 f"Paper from {self.database} missing required fields: {', '.join(missing_fields)}. "
                 f"Title: {paper.title[:50] if paper.title else 'N/A'}..."
             )
-            
+
             if self.action == IntegrityAction.RAISE:
                 raise AttributeError(message)
             else:
                 logger.warning(message)
                 return False
-        
+
         return True
 
     def check_batch(self, papers: List[Paper]) -> List[Paper]:
@@ -104,7 +104,7 @@ class IntegrityChecker:
             List of papers that passed integrity check
         """
         valid_papers = []
-        
+
         for paper in papers:
             try:
                 if self.check(paper):
@@ -114,13 +114,13 @@ class IntegrityChecker:
                 # but log the error
                 logger.error(f"Skipping paper due to integrity check failure: {paper.title[:50] if paper.title else 'N/A'}...")
                 continue
-        
+
         if len(valid_papers) < len(papers):
             logger.info(
                 f"Integrity check: {len(valid_papers)}/{len(papers)} papers passed "
                 f"for {self.database}"
             )
-        
+
         return valid_papers
 
     def check_field_consistency(self, papers: List[Paper], field: str) -> bool:
@@ -136,24 +136,24 @@ class IntegrityChecker:
         """
         if not papers:
             return True
-        
+
         values = []
         for paper in papers:
             value = getattr(paper, field, None)
             if value is not None:
                 values.append(value)
-        
+
         if not values:
             logger.warning(f"Field '{field}' is missing in all papers from {self.database}")
             return False
-        
+
         # Check if all values are the same (for fields that should be consistent)
         # This is useful for checking database field consistency
         if len(set(values)) > 1:
             logger.debug(
                 f"Field '{field}' has inconsistent values across papers from {self.database}"
             )
-        
+
         return True
 
 
@@ -171,10 +171,10 @@ def create_integrity_checker_from_config(
         IntegrityChecker instance or None if integrity checking is disabled
     """
     integrity_config = config.get("integrity", {})
-    
+
     if not integrity_config.get("enabled", True):
         return None
-    
+
     return IntegrityChecker(
         required_fields=integrity_config.get("required_fields", ["title", "authors"]),
         action=integrity_config.get("action", "warn"),

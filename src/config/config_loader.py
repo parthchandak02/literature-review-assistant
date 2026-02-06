@@ -152,14 +152,14 @@ class ConfigLoader:
 
         # Validate criteria (must be in topic section)
         topic_has_criteria = (
-            isinstance(topic_config, dict) and 
-            "inclusion" in topic_config and 
+            isinstance(topic_config, dict) and
+            "inclusion" in topic_config and
             "exclusion" in topic_config
         )
-        
+
         if not topic_has_criteria:
             raise ValueError("No inclusion/exclusion criteria found. Add them to topic.inclusion and topic.exclusion sections.")
-        
+
         if not isinstance(topic_config["inclusion"], list) or not isinstance(topic_config["exclusion"], list):
             raise ValueError("Topic inclusion/exclusion must be lists")
 

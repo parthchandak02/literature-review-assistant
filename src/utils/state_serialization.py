@@ -68,7 +68,7 @@ class StateSerializer:
                 decision = InclusionDecision(decision_str)
             else:
                 decision = decision_str
-            
+
             result = ScreeningResult(
                 decision=decision,
                 confidence=result_dict.get("confidence", 0.0),

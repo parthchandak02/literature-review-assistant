@@ -26,7 +26,7 @@ class CitationManager:
         self.papers = papers
         self.citation_map: Dict[int, int] = {}  # citation_number -> paper_index
         self.used_citations: Set[int] = set()  # Track which citations are used
-        
+
         # Initialize Manubot resolver (optional)
         try:
             from .manubot_resolver import ManubotCitationResolver
@@ -56,19 +56,19 @@ class CitationManager:
 
         # Resolve citation
         csl_item = self.manubot_resolver.resolve_from_identifier(identifier)
-        
+
         # Convert to Paper object
         paper = self.manubot_resolver.csl_to_paper(csl_item)
-        
+
         # Add to papers list
         self.papers.append(paper)
         paper_index = len(self.papers) - 1
-        
+
         # Assign citation number
         citation_number = len(self.papers)
         self.citation_map[citation_number] = paper_index
         self.used_citations.add(citation_number)
-        
+
         logger.info(f"Added citation from identifier {identifier}: {paper.title[:50]}...")
         return citation_number
 
@@ -122,10 +122,10 @@ class CitationManager:
 
         # Pattern to match [Citation X] or [Citation X, Citation Y, ...]
         pattern = r"\[Citation\s+\d+(?:\s*,\s*Citation\s+\d+)*\]"
-        
+
         # Replace all citation placeholder patterns
         result = re.sub(pattern, replace_citation_placeholder, text)
-        
+
         # Now, also extract and track already-converted [X] or [X, Y, Z] citations
         # This handles cases where LLM generates [1], [2] directly instead of [Citation 1]
         def track_existing_citations(match):
@@ -137,7 +137,7 @@ class CitationManager:
             for num_match in re.finditer(number_pattern, bracket_content):
                 cit_num = int(num_match.group(1))
                 citation_numbers.append(cit_num)
-                
+
                 # Track citation if it's within valid range
                 # Also track citations even if papers list is empty (for placeholder citations)
                 if cit_num > 0:
@@ -147,14 +147,14 @@ class CitationManager:
                     # Always track used citations, even if paper doesn't exist
                     # This allows References section to show citations were used
                     self.used_citations.add(cit_num)
-            
+
             # Return unchanged (already in correct format)
             return bracket_content
-        
+
         # Pattern to match [X] or [X, Y, Z] where X, Y, Z are numbers
         # Only match if it looks like a citation (not part of a code block or URL)
         existing_citation_pattern = r"\[(\d+(?:\s*,\s*\d+)*)\]"
-        
+
         # Replace to track citations (but keep format unchanged)
         result = re.sub(existing_citation_pattern, track_existing_citations, result)
 
@@ -216,20 +216,20 @@ class CitationManager:
     def get_citation_count(self) -> int:
         """Get number of unique citations used."""
         return len(self.used_citations)
-    
+
     def get_references(self) -> List[Dict[str, Any]]:
         """
         Get references as list of dictionaries for LaTeX export.
-        
+
         Returns:
             List of reference dictionaries with paper metadata
         """
         if not self.used_citations:
             return []
-        
+
         # Sort citations by number
         sorted_citations = sorted(self.used_citations)
-        
+
         references = []
         for cit_num in sorted_citations:
             if cit_num in self.citation_map:
@@ -244,7 +244,7 @@ class CitationManager:
                         "doi": paper.doi,
                         "url": paper.url,
                     })
-        
+
         return references
 
     def generate_bibtex_references(self) -> str:

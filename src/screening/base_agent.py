@@ -36,10 +36,10 @@ logger = logging.getLogger(__name__)
 def get_default_model_for_provider(provider: str) -> str:
     """
     Get default model for Gemini provider.
-    
+
     Args:
         provider: LLM provider name ('gemini')
-        
+
     Returns:
         Default model name for Gemini
     """
@@ -49,24 +49,24 @@ def get_default_model_for_provider(provider: str) -> str:
 def validate_model_provider_compatibility(model: str, provider: str) -> bool:
     """
     Validate that a model name is compatible with Gemini provider.
-    
+
     Args:
         model: Model name
         provider: LLM provider name ('gemini')
-        
+
     Returns:
         True if compatible, False otherwise
     """
     provider_lower = provider.lower()
     model_lower = model.lower()
-    
+
     # Gemini models only
     if provider_lower == "gemini":
         return any(
             model_lower.startswith(prefix)
             for prefix in ["gemini", "gemma"]
         )
-    
+
     # Only gemini is supported for LLM calls
     logger.warning(f"Unsupported LLM provider: {provider}. Only 'gemini' is supported.")
     return False
@@ -123,7 +123,7 @@ class BaseScreeningAgent(ABC):
         self.role = self.agent_config.get("role", "Research Agent")
         self.goal = self.agent_config.get("goal", "Perform research tasks")
         self.backstory = self.agent_config.get("backstory", "Experienced researcher")
-        
+
         # Get model from config or use provider-specific default
         self.llm_model = self.agent_config.get("llm_model")
         if not self.llm_model:
@@ -131,14 +131,14 @@ class BaseScreeningAgent(ABC):
             logger.debug(
                 f"No model specified in config, using provider default: {self.llm_model} for {self.llm_provider}"
             )
-        
+
         # Validate model/provider compatibility
         if not validate_model_provider_compatibility(self.llm_model, self.llm_provider):
             logger.warning(
                 f"Model '{self.llm_model}' may not be compatible with provider '{self.llm_provider}'. "
                 f"This may cause errors."
             )
-        
+
         self.temperature = self.agent_config.get("temperature", 0.3)
         self.max_iterations = self.agent_config.get("max_iterations", 5)
 
@@ -152,7 +152,7 @@ class BaseScreeningAgent(ABC):
 
         # Load debug configuration
         self.debug_config = get_debug_config_from_env()
-        
+
         # Track generated files from tool executions
         self._generated_files = []
 
@@ -174,7 +174,7 @@ class BaseScreeningAgent(ABC):
                     # Get timeout from agent config (default: 120 seconds)
                     timeout_seconds = self.agent_config.get("llm_timeout", 120) if self.agent_config else 120
                     timeout_ms = timeout_seconds * 1000  # Convert to milliseconds
-                    
+
                     # Create client with timeout configured
                     self.llm_client = genai.Client(
                         api_key=api_key,
@@ -285,10 +285,10 @@ class BaseScreeningAgent(ABC):
     def _get_system_instruction(self) -> Optional[str]:
         """
         Get system instruction for the agent.
-        
+
         Override this method in subclasses to provide agent-specific system instructions.
         Writing agents should return academic writing system instruction.
-        
+
         Returns:
             System instruction string, or None if no system instruction is needed
         """
@@ -297,14 +297,14 @@ class BaseScreeningAgent(ABC):
     def _get_academic_writing_system_instruction(self) -> str:
         """
         Get the standard academic writing system instruction for writing agents.
-        
+
         This system instruction prohibits conversational meta-commentary and ensures
         direct, professional academic content output.
-        
+
         Returns:
             Academic writing system instruction string
         """
-        return """You are an expert academic writer specializing in systematic reviews. Your role is to generate precise, structured academic content without conversational preamble, acknowledgments, or meta-commentary. 
+        return """You are an expert academic writer specializing in systematic reviews. Your role is to generate precise, structured academic content without conversational preamble, acknowledgments, or meta-commentary.
 
 CRITICAL OUTPUT REQUIREMENTS:
 1. Generate ONLY academic content - no conversational preamble, acknowledgments, or meta-commentary whatsoever
@@ -368,12 +368,12 @@ Output must be suitable for direct insertion into an academic publication withou
 
                     # Get system instruction if available
                     system_instruction = self._get_system_instruction()
-                    
+
                     # Build config with temperature and optional system instruction
                     config_dict = {"temperature": self.temperature}
                     if system_instruction:
                         config_dict["system_instruction"] = system_instruction
-                    
+
                     config = types.GenerateContentConfig(**config_dict)
 
                     response = self.llm_client.models.generate_content(
@@ -486,12 +486,12 @@ Output must be suitable for direct insertion into an academic publication withou
     ) -> str:
         """
         Call LLM with tool calling support (Gemini only).
-        
+
         Args:
             prompt: Original prompt
             model: Optional model override
             max_iterations: Maximum tool calling iterations
-            
+
         Returns:
             Final LLM response text
         """
@@ -500,7 +500,7 @@ Output must be suitable for direct insertion into an academic publication withou
                 f"Tool calling is only supported with Gemini provider. "
                 f"Current provider: {self.llm_provider}"
             )
-        
+
         if not self.llm_client:
             logger.warning("LLM client not available")
             return "LLM not available"
@@ -576,7 +576,7 @@ Output must be suitable for direct insertion into an academic publication withou
                             tool_args = func_call.args if hasattr(func_call, "args") else {}
 
                             tool_result = self.tool_registry.execute_tool(tool_name, tool_args)
-                            
+
                             # Track generated files
                             self._track_generated_file(tool_result)
 
@@ -616,11 +616,11 @@ Output must be suitable for direct insertion into an academic publication withou
         self.tool_registry.register(tool)
         if self.debug_config.show_tool_calls:
             logger.info(f"[{self.role}] Registered tool: {tool.name}")
-    
+
     def _track_generated_file(self, tool_result) -> None:
         """
         Track generated files from tool execution results.
-        
+
         Args:
             tool_result: Tool execution result object
         """
@@ -632,16 +632,16 @@ Output must be suitable for direct insertion into an academic publication withou
                 if Path(result_str).exists():
                     self._generated_files.append(result_str)
                     logger.debug(f"[{self.role}] Tracked generated file: {result_str}")
-    
+
     def get_generated_files(self) -> List[str]:
         """
         Get list of files generated by tool executions.
-        
+
         Returns:
             List of file paths
         """
         return self._generated_files.copy()
-    
+
     def clear_generated_files(self) -> None:
         """Clear the list of tracked generated files."""
         self._generated_files = []

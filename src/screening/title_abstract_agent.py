@@ -48,7 +48,7 @@ class TitleAbstractScreener(BaseScreeningAgent):
         # Handle edge cases
         title = title or ""
         abstract = abstract or ""
-        
+
         # If both title and abstract are missing/empty, return uncertain
         if not title.strip() and not abstract.strip():
             logger.warning(f"[{self.role}] Paper has no title or abstract, returning UNCERTAIN")
@@ -57,11 +57,11 @@ class TitleAbstractScreener(BaseScreeningAgent):
                 confidence=0.3,
                 reasoning="Paper has no title or abstract available for screening",
             )
-        
+
         # If title/abstract is very short, log warning
         if len(title.strip()) < 5 and len(abstract.strip()) < 50:
             logger.warning(f"[{self.role}] Paper has very short title/abstract, may affect screening quality")
-        
+
         # Validate criteria
         if not inclusion_criteria:
             logger.warning(f"[{self.role}] No inclusion criteria provided")
@@ -207,7 +207,7 @@ Return ONLY valid JSON."""
                 f"Structured JSON output only supported with Gemini. "
                 f"Current provider: {self.llm_provider}"
             )
-        
+
         # Use Gemini structured output
         if self.llm_provider == "gemini":
             # Gemini - request JSON in prompt, parse response
@@ -290,11 +290,11 @@ Return ONLY valid JSON."""
     ) -> Set[str]:
         """
         Extract keywords from criteria text.
-        
+
         Args:
             criteria: List of criteria strings
             min_word_length: Minimum word length to include
-            
+
         Returns:
             Set of extracted keywords
         """
@@ -313,12 +313,12 @@ Return ONLY valid JSON."""
     ) -> Dict[str, Set[str]]:
         """
         Build comprehensive keyword sets from search_terms and criteria.
-        
+
         Args:
             search_terms: Dictionary of search term groups from config
             inclusion_criteria: List of inclusion criteria
             exclusion_criteria: List of exclusion criteria
-            
+
         Returns:
             Dictionary with 'inclusion_groups' and 'exclusion_keywords' sets
         """
@@ -326,7 +326,7 @@ Return ONLY valid JSON."""
             "inclusion_groups": [],  # List of sets, each set is a concept group (OR within, AND between)
             "exclusion_keywords": set(),  # Set of exclusion keywords (any match excludes)
         }
-        
+
         # Build inclusion keyword groups from search_terms
         if search_terms:
             for _group_name, synonyms in search_terms.items():
@@ -341,24 +341,24 @@ Return ONLY valid JSON."""
                         group_keywords.add(synonym.lower())
                 if group_keywords:
                     keyword_sets["inclusion_groups"].append(group_keywords)
-        
+
         # Extract keywords from inclusion criteria and add as additional groups
         if inclusion_criteria:
             for criterion in inclusion_criteria:
                 criterion_keywords = self._extract_keywords_from_criteria([criterion])
                 if criterion_keywords:
                     keyword_sets["inclusion_groups"].append(criterion_keywords)
-        
+
         # Build exclusion keywords - use explicit phrases only, not generic words
         if exclusion_criteria:
             # Only match explicit exclusion phrases, not individual words
             explicit_exclusion_phrases = [
-                "rule-based", "rule based", "non-llm", "non llm", 
+                "rule-based", "rule based", "non-llm", "non llm",
                 "without chatbot", "no chatbot", "case study", "case studies",
                 "opinion piece", "non-peer-reviewed", "conference abstract",
             ]
             keyword_sets["exclusion_keywords"].update(phrase.lower() for phrase in explicit_exclusion_phrases)
-            
+
             # Extract only meaningful exclusion phrases from criteria (not generic words)
             for criterion in exclusion_criteria:
                 criterion_lower = criterion.lower()
@@ -375,7 +375,7 @@ Return ONLY valid JSON."""
                     keyword_sets["exclusion_keywords"].add("opinion piece")
                 if "non-peer-reviewed" in criterion_lower:
                     keyword_sets["exclusion_keywords"].add("non-peer-reviewed")
-        
+
         return keyword_sets
 
     def _fuzzy_match_keywords(
@@ -383,18 +383,18 @@ Return ONLY valid JSON."""
     ) -> List[tuple]:
         """
         Perform fuzzy matching of keywords against text.
-        
+
         Args:
             text: Text to search in
             keywords: Set of keywords to match
             threshold: Similarity threshold (0.0-1.0)
-            
+
         Returns:
             List of (keyword, similarity_score) tuples for matches above threshold
         """
         matches = []
         text_lower = text.lower()
-        
+
         for keyword in keywords:
             # For single words, use simple substring match first (faster)
             if len(keyword.split()) == 1:
@@ -415,7 +415,7 @@ Return ONLY valid JSON."""
                 similarity = fuzz.token_sort_ratio(keyword, text_lower) / 100.0
                 if similarity >= threshold:
                     matches.append((keyword, similarity))
-        
+
         return matches
 
     def _fallback_screen(
@@ -428,14 +428,14 @@ Return ONLY valid JSON."""
     ) -> ScreeningResult:
         """
         Enhanced fallback screening using comprehensive keyword matching with fuzzy matching.
-        
+
         Args:
             title: Paper title
             abstract: Paper abstract
             inclusion_criteria: List of inclusion criteria
             exclusion_criteria: List of exclusion criteria
             search_terms: Optional dictionary of search term groups from config
-            
+
         Returns:
             ScreeningResult with decision and confidence
         """
@@ -446,33 +446,33 @@ Return ONLY valid JSON."""
         ]
 
         text = (title + " " + abstract).lower()
-        
+
         if is_verbose:
             logger.debug(
                 f"[{self.role}] Keyword matching: Checking exclusion keywords..."
             )
-        
+
         # Build comprehensive keyword sets
         keyword_sets = self._build_keyword_sets(
             search_terms=search_terms,
             inclusion_criteria=inclusion_criteria,
             exclusion_criteria=exclusion_criteria,
         )
-        
+
         # STAGE 1: Check exclusion criteria first (strict filtering)
         # Only exclude if explicit exclusion phrases are found (not generic words)
         exclusion_matches = self._fuzzy_match_keywords(
             text, keyword_sets["exclusion_keywords"], threshold=0.80  # Higher threshold for exclusions
         )
-        
+
         if exclusion_matches:
             # Only exclude if we have clear exclusion matches (not just generic words)
             # Check if matches are meaningful exclusion phrases
             meaningful_exclusions = [
-                kw for kw, score in exclusion_matches 
+                kw for kw, score in exclusion_matches
                 if any(phrase in kw for phrase in ["rule-based", "non-llm", "without chatbot", "case study", "opinion"])
             ]
-            
+
             if meaningful_exclusions:
                 confidence = min(0.9, 0.75 + (len(meaningful_exclusions) * 0.05))
                 matched_keywords = meaningful_exclusions[:3]
@@ -486,26 +486,26 @@ Return ONLY valid JSON."""
                     reasoning=f"Matched explicit exclusion phrases: {', '.join(matched_keywords)}",
                     exclusion_reason=f"Exclusion phrases: {', '.join(matched_keywords)}",
                 )
-        
+
         if is_verbose:
             logger.debug(
                 f"[{self.role}] No exclusion matches. Checking inclusion groups..."
             )
-        
+
         # STAGE 2: Check inclusion criteria (permissive matching)
         # Use Boolean logic: OR within concept groups, AND between groups
         inclusion_groups = keyword_sets["inclusion_groups"]
-        
+
         if not inclusion_groups:
             # No inclusion groups defined, use basic keyword matching from criteria
             inclusion_keywords = self._extract_keywords_from_criteria(inclusion_criteria)
             inclusion_matches = self._fuzzy_match_keywords(text, inclusion_keywords, threshold=0.75)
-            
+
             if is_verbose:
                 logger.debug(
                     f"[{self.role}] Matched {len(inclusion_matches)}/{len(inclusion_criteria)} inclusion keywords"
                 )
-            
+
             if len(inclusion_matches) >= len(inclusion_criteria) * 0.5:
                 confidence = min(0.8, 0.6 + (len(inclusion_matches) * 0.05))
                 return ScreeningResult(
@@ -524,11 +524,11 @@ Return ONLY valid JSON."""
                     confidence=0.5,
                     reasoning="Insufficient keyword matches, needs LLM review",
                 )
-        
+
         # Check each inclusion group (must match at least one keyword from each group)
         matched_groups = 0
         total_group_matches = []
-        
+
         for i, group in enumerate(inclusion_groups):
             group_matches = self._fuzzy_match_keywords(text, group, threshold=0.75)
             if group_matches:
@@ -539,17 +539,17 @@ Return ONLY valid JSON."""
                     logger.debug(
                         f"[{self.role}] Matched inclusion group {i+1}/{len(inclusion_groups)}: {matched_kws}"
                     )
-        
+
         # Calculate confidence based on how many groups matched
         total_groups = len(inclusion_groups)
         group_match_ratio = matched_groups / total_groups if total_groups > 0 else 0
-        
+
         if is_verbose:
             logger.debug(
                 f"[{self.role}] Matched {matched_groups}/{total_groups} inclusion groups "
                 f"(ratio: {group_match_ratio:.2f})"
             )
-        
+
         # High confidence include: matched keywords from multiple concept groups
         # Require at least 2 groups OR 40% of groups (more permissive than before)
         min_groups_required = max(2, int(total_groups * 0.4))

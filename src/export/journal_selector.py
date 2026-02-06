@@ -25,7 +25,7 @@ class JournalSelector:
         if config_path is None:
             project_root = Path(__file__).parent.parent.parent
             config_path = project_root / "config" / "journals.yaml"
-        
+
         self.config_path = Path(config_path)
         self.journals_config = self._load_config()
 
@@ -84,13 +84,13 @@ class JournalSelector:
             return {}
 
         results = {}
-        
+
         if not manuscript_path.exists():
             logger.error(f"Manuscript not found: {manuscript_path}")
             return {}
 
         content = manuscript_path.read_text(encoding="utf-8").lower()
-        
+
         # Check required sections
         required_sections = config.get("required_sections", [])
         for section in required_sections:

@@ -110,12 +110,12 @@ Justification: {justification}
             style_guidelines += "- Integrate citations naturally: vary placement and phrasing\n"
             style_guidelines += "- Create natural flow: avoid formulaic transitions\n"
             style_guidelines += "- Maintain scholarly tone: precise but not robotic\n"
-            
+
             if intro_patterns.get("sentence_openings"):
                 examples = intro_patterns["sentence_openings"][:3]
                 style_guidelines += "\nWRITING PATTERNS FROM INCLUDED PAPERS:\n"
                 style_guidelines += f"Sentence opening examples: {', '.join(examples[:3])}\n"
-            
+
             if intro_patterns.get("vocabulary"):
                 vocab = intro_patterns["vocabulary"][:5]
                 style_guidelines += f"Domain vocabulary examples: {', '.join(vocab)}\n"

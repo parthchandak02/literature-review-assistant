@@ -133,7 +133,7 @@ class AbstractGenerator(BaseScreeningAgent):
         methods_text = article_sections.get("methods", "")
         results_text = article_sections.get("results", "")
         discussion_text = article_sections.get("discussion", "")
-        
+
         # Extract protocol registration info from config (unified location in topic section)
         if self.config:
             protocol_info = self.config.get("topic", {}).get("protocol", {})
@@ -141,7 +141,7 @@ class AbstractGenerator(BaseScreeningAgent):
             protocol_info = self.topic_context.get("protocol", {}) if isinstance(self.topic_context, dict) else {}
         registration_number = protocol_info.get("registration_number", "")
         registry = protocol_info.get("registry", "PROSPERO")
-        
+
         # Extract funding info from config (unified location in topic section)
         if self.config:
             funding_info = self.config.get("topic", {}).get("funding", {})
@@ -191,7 +191,7 @@ Generate a structured abstract with all 12 elements clearly labeled. Total word 
         # If no LLM client, use fallback immediately
         if not self.llm_client:
             return self._fallback_prisma_2020_abstract(research_question, included_papers, registration_number, registry, funding_source)
-        
+
         # Try to use LLM if available, otherwise fallback
         try:
             # Use _call_llm from BaseScreeningAgent
@@ -205,7 +205,7 @@ Generate a structured abstract with all 12 elements clearly labeled. Total word 
                     abstract = response_text
             except json.JSONDecodeError:
                 abstract = response_text
-            
+
             logger.info(f"Generated PRISMA 2020 structured abstract ({len(abstract.split())} words)")
             return abstract
         except Exception as e:
@@ -259,7 +259,7 @@ Generate a structured abstract with these sections. Total word limit: approximat
                     abstract = response_text
             except json.JSONDecodeError:
                 abstract = response_text
-            
+
             logger.info(f"Generated structured abstract ({len(abstract.split())} words)")
             return abstract
         except Exception as e:
@@ -307,7 +307,7 @@ Generate a single-paragraph abstract that summarizes the background, objective, 
                     abstract = response_text
             except json.JSONDecodeError:
                 abstract = response_text
-            
+
             logger.info(f"Generated unstructured abstract ({len(abstract.split())} words)")
             return abstract
         except Exception as e:
@@ -315,8 +315,8 @@ Generate a single-paragraph abstract that summarizes the background, objective, 
             return self._fallback_abstract(research_question, included_papers)
 
     def _fallback_prisma_2020_abstract(
-        self, research_question: str, included_papers: List[Paper], 
-        registration_number: str = "", registry: str = "PROSPERO", 
+        self, research_question: str, included_papers: List[Paper],
+        registration_number: str = "", registry: str = "PROSPERO",
         funding_source: str = "No funding received"
     ) -> str:
         """Generate a fallback PRISMA 2020 abstract if LLM generation fails."""

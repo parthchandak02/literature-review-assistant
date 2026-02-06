@@ -41,7 +41,7 @@ class FullTextScreener(BaseScreeningAgent):
         title = title or ""
         abstract = abstract or ""
         full_text = full_text or None
-        
+
         # If both title and abstract are missing/empty, return uncertain
         if not title.strip() and not abstract.strip() and not full_text:
             logger.warning(f"[{self.role}] Paper has no title, abstract, or full-text, returning UNCERTAIN")
@@ -50,13 +50,13 @@ class FullTextScreener(BaseScreeningAgent):
                 confidence=0.3,
                 reasoning="Paper has no title, abstract, or full-text available for screening",
             )
-        
+
         # Validate criteria
         if not inclusion_criteria:
             logger.warning(f"[{self.role}] No inclusion criteria provided")
         if not exclusion_criteria:
             logger.warning(f"[{self.role}] No exclusion criteria provided")
-        
+
         # If full-text is very short, log warning
         if full_text and len(full_text.strip()) < 100:
             logger.warning(f"[{self.role}] Full-text is very short ({len(full_text)} chars), may be incomplete")
@@ -115,7 +115,7 @@ class FullTextScreener(BaseScreeningAgent):
                     )
                 response = self._call_llm(prompt)
                 result = self._parse_llm_response(response)
-                
+
                 if is_verbose:
                     logger.debug(
                         f"[{self.role}] Decision: {result.decision.value.upper()}, "
@@ -143,9 +143,9 @@ class FullTextScreener(BaseScreeningAgent):
 
         # Pass agent_config to use the correct model from config
         screener = TitleAbstractScreener(
-            self.llm_provider, 
-            self.api_key, 
-            self.topic_context, 
+            self.llm_provider,
+            self.api_key,
+            self.topic_context,
             self.agent_config
         )
         return screener.screen(title, abstract, inclusion_criteria, exclusion_criteria)

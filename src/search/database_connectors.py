@@ -94,7 +94,7 @@ class PubMedConnector(DatabaseConnector):
             session = self._get_session()
             request_kwargs = self._get_request_kwargs()
             request_kwargs.setdefault("timeout", 30)
-            
+
             response = session.get(search_url, params=params, **request_kwargs)
             response.raise_for_status()
             search_data = response.json()
@@ -195,7 +195,7 @@ class PubMedConnector(DatabaseConnector):
                         if first_name is not None and first_name.text:
                             name = f"{first_name.text} {name}"
                         authors.append(name)
-                    
+
                     # Extract affiliations from Author elements
                     affiliation_elems = author.findall("Affiliation", namespace)
                     for aff in affiliation_elems:
@@ -408,7 +408,7 @@ class SemanticScholarConnector(DatabaseConnector):
                 session = self._get_session()
                 request_kwargs = self._get_request_kwargs()
                 request_kwargs.setdefault("timeout", 30)
-                
+
                 response = session.get(self.base_url, params=params, headers=headers, **request_kwargs)
 
                 if response.status_code == 429:
@@ -431,7 +431,7 @@ class SemanticScholarConnector(DatabaseConnector):
                         for author in paper_data["authors"]:
                             if author.get("name"):
                                 authors.append(author.get("name"))
-                            
+
                             # Extract affiliations from author objects
                             if "affiliation" in author:
                                 aff = author["affiliation"]
@@ -551,7 +551,7 @@ class CrossrefConnector(DatabaseConnector):
                 session = self._get_session()
                 request_kwargs = self._get_request_kwargs()
                 request_kwargs.setdefault("timeout", 30)
-                
+
                 response = session.get(self.base_url, params=params, **request_kwargs)
 
                 if response.status_code == 429:
@@ -609,7 +609,7 @@ class CrossrefConnector(DatabaseConnector):
                                     name = f"{given} {family}".strip()
                                     if name:
                                         authors.append(name)
-                                
+
                                 # Extract affiliations from author objects
                                 if "affiliation" in author:
                                     aff_list = author["affiliation"] if isinstance(author["affiliation"], list) else [author["affiliation"]]
@@ -767,23 +767,23 @@ class ScopusConnector(DatabaseConnector):
             except ImportError:
                 logger.error("pybliometrics not installed. Install with: uv pip install pybliometrics")
                 raise ImportError("pybliometrics required for Scopus search. Install with: uv pip install pybliometrics")
-            
+
             # Initialize pybliometrics with API key if not already configured
             try:
                 pybliometrics.init(keys=[self.api_key])
             except Exception as e:
                 # Config might already exist, that's OK
                 logger.debug(f"pybliometrics init note: {e}")
-            
+
             # Determine view: COMPLETE for subscribers, STANDARD for free tier
             view = self.view
             if view is None:
                 view = "COMPLETE" if self.subscriber else "STANDARD"
-            
+
             # Apply rate limiting
             rate_limiter = self._get_rate_limiter()
             rate_limiter.acquire()
-            
+
             # Perform search using pybliometrics
             logger.debug(f"Searching Scopus with pybliometrics (subscriber={self.subscriber}, view={view})")
             search = ScopusSearch(
@@ -793,25 +793,25 @@ class ScopusConnector(DatabaseConnector):
                 verbose=False,
                 download=True
             )
-            
+
             # Get results size
             results_size = search.get_results_size()
             logger.info(f"Scopus search found {results_size} documents")
-            
+
             if results_size == 0:
                 logger.warning("No results found in Scopus")
                 return []
-            
+
             # Convert pybliometrics Document NamedTuple to Paper objects
             for doc in search.results[:max_results]:
                 if len(papers) >= max_results:
                     break
-                
+
                 # Extract authors (semicolon-separated in pybliometrics)
                 authors = []
                 if doc.author_names:
                     authors = [name.strip() for name in doc.author_names.split(";") if name.strip()]
-                
+
                 # Extract year from coverDate
                 year = None
                 if doc.coverDate:
@@ -819,24 +819,24 @@ class ScopusConnector(DatabaseConnector):
                         year = int(doc.coverDate[:4])
                     except (ValueError, TypeError):
                         pass
-                
+
                 # Extract affiliations (semicolon-separated)
                 affiliations = []
                 if doc.affilname:
                     affiliations = [aff.strip() for aff in doc.affilname.split(";") if aff.strip()]
-                
+
                 # Extract subject areas (if available in authkeywords or other fields)
                 subject_areas = None
                 if doc.authkeywords:
                     # Subject areas might be in authkeywords, but this is not standard
                     # We'll leave it as None for now since pybliometrics doesn't expose it directly
                     pass
-                
+
                 # Build URL from EID
                 url = None
                 if doc.eid:
                     url = f"https://www.scopus.com/record/display.uri?eid={doc.eid}"
-                
+
                 paper = Paper(
                     title=doc.title or "",
                     abstract=doc.description or "",
@@ -853,7 +853,7 @@ class ScopusConnector(DatabaseConnector):
                     scopus_id=doc.eid,  # Store EID as scopus_id
                 )
                 papers.append(paper)
-            
+
             logger.info(f"Retrieved {len(papers)} papers from Scopus")
 
         except Exception as e:
@@ -885,14 +885,14 @@ class ScopusConnector(DatabaseConnector):
 
     def get_database_name(self) -> str:
         return "Scopus"
-    
+
     def get_author_by_id(self, author_id: str) -> Optional["Author"]:
         """
         Retrieve author information by Scopus author ID using pybliometrics.
-        
+
         Args:
             author_id: Scopus author ID
-            
+
         Returns:
             Author object with bibliometric data, or None if pybliometrics not available
         """
@@ -902,19 +902,19 @@ class ScopusConnector(DatabaseConnector):
         except ImportError:
             logger.warning("pybliometrics not available. Install with: pip install pybliometrics or pip install -e '.[bibliometrics]'")
             return None
-        
+
         if not self.api_key:
             logger.warning("Scopus API key required for author retrieval")
             return None
-        
+
         try:
             # Set API key for pybliometrics
             import pybliometrics
             pybliometrics.init()
-            
+
             # Retrieve author
             au = AuthorRetrieval(author_id, view="ENHANCED")
-            
+
             # Convert to our Author model
             current_affiliations = []
             if au.affiliation_current:
@@ -930,7 +930,7 @@ class ScopusConnector(DatabaseConnector):
                         organization_domain=aff.org_domain,
                         organization_url=aff.org_URL,
                     ))
-            
+
             historical_affiliations = []
             if au.affiliation_history:
                 for aff in au.affiliation_history:
@@ -941,11 +941,11 @@ class ScopusConnector(DatabaseConnector):
                         country=aff.country,
                         country_code=aff.country_code,
                     ))
-            
+
             subject_areas = []
             if au.subject_areas:
                 subject_areas = [area.area for area in au.subject_areas]
-            
+
             author = Author(
                 name=au.indexed_name or "",
                 id=str(au.identifier),
@@ -968,20 +968,20 @@ class ScopusConnector(DatabaseConnector):
                 url=au.url,
                 profile_url=au.scopus_author_link,
             )
-            
+
             return author
-            
+
         except Exception as e:
             logger.error(f"Error retrieving author {author_id}: {e}")
             return None
-    
+
     def get_affiliation_by_id(self, affiliation_id: str) -> Optional["Affiliation"]:
         """
         Retrieve affiliation information by Scopus affiliation ID using pybliometrics.
-        
+
         Args:
             affiliation_id: Scopus affiliation ID
-            
+
         Returns:
             Affiliation object, or None if pybliometrics not available
         """
@@ -991,17 +991,17 @@ class ScopusConnector(DatabaseConnector):
         except ImportError:
             logger.warning("pybliometrics not available. Install with: pip install pybliometrics or pip install -e '.[bibliometrics]'")
             return None
-        
+
         if not self.api_key:
             logger.warning("Scopus API key required for affiliation retrieval")
             return None
-        
+
         try:
             import pybliometrics
             pybliometrics.init()
-            
+
             aff = AffiliationRetrieval(affiliation_id)
-            
+
             affiliation = Affiliation(
                 name=aff.preferred_name or "",
                 id=str(aff.identifier),
@@ -1014,21 +1014,21 @@ class ScopusConnector(DatabaseConnector):
                 organization_url=aff.org_URL,
                 author_count=int(aff.author_count) if aff.author_count else None,
             )
-            
+
             return affiliation
-            
+
         except Exception as e:
             logger.error(f"Error retrieving affiliation {affiliation_id}: {e}")
             return None
-    
+
     def search_authors(self, query: str, max_results: int = 25) -> List["Author"]:
         """
         Search for authors by name using pybliometrics.
-        
+
         Args:
             query: Author search query (e.g., "AUTHLAST(Smith) AND AUTHFIRST(John)")
             max_results: Maximum number of results
-            
+
         Returns:
             List of Author objects
         """
@@ -1037,26 +1037,26 @@ class ScopusConnector(DatabaseConnector):
         except ImportError:
             logger.warning("pybliometrics not available. Install with: pip install pybliometrics or pip install -e '.[bibliometrics]'")
             return []
-        
+
         if not self.api_key:
             logger.warning("Scopus API key required for author search")
             return []
-        
+
         try:
             import pybliometrics
             pybliometrics.init()
-            
+
             search = AuthorSearch(query)
             authors = []
-            
+
             for result in search.results[:max_results]:
                 # Get full author details
                 author = self.get_author_by_id(result.identifier)
                 if author:
                     authors.append(author)
-            
+
             return authors
-            
+
         except Exception as e:
             logger.error(f"Error searching authors: {e}")
             return []
@@ -1101,7 +1101,7 @@ class ACMConnector(DatabaseConnector):
             session = self._get_session()
             request_kwargs = self._get_request_kwargs()
             request_kwargs.setdefault("timeout", 30)
-            
+
             # Enhanced browser headers to avoid 403 errors
             headers = {
                 "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
@@ -1116,7 +1116,7 @@ class ACMConnector(DatabaseConnector):
                 "Sec-Fetch-Site": "same-origin",
                 "Sec-Fetch-User": "?1",
             }
-            
+
             # Visit homepage first to establish session and get cookies
             try:
                 logger.debug("Visiting ACM homepage to establish session...")
@@ -1160,7 +1160,7 @@ class ACMConnector(DatabaseConnector):
 
                 rate_limiter = self._get_rate_limiter()
                 rate_limiter.acquire()
-                
+
                 # Add delay between page requests to avoid rate limiting
                 if page > 0:
                     import time
@@ -1171,9 +1171,9 @@ class ACMConnector(DatabaseConnector):
                     "pageSize": page_size,
                     "startPage": start_page + page,
                 }
-                
+
                 response = session.get(self.search_url, params=params, headers=headers, **request_kwargs)
-                
+
                 # Handle 403 errors gracefully
                 if response.status_code == 403:
                     logger.warning(
@@ -1183,7 +1183,7 @@ class ACMConnector(DatabaseConnector):
                     )
                     # Return empty list instead of raising error
                     return []
-                
+
                 response.raise_for_status()
 
                 # Parse HTML
@@ -1240,7 +1240,7 @@ class ACMConnector(DatabaseConnector):
             # ACM search results are typically in divs with class "search__item" or similar
             # Try multiple possible selectors in order of likelihood
             result_items = []
-            
+
             # Try most common selectors first
             selectors = [
                 ("div", {"class": "search__item"}),
@@ -1251,7 +1251,7 @@ class ACMConnector(DatabaseConnector):
                 ("li", {"class": "search__item"}),
                 ("div", {"class": "hlFld-Title"}),  # Sometimes results are grouped differently
             ]
-            
+
             for tag, attrs in selectors:
                 if isinstance(attrs, dict) and "class" in attrs:
                     result_items = soup.find_all(tag, class_=attrs["class"])
@@ -1259,11 +1259,11 @@ class ACMConnector(DatabaseConnector):
                     result_items = soup.find_all(tag, {"data-testid": attrs["data-testid"]})
                 else:
                     result_items = soup.find_all(tag, attrs)
-                
+
                 if result_items:
                     logger.debug(f"Found {len(result_items)} ACM results using selector: {tag} with {attrs}")
                     break
-            
+
             # If still no results, try finding by structure (title links)
             if not result_items:
                 # Look for title links which are always present
@@ -1300,7 +1300,7 @@ class ACMConnector(DatabaseConnector):
         """Extract paper metadata from a single result item."""
         try:
             import re
-            
+
             # Title - try multiple selectors with better fallbacks
             title_elem = None
             title_selectors = [
@@ -1312,7 +1312,7 @@ class ACMConnector(DatabaseConnector):
                 ("h2", {}),
                 ("a", {"href": lambda x: x and "/doi/" in str(x)}),  # DOI link often contains title
             ]
-            
+
             for tag, attrs in title_selectors:
                 if "class" in attrs:
                     title_elem = item.find(tag, class_=attrs["class"])
@@ -1322,13 +1322,13 @@ class ACMConnector(DatabaseConnector):
                     title_elem = item.find(tag)
                 if title_elem:
                     break
-            
+
             title = title_elem.get_text(strip=True) if title_elem else ""
-            
+
             # If title is in a link, get it from the link text
             if not title and title_elem and title_elem.name == "a":
                 title = title_elem.get_text(strip=True)
-            
+
             # Fallback: extract from any text that looks like a title (longest text block)
             if not title:
                 text_blocks = [elem.get_text(strip=True) for elem in item.find_all(["h1", "h2", "h3", "h4", "h5", "h6", "a", "span"])]
@@ -1347,7 +1347,7 @@ class ACMConnector(DatabaseConnector):
                 ("a", {"class": lambda x: x and "author" in str(x).lower()}),
                 ("span", {"class": lambda x: x and "author" in str(x).lower()}),
             ]
-            
+
             author_links = []
             for tag, attrs in author_selectors:
                 if "class" in attrs:
@@ -1356,7 +1356,7 @@ class ACMConnector(DatabaseConnector):
                     author_links = item.find_all(tag, class_=attrs["class"])
                 if author_links:
                     break
-            
+
             # If no author links found, try finding by text pattern
             if not author_links:
                 author_section = (
@@ -1378,7 +1378,7 @@ class ACMConnector(DatabaseConnector):
                 author_name = author_link.get_text(strip=True)
                 if author_name and author_name not in authors:
                     authors.append(author_name)
-            
+
             # If still no authors, try regex pattern matching
             if not authors:
                 item_text = item.get_text()
@@ -1399,14 +1399,14 @@ class ACMConnector(DatabaseConnector):
                 ("span", {"class": "snippet"}),
                 ("p", {"class": "snippet"}),
             ]
-            
+
             for tag, attrs in abstract_selectors:
                 abstract_elem = item.find(tag, class_=attrs["class"])
                 if abstract_elem:
                     break
-            
+
             abstract = abstract_elem.get_text(strip=True) if abstract_elem else ""
-            
+
             # Handle truncated abstracts (look for "..." or "more" indicators)
             if abstract and len(abstract) < 50:
                 # Might be truncated, try to find full abstract
@@ -1469,7 +1469,7 @@ class ACMConnector(DatabaseConnector):
                 or item.find("span", class_="date")
                 or item.find("div", class_="date")
             )
-            
+
             if year_elem:
                 year_text = year_elem.get_text(strip=True)
                 year_match = re.search(r"\b(19|20)\d{2}\b", year_text)
@@ -1481,7 +1481,7 @@ class ACMConnector(DatabaseConnector):
                             year = None
                     except ValueError:
                         pass
-            
+
             # If no year found, try searching in the entire item text
             if not year:
                 item_text = item.get_text()
@@ -1505,13 +1505,13 @@ class ACMConnector(DatabaseConnector):
                 ("div", {"class": "journal"}),
                 ("a", {"class": "venue"}),
             ]
-            
+
             for tag, attrs in venue_selectors:
                 venue_elem = item.find(tag, class_=attrs["class"])
                 if venue_elem:
                     venue = venue_elem.get_text(strip=True)
                     break
-            
+
             # If no venue found, try looking for publication info in text
             if not venue:
                 item_text = item.get_text()
@@ -1594,7 +1594,7 @@ class SpringerConnector(DatabaseConnector):
             session = self._get_session()
             request_kwargs = self._get_request_kwargs()
             request_kwargs.setdefault("timeout", 30)
-            
+
             # Enhanced browser headers
             headers = {
                 "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
@@ -1605,7 +1605,7 @@ class SpringerConnector(DatabaseConnector):
                 "Connection": "keep-alive",
                 "Upgrade-Insecure-Requests": "1",
             }
-            
+
             # Visit homepage first to establish session
             try:
                 logger.debug("Visiting Springer homepage to establish session...")
@@ -1644,7 +1644,7 @@ class SpringerConnector(DatabaseConnector):
 
                 rate_limiter = self._get_rate_limiter()
                 rate_limiter.acquire()
-                
+
                 # Add delay between page requests
                 if page > 0:
                     time.sleep(1.0)
@@ -1653,16 +1653,16 @@ class SpringerConnector(DatabaseConnector):
                     "query": query,
                     "page": page + 1,
                 }
-                
+
                 response = session.get(self.search_url, params=params, headers=headers, **request_kwargs)
-                
+
                 if response.status_code == 403:
                     logger.warning(
                         "Springer Link returned 403 Forbidden. "
                         "Skipping Springer search for this query."
                     )
                     return []
-                
+
                 response.raise_for_status()
 
                 # Parse HTML
@@ -1714,7 +1714,7 @@ class SpringerConnector(DatabaseConnector):
         try:
             # Springer search results are typically in list items or divs
             result_items = []
-            
+
             selectors = [
                 ("li", {"class": "search-result-item"}),
                 ("div", {"class": "search-result-item"}),
@@ -1723,7 +1723,7 @@ class SpringerConnector(DatabaseConnector):
                 ("div", {"class": "result-item"}),
                 ("li", {"data-testid": "search-result-item"}),
             ]
-            
+
             for tag, attrs in selectors:
                 if "class" in attrs:
                     result_items = soup.find_all(tag, class_=attrs["class"])
@@ -1732,7 +1732,7 @@ class SpringerConnector(DatabaseConnector):
                 if result_items:
                     logger.debug(f"Found {len(result_items)} Springer results using selector: {tag} with {attrs}")
                     break
-            
+
             # Fallback: find by title links
             if not result_items:
                 title_links = soup.find_all("a", href=lambda x: x and "/article/" in str(x))
@@ -1767,7 +1767,7 @@ class SpringerConnector(DatabaseConnector):
         """Extract paper metadata from a single result item."""
         try:
             import re
-            
+
             # Title
             title_elem = None
             title_selectors = [
@@ -1778,7 +1778,7 @@ class SpringerConnector(DatabaseConnector):
                 ("span", {"class": "title"}),
                 ("a", {"href": lambda x: x and "/article/" in str(x)}),
             ]
-            
+
             for tag, attrs in title_selectors:
                 if "class" in attrs:
                     title_elem = item.find(tag, class_=attrs["class"])
@@ -1788,9 +1788,9 @@ class SpringerConnector(DatabaseConnector):
                     title_elem = item.find(tag)
                 if title_elem:
                     break
-            
+
             title = title_elem.get_text(strip=True) if title_elem else ""
-            
+
             if not title:
                 return None
 
@@ -1802,13 +1802,13 @@ class SpringerConnector(DatabaseConnector):
                 ("a", {"class": "author"}),
                 ("span", {"class": "author"}),
             ]
-            
+
             author_links = []
             for tag, attrs in author_selectors:
                 author_links = item.find_all(tag, class_=attrs["class"])
                 if author_links:
                     break
-            
+
             if not author_links:
                 author_section = item.find("div", class_="authors") or item.find("span", class_="authors")
                 if author_section:
@@ -1872,7 +1872,7 @@ class SpringerConnector(DatabaseConnector):
                 or item.find("div", class_="year")
                 or item.find("span", class_="date")
             )
-            
+
             if year_elem:
                 year_text = year_elem.get_text(strip=True)
                 year_match = re.search(r"\b(19|20)\d{2}\b", year_text)
@@ -1883,7 +1883,7 @@ class SpringerConnector(DatabaseConnector):
                             year = None
                     except ValueError:
                         pass
-            
+
             if not year:
                 item_text = item.get_text()
                 year_match = re.search(r"\b(19|20)\d{2}\b", item_text)
@@ -1967,19 +1967,19 @@ class IEEEXploreConnector(DatabaseConnector):
             except Exception as e:
                 logger.warning(f"IEEE Xplore API search failed: {e}. Falling back to web scraping.")
                 # Fall through to web scraping
-        
+
         # Fallback to web scraping
         return self._search_via_scraping(query, max_results)
 
     def _search_via_api(self, query: str, max_results: int = 100) -> List[Paper]:
         """Search IEEE Xplore using official API."""
         papers = []
-        
+
         try:
             session = self._get_session()
             request_kwargs = self._get_request_kwargs()
             request_kwargs.setdefault("timeout", 60)  # API can be slower
-            
+
             # IEEE Xplore API parameters
             params = {
                 "apikey": self.api_key,
@@ -1989,21 +1989,21 @@ class IEEEXploreConnector(DatabaseConnector):
                 "sort_order": "desc",
                 "sort_field": "article_title",
             }
-            
+
             response = session.get(self.api_base_url, params=params, **request_kwargs)
-            
+
             if response.status_code == 401:
                 raise APIKeyError("Invalid IEEE Xplore API key")
             elif response.status_code == 429:
                 raise RateLimitError("IEEE Xplore API rate limit exceeded")
-            
+
             response.raise_for_status()
             data = response.json()
-            
+
             if "articles" not in data:
                 logger.warning("IEEE Xplore API returned unexpected response format")
                 return []
-            
+
             for article in data["articles"]:
                 try:
                     # Extract authors
@@ -2012,7 +2012,7 @@ class IEEEXploreConnector(DatabaseConnector):
                         for author in article["authors"]["authors"]:
                             if "full_name" in author:
                                 authors.append(author["full_name"])
-                    
+
                     # Extract year
                     year = None
                     if "publication_year" in article:
@@ -2020,22 +2020,22 @@ class IEEEXploreConnector(DatabaseConnector):
                             year = int(article["publication_year"])
                         except (ValueError, TypeError):
                             pass
-                    
+
                     # Extract DOI
                     doi = None
                     if "doi" in article:
                         doi = article["doi"]
-                    
+
                     # Extract URL
                     url = None
                     if "html_url" in article:
                         url = article["html_url"]
                     elif "pdf_url" in article:
                         url = article["pdf_url"]
-                    
+
                     # Extract abstract
                     abstract = article.get("abstract", "")
-                    
+
                     # Extract keywords
                     keywords = None
                     if "index_terms" in article:
@@ -2043,7 +2043,7 @@ class IEEEXploreConnector(DatabaseConnector):
                             keywords = article["index_terms"]["ieee_terms"].get("terms", [])
                         elif "author_terms" in article["index_terms"]:
                             keywords = article["index_terms"]["author_terms"].get("terms", [])
-                    
+
                     paper = Paper(
                         title=article.get("title", ""),
                         abstract=abstract,
@@ -2056,14 +2056,14 @@ class IEEEXploreConnector(DatabaseConnector):
                         keywords=keywords,
                     )
                     papers.append(paper)
-                    
+
                     if len(papers) >= max_results:
                         break
-                        
+
                 except Exception as e:
                     logger.warning(f"Error parsing IEEE Xplore API result: {e}")
                     continue
-            
+
         except APIKeyError:
             raise
         except RateLimitError:
@@ -2074,14 +2074,14 @@ class IEEEXploreConnector(DatabaseConnector):
         except Exception as e:
             logger.error(f"Error searching IEEE Xplore API: {e}")
             raise DatabaseSearchError(f"IEEE Xplore API search error: {e}") from e
-        
+
         # Validate papers
         papers = self._validate_papers(papers)
-        
+
         # Cache results
         if self.cache and papers:
             self.cache.set(query, "IEEE Xplore", papers)
-        
+
         return papers
 
     def _search_via_scraping(self, query: str, max_results: int = 100) -> List[Paper]:
@@ -2095,7 +2095,7 @@ class IEEEXploreConnector(DatabaseConnector):
             session = self._get_session()
             request_kwargs = self._get_request_kwargs()
             request_kwargs.setdefault("timeout", 60)  # Increased timeout for reliability
-            
+
             # Enhanced browser headers
             headers = {
                 "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
@@ -2106,7 +2106,7 @@ class IEEEXploreConnector(DatabaseConnector):
                 "Connection": "keep-alive",
                 "Upgrade-Insecure-Requests": "1",
             }
-            
+
             # Visit homepage first to establish session with retry logic
             max_homepage_retries = 2
             for retry in range(max_homepage_retries):
@@ -2160,7 +2160,7 @@ class IEEEXploreConnector(DatabaseConnector):
 
                 rate_limiter = self._get_rate_limiter()
                 rate_limiter.acquire()
-                
+
                 # Add delay between page requests
                 if page > 0:
                     time.sleep(1.5)  # Slightly longer delay for IEEE
@@ -2170,16 +2170,16 @@ class IEEEXploreConnector(DatabaseConnector):
                     "pageNumber": page + 1,
                     "rowsPerPage": page_size,
                 }
-                
+
                 response = session.get(self.search_url, params=params, headers=headers, **request_kwargs)
-                
+
                 if response.status_code == 403:
                     logger.warning(
                         "IEEE Xplore returned 403 Forbidden. "
                         "Skipping IEEE Xplore search for this query."
                     )
                     return []
-                
+
                 response.raise_for_status()
 
                 # Parse HTML
@@ -2231,7 +2231,7 @@ class IEEEXploreConnector(DatabaseConnector):
         try:
             # IEEE Xplore search results are typically in list items or divs
             result_items = []
-            
+
             selectors = [
                 ("li", {"class": "List-item"}),
                 ("div", {"class": "List-item"}),
@@ -2240,7 +2240,7 @@ class IEEEXploreConnector(DatabaseConnector):
                 ("article", {"class": "result-item"}),
                 ("li", {"data-testid": "search-result-item"}),
             ]
-            
+
             for tag, attrs in selectors:
                 if "class" in attrs:
                     result_items = soup.find_all(tag, class_=attrs["class"])
@@ -2249,7 +2249,7 @@ class IEEEXploreConnector(DatabaseConnector):
                 if result_items:
                     logger.debug(f"Found {len(result_items)} IEEE Xplore results using selector: {tag} with {attrs}")
                     break
-            
+
             # Fallback: find by title links
             if not result_items:
                 title_links = soup.find_all("a", href=lambda x: x and "/document/" in str(x))
@@ -2284,7 +2284,7 @@ class IEEEXploreConnector(DatabaseConnector):
         """Extract paper metadata from a single result item."""
         try:
             import re
-            
+
             # Title
             title_elem = None
             title_selectors = [
@@ -2295,7 +2295,7 @@ class IEEEXploreConnector(DatabaseConnector):
                 ("span", {"class": "title"}),
                 ("a", {"href": lambda x: x and "/document/" in str(x)}),
             ]
-            
+
             for tag, attrs in title_selectors:
                 if "class" in attrs:
                     title_elem = item.find(tag, class_=attrs["class"])
@@ -2305,9 +2305,9 @@ class IEEEXploreConnector(DatabaseConnector):
                     title_elem = item.find(tag)
                 if title_elem:
                     break
-            
+
             title = title_elem.get_text(strip=True) if title_elem else ""
-            
+
             if not title:
                 return None
 
@@ -2319,13 +2319,13 @@ class IEEEXploreConnector(DatabaseConnector):
                 ("a", {"class": "author"}),
                 ("span", {"class": "author"}),
             ]
-            
+
             author_links = []
             for tag, attrs in author_selectors:
                 author_links = item.find_all(tag, class_=attrs["class"])
                 if author_links:
                     break
-            
+
             if not author_links:
                 author_section = item.find("div", class_="authors") or item.find("span", class_="authors")
                 if author_section:
@@ -2389,7 +2389,7 @@ class IEEEXploreConnector(DatabaseConnector):
                 or item.find("div", class_="year")
                 or item.find("span", class_="date")
             )
-            
+
             if year_elem:
                 year_text = year_elem.get_text(strip=True)
                 year_match = re.search(r"\b(19|20)\d{2}\b", year_text)
@@ -2400,7 +2400,7 @@ class IEEEXploreConnector(DatabaseConnector):
                             year = None
                     except ValueError:
                         pass
-            
+
             if not year:
                 item_text = item.get_text()
                 year_match = re.search(r"\b(19|20)\d{2}\b", item_text)
@@ -2500,7 +2500,7 @@ class PerplexityConnector(DatabaseConnector):
             filter_mode = os.getenv("PERPLEXITY_DOMAIN_FILTER_MODE", "allowlist").lower()
             if os.getenv("PERPLEXITY_NO_DOMAIN_FILTER", "false").lower() == "true":
                 filter_mode = "none"
-            
+
             # Common non-academic domains to exclude (if using denylist mode)
             # This allows us to capture ALL academic sources while filtering out noise
             # Perplexity allows max 20 domains, prioritized by empirical analysis:
@@ -2532,7 +2532,7 @@ class PerplexityConnector(DatabaseConnector):
                 "tutorialspoint.com",
                 "codecademy.com",
             ]
-            
+
             # Key academic domains (for allowlist mode - max 20)
             # Using main domains covers subdomains (e.g., "springer.com" covers "link.springer.com")
             academic_domains = [
@@ -2561,12 +2561,12 @@ class PerplexityConnector(DatabaseConnector):
                 "semanticscholar.org",
                 "scholar.google.com",
             ]
-            
+
             request_body = {
                 "query": query,
                 "max_results": min(max_results, 20),  # Perplexity Search API allows max 20 per request
             }
-            
+
             # Apply domain filtering based on mode
             if filter_mode == "allowlist":
                 # Include only academic domains (may miss some academic sources)
@@ -2623,7 +2623,7 @@ class PerplexityConnector(DatabaseConnector):
 
             # Convert results to Paper objects
             import re
-            
+
             for result in data["results"]:
                 if len(papers) >= max_results:
                     break

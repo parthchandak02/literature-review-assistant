@@ -68,7 +68,7 @@ class ResultsWriter(BaseScreeningAgent):
 
         # Generate study characteristics table
         study_characteristics_table = self._generate_study_characteristics_table(extracted_data)
-        
+
         # Set output_dir for tools if provided
         if output_dir:
             # Update tool output directories if tools are registered
@@ -77,7 +77,7 @@ class ResultsWriter(BaseScreeningAgent):
                 if tool and hasattr(tool.execute_fn, "__defaults__"):
                     # Tools will use output_dir parameter if provided
                     pass
-        
+
         prompt = self._build_results_prompt(
             extracted_data, prisma_counts, key_findings,
             study_characteristics_table, risk_of_bias_summary, risk_of_bias_table,
@@ -124,7 +124,7 @@ class ResultsWriter(BaseScreeningAgent):
         rows = []
         for i, data in enumerate(extracted_data, 1):
             study_id = f"Study {i}"
-            
+
             # Extract author and year
             author_year = ""
             if data.authors:
@@ -134,7 +134,7 @@ class ResultsWriter(BaseScreeningAgent):
                 author_year += f", {data.year}"
             if not author_year:
                 author_year = "Not specified"
-            
+
             # Truncate long fields for table
             country = (data.country or "Not specified")[:30]
             design = (data.study_design or "Not specified")[:30]
@@ -240,12 +240,12 @@ Study {i}: {data.title}
             style_guidelines += "- Integrate citations naturally: vary placement and phrasing\n"
             style_guidelines += "- Create natural flow: avoid formulaic transitions\n"
             style_guidelines += "- Maintain scholarly tone: precise but not robotic\n"
-            
+
             if results_patterns.get("sentence_openings"):
                 examples = results_patterns["sentence_openings"][:3]
                 style_guidelines += "\nWRITING PATTERNS FROM INCLUDED PAPERS:\n"
                 style_guidelines += f"Sentence opening examples: {', '.join(examples[:3])}\n"
-            
+
             if results_patterns.get("vocabulary"):
                 vocab = results_patterns["vocabulary"][:5]
                 style_guidelines += f"Domain vocabulary examples: {', '.join(vocab)}\n"
@@ -302,7 +302,7 @@ Write in past tense, use SINGULAR language (e.g., "the study" not "studies"), an
             # Add tool calling instructions and Mermaid diagram guide
             tool_instructions = ""
             mermaid_guide = ""
-            
+
             if self.tool_registry.list_tools():
                 tool_instructions = """
 AVAILABLE TOOLS FOR GENERATING TABLES AND DIAGRAMS:
@@ -311,7 +311,7 @@ You have access to the following tools that you should use when appropriate:
 
 1. generate_thematic_table - Generate a thematic analysis table
    - Use when: You identify themes from the extracted data
-   - Parameters: 
+   - Parameters:
      * themes (array, REQUIRED): List of theme names you've identified
      * output_dir (string, optional): Use """ + (output_dir or "data/outputs") + """ (defaults to configured directory)
      * extracted_data (array, optional): Can pass empty array [] - tool will work from prompt context
@@ -442,7 +442,7 @@ Please write a detailed results section that includes:
 6. Reporting Biases (assessment of publication bias, selective outcome reporting, and other reporting biases)
 7. Certainty of Evidence (if GRADE table is provided above, include it and write a narrative summary)
 
-IMPORTANT: 
+IMPORTANT:
 - Include the study characteristics table exactly as provided above
 - If risk of bias information is provided, include the table and write a narrative summary (150-200 words)
 - If GRADE information is provided, include the GRADE evidence profile table and write a narrative summary

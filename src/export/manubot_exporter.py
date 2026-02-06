@@ -74,13 +74,13 @@ class ManubotExporter:
         for section_name, filename in section_order:
             if section_name in article_sections:
                 content = article_sections[section_name]
-                
+
                 # Process citations if citation manager available
                 if self.citation_manager:
                     content = self.citation_manager.extract_and_map_citations(
                         content, auto_resolve=auto_resolve_citations
                     )
-                
+
                 section_path = self.content_dir / filename
                 section_content = self._format_section(section_name, content)
                 section_path.write_text(section_content, encoding="utf-8")

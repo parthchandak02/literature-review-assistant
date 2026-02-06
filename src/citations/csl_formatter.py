@@ -73,7 +73,7 @@ class CSLFormatter:
             ValueError: If style download fails
         """
         style_file = self.cache_dir / f"{style_name}.csl"
-        
+
         # Check if already cached
         if style_file.exists():
             logger.debug(f"Using cached CSL style: {style_file}")
@@ -218,7 +218,7 @@ class CSLFormatter:
             Path to generated JSON file
         """
         csl_items = self.format_citations(papers)
-        
+
         output_path.parent.mkdir(parents=True, exist_ok=True)
         with open(output_path, "w", encoding="utf-8") as f:
             json.dump(csl_items, f, indent=2, ensure_ascii=False)

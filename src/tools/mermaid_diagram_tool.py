@@ -91,7 +91,7 @@ def generate_mermaid_diagram(
         # For SVG output, we need to get the SVG content
         # mermaid-py may return HTML with embedded SVG or direct SVG
         diagram_str = str(diagram)
-        
+
         # Save diagram content to file
         # If it's HTML, we'll save as HTML (browsers can render it)
         # If it's SVG, we'll save as SVG

@@ -66,7 +66,7 @@ class NaturalnessScorer(BaseScreeningAgent):
             Dictionary with scores for each dimension and overall score
         """
         from ..utils.rich_utils import print_naturalness_panel
-        
+
         # Check cache
         cache_key = f"{section_type}:{hash(text[:500])}"
         if use_cache and cache_key in self._score_cache:
@@ -126,14 +126,14 @@ class NaturalnessScorer(BaseScreeningAgent):
                 "overall_human_like": 0.5,
                 "overall_naturalness": 0.5,
             }
-            
+
             # Show complete panel with default scores
             print_naturalness_panel(
                 section_name=section_type.title(),
                 status="complete",
                 scores=default_scores
             )
-            
+
             return default_scores
 
     def _build_scoring_prompt(self, text: str, section_type: str) -> str:
@@ -152,7 +152,7 @@ TEXT TO EVALUATE:
 
 Evaluate the following dimensions (provide scores as numbers between 0.0 and 1.0):
 
-1. Sentence structure diversity (0.0-1.0): How varied are the sentence structures? 
+1. Sentence structure diversity (0.0-1.0): How varied are the sentence structures?
    - 1.0 = Excellent variety (simple, compound, complex sentences mixed naturally)
    - 0.5 = Some variety but repetitive patterns
    - 0.0 = Highly repetitive, formulaic structures

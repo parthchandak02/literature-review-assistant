@@ -80,10 +80,10 @@ class SubmissionPackageBuilder:
         manuscript_in_package = package_dir / "manuscript.md"
         if generate_pdf and manuscript_in_package.exists():
             self._generate_pdf(manuscript_in_package, package_dir, journal)
-        
+
         if generate_docx and manuscript_in_package.exists():
             self._generate_docx(manuscript_in_package, package_dir, journal)
-        
+
         if generate_html and manuscript_in_package.exists():
             self._generate_html(manuscript_in_package, package_dir, journal)
 
@@ -137,7 +137,7 @@ class SubmissionPackageBuilder:
             Dictionary mapping journal names to package directory paths
         """
         packages = {}
-        
+
         for journal in journals:
             try:
                 package_dir = self.build_package(
@@ -170,31 +170,31 @@ class SubmissionPackageBuilder:
     ) -> None:
         """
         Update image paths in manuscript.md to reference figures/ directory.
-        
+
         Args:
             manuscript_path: Path to the manuscript.md file
             path_mapping: Dictionary mapping original paths to new figure paths
         """
         import re
-        
+
         if not manuscript_path.exists():
             logger.warning(f"Manuscript not found: {manuscript_path}")
             return
-        
+
         content = manuscript_path.read_text(encoding="utf-8")
-        
+
         # Replace each image path
         for original_path, new_path in path_mapping.items():
             # Escape special regex characters in the original path
             escaped_original = re.escape(original_path)
-            
+
             # Match markdown image syntax: ![alt](path)
             pattern = r'!\[([^\]]*)\]\(' + escaped_original + r'\)'
             replacement = r'![\1](' + new_path + r')'
-            
+
             # Replace all occurrences
             content = re.sub(pattern, replacement, content)
-        
+
         # Write updated content back
         manuscript_path.write_text(content, encoding="utf-8")
         logger.debug(f"Updated manuscript paths: {len(path_mapping)} mappings applied")
@@ -205,15 +205,15 @@ class SubmissionPackageBuilder:
         """Generate PDF from markdown."""
         try:
             output_path = package_dir / "manuscript.pdf"
-            
+
             # Get CSL style
             from ..citations.csl_formatter import CSLFormatter
             csl_formatter = CSLFormatter()
             csl_style_path = csl_formatter.get_style_path(journal)
-            
+
             # Get template if available
             template_path = self.template_manager.get_template(journal)
-            
+
             self.pandoc_converter.markdown_to_pdf(
                 markdown_path,
                 output_path,
@@ -230,12 +230,12 @@ class SubmissionPackageBuilder:
         """Generate DOCX from markdown."""
         try:
             output_path = package_dir / "manuscript.docx"
-            
+
             # Get CSL style
             from ..citations.csl_formatter import CSLFormatter
             csl_formatter = CSLFormatter()
             csl_style_path = csl_formatter.get_style_path(journal)
-            
+
             self.pandoc_converter.markdown_to_docx(
                 markdown_path,
                 output_path,
@@ -251,12 +251,12 @@ class SubmissionPackageBuilder:
         """Generate HTML from markdown."""
         try:
             output_path = package_dir / "manuscript.html"
-            
+
             # Get CSL style
             from ..citations.csl_formatter import CSLFormatter
             csl_formatter = CSLFormatter()
             csl_style_path = csl_formatter.get_style_path(journal)
-            
+
             self.pandoc_converter.markdown_to_html(
                 markdown_path,
                 output_path,
@@ -271,12 +271,12 @@ class SubmissionPackageBuilder:
     ) -> Dict[str, str]:
         """
         Collect figure files and return path mapping.
-        
+
         Returns:
             Dictionary mapping original paths to new figure paths (relative to package dir)
         """
         figures = []
-        
+
         # PRISMA diagram
         if "prisma_diagram" in workflow_outputs:
             prisma_path = Path(workflow_outputs["prisma_diagram"])
@@ -299,16 +299,16 @@ class SubmissionPackageBuilder:
             target = figures_dir / f"figure_{i}{fig_path.suffix}"
             shutil.copy2(fig_path, target)
             logger.debug(f"Copied figure: {target}")
-            
+
             # Map original path (multiple formats) to new figure path
             # Handle both absolute paths and relative paths (filename only)
             original_absolute = str(fig_path)
             original_relative = fig_path.name
             new_path = f"figures/figure_{i}{fig_path.suffix}"
-            
+
             path_mapping[original_absolute] = new_path
             path_mapping[original_relative] = new_path
-        
+
         return path_mapping
 
     def _collect_tables(

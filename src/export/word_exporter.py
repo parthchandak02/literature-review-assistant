@@ -158,7 +158,7 @@ class WordExporter:
                 # Regular paragraph
                 para = doc.add_paragraph()
                 self._add_formatted_text(para, line)
-            
+
             i += 1
 
     def _parse_markdown_table(self, lines: List[str], start_idx: int) -> Optional[Dict[str, Any]]:

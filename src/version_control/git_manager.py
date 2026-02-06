@@ -73,7 +73,7 @@ class GitManuscriptManager:
         try:
             # Add all files
             self.repo.git.add(A=True)
-            
+
             # Check if there are changes
             if self.repo.is_dirty() or self.repo.untracked_files:
                 self.repo.index.commit(message)

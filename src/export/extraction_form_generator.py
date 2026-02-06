@@ -25,19 +25,19 @@ class ExtractionFormGenerator:
         """Get list of extraction fields from schema."""
         schema = ExtractedDataSchema.model_json_schema()
         properties = schema.get("properties", {})
-        
+
         fields = []
         for field_name, field_info in properties.items():
             field_type = field_info.get("type", "string")
             description = field_info.get("description", "")
-            
+
             fields.append({
                 "name": field_name,
                 "type": field_type,
                 "description": description,
                 "required": field_name in schema.get("required", []),
             })
-        
+
         return fields
 
     def generate_form(

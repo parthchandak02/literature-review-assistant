@@ -189,7 +189,7 @@ class DatabaseConnectorFactory:
                     "Install with: pip install scholarly or pip install -e '.[bibliometrics]'"
                 )
                 return None
-            
+
             # Google Scholar requires proxy for reliable operation
             use_proxy = proxy_manager is not None and proxy_manager.has_proxy()
             if not use_proxy:
@@ -197,7 +197,7 @@ class DatabaseConnectorFactory:
                     "Google Scholar: Proxy highly recommended to avoid CAPTCHAs. "
                     "Consider enabling proxy in configuration."
                 )
-            
+
             logger.info(f"Google Scholar: Using real connector (proxy: {'ENABLED' if use_proxy else 'DISABLED'})")
             return GoogleScholarConnector(
                 cache=cache,

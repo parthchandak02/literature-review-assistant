@@ -35,7 +35,7 @@ class CIConfig:
             "journals": ["ieee"],
             "artifact_retention_days": 30,
         }
-        
+
         if self.config_path and self.config_path.exists():
             try:
                 import yaml

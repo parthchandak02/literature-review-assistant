@@ -85,11 +85,11 @@ class HumanizationAgent(BaseScreeningAgent):
         if text is None:
             logger.warning(f"Received None text for {section_type} section, cannot humanize")
             return ""
-        
+
         if not isinstance(text, str):
             logger.warning(f"Received non-string text for {section_type} section (type: {type(text)}), converting to string")
             text = str(text)
-        
+
         if not text or len(text.strip()) < 50:
             text_length = len(text) if text else 0
             logger.warning(f"Text too short to humanize: {text_length} chars")
@@ -184,26 +184,26 @@ class HumanizationAgent(BaseScreeningAgent):
         style_examples = ""
         if style_patterns and section_type in style_patterns:
             section_patterns = style_patterns[section_type]
-            
+
             # Build examples from patterns
             examples_parts = []
-            
+
             if section_patterns.get("sentence_openings"):
                 openings = section_patterns["sentence_openings"][:3]  # First 3 examples
                 examples_parts.append(f"Sentence opening examples: {', '.join(openings)}")
-            
+
             if section_patterns.get("citation_patterns"):
                 citations = section_patterns["citation_patterns"][:3]
                 examples_parts.append(f"Citation pattern examples: {', '.join(citations)}")
-            
+
             if section_patterns.get("transitions"):
                 transitions = section_patterns["transitions"][:2]
                 examples_parts.append(f"Transition examples: {', '.join(transitions)}")
-            
+
             if section_patterns.get("vocabulary"):
                 vocab = section_patterns["vocabulary"][:5]
                 examples_parts.append(f"Domain vocabulary: {', '.join(vocab)}")
-            
+
             if examples_parts:
                 style_examples = "\n".join(examples_parts)
 

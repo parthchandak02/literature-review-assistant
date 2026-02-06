@@ -12,7 +12,7 @@ try:
     MANUBOT_AVAILABLE = True
 except ImportError:
     MANUBOT_AVAILABLE = False
-    
+
     def citekey_to_csl_item(*args, **kwargs):
         """Placeholder function when Manubot is not available."""
         raise ImportError("Manubot package required. Install with: pip install manubot")

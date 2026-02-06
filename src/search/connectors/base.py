@@ -38,7 +38,7 @@ class Paper:
     affiliations: Optional[List[str]] = None
     subjects: Optional[List[str]] = None
     country: Optional[str] = None
-    
+
     # Bibliometric fields (enhanced from pybliometrics and scholarly)
     citation_count: Optional[int] = None  # Total citations
     cited_by_count: Optional[int] = None  # Number of papers citing this paper
@@ -89,26 +89,26 @@ class DatabaseConnector(ABC):
         """
         if self._session is None:
             self._session = requests.Session()
-            
+
             # Configure SSL certificate verification using certifi's CA bundle
             # This fixes SSL CERTIFICATE_VERIFY_FAILED errors on macOS
             self._session.verify = certifi.where()
             logger.debug(f"Configured SSL certificates from: {certifi.where()}")
-            
+
             # Configure proxies if available
             if self.proxy_manager and self.proxy_manager.has_proxy():
                 proxies = self.proxy_manager.get_proxies()
                 if proxies:
                     self._session.proxies = proxies
                     logger.debug(f"Using proxy for {self.get_database_name()}: {proxies.get('http', 'N/A')}")
-            
+
             # Configure cookie persistence if enabled
             if self.persistent_session and self.cookie_jar:
                 try:
                     from http.cookiejar import LWPCookieJar
                     cookie_path = Path(self.cookie_jar)
                     cookie_path.parent.mkdir(parents=True, exist_ok=True)
-                    
+
                     jar = LWPCookieJar(str(cookie_path))
                     if cookie_path.exists():
                         jar.load(ignore_discard=True, ignore_expires=True)
@@ -116,9 +116,9 @@ class DatabaseConnector(ABC):
                     logger.debug(f"Using persistent cookie jar: {cookie_path}")
                 except Exception as e:
                     logger.warning(f"Failed to setup cookie persistence: {e}")
-        
+
         return self._session
-    
+
     def _save_session_cookies(self):
         """Save session cookies if persistent session is enabled."""
         if self._session and self.persistent_session and self.cookie_jar:
@@ -139,13 +139,13 @@ class DatabaseConnector(ABC):
         kwargs = {
             "verify": certifi.where()  # Use certifi's CA bundle for SSL verification
         }
-        
+
         if self.proxy_manager and self.proxy_manager.has_proxy():
             proxies = self.proxy_manager.get_proxies()
             if proxies:
                 kwargs["proxies"] = proxies
                 kwargs["timeout"] = self.proxy_manager.get_timeout()
-        
+
         return kwargs
 
     def _validate_paper(self, paper: Paper) -> bool:

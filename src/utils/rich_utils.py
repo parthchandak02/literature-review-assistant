@@ -21,16 +21,16 @@ def print_panel(
 ) -> None:
     """
     Print a Rich panel with consistent spacing.
-    
+
     This function automatically adds spacing before panels to prevent
     overlap with spinner characters when used inside console.status() contexts.
-    
+
     Args:
         content: The content to display in the panel
         title: Optional title for the panel
         border_style: Color/style for the panel border
         add_spacing: Whether to add a blank line before the panel (default: True)
-    
+
     Example:
         print_panel(
             "Processing data...",
@@ -40,7 +40,7 @@ def print_panel(
     """
     if add_spacing:
         console.print()
-    
+
     console.print(
         Panel(
             content,
@@ -60,7 +60,7 @@ def print_llm_request_panel(
 ) -> None:
     """
     Print a standardized LLM request panel.
-    
+
     Args:
         model: Model name
         provider: LLM provider (openai, anthropic, etc.)
@@ -77,7 +77,7 @@ def print_llm_request_panel(
         f"[yellow]Prompt length:[/yellow] {prompt_length} chars\n"
         f"[yellow]Prompt preview:[/yellow]\n{prompt_preview}"
     )
-    
+
     print_panel(
         content=content,
         title="[bold]-> LLM Request[/bold]",
@@ -93,7 +93,7 @@ def print_llm_response_panel(
 ) -> None:
     """
     Print a standardized LLM response panel.
-    
+
     Args:
         duration: Response time in seconds
         response_preview: Preview of the response (truncated)
@@ -102,13 +102,13 @@ def print_llm_response_panel(
     """
     token_info = f"\n[yellow]Tokens:[/yellow] {tokens}" if tokens else ""
     cost_info = f"\n[yellow]Cost:[/yellow] ${cost:.6f}" if cost and cost > 0 else ""
-    
+
     content = (
         f"[bold green]LLM Response[/bold green]\n"
         f"[yellow]Duration:[/yellow] {duration:.2f}s{token_info}{cost_info}\n"
         f"[yellow]Response preview:[/yellow]\n{response_preview}"
     )
-    
+
     print_panel(
         content=content,
         title="[bold]<- LLM Response[/bold]",
@@ -125,14 +125,14 @@ def print_workflow_status_panel(
 ) -> None:
     """
     Print workflow status panels (checkpoints, resume info, etc.)
-    
+
     Args:
         title: Panel title
         message: Main message content
         status_color: Border color (cyan, green, yellow, red)
         padding: Panel padding as (vertical, horizontal) tuple
         add_spacing: Whether to add blank line before panel
-    
+
     Example:
         print_workflow_status_panel(
             title="Checkpoint Detected",
@@ -142,7 +142,7 @@ def print_workflow_status_panel(
     """
     if add_spacing:
         console.print()
-    
+
     console.print(
         Panel(
             message,
@@ -164,7 +164,7 @@ def print_phase_panel(
 ) -> None:
     """
     Print phase execution status panels.
-    
+
     Args:
         phase_name: Name of the phase
         phase_number: Phase number
@@ -173,7 +173,7 @@ def print_phase_panel(
         padding: Panel padding as (vertical, horizontal) tuple
         expand: Whether panel should expand to full width
         add_spacing: Whether to add blank line before panel
-    
+
     Example:
         print_phase_panel(
             phase_name="search_databases",
@@ -184,7 +184,7 @@ def print_phase_panel(
     """
     if add_spacing:
         console.print()
-    
+
     # Determine color and message based on status
     if status == "executing":
         color = "cyan"
@@ -205,9 +205,9 @@ def print_phase_panel(
     else:
         color = "blue"
         content = f"{description}\n\n[dim]Phase {phase_number}[/dim]"
-    
+
     title_prefix = "Executing Phase" if status == "executing" else f"Phase {phase_number}"
-    
+
     console.print(
         Panel(
             content,
@@ -228,14 +228,14 @@ def print_checkpoint_panel(
 ) -> None:
     """
     Print checkpoint loading status panels.
-    
+
     Args:
         phases_loaded: List of phase names that were successfully loaded
         phases_attempted: Total number of phases attempted to load
         status: Loading status (loading, loaded, error)
         padding: Panel padding as (vertical, horizontal) tuple
         add_spacing: Whether to add blank line before panel
-    
+
     Example:
         print_checkpoint_panel(
             phases_loaded=["search_databases", "deduplication"],
@@ -245,9 +245,9 @@ def print_checkpoint_panel(
     """
     if add_spacing:
         console.print()
-    
+
     num_loaded = len(phases_loaded)
-    
+
     if status == "loading":
         color = "cyan"
         title = "Loading Checkpoints"
@@ -263,7 +263,7 @@ def print_checkpoint_panel(
         color = "red"
         title = "Checkpoint Error"
         content = "[bold red]Failed to load checkpoints[/bold red]"
-    
+
     console.print(
         Panel(
             content,
@@ -285,7 +285,7 @@ def print_section_start_panel(
 ) -> None:
     """
     Print a panel when an article section writing begins.
-    
+
     Args:
         section_name: Name of the section (e.g., "Introduction", "Methods")
         section_number: Section number (1-5)
@@ -294,7 +294,7 @@ def print_section_start_panel(
         status: Status message
         padding: Panel padding as (vertical, horizontal) tuple
         add_spacing: Whether to add blank line before panel
-    
+
     Example:
         print_section_start_panel(
             section_name="Introduction",
@@ -305,12 +305,12 @@ def print_section_start_panel(
     """
     if add_spacing:
         console.print()
-    
+
     content = (
         f"[yellow]Model:[/yellow] {model}\n"
         f"[yellow]Status:[/yellow] {status}"
     )
-    
+
     console.print(
         Panel(
             content,
@@ -332,7 +332,7 @@ def print_section_complete_panel(
 ) -> None:
     """
     Print a panel when an article section writing completes successfully.
-    
+
     Args:
         section_name: Name of the section
         word_count: Number of words written
@@ -341,7 +341,7 @@ def print_section_complete_panel(
         checkpoint_saved: Whether checkpoint was saved successfully
         padding: Panel padding as (vertical, horizontal) tuple
         add_spacing: Whether to add blank line before panel
-    
+
     Example:
         print_section_complete_panel(
             section_name="Introduction",
@@ -353,18 +353,18 @@ def print_section_complete_panel(
     """
     if add_spacing:
         console.print()
-    
+
     humanized_text = " (humanized)" if humanized else ""
     checkpoint_text = "Checkpoint saved" if checkpoint_saved else "Checkpoint save failed"
     checkpoint_color = "green" if checkpoint_saved else "red"
-    
+
     content = (
         f"[yellow]Status:[/yellow] [bold green]SUCCESS[/bold green]{humanized_text}\n"
         f"[yellow]Word count:[/yellow] {word_count:,} words\n"
         f"[yellow]Time taken:[/yellow] {duration:.1f}s\n"
         f"[yellow]Checkpoint:[/yellow] [{checkpoint_color}]{checkpoint_text}[/{checkpoint_color}]"
     )
-    
+
     console.print(
         Panel(
             content,
@@ -385,7 +385,7 @@ def print_section_retry_panel(
 ) -> None:
     """
     Print a panel when a section writing retry is attempted.
-    
+
     Args:
         section_name: Name of the section
         attempt_number: Current attempt number
@@ -393,7 +393,7 @@ def print_section_retry_panel(
         reason: Reason for retry
         padding: Panel padding as (vertical, horizontal) tuple
         add_spacing: Whether to add blank line before panel
-    
+
     Example:
         print_section_retry_panel(
             section_name="Results",
@@ -404,13 +404,13 @@ def print_section_retry_panel(
     """
     if add_spacing:
         console.print()
-    
+
     content = (
         f"[yellow]Attempt:[/yellow] {attempt_number}/{max_attempts}\n"
         f"[yellow]Reason:[/yellow] {reason}\n"
         f"[dim]Retrying immediately...[/dim]"
     )
-    
+
     console.print(
         Panel(
             content,
@@ -430,14 +430,14 @@ def print_naturalness_panel(
 ) -> None:
     """
     Print a panel for naturalness scoring (distinct from main LLM writing).
-    
+
     Args:
         section_name: Name of the section being scored
         status: "evaluating" or "complete"
         scores: Optional dict of naturalness scores (when complete)
         padding: Panel padding as (vertical, horizontal) tuple
         add_spacing: Whether to add blank line before panel
-    
+
     Example:
         print_naturalness_panel(
             section_name="Introduction",
@@ -451,7 +451,7 @@ def print_naturalness_panel(
     """
     if add_spacing:
         console.print()
-    
+
     if status == "evaluating":
         color = "magenta"
         title = f"[bold {color}]Naturalness Scoring: {section_name}[/bold {color}]"
@@ -459,7 +459,7 @@ def print_naturalness_panel(
     else:  # complete
         color = "magenta"
         title = f"[bold {color}]Naturalness Scores: {section_name}[/bold {color}]"
-        
+
         if scores:
             score_lines = []
             for key, value in scores.items():
@@ -470,15 +470,15 @@ def print_naturalness_panel(
                     score_color = "yellow"
                 else:
                     score_color = "red"
-                
+
                 # Format key to be more readable
                 readable_key = key.replace("_", " ").title()
                 score_lines.append(f"[yellow]{readable_key}:[/yellow] [{score_color}]{value:.2f}[/{score_color}]")
-            
+
             content = "\n".join(score_lines)
         else:
             content = "[dim]No scores available[/dim]"
-    
+
     console.print(
         Panel(
             content,

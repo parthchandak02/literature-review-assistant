@@ -23,10 +23,10 @@ def html_unescape(text: Optional[str], unescape: bool = True) -> Optional[str]:
     """
     if not text:
         return text
-    
+
     if not unescape:
         return text
-    
+
     try:
         # Decode HTML entities (e.g., &amp; -> &, &lt; -> <)
         return html.unescape(text)
@@ -47,7 +47,7 @@ def remove_html_tags(text: Optional[str]) -> Optional[str]:
     """
     if not text:
         return text
-    
+
     try:
         # Remove HTML tags using regex
         # This is a simple approach - for more complex HTML, use BeautifulSoup
@@ -71,13 +71,13 @@ def normalize_text(text: Optional[str]) -> Optional[str]:
     """
     if not text:
         return text
-    
+
     # First unescape HTML entities
     text = html_unescape(text, unescape=True)
-    
+
     # Then remove HTML tags
     text = remove_html_tags(text)
-    
+
     return text
 
 
@@ -93,14 +93,14 @@ def clean_abstract(abstract: Optional[str]) -> Optional[str]:
     """
     if not abstract:
         return abstract
-    
+
     # Normalize the text
     cleaned = normalize_text(abstract)
-    
+
     # Remove common artifacts
     if cleaned:
         # Remove excessive whitespace
         cleaned = re.sub(r'\n\s*\n', '\n\n', cleaned)
         cleaned = cleaned.strip()
-    
+
     return cleaned

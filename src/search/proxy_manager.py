@@ -26,7 +26,7 @@ class ProxyType(Enum):
 class ProxyManager:
     """
     Manages proxy configuration and rotation for database searches.
-    
+
     Supports:
     - HTTP/HTTPS proxies
     - SOCKS5 proxies
@@ -60,13 +60,13 @@ class ProxyManager:
         self.scraperapi_key = scraperapi_key or os.getenv("SCRAPERAPI_KEY")
         self.rotation_on_failure = rotation_on_failure
         self.timeout = timeout
-        
+
         self._proxy_works = False
         self._proxies: Dict[str, str] = {}
         self._proxy_gen: Optional[Callable] = None
         self._current_proxy: Optional[str] = None
         self._failed_proxies: set = set()
-        
+
         # Initialize proxy based on type
         if self.proxy_type != ProxyType.NONE:
             self._setup_proxy()
@@ -90,19 +90,19 @@ class ProxyManager:
         if not self.http_proxy:
             logger.warning("HTTP proxy type selected but no proxy URL provided")
             return
-        
+
         # Ensure proxy URL has protocol
         if not self.http_proxy.startswith(("http://", "https://")):
             self.http_proxy = f"http://{self.http_proxy}"
-        
+
         if not self.https_proxy.startswith(("http://", "https://")):
             self.https_proxy = f"https://{self.https_proxy}" if self.https_proxy else self.http_proxy
-        
+
         self._proxies = {
             "http": self.http_proxy,
             "https": self.https_proxy,
         }
-        
+
         self._proxy_works = self._check_proxy(self._proxies)
         if self._proxy_works:
             logger.info(f"HTTP proxy configured: {self.http_proxy}")
@@ -115,20 +115,20 @@ class ProxyManager:
         if importlib.util.find_spec("socks") is None:
             logger.error("SOCKS5 proxy requires 'requests[socks]' or 'PySocks'. Install with: pip install requests[socks]")
             return
-        
+
         if not self.http_proxy:
             logger.warning("SOCKS5 proxy type selected but no proxy URL provided")
             return
-        
+
         # Ensure proxy URL has protocol
         if not self.http_proxy.startswith("socks5://"):
             self.http_proxy = f"socks5://{self.http_proxy}"
-        
+
         self._proxies = {
             "http": self.http_proxy,
             "https": self.http_proxy,
         }
-        
+
         self._proxy_works = self._check_proxy(self._proxies)
         if self._proxy_works:
             logger.info(f"SOCKS5 proxy configured: {self.http_proxy}")
@@ -140,7 +140,7 @@ class ProxyManager:
         if not self.scraperapi_key:
             logger.error("ScraperAPI type selected but no API key provided")
             return
-        
+
         # Check account status
         try:
             response = requests.get(
@@ -149,34 +149,34 @@ class ProxyManager:
                 timeout=self.timeout,
             )
             account_info = response.json()
-            
+
             if "error" in account_info:
                 logger.error(f"ScraperAPI error: {account_info['error']}")
                 return
-            
+
             request_count = account_info.get("requestCount", 0)
             request_limit = account_info.get("requestLimit", 0)
             logger.info(f"ScraperAPI account: {request_count}/{request_limit} requests used")
-            
+
             if request_count >= request_limit:
                 logger.warning("ScraperAPI account limit reached")
                 return
-            
+
         except Exception as e:
             logger.warning(f"Could not check ScraperAPI account status: {e}")
-        
+
         # Setup ScraperAPI proxy
         prefix = "http://scraperapi.retry_404=true"
         proxy_url = f"{prefix}:{self.scraperapi_key}@proxy-server.scraperapi.com:8001"
-        
+
         self._proxies = {
             "http": proxy_url,
             "https": proxy_url,
         }
-        
+
         # ScraperAPI recommends 60s timeout
         self.timeout = 60.0
-        
+
         self._proxy_works = self._check_proxy(self._proxies)
         if self._proxy_works:
             logger.info("ScraperAPI proxy configured successfully")
@@ -220,7 +220,7 @@ class ProxyManager:
         except Exception as e:
             logger.debug(f"Proxy health check failed: {e}")
             return False
-        
+
         return False
 
     def get_proxies(self) -> Optional[Dict[str, str]]:
@@ -232,7 +232,7 @@ class ProxyManager:
         """
         if self.proxy_type == ProxyType.NONE or not self._proxy_works:
             return None
-        
+
         return self._proxies.copy()
 
     def has_proxy(self) -> bool:
@@ -248,7 +248,7 @@ class ProxyManager:
         """Rotate to next proxy (if rotation is enabled)."""
         if not self.rotation_on_failure:
             return
-        
+
         if self.proxy_type == ProxyType.FREE:
             # Free proxy rotation would go here
             logger.debug("Free proxy rotation not yet implemented")
@@ -264,7 +264,7 @@ class ProxyManager:
         """
         if proxy_url:
             self._failed_proxies.add(proxy_url)
-        
+
         if self.rotation_on_failure:
             self.rotate_proxy()
 
@@ -289,10 +289,10 @@ def create_proxy_manager_from_config(config: Dict[str, Any]) -> ProxyManager:
         ProxyManager instance
     """
     proxy_config = config.get("proxy", {})
-    
+
     if not proxy_config.get("enabled", False):
         return ProxyManager(proxy_type="none")
-    
+
     return ProxyManager(
         proxy_type=proxy_config.get("type", "none"),
         http_proxy=proxy_config.get("http_proxy"),

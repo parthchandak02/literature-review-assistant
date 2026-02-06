@@ -118,7 +118,7 @@ class PaperEnricher:
             # Use rate limiter to respect Crossref's rate limits (10 req/sec)
             rate_limiter = get_rate_limiter("Crossref")
             rate_limiter.acquire()
-            
+
             # Use Crossref API to get full record by DOI
             url = f"https://api.crossref.org/works/{normalized_doi}"
             params = {"mailto": self.crossref.email}

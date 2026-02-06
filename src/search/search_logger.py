@@ -253,7 +253,7 @@ class SearchLogger:
                 f.write(f"## {db_name}\n\n")
                 f.write(f"**Search Date:** {strategy_data.get('search_date', 'Not specified')}\n\n")
                 f.write(f"**Query:** {strategy_data.get('query', 'Not specified')}\n\n")
-                
+
                 full_strategy = strategy_data.get("full_search_strategy", "")
                 if full_strategy:
                     f.write("**Full Search Strategy:**\n\n")

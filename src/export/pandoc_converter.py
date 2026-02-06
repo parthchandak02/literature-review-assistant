@@ -63,7 +63,7 @@ class PandocConverter:
         output_path.parent.mkdir(parents=True, exist_ok=True)
 
         extra_args = []
-        
+
         # Add CSL style if provided
         if csl_style and csl_style.exists():
             extra_args.extend(["--csl", str(csl_style)])
@@ -124,7 +124,7 @@ class PandocConverter:
         output_path.parent.mkdir(parents=True, exist_ok=True)
 
         extra_args = []
-        
+
         # Add CSL style if provided
         if csl_style and csl_style.exists():
             extra_args.extend(["--csl", str(csl_style)])
@@ -183,7 +183,7 @@ class PandocConverter:
         output_path.parent.mkdir(parents=True, exist_ok=True)
 
         extra_args = []
-        
+
         # Add CSL style if provided
         if csl_style and csl_style.exists():
             extra_args.extend(["--csl", str(csl_style)])

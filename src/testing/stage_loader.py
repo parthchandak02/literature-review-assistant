@@ -18,7 +18,7 @@ class StageLoader:
     def __init__(self, fixtures_dir: Optional[str] = None):
         """
         Initialize stage loader.
-        
+
         Args:
             fixtures_dir: Directory containing test fixtures (default: tests/fixtures/stages)
         """
@@ -36,12 +36,12 @@ class StageLoader:
     ) -> Dict[str, Any]:
         """
         Load data from checkpoint or fixture.
-        
+
         Args:
             source: "checkpoint" or "fixture"
             stage_name: Stage name (e.g., "title_abstract_screening")
             checkpoint_path: Path to checkpoint file or directory (required if source="checkpoint")
-        
+
         Returns:
             Dictionary containing stage data
         """
@@ -61,25 +61,25 @@ class StageLoader:
     ) -> Dict[str, Any]:
         """
         Load from checkpoint file.
-        
+
         Args:
             checkpoint_path: Path to checkpoint file or directory
             stage_name: Stage name (required if checkpoint_path is a directory)
-        
+
         Returns:
             Checkpoint data dictionary
         """
         checkpoint_file = Path(checkpoint_path)
-        
+
         # If directory provided, look for stage-specific checkpoint
         if checkpoint_file.is_dir():
             if not stage_name:
                 raise ValueError("stage_name required when checkpoint_path is a directory")
             checkpoint_file = checkpoint_file / f"{stage_name}_state.json"
-        
+
         if not checkpoint_file.exists():
             raise FileNotFoundError(f"Checkpoint not found: {checkpoint_file}")
-        
+
         try:
             with open(checkpoint_file, "r") as f:
                 data = json.load(f)
@@ -92,10 +92,10 @@ class StageLoader:
     def _load_from_fixture(self, stage_name: str) -> Dict[str, Any]:
         """
         Load from test fixture JSON.
-        
+
         Args:
             stage_name: Stage name (e.g., "title_abstract_screening")
-        
+
         Returns:
             Fixture data dictionary
         """
@@ -109,17 +109,17 @@ class StageLoader:
             "article_writing": "stage_06_article_sections.json",
             "visualization_generation": "stage_07_visualizations.json",
         }
-        
+
         fixture_file = self.fixtures_dir / stage_to_fixture.get(
             stage_name, f"{stage_name}.json"
         )
-        
+
         if not fixture_file.exists():
             raise FileNotFoundError(
                 f"Fixture not found: {fixture_file}. "
                 f"Create it or use a checkpoint instead."
             )
-        
+
         try:
             with open(fixture_file, "r") as f:
                 data = json.load(f)
@@ -132,32 +132,32 @@ class StageLoader:
     def list_available_checkpoints(self, checkpoint_dir: str) -> list:
         """
         List available checkpoint files in a directory.
-        
+
         Args:
             checkpoint_dir: Directory containing checkpoints
-        
+
         Returns:
             List of checkpoint file paths
         """
         checkpoint_path = Path(checkpoint_dir)
         if not checkpoint_path.exists():
             return []
-        
+
         checkpoints = []
         for file in checkpoint_path.glob("*_state.json"):
             checkpoints.append(str(file))
-        
+
         return sorted(checkpoints)
 
     def list_available_fixtures(self) -> list:
         """
         List available fixture files.
-        
+
         Returns:
             List of fixture file paths
         """
         fixtures = []
         for file in self.fixtures_dir.glob("*.json"):
             fixtures.append(str(file))
-        
+
         return sorted(fixtures)

@@ -90,7 +90,7 @@ class DiscussionWriter(BaseScreeningAgent):
     ) -> str:
         """Build prompt for discussion writing."""
         num_studies = len(extracted_data)
-        
+
         prompt = f"""Write a comprehensive discussion section for a systematic review.
 
 Research Question: {research_question}
@@ -112,7 +112,7 @@ Key Findings:
         limitations_text += "1. Limitations of the evidence (study quality, heterogeneity, publication bias, etc.) - ~200-300 words\n"
         limitations_text += "2. Limitations of the review process (search strategy, screening, extraction, etc.) - ~200-300 words\n"
         limitations_text += "Total limitations section should be 400-600 words.\n"
-        
+
         if limitations:
             limitations_text += f"\nSuggested limitations:\n{chr(10).join(f'- {lim}' for lim in limitations)}"
         else:
@@ -126,7 +126,7 @@ Key Findings:
             else:
                 limitations_text += "\nEvidence limitations:\n- Limited number of included studies may affect generalizability"
                 limitations_text += "\nReview process limitations:\n- Potential for publication bias, language restrictions"
-        
+
         prompt += limitations_text
 
         # Build implications section with three subsections
@@ -136,12 +136,12 @@ Key Findings:
         implications_text += "2. Implications for Policy (regulatory, funding, policy recommendations) - ~120-150 words\n"
         implications_text += "3. Implications for Research (future research directions, methodological improvements) - ~120-150 words\n"
         implications_text += "Total implications section should be 350-400 words.\n"
-        
+
         if implications:
             implications_text += f"\nSuggested implications:\n{chr(10).join(f'- {imp}' for imp in implications)}"
         else:
             implications_text += "\nGenerate specific, actionable implications for each category."
-        
+
         prompt += implications_text
 
         # Add style guidelines if patterns available
@@ -154,12 +154,12 @@ Key Findings:
             style_guidelines += "- Integrate citations naturally: vary placement and phrasing\n"
             style_guidelines += "- Create natural flow: avoid formulaic transitions\n"
             style_guidelines += "- Maintain scholarly tone: precise but not robotic\n"
-            
+
             if discussion_patterns.get("sentence_openings"):
                 examples = discussion_patterns["sentence_openings"][:3]
                 style_guidelines += "\nWRITING PATTERNS FROM INCLUDED PAPERS:\n"
                 style_guidelines += f"Sentence opening examples: {', '.join(examples[:3])}\n"
-            
+
             if discussion_patterns.get("vocabulary"):
                 vocab = discussion_patterns["vocabulary"][:5]
                 style_guidelines += f"Domain vocabulary examples: {', '.join(vocab)}\n"
@@ -258,7 +258,7 @@ CRITICAL REQUIREMENTS:
     def _fallback_discussion(self, research_question: str, key_findings: List[str], extracted_data: Optional[List] = None) -> str:
         """Fallback discussion."""
         num_studies = len(extracted_data) if extracted_data else 0
-        
+
         if num_studies == 0:
             return f"""## Discussion
 

@@ -159,7 +159,7 @@ class PDFRetriever:
             arxiv_id = arxiv_url.split("/")[-1] if "/" in arxiv_url else arxiv_url
             # Remove .pdf extension if present
             arxiv_id = arxiv_id.replace(".pdf", "")
-            
+
             # Construct PDF URL
             pdf_url = f"https://arxiv.org/pdf/{arxiv_id}.pdf"
             return self._download_and_extract_pdf(pdf_url)

@@ -14,7 +14,7 @@ from ..search.connectors.base import Paper
 class RISFormatter:
     """
     Formats Paper objects in RIS format.
-    
+
     RIS format is a text-based format with tags like:
     TY  - Type (JOUR for journal, CONF for conference, etc.)
     TI  - Title
@@ -51,61 +51,61 @@ class RISFormatter:
         """
         if paper_type is None:
             paper_type = self._infer_type(paper)
-        
+
         ris_type = self.TYPE_MAPPING.get(paper_type.lower(), self.TYPE_MAPPING["default"])
-        
+
         lines = []
-        
+
         # Type
         lines.append(f"TY  - {ris_type}")
-        
+
         # Title
         if paper.title:
             lines.append(f"TI  - {paper.title}")
-        
+
         # Authors
         if paper.authors:
             for author in paper.authors:
                 lines.append(f"AU  - {author}")
-        
+
         # Year
         if paper.year:
             lines.append(f"PY  - {paper.year}")
-        
+
         # DOI
         if paper.doi:
             lines.append(f"DO  - {paper.doi}")
-        
+
         # Journal/Venue
         if paper.journal:
             lines.append(f"JO  - {paper.journal}")
             lines.append(f"T2  - {paper.journal}")  # Secondary title (also journal)
-        
+
         # Abstract
         if paper.abstract:
             # RIS abstracts can be long, so we keep them as-is
             lines.append(f"AB  - {paper.abstract}")
-        
+
         # URL
         if paper.url:
             lines.append(f"UR  - {paper.url}")
-        
+
         # Keywords
         if paper.keywords:
             for keyword in paper.keywords:
                 lines.append(f"KW  - {keyword}")
-        
+
         # Database
         if paper.database:
             lines.append(f"DB  - {paper.database}")
-        
+
         # Date added (current date)
         lines.append(f"DA  - {datetime.now().strftime('%Y/%m/%d')}")
-        
+
         # End of record
         lines.append("ER  -")
         lines.append("")  # Empty line between records
-        
+
         return "\n".join(lines)
 
     def format_papers(self, papers: List[Paper]) -> str:
@@ -119,10 +119,10 @@ class RISFormatter:
             RIS-formatted string with all papers
         """
         ris_lines = []
-        
+
         for paper in papers:
             ris_lines.append(self.format_paper(paper))
-        
+
         return "\n".join(ris_lines)
 
     def _infer_type(self, paper: Paper) -> str:
@@ -144,7 +144,7 @@ class RISFormatter:
                 return "conference"
             else:
                 return "journal"
-        
+
         # Check database
         if paper.database:
             db_lower = paper.database.lower()
@@ -152,7 +152,7 @@ class RISFormatter:
                 return "report"  # Preprints are often treated as reports
             elif "acm" in db_lower:
                 return "conference"  # ACM often has conferences
-        
+
         # Default to journal
         return "journal"
 
@@ -165,6 +165,6 @@ class RISFormatter:
             filepath: Path to output file
         """
         ris_content = self.format_papers(papers)
-        
+
         with open(filepath, "w", encoding="utf-8") as f:
             f.write(ris_content)

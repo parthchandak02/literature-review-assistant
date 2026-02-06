@@ -57,24 +57,24 @@ class GoogleScholarConnector(DatabaseConnector):
             persistent_session=persistent_session,
             cookie_jar=cookie_jar,
         )
-        
+
         if not SCHOLARLY_AVAILABLE:
             raise ImportError(
                 "scholarly library is required for Google Scholar connector. "
                 "Install with: pip install scholarly or pip install -e '.[bibliometrics]'"
             )
-        
+
         self.use_proxy = use_proxy
         self._setup_proxy()
-    
+
     def _setup_proxy(self):
         """Setup proxy for scholarly if available."""
         if not self.use_proxy:
             return
-        
+
         try:
             pg = ProxyGenerator()
-            
+
             # Try ScraperAPI first if available
             scraperapi_key = os.getenv("SCRAPERAPI_KEY")
             if scraperapi_key and self.proxy_manager:
@@ -86,7 +86,7 @@ class GoogleScholarConnector(DatabaseConnector):
                         return
                 except Exception as e:
                     logger.debug(f"ScraperAPI setup failed: {e}")
-            
+
             # Try free proxies as fallback
             try:
                 success = pg.FreeProxies()
@@ -96,7 +96,7 @@ class GoogleScholarConnector(DatabaseConnector):
                     return
             except Exception as e:
                 logger.debug(f"Free proxy setup failed: {e}")
-            
+
             logger.warning(
                 "No proxy configured for Google Scholar. "
                 "You may encounter CAPTCHAs or rate limiting. "
@@ -131,20 +131,20 @@ class GoogleScholarConnector(DatabaseConnector):
         try:
             # Search for publications
             search_query = scholarly.search_pubs(query)
-            
+
             count = 0
             for pub in search_query:
                 if count >= max_results:
                     break
-                
+
                 try:
                     # Fill publication data if needed
                     if not pub.get('filled', False):
                         pub = scholarly.fill(pub)
-                    
+
                     # Extract paper data
                     bib = pub.get('bib', {})
-                    
+
                     # Extract authors
                     authors = []
                     if 'author' in bib:
@@ -152,7 +152,7 @@ class GoogleScholarConnector(DatabaseConnector):
                             authors = bib['author']
                         else:
                             authors = [bib['author']]
-                    
+
                     # Extract year
                     year = None
                     if 'pub_year' in bib:
@@ -165,7 +165,7 @@ class GoogleScholarConnector(DatabaseConnector):
                             year = int(bib['year'])
                         except (ValueError, TypeError):
                             pass
-                    
+
                     # Extract citation count
                     citation_count = None
                     if 'cites' in pub:
@@ -173,7 +173,7 @@ class GoogleScholarConnector(DatabaseConnector):
                             citation_count = int(pub['cites'])
                         except (ValueError, TypeError):
                             pass
-                    
+
                     # Extract URL
                     url = None
                     if 'pub_url' in pub:
@@ -182,13 +182,13 @@ class GoogleScholarConnector(DatabaseConnector):
                         url = bib['eprint_url']
                     elif 'url' in bib:
                         url = bib['url']
-                    
+
                     # Extract related/citing papers
                     related_papers = []
                     if 'citedby' in pub:
                         # This would require additional API calls
                         pass
-                    
+
                     paper = Paper(
                         title=bib.get('title', ''),
                         abstract=bib.get('abstract', ''),
@@ -204,10 +204,10 @@ class GoogleScholarConnector(DatabaseConnector):
                         scholar_id=pub.get('author_id'),  # Store author ID if available
                         related_papers=related_papers if related_papers else None,
                     )
-                    
+
                     papers.append(paper)
                     count += 1
-                    
+
                 except Exception as e:
                     logger.warning(f"Error processing Google Scholar result: {e}")
                     continue
@@ -215,7 +215,7 @@ class GoogleScholarConnector(DatabaseConnector):
         except Exception as e:
             logger.error(f"Error searching Google Scholar: {e}")
             # Don't raise - return partial results
-        
+
         # Validate papers
         papers = self._validate_papers(papers)
 
@@ -242,7 +242,7 @@ class GoogleScholarConnector(DatabaseConnector):
         authors = []
         try:
             search_query = scholarly.search_author(author_name)
-            
+
             count = 0
             for author in search_query:
                 if count >= max_results:

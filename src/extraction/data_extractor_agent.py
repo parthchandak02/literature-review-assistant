@@ -104,14 +104,14 @@ class DataExtractorAgent(BaseScreeningAgent):
             DebugLevel.DETAILED,
             DebugLevel.FULL,
         ]
-        
+
         # Use provided topic_context or instance topic_context
         if topic_context:
             original_context = self.topic_context
             self.topic_context = topic_context
 
         prompt = self._build_extraction_prompt(title, abstract, full_text, extraction_fields)
-        
+
         if is_verbose:
             fields_to_extract = extraction_fields or [
                 "study_objectives", "methodology", "study_design", "participants",
@@ -133,7 +133,7 @@ class DataExtractorAgent(BaseScreeningAgent):
                 if is_verbose:
                     logger.debug(f"[{self.role}] Attempting structured output extraction")
                 response = self._call_llm_structured(prompt)
-                
+
                 # Normalize response before validation
                 try:
                     normalized_data = self._normalize_extraction_response(response)
@@ -144,7 +144,7 @@ class DataExtractorAgent(BaseScreeningAgent):
                         f"Attempting validation with original response."
                     )
                     normalized_json = response
-                
+
                 # Validate with Pydantic
                 try:
                     schema_result = ExtractedDataSchema.model_validate_json(normalized_json)
@@ -172,7 +172,7 @@ class DataExtractorAgent(BaseScreeningAgent):
                             f"Response preview: {response[:200]}..."
                         )
                     raise
-                
+
                 # Update with provided metadata
                 schema_result.title = title
                 result = self._convert_schema_to_extracted_data(schema_result)
@@ -301,14 +301,14 @@ Return ONLY valid JSON matching this exact structure:
     def _normalize_extraction_response(self, response: str) -> dict:
         """
         Normalize LLM response before Pydantic validation.
-        
+
         Converts common "not available" strings to appropriate types:
         - List fields: "Not applicable." -> []
         - Optional fields: "N/A" -> null
-        
+
         Args:
             response: JSON string response from LLM
-            
+
         Returns:
             Normalized dictionary ready for Pydantic validation
         """
@@ -318,7 +318,7 @@ Return ONLY valid JSON matching this exact structure:
         except json.JSONDecodeError as e:
             logger.warning(f"Failed to parse JSON response: {e}")
             raise ValueError(f"Invalid JSON response: {e}") from e
-        
+
         # List fields that should always be arrays
         list_fields = [
             "authors",
@@ -331,7 +331,7 @@ Return ONLY valid JSON matching this exact structure:
             "patient_populations",
             "accessibility_features",
         ]
-        
+
         # Common "not available" strings to normalize
         not_available_strings = [
             "not applicable",
@@ -342,7 +342,7 @@ Return ONLY valid JSON matching this exact structure:
             "null",
             "",
         ]
-        
+
         # Normalize list fields
         for field in list_fields:
             if field in data:
@@ -366,7 +366,7 @@ Return ONLY valid JSON matching this exact structure:
                         f"value: {value}. Converting to empty list."
                     )
                     data[field] = []
-        
+
         # Normalize optional string fields (convert "not available" strings to None)
         optional_string_fields = [
             "journal",
@@ -380,7 +380,7 @@ Return ONLY valid JSON matching this exact structure:
             "setting",
             "quantitative_results",
         ]
-        
+
         for field in optional_string_fields:
             if field in data:
                 value = data[field]
@@ -389,7 +389,7 @@ Return ONLY valid JSON matching this exact structure:
                     if value_lower in not_available_strings or value_lower.startswith("not "):
                         data[field] = None
                         logger.debug(f"Normalized {field}: '{value}' -> None")
-        
+
         # Normalize optional int fields
         optional_int_fields = ["year", "sample_size"]
         for field in optional_int_fields:
@@ -409,7 +409,7 @@ Return ONLY valid JSON matching this exact structure:
                                 f"Could not parse {field} as int: {value}. Setting to None."
                             )
                             data[field] = None
-        
+
         return data
 
     def _call_llm_structured(self, prompt: str) -> str:
@@ -449,7 +449,7 @@ Return ONLY valid JSON matching this exact structure:
                 f"Structured output only supported with Gemini. "
                 f"Current provider: {self.llm_provider}"
             )
-        
+
         # Use Gemini structured output
         call_start_time = time.time()
         if self.llm_provider == "gemini":
@@ -462,7 +462,7 @@ Return ONLY valid JSON matching this exact structure:
                 contents=json_prompt,
                 config=types.GenerateContentConfig(temperature=self.temperature),
             )
-            
+
             duration = time.time() - call_start_time
             content = response.text if hasattr(response, "text") else "{}"
             model_name = getattr(self, "llm_model_name", self.llm_model)
@@ -475,7 +475,7 @@ Return ONLY valid JSON matching this exact structure:
                 start = content.find("```") + 3
                 end = content.find("```", start)
                 content = content[start:end].strip()
-            
+
             # Extract usage_metadata and track cost
             cost = 0.0
             if self.debug_config.show_costs:
@@ -504,7 +504,7 @@ Return ONLY valid JSON matching this exact structure:
                             total_tokens=total_tokens,
                         ),
                     )
-            
+
             # Enhanced logging with Rich console
             if self.debug_config.show_llm_calls or self.debug_config.enabled:
                 response_preview = content[:200] + "..." if len(content) > 200 else content
@@ -514,7 +514,7 @@ Return ONLY valid JSON matching this exact structure:
                     tokens=None,
                     cost=cost,
                 )
-            
+
             return content
         else:
             raise ValueError(f"Unsupported LLM provider: {self.llm_provider}")
