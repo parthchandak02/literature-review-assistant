@@ -72,27 +72,38 @@ class ResultsWriter(BaseScreeningAgent):
         # Set output_dir for tools if provided
         if output_dir:
             # Update tool output directories if tools are registered
-            for tool_name in ["generate_mermaid_diagram", "generate_thematic_table", "generate_topic_analysis_table"]:
+            for tool_name in [
+                "generate_mermaid_diagram",
+                "generate_thematic_table",
+                "generate_topic_analysis_table",
+            ]:
                 tool = self.tool_registry.get_tool(tool_name)
                 if tool and hasattr(tool.execute_fn, "__defaults__"):
                     # Tools will use output_dir parameter if provided
                     pass
 
         prompt = self._build_results_prompt(
-            extracted_data, prisma_counts, key_findings,
-            study_characteristics_table, risk_of_bias_summary, risk_of_bias_table,
-            grade_assessments, grade_table, style_patterns, output_dir
+            extracted_data,
+            prisma_counts,
+            key_findings,
+            study_characteristics_table,
+            risk_of_bias_summary,
+            risk_of_bias_table,
+            grade_assessments,
+            grade_table,
+            style_patterns,
+            output_dir,
         )
 
         if not self.llm_client:
             raise RuntimeError("LLM client is required for results generation")
-        
+
         # Use tool calling if tools are available
         if self.tool_registry.list_tools():
             response = self._call_llm_with_tools(prompt, max_iterations=10)
-            else:
-                response = self._call_llm(prompt)
-            result = response
+        else:
+            response = self._call_llm(prompt)
+        result = response
 
         # Restore original context
         if topic_context:
@@ -102,9 +113,7 @@ class ResultsWriter(BaseScreeningAgent):
         result = clean_writing_output(result)
         return result
 
-    def _generate_study_characteristics_table(
-        self, extracted_data: List[ExtractedData]
-    ) -> str:
+    def _generate_study_characteristics_table(self, extracted_data: List[ExtractedData]) -> str:
         """
         Generate markdown table of study characteristics.
 
@@ -128,7 +137,9 @@ class ResultsWriter(BaseScreeningAgent):
             # Extract author and year
             author_year = ""
             if data.authors:
-                first_author = data.authors[0].split(",")[0] if "," in data.authors[0] else data.authors[0]
+                first_author = (
+                    data.authors[0].split(",")[0] if "," in data.authors[0] else data.authors[0]
+                )
                 author_year = f"{first_author} et al."
             if data.year:
                 author_year += f", {data.year}"
@@ -143,7 +154,9 @@ class ResultsWriter(BaseScreeningAgent):
             outcomes = ", ".join(data.outcomes[:3])[:50] if data.outcomes else "Not specified"
             if len(data.outcomes) > 3:
                 outcomes += "..."
-            key_findings = ", ".join(data.key_findings[:2])[:50] if data.key_findings else "Not specified"
+            key_findings = (
+                ", ".join(data.key_findings[:2])[:50] if data.key_findings else "Not specified"
+            )
             if len(data.key_findings) > 2:
                 key_findings += "..."
 
@@ -234,9 +247,15 @@ Study {i}: {data.title}
         style_guidelines = ""
         if style_patterns and "results" in style_patterns:
             results_patterns = style_patterns["results"]
-            style_guidelines = "\n\nSTYLE GUIDELINES (based on analysis of included papers in this review):\n"
-            style_guidelines += "- Vary sentence structures: mix simple, compound, and complex sentences\n"
-            style_guidelines += "- Use natural academic vocabulary with domain-specific terms from the field\n"
+            style_guidelines = (
+                "\n\nSTYLE GUIDELINES (based on analysis of included papers in this review):\n"
+            )
+            style_guidelines += (
+                "- Vary sentence structures: mix simple, compound, and complex sentences\n"
+            )
+            style_guidelines += (
+                "- Use natural academic vocabulary with domain-specific terms from the field\n"
+            )
             style_guidelines += "- Integrate citations naturally: vary placement and phrasing\n"
             style_guidelines += "- Create natural flow: avoid formulaic transitions\n"
             style_guidelines += "- Maintain scholarly tone: precise but not robotic\n"
@@ -250,7 +269,9 @@ Study {i}: {data.title}
                 vocab = results_patterns["vocabulary"][:5]
                 style_guidelines += f"Domain vocabulary examples: {', '.join(vocab)}\n"
 
-        constraint_text = style_guidelines + """
+        constraint_text = (
+            style_guidelines
+            + """
 CRITICAL OUTPUT CONSTRAINTS:
 - Begin IMMEDIATELY with substantive content - do NOT start with phrases like "Here is a results section..." or "Of course. Here is..."
 - NO conversational preamble, acknowledgments, or meta-commentary whatsoever
@@ -275,9 +296,12 @@ EXAMPLE OF CORRECT OUTPUT FORMAT:
 The initial search identified 1,247 potentially relevant studies...
 [END - NO CLOSING REMARKS]
 """
+        )
 
         if num_studies == 0:
-            prompt += constraint_text + """
+            prompt += (
+                constraint_text
+                + """
 
 Please write a results section that includes:
 1. Study Selection (PRISMA flow summary)
@@ -286,8 +310,11 @@ Please write a results section that includes:
 
 Write in past tense and use appropriate academic language. Begin immediately with the study selection summary - do not include any introductory phrases.
 - DO NOT include a "Results" subsection header (### Results) - the Results section header is already provided, start directly with "### Study Selection" """
+            )
         elif num_studies == 1:
-            prompt += constraint_text + """
+            prompt += (
+                constraint_text
+                + """
 
 Please write a results section that includes:
 1. Study Selection (PRISMA flow summary)
@@ -298,13 +325,15 @@ Please write a results section that includes:
 
 Write in past tense, use SINGULAR language (e.g., "the study" not "studies"), and use appropriate academic language. Begin immediately with the study selection summary - do not include any introductory phrases.
 - DO NOT include a "Results" subsection header (### Results) - the Results section header is already provided, start directly with "### Study Selection" """
+            )
         else:
             # Add tool calling instructions and Mermaid diagram guide
             tool_instructions = ""
             mermaid_guide = ""
 
             if self.tool_registry.list_tools():
-                tool_instructions = """
+                tool_instructions = (
+                    """
 AVAILABLE TOOLS FOR GENERATING TABLES AND DIAGRAMS:
 
 You have access to the following tools that you should use when appropriate:
@@ -313,7 +342,9 @@ You have access to the following tools that you should use when appropriate:
    - Use when: You identify themes from the extracted data
    - Parameters:
      * themes (array, REQUIRED): List of theme names you've identified
-     * output_dir (string, optional): Use """ + (output_dir or "data/outputs") + """ (defaults to configured directory)
+     * output_dir (string, optional): Use """
+                    + (output_dir or "data/outputs")
+                    + """ (defaults to configured directory)
      * extracted_data (array, optional): Can pass empty array [] - tool will work from prompt context
      * theme_descriptions (object, optional): Dictionary mapping theme names to descriptions
    - Returns: Path to markdown table file - reference this in your text
@@ -322,7 +353,9 @@ You have access to the following tools that you should use when appropriate:
    - Use when: You want to create a focused analysis table for a specific topic (e.g., "bias prevalence", "governance", "usability")
    - Parameters:
      * topic_focus (string, REQUIRED): Focus area (e.g., "bias prevalence", "governance", "usability")
-     * output_dir (string, optional): Use """ + (output_dir or "data/outputs") + """ (defaults to configured directory)
+     * output_dir (string, optional): Use """
+                    + (output_dir or "data/outputs")
+                    + """ (defaults to configured directory)
      * extracted_data (array, optional): Can pass empty array [] - tool will work from prompt context
      * focus_areas (array, optional): List of specific focus areas within the topic
    - Returns: Path to markdown table file - reference this in your text
@@ -332,7 +365,9 @@ You have access to the following tools that you should use when appropriate:
    - Parameters:
      * diagram_type (string): One of: pie, mindmap, flowchart, gantt, sankey, treemap, quadrant, xy, sequence, timeline
      * mermaid_code (string): Complete Mermaid syntax code (see guide below)
-     * output_dir (string): Use """ + (output_dir or "data/outputs") + """
+     * output_dir (string): Use """
+                    + (output_dir or "data/outputs")
+                    + """
      * diagram_title (string, optional): Title for the diagram file
    - Returns: Path to SVG file - reference this in your text as a figure
 
@@ -426,9 +461,13 @@ DECISION PROCESS FOR DIAGRAMS:
 4. Call generate_mermaid_diagram tool with diagram_type and mermaid_code
 5. Reference the SVG file path in your text (e.g., "Figure 2 shows the thematic framework...")
 """
+                )
                 mermaid_guide = tool_instructions
 
-            prompt += constraint_text + mermaid_guide + """
+            prompt += (
+                constraint_text
+                + mermaid_guide
+                + """
 
 Please write a detailed results section that includes:
 1. Study Selection (PRISMA flow summary - note that the PRISMA diagram will be inserted separately)
@@ -451,6 +490,6 @@ IMPORTANT:
 - DO NOT include a "Results" subsection header (### Results) - the Results section header is already provided, start directly with "### Study Selection"
 - USE TOOLS ACTIVELY: Call generate_thematic_table, generate_topic_analysis_table, and generate_mermaid_diagram tools when appropriate
 - Reference generated tables and figures in your text (e.g., "Table 1 shows..." or "Figure 2 illustrates...") """
+            )
 
         return prompt
-

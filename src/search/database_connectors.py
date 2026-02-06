@@ -164,7 +164,9 @@ class PubMedConnector(DatabaseConnector):
         try:
             # Title (PubMed XML doesn't use namespaces)
             title_elem = article.find(".//ArticleTitle", namespace)
-            title = html_unescape(title_elem.text) if title_elem is not None and title_elem.text else ""
+            title = (
+                html_unescape(title_elem.text) if title_elem is not None and title_elem.text else ""
+            )
 
             # Abstract
             abstract_elems = article.findall(".//AbstractText", namespace)
@@ -406,7 +408,9 @@ class SemanticScholarConnector(DatabaseConnector):
                 request_kwargs = self._get_request_kwargs()
                 request_kwargs.setdefault("timeout", 30)
 
-                response = session.get(self.base_url, params=params, headers=headers, **request_kwargs)
+                response = session.get(
+                    self.base_url, params=params, headers=headers, **request_kwargs
+                )
 
                 if response.status_code == 429:
                     raise RateLimitError("Semantic Scholar rate limit exceeded")
@@ -436,7 +440,11 @@ class SemanticScholarConnector(DatabaseConnector):
                                     affiliations.append(aff.strip())
                                 elif isinstance(aff, dict):
                                     # Try different possible fields
-                                    aff_name = aff.get("name") or aff.get("affiliation") or aff.get("institution")
+                                    aff_name = (
+                                        aff.get("name")
+                                        or aff.get("affiliation")
+                                        or aff.get("institution")
+                                    )
                                     if aff_name and aff_name.strip():
                                         affiliations.append(aff_name.strip())
 
@@ -582,7 +590,9 @@ class CrossrefConnector(DatabaseConnector):
                             abstract = " ".join(str(t) for t in abstract_text if t).strip()
                         elif isinstance(abstract_text, dict):
                             # Some abstracts are nested objects
-                            abstract = abstract_text.get("text", "") or abstract_text.get("value", "")
+                            abstract = abstract_text.get("text", "") or abstract_text.get(
+                                "value", ""
+                            )
                             if isinstance(abstract, list):
                                 abstract = " ".join(str(t) for t in abstract if t).strip()
                             else:
@@ -609,11 +619,19 @@ class CrossrefConnector(DatabaseConnector):
 
                                 # Extract affiliations from author objects
                                 if "affiliation" in author:
-                                    aff_list = author["affiliation"] if isinstance(author["affiliation"], list) else [author["affiliation"]]
+                                    aff_list = (
+                                        author["affiliation"]
+                                        if isinstance(author["affiliation"], list)
+                                        else [author["affiliation"]]
+                                    )
                                     for aff in aff_list:
                                         if isinstance(aff, dict):
                                             # Try different possible fields
-                                            aff_name = aff.get("name") or aff.get("affiliation") or aff.get("institution")
+                                            aff_name = (
+                                                aff.get("name")
+                                                or aff.get("affiliation")
+                                                or aff.get("institution")
+                                            )
                                             if aff_name and aff_name.strip():
                                                 affiliations.append(aff_name.strip())
                                         elif isinstance(aff, str) and aff.strip():
@@ -656,10 +674,18 @@ class CrossrefConnector(DatabaseConnector):
                     subjects = None
                     keywords = None
                     if "subject" in item:
-                        subjects = item["subject"] if isinstance(item["subject"], list) else [item["subject"]]
+                        subjects = (
+                            item["subject"]
+                            if isinstance(item["subject"], list)
+                            else [item["subject"]]
+                        )
                         keywords = subjects  # Use subjects as keywords too
                     elif "keyword" in item:
-                        keywords = item["keyword"] if isinstance(item["keyword"], list) else [item["keyword"]]
+                        keywords = (
+                            item["keyword"]
+                            if isinstance(item["keyword"], list)
+                            else [item["keyword"]]
+                        )
                         subjects = keywords
 
                     paper = Paper(
@@ -762,8 +788,12 @@ class ScopusConnector(DatabaseConnector):
                 import pybliometrics
                 from pybliometrics.scopus import ScopusSearch
             except ImportError:
-                logger.error("pybliometrics not installed. Install with: uv pip install pybliometrics")
-                raise ImportError("pybliometrics required for Scopus search. Install with: uv pip install pybliometrics")
+                logger.error(
+                    "pybliometrics not installed. Install with: uv pip install pybliometrics"
+                )
+                raise ImportError(
+                    "pybliometrics required for Scopus search. Install with: uv pip install pybliometrics"
+                )
 
             # Initialize pybliometrics with API key if not already configured
             try:
@@ -782,13 +812,11 @@ class ScopusConnector(DatabaseConnector):
             rate_limiter.acquire()
 
             # Perform search using pybliometrics
-            logger.debug(f"Searching Scopus with pybliometrics (subscriber={self.subscriber}, view={view})")
+            logger.debug(
+                f"Searching Scopus with pybliometrics (subscriber={self.subscriber}, view={view})"
+            )
             search = ScopusSearch(
-                query,
-                subscriber=self.subscriber,
-                view=view,
-                verbose=False,
-                download=True
+                query, subscriber=self.subscriber, view=view, verbose=False, download=True
             )
 
             # Get results size
@@ -860,7 +888,9 @@ class ScopusConnector(DatabaseConnector):
                 logger.warning(f"Scopus API limit reached: {error_msg}")
                 logger.warning("This may be due to free tier restrictions. Consider:")
                 logger.warning("  1. Using more specific queries")
-                logger.warning("  2. Setting SCOPUS_SUBSCRIBER=true if you have institutional access")
+                logger.warning(
+                    "  2. Setting SCOPUS_SUBSCRIBER=true if you have institutional access"
+                )
                 logger.warning("  3. Waiting before retrying")
                 # Return empty list instead of raising error for API limits
                 return []
@@ -897,7 +927,9 @@ class ScopusConnector(DatabaseConnector):
             from pybliometrics.scopus import AuthorRetrieval
             from .models import Author, Affiliation
         except ImportError:
-            logger.warning("pybliometrics not available. Install with: pip install pybliometrics or pip install -e '.[bibliometrics]'")
+            logger.warning(
+                "pybliometrics not available. Install with: pip install pybliometrics or pip install -e '.[bibliometrics]'"
+            )
             return None
 
         if not self.api_key:
@@ -907,6 +939,7 @@ class ScopusConnector(DatabaseConnector):
         try:
             # Set API key for pybliometrics
             import pybliometrics
+
             pybliometrics.init()
 
             # Retrieve author
@@ -916,28 +949,32 @@ class ScopusConnector(DatabaseConnector):
             current_affiliations = []
             if au.affiliation_current:
                 for aff in au.affiliation_current:
-                    current_affiliations.append(Affiliation(
-                        name=aff.preferred_name or "",
-                        id=str(aff.id) if aff.id else None,
-                        city=aff.city,
-                        country=aff.country,
-                        country_code=aff.country_code,
-                        address=aff.address_part,
-                        postal_code=aff.postal_code,
-                        organization_domain=aff.org_domain,
-                        organization_url=aff.org_URL,
-                    ))
+                    current_affiliations.append(
+                        Affiliation(
+                            name=aff.preferred_name or "",
+                            id=str(aff.id) if aff.id else None,
+                            city=aff.city,
+                            country=aff.country,
+                            country_code=aff.country_code,
+                            address=aff.address_part,
+                            postal_code=aff.postal_code,
+                            organization_domain=aff.org_domain,
+                            organization_url=aff.org_URL,
+                        )
+                    )
 
             historical_affiliations = []
             if au.affiliation_history:
                 for aff in au.affiliation_history:
-                    historical_affiliations.append(Affiliation(
-                        name=aff.preferred_name or "",
-                        id=str(aff.id) if aff.id else None,
-                        city=aff.city,
-                        country=aff.country,
-                        country_code=aff.country_code,
-                    ))
+                    historical_affiliations.append(
+                        Affiliation(
+                            name=aff.preferred_name or "",
+                            id=str(aff.id) if aff.id else None,
+                            city=aff.city,
+                            country=aff.country,
+                            country_code=aff.country_code,
+                        )
+                    )
 
             subject_areas = []
             if au.subject_areas:
@@ -986,7 +1023,9 @@ class ScopusConnector(DatabaseConnector):
             from pybliometrics.scopus import AffiliationRetrieval
             from .models import Affiliation
         except ImportError:
-            logger.warning("pybliometrics not available. Install with: pip install pybliometrics or pip install -e '.[bibliometrics]'")
+            logger.warning(
+                "pybliometrics not available. Install with: pip install pybliometrics or pip install -e '.[bibliometrics]'"
+            )
             return None
 
         if not self.api_key:
@@ -995,6 +1034,7 @@ class ScopusConnector(DatabaseConnector):
 
         try:
             import pybliometrics
+
             pybliometrics.init()
 
             aff = AffiliationRetrieval(affiliation_id)
@@ -1032,7 +1072,9 @@ class ScopusConnector(DatabaseConnector):
         try:
             from pybliometrics.scopus import AuthorSearch
         except ImportError:
-            logger.warning("pybliometrics not available. Install with: pip install pybliometrics or pip install -e '.[bibliometrics]'")
+            logger.warning(
+                "pybliometrics not available. Install with: pip install pybliometrics or pip install -e '.[bibliometrics]'"
+            )
             return []
 
         if not self.api_key:
@@ -1041,6 +1083,7 @@ class ScopusConnector(DatabaseConnector):
 
         try:
             import pybliometrics
+
             pybliometrics.init()
 
             search = AuthorSearch(query)
@@ -1117,11 +1160,7 @@ class ACMConnector(DatabaseConnector):
             # Visit homepage first to establish session and get cookies
             try:
                 logger.debug("Visiting ACM homepage to establish session...")
-                homepage_response = session.get(
-                    self.base_url,
-                    headers=headers,
-                    **request_kwargs
-                )
+                homepage_response = session.get(self.base_url, headers=headers, **request_kwargs)
                 # Check for 403 on homepage - if we get it here, we'll likely get it on search too
                 if homepage_response.status_code == 403:
                     logger.warning(
@@ -1135,16 +1174,20 @@ class ACMConnector(DatabaseConnector):
                 self._save_session_cookies()
             except requests.HTTPError as e:
                 # Check if it's a 403 error
-                if hasattr(e.response, 'status_code') and e.response.status_code == 403:
+                if hasattr(e.response, "status_code") and e.response.status_code == 403:
                     logger.warning(
                         "ACM Digital Library returned 403 Forbidden. "
                         "This may be due to anti-scraping measures. "
                         "Skipping ACM search for this query."
                     )
                     return []
-                logger.warning(f"Failed to visit ACM homepage: {e}. Continuing with search anyway...")
+                logger.warning(
+                    f"Failed to visit ACM homepage: {e}. Continuing with search anyway..."
+                )
             except requests.RequestException as e:
-                logger.warning(f"Failed to visit ACM homepage: {e}. Continuing with search anyway...")
+                logger.warning(
+                    f"Failed to visit ACM homepage: {e}. Continuing with search anyway..."
+                )
 
             # ACM search parameters
             page_size = 20  # ACM typically shows 20 results per page
@@ -1161,6 +1204,7 @@ class ACMConnector(DatabaseConnector):
                 # Add delay between page requests to avoid rate limiting
                 if page > 0:
                     import time
+
                     time.sleep(1.0)  # 1 second delay between pages
 
                 params = {
@@ -1169,7 +1213,9 @@ class ACMConnector(DatabaseConnector):
                     "startPage": start_page + page,
                 }
 
-                response = session.get(self.search_url, params=params, headers=headers, **request_kwargs)
+                response = session.get(
+                    self.search_url, params=params, headers=headers, **request_kwargs
+                )
 
                 # Handle 403 errors gracefully
                 if response.status_code == 403:
@@ -1198,10 +1244,12 @@ class ACMConnector(DatabaseConnector):
                     break
 
         except ImportError:
-            raise ImportError("beautifulsoup4 required for ACM connector. Install with: pip install beautifulsoup4")
+            raise ImportError(
+                "beautifulsoup4 required for ACM connector. Install with: pip install beautifulsoup4"
+            )
         except requests.HTTPError as e:
             # Check if it's a 403 error - don't retry on 403
-            if hasattr(e.response, 'status_code') and e.response.status_code == 403:
+            if hasattr(e.response, "status_code") and e.response.status_code == 403:
                 logger.warning(
                     "ACM Digital Library returned 403 Forbidden. "
                     "This may be due to anti-scraping measures. "
@@ -1258,7 +1306,9 @@ class ACMConnector(DatabaseConnector):
                     result_items = soup.find_all(tag, attrs)
 
                 if result_items:
-                    logger.debug(f"Found {len(result_items)} ACM results using selector: {tag} with {attrs}")
+                    logger.debug(
+                        f"Found {len(result_items)} ACM results using selector: {tag} with {attrs}"
+                    )
                     break
 
             # If still no results, try finding by structure (title links)
@@ -1269,7 +1319,11 @@ class ACMConnector(DatabaseConnector):
                     # Group by parent containers
                     seen_parents = set()
                     for link in title_links:
-                        parent = link.find_parent("div") or link.find_parent("article") or link.find_parent("li")
+                        parent = (
+                            link.find_parent("div")
+                            or link.find_parent("article")
+                            or link.find_parent("li")
+                        )
                         if parent and id(parent) not in seen_parents:
                             result_items.append(parent)
                             seen_parents.add(id(parent))
@@ -1328,7 +1382,10 @@ class ACMConnector(DatabaseConnector):
 
             # Fallback: extract from any text that looks like a title (longest text block)
             if not title:
-                text_blocks = [elem.get_text(strip=True) for elem in item.find_all(["h1", "h2", "h3", "h4", "h5", "h6", "a", "span"])]
+                text_blocks = [
+                    elem.get_text(strip=True)
+                    for elem in item.find_all(["h1", "h2", "h3", "h4", "h5", "h6", "a", "span"])
+                ]
                 if text_blocks:
                     # Find longest non-empty text block that's not too short
                     title = max([t for t in text_blocks if len(t) > 10], key=len, default="")
@@ -1369,7 +1426,9 @@ class ACMConnector(DatabaseConnector):
                         author_text = author_section.get_text(strip=True)
                         if author_text:
                             # Split by common separators
-                            authors = [a.strip() for a in re.split(r'[,;]', author_text) if a.strip()]
+                            authors = [
+                                a.strip() for a in re.split(r"[,;]", author_text) if a.strip()
+                            ]
 
             for author_link in author_links:
                 author_name = author_link.get_text(strip=True)
@@ -1380,11 +1439,23 @@ class ACMConnector(DatabaseConnector):
             if not authors:
                 item_text = item.get_text()
                 # Look for patterns like "Author1, Author2, Author3"
-                author_pattern = r'([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*(?:\s+[A-Z]\.?)?)'
-                potential_authors = re.findall(author_pattern, item_text[:500])  # Limit to first 500 chars
+                author_pattern = r"([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*(?:\s+[A-Z]\.?)?)"
+                potential_authors = re.findall(
+                    author_pattern, item_text[:500]
+                )  # Limit to first 500 chars
                 # Filter out common false positives
-                false_positives = {"Abstract", "Journal", "Conference", "Proceedings", "Volume", "Issue", "Pages"}
-                authors = [a for a in potential_authors[:10] if a not in false_positives]  # Limit to 10
+                false_positives = {
+                    "Abstract",
+                    "Journal",
+                    "Conference",
+                    "Proceedings",
+                    "Volume",
+                    "Issue",
+                    "Pages",
+                }
+                authors = [
+                    a for a in potential_authors[:10] if a not in false_positives
+                ]  # Limit to 10
 
             # Abstract - improved extraction with better selectors
             abstract_elem = None
@@ -1407,14 +1478,18 @@ class ACMConnector(DatabaseConnector):
             # Handle truncated abstracts (look for "..." or "more" indicators)
             if abstract and len(abstract) < 50:
                 # Might be truncated, try to find full abstract
-                full_abstract_elem = item.find("div", {"data-abstract": True}) or item.find("span", {"data-abstract": True})
+                full_abstract_elem = item.find("div", {"data-abstract": True}) or item.find(
+                    "span", {"data-abstract": True}
+                )
                 if full_abstract_elem:
                     abstract = full_abstract_elem.get("data-abstract", abstract)
 
             # DOI - improved extraction
             doi = None
             # Try DOI link first
-            doi_link = item.find("a", href=lambda x: x and ("doi.org" in str(x) or "/doi/" in str(x)))
+            doi_link = item.find(
+                "a", href=lambda x: x and ("doi.org" in str(x) or "/doi/" in str(x))
+            )
             if doi_link:
                 href = doi_link.get("href", "")
                 # Extract DOI from URL
@@ -1513,13 +1588,17 @@ class ACMConnector(DatabaseConnector):
             if not venue:
                 item_text = item.get_text()
                 # Look for patterns like "In: Journal Name" or "Proceedings of..."
-                venue_match = re.search(r"(?:In:|Proceedings of|Journal:)\s*([A-Z][^,\.]+)", item_text)
+                venue_match = re.search(
+                    r"(?:In:|Proceedings of|Journal:)\s*([A-Z][^,\.]+)", item_text
+                )
                 if venue_match:
                     venue = venue_match.group(1).strip()
 
             # Citation count (if available)
             citation_count = None
-            citation_elem = item.find("span", class_="citation") or item.find("div", class_="citation")
+            citation_elem = item.find("span", class_="citation") or item.find(
+                "div", class_="citation"
+            )
             if citation_elem:
                 citation_text = citation_elem.get_text(strip=True)
                 citation_match = re.search(r"(\d+)", citation_text)
@@ -1606,11 +1685,7 @@ class SpringerConnector(DatabaseConnector):
             # Visit homepage first to establish session
             try:
                 logger.debug("Visiting Springer homepage to establish session...")
-                homepage_response = session.get(
-                    self.base_url,
-                    headers=headers,
-                    **request_kwargs
-                )
+                homepage_response = session.get(self.base_url, headers=headers, **request_kwargs)
                 if homepage_response.status_code == 403:
                     logger.warning(
                         "Springer Link returned 403 Forbidden on homepage. "
@@ -1621,15 +1696,19 @@ class SpringerConnector(DatabaseConnector):
                 homepage_response.raise_for_status()
                 self._save_session_cookies()
             except requests.HTTPError as e:
-                if hasattr(e.response, 'status_code') and e.response.status_code == 403:
+                if hasattr(e.response, "status_code") and e.response.status_code == 403:
                     logger.warning(
                         "Springer Link returned 403 Forbidden. "
                         "Skipping Springer search for this query."
                     )
                     return []
-                logger.warning(f"Failed to visit Springer homepage: {e}. Continuing with search anyway...")
+                logger.warning(
+                    f"Failed to visit Springer homepage: {e}. Continuing with search anyway..."
+                )
             except requests.RequestException as e:
-                logger.warning(f"Failed to visit Springer homepage: {e}. Continuing with search anyway...")
+                logger.warning(
+                    f"Failed to visit Springer homepage: {e}. Continuing with search anyway..."
+                )
 
             # Springer search parameters
             page_size = 20  # Springer typically shows 20 results per page
@@ -1651,7 +1730,9 @@ class SpringerConnector(DatabaseConnector):
                     "page": page + 1,
                 }
 
-                response = session.get(self.search_url, params=params, headers=headers, **request_kwargs)
+                response = session.get(
+                    self.search_url, params=params, headers=headers, **request_kwargs
+                )
 
                 if response.status_code == 403:
                     logger.warning(
@@ -1675,12 +1756,13 @@ class SpringerConnector(DatabaseConnector):
                     break
 
         except ImportError:
-            raise ImportError("beautifulsoup4 required for Springer connector. Install with: pip install beautifulsoup4")
+            raise ImportError(
+                "beautifulsoup4 required for Springer connector. Install with: pip install beautifulsoup4"
+            )
         except requests.HTTPError as e:
-            if hasattr(e.response, 'status_code') and e.response.status_code == 403:
+            if hasattr(e.response, "status_code") and e.response.status_code == 403:
                 logger.warning(
-                    "Springer Link returned 403 Forbidden. "
-                    "Skipping Springer search for this query."
+                    "Springer Link returned 403 Forbidden. Skipping Springer search for this query."
                 )
                 return []
             logger.error(f"HTTP error searching Springer: {e}")
@@ -1727,7 +1809,9 @@ class SpringerConnector(DatabaseConnector):
                 elif "data-testid" in attrs:
                     result_items = soup.find_all(tag, {"data-testid": attrs["data-testid"]})
                 if result_items:
-                    logger.debug(f"Found {len(result_items)} Springer results using selector: {tag} with {attrs}")
+                    logger.debug(
+                        f"Found {len(result_items)} Springer results using selector: {tag} with {attrs}"
+                    )
                     break
 
             # Fallback: find by title links
@@ -1736,11 +1820,17 @@ class SpringerConnector(DatabaseConnector):
                 if title_links:
                     seen_parents = set()
                     for link in title_links:
-                        parent = link.find_parent("li") or link.find_parent("div") or link.find_parent("article")
+                        parent = (
+                            link.find_parent("li")
+                            or link.find_parent("div")
+                            or link.find_parent("article")
+                        )
                         if parent and id(parent) not in seen_parents:
                             result_items.append(parent)
                             seen_parents.add(id(parent))
-                    logger.debug(f"Found {len(result_items)} Springer results by grouping title links")
+                    logger.debug(
+                        f"Found {len(result_items)} Springer results by grouping title links"
+                    )
 
             if not result_items:
                 logger.warning("No Springer search results found - page structure may have changed")
@@ -1807,13 +1897,17 @@ class SpringerConnector(DatabaseConnector):
                     break
 
             if not author_links:
-                author_section = item.find("div", class_="authors") or item.find("span", class_="authors")
+                author_section = item.find("div", class_="authors") or item.find(
+                    "span", class_="authors"
+                )
                 if author_section:
                     author_links = author_section.find_all("a")
                     if not author_links:
                         author_text = author_section.get_text(strip=True)
                         if author_text:
-                            authors = [a.strip() for a in re.split(r'[,;]', author_text) if a.strip()]
+                            authors = [
+                                a.strip() for a in re.split(r"[,;]", author_text) if a.strip()
+                            ]
 
             for author_link in author_links:
                 author_name = author_link.get_text(strip=True)
@@ -1831,7 +1925,9 @@ class SpringerConnector(DatabaseConnector):
 
             # DOI
             doi = None
-            doi_link = item.find("a", href=lambda x: x and ("doi.org" in str(x) or "/doi/" in str(x)))
+            doi_link = item.find(
+                "a", href=lambda x: x and ("doi.org" in str(x) or "/doi/" in str(x))
+            )
             if doi_link:
                 href = doi_link.get("href", "")
                 if "doi.org/" in href:
@@ -1959,7 +2055,9 @@ class IEEEXploreConnector(DatabaseConnector):
 
         # Require API key
         if not self.use_api or not self.api_key:
-            raise APIKeyError("IEEE Xplore requires an API key. Set IEEE_API_KEY in environment variables.")
+            raise APIKeyError(
+                "IEEE Xplore requires an API key. Set IEEE_API_KEY in environment variables."
+            )
 
         return self._search_via_api(query, max_results)
 
@@ -2075,9 +2173,13 @@ class IEEEXploreConnector(DatabaseConnector):
             self.cache.set(query, "IEEE Xplore", papers)
 
         return papers
+
     def get_database_name(self) -> str:
         return "IEEE Xplore"
 
+    def _search_via_scraping(self, query: str, max_results: int = 100) -> List[Paper]:
+        """Search IEEE Xplore via web scraping (fallback method)."""
+        papers = []
         try:
             from bs4 import BeautifulSoup
             import time
@@ -2101,11 +2203,11 @@ class IEEEXploreConnector(DatabaseConnector):
             max_homepage_retries = 2
             for retry in range(max_homepage_retries):
                 try:
-                    logger.debug(f"Visiting IEEE Xplore homepage to establish session (attempt {retry + 1})...")
+                    logger.debug(
+                        f"Visiting IEEE Xplore homepage to establish session (attempt {retry + 1})..."
+                    )
                     homepage_response = session.get(
-                        self.base_url,
-                        headers=headers,
-                        **request_kwargs
+                        self.base_url, headers=headers, **request_kwargs
                     )
                     if homepage_response.status_code == 403:
                         logger.warning(
@@ -2118,7 +2220,7 @@ class IEEEXploreConnector(DatabaseConnector):
                     self._save_session_cookies()
                     break  # Success, exit retry loop
                 except requests.HTTPError as e:
-                    if hasattr(e.response, 'status_code') and e.response.status_code == 403:
+                    if hasattr(e.response, "status_code") and e.response.status_code == 403:
                         logger.warning(
                             "IEEE Xplore returned 403 Forbidden. "
                             "Skipping IEEE Xplore search for this query."
@@ -2126,19 +2228,25 @@ class IEEEXploreConnector(DatabaseConnector):
                         return []
                     if retry < max_homepage_retries - 1:
                         import time
-                        wait_time = 2 ** retry  # Exponential backoff
+
+                        wait_time = 2**retry  # Exponential backoff
                         logger.debug(f"Homepage request failed, retrying in {wait_time}s...")
                         time.sleep(wait_time)
                         continue
-                    logger.warning(f"Failed to visit IEEE Xplore homepage after {max_homepage_retries} attempts: {e}. Continuing with search anyway...")
+                    logger.warning(
+                        f"Failed to visit IEEE Xplore homepage after {max_homepage_retries} attempts: {e}. Continuing with search anyway..."
+                    )
                 except requests.RequestException as e:
                     if retry < max_homepage_retries - 1:
                         import time
-                        wait_time = 2 ** retry  # Exponential backoff
+
+                        wait_time = 2**retry  # Exponential backoff
                         logger.debug(f"Homepage request failed, retrying in {wait_time}s...")
                         time.sleep(wait_time)
                         continue
-                    logger.warning(f"Failed to visit IEEE Xplore homepage after {max_homepage_retries} attempts: {e}. Continuing with search anyway...")
+                    logger.warning(
+                        f"Failed to visit IEEE Xplore homepage after {max_homepage_retries} attempts: {e}. Continuing with search anyway..."
+                    )
 
             # IEEE Xplore search parameters
             page_size = 25  # IEEE typically shows 25 results per page
@@ -2161,7 +2269,9 @@ class IEEEXploreConnector(DatabaseConnector):
                     "rowsPerPage": page_size,
                 }
 
-                response = session.get(self.search_url, params=params, headers=headers, **request_kwargs)
+                response = session.get(
+                    self.search_url, params=params, headers=headers, **request_kwargs
+                )
 
                 if response.status_code == 403:
                     logger.warning(
@@ -2185,9 +2295,11 @@ class IEEEXploreConnector(DatabaseConnector):
                     break
 
         except ImportError:
-            raise ImportError("beautifulsoup4 required for IEEE Xplore connector. Install with: pip install beautifulsoup4")
+            raise ImportError(
+                "beautifulsoup4 required for IEEE Xplore connector. Install with: pip install beautifulsoup4"
+            )
         except requests.HTTPError as e:
-            if hasattr(e.response, 'status_code') and e.response.status_code == 403:
+            if hasattr(e.response, "status_code") and e.response.status_code == 403:
                 logger.warning(
                     "IEEE Xplore returned 403 Forbidden. "
                     "Skipping IEEE Xplore search for this query."
@@ -2237,7 +2349,9 @@ class IEEEXploreConnector(DatabaseConnector):
                 elif "data-testid" in attrs:
                     result_items = soup.find_all(tag, {"data-testid": attrs["data-testid"]})
                 if result_items:
-                    logger.debug(f"Found {len(result_items)} IEEE Xplore results using selector: {tag} with {attrs}")
+                    logger.debug(
+                        f"Found {len(result_items)} IEEE Xplore results using selector: {tag} with {attrs}"
+                    )
                     break
 
             # Fallback: find by title links
@@ -2246,14 +2360,22 @@ class IEEEXploreConnector(DatabaseConnector):
                 if title_links:
                     seen_parents = set()
                     for link in title_links:
-                        parent = link.find_parent("li") or link.find_parent("div") or link.find_parent("article")
+                        parent = (
+                            link.find_parent("li")
+                            or link.find_parent("div")
+                            or link.find_parent("article")
+                        )
                         if parent and id(parent) not in seen_parents:
                             result_items.append(parent)
                             seen_parents.add(id(parent))
-                    logger.debug(f"Found {len(result_items)} IEEE Xplore results by grouping title links")
+                    logger.debug(
+                        f"Found {len(result_items)} IEEE Xplore results by grouping title links"
+                    )
 
             if not result_items:
-                logger.warning("No IEEE Xplore search results found - page structure may have changed")
+                logger.warning(
+                    "No IEEE Xplore search results found - page structure may have changed"
+                )
                 return papers
 
             for item in result_items:
@@ -2317,13 +2439,17 @@ class IEEEXploreConnector(DatabaseConnector):
                     break
 
             if not author_links:
-                author_section = item.find("div", class_="authors") or item.find("span", class_="authors")
+                author_section = item.find("div", class_="authors") or item.find(
+                    "span", class_="authors"
+                )
                 if author_section:
                     author_links = author_section.find_all("a")
                     if not author_links:
                         author_text = author_section.get_text(strip=True)
                         if author_text:
-                            authors = [a.strip() for a in re.split(r'[,;]', author_text) if a.strip()]
+                            authors = [
+                                a.strip() for a in re.split(r"[,;]", author_text) if a.strip()
+                            ]
 
             for author_link in author_links:
                 author_name = author_link.get_text(strip=True)
@@ -2341,7 +2467,9 @@ class IEEEXploreConnector(DatabaseConnector):
 
             # DOI
             doi = None
-            doi_link = item.find("a", href=lambda x: x and ("doi.org" in str(x) or "/doi/" in str(x)))
+            doi_link = item.find(
+                "a", href=lambda x: x and ("doi.org" in str(x) or "/doi/" in str(x))
+            )
             if doi_link:
                 href = doi_link.get("href", "")
                 if "doi.org/" in href:
@@ -2429,9 +2557,6 @@ class IEEEXploreConnector(DatabaseConnector):
         except Exception as e:
             logger.warning(f"Error extracting paper from IEEE Xplore item: {e}")
             return None
-
-    def get_database_name(self) -> str:
-        return "IEEE Xplore"
 
 
 class PerplexityConnector(DatabaseConnector):
@@ -2554,7 +2679,9 @@ class PerplexityConnector(DatabaseConnector):
 
             request_body = {
                 "query": query,
-                "max_results": min(max_results, 20),  # Perplexity Search API allows max 20 per request
+                "max_results": min(
+                    max_results, 20
+                ),  # Perplexity Search API allows max 20 per request
             }
 
             # Apply domain filtering based on mode
@@ -2564,7 +2691,9 @@ class PerplexityConnector(DatabaseConnector):
             elif filter_mode == "denylist":
                 # Exclude non-academic domains (captures ALL academic sources, filters noise)
                 # Prefix domains with "-" for denylist mode
-                request_body["search_domain_filter"] = [f"-{domain}" for domain in non_academic_domains]
+                request_body["search_domain_filter"] = [
+                    f"-{domain}" for domain in non_academic_domains
+                ]
             # else: filter_mode == "none" - no filtering applied
 
             session = self._get_session()
@@ -2572,10 +2701,7 @@ class PerplexityConnector(DatabaseConnector):
             request_kwargs.setdefault("timeout", 30)
 
             response = session.post(
-                self.base_url,
-                json=request_body,
-                headers=headers,
-                **request_kwargs
+                self.base_url, json=request_body, headers=headers, **request_kwargs
             )
 
             if response.status_code == 401:
@@ -2585,7 +2711,9 @@ class PerplexityConnector(DatabaseConnector):
                     error_detail = f" - {error_data.get('detail', response.text)}"
                 except Exception:
                     error_detail = f" - {response.text[:200]}"
-                raise APIKeyError(f"Invalid Perplexity API key or key doesn't have Search API access{error_detail}")
+                raise APIKeyError(
+                    f"Invalid Perplexity API key or key doesn't have Search API access{error_detail}"
+                )
             elif response.status_code == 429:
                 raise RateLimitError("Perplexity rate limit exceeded")
             elif response.status_code == 400:
@@ -2599,7 +2727,9 @@ class PerplexityConnector(DatabaseConnector):
                         error_detail = f" - {str(error_data)[:500]}"
                 except Exception:
                     error_detail = f" - {response.text[:500]}"
-                logger.error(f"Perplexity API 400 error. Request body: {request_body}, Response: {error_detail}")
+                logger.error(
+                    f"Perplexity API 400 error. Request body: {request_body}, Response: {error_detail}"
+                )
                 raise DatabaseSearchError(
                     f"Perplexity API returned 400 Bad Request. "
                     f"This usually means the request format is incorrect.{error_detail}"
@@ -2674,6 +2804,7 @@ class PerplexityConnector(DatabaseConnector):
                 if url:
                     try:
                         from urllib.parse import urlparse
+
                         parsed = urlparse(url)
                         domain = parsed.netloc.lower()
                         # Common academic domains

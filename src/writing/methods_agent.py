@@ -88,13 +88,13 @@ class MethodsWriter(BaseScreeningAgent):
 
         if not self.llm_client:
             raise RuntimeError("LLM client is required for methods generation")
-        
+
         # Use tool calling if tools are available
         if self.tool_registry.list_tools():
             response = self._call_llm_with_tools(prompt, max_iterations=10)
-            else:
-                response = self._call_llm(prompt)
-            result = response
+        else:
+            response = self._call_llm(prompt)
+        result = response
 
         # Restore original context
         if topic_context:
@@ -190,9 +190,15 @@ PRISMA Flow:
         style_guidelines = ""
         if style_patterns and "methods" in style_patterns:
             methods_patterns = style_patterns["methods"]
-            style_guidelines = "\n\nSTYLE GUIDELINES (based on analysis of included papers in this review):\n"
-            style_guidelines += "- Vary sentence structures: mix simple, compound, and complex sentences\n"
-            style_guidelines += "- Use natural academic vocabulary with domain-specific terms from the field\n"
+            style_guidelines = (
+                "\n\nSTYLE GUIDELINES (based on analysis of included papers in this review):\n"
+            )
+            style_guidelines += (
+                "- Vary sentence structures: mix simple, compound, and complex sentences\n"
+            )
+            style_guidelines += (
+                "- Use natural academic vocabulary with domain-specific terms from the field\n"
+            )
             style_guidelines += "- Integrate citations naturally: vary placement and phrasing\n"
             style_guidelines += "- Create natural flow: avoid formulaic transitions\n"
             style_guidelines += "- Maintain scholarly tone: precise but not robotic\n"
@@ -206,7 +212,9 @@ PRISMA Flow:
                 vocab = methods_patterns["vocabulary"][:5]
                 style_guidelines += f"Domain vocabulary examples: {', '.join(vocab)}\n"
 
-        prompt += style_guidelines + """
+        prompt += (
+            style_guidelines
+            + """
 
 CRITICAL OUTPUT CONSTRAINTS:
 - Begin IMMEDIATELY with substantive content - do NOT start with phrases like "Here is a methods section..." or "The following describes..."
@@ -245,6 +253,7 @@ Please write a detailed methods section that includes:
 10. Data Synthesis Methods (narrative synthesis, meta-analysis if applicable)
 
 IMPORTANT: Include the full search strategies for ALL databases in the methods section. The full search queries are provided above. Write in past tense, use PRISMA 2020 terminology, and ensure all methodological details are clearly described. Begin immediately with protocol registration or search strategy - do not include any introductory phrases."""
+        )
 
         # Add tool calling instructions if tools are available
         if self.tool_registry.list_tools():
@@ -267,6 +276,3 @@ TOOL USAGE INSTRUCTIONS:
             prompt += tool_instructions
 
         return prompt
-
-        return prompt
-

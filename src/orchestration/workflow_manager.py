@@ -34,12 +34,6 @@ from ..utils.logging_config import get_logger
 from ..utils.log_context import workflow_phase_context
 from ..config.debug_config import DebugLevel
 
-from ..observability.tracing import (
-    TracingContext,
-    set_tracing_context,
-    trace_agent_call,
-)
-
 logger = get_logger(__name__)
 
 from src.prisma.prisma_generator import PRISMAGenerator
@@ -145,7 +139,9 @@ class WorkflowManager:
                 author_service=author_service,
                 enabled=True,
                 include_author_metrics=bibliometrics_config.get("include_author_metrics", True),
-                include_citation_networks=bibliometrics_config.get("include_citation_networks", False),
+                include_citation_networks=bibliometrics_config.get(
+                    "include_citation_networks", False
+                ),
                 include_subject_areas=bibliometrics_config.get("include_subject_areas", True),
             )
             logger.info("Bibliometric enrichment enabled")
@@ -189,135 +185,163 @@ class WorkflowManager:
         registry = PhaseRegistry()
 
         # Phase 1: Build search strategy
-        registry.register(PhaseDefinition(
-            name="build_search_strategy",
-            phase_number=1,
-            dependencies=[],
-            handler=self._build_search_strategy,
-            checkpoint=False,  # Always rebuilds
-            description="Build search strategy"
-        ))
+        registry.register(
+            PhaseDefinition(
+                name="build_search_strategy",
+                phase_number=1,
+                dependencies=[],
+                handler=self._build_search_strategy,
+                checkpoint=False,  # Always rebuilds
+                description="Build search strategy",
+            )
+        )
 
         # Phase 2: Search databases
-        registry.register(PhaseDefinition(
-            name="search_databases",
-            phase_number=2,
-            dependencies=["build_search_strategy"],
-            handler=self._search_databases_phase,
-            description="Search multiple databases for papers"
-        ))
+        registry.register(
+            PhaseDefinition(
+                name="search_databases",
+                phase_number=2,
+                dependencies=["build_search_strategy"],
+                handler=self._search_databases_phase,
+                description="Search multiple databases for papers",
+            )
+        )
 
         # Phase 3: Deduplication
-        registry.register(PhaseDefinition(
-            name="deduplication",
-            phase_number=3,
-            dependencies=["search_databases"],
-            handler=self._deduplication_phase,
-            description="Remove duplicate papers"
-        ))
+        registry.register(
+            PhaseDefinition(
+                name="deduplication",
+                phase_number=3,
+                dependencies=["search_databases"],
+                handler=self._deduplication_phase,
+                description="Remove duplicate papers",
+            )
+        )
 
         # Phase 4: Title/Abstract Screening
-        registry.register(PhaseDefinition(
-            name="title_abstract_screening",
-            phase_number=4,
-            dependencies=["deduplication"],
-            handler=self._title_abstract_screening_phase,
-            description="Screen papers by title and abstract"
-        ))
+        registry.register(
+            PhaseDefinition(
+                name="title_abstract_screening",
+                phase_number=4,
+                dependencies=["deduplication"],
+                handler=self._title_abstract_screening_phase,
+                description="Screen papers by title and abstract",
+            )
+        )
 
         # Phase 5: Full-text Screening
-        registry.register(PhaseDefinition(
-            name="fulltext_screening",
-            phase_number=5,
-            dependencies=["title_abstract_screening"],
-            handler=self._fulltext_screening_phase,
-            description="Screen papers by full-text"
-        ))
+        registry.register(
+            PhaseDefinition(
+                name="fulltext_screening",
+                phase_number=5,
+                dependencies=["title_abstract_screening"],
+                handler=self._fulltext_screening_phase,
+                description="Screen papers by full-text",
+            )
+        )
 
         # Phase 6.5: Paper Enrichment
-        registry.register(PhaseDefinition(
-            name="paper_enrichment",
-            phase_number=7,
-            dependencies=["fulltext_screening"],
-            handler=self._enrich_papers,
-            description="Enrich papers with missing metadata"
-        ))
+        registry.register(
+            PhaseDefinition(
+                name="paper_enrichment",
+                phase_number=7,
+                dependencies=["fulltext_screening"],
+                handler=self._enrich_papers,
+                description="Enrich papers with missing metadata",
+            )
+        )
 
         # Phase 7: Data Extraction
-        registry.register(PhaseDefinition(
-            name="data_extraction",
-            phase_number=7,
-            dependencies=["paper_enrichment"],
-            handler=self._extract_data,
-            description="Extract structured data from papers"
-        ))
+        registry.register(
+            PhaseDefinition(
+                name="data_extraction",
+                phase_number=7,
+                dependencies=["paper_enrichment"],
+                handler=self._extract_data,
+                description="Extract structured data from papers",
+            )
+        )
 
         # Phase 8: Quality Assessment
-        registry.register(PhaseDefinition(
-            name="quality_assessment",
-            phase_number=8,
-            dependencies=["data_extraction"],
-            handler=self._quality_assessment,
-            description="Assess quality and risk of bias"
-        ))
+        registry.register(
+            PhaseDefinition(
+                name="quality_assessment",
+                phase_number=8,
+                dependencies=["data_extraction"],
+                handler=self._quality_assessment,
+                description="Assess quality and risk of bias",
+            )
+        )
 
         # Phase 9: PRISMA Generation
-        registry.register(PhaseDefinition(
-            name="prisma_generation",
-            phase_number=9,
-            dependencies=["data_extraction"],
-            handler=self._generate_prisma_diagram,
-            description="Generate PRISMA flow diagram"
-        ))
+        registry.register(
+            PhaseDefinition(
+                name="prisma_generation",
+                phase_number=9,
+                dependencies=["data_extraction"],
+                handler=self._generate_prisma_diagram,
+                description="Generate PRISMA flow diagram",
+            )
+        )
 
         # Phase 10: Visualization Generation
-        registry.register(PhaseDefinition(
-            name="visualization_generation",
-            phase_number=10,
-            dependencies=["data_extraction"],
-            handler=self._generate_visualizations,
-            description="Generate bibliometric visualizations"
-        ))
+        registry.register(
+            PhaseDefinition(
+                name="visualization_generation",
+                phase_number=10,
+                dependencies=["data_extraction"],
+                handler=self._generate_visualizations,
+                description="Generate bibliometric visualizations",
+            )
+        )
 
         # Phase 11: Article Writing
-        registry.register(PhaseDefinition(
-            name="article_writing",
-            phase_number=11,
-            dependencies=["data_extraction"],
-            handler=self._write_article,
-            description="Write article sections (Introduction, Methods, Results, Discussion, Abstract)"
-        ))
+        registry.register(
+            PhaseDefinition(
+                name="article_writing",
+                phase_number=11,
+                dependencies=["data_extraction"],
+                handler=self._write_article,
+                description="Write article sections (Introduction, Methods, Results, Discussion, Abstract)",
+            )
+        )
 
         # Phase 12: Report Generation
-        registry.register(PhaseDefinition(
-            name="report_generation",
-            phase_number=12,
-            dependencies=["article_writing", "prisma_generation", "visualization_generation"],
-            handler=self._report_generation_phase,
-            description="Generate final report"
-        ))
+        registry.register(
+            PhaseDefinition(
+                name="report_generation",
+                phase_number=12,
+                dependencies=["article_writing", "prisma_generation", "visualization_generation"],
+                handler=self._report_generation_phase,
+                description="Generate final report",
+            )
+        )
 
         # Phase 17: Manubot Export
-        registry.register(PhaseDefinition(
-            name="manubot_export",
-            phase_number=17,
-            dependencies=["article_writing"],
-            handler=self._manubot_export_phase,
-            required=False,
-            config_key="manubot.enabled",
-            description="Export to Manubot structure"
-        ))
+        registry.register(
+            PhaseDefinition(
+                name="manubot_export",
+                phase_number=17,
+                dependencies=["article_writing"],
+                handler=self._manubot_export_phase,
+                required=False,
+                config_key="manubot.enabled",
+                description="Export to Manubot structure",
+            )
+        )
 
         # Phase 18: Submission Package
-        registry.register(PhaseDefinition(
-            name="submission_package",
-            phase_number=18,
-            dependencies=["article_writing", "report_generation"],
-            handler=self._submission_package_phase,
-            required=False,
-            config_key="submission.enabled",
-            description="Generate submission package"
-        ))
+        registry.register(
+            PhaseDefinition(
+                name="submission_package",
+                phase_number=18,
+                dependencies=["article_writing", "report_generation"],
+                handler=self._submission_package_phase,
+                required=False,
+                config_key="submission.enabled",
+                description="Generate submission package",
+            )
+        )
 
         return registry
 
@@ -375,9 +399,7 @@ class WorkflowManager:
         # Calculate and validate screening statistics
         if self.title_abstract_results:
             self.screening_validator.calculate_statistics(
-                self.unique_papers,
-                self.title_abstract_results,
-                ScreeningStage.TITLE_ABSTRACT
+                self.unique_papers, self.title_abstract_results, ScreeningStage.TITLE_ABSTRACT
             )
             self.screening_validator.log_statistics(ScreeningStage.TITLE_ABSTRACT)
 
@@ -437,7 +459,9 @@ class WorkflowManager:
         if hasattr(self, "_article_generated_files"):
             article_files = self._article_generated_files
             if article_files:
-                logger.info(f"Merging {len(article_files)} article-generated files into visualizations")
+                logger.info(
+                    f"Merging {len(article_files)} article-generated files into visualizations"
+                )
                 viz_paths.update(article_files)
                 self._viz_paths = viz_paths
 
@@ -539,6 +563,174 @@ class WorkflowManager:
         }
         return phase_to_next_number.get(checkpoint.get("latest_phase"), None)
 
+    def _copy_checkpoint_data(self, source_workflow_id: str, target_workflow_id: str) -> bool:
+        """
+        Copy all checkpoint files from old workflow to new workflow.
+
+        Args:
+            source_workflow_id: Old workflow ID to copy from
+            target_workflow_id: New workflow ID to copy to
+
+        Returns:
+            True if successful, False otherwise
+        """
+        import json
+
+        try:
+            source_dir = Path("data/checkpoints") / source_workflow_id
+            target_dir = Path("data/checkpoints") / target_workflow_id
+
+            # Validate source directory
+            if not source_dir.exists():
+                logger.debug(f"Source checkpoint directory does not exist: {source_dir}")
+                return False
+
+            if not source_dir.is_dir():
+                logger.warning(f"Source checkpoint path is not a directory: {source_dir}")
+                return False
+
+            # Get all checkpoint files
+            checkpoint_files = list(source_dir.glob("*.json"))
+            if not checkpoint_files:
+                logger.debug(f"No checkpoint files found in: {source_dir}")
+                return False
+
+            # Ensure target directory exists
+            target_dir.mkdir(parents=True, exist_ok=True)
+
+            # Copy each checkpoint file and update workflow_id
+            copied_count = 0
+            failed_files = []
+
+            for source_file in checkpoint_files:
+                target_file = target_dir / source_file.name
+                try:
+                    # Load and validate JSON
+                    with open(source_file, "r") as f:
+                        checkpoint_data = json.load(f)
+
+                    # Update workflow_id to new value
+                    if "workflow_id" in checkpoint_data:
+                        checkpoint_data["workflow_id"] = target_workflow_id
+
+                    # Write updated checkpoint to target
+                    with open(target_file, "w") as f:
+                        json.dump(checkpoint_data, f, indent=2, default=str)
+
+                    logger.debug(f"Copied checkpoint: {source_file.name}")
+                    copied_count += 1
+
+                except json.JSONDecodeError as e:
+                    logger.warning(f"Invalid JSON in {source_file.name}, skipping: {e}")
+                    failed_files.append(source_file.name)
+                except Exception as e:
+                    logger.warning(f"Failed to copy {source_file.name}: {e}")
+                    failed_files.append(source_file.name)
+
+            if failed_files:
+                logger.warning(
+                    f"Failed to copy {len(failed_files)} checkpoint file(s): {', '.join(failed_files)}"
+                )
+
+            logger.info(
+                f"Copied {copied_count}/{len(checkpoint_files)} checkpoint file(s) from {source_workflow_id}"
+            )
+            return copied_count > 0
+
+        except Exception as e:
+            logger.error(f"Error copying checkpoint data: {e}", exc_info=True)
+            return False
+
+    def _copy_output_data(self, source_output_dir: Path, target_output_dir: Path) -> bool:
+        """
+        Copy all output files from old workflow to new workflow.
+
+        Args:
+            source_output_dir: Old output directory to copy from
+            target_output_dir: New output directory to copy to
+
+        Returns:
+            True if successful, False otherwise
+        """
+        import shutil
+
+        try:
+            # Validate source directory
+            if not source_output_dir.exists():
+                logger.debug(f"Source output directory does not exist: {source_output_dir}")
+                return False
+
+            if not source_output_dir.is_dir():
+                logger.warning(f"Source output path is not a directory: {source_output_dir}")
+                return False
+
+            # Get all files and directories
+            items = list(source_output_dir.iterdir())
+            if not items:
+                logger.debug(f"No output files found in: {source_output_dir}")
+                return False
+
+            # Ensure target directory exists
+            target_output_dir.mkdir(parents=True, exist_ok=True)
+
+            # Copy each item
+            copied_count = 0
+            skipped_count = 0
+            failed_items = []
+
+            for item in items:
+                try:
+                    target_item = target_output_dir / item.name
+
+                    if item.is_symlink():
+                        # Skip symlinks to avoid issues
+                        logger.debug(f"Skipped symlink: {item.name}")
+                        skipped_count += 1
+                        continue
+
+                    if item.is_file():
+                        # Copy file with metadata preservation
+                        shutil.copy2(item, target_item)
+                        logger.debug(f"Copied file: {item.name} ({item.stat().st_size} bytes)")
+                        copied_count += 1
+
+                    elif item.is_dir():
+                        # Copy directory tree
+                        if target_item.exists():
+                            logger.debug(f"Removing existing directory: {target_item}")
+                            shutil.rmtree(target_item)
+                        shutil.copytree(item, target_item, symlinks=False)
+                        logger.debug(f"Copied directory: {item.name}")
+                        copied_count += 1
+
+                    else:
+                        logger.debug(f"Skipped special file: {item.name}")
+                        skipped_count += 1
+
+                except PermissionError as e:
+                    logger.warning(f"Permission denied copying {item.name}: {e}")
+                    failed_items.append(item.name)
+                    skipped_count += 1
+                except Exception as e:
+                    logger.warning(f"Failed to copy {item.name}: {e}")
+                    failed_items.append(item.name)
+                    skipped_count += 1
+
+            if failed_items:
+                logger.warning(
+                    f"Failed to copy {len(failed_items)} item(s): {', '.join(failed_items[:5])}"
+                )
+
+            logger.info(
+                f"Copied {copied_count}/{len(items)} item(s) from output directory "
+                f"(skipped: {skipped_count})"
+            )
+            return copied_count > 0
+
+        except Exception as e:
+            logger.error(f"Error copying output data: {e}", exc_info=True)
+            return False
+
     def run(self, start_from_phase: Optional[int] = None) -> Dict[str, Any]:
         """
         Execute the complete workflow.
@@ -551,12 +743,16 @@ class WorkflowManager:
         """
         workflow_start = time.time()
         console.print()
-        console.print(Rule("[bold cyan]Starting Systematic Review Workflow[/bold cyan]", style="cyan"))
+        console.print(
+            Rule("[bold cyan]Starting Systematic Review Workflow[/bold cyan]", style="cyan")
+        )
         console.print(f"[bold]Topic:[/bold] {self.topic_context.topic}")
+        console.print(f"[bold]Output directory:[/bold] [cyan]{self.output_dir}[/cyan]")
         console.print()
         logger.info("=" * 60)
         logger.info("Starting systematic review workflow")
         logger.info(f"Topic: {self.topic_context.topic}")
+        logger.info(f"Output directory: {self.output_dir}")
 
         # Auto-detect and resume from existing checkpoint if available
         if start_from_phase is None and self.save_checkpoints:
@@ -565,9 +761,9 @@ class WorkflowManager:
                 print_workflow_status_panel(
                     title="Checkpoint Detected",
                     message=f"[bold green]Found existing checkpoint for this topic![/bold green]\n\n"
-                            f"[bold]Workflow ID:[/bold] {existing_checkpoint['workflow_id']}\n"
-                            f"[bold]Latest phase:[/bold] {existing_checkpoint['latest_phase']}\n\n"
-                            f"[dim]Resuming from checkpoint...[/dim]",
+                    f"[bold]Workflow ID:[/bold] {existing_checkpoint['workflow_id']}\n"
+                    f"[bold]Latest phase:[/bold] {existing_checkpoint['latest_phase']}\n\n"
+                    f"[dim]Resuming from checkpoint...[/dim]",
                     status_color="green",
                 )
                 console.print()
@@ -578,15 +774,30 @@ class WorkflowManager:
                 logger.info("  Resuming from checkpoint...")
                 logger.info("=" * 60)
 
-                # Update workflow_id and output_dir to match checkpoint
-                self.workflow_id = existing_checkpoint["workflow_id"]
-                base_output_dir = Path(self.config["output"]["directory"])
-                workflow_output_dir = base_output_dir / self.workflow_id
-                workflow_output_dir.mkdir(parents=True, exist_ok=True)
-                self.output_dir = workflow_output_dir
+                # Keep NEW workflow_id, copy data from OLD checkpoint
+                old_workflow_id = existing_checkpoint["workflow_id"]
+                logger.info(f"Copying data from checkpoint: {old_workflow_id}")
+                logger.info(f"New workflow ID: {self.workflow_id}")
 
-                # Update ChartGenerator to use workflow-specific output directory
-                self.chart_generator.output_dir = workflow_output_dir
+                # Copy checkpoint files
+                checkpoint_success = self._copy_checkpoint_data(old_workflow_id, self.workflow_id)
+                if checkpoint_success:
+                    logger.info(f"Copied checkpoint data to: {self.checkpoint_dir}")
+                else:
+                    logger.warning("No checkpoint data copied - will load from original location")
+
+                # Copy output files
+                base_output_dir = Path(self.config["output"]["directory"])
+                old_output_dir = base_output_dir / old_workflow_id
+                output_success = self._copy_output_data(old_output_dir, self.output_dir)
+                if output_success:
+                    logger.info(f"Copied output files to: {self.output_dir}")
+                else:
+                    logger.debug("No output files copied - will generate as needed")
+
+                # Update checkpoint to use new workflow_id and checkpoint_dir
+                existing_checkpoint["workflow_id"] = self.workflow_id
+                existing_checkpoint["checkpoint_dir"] = str(self.checkpoint_dir)
 
                 logger.info(f"Using output directory: {self.output_dir}")
 
@@ -598,9 +809,13 @@ class WorkflowManager:
                     "title_abstract_screening": ["deduplication"],
                     "fulltext_screening": ["title_abstract_screening"],
                     "paper_enrichment": ["fulltext_screening"],
-                    "data_extraction": ["paper_enrichment"],  # paper_enrichment may not exist, will fallback to fulltext_screening data
+                    "data_extraction": [
+                        "paper_enrichment"
+                    ],  # paper_enrichment may not exist, will fallback to fulltext_screening data
                     "quality_assessment": ["data_extraction"],
-                    "article_writing": ["data_extraction"],  # Need final_papers from data_extraction for citations
+                    "article_writing": [
+                        "data_extraction"
+                    ],  # Need final_papers from data_extraction for citations
                     "manubot_export": ["article_writing"],
                     "submission_package": ["article_writing", "report_generation"],
                 }
@@ -627,7 +842,9 @@ class WorkflowManager:
                 # Remove duplicates while preserving order
                 seen = set()
                 phases_to_load = [p for p in phases_to_load if not (p in seen or seen.add(p))]
-                logger.info(f"Checkpoint dependency chain for '{existing_checkpoint['latest_phase']}': {phases_to_load}")
+                logger.info(
+                    f"Checkpoint dependency chain for '{existing_checkpoint['latest_phase']}': {phases_to_load}"
+                )
 
                 # Load checkpoints in dependency order
                 print_checkpoint_panel(
@@ -638,8 +855,6 @@ class WorkflowManager:
                 console.print()
 
                 loaded_phases = []
-                serializer = StateSerializer()
-
                 # Accumulate state from all checkpoints before loading
                 # This prevents later checkpoints from overwriting data from earlier phases
                 accumulated_state = {"data": {}}
@@ -649,12 +864,18 @@ class WorkflowManager:
                     if phase == "article_writing":
                         section_checkpoints = self._load_existing_sections()
                         if section_checkpoints:
-                            logger.info(f"Found {len(section_checkpoints)} article section checkpoints")
+                            logger.info(
+                                f"Found {len(section_checkpoints)} article section checkpoints"
+                            )
                             # Load section checkpoints even if phase-level doesn't exist
                             accumulated_state["data"]["article_sections"] = section_checkpoints
                             loaded_phases.append(phase)
-                            console.print(f"[green]✓[/green] Loaded: [cyan]{phase}[/cyan] ({len(section_checkpoints)} sections)")
-                            logger.info(f"Loaded {len(section_checkpoints)} article sections from checkpoints")
+                            console.print(
+                                f"[green]✓[/green] Loaded: [cyan]{phase}[/cyan] ({len(section_checkpoints)} sections)"
+                            )
+                            logger.info(
+                                f"Loaded {len(section_checkpoints)} article sections from checkpoints"
+                            )
                             continue
 
                     # Try to load phase-level checkpoint
@@ -662,7 +883,9 @@ class WorkflowManager:
                     if checkpoint_file.exists():
                         logger.debug(f"Found checkpoint: {phase}")
                         try:
-                            checkpoint_data = self.checkpoint_manager.load_phase(str(checkpoint_file))
+                            checkpoint_data = self.checkpoint_manager.load_phase(
+                                str(checkpoint_file)
+                            )
 
                             # Merge checkpoint data into accumulated state
                             # Later phases override earlier ones for same keys, but preserve keys only in earlier phases
@@ -675,7 +898,12 @@ class WorkflowManager:
                                     accumulated_state["data"][key] = value
 
                             # Merge other top-level keys (use latest phase's values)
-                            for key in ["prisma_counts", "database_breakdown", "topic_context", "workflow_id"]:
+                            for key in [
+                                "prisma_counts",
+                                "database_breakdown",
+                                "topic_context",
+                                "workflow_id",
+                            ]:
                                 if key in checkpoint_data:
                                     accumulated_state[key] = checkpoint_data[key]
 
@@ -683,10 +911,14 @@ class WorkflowManager:
                             console.print(f"[green]✓[/green] Loaded: [cyan]{phase}[/cyan]")
                             logger.info(f"Loaded checkpoint data from: {phase}")
                         except Exception as e:
-                            logger.error(f"Failed to load checkpoint file {phase}: {e}", exc_info=True)
+                            logger.error(
+                                f"Failed to load checkpoint file {phase}: {e}", exc_info=True
+                            )
                             # Continue loading other phases even if one fails
                     else:
-                        logger.debug(f"Missing checkpoint: {phase} (will skip, may use data from later phases)")
+                        logger.debug(
+                            f"Missing checkpoint: {phase} (will skip, may use data from later phases)"
+                        )
 
                 if not loaded_phases:
                     # Check if we have any useful data (like article sections) before giving up
@@ -694,7 +926,9 @@ class WorkflowManager:
                     has_any_data = bool(accumulated_state.get("data", {}))
 
                     if has_article_sections or has_any_data:
-                        logger.warning("No phase-level checkpoints loaded, but found partial data. Continuing with available state.")
+                        logger.warning(
+                            "No phase-level checkpoints loaded, but found partial data. Continuing with available state."
+                        )
                         loaded_phases.append("partial")  # Mark as having partial data
                     else:
                         logger.error("Failed to load any checkpoints! Starting from scratch.")
@@ -706,10 +940,14 @@ class WorkflowManager:
                         status="loaded",
                     )
                     console.print()
-                    logger.info(f"Successfully loaded {len(loaded_phases)} checkpoint(s) out of {len(phases_to_load)} attempted: {', '.join(loaded_phases)}")
+                    logger.info(
+                        f"Successfully loaded {len(loaded_phases)} checkpoint(s) out of {len(phases_to_load)} attempted: {', '.join(loaded_phases)}"
+                    )
                     if len(loaded_phases) < len(phases_to_load):
                         missing = set(phases_to_load) - set(loaded_phases)
-                        logger.warning(f"Missing checkpoints (will use available data): {', '.join(missing)}")
+                        logger.warning(
+                            f"Missing checkpoints (will use available data): {', '.join(missing)}"
+                        )
 
                     # Log accumulated state summary before loading
                     data_keys = list(accumulated_state.get("data", {}).keys())
@@ -724,21 +962,31 @@ class WorkflowManager:
                             f"{len(self.eligible_papers)} eligible, {len(self.final_papers)} final"
                         )
                     except Exception as load_error:
-                        logger.error(f"Failed to load accumulated state: {load_error}", exc_info=True)
-                        raise RuntimeError(f"Checkpoint loading failed: {load_error}") from load_error
+                        logger.error(
+                            f"Failed to load accumulated state: {load_error}", exc_info=True
+                        )
+                        raise RuntimeError(
+                            f"Checkpoint loading failed: {load_error}"
+                        ) from load_error
 
                 # Update workflow_id and checkpoint_dir from checkpoint
                 if existing_checkpoint is not None:
-                    latest_checkpoint_file = checkpoint_dir / f"{existing_checkpoint['latest_phase']}_state.json"
+                    latest_checkpoint_file = (
+                        checkpoint_dir / f"{existing_checkpoint['latest_phase']}_state.json"
+                    )
                     if latest_checkpoint_file.exists():
-                        latest_checkpoint_data = self.checkpoint_manager.load_phase(str(latest_checkpoint_file))
+                        latest_checkpoint_data = self.checkpoint_manager.load_phase(
+                            str(latest_checkpoint_file)
+                        )
                         if latest_checkpoint_data and "workflow_id" in latest_checkpoint_data:
                             self.workflow_id = latest_checkpoint_data["workflow_id"]
                             self.checkpoint_dir = Path("data/checkpoints") / self.workflow_id
                             self.checkpoint_manager.checkpoint_dir = self.checkpoint_dir
 
                             # Update output directory to match workflow_id and ensure it exists
-                            base_output_dir = Path(self.config.get("output", {}).get("directory", "data/outputs"))
+                            base_output_dir = Path(
+                                self.config.get("output", {}).get("directory", "data/outputs")
+                            )
                             workflow_output_dir = base_output_dir / self.workflow_id
                             workflow_output_dir.mkdir(parents=True, exist_ok=True)
                             self.output_dir = workflow_output_dir
@@ -753,12 +1001,16 @@ class WorkflowManager:
                         "",
                         f"[bold]Completed phase:[/bold] {existing_checkpoint['latest_phase']}",
                         f"[bold]Loaded state:[/bold] {len(self.all_papers)} papers, "
-                        f"{len(self.unique_papers)} unique, {len(self.screened_papers)} screened"
+                        f"{len(self.unique_papers)} unique, {len(self.screened_papers)} screened",
                     ]
                     if self.title_abstract_results:
-                        resume_info_lines.append(f"[dim]Found {len(self.title_abstract_results)} title/abstract screening results - will reuse[/dim]")
+                        resume_info_lines.append(
+                            f"[dim]Found {len(self.title_abstract_results)} title/abstract screening results - will reuse[/dim]"
+                        )
                     if self.fulltext_results:
-                        resume_info_lines.append(f"[dim]Found {len(self.fulltext_results)} fulltext screening results - will reuse[/dim]")
+                        resume_info_lines.append(
+                            f"[dim]Found {len(self.fulltext_results)} fulltext screening results - will reuse[/dim]"
+                        )
 
                     print_workflow_status_panel(
                         title="Resume Information",
@@ -767,12 +1019,20 @@ class WorkflowManager:
                     )
                     console.print()
 
-                    logger.info(f"Resuming from phase {start_from_phase} (completed: {existing_checkpoint['latest_phase']})")
-                    logger.info(f"Loaded state: {len(self.all_papers)} papers, {len(self.unique_papers)} unique, {len(self.screened_papers)} screened")
+                    logger.info(
+                        f"Resuming from phase {start_from_phase} (completed: {existing_checkpoint['latest_phase']})"
+                    )
+                    logger.info(
+                        f"Loaded state: {len(self.all_papers)} papers, {len(self.unique_papers)} unique, {len(self.screened_papers)} screened"
+                    )
                     if self.title_abstract_results:
-                        logger.info(f"Found {len(self.title_abstract_results)} title/abstract screening results - will reuse")
+                        logger.info(
+                            f"Found {len(self.title_abstract_results)} title/abstract screening results - will reuse"
+                        )
                     if self.fulltext_results:
-                        logger.info(f"Found {len(self.fulltext_results)} fulltext screening results - will reuse")
+                        logger.info(
+                            f"Found {len(self.fulltext_results)} fulltext screening results - will reuse"
+                        )
 
         if start_from_phase:
             logger.info(f"Resuming from phase {start_from_phase}")
@@ -1025,6 +1285,33 @@ class WorkflowManager:
             logger.info(f"Workflow complete in {workflow_duration:.2f}s")
             logger.info(f"Outputs saved to: {self.output_dir}")
 
+            # Display output location summary
+            console.print()
+            final_report = self.output_dir / "final_report.md"
+            prisma_diagram = self.output_dir / "prisma_diagram.png"
+
+            # Find submission package directory
+            submission_package_dirs = list(self.output_dir.glob("submission_package_*"))
+            submission_package = (
+                submission_package_dirs[0].name
+                if submission_package_dirs
+                else "submission_package_*/"
+            )
+
+            print_workflow_status_panel(
+                title="Workflow Complete",
+                message=f"[bold green]All phases completed successfully![/bold green]\n\n"
+                f"[bold]Output Directory:[/bold]\n"
+                f"[cyan]{self.output_dir}[/cyan]\n\n"
+                f"[bold]Key Files:[/bold]\n"
+                f"- Final Report: [cyan]{final_report.name if final_report.exists() else 'final_report.md'}[/cyan]\n"
+                f"- PRISMA Diagram: [cyan]{prisma_diagram.name if prisma_diagram.exists() else 'prisma_diagram.png'}[/cyan]\n"
+                f"- Submission Package: [cyan]{submission_package}[/cyan]\n\n"
+                f"[dim]View outputs: cd {self.output_dir}[/dim]",
+                status_color="green",
+            )
+            console.print()
+
             # Display summary if debug enabled
             if self.debug_config.show_metrics:
                 self._display_metrics_summary()
@@ -1135,6 +1422,7 @@ class WorkflowManager:
         if integrity_checker:
             # Create a copy with database name for better error messages
             from src.search.integrity_checker import IntegrityChecker
+
             db_integrity_checker = IntegrityChecker(
                 required_fields=integrity_checker.required_fields,
                 action=integrity_checker.action.value,
@@ -1205,7 +1493,9 @@ class WorkflowManager:
         connectors_added = 0
         for db_name in databases:
             logger.info(f"Adding connector for {db_name}...")
-            connector = self._create_connector(db_name, cache, proxy_manager, integrity_checker, persistent_session, cookie_jar)
+            connector = self._create_connector(
+                db_name, cache, proxy_manager, integrity_checker, persistent_session, cookie_jar
+            )
             if connector:
                 self.searcher.add_connector(connector)
                 connectors_added += 1
@@ -1266,7 +1556,9 @@ class WorkflowManager:
             year = paper.year if paper.year else "unknown"
             return f"author_year:{author.lower().strip()}_{year}"
 
-    def _find_existing_screening_result(self, paper: Paper, existing_results: List) -> Optional[Any]:
+    def _find_existing_screening_result(
+        self, paper: Paper, existing_results: List
+    ) -> Optional[Any]:
         """Find existing screening result for a paper."""
         self._get_paper_key(paper)
 
@@ -1284,7 +1576,9 @@ class WorkflowManager:
         # Check if we already have screening results loaded from checkpoint
         if self.title_abstract_results and len(self.title_abstract_results) > 0:
             if len(self.title_abstract_results) == len(self.unique_papers):
-                logger.info(f"Found existing title/abstract screening results for {len(self.title_abstract_results)} papers")
+                logger.info(
+                    f"Found existing title/abstract screening results for {len(self.title_abstract_results)} papers"
+                )
                 logger.info("Reusing existing results - skipping LLM calls")
 
                 # Reconstruct screened_papers from results
@@ -1310,8 +1604,12 @@ class WorkflowManager:
         logger.info(f"Starting title/abstract screening of {len(self.unique_papers)} papers...")
 
         # Get criteria from config (unified location in topic section)
-        if "inclusion" not in self.config.get("topic", {}) or "exclusion" not in self.config.get("topic", {}):
-            raise ValueError("No inclusion/exclusion criteria found in config. Add them to topic.inclusion and topic.exclusion sections.")
+        if "inclusion" not in self.config.get("topic", {}) or "exclusion" not in self.config.get(
+            "topic", {}
+        ):
+            raise ValueError(
+                "No inclusion/exclusion criteria found in config. Add them to topic.inclusion and topic.exclusion sections."
+            )
 
         inclusion_criteria = self.config["topic"]["inclusion"]
         exclusion_criteria = self.config["topic"]["exclusion"]
@@ -1322,14 +1620,14 @@ class WorkflowManager:
 
         # Use topic keywords as unified keyword system
         # Convert topic.keywords to search_terms format for _fallback_screen
-        topic_keywords = self.topic_context.keywords if hasattr(self.topic_context, 'keywords') else []
+        topic_keywords = (
+            self.topic_context.keywords if hasattr(self.topic_context, "keywords") else []
+        )
         search_terms = {}
         if topic_keywords:
             # Create a single search term group from topic keywords
             # This ensures all keywords are ORed together (not ANDed)
-            search_terms = {
-                "topic_keywords": topic_keywords
-            }
+            search_terms = {"topic_keywords": topic_keywords}
 
         # Get topic context for title/abstract screening agent
         screening_context = self.topic_context.get_for_agent("title_abstract_screener")
@@ -1365,11 +1663,11 @@ class WorkflowManager:
             # Only show verbose output for interesting cases (uncertain, excluded, or every 10th paper)
             if is_verbose:
                 should_log = (
-                    keyword_result.decision.value == "uncertain" or
-                    keyword_result.decision.value == "exclude" or
-                    i % 10 == 0 or
-                    i == len(self.unique_papers) or
-                    self.debug_config.level == DebugLevel.FULL
+                    keyword_result.decision.value == "uncertain"
+                    or keyword_result.decision.value == "exclude"
+                    or i % 10 == 0
+                    or i == len(self.unique_papers)
+                    or self.debug_config.level == DebugLevel.FULL
                 )
 
                 if should_log:
@@ -1378,7 +1676,11 @@ class WorkflowManager:
                     confidence_str = f"{keyword_result.confidence:.2f}"
 
                     # Extract matching details from reasoning if available
-                    reasoning_preview = keyword_result.reasoning[:80] if keyword_result.reasoning else "No reasoning"
+                    reasoning_preview = (
+                        keyword_result.reasoning[:80]
+                        if keyword_result.reasoning
+                        else "No reasoning"
+                    )
 
                     logger.debug(
                         f"Paper {i}/{len(self.unique_papers)}: {paper_title}... - "
@@ -1388,12 +1690,18 @@ class WorkflowManager:
                         logger.debug(f"  -> Reasoning: {reasoning_preview}...")
 
             # Tier 1: High confidence inclusions go through immediately
-            if keyword_result.decision.value == "include" and keyword_result.confidence >= include_threshold:
+            if (
+                keyword_result.decision.value == "include"
+                and keyword_result.confidence >= include_threshold
+            ):
                 self.screened_papers.append(paper)
                 keyword_included += 1
                 self.title_abstract_results.append(keyword_result)  # Store result
             # Tier 2: High confidence exclusions are excluded immediately
-            elif keyword_result.decision.value == "exclude" and keyword_result.confidence >= exclude_threshold:
+            elif (
+                keyword_result.decision.value == "exclude"
+                and keyword_result.confidence >= exclude_threshold
+            ):
                 keyword_excluded += 1
                 self.title_abstract_results.append(keyword_result)  # Store result
             # Tier 3: Borderline cases (uncertain or low confidence) need LLM review
@@ -1407,14 +1715,24 @@ class WorkflowManager:
         )
 
         # Log filtering metrics for calibration
-        filtering_rate = (keyword_included + keyword_excluded) / len(self.unique_papers) * 100 if self.unique_papers else 0
-        logger.info(f"Stage 1 filtering rate: {filtering_rate:.1f}% ({keyword_included + keyword_excluded}/{len(self.unique_papers)} papers filtered)")
+        filtering_rate = (
+            (keyword_included + keyword_excluded) / len(self.unique_papers) * 100
+            if self.unique_papers
+            else 0
+        )
+        logger.info(
+            f"Stage 1 filtering rate: {filtering_rate:.1f}% ({keyword_included + keyword_excluded}/{len(self.unique_papers)} papers filtered)"
+        )
 
         # STAGE 2: LLM screening for borderline cases only
         if keyword_filtered_papers and self.title_screener.llm_client:
-            logger.info(f"Stage 2: LLM screening for {len(keyword_filtered_papers)} borderline papers...")
+            logger.info(
+                f"Stage 2: LLM screening for {len(keyword_filtered_papers)} borderline papers..."
+            )
             logger.info("This may take a while as each paper requires an LLM call.")
-            logger.info(f"LLM call reduction: {len(keyword_filtered_papers)}/{len(self.unique_papers)} papers ({len(keyword_filtered_papers)/len(self.unique_papers)*100:.1f}%)")
+            logger.info(
+                f"LLM call reduction: {len(keyword_filtered_papers)}/{len(self.unique_papers)} papers ({len(keyword_filtered_papers) / len(self.unique_papers) * 100:.1f}%)"
+            )
 
             # Create handoff
             screening_handoff = self.handoff_protocol.create_handoff(
@@ -1466,8 +1784,12 @@ class WorkflowManager:
                         )
 
                     # Log progress every 5 papers (only if not verbose to avoid duplication)
-                    if not is_verbose and (i == 1 or i % 5 == 0 or i == len(keyword_filtered_papers)):
-                        logger.info(f"LLM screening paper {i}/{len(keyword_filtered_papers)}: {paper_title}...")
+                    if not is_verbose and (
+                        i == 1 or i % 5 == 0 or i == len(keyword_filtered_papers)
+                    ):
+                        logger.info(
+                            f"LLM screening paper {i}/{len(keyword_filtered_papers)}: {paper_title}..."
+                        )
 
                     try:
                         # Use LLM for final decision
@@ -1483,7 +1805,9 @@ class WorkflowManager:
                         if is_verbose:
                             decision_str = result.decision.value.upper()
                             confidence_str = f"{result.confidence:.2f}"
-                            reasoning_preview = result.reasoning[:100] if result.reasoning else "No reasoning"
+                            reasoning_preview = (
+                                result.reasoning[:100] if result.reasoning else "No reasoning"
+                            )
 
                             if result.decision.value == "include":
                                 status_color = "[green]INCLUDE[/green]"
@@ -1499,7 +1823,9 @@ class WorkflowManager:
                             if is_verbose and self.debug_config.level == DebugLevel.FULL:
                                 progress.log(f"  [dim]-> Reasoning: {reasoning_preview}...[/dim]")
                                 if result.exclusion_reason:
-                                    progress.log(f"  [dim]-> Exclusion reason: {result.exclusion_reason}[/dim]")
+                                    progress.log(
+                                        f"  [dim]-> Exclusion reason: {result.exclusion_reason}[/dim]"
+                                    )
 
                         # Store result for validation
                         self.title_abstract_results.append(result)
@@ -1528,7 +1854,9 @@ class WorkflowManager:
 
                     # Log summary every 5 papers
                     if i % 5 == 0:
-                        logger.info(f"LLM progress: {i}/{len(keyword_filtered_papers)} screened, {len(self.screened_papers)} total included")
+                        logger.info(
+                            f"LLM progress: {i}/{len(keyword_filtered_papers)} screened, {len(self.screened_papers)} total included"
+                        )
         elif keyword_filtered_papers and not self.title_screener.llm_client:
             # No LLM available, use keyword results
             logger.warning("No LLM available, using keyword filtering results only")
@@ -1553,22 +1881,28 @@ class WorkflowManager:
             stage="title_abstract",
             included_count=len(self.screened_papers),
             total_count=len(self.unique_papers),
-            min_papers=self.min_papers_threshold
+            min_papers=self.min_papers_threshold,
         )
 
-        if not safeguard_result['meets_threshold']:
+        if not safeguard_result["meets_threshold"]:
             logger.warning("=" * 60)
             logger.warning("MINIMUM PAPER THRESHOLD NOT MET")
             logger.warning("=" * 60)
-            logger.warning(f"Only {len(self.screened_papers)} papers passed title/abstract screening.")
+            logger.warning(
+                f"Only {len(self.screened_papers)} papers passed title/abstract screening."
+            )
             logger.warning("Recommendations:")
-            for rec in safeguard_result['recommendations']:
+            for rec in safeguard_result["recommendations"]:
                 logger.warning(f"  - {rec}")
 
-            if safeguard_result['borderline_papers']:
-                logger.warning(f"\nTop {len(safeguard_result['borderline_papers'])} borderline papers:")
-                for i, bp in enumerate(safeguard_result['borderline_papers'], 1):
-                    logger.warning(f"  {i}. {bp['paper'].title[:60]}... (confidence: {bp['confidence']:.2f})")
+            if safeguard_result["borderline_papers"]:
+                logger.warning(
+                    f"\nTop {len(safeguard_result['borderline_papers'])} borderline papers:"
+                )
+                for i, bp in enumerate(safeguard_result["borderline_papers"], 1):
+                    logger.warning(
+                        f"  {i}. {bp['paper'].title[:60]}... (confidence: {bp['confidence']:.2f})"
+                    )
 
             logger.warning("=" * 60)
             logger.warning("Consider reviewing inclusion/exclusion criteria before proceeding.")
@@ -1584,7 +1918,9 @@ class WorkflowManager:
         # Check if we already have fulltext screening results loaded from checkpoint
         if self.fulltext_results and len(self.fulltext_results) > 0:
             if len(self.fulltext_results) == len(self.screened_papers):
-                logger.info(f"Found existing full-text screening results for {len(self.fulltext_results)} papers")
+                logger.info(
+                    f"Found existing full-text screening results for {len(self.fulltext_results)} papers"
+                )
                 logger.info("Reusing existing results - skipping LLM calls")
 
                 # Reconstruct eligible_papers from results
@@ -1603,43 +1939,59 @@ class WorkflowManager:
                     stage="fulltext",
                     included_count=len(self.eligible_papers),
                     total_count=len(self.screened_papers),
-                    min_papers=self.min_papers_threshold
+                    min_papers=self.min_papers_threshold,
                 )
 
-                if not safeguard_result['meets_threshold']:
+                if not safeguard_result["meets_threshold"]:
                     logger.error("=" * 60)
                     logger.error("CRITICAL: MINIMUM PAPER THRESHOLD NOT MET")
                     logger.error("=" * 60)
-                    logger.error(f"Only {len(self.eligible_papers)} papers passed full-text screening.")
+                    logger.error(
+                        f"Only {len(self.eligible_papers)} papers passed full-text screening."
+                    )
                     logger.error("This may indicate:")
                     logger.error("  1. Inclusion criteria are too strict")
                     logger.error("  2. Exclusion criteria are too broad")
                     logger.error("  3. Search strategy needs refinement")
                     logger.error("")
                     logger.error("Recommendations:")
-                    for rec in safeguard_result['recommendations']:
+                    for rec in safeguard_result["recommendations"]:
                         logger.error(f"  - {rec}")
 
-                    if safeguard_result['borderline_papers']:
-                        logger.error(f"\nTop {len(safeguard_result['borderline_papers'])} borderline papers:")
-                        for i, bp in enumerate(safeguard_result['borderline_papers'], 1):
-                            logger.error(f"  {i}. {bp['paper'].title[:60]}... (confidence: {bp['confidence']:.2f})")
-                            if bp['result'].exclusion_reason:
-                                logger.error(f"      Exclusion reason: {bp['result'].exclusion_reason}")
+                    if safeguard_result["borderline_papers"]:
+                        logger.error(
+                            f"\nTop {len(safeguard_result['borderline_papers'])} borderline papers:"
+                        )
+                        for i, bp in enumerate(safeguard_result["borderline_papers"], 1):
+                            logger.error(
+                                f"  {i}. {bp['paper'].title[:60]}... (confidence: {bp['confidence']:.2f})"
+                            )
+                            if bp["result"].exclusion_reason:
+                                logger.error(
+                                    f"      Exclusion reason: {bp['result'].exclusion_reason}"
+                                )
 
                         # Export borderline papers for manual review
                         if self.safeguard_config.get("show_borderline_papers", True):
-                            borderline_output_path = self.output_dir / "borderline_papers_for_review.json"
-                            self._export_borderline_papers(safeguard_result['borderline_papers'], borderline_output_path)
+                            borderline_output_path = (
+                                self.output_dir / "borderline_papers_for_review.json"
+                            )
+                            self._export_borderline_papers(
+                                safeguard_result["borderline_papers"], borderline_output_path
+                            )
 
                     logger.error("=" * 60)
                     logger.error("WORKFLOW PAUSED FOR MANUAL REVIEW")
                     logger.error("=" * 60)
                     logger.error("Options:")
                     logger.error("  1. Review and relax criteria in config/workflow.yaml")
-                    logger.error("  2. Review borderline papers and manually include if appropriate")
+                    logger.error(
+                        "  2. Review borderline papers and manually include if appropriate"
+                    )
                     logger.error("  3. Adjust search strategy to find more relevant papers")
-                    logger.error("  4. Continue with current results (not recommended for systematic review)")
+                    logger.error(
+                        "  4. Continue with current results (not recommended for systematic review)"
+                    )
                     logger.error("")
                     logger.error("After making changes, re-run the workflow.")
                     logger.error("=" * 60)
@@ -1666,8 +2018,12 @@ class WorkflowManager:
         logger.info("This may take a while as each paper requires an LLM call.")
 
         # Get criteria from config (unified location in topic section)
-        if "inclusion" not in self.config.get("topic", {}) or "exclusion" not in self.config.get("topic", {}):
-            raise ValueError("No inclusion/exclusion criteria found in config. Add them to topic.inclusion and topic.exclusion sections.")
+        if "inclusion" not in self.config.get("topic", {}) or "exclusion" not in self.config.get(
+            "topic", {}
+        ):
+            raise ValueError(
+                "No inclusion/exclusion criteria found in config. Add them to topic.inclusion and topic.exclusion sections."
+            )
 
         inclusion_criteria = self.config["topic"]["inclusion"]
         exclusion_criteria = self.config["topic"]["exclusion"]
@@ -1712,7 +2068,10 @@ class WorkflowManager:
 
             for i, paper in enumerate(self.screened_papers, 1):
                 paper_title = (paper.title or "Untitled")[:50]
-                progress.update(task, description=f"[cyan]Full-text screening: {paper_title}... ({i}/{len(self.screened_papers)})")
+                progress.update(
+                    task,
+                    description=f"[cyan]Full-text screening: {paper_title}... ({i}/{len(self.screened_papers)})",
+                )
 
                 # Verbose output for full-text screening (using progress.log to work with progress bar)
                 # Show ALL papers when verbose mode is enabled
@@ -1764,7 +2123,9 @@ class WorkflowManager:
                 if is_verbose:
                     result.decision.value.upper()
                     confidence_str = f"{result.confidence:.2f}"
-                    reasoning_preview = result.reasoning[:100] if result.reasoning else "No reasoning"
+                    reasoning_preview = (
+                        result.reasoning[:100] if result.reasoning else "No reasoning"
+                    )
 
                     if result.decision.value == "include":
                         status_color = "[green]INCLUDE[/green]"
@@ -1774,13 +2135,14 @@ class WorkflowManager:
                         status_color = "[yellow]UNCERTAIN[/yellow]"
 
                     progress.log(
-                        f"  [dim]-> Decision:[/dim] {status_color}, "
-                        f"Confidence: {confidence_str}"
+                        f"  [dim]-> Decision:[/dim] {status_color}, Confidence: {confidence_str}"
                     )
                     if self.debug_config.level == DebugLevel.FULL:
                         progress.log(f"  [dim]-> Reasoning: {reasoning_preview}...[/dim]")
                         if result.exclusion_reason:
-                            progress.log(f"  [dim]-> Exclusion reason: {result.exclusion_reason}[/dim]")
+                            progress.log(
+                                f"  [dim]-> Exclusion reason: {result.exclusion_reason}[/dim]"
+                            )
 
                 if result.decision.value == "include":
                     self.eligible_papers.append(paper)
@@ -1810,9 +2172,7 @@ class WorkflowManager:
         # Calculate and validate screening statistics
         if self.fulltext_results:
             self.screening_validator.calculate_statistics(
-                self.screened_papers,
-                self.fulltext_results,
-                ScreeningStage.FULL_TEXT
+                self.screened_papers, self.fulltext_results, ScreeningStage.FULL_TEXT
             )
             self.screening_validator.log_statistics(ScreeningStage.FULL_TEXT)
 
@@ -1821,10 +2181,10 @@ class WorkflowManager:
             stage="fulltext",
             included_count=len(self.eligible_papers),
             total_count=len(self.screened_papers),
-            min_papers=self.min_papers_threshold
+            min_papers=self.min_papers_threshold,
         )
 
-        if not safeguard_result['meets_threshold']:
+        if not safeguard_result["meets_threshold"]:
             logger.error("=" * 60)
             logger.error("CRITICAL: MINIMUM PAPER THRESHOLD NOT MET")
             logger.error("=" * 60)
@@ -1835,20 +2195,26 @@ class WorkflowManager:
             logger.error("  3. Search strategy needs refinement")
             logger.error("")
             logger.error("Recommendations:")
-            for rec in safeguard_result['recommendations']:
+            for rec in safeguard_result["recommendations"]:
                 logger.error(f"  - {rec}")
 
-            if safeguard_result['borderline_papers']:
-                logger.error(f"\nTop {len(safeguard_result['borderline_papers'])} borderline papers:")
-                for i, bp in enumerate(safeguard_result['borderline_papers'], 1):
-                    logger.error(f"  {i}. {bp['paper'].title[:60]}... (confidence: {bp['confidence']:.2f})")
-                    if bp['result'].exclusion_reason:
+            if safeguard_result["borderline_papers"]:
+                logger.error(
+                    f"\nTop {len(safeguard_result['borderline_papers'])} borderline papers:"
+                )
+                for i, bp in enumerate(safeguard_result["borderline_papers"], 1):
+                    logger.error(
+                        f"  {i}. {bp['paper'].title[:60]}... (confidence: {bp['confidence']:.2f})"
+                    )
+                    if bp["result"].exclusion_reason:
                         logger.error(f"      Exclusion reason: {bp['result'].exclusion_reason}")
 
                 # Export borderline papers for manual review
                 if self.safeguard_config.get("show_borderline_papers", True):
                     borderline_output_path = self.output_dir / "borderline_papers_for_review.json"
-                    self._export_borderline_papers(safeguard_result['borderline_papers'], borderline_output_path)
+                    self._export_borderline_papers(
+                        safeguard_result["borderline_papers"], borderline_output_path
+                    )
 
             logger.error("=" * 60)
             logger.error("WORKFLOW PAUSED FOR MANUAL REVIEW")
@@ -1857,7 +2223,9 @@ class WorkflowManager:
             logger.error("  1. Review and relax criteria in config/workflow.yaml")
             logger.error("  2. Review borderline papers and manually include if appropriate")
             logger.error("  3. Adjust search strategy to find more relevant papers")
-            logger.error("  4. Continue with current results (not recommended for systematic review)")
+            logger.error(
+                "  4. Continue with current results (not recommended for systematic review)"
+            )
             logger.error("")
             logger.error("After making changes, re-run the workflow.")
             logger.error("=" * 60)
@@ -1874,11 +2242,13 @@ class WorkflowManager:
         self.topic_context.enrich(
             [
                 f"Full-text screened {len(self.screened_papers)} papers, {len(self.eligible_papers)} eligible",
-                f"Full-text available for {self.fulltext_available_count} papers"
+                f"Full-text available for {self.fulltext_available_count} papers",
             ]
         )
 
-    def _check_minimum_papers_safeguard(self, stage: str, included_count: int, total_count: int, min_papers: int = None) -> Dict[str, Any]:
+    def _check_minimum_papers_safeguard(
+        self, stage: str, included_count: int, total_count: int, min_papers: int = None
+    ) -> Dict[str, Any]:
         """
         Check if minimum paper threshold is met and provide recommendations.
 
@@ -1907,27 +2277,31 @@ class WorkflowManager:
             )
 
             # Find borderline papers (excluded but with low confidence, meaning close match)
-            if stage == "fulltext" and hasattr(self, 'fulltext_results'):
+            if stage == "fulltext" and hasattr(self, "fulltext_results"):
                 for i, result in enumerate(self.fulltext_results):
                     if result.decision.value == "exclude" and result.confidence < 0.7:
                         if i < len(self.screened_papers):
-                            borderline_papers.append({
-                                'paper': self.screened_papers[i],
-                                'result': result,
-                                'confidence': result.confidence
-                            })
-            elif stage == "title_abstract" and hasattr(self, 'title_abstract_results'):
+                            borderline_papers.append(
+                                {
+                                    "paper": self.screened_papers[i],
+                                    "result": result,
+                                    "confidence": result.confidence,
+                                }
+                            )
+            elif stage == "title_abstract" and hasattr(self, "title_abstract_results"):
                 for i, result in enumerate(self.title_abstract_results):
                     if result.decision.value == "exclude" and result.confidence < 0.7:
                         if i < len(self.unique_papers):
-                            borderline_papers.append({
-                                'paper': self.unique_papers[i],
-                                'result': result,
-                                'confidence': result.confidence
-                            })
+                            borderline_papers.append(
+                                {
+                                    "paper": self.unique_papers[i],
+                                    "result": result,
+                                    "confidence": result.confidence,
+                                }
+                            )
 
             # Sort borderline papers by confidence (highest first)
-            borderline_papers.sort(key=lambda x: x['confidence'], reverse=True)
+            borderline_papers.sort(key=lambda x: x["confidence"], reverse=True)
 
             if borderline_papers:
                 recommendations.append(
@@ -1936,32 +2310,37 @@ class WorkflowManager:
                 )
 
         return {
-            'meets_threshold': meets_threshold,
-            'inclusion_rate': inclusion_rate,
-            'recommendations': recommendations,
-            'borderline_papers': borderline_papers[:min_papers - included_count] if not meets_threshold else []
+            "meets_threshold": meets_threshold,
+            "inclusion_rate": inclusion_rate,
+            "recommendations": recommendations,
+            "borderline_papers": borderline_papers[: min_papers - included_count]
+            if not meets_threshold
+            else [],
         }
 
     def _export_borderline_papers(self, borderline_papers: List[Dict], output_path: Path):
         """Export borderline papers to a JSON file for manual review."""
         import json
+
         export_data = []
         for bp in borderline_papers:
-            paper = bp['paper']
-            result = bp['result']
-            export_data.append({
-                'title': paper.title,
-                'abstract': paper.abstract[:500] if paper.abstract else '',
-                'authors': paper.authors[:3] if paper.authors else [],
-                'year': paper.year,
-                'doi': paper.doi,
-                'url': paper.url,
-                'screening_confidence': bp['confidence'],
-                'exclusion_reason': result.exclusion_reason,
-                'reasoning': result.reasoning
-            })
+            paper = bp["paper"]
+            result = bp["result"]
+            export_data.append(
+                {
+                    "title": paper.title,
+                    "abstract": paper.abstract[:500] if paper.abstract else "",
+                    "authors": paper.authors[:3] if paper.authors else [],
+                    "year": paper.year,
+                    "doi": paper.doi,
+                    "url": paper.url,
+                    "screening_confidence": bp["confidence"],
+                    "exclusion_reason": result.exclusion_reason,
+                    "reasoning": result.reasoning,
+                }
+            )
 
-        with open(output_path, 'w') as f:
+        with open(output_path, "w") as f:
             json.dump(export_data, f, indent=2)
 
         logger.info(f"Exported {len(export_data)} borderline papers to {output_path}")
@@ -2059,7 +2438,9 @@ class WorkflowManager:
 
                 # Verbose output for extraction result
                 if is_verbose:
-                    objectives_count = len(extracted.study_objectives) if extracted.study_objectives else 0
+                    objectives_count = (
+                        len(extracted.study_objectives) if extracted.study_objectives else 0
+                    )
                     outcomes_count = len(extracted.outcomes) if extracted.outcomes else 0
                     findings_count = len(extracted.key_findings) if extracted.key_findings else 0
                     progress.log(
@@ -2069,7 +2450,9 @@ class WorkflowManager:
                     if self.debug_config.level == DebugLevel.FULL:
                         methodology_preview = (extracted.methodology or "")[:100]
                         if methodology_preview:
-                            progress.log(f"  [dim]-> Methodology preview: {methodology_preview}...[/dim]")
+                            progress.log(
+                                f"  [dim]-> Methodology preview: {methodology_preview}...[/dim]"
+                            )
 
                 progress.advance(task)
 
@@ -2086,40 +2469,76 @@ class WorkflowManager:
 
     def _quality_assessment(self) -> Dict[str, Any]:
         """
-        Quality assessment phase: Generate template or load assessments.
+        Quality assessment phase using CASP framework: Generate template or load assessments.
 
         Returns:
-            Dictionary with risk of bias and GRADE assessment data
+            Dictionary with CASP quality assessments and GRADE assessment data
         """
         from ..quality import (
             QualityAssessmentTemplateGenerator,
-            RiskOfBiasAssessor,
             GRADEAssessor,
         )
+        from ..quality.study_type_detector import StudyTypeDetector
 
         # Get quality assessment config
         qa_config = self.config.get("quality_assessment", {})
-        risk_of_bias_tool = qa_config.get("risk_of_bias_tool", "RoB 2")
+        framework = qa_config.get("framework", "CASP")
         grade_assessment = qa_config.get("grade_assessment", True)
+        
+        # Get CASP-specific config
+        casp_config = qa_config.get("casp", {})
+        auto_detect = casp_config.get("auto_detect", {})
+        detector_enabled = auto_detect.get("enabled", True)
+        detector_model = auto_detect.get("llm_model", "gemini-2.5-flash")
 
         # Get template path
         template_path_template = qa_config.get(
-            "template_path",
-            "data/quality_assessments/{workflow_id}_assessments.json"
+            "template_path", "data/quality_assessments/{workflow_id}_assessments.json"
         )
         template_path = template_path_template.format(workflow_id=self.workflow_id)
         template_path_obj = Path(template_path)
         template_path_obj.parent.mkdir(parents=True, exist_ok=True)
 
-        # Initialize assessors
-        template_generator = QualityAssessmentTemplateGenerator(risk_of_bias_tool)
-        rob_assessor = RiskOfBiasAssessor()
+        # Initialize generators and assessors
+        template_generator = QualityAssessmentTemplateGenerator(framework)
         grade_assessor = GRADEAssessor()
 
         # Check if assessment file exists
         if not template_path_obj.exists():
             # Generate template
-            logger.info("Quality assessment template not found. Generating template...")
+            logger.info(f"Quality assessment template not found. Generating CASP template...")
+
+            # Detect study types if auto-detection is enabled
+            detected_types = {}
+            if detector_enabled:
+                logger.info("Detecting study types for CASP checklist selection...")
+                try:
+                    # Initialize LLM client for detector
+                    from google import genai
+                    from google.genai import types
+                    api_key = os.getenv("GEMINI_API_KEY")
+                    if api_key:
+                        llm_client = genai.Client(
+                            api_key=api_key,
+                            http_options=types.HttpOptions(timeout=120_000)
+                        )
+                        detector = StudyTypeDetector(
+                            llm_client=llm_client,
+                            llm_model=detector_model,
+                            debug_config=self.debug_config
+                        )
+                        
+                        # Detect type for each study
+                        for study in self.extracted_data:
+                            study_dict = study.to_dict() if hasattr(study, 'to_dict') else study
+                            detection_result = detector.detect_study_type(study_dict)
+                            detected_types[study.title] = detection_result
+                        
+                        logger.info(f"Detected study types for {len(detected_types)} studies")
+                    else:
+                        logger.warning("GEMINI_API_KEY not found, skipping study type detection")
+                except Exception as e:
+                    logger.warning(f"Study type detection failed: {e}. Using default checklist.")
 
             # Infer GRADE outcomes from extracted data
             grade_outcomes = []
@@ -2133,19 +2552,21 @@ class WorkflowManager:
                 self.extracted_data,
                 str(template_path_obj),
                 grade_outcomes=grade_outcomes if grade_outcomes else None,
+                detected_types=detected_types if detected_types else None,
             )
 
             # Check if auto-fill is enabled
             auto_fill = qa_config.get("auto_fill", True)  # Default to True
             if auto_fill:
-                logger.info("Auto-filling quality assessments using LLM...")
+                logger.info(f"Auto-filling CASP quality assessments using LLM...")
                 try:
                     from ..quality.auto_filler import auto_fill_assessments
+
                     # Get LLM provider/model from config
                     agents_config = self.config.get("agents", {})
-                    extraction_config = agents_config.get("extraction_agent", {})
+                    assessment_llm_config = qa_config.get("assessment_llm", {})
                     llm_provider = os.getenv("LLM_PROVIDER", "gemini")
-                    llm_model = extraction_config.get("llm_model", "gemini-2.5-pro")
+                    llm_model = assessment_llm_config.get("model", "gemini-2.5-pro")
 
                     # Determine verbose mode for quality assessment
                     is_verbose = self.debug_config.enabled and self.debug_config.level in [
@@ -2161,18 +2582,24 @@ class WorkflowManager:
                         self.extracted_data,
                         llm_provider=llm_provider,
                         llm_model=llm_model,
-                        debug_config=self.debug_config
+                        debug_config=self.debug_config,
+                        framework=framework,
+                        detector_model=detector_model,
                     )
                     if success:
-                        logger.info("Quality assessments auto-filled successfully!")
+                        logger.info("CASP quality assessments auto-filled successfully!")
                     else:
-                        logger.warning("Auto-fill failed, but template is ready for manual completion")
+                        logger.warning(
+                            "Auto-fill failed, but template is ready for manual completion"
+                        )
                         raise RuntimeError(
                             f"Quality assessment template generated at {template_path_str}. "
                             "Auto-fill failed. Please complete the assessments manually and re-run the workflow."
                         )
                 except ImportError as e:
-                    logger.warning(f"Could not import auto-fill module: {e}. Falling back to manual assessment.")
+                    logger.warning(
+                        f"Could not import auto-fill module: {e}. Falling back to manual assessment."
+                    )
                     auto_fill = False
                 except Exception as e:
                     logger.warning(f"Auto-fill failed: {e}. Falling back to manual assessment.")
@@ -2204,14 +2631,28 @@ class WorkflowManager:
         # Load assessments
         logger.info(f"Loading quality assessments from {template_path_obj}")
 
-        risk_of_bias_assessments = []
+        casp_assessments = []
         grade_assessments_list = []
-
+        
+        # Load CASP assessments from template
         try:
-            risk_of_bias_assessments = rob_assessor.load_assessments(str(template_path_obj))
-            logger.info(f"Loaded {len(risk_of_bias_assessments)} risk of bias assessments")
+            with open(template_path_obj, 'r') as f:
+                template_data = json.load(f)
+            
+            casp_assessments = template_data.get('studies', [])
+            logger.info(f"Loaded {len(casp_assessments)} CASP quality assessments")
+            
+            # Log summary of quality ratings
+            if casp_assessments:
+                high_count = sum(1 for s in casp_assessments 
+                               if s.get('quality_assessment', {}).get('score', {}).get('quality_rating') == 'High')
+                moderate_count = sum(1 for s in casp_assessments 
+                                   if s.get('quality_assessment', {}).get('score', {}).get('quality_rating') == 'Moderate')
+                low_count = sum(1 for s in casp_assessments 
+                              if s.get('quality_assessment', {}).get('score', {}).get('quality_rating') == 'Low')
+                logger.info(f"Quality ratings: {high_count} High, {moderate_count} Moderate, {low_count} Low")
         except Exception as e:
-            logger.warning(f"Could not load risk of bias assessments: {e}")
+            logger.warning(f"Could not load CASP assessments: {e}")
 
         if grade_assessment:
             try:
@@ -2220,12 +2661,12 @@ class WorkflowManager:
             except Exception as e:
                 logger.warning(f"Could not load GRADE assessments: {e}")
 
-        # Generate summary tables and narratives
-        risk_of_bias_table = ""
-        risk_of_bias_summary = ""
-        if risk_of_bias_assessments:
-            risk_of_bias_table = rob_assessor.generate_summary_table(risk_of_bias_assessments)
-            risk_of_bias_summary = rob_assessor.generate_narrative_summary(risk_of_bias_assessments)
+        # Generate summary tables and narratives for CASP
+        casp_table = ""
+        casp_summary = ""
+        if casp_assessments:
+            casp_table = self._generate_casp_summary_table(casp_assessments)
+            casp_summary = self._generate_casp_narrative_summary(casp_assessments)
 
         grade_table = ""
         grade_summary = ""
@@ -2235,15 +2676,83 @@ class WorkflowManager:
 
         # Store for use in writing agents
         self.quality_assessment_data = {
-            "risk_of_bias_assessments": risk_of_bias_assessments,
-            "risk_of_bias_table": risk_of_bias_table,
-            "risk_of_bias_summary": risk_of_bias_summary,
+            "framework": framework,
+            "casp_assessments": casp_assessments,
+            "casp_table": casp_table,
+            "casp_summary": casp_summary,
+            # Keep backward-compatible keys for writing agents
+            "risk_of_bias_assessments": casp_assessments,  # Alias for compatibility
+            "risk_of_bias_table": casp_table,
+            "risk_of_bias_summary": casp_summary,
             "grade_assessments": grade_assessments_list,
             "grade_table": grade_table,
             "grade_summary": grade_summary,
         }
 
         return self.quality_assessment_data
+    
+    def _generate_casp_summary_table(self, casp_assessments: List[Dict[str, Any]]) -> str:
+        """Generate markdown table summarizing CASP quality assessments."""
+        if not casp_assessments:
+            return ""
+        
+        lines = []
+        lines.append("| Study | Checklist | Quality Rating | Yes Count | Total Questions |")
+        lines.append("|-------|-----------|----------------|-----------|-----------------|")
+        
+        for assessment in casp_assessments:
+            study_title = assessment.get('study_title', 'Unknown')[:50]
+            qa = assessment.get('quality_assessment', {})
+            checklist = qa.get('checklist_used', 'Unknown')
+            score = qa.get('score', {})
+            rating = score.get('quality_rating', 'Unknown')
+            yes_count = score.get('yes_count', 0)
+            total = score.get('total_questions', 0)
+            
+            # Shorten checklist name
+            checklist_short = checklist.replace('casp_', '').upper()
+            
+            lines.append(f"| {study_title} | {checklist_short} | {rating} | {yes_count} | {total} |")
+        
+        return '\n'.join(lines)
+    
+    def _generate_casp_narrative_summary(self, casp_assessments: List[Dict[str, Any]]) -> str:
+        """Generate narrative summary of CASP quality assessments."""
+        if not casp_assessments:
+            return "No quality assessments available."
+        
+        total_studies = len(casp_assessments)
+        
+        # Count by quality rating
+        high_count = sum(1 for s in casp_assessments 
+                        if s.get('quality_assessment', {}).get('score', {}).get('quality_rating') == 'High')
+        moderate_count = sum(1 for s in casp_assessments 
+                           if s.get('quality_assessment', {}).get('score', {}).get('quality_rating') == 'Moderate')
+        low_count = sum(1 for s in casp_assessments 
+                       if s.get('quality_assessment', {}).get('score', {}).get('quality_rating') == 'Low')
+        
+        # Count by checklist type
+        rct_count = sum(1 for s in casp_assessments 
+                       if s.get('quality_assessment', {}).get('checklist_used') == 'casp_rct')
+        cohort_count = sum(1 for s in casp_assessments 
+                          if s.get('quality_assessment', {}).get('checklist_used') == 'casp_cohort')
+        qual_count = sum(1 for s in casp_assessments 
+                        if s.get('quality_assessment', {}).get('checklist_used') == 'casp_qualitative')
+        
+        summary = []
+        summary.append(f"Quality assessment was conducted using the CASP (Critical Appraisal Skills Programme) framework for {total_studies} included studies.")
+        summary.append(f"Studies were assessed using three CASP checklists: {rct_count} RCT studies, {cohort_count} cohort studies, and {qual_count} qualitative studies.")
+        
+        if high_count > 0:
+            summary.append(f"{high_count} studies ({high_count/total_studies*100:.0f}%) were rated as high quality, meeting >80% of CASP quality criteria.")
+        if moderate_count > 0:
+            summary.append(f"{moderate_count} studies ({moderate_count/total_studies*100:.0f}%) were rated as moderate quality, meeting 50-80% of criteria.")
+        if low_count > 0:
+            summary.append(f"{low_count} studies ({low_count/total_studies*100:.0f}%) were rated as low quality, meeting <50% of criteria.")
+        
+        summary.append("The CASP checklists assess study design appropriateness, methodological rigor, reporting quality, and applicability of findings.")
+        
+        return " ".join(summary)
 
     def _generate_prisma_diagram(self) -> str:
         """Generate PRISMA flow diagram."""
@@ -2278,19 +2787,36 @@ class WorkflowManager:
 
         # Quality assessment visualizations
         if self.quality_assessment_data:
-            # Risk of bias plot
-            rob_assessments = self.quality_assessment_data.get("risk_of_bias_assessments", [])
-            if rob_assessments:
-                # Convert to list of dicts for visualization
-                rob_data = []
-                for assessment in rob_assessments:
-                    rob_data.append({
-                        "study_id": assessment.study_id if hasattr(assessment, 'study_id') else assessment.get("study_id", ""),
-                        "domains": assessment.domains if hasattr(assessment, 'domains') else assessment.get("domains", {}),
-                    })
-                rob_plot_path = self.chart_generator.generate_risk_of_bias_plot(rob_data)
-                if rob_plot_path:
-                    paths["risk_of_bias_plot"] = rob_plot_path
+            framework = self.quality_assessment_data.get("framework", "RoB 2")
+            
+            # Quality assessment plot (framework-dependent)
+            if framework == "CASP":
+                # For CASP, skip traditional RoB plot as structure is different
+                # CASP uses Yes/No/Can't Tell questions rather than domain ratings
+                logger.info("Skipping traditional RoB plot for CASP framework (use CASP-specific visualization)")
+            else:
+                # Traditional risk of bias plot for RoB 2, ROBINS-I, etc.
+                rob_assessments = self.quality_assessment_data.get("risk_of_bias_assessments", [])
+                if rob_assessments:
+                    # Convert to list of dicts for visualization
+                    rob_data = []
+                    for assessment in rob_assessments:
+                        domains = (assessment.domains if hasattr(assessment, "domains") 
+                                 else assessment.get("domains", {}))
+                        # Only include if domains exist and are non-empty
+                        if domains:
+                            rob_data.append(
+                                {
+                                    "study_id": assessment.study_id
+                                    if hasattr(assessment, "study_id")
+                                    else assessment.get("study_id", ""),
+                                    "domains": domains,
+                                }
+                            )
+                    if rob_data:  # Only generate if we have valid data
+                        rob_plot_path = self.chart_generator.generate_risk_of_bias_plot(rob_data)
+                        if rob_plot_path:
+                            paths["risk_of_bias_plot"] = rob_plot_path
 
             # GRADE evidence profile
             grade_assessments = self.quality_assessment_data.get("grade_assessments", [])
@@ -2298,10 +2824,16 @@ class WorkflowManager:
                 # Convert to list of dicts for visualization
                 grade_data = []
                 for assessment in grade_assessments:
-                    grade_data.append({
-                        "outcome": assessment.outcome if hasattr(assessment, 'outcome') else assessment.get("outcome", ""),
-                        "certainty": assessment.certainty if hasattr(assessment, 'certainty') else assessment.get("certainty", ""),
-                    })
+                    grade_data.append(
+                        {
+                            "outcome": assessment.outcome
+                            if hasattr(assessment, "outcome")
+                            else assessment.get("outcome", ""),
+                            "certainty": assessment.certainty
+                            if hasattr(assessment, "certainty")
+                            else assessment.get("certainty", ""),
+                        }
+                    )
                 grade_plot_path = self.chart_generator.generate_grade_evidence_profile(grade_data)
                 if grade_plot_path:
                     paths["grade_evidence_profile"] = grade_plot_path
@@ -2333,16 +2865,29 @@ class WorkflowManager:
             # Mermaid diagrams typically have format: {diagram_type}_{title}.svg
             # e.g., pie_bias_prevalence.svg, mindmap_themes.svg, flowchart_process.svg
             mermaid_types = [
-                "pie", "mindmap", "flowchart", "gantt", "sankey", "treemap",
-                "quadrant", "xy", "sequence", "timeline", "state", "class",
-                "er", "journey", "block", "architecture"
+                "pie",
+                "mindmap",
+                "flowchart",
+                "gantt",
+                "sankey",
+                "treemap",
+                "quadrant",
+                "xy",
+                "sequence",
+                "timeline",
+                "state",
+                "class",
+                "er",
+                "journey",
+                "block",
+                "architecture",
             ]
 
             # Check if filename starts with a known mermaid diagram type
             for diagram_type in mermaid_types:
                 if stem.startswith(f"{diagram_type}_"):
                     # This looks like a mermaid diagram
-                    stem.replace('_', ' ').title()
+                    stem.replace("_", " ").title()
                     # Use relative path for report
                     rel_path = svg_file.name
                     mermaid_paths[stem] = rel_path
@@ -2439,9 +2984,12 @@ class WorkflowManager:
             checkpoint_file = self.checkpoint_dir / f"article_writing_{section_name}_state.json"
             with open(checkpoint_file, "w") as f:
                 import json
+
                 json.dump(checkpoint_data, f, indent=2, default=str)
 
-            logger.info(f"Saved checkpoint after {section_name} section completion: {checkpoint_file.name}")
+            logger.info(
+                f"Saved checkpoint after {section_name} section completion: {checkpoint_file.name}"
+            )
             return True
         except Exception as e:
             logger.warning(f"Failed to save section checkpoint for {section_name}: {e}")
@@ -2460,10 +3008,13 @@ class WorkflowManager:
 
         for checkpoint_file in self.checkpoint_dir.glob(checkpoint_pattern):
             # Extract section name from filename: article_writing_introduction_state.json -> introduction
-            section_name = checkpoint_file.stem.replace("article_writing_", "").replace("_state", "")
+            section_name = checkpoint_file.stem.replace("article_writing_", "").replace(
+                "_state", ""
+            )
 
             try:
                 import json
+
                 with open(checkpoint_file, "r") as f:
                     checkpoint_data = json.load(f)
 
@@ -2471,9 +3022,13 @@ class WorkflowManager:
                 if checkpoint_data.get("workflow_id") == self.workflow_id:
                     if "data" in checkpoint_data and "section_content" in checkpoint_data["data"]:
                         sections[section_name] = checkpoint_data["data"]["section_content"]
-                        logger.info(f"Loaded {section_name} section from checkpoint: {checkpoint_file.name}")
+                        logger.info(
+                            f"Loaded {section_name} section from checkpoint: {checkpoint_file.name}"
+                        )
                 else:
-                    logger.debug(f"Skipping checkpoint {checkpoint_file.name} - workflow_id mismatch")
+                    logger.debug(
+                        f"Skipping checkpoint {checkpoint_file.name} - workflow_id mismatch"
+                    )
             except Exception as e:
                 logger.warning(f"Failed to load checkpoint {checkpoint_file.name}: {e}")
 
@@ -2483,11 +3038,7 @@ class WorkflowManager:
         return sections
 
     def _write_section_with_retry(
-        self,
-        section_name: str,
-        writer_func: callable,
-        *args,
-        **kwargs
+        self, section_name: str, writer_func: callable, *args, **kwargs
     ) -> tuple:
         """
         Write a section with retry logic.
@@ -2517,11 +3068,13 @@ class WorkflowManager:
                     section_name=section_name.title(),
                     attempt_number=attempt + 1,
                     max_attempts=max_attempts,
-                    reason=last_error_reason
+                    reason=last_error_reason,
                 )
 
             try:
-                logger.info(f"Writing {section_name} section - attempt {attempt + 1}/{max_attempts}")
+                logger.info(
+                    f"Writing {section_name} section - attempt {attempt + 1}/{max_attempts}"
+                )
                 result = writer_func(*args, **kwargs)
                 if result is not None and result.strip():
                     if attempt > 0:
@@ -2554,11 +3107,17 @@ class WorkflowManager:
 
             # Immediate retry - no delay
             if attempt < max_attempts - 1:
-                logger.info(f"Retrying {section_name} section immediately (attempt {attempt + 2}/{max_attempts})...")
+                logger.info(
+                    f"Retrying {section_name} section immediately (attempt {attempt + 2}/{max_attempts})..."
+                )
 
         # All retries failed, raise exception
-        logger.error(f"All {max_attempts} attempts failed for {section_name} section. Last error: {last_error_reason}")
-        raise RuntimeError(f"Failed to write {section_name} section after {max_attempts} attempts: {last_error_reason}")
+        logger.error(
+            f"All {max_attempts} attempts failed for {section_name} section. Last error: {last_error_reason}"
+        )
+        raise RuntimeError(
+            f"Failed to write {section_name} section after {max_attempts} attempts: {last_error_reason}"
+        )
 
     def _write_article(self) -> Dict[str, str]:
         """Write all article sections with checkpointing and retry support."""
@@ -2569,9 +3128,13 @@ class WorkflowManager:
         console.print()
         logger.info("Starting article writing phase...")
         if completed_sections:
-            logger.info(f"Resuming from checkpoint - already completed: {', '.join(completed_sections)}")
+            logger.info(
+                f"Resuming from checkpoint - already completed: {', '.join(completed_sections)}"
+            )
         else:
-            logger.info("This will generate Introduction, Methods, Results, and Discussion sections.")
+            logger.info(
+                "This will generate Introduction, Methods, Results, and Discussion sections."
+            )
             logger.info("Each section requires an LLM call and may take some time.")
         console.print()
 
@@ -2584,7 +3147,9 @@ class WorkflowManager:
         # Check if humanization is enabled
         writing_config = self.config.get("writing", {})
         humanization_config = writing_config.get("humanization", {})
-        humanization_enabled = humanization_config.get("enabled", True) and self.humanization_agent is not None
+        humanization_enabled = (
+            humanization_config.get("enabled", True) and self.humanization_agent is not None
+        )
 
         # Introduction
         if "introduction" not in sections:
@@ -2596,7 +3161,7 @@ class WorkflowManager:
                 section_number=1,
                 total_sections=5,
                 model=self.intro_writer.llm_model,
-                status="Starting..."
+                status="Starting...",
             )
 
             research_question = self.topic_context.research_question or self.topic_context.topic
@@ -2619,7 +3184,7 @@ class WorkflowManager:
                 research_question,
                 justification,
                 topic_context=writing_context,
-                style_patterns=self.style_patterns
+                style_patterns=self.style_patterns,
             )
 
             # Humanize if enabled
@@ -2630,7 +3195,10 @@ class WorkflowManager:
                     intro,
                     "introduction",
                     style_patterns=self.style_patterns,
-                    context={"domain": self.topic_context.domain, "topic": self.topic_context.topic},
+                    context={
+                        "domain": self.topic_context.domain,
+                        "topic": self.topic_context.topic,
+                    },
                 )
                 humanized = True
 
@@ -2643,15 +3211,16 @@ class WorkflowManager:
                 word_count=word_count,
                 duration=duration,
                 humanized=humanized,
-                checkpoint_saved=checkpoint_saved
+                checkpoint_saved=checkpoint_saved,
             )
         else:
             from ..utils.rich_utils import print_panel
+
             logger.info("Introduction section already exists in checkpoint, skipping")
             print_panel(
                 content="Section already completed in previous run",
                 title="Introduction (Skipped)",
-                border_style="yellow"
+                border_style="yellow",
             )
 
         # Methods
@@ -2664,7 +3233,7 @@ class WorkflowManager:
                 section_number=2,
                 total_sections=5,
                 model=self.methods_writer.llm_model,
-                status="Starting..."
+                status="Starting...",
             )
 
             # Ensure search_strategy exists (rebuild if None, e.g., when resuming from checkpoint)
@@ -2673,10 +3242,14 @@ class WorkflowManager:
                 try:
                     self._build_search_strategy()
                     if self.search_strategy is None:
-                        raise RuntimeError("Failed to build search strategy - search_strategy is still None after _build_search_strategy()")
+                        raise RuntimeError(
+                            "Failed to build search strategy - search_strategy is still None after _build_search_strategy()"
+                        )
                 except Exception as e:
                     logger.error(f"Failed to build search strategy: {e}", exc_info=True)
-                    raise RuntimeError(f"Cannot write Methods section without search strategy: {e}") from e
+                    raise RuntimeError(
+                        f"Cannot write Methods section without search strategy: {e}"
+                    ) from e
 
             search_strategy_desc = self.search_strategy.get_strategy_description()
             databases = self.config["workflow"]["databases"]
@@ -2701,7 +3274,9 @@ class WorkflowManager:
             # Get full search strategies for all databases
             # Ensure search_strategy exists (should already be set above, but double-check)
             if self.search_strategy is None:
-                logger.error("search_strategy is None when getting database queries - this should not happen")
+                logger.error(
+                    "search_strategy is None when getting database queries - this should not happen"
+                )
                 raise RuntimeError("search_strategy is None - cannot get database queries")
             full_search_strategies = self.search_strategy.get_database_queries()
             # Filter to only databases that were actually searched
@@ -2747,7 +3322,10 @@ class WorkflowManager:
                     methods,
                     "methods",
                     style_patterns=self.style_patterns,
-                    context={"domain": self.topic_context.domain, "topic": self.topic_context.topic},
+                    context={
+                        "domain": self.topic_context.domain,
+                        "topic": self.topic_context.topic,
+                    },
                 )
                 humanized = True
 
@@ -2760,15 +3338,16 @@ class WorkflowManager:
                 word_count=word_count,
                 duration=duration,
                 humanized=humanized,
-                checkpoint_saved=checkpoint_saved
+                checkpoint_saved=checkpoint_saved,
             )
         else:
             from ..utils.rich_utils import print_panel
+
             logger.info("Methods section already exists in checkpoint, skipping")
             print_panel(
                 content="Section already completed in previous run",
                 title="Methods (Skipped)",
-                border_style="yellow"
+                border_style="yellow",
             )
 
         # Results
@@ -2781,7 +3360,7 @@ class WorkflowManager:
                 section_number=3,
                 total_sections=5,
                 model=self.results_writer.llm_model,
-                status="Starting..."
+                status="Starting...",
             )
 
             key_findings = []
@@ -2831,7 +3410,10 @@ class WorkflowManager:
                     results,
                     "results",
                     style_patterns=self.style_patterns,
-                    context={"domain": self.topic_context.domain, "topic": self.topic_context.topic},
+                    context={
+                        "domain": self.topic_context.domain,
+                        "topic": self.topic_context.topic,
+                    },
                 )
                 humanized = True
 
@@ -2844,20 +3426,21 @@ class WorkflowManager:
                 word_count=word_count,
                 duration=duration,
                 humanized=humanized,
-                checkpoint_saved=checkpoint_saved
+                checkpoint_saved=checkpoint_saved,
             )
         else:
             from ..utils.rich_utils import print_panel
+
             logger.info("Results section already exists in checkpoint, skipping")
             print_panel(
                 content="Section already completed in previous run",
                 title="Results (Skipped)",
-                border_style="yellow"
+                border_style="yellow",
             )
 
         # Collect generated files from results_writer (e.g., mermaid diagrams)
         generated_files = {}
-        if hasattr(self.results_writer, 'get_generated_files'):
+        if hasattr(self.results_writer, "get_generated_files"):
             files = self.results_writer.get_generated_files()
             for file_path in files:
                 # Extract diagram name from path
@@ -2885,7 +3468,7 @@ class WorkflowManager:
                 section_number=4,
                 total_sections=5,
                 model=self.discussion_writer.llm_model,
-                status="Starting..."
+                status="Starting...",
             )
 
             key_findings = []
@@ -2926,7 +3509,10 @@ class WorkflowManager:
                     discussion,
                     "discussion",
                     style_patterns=self.style_patterns,
-                    context={"domain": self.topic_context.domain, "topic": self.topic_context.topic},
+                    context={
+                        "domain": self.topic_context.domain,
+                        "topic": self.topic_context.topic,
+                    },
                 )
                 humanized = True
 
@@ -2939,15 +3525,16 @@ class WorkflowManager:
                 word_count=word_count,
                 duration=duration,
                 humanized=humanized,
-                checkpoint_saved=checkpoint_saved
+                checkpoint_saved=checkpoint_saved,
             )
         else:
             from ..utils.rich_utils import print_panel
+
             logger.info("Discussion section already exists in checkpoint, skipping")
             print_panel(
                 content="Section already completed in previous run",
                 title="Discussion (Skipped)",
-                border_style="yellow"
+                border_style="yellow",
             )
 
         # Abstract (generate after all sections are written)
@@ -2960,7 +3547,7 @@ class WorkflowManager:
                 section_number=5,
                 total_sections=5,
                 model=self.abstract_generator.llm_model,
-                status="Starting..."
+                status="Starting...",
             )
 
             research_question = self.topic_context.research_question or self.topic_context.topic
@@ -2970,7 +3557,7 @@ class WorkflowManager:
                 research_question,
                 self.final_papers,
                 sections,
-                style_patterns=self.style_patterns
+                style_patterns=self.style_patterns,
             )
 
             # Humanize if enabled
@@ -2981,7 +3568,10 @@ class WorkflowManager:
                     abstract,
                     "abstract",
                     style_patterns=self.style_patterns,
-                    context={"domain": self.topic_context.domain, "topic": self.topic_context.topic},
+                    context={
+                        "domain": self.topic_context.domain,
+                        "topic": self.topic_context.topic,
+                    },
                 )
                 humanized = True
 
@@ -2994,15 +3584,16 @@ class WorkflowManager:
                 word_count=word_count,
                 duration=duration,
                 humanized=humanized,
-                checkpoint_saved=checkpoint_saved
+                checkpoint_saved=checkpoint_saved,
             )
         else:
             from ..utils.rich_utils import print_panel
+
             logger.info("Abstract already exists in checkpoint, skipping")
             print_panel(
                 content="Section already completed in previous run",
                 title="Abstract (Skipped)",
-                border_style="yellow"
+                border_style="yellow",
             )
         console.print(
             "[bold green]Article writing phase complete - all 5 sections generated[/bold green]"
@@ -3076,7 +3667,9 @@ class WorkflowManager:
                 f.write("\n\n---\n\n")
 
             # Keywords - aggregate from topic context and papers
-            keywords = self.topic_context.keywords if hasattr(self.topic_context, 'keywords') else []
+            keywords = (
+                self.topic_context.keywords if hasattr(self.topic_context, "keywords") else []
+            )
 
             # Also extract keywords from included papers
             paper_keywords = []
@@ -3111,7 +3704,9 @@ class WorkflowManager:
                 f.write("---\n\n")
 
             # Introduction (with citation processing)
-            intro_text = citation_manager.extract_and_map_citations(article_sections["introduction"])
+            intro_text = citation_manager.extract_and_map_citations(
+                article_sections["introduction"]
+            )
             f.write("## Introduction\n\n")
             f.write(intro_text)
             f.write("\n\n---\n\n")
@@ -3141,7 +3736,9 @@ class WorkflowManager:
                 # Insert PRISMA diagram
                 prisma_section = f"\n\n![PRISMA Diagram]({prisma_path})\n\n"
                 prisma_section += "**Figure 1:** PRISMA 2020 flow diagram showing the study selection process.\n\n"
-                results_text = results_text[:insertion_pos] + prisma_section + results_text[insertion_pos:]
+                results_text = (
+                    results_text[:insertion_pos] + prisma_section + results_text[insertion_pos:]
+                )
             else:
                 # If Study Selection subsection not found, insert PRISMA diagram at the beginning
                 prisma_section = f"![PRISMA Diagram]({prisma_path})\n\n"
@@ -3154,19 +3751,19 @@ class WorkflowManager:
                 # Build visualizations section
                 viz_section = "\n\n"
                 for name, path in viz_paths.items():
-                    viz_name = name.replace('_', ' ').title()
+                    viz_name = name.replace("_", " ").title()
                     # Handle HTML files (network graph) differently from images
-                    if path.endswith('.html'):
+                    if path.endswith(".html"):
                         viz_section += f"[Interactive {viz_name}]({path})\n\n"
                         # Also try to reference PNG version if it exists
-                        png_path = path.replace('.html', '.png')
+                        png_path = path.replace(".html", ".png")
                         png_full_path = self.output_dir / Path(png_path).name
                         if png_full_path.exists():
                             caption = f"**Figure {figure_num}:** {viz_name} showing bibliometric analysis of included studies.\n\n"
                             viz_section += f"![{name}]({png_path})\n\n"
                             viz_section += caption
                             figure_num += 1
-                    elif path.endswith('.svg'):
+                    elif path.endswith(".svg"):
                         # Handle SVG files (from Mermaid diagrams)
                         caption = f"**Figure {figure_num}:** {viz_name} showing analysis of included studies.\n\n"
                         viz_section += f"![{name}]({path})\n\n"
@@ -3187,7 +3784,7 @@ class WorkflowManager:
                     "#### Synthesis",
                     "#### Synthesis of Findings",
                     "#### Results of Syntheses",
-                    "#### Synthesis of Results"
+                    "#### Synthesis of Results",
                 ]
 
                 synthesis_insertion_point = -1
@@ -3221,7 +3818,9 @@ class WorkflowManager:
                     else:
                         insertion_pos = next_subsection
 
-                    results_text = results_text[:insertion_pos] + viz_section + results_text[insertion_pos:]
+                    results_text = (
+                        results_text[:insertion_pos] + viz_section + results_text[insertion_pos:]
+                    )
                 else:
                     # No synthesis subsection found, insert before separator or at end
                     # Check for separator that marks end of Results section
@@ -3229,7 +3828,11 @@ class WorkflowManager:
                     if separator_pos != -1:
                         # Insert before separator to keep visualizations in Results section
                         insertion_pos = separator_pos
-                        results_text = results_text[:insertion_pos] + viz_section + results_text[insertion_pos:]
+                        results_text = (
+                            results_text[:insertion_pos]
+                            + viz_section
+                            + results_text[insertion_pos:]
+                        )
                     else:
                         # No separator found, append at end
                         results_text = results_text + viz_section
@@ -3240,7 +3843,9 @@ class WorkflowManager:
             f.write("\n\n---\n\n")
 
             # Discussion (with citation processing)
-            discussion_text = citation_manager.extract_and_map_citations(article_sections["discussion"])
+            discussion_text = citation_manager.extract_and_map_citations(
+                article_sections["discussion"]
+            )
             f.write("## Discussion\n\n")
             f.write(discussion_text)
             f.write("\n\n---\n\n")
@@ -3258,7 +3863,9 @@ class WorkflowManager:
                 reg_number = protocol_info.get("registration_number", "")
                 reg_url = protocol_info.get("url", "")
                 if reg_number:
-                    f.write(f"This systematic review was registered with {registry} (registration number: {reg_number}).")
+                    f.write(
+                        f"This systematic review was registered with {registry} (registration number: {reg_number})."
+                    )
                     if reg_url:
                         f.write(f" The protocol can be accessed at: {reg_url}")
                     f.write("\n\n")
@@ -3286,7 +3893,9 @@ class WorkflowManager:
             # Conflicts of Interest Statement (PRISMA 2020: Other Information)
             coi_config = self.config.get("topic", {}).get("conflicts_of_interest", {})
             f.write("## Conflicts of Interest\n\n")
-            coi_statement = coi_config.get("statement", "The authors declare no conflicts of interest.")
+            coi_statement = coi_config.get(
+                "statement", "The authors declare no conflicts of interest."
+            )
             f.write(f"{coi_statement}\n\n")
             f.write("---\n\n")
 
@@ -3326,7 +3935,7 @@ class WorkflowManager:
         citation_manager = CitationManager(self.final_papers)
 
         # Aggregate keywords from topic context and papers
-        keywords = self.topic_context.keywords if hasattr(self.topic_context, 'keywords') else []
+        keywords = self.topic_context.keywords if hasattr(self.topic_context, "keywords") else []
         paper_keywords = []
         for paper in self.final_papers:
             if paper.keywords:
@@ -3352,27 +3961,39 @@ class WorkflowManager:
             "title": f"Systematic Review: {self.topic_context.topic}",
             "abstract": article_sections.get("abstract", ""),
             "keywords": all_keywords,
-            "introduction": citation_manager.extract_and_map_citations(article_sections.get("introduction", "")),
-            "methods": citation_manager.extract_and_map_citations(article_sections.get("methods", "")),
-            "results": citation_manager.extract_and_map_citations(article_sections.get("results", "")),
-            "discussion": citation_manager.extract_and_map_citations(article_sections.get("discussion", "")),
+            "introduction": citation_manager.extract_and_map_citations(
+                article_sections.get("introduction", "")
+            ),
+            "methods": citation_manager.extract_and_map_citations(
+                article_sections.get("methods", "")
+            ),
+            "results": citation_manager.extract_and_map_citations(
+                article_sections.get("results", "")
+            ),
+            "discussion": citation_manager.extract_and_map_citations(
+                article_sections.get("discussion", "")
+            ),
             "references": citation_manager.get_references(),
             "figures": [],
         }
 
         # Add figures
         if prisma_path:
-            report_data["figures"].append({
-                "path": prisma_path,
-                "caption": "PRISMA 2020 flow diagram showing the study selection process.",
-            })
+            report_data["figures"].append(
+                {
+                    "path": prisma_path,
+                    "caption": "PRISMA 2020 flow diagram showing the study selection process.",
+                }
+            )
 
         for name, path in viz_paths.items():
-            if not path.endswith('.html'):
-                report_data["figures"].append({
-                    "path": path,
-                    "caption": f"{name.replace('_', ' ').title()} showing bibliometric analysis of included studies.",
-                })
+            if not path.endswith(".html"):
+                report_data["figures"].append(
+                    {
+                        "path": path,
+                        "caption": f"{name.replace('_', ' ').title()} showing bibliometric analysis of included studies.",
+                    }
+                )
 
         # Export to LaTeX if requested
         export_config = self.config.get("output", {}).get("formats", [])
@@ -3421,7 +4042,9 @@ class WorkflowManager:
             output_path = self.output_dir / "search_strategies.md"
             with open(output_path, "w", encoding="utf-8") as f:
                 f.write("# Search Strategies\n\n")
-                f.write("This document contains the complete search strategies used for all databases.\n\n")
+                f.write(
+                    "This document contains the complete search strategies used for all databases.\n\n"
+                )
                 f.write("---\n\n")
 
                 for db_name in databases_searched:
@@ -3468,9 +4091,7 @@ class WorkflowManager:
             logger.warning(f"Could not generate PRISMA checklist: {e}")
             return None
 
-    def _export_manubot_structure(
-        self, article_sections: Dict[str, str]
-    ) -> Optional[str]:
+    def _export_manubot_structure(self, article_sections: Dict[str, str]) -> Optional[str]:
         """
         Export article sections to Manubot structure.
 
@@ -3502,9 +4123,7 @@ class WorkflowManager:
             metadata = {
                 "title": f"{self.topic_context.topic}: A Systematic Review",
                 "keywords": (
-                    self.topic_context.keywords
-                    if hasattr(self.topic_context, "keywords")
-                    else []
+                    self.topic_context.keywords if hasattr(self.topic_context, "keywords") else []
                 ),
             }
 
@@ -3616,10 +4235,10 @@ class WorkflowManager:
         return str(state_path)
 
     def _generate_workflow_id(self) -> str:
-        """Generate unique workflow ID."""
+        """Generate unique workflow ID with timestamp-first naming for chronological sorting."""
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         topic_slug = self.topic_context.topic.lower().replace(" ", "_")[:30]
-        return f"workflow_{topic_slug}_{timestamp}"
+        return f"{timestamp}_workflow_{topic_slug}"
 
     def _serialize_phase_data(self, phase_name: str) -> Dict[str, Any]:
         """Serialize data for a specific phase."""
@@ -3639,7 +4258,9 @@ class WorkflowManager:
         elif phase_name == "title_abstract_screening":
             data = {
                 "screened_papers": serializer.serialize_papers(self.screened_papers),
-                "title_abstract_results": serializer.serialize_screening_results(self.title_abstract_results),
+                "title_abstract_results": serializer.serialize_screening_results(
+                    self.title_abstract_results
+                ),
                 "unique_papers": serializer.serialize_papers(self.unique_papers),
             }
         elif phase_name == "fulltext_screening":
@@ -3664,17 +4285,25 @@ class WorkflowManager:
             sections_dict = {}
             for checkpoint_file in self.checkpoint_dir.glob("article_writing_*_state.json"):
                 # Extract section name from filename: article_writing_introduction_state.json -> introduction
-                section_name = checkpoint_file.stem.replace("article_writing_", "").replace("_state", "")
+                section_name = checkpoint_file.stem.replace("article_writing_", "").replace(
+                    "_state", ""
+                )
                 try:
                     import json
+
                     with open(checkpoint_file, "r") as f:
                         checkpoint_data = json.load(f)
                     # Validate workflow_id matches
                     if checkpoint_data.get("workflow_id") == self.workflow_id:
-                        if "data" in checkpoint_data and "section_content" in checkpoint_data["data"]:
+                        if (
+                            "data" in checkpoint_data
+                            and "section_content" in checkpoint_data["data"]
+                        ):
                             sections_dict[section_name] = checkpoint_data["data"]["section_content"]
                 except Exception as e:
-                    logger.warning(f"Failed to load section checkpoint {checkpoint_file.name} for serialization: {e}")
+                    logger.warning(
+                        f"Failed to load section checkpoint {checkpoint_file.name} for serialization: {e}"
+                    )
 
             data = {
                 "style_patterns": self.style_patterns,
@@ -3750,7 +4379,9 @@ class WorkflowManager:
 
         if article_sections:
             self._article_sections = article_sections
-            logger.info(f"Loaded {len(article_sections)} article sections: {', '.join(article_sections.keys())}")
+            logger.info(
+                f"Loaded {len(article_sections)} article sections: {', '.join(article_sections.keys())}"
+            )
 
         # Load PRISMA counts
         if "prisma_counts" in state:
@@ -3759,7 +4390,9 @@ class WorkflowManager:
                 # Restore counts using individual setters
                 if "found" in counts:
                     db_breakdown = state.get("database_breakdown", {})
-                    self.prisma_counter.set_found(counts["found"], db_breakdown if db_breakdown else None)
+                    self.prisma_counter.set_found(
+                        counts["found"], db_breakdown if db_breakdown else None
+                    )
                 if "found_other" in counts:
                     self.prisma_counter.set_found_other(counts["found_other"])
                 if "no_dupes" in counts:
@@ -3771,7 +4404,9 @@ class WorkflowManager:
                 if "full_text_sought" in counts:
                     self.prisma_counter.set_full_text_sought(counts["full_text_sought"])
                 if "full_text_not_retrieved" in counts:
-                    self.prisma_counter.set_full_text_not_retrieved(counts["full_text_not_retrieved"])
+                    self.prisma_counter.set_full_text_not_retrieved(
+                        counts["full_text_not_retrieved"]
+                    )
                 if "full_text_assessed" in counts:
                     self.prisma_counter.set_full_text_assessed(counts["full_text_assessed"])
                 if "full_text_exclusions" in counts:
