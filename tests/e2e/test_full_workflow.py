@@ -124,12 +124,19 @@ def test_workflow_different_configurations(tmp_path):
     minimal_config = {
         "topic": {"topic": "Minimal Topic"},
         "agents": {
-            "screening_agent": {
-                "role": "Screener",
-                "goal": "Screen",
+            "title_abstract_screener": {
+                "role": "Title/Abstract Screener",
+                "goal": "Screen by title/abstract",
                 "backstory": "Test",
-                "llm_model": "gpt-4",
-                "temperature": 0.3,
+                "llm_model": "gemini-2.5-flash-lite",
+                "temperature": 0.2,
+            },
+            "fulltext_screener": {
+                "role": "Fulltext Screener",
+                "goal": "Screen by fulltext",
+                "backstory": "Test",
+                "llm_model": "gemini-2.5-flash-lite",
+                "temperature": 0.2,
             }
         },
         "workflow": {

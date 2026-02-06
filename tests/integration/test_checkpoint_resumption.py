@@ -38,12 +38,12 @@ class TestCheckpointResumption:
                 ]
                 
                 # Save checkpoint
-                checkpoint_path = manager._save_phase_state("search_databases")
+                checkpoint_path = manager.checkpoint_manager.save_phase("search_databases")
                 assert checkpoint_path is not None
                 assert Path(checkpoint_path).exists()
                 
                 # Load checkpoint
-                loaded_data = manager._load_phase_state(checkpoint_path)
+                loaded_data = manager.checkpoint_manager.load_phase(checkpoint_path)
                 assert loaded_data["phase"] == "search_databases"
                 assert "data" in loaded_data
                 assert "all_papers" in loaded_data["data"]

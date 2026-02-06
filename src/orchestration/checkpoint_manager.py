@@ -43,12 +43,9 @@ class CheckpointManager:
             return None
 
         try:
-            # Get phase dependencies from registry if available, otherwise use legacy method
-            if hasattr(self.workflow_manager, 'phase_registry'):
-                phase = self.workflow_manager.phase_registry.get_phase(phase_name)
-                dependencies = phase.dependencies if phase else []
-            else:
-                dependencies = self.workflow_manager._get_phase_dependencies(phase_name)
+            # Get phase dependencies from registry
+            phase = self.workflow_manager.phase_registry.get_phase(phase_name)
+            dependencies = phase.dependencies if phase else []
 
             # Serialize phase data using workflow manager's method
             phase_data = self.workflow_manager._serialize_phase_data(phase_name)
@@ -125,76 +122,6 @@ class CheckpointManager:
                 continue
 
         return len(phase_checkpoints)
-
-    def _find_fallback_checkpoint(self, phase: str, topic: str) -> Optional[Path]:
-        """
-        Find a fallback checkpoint file for a phase in other workflow directories with same topic.
-
-        Args:
-            phase: Phase name to search for
-            topic: Topic to match
-
-        Returns:
-            Path to checkpoint file if found, None otherwise
-        """
-        checkpoint_base = Path("data/checkpoints")
-        if not checkpoint_base.exists():
-            return None
-
-        current_topic = topic.lower().strip()
-        workflow_dirs = [d for d in checkpoint_base.iterdir() if d.is_dir()]
-
-        # Phase order for completeness scoring
-        phase_order = [
-            "search_databases",
-            "deduplication",
-            "title_abstract_screening",
-            "fulltext_screening",
-            "paper_enrichment",
-            "data_extraction",
-            "quality_assessment",
-            "prisma_generation",
-            "visualization_generation",
-            "article_writing",
-            "report_generation",
-            "manubot_export",
-            "submission_package",
-        ]
-
-        # Collect workflows that have this phase checkpoint
-        candidates = []
-
-        for workflow_dir in workflow_dirs:
-            checkpoint_file = workflow_dir / f"{phase}_state.json"
-            if not checkpoint_file.exists():
-                continue
-
-            try:
-                checkpoint_data = self.load_phase(str(checkpoint_file))
-                if not checkpoint_data:
-                    continue
-
-                # Check if topic matches
-                checkpoint_topic = checkpoint_data.get("topic_context", {}).get("topic", "").lower().strip()
-                if checkpoint_topic == current_topic:
-                    # Calculate completeness to prefer more complete workflows
-                    completeness = self._calculate_checkpoint_completeness(workflow_dir, phase_order)
-                    candidates.append({
-                        "checkpoint_file": checkpoint_file,
-                        "completeness": completeness,
-                        "mtime": checkpoint_file.stat().st_mtime
-                    })
-            except Exception as e:
-                logger.debug(f"Error checking fallback checkpoint {checkpoint_file}: {e}")
-                continue
-
-        if candidates:
-            # Prefer most complete workflow, then most recent
-            best_candidate = max(candidates, key=lambda c: (c["completeness"], c["mtime"]))
-            logger.info(f"Found fallback checkpoint for {phase} in workflow with completeness {best_candidate['completeness']}")
-            return best_candidate["checkpoint_file"]
-
-        return None
 
     def find_by_topic(self, topic: str) -> Optional[Dict[str, Any]]:
         """
@@ -396,11 +323,5 @@ class CheckpointManager:
         if len(loaded_phases) < len(phases_to_load):
             missing = set(phases_to_load) - set(loaded_phases)
             logger.warning(f"Missing checkpoints (will use available data): {', '.join(missing)}")
-
-        # Handle missing paper_enrichment: use eligible_papers from fulltext_screening as final_papers
-        if "paper_enrichment" not in loaded_phases and "fulltext_screening" in loaded_phases:
-            if "eligible_papers" in accumulated_state.get("data", {}) and "final_papers" not in accumulated_state.get("data", {}):
-                logger.info("paper_enrichment checkpoint missing, using eligible_papers from fulltext_screening as final_papers")
-                accumulated_state["data"]["final_papers"] = accumulated_state["data"]["eligible_papers"]
 
         return accumulated_state

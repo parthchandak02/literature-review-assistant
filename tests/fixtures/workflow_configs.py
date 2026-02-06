@@ -16,12 +16,20 @@ def get_test_workflow_config() -> Dict[str, Any]:
             "context": "Test context",
         },
         "agents": {
-            "screening_agent": {
-                "role": "Test Screening Agent",
-                "goal": "Screen test papers",
+            "title_abstract_screener": {
+                "role": "Test Title/Abstract Screener",
+                "goal": "Screen test papers by title/abstract",
                 "backstory": "Test backstory",
-                "llm_model": "gemini-2.5-pro",
-                "temperature": 0.3,
+                "llm_model": "gemini-2.5-flash-lite",
+                "temperature": 0.2,
+                "max_iterations": 10,
+            },
+            "fulltext_screener": {
+                "role": "Test Fulltext Screener",
+                "goal": "Screen test papers by fulltext",
+                "backstory": "Test backstory",
+                "llm_model": "gemini-2.5-flash-lite",
+                "temperature": 0.2,
                 "max_iterations": 5,
             },
             "extraction_agent": {

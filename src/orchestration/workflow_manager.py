@@ -34,22 +34,11 @@ from ..utils.logging_config import get_logger
 from ..utils.log_context import workflow_phase_context
 from ..config.debug_config import DebugLevel
 
-try:
-    from ..observability.tracing import (
-        TracingContext,
-        set_tracing_context,
-        trace_agent_call,
-    )
-except ImportError:
-    # Tracing is optional
-    TracingContext = None
-
-    def set_tracing_context(x):
-        return None
-
-    def trace_agent_call(*args, **kwargs):
-        return None
-
+from ..observability.tracing import (
+    TracingContext,
+    set_tracing_context,
+    trace_agent_call,
+)
 
 logger = get_logger(__name__)
 
@@ -670,20 +659,7 @@ class WorkflowManager:
 
                     # Try to load phase-level checkpoint
                     checkpoint_file = checkpoint_dir / f"{phase}_state.json"
-                    exists = checkpoint_file.exists()
-
-                    # If checkpoint doesn't exist locally, try to find fallback in related workflows
-                    if not exists:
-                        logger.debug(f"Missing checkpoint: {phase}, searching for fallback...")
-                        fallback_checkpoint = self.checkpoint_manager._find_fallback_checkpoint(
-                            phase, self.topic_context.topic
-                        )
-                        if fallback_checkpoint:
-                            checkpoint_file = fallback_checkpoint
-                            exists = True
-                            logger.info(f"Using fallback checkpoint for {phase} from {fallback_checkpoint.parent.name}")
-
-                    if exists:
+                    if checkpoint_file.exists():
                         logger.debug(f"Found checkpoint: {phase}")
                         try:
                             checkpoint_data = self.checkpoint_manager.load_phase(str(checkpoint_file))
@@ -735,12 +711,6 @@ class WorkflowManager:
                         missing = set(phases_to_load) - set(loaded_phases)
                         logger.warning(f"Missing checkpoints (will use available data): {', '.join(missing)}")
 
-                    # Handle missing paper_enrichment: use eligible_papers from fulltext_screening as final_papers
-                    if "paper_enrichment" not in loaded_phases and "fulltext_screening" in loaded_phases:
-                        if "eligible_papers" in accumulated_state.get("data", {}) and "final_papers" not in accumulated_state.get("data", {}):
-                            logger.info("paper_enrichment checkpoint missing, using eligible_papers from fulltext_screening as final_papers")
-                            accumulated_state["data"]["final_papers"] = accumulated_state["data"]["eligible_papers"]
-
                     # Log accumulated state summary before loading
                     data_keys = list(accumulated_state.get("data", {}).keys())
                     logger.debug(f"Accumulated state data keys: {data_keys}")
@@ -753,118 +723,9 @@ class WorkflowManager:
                             f"{len(self.unique_papers)} unique, {len(self.screened_papers)} screened, "
                             f"{len(self.eligible_papers)} eligible, {len(self.final_papers)} final"
                         )
-
-                        # Populate results["outputs"] with checkpoint data if available
-                        # Try loading from accumulated_state first (for backward compatibility)
-                        article_sections = {}
-                        if "article_sections" in accumulated_state.get("data", {}):
-                            article_sections = accumulated_state["data"]["article_sections"]
-
-                        # Also load from individual section checkpoint files (new approach)
-                        # This ensures we get all sections even if accumulated_state is incomplete
-                        section_checkpoints = self._load_existing_sections()
-                        if section_checkpoints:
-                            # Merge with any sections from accumulated_state (section files take precedence)
-                            article_sections.update(section_checkpoints)
-
-                        if article_sections:
-                            if not hasattr(self, "_results"):
-                                self._results = {"outputs": {}}
-                            self._results["outputs"]["article_sections"] = article_sections
-                            # Store article sections for use in _write_article resume
-                            self._article_sections = article_sections
-                            logger.info(f"Loaded {len(article_sections)} article sections for resume: {', '.join(article_sections.keys())}")
                     except Exception as load_error:
-                        logger.warning(f"Error loading accumulated state: {load_error}", exc_info=True)
-                        # Try manual fallback loading from accumulated_state
-                        if "data" in accumulated_state:
-                            try:
-                                if "all_papers" in accumulated_state["data"]:
-                                    self.all_papers = serializer.deserialize_papers(accumulated_state["data"]["all_papers"])
-                            except Exception as e:
-                                logger.debug(f"Failed to load all_papers: {e}")
-
-                            try:
-                                if "unique_papers" in accumulated_state["data"]:
-                                    self.unique_papers = serializer.deserialize_papers(accumulated_state["data"]["unique_papers"])
-                            except Exception as e:
-                                logger.debug(f"Failed to load unique_papers: {e}")
-
-                            try:
-                                if "screened_papers" in accumulated_state["data"]:
-                                    self.screened_papers = serializer.deserialize_papers(accumulated_state["data"]["screened_papers"])
-                            except Exception as e:
-                                logger.debug(f"Failed to load screened_papers: {e}")
-
-                            try:
-                                if "eligible_papers" in accumulated_state["data"]:
-                                    self.eligible_papers = serializer.deserialize_papers(accumulated_state["data"]["eligible_papers"])
-                            except Exception as e:
-                                logger.debug(f"Failed to load eligible_papers: {e}")
-
-                            try:
-                                if "final_papers" in accumulated_state["data"]:
-                                    self.final_papers = serializer.deserialize_papers(accumulated_state["data"]["final_papers"])
-                            except Exception as e:
-                                logger.debug(f"Failed to load final_papers: {e}")
-
-                            try:
-                                if "title_abstract_results" in accumulated_state["data"]:
-                                    self.title_abstract_results = serializer.deserialize_screening_results(
-                                        accumulated_state["data"]["title_abstract_results"]
-                                    )
-                            except Exception as e:
-                                logger.debug(f"Failed to load title_abstract_results: {e}")
-
-                            try:
-                                if "fulltext_results" in accumulated_state["data"]:
-                                    self.fulltext_results = serializer.deserialize_screening_results(
-                                        accumulated_state["data"]["fulltext_results"]
-                                    )
-                            except Exception as e:
-                                logger.debug(f"Failed to load fulltext_results: {e}")
-
-                            try:
-                                if "extracted_data" in accumulated_state["data"]:
-                                    self.extracted_data = serializer.deserialize_extracted_data(
-                                        accumulated_state["data"]["extracted_data"]
-                                    )
-                            except Exception as e:
-                                logger.debug(f"Failed to load extracted_data: {e}")
-
-                            # Try to restore PRISMA counts manually
-                            try:
-                                if "prisma_counts" in accumulated_state:
-                                    counts = accumulated_state["prisma_counts"]
-                                    if "found" in counts:
-                                        db_breakdown = accumulated_state.get("database_breakdown", {})
-                                        self.prisma_counter.set_found(counts["found"], db_breakdown if db_breakdown else None)
-                                    if "no_dupes" in counts:
-                                        self.prisma_counter.set_no_dupes(counts["no_dupes"])
-                                    if "screened" in counts:
-                                        self.prisma_counter.set_screened(counts["screened"])
-                                    if "screen_exclusions" in counts:
-                                        self.prisma_counter.set_screen_exclusions(counts["screen_exclusions"])
-                                    if "full_text_sought" in counts:
-                                        self.prisma_counter.set_full_text_sought(counts["full_text_sought"])
-                                    if "full_text_not_retrieved" in counts:
-                                        self.prisma_counter.set_full_text_not_retrieved(counts["full_text_not_retrieved"])
-                                    if "full_text_assessed" in counts:
-                                        self.prisma_counter.set_full_text_assessed(counts["full_text_assessed"])
-                                    if "full_text_exclusions" in counts:
-                                        self.prisma_counter.set_full_text_exclusions(counts["full_text_exclusions"])
-                                    if "qualitative" in counts:
-                                        self.prisma_counter.set_qualitative(counts["qualitative"])
-                                    if "quantitative" in counts:
-                                        self.prisma_counter.set_quantitative(counts["quantitative"])
-                            except Exception as e:
-                                logger.debug(f"Failed to restore PRISMA counts: {e}")
-
-                            logger.info(
-                                f"Fallback restore: {len(self.all_papers)} all papers, "
-                                f"{len(self.unique_papers)} unique, {len(self.screened_papers)} screened, "
-                                f"{len(self.eligible_papers)} eligible, {len(self.final_papers)} final"
-                            )
+                        logger.error(f"Failed to load accumulated state: {load_error}", exc_info=True)
+                        raise RuntimeError(f"Checkpoint loading failed: {load_error}") from load_error
 
                 # Update workflow_id and checkpoint_dir from checkpoint
                 if existing_checkpoint is not None:
@@ -1127,7 +988,7 @@ class WorkflowManager:
                             results["outputs"]["manubot_export"] = manubot_path
                             self._manubot_export_path = manubot_path
                             logger.info(f"Manubot structure exported: {manubot_path}")
-                            self._save_phase_state("manubot_export")
+                            self.checkpoint_manager.save_phase("manubot_export")
 
             # Phase 18: Submission Package Generation
             # Skip if all phases are complete (start_from_phase >= 19 means everything is done)
@@ -1153,7 +1014,7 @@ class WorkflowManager:
                             results["outputs"]["submission_package"] = package_path
                             self._submission_package_path = package_path
                             logger.info(f"Submission package generated: {package_path}")
-                            self._save_phase_state("submission_package")
+                            self.checkpoint_manager.save_phase("submission_package")
 
             # Save workflow state
             state_path = self._save_workflow_state()
@@ -1470,8 +1331,8 @@ class WorkflowManager:
                 "topic_keywords": topic_keywords
             }
 
-        # Get topic context for screening agent
-        screening_context = self.topic_context.get_for_agent("screening_agent")
+        # Get topic context for title/abstract screening agent
+        screening_context = self.topic_context.get_for_agent("title_abstract_screener")
 
         # STAGE 1: Keyword-based pre-filtering (NO LLM - FAST!)
         logger.info("Stage 1: Keyword-based pre-filtering (no LLM)...")
@@ -1558,7 +1419,7 @@ class WorkflowManager:
             # Create handoff
             screening_handoff = self.handoff_protocol.create_handoff(
                 from_agent="search_agent",
-                to_agent="screening_agent",
+                to_agent="title_abstract_screener",
                 stage="screening",
                 topic_context=self.topic_context,
                 data={"papers_count": len(keyword_filtered_papers)},
@@ -1816,7 +1677,7 @@ class WorkflowManager:
         exclusion_criteria = [self.topic_context.inject_into_prompt(c) for c in exclusion_criteria]
 
         # Get topic context for full-text screening agent
-        fulltext_context = self.topic_context.get_for_agent("screening_agent")
+        fulltext_context = self.topic_context.get_for_agent("fulltext_screener")
 
         # Check if verbose mode is enabled
         is_verbose = self.debug_config.enabled and self.debug_config.level in [
@@ -1826,7 +1687,7 @@ class WorkflowManager:
 
         # Create handoff
         self.handoff_protocol.create_handoff(
-            from_agent="screening_agent",
+            from_agent="title_abstract_screener",
             to_agent="fulltext_screener",
             stage="fulltext_screening",
             topic_context=self.topic_context,
@@ -2625,7 +2486,6 @@ class WorkflowManager:
         self,
         section_name: str,
         writer_func: callable,
-        fallback_func: callable,
         *args,
         **kwargs
     ) -> tuple:
@@ -2635,7 +2495,6 @@ class WorkflowManager:
         Args:
             section_name: Name of the section
             writer_func: Function to write the section
-            fallback_func: Fallback function if all retries fail
             *args, **kwargs: Arguments to pass to writer_func
 
         Returns:
@@ -2697,13 +2556,9 @@ class WorkflowManager:
             if attempt < max_attempts - 1:
                 logger.info(f"Retrying {section_name} section immediately (attempt {attempt + 2}/{max_attempts})...")
 
-        # All retries failed, use fallback
-        logger.error(f"All {max_attempts} attempts failed for {section_name} section, using fallback")
-        result = fallback_func(*args, **kwargs)
-        duration = time.time() - section_start_time
-        word_count = len(result.split()) if result else 0
-
-        return result, duration, word_count
+        # All retries failed, raise exception
+        logger.error(f"All {max_attempts} attempts failed for {section_name} section. Last error: {last_error_reason}")
+        raise RuntimeError(f"Failed to write {section_name} section after {max_attempts} attempts: {last_error_reason}")
 
     def _write_article(self) -> Dict[str, str]:
         """Write all article sections with checkpointing and retry support."""
@@ -2761,7 +2616,6 @@ class WorkflowManager:
             intro, duration, word_count = self._write_section_with_retry(
                 "introduction",
                 self.intro_writer.write,
-                self.intro_writer._fallback_introduction,
                 research_question,
                 justification,
                 topic_context=writing_context,
@@ -2870,7 +2724,6 @@ class WorkflowManager:
             methods, duration, word_count = self._write_section_with_retry(
                 "methods",
                 self.methods_writer.write,
-                self.methods_writer._fallback_methods,
                 search_strategy_desc,
                 databases,
                 inclusion_criteria,
@@ -2955,14 +2808,9 @@ class WorkflowManager:
                 risk_of_bias_table = self.quality_assessment_data.get("risk_of_bias_table")
                 grade_assessments = self.quality_assessment_data.get("grade_summary")
                 grade_table = self.quality_assessment_data.get("grade_table")
-
-            def results_fallback(*args, **kwargs):
-                return self.results_writer._fallback_results(self.extracted_data, self.prisma_counter.get_counts())
-
             results, duration, word_count = self._write_section_with_retry(
                 "results",
                 self.results_writer.write,
-                results_fallback,
                 self.extracted_data,
                 self.prisma_counter.get_counts(),
                 key_findings[:10],  # Top 10 findings
@@ -3058,7 +2906,6 @@ class WorkflowManager:
             discussion, duration, word_count = self._write_section_with_retry(
                 "discussion",
                 self.discussion_writer.write,
-                self.discussion_writer._fallback_discussion,
                 research_question,
                 key_findings[:10],
                 self.extracted_data,
@@ -3117,14 +2964,9 @@ class WorkflowManager:
             )
 
             research_question = self.topic_context.research_question or self.topic_context.topic
-
-            def abstract_fallback(*args, **kwargs):
-                return self.abstract_generator._fallback_abstract(research_question, self.final_papers)
-
             abstract, duration, word_count = self._write_section_with_retry(
                 "abstract",
                 self.abstract_generator.generate,
-                abstract_fallback,
                 research_question,
                 self.final_papers,
                 sections,
@@ -3779,35 +3621,6 @@ class WorkflowManager:
         topic_slug = self.topic_context.topic.lower().replace(" ", "_")[:30]
         return f"workflow_{topic_slug}_{timestamp}"
 
-    def _find_existing_checkpoint_by_topic(self) -> Optional[Dict[str, Any]]:
-        """
-        Find existing checkpoint for the same topic.
-
-        This is a wrapper around CheckpointManager.find_by_topic() for backward compatibility.
-
-        Returns:
-            Dictionary with checkpoint_path and latest_phase, or None if not found
-        """
-        return self.checkpoint_manager.find_by_topic(self.topic_context.topic)
-
-    def _get_phase_dependencies(self, phase_name: str) -> List[str]:
-        """Get list of phases that must complete before this phase."""
-        dependencies = {
-            "search_databases": ["build_search_strategy"],
-            "deduplication": ["search_databases"],
-            "title_abstract_screening": ["deduplication"],
-            "fulltext_screening": ["title_abstract_screening"],
-            "paper_enrichment": ["fulltext_screening"],
-            "data_extraction": ["paper_enrichment"],
-            "prisma_generation": ["data_extraction"],
-            "visualization_generation": ["data_extraction"],
-            "article_writing": ["data_extraction"],
-            "report_generation": ["article_writing", "prisma_generation", "visualization_generation"],
-            "manubot_export": ["article_writing"],
-            "submission_package": ["article_writing", "report_generation"],
-        }
-        return dependencies.get(phase_name, [])
-
     def _serialize_phase_data(self, phase_name: str) -> Dict[str, Any]:
         """Serialize data for a specific phase."""
         serializer = StateSerializer()
@@ -3887,25 +3700,6 @@ class WorkflowManager:
         # For now, return empty dict - will be set by _write_article
         return getattr(self, "_article_sections", {})
 
-    def _save_phase_state(self, phase_name: str) -> Optional[str]:
-        """
-        Save state after phase completion.
-
-        This is a wrapper around CheckpointManager.save_phase() for backward compatibility.
-        """
-        return self.checkpoint_manager.save_phase(phase_name)
-
-    def _load_phase_state(self, checkpoint_path: str) -> Dict[str, Any]:
-        """
-        Load state from checkpoint file.
-
-        This is a wrapper around CheckpointManager.load_phase() for backward compatibility.
-        """
-        checkpoint_data = self.checkpoint_manager.load_phase(checkpoint_path)
-        if checkpoint_data is None:
-            return {}
-        return checkpoint_data
-
     def load_state_from_dict(self, state: Dict[str, Any]) -> None:
         """Load workflow state from dictionary (works with checkpoints or fixtures)."""
         serializer = StateSerializer()
@@ -3943,7 +3737,7 @@ class WorkflowManager:
             self.style_patterns = state["data"]["style_patterns"]
 
         # Load article sections
-        # Try loading from state first (for backward compatibility)
+        # Try loading from state first
         article_sections = {}
         if "article_sections" in state.get("data", {}):
             article_sections = state["data"]["article_sections"]
@@ -4031,7 +3825,9 @@ class WorkflowManager:
         manager = cls(config_path)
 
         # Load checkpoint data
-        checkpoint_data = manager._load_phase_state(str(checkpoint_file))
+        checkpoint_data = manager.checkpoint_manager.load_phase(str(checkpoint_file))
+        if checkpoint_data is None:
+            checkpoint_data = {}
 
         # Load state into manager
         manager.load_state_from_dict(checkpoint_data)

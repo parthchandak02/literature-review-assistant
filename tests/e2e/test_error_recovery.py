@@ -119,7 +119,7 @@ def test_error_context_propagation(error_test_config):
 
     error = ValueError("Test error")
     error_handoff = HandoffProtocol.create_error_handoff(
-        from_agent="screening_agent",
+        from_agent="title_abstract_screener",
         to_agent="error_handler",
         stage="screening",
         topic_context=manager.topic_context,

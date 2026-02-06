@@ -72,10 +72,6 @@ class PRISMACounter:
         """Set full-text articles excluded."""
         self.counts["full_text_exclusions"] = count
 
-    # Backward compatibility
-    def set_full_text(self, count: int):
-        """Set full-text articles assessed (for backward compatibility)."""
-        self.set_full_text_assessed(count)
 
     def set_qualitative(self, count: int):
         """Set studies included in qualitative synthesis."""

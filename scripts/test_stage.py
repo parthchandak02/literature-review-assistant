@@ -241,7 +241,7 @@ def test_stage(
         
         # Save checkpoint if requested
         if save_checkpoint:
-            checkpoint_path = manager._save_phase_state(stage)
+            checkpoint_path = manager.checkpoint_manager.save_phase(stage)
             if checkpoint_path:
                 console.print(f"[green]Saved checkpoint to: {checkpoint_path}[/green]")
         

@@ -127,12 +127,19 @@ def mock_workflow_config() -> Dict[str, Any]:
     return {
         "topic": {"topic": "Test Topic"},
         "agents": {
-            "screening_agent": {
-                "role": "Test Screener",
-                "goal": "Test screening",
+            "title_abstract_screener": {
+                "role": "Test Title/Abstract Screener",
+                "goal": "Test title/abstract screening",
                 "backstory": "Test",
-                "llm_model": "gemini-2.5-pro",
-                "temperature": 0.3,
+                "llm_model": "gemini-2.5-flash-lite",
+                "temperature": 0.2,
+            },
+            "fulltext_screener": {
+                "role": "Test Fulltext Screener",
+                "goal": "Test fulltext screening",
+                "backstory": "Test",
+                "llm_model": "gemini-2.5-flash-lite",
+                "temperature": 0.2,
             }
         },
         "workflow": {

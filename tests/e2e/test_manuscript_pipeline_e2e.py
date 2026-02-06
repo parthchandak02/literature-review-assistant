@@ -112,7 +112,7 @@ def test_resumption(test_config_path):
     manager = WorkflowManager(test_config_path)
     
     # Find existing checkpoint
-    existing_checkpoint = manager._find_existing_checkpoint_by_topic()
+    existing_checkpoint = manager.checkpoint_manager.find_by_topic(manager.topic_context.topic)
     if not existing_checkpoint:
         pytest.skip("No existing checkpoint found")
     

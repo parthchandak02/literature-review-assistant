@@ -76,7 +76,7 @@ submission:
             
             # Test that checkpoint can be loaded
             # This tests the dependency resolution
-            existing = workflow_manager._find_existing_checkpoint_by_topic()
+            existing = workflow_manager.checkpoint_manager.find_by_topic(workflow_manager.topic_context.topic)
             assert existing is not None
             assert existing["latest_phase"] == "manubot_export"
 
@@ -122,7 +122,7 @@ submission:
                 "checkpoint_dir": str(checkpoint_dir.parent),
             }
             
-            existing = workflow_manager._find_existing_checkpoint_by_topic()
+            existing = workflow_manager.checkpoint_manager.find_by_topic(workflow_manager.topic_context.topic)
             assert existing is not None
             assert existing["latest_phase"] == "submission_package"
 
@@ -131,10 +131,12 @@ submission:
         workflow_manager.output_dir = tmp_path
         
         # Test dependency resolution
-        deps_manubot = workflow_manager._get_phase_dependencies("manubot_export")
+        phase_manubot = workflow_manager.phase_registry.get_phase("manubot_export")
+        deps_manubot = phase_manubot.dependencies if phase_manubot else []
         assert "article_writing" in deps_manubot
         
-        deps_submission = workflow_manager._get_phase_dependencies("submission_package")
+        phase_submission = workflow_manager.phase_registry.get_phase("submission_package")
+        deps_submission = phase_submission.dependencies if phase_submission else []
         assert "article_writing" in deps_submission
         assert "report_generation" in deps_submission
 

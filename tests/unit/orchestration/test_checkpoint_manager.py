@@ -33,9 +33,12 @@ def test_save_phase_disabled():
     workflow_manager.prisma_counter.get_counts.return_value = {}
     workflow_manager.prisma_counter.get_database_breakdown.return_value = {}
     workflow_manager._serialize_phase_data = Mock(return_value={})
+    
+    # Mock phase_registry with proper phase structure
+    mock_phase = Mock()
+    mock_phase.dependencies = []
     workflow_manager.phase_registry = Mock()
-    workflow_manager.phase_registry.get_phase.return_value = None
-    workflow_manager._get_phase_dependencies = Mock(return_value=[])
+    workflow_manager.phase_registry.get_phase.return_value = mock_phase
     
     manager = CheckpointManager(workflow_manager)
     result = manager.save_phase("test_phase")

@@ -107,7 +107,7 @@ class TestConfigLoader:
 
         config = {
             "agents": {
-                "screening_agent": {
+                "title_abstract_screener": {
                     "role": "Screener for {topic}",
                     "goal": "Screen papers about {domain}",
                 }
@@ -116,7 +116,7 @@ class TestConfigLoader:
 
         result = loader.apply_template_replacement(config, topic_context)
 
-        assert "{topic}" not in result["agents"]["screening_agent"]["role"]
-        assert "{domain}" not in result["agents"]["screening_agent"]["goal"]
-        assert "Test Topic" in result["agents"]["screening_agent"]["role"]
-        assert "healthcare" in result["agents"]["screening_agent"]["goal"]
+        assert "{topic}" not in result["agents"]["title_abstract_screener"]["role"]
+        assert "{domain}" not in result["agents"]["title_abstract_screener"]["goal"]
+        assert "Test Topic" in result["agents"]["title_abstract_screener"]["role"]
+        assert "healthcare" in result["agents"]["title_abstract_screener"]["goal"]

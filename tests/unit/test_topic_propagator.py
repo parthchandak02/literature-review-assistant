@@ -66,7 +66,7 @@ def test_topic_context_get_for_agent():
         keywords=["keyword1"],
     )
 
-    agent_context = context.get_for_agent("screening_agent")
+    agent_context = context.get_for_agent("title_abstract_screener")
     assert agent_context["topic"] == "Test Topic"
     assert agent_context["domain"] == "healthcare"
     assert agent_context["research_question"] == "Test question"
