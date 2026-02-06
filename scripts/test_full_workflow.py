@@ -123,7 +123,7 @@ TEST_CONFIG = {
             "generate_prisma_report": True,
         },
     },
-    "topic": {
+    "topic_context": {
         "topic": "Health Literacy Chatbots",
         "keywords": ["health literacy", "chatbot", "patient education"],
         "domain": "healthcare technology",
@@ -261,7 +261,7 @@ class WorkflowTester:
         
         try:
             # Limit to first 10 for faster testing
-            original_count = len(self.workflow_manager.unique_papers)
+            len(self.workflow_manager.unique_papers)
             self.workflow_manager.unique_papers = self.workflow_manager.unique_papers[:10]
             
             self.workflow_manager._screen_title_abstract()

@@ -111,10 +111,6 @@ class TestCitationManagerIntegration:
         if not manager.manubot_resolver:
             pytest.skip("Manubot resolver not available")
         
-        mock_csl_item = {
-            "title": "Test Paper",
-            "author": [{"family": "Smith", "given": "John"}],
-        }
         
         with patch.object(manager, "add_citation_from_identifier") as mock_add:
             mock_add.return_value = 1

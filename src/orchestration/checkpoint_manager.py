@@ -354,7 +354,7 @@ class CheckpointManager:
         Returns:
             Accumulated state dictionary
         """
-        serializer = StateSerializer()
+        StateSerializer()
         accumulated_state = {"data": {}}
         loaded_phases = []
         

@@ -188,7 +188,7 @@ class ChartGenerator:
         countries_list, counts_list = zip(*top_countries)
         
         fig, ax = plt.subplots(figsize=(12, 6))
-        bars = ax.barh(range(len(countries_list)), counts_list, color="steelblue", alpha=0.7)
+        ax.barh(range(len(countries_list)), counts_list, color="steelblue", alpha=0.7)
         ax.set_yticks(range(len(countries_list)))
         ax.set_yticklabels(countries_list)
         ax.set_xlabel("Number of Papers", fontsize=12)
@@ -197,7 +197,7 @@ class ChartGenerator:
         ax.grid(axis="x", alpha=0.3)
 
         # Add value labels on bars
-        for i, (country, count) in enumerate(top_countries):
+        for i, (_country, count) in enumerate(top_countries):
             ax.text(count + 0.1, i, str(count), va="center", fontsize=10)
 
         plt.tight_layout()
@@ -429,7 +429,7 @@ class ChartGenerator:
         subjects_list, counts_list = zip(*top_subjects)
         
         fig, ax = plt.subplots(figsize=(12, 6))
-        bars = ax.barh(range(len(subjects_list)), counts_list, color="steelblue", alpha=0.7)
+        ax.barh(range(len(subjects_list)), counts_list, color="steelblue", alpha=0.7)
         ax.set_yticks(range(len(subjects_list)))
         ax.set_yticklabels(subjects_list)
         ax.set_xlabel("Number of Papers", fontsize=12)
@@ -438,7 +438,7 @@ class ChartGenerator:
         ax.grid(axis="x", alpha=0.3)
 
         # Add value labels on bars
-        for i, (subject, count) in enumerate(top_subjects):
+        for i, (_subject, count) in enumerate(top_subjects):
             ax.text(count + 0.1, i, str(count), va="center", fontsize=10)
 
         plt.tight_layout()
@@ -811,7 +811,7 @@ class ChartGenerator:
             
             # Draw nodes
             node_colors_list = []
-            for i, paper in enumerate(papers):
+            for _i, paper in enumerate(papers):
                 if has_years and paper.year:
                     normalized = (paper.year - min_year) / year_range if year_range > 0 else 0.5
                     node_colors_list.append(normalized)
@@ -1077,7 +1077,7 @@ class ChartGenerator:
         ax.set_xticklabels(["Very Low", "Low", "Moderate", "High"])
 
         # Add value labels on bars
-        for i, (bar, certainty) in enumerate(zip(bars, certainty_levels)):
+        for _i, (bar, certainty) in enumerate(zip(bars, certainty_levels)):
             width = bar.get_width()
             ax.text(width + 0.1, bar.get_y() + bar.get_height() / 2,
                    certainty, ha="left", va="center", fontweight="bold")

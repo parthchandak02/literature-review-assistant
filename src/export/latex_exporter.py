@@ -18,12 +18,8 @@ try:
 except ImportError:
     PYLATEXENC_AVAILABLE = False
 
-try:
-    import markdown
-    from markdown.extensions import tables, fenced_code
-    MARKDOWN_AVAILABLE = True
-except ImportError:
-    MARKDOWN_AVAILABLE = False
+import importlib.util
+MARKDOWN_AVAILABLE = importlib.util.find_spec("markdown") is not None
 
 logger = logging.getLogger(__name__)
 
@@ -312,7 +308,7 @@ class LaTeXExporter:
         # Check separator
         if start_idx + 1 >= len(lines):
             return None
-        separator_line = lines[start_idx + 1]
+        lines[start_idx + 1]
 
         # Parse rows
         table_rows = []

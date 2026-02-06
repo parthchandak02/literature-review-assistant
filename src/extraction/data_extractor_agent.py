@@ -11,7 +11,6 @@ import logging
 import time
 
 from ..utils.rich_utils import (
-    console,
     print_llm_request_panel,
     print_llm_response_panel,
 )
@@ -430,7 +429,7 @@ Return ONLY valid JSON matching this exact structure:
         enhanced_prompt = self._inject_topic_context(prompt)
 
         # Enhanced logging with Rich console
-        start_time = time.time()
+        time.time()
         if self.debug_config.show_llm_calls or self.debug_config.enabled:
             prompt_preview = (
                 enhanced_prompt[:200] + "..." if len(enhanced_prompt) > 200 else enhanced_prompt

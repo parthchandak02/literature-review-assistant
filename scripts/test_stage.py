@@ -277,7 +277,7 @@ def test_stage_range(
     )
     
     # Execute range
-    result = manager.run_from_stage(from_stage, to_stage)
+    manager.run_from_stage(from_stage, to_stage)
     console.print("[green]Stage range executed successfully[/green]")
 
 

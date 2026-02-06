@@ -518,7 +518,7 @@ Output must be suitable for direct insertion into an academic publication withou
 
         messages = [{"role": "user", "content": enhanced_prompt}]
 
-        for iteration in range(max_iterations):
+        for _iteration in range(max_iterations):
             try:
                 # Gemini tool calling
                     # Google GenAI tool calling format

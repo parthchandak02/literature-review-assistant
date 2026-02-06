@@ -220,7 +220,6 @@ class TestCSLFormatter:
         formatter = CSLFormatter(cache_dir=cache_dir)
         
         # Mock successful download
-        mock_content = "/* IEEE Citation Style */"
         with patch("urllib.request.urlretrieve") as mock_download:
             # Create a mock file-like object
             mock_file = MagicMock()
@@ -228,7 +227,7 @@ class TestCSLFormatter:
             mock_download.return_value = (mock_file, None)
             
             # Mock file writing
-            with patch("builtins.open", mock_open()) as mock_file_open:
+            with patch("builtins.open", mock_open()):
                 style_path = formatter.download_style("ieee")
                 assert style_path == cache_dir / "ieee.csl"
                 mock_download.assert_called()

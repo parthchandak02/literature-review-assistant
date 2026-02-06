@@ -117,7 +117,7 @@ submission:
             
             # This would be called in actual workflow
             # For now, test the method directly
-            package_path = workflow_manager._generate_submission_package(
+            workflow_manager._generate_submission_package(
                 {"final_report": str(report_path)},
                 {},
                 str(report_path),
@@ -139,7 +139,7 @@ submission:
             mock_instance = MagicMock()
             mock_cm.return_value = mock_instance
             
-            manubot_path = workflow_manager._export_manubot_structure(article_sections)
+            workflow_manager._export_manubot_structure(article_sections)
             # Verify citation resolution was attempted
 
     def test_workflow_output_validation(self, workflow_manager, tmp_path):

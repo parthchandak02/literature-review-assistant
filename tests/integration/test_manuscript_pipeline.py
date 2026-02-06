@@ -14,7 +14,7 @@ class TestManuscriptPipeline:
     def test_manubot_export_integration(self, tmp_path):
         """Test Manubot export integration."""
         exporter = ManubotExporter(tmp_path / "manuscript")
-        citation_manager = CitationManager([])
+        CitationManager([])
 
         article_sections = {
             "abstract": "Test abstract",

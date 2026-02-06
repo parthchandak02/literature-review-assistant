@@ -149,7 +149,7 @@ class CitationValidator(StageValidator):
         citation_patterns = ["[Citation", "[citation", "Citation"]
         found_citations = False
         
-        for section_name, section_text in article_sections.items():
+        for _section_name, section_text in article_sections.items():
             for pattern in citation_patterns:
                 if pattern in section_text:
                     found_citations = True
@@ -162,7 +162,7 @@ class CitationValidator(StageValidator):
         import re
         citation_regex = r"\[Citation\s+\d+\]|\[\d+\]"
         
-        for section_name, section_text in article_sections.items():
+        for _section_name, section_text in article_sections.items():
             citations = re.findall(citation_regex, section_text)
             if citations:
                 # Check if citation numbers are valid

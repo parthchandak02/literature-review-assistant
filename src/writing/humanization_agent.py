@@ -6,7 +6,7 @@ Uses style patterns extracted from eligible papers.
 """
 
 import logging
-from typing import Dict, Optional, Any
+from typing import Dict, Optional, Any, List
 from ..screening.base_agent import BaseScreeningAgent
 from .naturalness_scorer import NaturalnessScorer
 

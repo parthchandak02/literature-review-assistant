@@ -350,7 +350,7 @@ def auto_fill_assessments(
                     f"[cyan]{study_title_short}...[/cyan]"
                 )
                 progress.log(
-                    f"  [dim]-> Building RoB 2 assessment prompt...[/dim]"
+                    "  [dim]-> Building RoB 2 assessment prompt...[/dim]"
                 )
                 progress.log(
                     f"  [dim]-> Calling LLM ({llm_model})...[/dim]"
@@ -407,7 +407,7 @@ def auto_fill_assessments(
                     f"[cyan]{outcome_short}...[/cyan]"
                 )
                 progress.log(
-                    f"  [dim]-> Building GRADE assessment prompt...[/dim]"
+                    "  [dim]-> Building GRADE assessment prompt...[/dim]"
                 )
                 progress.log(
                     f"  [dim]-> Calling LLM ({llm_model})...[/dim]"

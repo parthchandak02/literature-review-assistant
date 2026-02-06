@@ -29,7 +29,7 @@ def test_circuit_breaker_opens_after_threshold():
     breaker = CircuitBreaker(CircuitBreakerConfig(failure_threshold=3))
 
     # Cause failures
-    for i in range(3):
+    for _i in range(3):
         try:
             breaker.call(lambda: (_ for _ in ()).throw(Exception("Test error")))
         except Exception:
@@ -43,7 +43,7 @@ def test_circuit_breaker_rejects_when_open():
     breaker = CircuitBreaker(CircuitBreakerConfig(failure_threshold=2, timeout=0.1))
 
     # Open the circuit
-    for i in range(2):
+    for _i in range(2):
         try:
             breaker.call(lambda: (_ for _ in ()).throw(Exception("Test")))
         except Exception:
@@ -61,7 +61,7 @@ def test_circuit_breaker_half_open_transition():
     breaker = CircuitBreaker(CircuitBreakerConfig(failure_threshold=2, timeout=0.1))
 
     # Open the circuit
-    for i in range(2):
+    for _i in range(2):
         try:
             breaker.call(lambda: (_ for _ in ()).throw(Exception("Test")))
         except Exception:
@@ -100,7 +100,7 @@ def test_circuit_breaker_reset():
     breaker = CircuitBreaker(CircuitBreakerConfig(failure_threshold=2))
 
     # Open the circuit
-    for i in range(2):
+    for _i in range(2):
         try:
             breaker.call(lambda: (_ for _ in ()).throw(Exception("Test")))
         except Exception:

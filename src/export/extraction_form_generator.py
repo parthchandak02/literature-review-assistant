@@ -160,7 +160,6 @@ class ExtractionFormGenerator:
         """Generate Word form (requires python-docx)."""
         try:
             from docx import Document
-            from docx.shared import Inches
         except ImportError:
             logger.warning("python-docx not available, falling back to markdown")
             return self._generate_markdown_form(output_path.with_suffix(".md"))

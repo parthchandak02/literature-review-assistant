@@ -55,14 +55,14 @@ def run_tests():
     ]
     
     # Try to add HTML report if pytest-html is available
-    try:
-        import pytest_html
+    import importlib.util
+    if importlib.util.find_spec("pytest_html") is not None:
         pytest_args.extend([
             f"--html={html_output}",
             "--self-contained-html",
         ])
         console.print("[green]HTML report enabled[/green]")
-    except ImportError:
+    else:
         console.print("[yellow]pytest-html not available, skipping HTML report[/yellow]")
     
     # Capture output for parsing

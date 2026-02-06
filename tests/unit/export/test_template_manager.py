@@ -186,7 +186,7 @@ class TestTemplateManager:
         """Test template directory creation."""
         templates_dir = tmp_path / "new_templates"
         
-        manager = TemplateManager(templates_dir=templates_dir)
+        TemplateManager(templates_dir=templates_dir)
         assert templates_dir.exists()
 
     def test_get_template_path_resolution(self, tmp_path):

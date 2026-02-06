@@ -10,7 +10,7 @@ import logging
 
 try:
     from docx import Document
-    from docx.shared import Inches, Pt
+    from docx.shared import Inches
     from docx.enum.text import WD_ALIGN_PARAGRAPH
     DOCX_AVAILABLE = True
 except ImportError:

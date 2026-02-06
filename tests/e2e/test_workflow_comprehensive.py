@@ -5,19 +5,16 @@ Tests the complete research paper generation workflow end-to-end.
 Validates all phases, error handling, and outputs.
 """
 
-import os
 import json
 import time
 from pathlib import Path
-from typing import Dict, List, Optional, Any
 from dotenv import load_dotenv
 
 import pytest
 
 from src.orchestration.workflow_manager import WorkflowManager
-from src.search.database_connectors import ACMConnector, MockConnector
-from src.search.multi_database_searcher import MultiDatabaseSearcher
-from src.extraction.data_extractor_agent import DataExtractorAgent, ExtractedData
+from src.search.database_connectors import ACMConnector
+from src.extraction.data_extractor_agent import DataExtractorAgent
 from src.schemas.extraction_schemas import ExtractedDataSchema
 from src.search.connectors.base import Paper
 

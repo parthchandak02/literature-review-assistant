@@ -5,7 +5,7 @@ LLM-based evaluation system to measure text naturalness.
 """
 
 import logging
-from typing import Dict, Optional
+from typing import Dict, Optional, List
 from ..screening.base_agent import BaseScreeningAgent
 
 logger = logging.getLogger(__name__)

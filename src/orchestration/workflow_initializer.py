@@ -135,7 +135,7 @@ class WorkflowInitializer:
         self._register_writing_tools()
         
         # Abstract generator
-        abstract_config = agents_config.get("abstract_generator", {})
+        agents_config.get("abstract_generator", {})
         # Pass full config so abstract generator can access topic.protocol and topic.funding
         self.abstract_generator = AbstractGenerator(
             llm_provider, llm_api_key, agent_topic_context, self.config

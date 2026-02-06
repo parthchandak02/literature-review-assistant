@@ -100,12 +100,8 @@ class DatabaseHealthChecker:
     def check_api_keys(self) -> Dict[str, bool]:
         """Check which API keys are configured."""
         # Check for pybliometrics installation
-        pybliometrics_available = False
-        try:
-            import pybliometrics
-            pybliometrics_available = True
-        except ImportError:
-            pass
+        import importlib.util
+        pybliometrics_available = importlib.util.find_spec("pybliometrics") is not None
         
         return {
             "PUBMED_API_KEY": bool(os.getenv("PUBMED_API_KEY")),
@@ -129,7 +125,7 @@ class DatabaseHealthChecker:
             connector = PubMedConnector(api_key=api_key, email=email)
             start_time = time.time()
             results = connector.search(TEST_QUERY, max_results=10)
-            duration = time.time() - start_time
+            time.time() - start_time
             
             if len(results) > 0:
                 sample = results[0].title[:60] + "..." if len(results[0].title) > 60 else results[0].title
@@ -157,7 +153,7 @@ class DatabaseHealthChecker:
             connector = ArxivConnector()
             start_time = time.time()
             results = connector.search(TEST_QUERY, max_results=10)
-            duration = time.time() - start_time
+            time.time() - start_time
             
             if len(results) > 0:
                 sample = results[0].title[:60] + "..." if len(results[0].title) > 60 else results[0].title
@@ -175,7 +171,7 @@ class DatabaseHealthChecker:
             connector = SemanticScholarConnector(api_key=api_key)
             start_time = time.time()
             results = connector.search(TEST_QUERY, max_results=10)
-            duration = time.time() - start_time
+            time.time() - start_time
             
             if len(results) > 0:
                 sample = results[0].title[:60] + "..." if len(results[0].title) > 60 else results[0].title
@@ -198,7 +194,7 @@ class DatabaseHealthChecker:
             connector = CrossrefConnector(email=email)
             start_time = time.time()
             results = connector.search(TEST_QUERY, max_results=10)
-            duration = time.time() - start_time
+            time.time() - start_time
             
             if len(results) > 0:
                 sample = results[0].title[:60] + "..." if len(results[0].title) > 60 else results[0].title
@@ -224,7 +220,7 @@ class DatabaseHealthChecker:
             connector = ScopusConnector(api_key=api_key)
             start_time = time.time()
             results = connector.search(TEST_QUERY, max_results=10)
-            duration = time.time() - start_time
+            time.time() - start_time
             
             if len(results) > 0:
                 sample = results[0].title[:60] + "..." if len(results[0].title) > 60 else results[0].title
@@ -241,7 +237,7 @@ class DatabaseHealthChecker:
             connector = ACMConnector()
             start_time = time.time()
             results = connector.search(TEST_QUERY, max_results=10)
-            duration = time.time() - start_time
+            time.time() - start_time
             
             if len(results) > 0:
                 sample = results[0].title[:60] + "..." if len(results[0].title) > 60 else results[0].title
@@ -258,7 +254,7 @@ class DatabaseHealthChecker:
             connector = SpringerConnector()
             start_time = time.time()
             results = connector.search(TEST_QUERY, max_results=10)
-            duration = time.time() - start_time
+            time.time() - start_time
             
             if len(results) > 0:
                 sample = results[0].title[:60] + "..." if len(results[0].title) > 60 else results[0].title
@@ -275,7 +271,7 @@ class DatabaseHealthChecker:
             connector = IEEEXploreConnector()
             start_time = time.time()
             results = connector.search(TEST_QUERY, max_results=10)
-            duration = time.time() - start_time
+            time.time() - start_time
             
             if len(results) > 0:
                 sample = results[0].title[:60] + "..." if len(results[0].title) > 60 else results[0].title
@@ -296,7 +292,7 @@ class DatabaseHealthChecker:
             connector = PerplexityConnector(api_key=api_key)
             start_time = time.time()
             results = connector.search(TEST_QUERY, max_results=10)
-            duration = time.time() - start_time
+            time.time() - start_time
             
             if len(results) > 0:
                 sample = results[0].title[:60] + "..." if len(results[0].title) > 60 else results[0].title
@@ -316,7 +312,7 @@ class DatabaseHealthChecker:
             connector = GoogleScholarConnector()
             start_time = time.time()
             results = connector.search(TEST_QUERY, max_results=10)
-            duration = time.time() - start_time
+            time.time() - start_time
             
             if len(results) > 0:
                 sample = results[0].title[:60] + "..." if len(results[0].title) > 60 else results[0].title
@@ -402,7 +398,7 @@ class DatabaseHealthChecker:
         
         # Summary
         print("=" * 60)
-        print(f"Summary:")
+        print("Summary:")
         print(f"  Working: {working_count}/{total_count}")
         print(f"  Skipped: {skipped_count}/{total_count}")
         print(f"  Errors: {error_count}/{total_count}")

@@ -199,7 +199,7 @@ class PRISMAGenerator:
         sought = counts.get("full_text_sought", 0)
         not_retrieved = counts.get("full_text_not_retrieved", 0)
         assessed = counts.get("full_text_assessed", 0)
-        excluded = counts.get("full_text_exclusions", 0)
+        counts.get("full_text_exclusions", 0)
         included = counts.get("qualitative", 0) or counts.get("quantitative", 0)
         
         # Validation rule 1: assessed should not exceed sought

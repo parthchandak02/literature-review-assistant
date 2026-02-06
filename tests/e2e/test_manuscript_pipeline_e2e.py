@@ -12,7 +12,6 @@ Tests:
 
 import json
 from pathlib import Path
-from typing import Dict, Any
 
 import pytest
 
@@ -40,8 +39,8 @@ def test_workflow_execution(test_config_path):
     
     # Check for outputs
     outputs = results.get("outputs", {})
-    manubot_path = outputs.get("manubot_export")
-    package_path = outputs.get("submission_package")
+    outputs.get("manubot_export")
+    outputs.get("submission_package")
     
     assert manubot_enabled or submission_enabled, "At least one phase should be enabled"
     # Note: Actual execution may fail in test environment, so we just check config

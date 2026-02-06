@@ -199,7 +199,6 @@ Return ONLY valid JSON."""
         if not self.llm_client:
             raise ValueError("LLM client not available")
 
-        model_to_use = self.llm_model
         enhanced_prompt = self._inject_topic_context(prompt)
 
         # Validate provider (Gemini only)
@@ -330,7 +329,7 @@ Return ONLY valid JSON."""
         
         # Build inclusion keyword groups from search_terms
         if search_terms:
-            for group_name, synonyms in search_terms.items():
+            for _group_name, synonyms in search_terms.items():
                 # Each group is a set of synonyms (OR logic within group)
                 group_keywords = set()
                 for synonym in synonyms:

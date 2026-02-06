@@ -155,7 +155,7 @@ workflow:
         workflow_manager.save_checkpoints = True
         
         article_sections = {"abstract": "Test"}
-        manubot_path = workflow_manager._export_manubot_structure(article_sections)
+        workflow_manager._export_manubot_structure(article_sections)
         
         # Checkpoint should be saved (verify via state file existence)
         # This is tested indirectly through workflow run
@@ -172,7 +172,7 @@ workflow:
         manuscript_path = tmp_path / "final_report.md"
         manuscript_path.write_text("# Test")
         
-        package_path = workflow_manager._generate_submission_package(
+        workflow_manager._generate_submission_package(
             {"final_report": str(manuscript_path)},
             {},
             str(manuscript_path),
@@ -251,7 +251,7 @@ workflow:
             mock_instance.build_package.return_value = tmp_path / "package"
             mock_builder.return_value = mock_instance
             
-            package_path = workflow_manager._generate_submission_package(
+            workflow_manager._generate_submission_package(
                 {"final_report": str(manuscript_path)},
                 {},
                 str(manuscript_path),

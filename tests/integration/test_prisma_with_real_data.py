@@ -260,7 +260,7 @@ class TestPRISMAWithRealData:
         
         # Generate diagram
         try:
-            prisma_path = workflow_manager._generate_prisma_diagram()
+            workflow_manager._generate_prisma_diagram()
             
             # Verify counts after generation (should be unchanged)
             actual_counts = workflow_manager.prisma_counter.get_counts()

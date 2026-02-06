@@ -173,7 +173,7 @@ class TestFullWorkflowRealDatabases:
     @pytest.mark.integration
     def test_search_phase_real_databases(self, workflow_manager):
         """Test search phase with real databases."""
-        api_keys = check_api_keys()
+        check_api_keys()
         
         # Build search strategy
         workflow_manager._build_search_strategy()

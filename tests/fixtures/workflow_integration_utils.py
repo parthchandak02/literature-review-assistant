@@ -5,13 +5,12 @@ Helper functions for integration testing of workflow components.
 Provides mock data generators and validation helpers.
 """
 
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any
 from pathlib import Path
 import json
 
 from src.search.connectors.base import Paper
 from src.extraction.data_extractor_agent import ExtractedData
-from src.screening.base_agent import ScreeningResult, InclusionDecision
 from src.search.database_connectors import MockConnector
 
 

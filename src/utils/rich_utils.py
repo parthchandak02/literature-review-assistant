@@ -7,7 +7,7 @@ for common Rich operations, ensuring consistent formatting across the applicatio
 
 from rich.console import Console
 from rich.panel import Panel
-from typing import Optional, List, Tuple, Dict, Any
+from typing import Optional, List, Tuple, Dict
 
 # Singleton console instance - used throughout the application
 console = Console()
@@ -262,7 +262,7 @@ def print_checkpoint_panel(
     else:  # error
         color = "red"
         title = "Checkpoint Error"
-        content = f"[bold red]Failed to load checkpoints[/bold red]"
+        content = "[bold red]Failed to load checkpoints[/bold red]"
     
     console.print(
         Panel(

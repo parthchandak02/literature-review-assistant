@@ -123,7 +123,7 @@ class TestManuscriptErrorHandling:
             
             # Should handle error gracefully
             try:
-                package_dir = builder.build_package(
+                builder.build_package(
                     workflow_outputs,
                     "ieee",
                     manuscript_path,

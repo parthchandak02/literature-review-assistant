@@ -60,7 +60,7 @@ class MultiDatabaseSearcher:
         all_results = []
         results_by_db = self.search_all(query, max_results_per_db)
 
-        for db_name, papers in results_by_db.items():
+        for _db_name, papers in results_by_db.items():
             all_results.extend(papers)
 
         return all_results

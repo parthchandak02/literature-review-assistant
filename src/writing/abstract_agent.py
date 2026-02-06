@@ -181,7 +181,7 @@ Generate a structured abstract with all 12 elements clearly labeled. Total word 
 
         # Add style guidelines if patterns available (use introduction patterns for abstract)
         if style_patterns and "introduction" in style_patterns:
-            intro_patterns = style_patterns["introduction"]
+            style_patterns["introduction"]
             style_guidelines = "\n\nSTYLE GUIDELINES (based on analysis of included papers):\n"
             style_guidelines += "- Use natural academic vocabulary with domain-specific terms\n"
             style_guidelines += "- Vary sentence structures\n"

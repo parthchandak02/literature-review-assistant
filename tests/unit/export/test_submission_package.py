@@ -64,7 +64,7 @@ class TestSubmissionPackageBuilder:
         
         with patch.object(builder.pandoc_converter, "markdown_to_pdf") as mock_pdf:
             mock_pdf.return_value = tmp_path / "manuscript.pdf"
-            package_dir = builder.build_package(
+            builder.build_package(
                 workflow_outputs,
                 "ieee",
                 manuscript_path,
@@ -83,7 +83,7 @@ class TestSubmissionPackageBuilder:
         
         with patch.object(builder.pandoc_converter, "markdown_to_docx") as mock_docx:
             mock_docx.return_value = tmp_path / "manuscript.docx"
-            package_dir = builder.build_package(
+            builder.build_package(
                 workflow_outputs,
                 "ieee",
                 manuscript_path,
@@ -102,7 +102,7 @@ class TestSubmissionPackageBuilder:
         
         with patch.object(builder.pandoc_converter, "markdown_to_html") as mock_html:
             mock_html.return_value = tmp_path / "manuscript.html"
-            package_dir = builder.build_package(
+            builder.build_package(
                 workflow_outputs,
                 "ieee",
                 manuscript_path,

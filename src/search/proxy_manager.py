@@ -111,10 +111,8 @@ class ProxyManager:
 
     def _setup_socks5_proxy(self):
         """Setup SOCKS5 proxy."""
-        try:
-            import socks
-            import socket
-        except ImportError:
+        import importlib.util
+        if importlib.util.find_spec("socks") is None:
             logger.error("SOCKS5 proxy requires 'requests[socks]' or 'PySocks'. Install with: pip install requests[socks]")
             return
         

@@ -200,7 +200,7 @@ def test_abstract_schema_validation(sample_papers, sample_article_sections, topi
     )
     
     # Check structure - each element should be on its own line or clearly separated
-    lines = abstract.split("\n")
+    abstract.split("\n")
     element_labels = [
         "Background:",
         "Objectives:",

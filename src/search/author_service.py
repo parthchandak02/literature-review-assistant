@@ -187,7 +187,7 @@ class AuthorService:
         
         # Try to fetch coauthors if connector supports it
         if database and database in self.connectors:
-            connector = self.connectors[database]
+            self.connectors[database]
             # This would require additional connector methods
             # For now, return empty list
             pass

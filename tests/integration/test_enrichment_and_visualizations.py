@@ -8,7 +8,7 @@ with enriched data to verify the fixes from the enhanced visualization plan.
 import json
 import logging
 from pathlib import Path
-from typing import List, Dict, Optional
+from typing import List
 
 import pytest
 from dotenv import load_dotenv
@@ -165,7 +165,7 @@ def test_visualization_generation(sample_checkpoint_path, tmp_path):
     assert len(viz_paths) > 0, "At least one visualization should be generated"
     
     # Verify files exist
-    for name, path in viz_paths.items():
+    for _name, path in viz_paths.items():
         assert Path(path).exists(), f"Visualization file should exist: {path}"
 
 

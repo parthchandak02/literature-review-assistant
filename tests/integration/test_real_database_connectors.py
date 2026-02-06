@@ -177,9 +177,9 @@ class TestSemanticScholarConnector:
         
         if len(results) > 0:
             # Check that at least some papers have DOIs
-            papers_with_doi = [p for p in results if p.doi]
+            [p for p in results if p.doi]
             # Check that at least some papers have venues/journals
-            papers_with_venue = [p for p in results if p.journal]
+            [p for p in results if p.journal]
 
 
 class TestCrossrefConnector:

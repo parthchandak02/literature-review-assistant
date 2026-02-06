@@ -83,7 +83,7 @@ def test_circuit_breaker_recovery(error_test_config):
     manager.title_screener.llm_client = None  # Will cause failures
 
     # Multiple calls should trigger circuit breaker
-    for i in range(3):
+    for _i in range(3):
         result = manager.title_screener.screen(
             title="Test", abstract="Test", inclusion_criteria=[], exclusion_criteria=[]
         )
@@ -190,7 +190,7 @@ def test_network_timeout_handling(error_test_config):
 
 def test_invalid_api_key_handling(error_test_config):
     """Test handling of invalid API keys."""
-    manager = WorkflowManager(error_test_config)
+    WorkflowManager(error_test_config)
     
     # Create connector with invalid key
     from src.search.database_connectors import ScopusConnector
@@ -266,7 +266,7 @@ def test_prisma_generation_failure_recovery(error_test_config, tmp_path):
         
         # Should handle failure gracefully
         try:
-            prisma_path = manager._generate_prisma_diagram()
+            manager._generate_prisma_diagram()
             # If it doesn't raise, it handled the error
         except Exception:
             # If it raises, that's also acceptable (error propagation)
