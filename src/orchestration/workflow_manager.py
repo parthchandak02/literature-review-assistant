@@ -1409,7 +1409,7 @@ class WorkflowManager:
         """Find existing screening result for a paper."""
         self._get_paper_key(paper)
         
-        for result in existing_results:
+        for _result in existing_results:
             # Try to match by paper metadata stored in result
             # Results may have paper title/DOI stored, or we need to match by index
             # For now, we'll match by checking if we have results for all papers
@@ -2481,7 +2481,7 @@ class WorkflowManager:
             for diagram_type in mermaid_types:
                 if stem.startswith(f"{diagram_type}_"):
                     # This looks like a mermaid diagram
-                    diagram_name = stem.replace('_', ' ').title()
+                    stem.replace('_', ' ').title()
                     # Use relative path for report
                     rel_path = svg_file.name
                     mermaid_paths[stem] = rel_path
@@ -3189,6 +3189,31 @@ class WorkflowManager:
         
         # Ensure output directory exists
         report_path.parent.mkdir(parents=True, exist_ok=True)
+
+        # Convert absolute paths to relative paths for markdown
+        # This ensures images display correctly when viewing the markdown file
+        if prisma_path:
+            prisma_path_obj = Path(prisma_path)
+            if prisma_path_obj.is_absolute():
+                try:
+                    prisma_path = str(prisma_path_obj.relative_to(self.output_dir))
+                except ValueError:
+                    # Fallback: use filename only if path is outside output_dir
+                    prisma_path = prisma_path_obj.name
+        
+        # Convert visualization paths to relative
+        if viz_paths:
+            converted_viz_paths = {}
+            for name, path in viz_paths.items():
+                path_obj = Path(path)
+                if path_obj.is_absolute():
+                    try:
+                        converted_viz_paths[name] = str(path_obj.relative_to(self.output_dir))
+                    except ValueError:
+                        converted_viz_paths[name] = path_obj.name
+                else:
+                    converted_viz_paths[name] = path
+            viz_paths = converted_viz_paths
 
         # Initialize citation manager with included papers
         citation_manager = CitationManager(self.final_papers)

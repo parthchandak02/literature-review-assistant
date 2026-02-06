@@ -62,24 +62,30 @@ class SubmissionPackageBuilder:
 
         logger.info(f"Building submission package for {journal} in {package_dir}")
 
-        # Collect manuscript
+        # Step 1: Copy manuscript
         if manuscript_markdown:
             self._copy_manuscript(manuscript_markdown, package_dir, journal)
 
-        # Generate formatted outputs
-        if generate_pdf and manuscript_markdown:
-            self._generate_pdf(manuscript_markdown, package_dir, journal)
-        
-        if generate_docx and manuscript_markdown:
-            self._generate_docx(manuscript_markdown, package_dir, journal)
-        
-        if generate_html and manuscript_markdown:
-            self._generate_html(manuscript_markdown, package_dir, journal)
-
-        # Collect figures
+        # Step 2: Collect figures first and get path mapping
         figures_dir = package_dir / "figures"
         figures_dir.mkdir(exist_ok=True)
-        self._collect_figures(workflow_outputs, figures_dir)
+        path_mapping = self._collect_figures(workflow_outputs, figures_dir)
+
+        # Step 3: Update manuscript paths to reference figures/ directory
+        if manuscript_markdown and path_mapping:
+            manuscript_in_package = package_dir / "manuscript.md"
+            self._update_manuscript_paths(manuscript_in_package, path_mapping)
+
+        # Step 4: Generate formatted outputs from updated manuscript
+        manuscript_in_package = package_dir / "manuscript.md"
+        if generate_pdf and manuscript_in_package.exists():
+            self._generate_pdf(manuscript_in_package, package_dir, journal)
+        
+        if generate_docx and manuscript_in_package.exists():
+            self._generate_docx(manuscript_in_package, package_dir, journal)
+        
+        if generate_html and manuscript_in_package.exists():
+            self._generate_html(manuscript_in_package, package_dir, journal)
 
         # Collect tables
         tables_dir = package_dir / "tables"
@@ -159,6 +165,40 @@ class SubmissionPackageBuilder:
         shutil.copy2(manuscript_path, target)
         logger.debug(f"Copied manuscript to {target}")
 
+    def _update_manuscript_paths(
+        self, manuscript_path: Path, path_mapping: Dict[str, str]
+    ) -> None:
+        """
+        Update image paths in manuscript.md to reference figures/ directory.
+        
+        Args:
+            manuscript_path: Path to the manuscript.md file
+            path_mapping: Dictionary mapping original paths to new figure paths
+        """
+        import re
+        
+        if not manuscript_path.exists():
+            logger.warning(f"Manuscript not found: {manuscript_path}")
+            return
+        
+        content = manuscript_path.read_text(encoding="utf-8")
+        
+        # Replace each image path
+        for original_path, new_path in path_mapping.items():
+            # Escape special regex characters in the original path
+            escaped_original = re.escape(original_path)
+            
+            # Match markdown image syntax: ![alt](path)
+            pattern = r'!\[([^\]]*)\]\(' + escaped_original + r'\)'
+            replacement = r'![\1](' + new_path + r')'
+            
+            # Replace all occurrences
+            content = re.sub(pattern, replacement, content)
+        
+        # Write updated content back
+        manuscript_path.write_text(content, encoding="utf-8")
+        logger.debug(f"Updated manuscript paths: {len(path_mapping)} mappings applied")
+
     def _generate_pdf(
         self, markdown_path: Path, package_dir: Path, journal: str
     ):
@@ -228,8 +268,13 @@ class SubmissionPackageBuilder:
 
     def _collect_figures(
         self, workflow_outputs: Dict[str, Any], figures_dir: Path
-    ):
-        """Collect figure files."""
+    ) -> Dict[str, str]:
+        """
+        Collect figure files and return path mapping.
+        
+        Returns:
+            Dictionary mapping original paths to new figure paths (relative to package dir)
+        """
         figures = []
         
         # PRISMA diagram
@@ -242,17 +287,29 @@ class SubmissionPackageBuilder:
         if "visualizations" in workflow_outputs:
             viz_paths = workflow_outputs["visualizations"]
             if isinstance(viz_paths, dict):
-                for name, path in viz_paths.items():
+                for _, path in viz_paths.items():
                     if not str(path).endswith(".html"):
                         fig_path = Path(path)
                         if fig_path.exists():
                             figures.append(fig_path)
 
-        # Copy figures
+        # Copy figures and build path mapping
+        path_mapping = {}
         for i, fig_path in enumerate(figures, 1):
             target = figures_dir / f"figure_{i}{fig_path.suffix}"
             shutil.copy2(fig_path, target)
             logger.debug(f"Copied figure: {target}")
+            
+            # Map original path (multiple formats) to new figure path
+            # Handle both absolute paths and relative paths (filename only)
+            original_absolute = str(fig_path)
+            original_relative = fig_path.name
+            new_path = f"figures/figure_{i}{fig_path.suffix}"
+            
+            path_mapping[original_absolute] = new_path
+            path_mapping[original_relative] = new_path
+        
+        return path_mapping
 
     def _collect_tables(
         self, workflow_outputs: Dict[str, Any], tables_dir: Path
