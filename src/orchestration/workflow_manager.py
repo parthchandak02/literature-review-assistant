@@ -2540,22 +2540,25 @@ class WorkflowManager:
             logger.error(f"Error extracting style patterns: {e}", exc_info=True)
             self.style_patterns = {}
 
-    def _save_section_checkpoint(self, section_name: str, sections: Dict[str, str]) -> None:
+    def _save_section_checkpoint(self, section_name: str, sections: Dict[str, str]) -> bool:
         """
         Save checkpoint after a section completes.
         
         Args:
             section_name: Name of the section (e.g., 'introduction', 'methods')
             sections: Dictionary of all completed sections
+            
+        Returns:
+            True if checkpoint was saved successfully, False otherwise
         """
         if not self.save_checkpoints:
-            return
+            return True  # Not saving is not a failure
         
         writing_config = self.config.get("writing", {})
         checkpoint_per_section = writing_config.get("checkpoint_per_section", True)
         
         if not checkpoint_per_section:
-            return
+            return True  # Not saving is not a failure
         
         try:
             # Save individual section checkpoint file
@@ -2578,8 +2581,10 @@ class WorkflowManager:
                 json.dump(checkpoint_data, f, indent=2, default=str)
             
             logger.info(f"Saved checkpoint after {section_name} section completion: {checkpoint_file.name}")
+            return True
         except Exception as e:
             logger.warning(f"Failed to save section checkpoint for {section_name}: {e}")
+            return False
 
     def _load_existing_sections(self) -> Dict[str, str]:
         """
@@ -2623,7 +2628,7 @@ class WorkflowManager:
         fallback_func: callable,
         *args,
         **kwargs
-    ) -> str:
+    ) -> tuple:
         """
         Write a section with retry logic.
         
@@ -2634,32 +2639,55 @@ class WorkflowManager:
             *args, **kwargs: Arguments to pass to writer_func
             
         Returns:
-            Section text (from writer or fallback)
+            Tuple of (section_text, duration, word_count)
         """
+        import time
+        from ..utils.rich_utils import print_section_retry_panel
+        
         writing_config = self.config.get("writing", {})
         retry_count = writing_config.get("retry_count", 2)
         max_attempts = retry_count + 1  # Initial attempt + retries
         
+        section_start_time = time.time()
+        last_error_reason = "Unknown error"
+        
         for attempt in range(max_attempts):
+            # Show retry panel if this is not the first attempt
+            if attempt > 0:
+                print_section_retry_panel(
+                    section_name=section_name.title(),
+                    attempt_number=attempt + 1,
+                    max_attempts=max_attempts,
+                    reason=last_error_reason
+                )
+            
             try:
                 logger.info(f"Writing {section_name} section - attempt {attempt + 1}/{max_attempts}")
                 result = writer_func(*args, **kwargs)
                 if result is not None and result.strip():
                     if attempt > 0:
                         logger.info(f"{section_name} section succeeded on attempt {attempt + 1}")
-                    return result
+                    
+                    # Calculate metrics
+                    duration = time.time() - section_start_time
+                    word_count = len(result.split())
+                    
+                    return result, duration, word_count
                 else:
+                    last_error_reason = "Empty response from LLM"
                     logger.warning(
                         f"{section_name} section returned empty result on attempt {attempt + 1}. "
                         f"This may be due to: (1) Gemini API rate limiting, (2) API timeout, "
                         f"(3) prompt too complex, or (4) temporary API unavailability."
                     )
             except TimeoutError as e:
+                last_error_reason = f"Timeout: {str(e)}"
                 logger.warning(
                     f"{section_name} section timed out on attempt {attempt + 1}: {e}. "
                     f"Consider increasing llm_timeout in config/workflow.yaml if this persists."
                 )
             except Exception as e:
+                last_error_reason = f"{type(e).__name__}: {str(e)}"
                 logger.warning(
                     f"{section_name} section failed on attempt {attempt + 1}: {e}. "
                     f"Error type: {type(e).__name__}"
@@ -2671,7 +2699,11 @@ class WorkflowManager:
         
         # All retries failed, use fallback
         logger.error(f"All {max_attempts} attempts failed for {section_name} section, using fallback")
-        return fallback_func(*args, **kwargs)
+        result = fallback_func(*args, **kwargs)
+        duration = time.time() - section_start_time
+        word_count = len(result.split()) if result else 0
+        
+        return result, duration, word_count
 
     def _write_article(self) -> Dict[str, str]:
         """Write all article sections with checkpointing and retry support."""
@@ -2701,222 +2733,279 @@ class WorkflowManager:
 
         # Introduction
         if "introduction" not in sections:
-            with console.status(
-                f"[bold cyan][1/5] Writing Introduction with {self.intro_writer.llm_model}..."
-            ):
-                research_question = self.topic_context.research_question or self.topic_context.topic
-                justification = (
-                    self.topic_context.context or f"Systematic review of {self.topic_context.topic}"
-                )
+            from ..utils.rich_utils import print_section_start_panel, print_section_complete_panel
+            
+            # Show START panel
+            print_section_start_panel(
+                section_name="Introduction",
+                section_number=1,
+                total_sections=5,
+                model=self.intro_writer.llm_model,
+                status="Starting..."
+            )
+            
+            research_question = self.topic_context.research_question or self.topic_context.topic
+            justification = (
+                self.topic_context.context or f"Systematic review of {self.topic_context.topic}"
+            )
 
-                self.handoff_protocol.create_handoff(
-                    from_agent="extraction_agent",
-                    to_agent="introduction_writer",
-                    stage="writing",
-                    topic_context=self.topic_context,
-                    data={"research_question": research_question},
-                    metadata={"section": "introduction"},
-                )
+            self.handoff_protocol.create_handoff(
+                from_agent="extraction_agent",
+                to_agent="introduction_writer",
+                stage="writing",
+                topic_context=self.topic_context,
+                data={"research_question": research_question},
+                metadata={"section": "introduction"},
+            )
 
-                intro = self._write_section_with_retry(
+            intro, duration, word_count = self._write_section_with_retry(
+                "introduction",
+                self.intro_writer.write,
+                self.intro_writer._fallback_introduction,
+                research_question,
+                justification,
+                topic_context=writing_context,
+                style_patterns=self.style_patterns
+            )
+            
+            # Humanize if enabled
+            humanized = False
+            if humanization_enabled and intro:
+                logger.debug("Humanizing introduction section...")
+                intro = self.humanization_agent.humanize_section(
+                    intro,
                     "introduction",
-                    self.intro_writer.write,
-                    self.intro_writer._fallback_introduction,
-                    research_question,
-                    justification,
-                    topic_context=writing_context,
-                    style_patterns=self.style_patterns
+                    style_patterns=self.style_patterns,
+                    context={"domain": self.topic_context.domain, "topic": self.topic_context.topic},
                 )
-                
-                # Humanize if enabled
-                if humanization_enabled and intro:
-                    logger.debug("Humanizing introduction section...")
-                    intro = self.humanization_agent.humanize_section(
-                        intro,
-                        "introduction",
-                        style_patterns=self.style_patterns,
-                        context={"domain": self.topic_context.domain, "topic": self.topic_context.topic},
-                    )
-                
-                sections["introduction"] = intro
-                self._save_section_checkpoint("introduction", sections)
-            console.print()
-            console.print("[green]✓[/green] Introduction section complete")
-            console.print()
+                humanized = True
+            
+            sections["introduction"] = intro
+            checkpoint_saved = self._save_section_checkpoint("introduction", sections)
+            
+            # Show COMPLETE panel
+            print_section_complete_panel(
+                section_name="Introduction",
+                word_count=word_count,
+                duration=duration,
+                humanized=humanized,
+                checkpoint_saved=checkpoint_saved
+            )
         else:
+            from ..utils.rich_utils import print_panel
             logger.info("Introduction section already exists in checkpoint, skipping")
-            console.print()
-            console.print("[yellow]⊘[/yellow] Introduction section (already completed)")
-            console.print()
+            print_panel(
+                content="Section already completed in previous run",
+                title="Introduction (Skipped)",
+                border_style="yellow"
+            )
 
         # Methods
         if "methods" not in sections:
-            with console.status(
-                f"[bold cyan][2/5] Writing Methods with {self.methods_writer.llm_model}..."
-            ):
-                # Ensure search_strategy exists (rebuild if None, e.g., when resuming from checkpoint)
-                if self.search_strategy is None:
-                    logger.warning("search_strategy is None, rebuilding it for article writing")
-                    try:
-                        self._build_search_strategy()
-                        if self.search_strategy is None:
-                            raise RuntimeError("Failed to build search strategy - search_strategy is still None after _build_search_strategy()")
-                    except Exception as e:
-                        logger.error(f"Failed to build search strategy: {e}", exc_info=True)
-                        raise RuntimeError(f"Cannot write Methods section without search strategy: {e}") from e
-                
-                search_strategy_desc = self.search_strategy.get_strategy_description()
-                databases = self.config["workflow"]["databases"]
-                inclusion_criteria = [
-                    self.topic_context.inject_into_prompt(c)
-                    for c in self.config.get("topic", {}).get("inclusion", [])
-                ]
-                exclusion_criteria = [
-                    self.topic_context.inject_into_prompt(c)
-                    for c in self.config.get("topic", {}).get("exclusion", [])
-                ]
+            from ..utils.rich_utils import print_section_start_panel, print_section_complete_panel
+            
+            # Show START panel
+            print_section_start_panel(
+                section_name="Methods",
+                section_number=2,
+                total_sections=5,
+                model=self.methods_writer.llm_model,
+                status="Starting..."
+            )
+            
+            # Ensure search_strategy exists (rebuild if None, e.g., when resuming from checkpoint)
+            if self.search_strategy is None:
+                logger.warning("search_strategy is None, rebuilding it for article writing")
+                try:
+                    self._build_search_strategy()
+                    if self.search_strategy is None:
+                        raise RuntimeError("Failed to build search strategy - search_strategy is still None after _build_search_strategy()")
+                except Exception as e:
+                    logger.error(f"Failed to build search strategy: {e}", exc_info=True)
+                    raise RuntimeError(f"Cannot write Methods section without search strategy: {e}") from e
+            
+            search_strategy_desc = self.search_strategy.get_strategy_description()
+            databases = self.config["workflow"]["databases"]
+            inclusion_criteria = [
+                self.topic_context.inject_into_prompt(c)
+                for c in self.config.get("topic", {}).get("inclusion", [])
+            ]
+            exclusion_criteria = [
+                self.topic_context.inject_into_prompt(c)
+                for c in self.config.get("topic", {}).get("exclusion", [])
+            ]
 
-                self.handoff_protocol.create_handoff(
-                    from_agent="introduction_writer",
-                    to_agent="methods_writer",
-                    stage="writing",
-                    topic_context=self.topic_context,
-                    data={"databases": databases},
-                    metadata={"section": "methods"},
-                )
+            self.handoff_protocol.create_handoff(
+                from_agent="introduction_writer",
+                to_agent="methods_writer",
+                stage="writing",
+                topic_context=self.topic_context,
+                data={"databases": databases},
+                metadata={"section": "methods"},
+            )
 
-                # Get full search strategies for all databases
-                # Ensure search_strategy exists (should already be set above, but double-check)
-                if self.search_strategy is None:
-                    logger.error("search_strategy is None when getting database queries - this should not happen")
-                    raise RuntimeError("search_strategy is None - cannot get database queries")
-                full_search_strategies = self.search_strategy.get_database_queries()
-                # Filter to only databases that were actually searched
-                searched_db_strategies = {
-                    db: query for db, query in full_search_strategies.items() if db in databases
-                }
-                
-                # Get protocol information from config
-                protocol_info = self.config.get("protocol", {})
-                
-                # Build automation details
-                automation_details = (
-                    "Large language models (LLMs) were used to assist with: "
-                    "(1) title/abstract screening for borderline cases after keyword pre-filtering, "
-                    "(2) full-text screening, and "
-                    "(3) structured data extraction. "
-                    "All LLM outputs were verified and supplemented by human reviewers to ensure accuracy."
-                )
+            # Get full search strategies for all databases
+            # Ensure search_strategy exists (should already be set above, but double-check)
+            if self.search_strategy is None:
+                logger.error("search_strategy is None when getting database queries - this should not happen")
+                raise RuntimeError("search_strategy is None - cannot get database queries")
+            full_search_strategies = self.search_strategy.get_database_queries()
+            # Filter to only databases that were actually searched
+            searched_db_strategies = {
+                db: query for db, query in full_search_strategies.items() if db in databases
+            }
+            
+            # Get protocol information from config
+            protocol_info = self.config.get("protocol", {})
+            
+            # Build automation details
+            automation_details = (
+                "Large language models (LLMs) were used to assist with: "
+                "(1) title/abstract screening for borderline cases after keyword pre-filtering, "
+                "(2) full-text screening, and "
+                "(3) structured data extraction. "
+                "All LLM outputs were verified and supplemented by human reviewers to ensure accuracy."
+            )
 
-                methods = self._write_section_with_retry(
+            methods, duration, word_count = self._write_section_with_retry(
+                "methods",
+                self.methods_writer.write,
+                self.methods_writer._fallback_methods,
+                search_strategy_desc,
+                databases,
+                inclusion_criteria,
+                exclusion_criteria,
+                "Two-stage screening: title/abstract then full-text",
+                "Structured data extraction using LLM",
+                self.prisma_counter.get_counts(),
+                topic_context=writing_context,
+                full_search_strategies=searched_db_strategies,
+                protocol_info=protocol_info,
+                automation_details=automation_details,
+                style_patterns=self.style_patterns,
+                output_dir=str(self.output_dir),
+            )
+            
+            # Humanize if enabled
+            humanized = False
+            if humanization_enabled and methods:
+                logger.debug("Humanizing methods section...")
+                methods = self.humanization_agent.humanize_section(
+                    methods,
                     "methods",
-                    self.methods_writer.write,
-                    self.methods_writer._fallback_methods,
-                    search_strategy_desc,
-                    databases,
-                    inclusion_criteria,
-                    exclusion_criteria,
-                    "Two-stage screening: title/abstract then full-text",
-                    "Structured data extraction using LLM",
-                    self.prisma_counter.get_counts(),
-                    topic_context=writing_context,
-                    full_search_strategies=searched_db_strategies,
-                    protocol_info=protocol_info,
-                    automation_details=automation_details,
                     style_patterns=self.style_patterns,
-                    output_dir=str(self.output_dir),
+                    context={"domain": self.topic_context.domain, "topic": self.topic_context.topic},
                 )
-                
-                # Humanize if enabled
-                if humanization_enabled and methods:
-                    logger.debug("Humanizing methods section...")
-                    methods = self.humanization_agent.humanize_section(
-                        methods,
-                        "methods",
-                        style_patterns=self.style_patterns,
-                        context={"domain": self.topic_context.domain, "topic": self.topic_context.topic},
-                    )
-                
-                sections["methods"] = methods
-                self._save_section_checkpoint("methods", sections)
-            console.print()
-            console.print("[green]✓[/green] Methods section complete")
-            console.print()
+                humanized = True
+            
+            sections["methods"] = methods
+            checkpoint_saved = self._save_section_checkpoint("methods", sections)
+            
+            # Show COMPLETE panel
+            print_section_complete_panel(
+                section_name="Methods",
+                word_count=word_count,
+                duration=duration,
+                humanized=humanized,
+                checkpoint_saved=checkpoint_saved
+            )
         else:
+            from ..utils.rich_utils import print_panel
             logger.info("Methods section already exists in checkpoint, skipping")
-            console.print()
-            console.print("[yellow]⊘[/yellow] Methods section (already completed)")
-            console.print()
+            print_panel(
+                content="Section already completed in previous run",
+                title="Methods (Skipped)",
+                border_style="yellow"
+            )
 
         # Results
         if "results" not in sections:
-            with console.status(
-                f"[bold cyan][3/5] Writing Results with {self.results_writer.llm_model}..."
-            ):
-                key_findings = []
-                for data in self.extracted_data:
-                    key_findings.extend(data.key_findings[:2])  # Top 2 findings per study
+            from ..utils.rich_utils import print_section_start_panel, print_section_complete_panel
+            
+            # Show START panel
+            print_section_start_panel(
+                section_name="Results",
+                section_number=3,
+                total_sections=5,
+                model=self.results_writer.llm_model,
+                status="Starting..."
+            )
+            
+            key_findings = []
+            for data in self.extracted_data:
+                key_findings.extend(data.key_findings[:2])  # Top 2 findings per study
 
-                self.handoff_protocol.create_handoff(
-                    from_agent="methods_writer",
-                    to_agent="results_writer",
-                    stage="writing",
-                    topic_context=self.topic_context,
-                    data={"extracted_data_count": len(self.extracted_data)},
-                    metadata={"section": "results"},
-                )
+            self.handoff_protocol.create_handoff(
+                from_agent="methods_writer",
+                to_agent="results_writer",
+                stage="writing",
+                topic_context=self.topic_context,
+                data={"extracted_data_count": len(self.extracted_data)},
+                metadata={"section": "results"},
+            )
 
-                # Get quality assessment data if available
-                risk_of_bias_summary = None
-                risk_of_bias_table = None
-                grade_assessments = None
-                grade_table = None
-                
-                if self.quality_assessment_data:
-                    risk_of_bias_summary = self.quality_assessment_data.get("risk_of_bias_summary")
-                    risk_of_bias_table = self.quality_assessment_data.get("risk_of_bias_table")
-                    grade_assessments = self.quality_assessment_data.get("grade_summary")
-                    grade_table = self.quality_assessment_data.get("grade_table")
+            # Get quality assessment data if available
+            risk_of_bias_summary = None
+            risk_of_bias_table = None
+            grade_assessments = None
+            grade_table = None
+            
+            if self.quality_assessment_data:
+                risk_of_bias_summary = self.quality_assessment_data.get("risk_of_bias_summary")
+                risk_of_bias_table = self.quality_assessment_data.get("risk_of_bias_table")
+                grade_assessments = self.quality_assessment_data.get("grade_summary")
+                grade_table = self.quality_assessment_data.get("grade_table")
 
-                def results_fallback(*args, **kwargs):
-                    return self.results_writer._fallback_results(self.extracted_data, self.prisma_counter.get_counts())
-                
-                results = self._write_section_with_retry(
+            def results_fallback(*args, **kwargs):
+                return self.results_writer._fallback_results(self.extracted_data, self.prisma_counter.get_counts())
+            
+            results, duration, word_count = self._write_section_with_retry(
+                "results",
+                self.results_writer.write,
+                results_fallback,
+                self.extracted_data,
+                self.prisma_counter.get_counts(),
+                key_findings[:10],  # Top 10 findings
+                topic_context=writing_context,
+                risk_of_bias_summary=risk_of_bias_summary,
+                risk_of_bias_table=risk_of_bias_table,
+                grade_assessments=grade_assessments,
+                grade_table=grade_table,
+                style_patterns=self.style_patterns,
+                output_dir=str(self.output_dir),
+            )
+            
+            # Humanize if enabled
+            humanized = False
+            if humanization_enabled and results:
+                logger.debug("Humanizing results section...")
+                results = self.humanization_agent.humanize_section(
+                    results,
                     "results",
-                    self.results_writer.write,
-                    results_fallback,
-                    self.extracted_data,
-                    self.prisma_counter.get_counts(),
-                    key_findings[:10],  # Top 10 findings
-                    topic_context=writing_context,
-                    risk_of_bias_summary=risk_of_bias_summary,
-                    risk_of_bias_table=risk_of_bias_table,
-                    grade_assessments=grade_assessments,
-                    grade_table=grade_table,
                     style_patterns=self.style_patterns,
-                    output_dir=str(self.output_dir),
+                    context={"domain": self.topic_context.domain, "topic": self.topic_context.topic},
                 )
-                
-                # Humanize if enabled
-                if humanization_enabled and results:
-                    logger.debug("Humanizing results section...")
-                    results = self.humanization_agent.humanize_section(
-                        results,
-                        "results",
-                        style_patterns=self.style_patterns,
-                        context={"domain": self.topic_context.domain, "topic": self.topic_context.topic},
-                    )
-                
-                sections["results"] = results
-                self._save_section_checkpoint("results", sections)
-            console.print()
-            console.print("[green]✓[/green] Results section complete")
-            console.print()
+                humanized = True
+            
+            sections["results"] = results
+            checkpoint_saved = self._save_section_checkpoint("results", sections)
+            
+            # Show COMPLETE panel
+            print_section_complete_panel(
+                section_name="Results",
+                word_count=word_count,
+                duration=duration,
+                humanized=humanized,
+                checkpoint_saved=checkpoint_saved
+            )
         else:
+            from ..utils.rich_utils import print_panel
             logger.info("Results section already exists in checkpoint, skipping")
-            console.print()
-            console.print("[yellow]⊘[/yellow] Results section (already completed)")
-            console.print()
+            print_panel(
+                content="Section already completed in previous run",
+                title="Results (Skipped)",
+                border_style="yellow"
+            )
         
         # Collect generated files from results_writer (e.g., mermaid diagrams)
         generated_files = {}
@@ -2940,101 +3029,139 @@ class WorkflowManager:
 
         # Discussion
         if "discussion" not in sections:
-            with console.status(
-                f"[bold cyan][4/5] Writing Discussion with {self.discussion_writer.llm_model}..."
-            ):
-                key_findings = []
-                for data in self.extracted_data:
-                    key_findings.extend(data.key_findings[:2])  # Top 2 findings per study
-                
-                research_question = self.topic_context.research_question or self.topic_context.topic
-                
-                self.handoff_protocol.create_handoff(
-                    from_agent="results_writer",
-                    to_agent="discussion_writer",
-                    stage="writing",
-                    topic_context=self.topic_context,
-                    data={"key_findings_count": len(key_findings[:10])},
-                    metadata={"section": "discussion"},
-                )
+            from ..utils.rich_utils import print_section_start_panel, print_section_complete_panel
+            
+            # Show START panel
+            print_section_start_panel(
+                section_name="Discussion",
+                section_number=4,
+                total_sections=5,
+                model=self.discussion_writer.llm_model,
+                status="Starting..."
+            )
+            
+            key_findings = []
+            for data in self.extracted_data:
+                key_findings.extend(data.key_findings[:2])  # Top 2 findings per study
+            
+            research_question = self.topic_context.research_question or self.topic_context.topic
+            
+            self.handoff_protocol.create_handoff(
+                from_agent="results_writer",
+                to_agent="discussion_writer",
+                stage="writing",
+                topic_context=self.topic_context,
+                data={"key_findings_count": len(key_findings[:10])},
+                metadata={"section": "discussion"},
+            )
 
-                discussion = self._write_section_with_retry(
+            discussion, duration, word_count = self._write_section_with_retry(
+                "discussion",
+                self.discussion_writer.write,
+                self.discussion_writer._fallback_discussion,
+                research_question,
+                key_findings[:10],
+                self.extracted_data,
+                [
+                    "Limited to English-language publications",
+                    "Potential publication bias",
+                ],
+                ["Implications for practice", "Future research directions"],
+                topic_context=writing_context,
+                style_patterns=self.style_patterns,
+            )
+            
+            # Humanize if enabled
+            humanized = False
+            if humanization_enabled and discussion:
+                logger.debug("Humanizing discussion section...")
+                discussion = self.humanization_agent.humanize_section(
+                    discussion,
                     "discussion",
-                    self.discussion_writer.write,
-                    self.discussion_writer._fallback_discussion,
-                    research_question,
-                    key_findings[:10],
-                    self.extracted_data,
-                    [
-                        "Limited to English-language publications",
-                        "Potential publication bias",
-                    ],
-                    ["Implications for practice", "Future research directions"],
-                    topic_context=writing_context,
                     style_patterns=self.style_patterns,
+                    context={"domain": self.topic_context.domain, "topic": self.topic_context.topic},
                 )
-                
-                # Humanize if enabled
-                if humanization_enabled and discussion:
-                    logger.debug("Humanizing discussion section...")
-                    discussion = self.humanization_agent.humanize_section(
-                        discussion,
-                        "discussion",
-                        style_patterns=self.style_patterns,
-                        context={"domain": self.topic_context.domain, "topic": self.topic_context.topic},
-                    )
-                
-                sections["discussion"] = discussion
-                self._save_section_checkpoint("discussion", sections)
-            console.print()
-            console.print("[green]✓[/green] Discussion section complete")
-            console.print()
+                humanized = True
+            
+            sections["discussion"] = discussion
+            checkpoint_saved = self._save_section_checkpoint("discussion", sections)
+            
+            # Show COMPLETE panel
+            print_section_complete_panel(
+                section_name="Discussion",
+                word_count=word_count,
+                duration=duration,
+                humanized=humanized,
+                checkpoint_saved=checkpoint_saved
+            )
         else:
+            from ..utils.rich_utils import print_panel
             logger.info("Discussion section already exists in checkpoint, skipping")
-            console.print()
-            console.print("[yellow]⊘[/yellow] Discussion section (already completed)")
-            console.print()
+            print_panel(
+                content="Section already completed in previous run",
+                title="Discussion (Skipped)",
+                border_style="yellow"
+            )
 
         # Abstract (generate after all sections are written)
         if "abstract" not in sections:
-            with console.status(
-                "[bold cyan][5/5] Generating Abstract..."
-            ):
-                research_question = self.topic_context.research_question or self.topic_context.topic
-                
-                def abstract_fallback(*args, **kwargs):
-                    return self.abstract_generator._fallback_abstract(research_question, self.final_papers)
-                
-                abstract = self._write_section_with_retry(
+            from ..utils.rich_utils import print_section_start_panel, print_section_complete_panel
+            
+            # Show START panel
+            print_section_start_panel(
+                section_name="Abstract",
+                section_number=5,
+                total_sections=5,
+                model=self.abstract_generator.llm_model,
+                status="Starting..."
+            )
+            
+            research_question = self.topic_context.research_question or self.topic_context.topic
+            
+            def abstract_fallback(*args, **kwargs):
+                return self.abstract_generator._fallback_abstract(research_question, self.final_papers)
+            
+            abstract, duration, word_count = self._write_section_with_retry(
+                "abstract",
+                self.abstract_generator.generate,
+                abstract_fallback,
+                research_question,
+                self.final_papers,
+                sections,
+                style_patterns=self.style_patterns
+            )
+            
+            # Humanize if enabled
+            humanized = False
+            if humanization_enabled and abstract:
+                logger.debug("Humanizing abstract...")
+                abstract = self.humanization_agent.humanize_section(
+                    abstract,
                     "abstract",
-                    self.abstract_generator.generate,
-                    abstract_fallback,
-                    research_question,
-                    self.final_papers,
-                    sections,
-                    style_patterns=self.style_patterns
+                    style_patterns=self.style_patterns,
+                    context={"domain": self.topic_context.domain, "topic": self.topic_context.topic},
                 )
-                
-                # Humanize if enabled
-                if humanization_enabled and abstract:
-                    logger.debug("Humanizing abstract...")
-                    abstract = self.humanization_agent.humanize_section(
-                        abstract,
-                        "abstract",
-                        style_patterns=self.style_patterns,
-                        context={"domain": self.topic_context.domain, "topic": self.topic_context.topic},
-                    )
-                
-                sections["abstract"] = abstract
-                self._save_section_checkpoint("abstract", sections)
-            console.print()
-            console.print("[green]✓[/green] Abstract generation complete")
-            console.print()
+                humanized = True
+            
+            sections["abstract"] = abstract
+            checkpoint_saved = self._save_section_checkpoint("abstract", sections)
+            
+            # Show COMPLETE panel
+            print_section_complete_panel(
+                section_name="Abstract",
+                word_count=word_count,
+                duration=duration,
+                humanized=humanized,
+                checkpoint_saved=checkpoint_saved
+            )
         else:
+            from ..utils.rich_utils import print_panel
             logger.info("Abstract already exists in checkpoint, skipping")
-            console.print()
-            console.print("[yellow]⊘[/yellow] Abstract (already completed)")
-            console.print()
+            print_panel(
+                content="Section already completed in previous run",
+                title="Abstract (Skipped)",
+                border_style="yellow"
+            )
         console.print(
             "[bold green]Article writing phase complete - all 5 sections generated[/bold green]"
         )

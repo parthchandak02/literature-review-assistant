@@ -65,11 +65,20 @@ class NaturalnessScorer(BaseScreeningAgent):
         Returns:
             Dictionary with scores for each dimension and overall score
         """
+        from ..utils.rich_utils import print_naturalness_panel
+        
         # Check cache
         cache_key = f"{section_type}:{hash(text[:500])}"
         if use_cache and cache_key in self._score_cache:
             logger.debug(f"Using cached naturalness score for {section_type}")
             return self._score_cache[cache_key]
+
+        # Show evaluating panel
+        print_naturalness_panel(
+            section_name=section_type.title(),
+            status="evaluating",
+            scores=None
+        )
 
         prompt = self._build_scoring_prompt(text, section_type)
 
@@ -97,12 +106,19 @@ class NaturalnessScorer(BaseScreeningAgent):
             if use_cache:
                 self._score_cache[cache_key] = scores
 
+            # Show complete panel with scores
+            print_naturalness_panel(
+                section_name=section_type.title(),
+                status="complete",
+                scores=scores
+            )
+
             return scores
 
         except Exception as e:
             logger.warning(f"Error scoring naturalness: {e}", exc_info=True)
             # Return default scores on error
-            return {
+            default_scores = {
                 "sentence_structure_diversity": 0.5,
                 "vocabulary_richness": 0.5,
                 "citation_naturalness": 0.5,
@@ -110,6 +126,15 @@ class NaturalnessScorer(BaseScreeningAgent):
                 "overall_human_like": 0.5,
                 "overall_naturalness": 0.5,
             }
+            
+            # Show complete panel with default scores
+            print_naturalness_panel(
+                section_name=section_type.title(),
+                status="complete",
+                scores=default_scores
+            )
+            
+            return default_scores
 
     def _build_scoring_prompt(self, text: str, section_type: str) -> str:
         """Build prompt for naturalness scoring."""
