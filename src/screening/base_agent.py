@@ -35,30 +35,24 @@ logger = logging.getLogger(__name__)
 
 def get_default_model_for_provider(provider: str) -> str:
     """
-    Get default model name for a given LLM provider.
+    Get default model for Gemini provider.
     
     Args:
-        provider: LLM provider name ('openai', 'anthropic', 'gemini', 'perplexity')
+        provider: LLM provider name ('gemini')
         
     Returns:
-        Default model name for the provider
+        Default model name for Gemini
     """
-    defaults = {
-        "openai": "gpt-4",
-        "anthropic": "claude-3-opus-20240229",
-        "gemini": "gemini-2.5-pro",
-        "perplexity": "sonar-pro",
-    }
-    return defaults.get(provider.lower(), "gpt-4")
+    return "gemini-2.5-pro"
 
 
 def validate_model_provider_compatibility(model: str, provider: str) -> bool:
     """
-    Validate that a model name is compatible with the provider.
+    Validate that a model name is compatible with Gemini provider.
     
     Args:
         model: Model name
-        provider: LLM provider name
+        provider: LLM provider name ('gemini')
         
     Returns:
         True if compatible, False otherwise
@@ -66,36 +60,16 @@ def validate_model_provider_compatibility(model: str, provider: str) -> bool:
     provider_lower = provider.lower()
     model_lower = model.lower()
     
-    # OpenAI models
-    if provider_lower == "openai":
-        return any(
-            model_lower.startswith(prefix)
-            for prefix in ["gpt-4", "gpt-3.5", "gpt-4o", "o1"]
-        )
-    
-    # Anthropic models
-    elif provider_lower == "anthropic":
-        return any(
-            model_lower.startswith(prefix)
-            for prefix in ["claude-3", "claude-2", "claude"]
-        )
-    
-    # Gemini models
-    elif provider_lower == "gemini":
+    # Gemini models only
+    if provider_lower == "gemini":
         return any(
             model_lower.startswith(prefix)
             for prefix in ["gemini", "gemma"]
         )
     
-    # Perplexity models
-    elif provider_lower == "perplexity":
-        return any(
-            model_lower.startswith(prefix)
-            for prefix in ["sonar", "llama", "mistral"]
-        )
-    
-    # Unknown provider - allow but warn
-    return True
+    # Only gemini is supported for LLM calls
+    logger.warning(f"Unsupported LLM provider: {provider}. Only 'gemini' is supported.")
+    return False
 
 
 class InclusionDecision(Enum):
@@ -133,7 +107,7 @@ class BaseScreeningAgent(ABC):
         Initialize screening agent.
 
         Args:
-            llm_provider: LLM provider ('gemini', 'perplexity')
+            llm_provider: LLM provider ('gemini')
             api_key: API key for LLM provider
             topic_context: Topic context dictionary
             agent_config: Agent configuration from YAML (role, goal, backstory, llm_model, temperature, etc.)
@@ -186,28 +160,10 @@ class BaseScreeningAgent(ABC):
         self._register_tools_from_config()
 
     def _setup_llm(self):
-        """Setup LLM client."""
+        """Setup LLM client (gemini only)."""
         import os
 
-        if self.llm_provider == "openai":
-            try:
-                import openai
-
-                self.llm_client = openai.OpenAI(api_key=self.api_key) if self.api_key else None
-            except ImportError:
-                self.llm_client = None
-                print("Warning: OpenAI library not installed")
-        elif self.llm_provider == "anthropic":
-            try:
-                import anthropic
-
-                self.llm_client = (
-                    anthropic.Anthropic(api_key=self.api_key) if self.api_key else None
-                )
-            except ImportError:
-                self.llm_client = None
-                print("Warning: Anthropic library not installed")
-        elif self.llm_provider == "gemini":
+        if self.llm_provider == "gemini":
             try:
                 from google import genai
 
@@ -223,16 +179,9 @@ class BaseScreeningAgent(ABC):
             except ImportError:
                 self.llm_client = None
                 print("Warning: google-genai library not installed")
-        elif self.llm_provider == "perplexity":
-            try:
-                from perplexity import Perplexity
-
-                self.llm_client = Perplexity(api_key=self.api_key) if self.api_key else None
-            except ImportError:
-                self.llm_client = None
-                print("Warning: perplexityai library not installed")
         else:
             self.llm_client = None
+            logger.warning(f"Unsupported LLM provider: {self.llm_provider}. Only 'gemini' is supported.")
 
     def _register_tools_from_config(self):
         """Register tools from agent config."""
@@ -404,124 +353,7 @@ Output must be suitable for direct insertion into an academic publication withou
             call_start_time = time.time()
 
             try:
-                if self.llm_provider == "openai":
-                    response = self.llm_client.chat.completions.create(
-                        model=model_to_use,
-                        messages=[{"role": "user", "content": enhanced_prompt}],
-                        temperature=self.temperature,
-                    )
-
-                    duration = time.time() - call_start_time
-                    content = response.choices[0].message.content or ""
-                    tokens = response.usage.total_tokens if hasattr(response, "usage") else None
-
-                    # Track cost and calculate for display
-                    cost = 0.0
-                    if self.debug_config.show_costs and hasattr(response, "usage"):
-                        from ..observability.cost_tracker import get_cost_tracker, TokenUsage
-
-                        cost_tracker = get_cost_tracker()
-                        usage_obj = type(
-                            "Usage",
-                            (),
-                            {
-                                "prompt_tokens": response.usage.prompt_tokens,
-                                "completion_tokens": response.usage.completion_tokens,
-                                "total_tokens": response.usage.total_tokens,
-                            },
-                        )()
-                        cost_tracker.record_call(
-                            "openai",
-                            model_to_use,
-                            usage_obj,
-                            agent_name=self.role,
-                        )
-                        # Calculate cost for display
-                        cost = cost_tracker._calculate_cost(
-                            "openai",
-                            model_to_use,
-                            TokenUsage(
-                                prompt_tokens=response.usage.prompt_tokens,
-                                completion_tokens=response.usage.completion_tokens,
-                                total_tokens=response.usage.total_tokens,
-                            ),
-                        )
-
-                    # Enhanced logging with Rich console
-                    if self.debug_config.show_llm_calls or self.debug_config.enabled:
-                        response_preview = content[:200] + "..." if len(content) > 200 else content
-                        print_llm_response_panel(
-                            duration=duration,
-                            response_preview=response_preview,
-                            tokens=tokens,
-                            cost=cost,
-                        )
-
-                    return content
-                elif self.llm_provider == "anthropic":
-                    # Map OpenAI model names to Anthropic equivalents
-                    anthropic_model = model_to_use
-                    if model_to_use.startswith("gpt-4"):
-                        anthropic_model = "claude-3-opus-20240229"
-                    elif model_to_use.startswith("gpt-3.5") or "mini" in model_to_use:
-                        anthropic_model = "claude-3-haiku-20240307"
-
-                    response = self.llm_client.messages.create(
-                        model=anthropic_model,
-                        max_tokens=1000,
-                        temperature=self.temperature,
-                        messages=[{"role": "user", "content": enhanced_prompt}],
-                    )
-
-                    duration = time.time() - call_start_time
-                    content = response.content[0].text if response.content else ""
-
-                    # Track cost and calculate for display
-                    cost = 0.0
-                    if self.debug_config.show_costs and hasattr(response, "usage"):
-                        from ..observability.cost_tracker import get_cost_tracker, TokenUsage
-
-                        cost_tracker = get_cost_tracker()
-                        usage_obj = type(
-                            "Usage",
-                            (),
-                            {
-                                "input_tokens": response.usage.input_tokens,
-                                "output_tokens": response.usage.output_tokens,
-                                "total_tokens": response.usage.input_tokens
-                                + response.usage.output_tokens,
-                            },
-                        )()
-                        cost_tracker.record_call(
-                            "anthropic",
-                            anthropic_model,
-                            usage_obj,
-                            agent_name=self.role,
-                        )
-                        # Calculate cost for display
-                        cost = cost_tracker._calculate_cost(
-                            "anthropic",
-                            anthropic_model,
-                            TokenUsage(
-                                prompt_tokens=response.usage.input_tokens,
-                                completion_tokens=response.usage.output_tokens,
-                                total_tokens=response.usage.input_tokens
-                                + response.usage.output_tokens,
-                            ),
-                        )
-
-                    # Enhanced logging with Rich console
-                    if self.debug_config.show_llm_calls or self.debug_config.enabled:
-                        response_preview = content[:200] + "..." if len(content) > 200 else content
-                        print_llm_response_panel(
-                            duration=duration,
-                            response_preview=response_preview,
-                            tokens=None,
-                            cost=cost,
-                        )
-
-                    return content
-                elif self.llm_provider == "gemini":
+                if self.llm_provider == "gemini":
                     from google.genai import types
 
                     # Get system instruction if available
@@ -584,52 +416,8 @@ Output must be suitable for direct insertion into an academic publication withou
                         )
 
                     return content
-                elif self.llm_provider == "perplexity":
-                    # Perplexity uses OpenAI-compatible API
-                    response = self.llm_client.chat.completions.create(
-                        model=self.llm_model,
-                        messages=[{"role": "user", "content": enhanced_prompt}],
-                        temperature=self.temperature,
-                    )
-
-                    # Track cost if enabled
-                    if self.debug_config.show_costs and hasattr(response, "usage"):
-                        from ..observability.cost_tracker import get_cost_tracker
-
-                        cost_tracker = get_cost_tracker()
-                        cost_tracker.record_call(
-                            "perplexity",
-                            self.llm_model,
-                            type(
-                                "Usage",
-                                (),
-                                {
-                                    "prompt_tokens": getattr(response.usage, "prompt_tokens", 0),
-                                    "completion_tokens": getattr(
-                                        response.usage, "completion_tokens", 0
-                                    ),
-                                    "total_tokens": getattr(response.usage, "total_tokens", 0),
-                                },
-                            )(),
-                            agent_name=self.role,
-                        )
-
-                    duration = time.time() - call_start_time
-                    content = response.choices[0].message.content or ""
-
-                    # Enhanced logging with Rich console
-                    if self.debug_config.show_llm_calls or self.debug_config.enabled:
-                        response_preview = content[:200] + "..." if len(content) > 200 else content
-                        print_llm_response_panel(
-                            duration=duration,
-                            response_preview=response_preview,
-                            tokens=None,
-                            cost=None,
-                        )
-
-                    return content
                 else:
-                    raise ValueError(f"Unsupported LLM provider: {self.llm_provider}")
+                    raise ValueError(f"Unsupported LLM provider: {self.llm_provider}. Only 'gemini' is supported.")
             except Exception as e:
                 duration = time.time() - call_start_time
                 logger.debug(f"[{self.role}] LLM call failed after {duration:.2f}s: {e}")
@@ -687,23 +475,7 @@ Output must be suitable for direct insertion into an academic publication withou
         self, prompt: str, model: Optional[str] = None, max_iterations: int = 5
     ) -> str:
         """
-        Call LLM with tool calling support (ReAct pattern).
-        Includes debug logging for tool calls.
-
-        Args:
-            prompt: Original prompt
-            model: Optional model override
-            max_iterations: Maximum tool calling iterations
-
-        Returns:
-            Final LLM response text
-        """
-        if self.debug_config.show_tool_calls:
-            logger.info(
-                f"[{self.role}] Starting tool calling loop (max {max_iterations} iterations)"
-            )
-        """
-        Call LLM with tool calling support (ReAct pattern).
+        Call LLM with tool calling support (Gemini only).
         
         Args:
             prompt: Original prompt
@@ -713,9 +485,20 @@ Output must be suitable for direct insertion into an academic publication withou
         Returns:
             Final LLM response text
         """
+        if self.llm_provider != "gemini":
+            raise ValueError(
+                f"Tool calling is only supported with Gemini provider. "
+                f"Current provider: {self.llm_provider}"
+            )
+        
         if not self.llm_client:
             logger.warning("LLM client not available")
             return "LLM not available"
+
+        if self.debug_config.show_tool_calls:
+            logger.info(
+                f"[{self.role}] Starting tool calling loop (max {max_iterations} iterations)"
+            )
 
         model_to_use = model or self.llm_model
         enhanced_prompt = self._inject_topic_context(prompt)
@@ -727,120 +510,7 @@ Output must be suitable for direct insertion into an academic publication withou
 
         for iteration in range(max_iterations):
             try:
-                if self.llm_provider == "openai":
-                    response = self.llm_client.chat.completions.create(
-                        model=model_to_use,
-                        messages=messages,
-                        temperature=self.temperature,
-                        tools=tools if tools else None,
-                        tool_choice="auto" if tools else None,
-                    )
-
-                    message = response.choices[0].message
-                    messages.append(message)
-
-                    # Check if tool calls were made
-                    if message.tool_calls:
-                        if self.debug_config.show_tool_calls:
-                            logger.info(
-                                f"[{self.role}] Tool calls requested: {len(message.tool_calls)}"
-                            )
-
-                        # Execute tools
-                        for tool_call in message.tool_calls:
-                            tool_name = tool_call.function.name
-                            tool_args = json.loads(tool_call.function.arguments)
-
-                            if self.debug_config.show_tool_calls:
-                                logger.debug(
-                                    f"[{self.role}] Executing tool: {tool_name} with args: {tool_args}"
-                                )
-
-                            # Execute tool
-                            tool_result = self.tool_registry.execute_tool(tool_name, tool_args)
-
-                            if self.debug_config.show_tool_calls:
-                                if tool_result.status.value == "success":
-                                    logger.info(
-                                        f"[{self.role}] Tool {tool_name} succeeded in {tool_result.execution_time:.2f}s"
-                                    )
-                                else:
-                                    logger.warning(
-                                        f"[{self.role}] Tool {tool_name} failed: {tool_result.error}"
-                                    )
-                            
-                            # Track generated files
-                            self._track_generated_file(tool_result)
-
-                            # Add tool result to messages
-                            messages.append(
-                                {
-                                    "role": "tool",
-                                    "tool_call_id": tool_call.id,
-                                    "content": json.dumps(
-                                        {
-                                            "status": tool_result.status.value,
-                                            "result": tool_result.result,
-                                            "error": tool_result.error,
-                                        }
-                                    ),
-                                }
-                            )
-                        # Continue loop to get LLM response with tool results
-                        continue
-                    else:
-                        # No tool calls, return final response
-                        return message.content or ""
-
-                elif self.llm_provider == "anthropic":
-                    # Anthropic tool use format
-                    response = self.llm_client.messages.create(
-                        model="claude-3-opus-20240229"
-                        if "gpt-4" in model_to_use
-                        else "claude-3-haiku-20240307",
-                        max_tokens=2000,
-                        temperature=self.temperature,
-                        messages=messages,
-                        tools=tools if tools else None,
-                    )
-
-                    message = response.content[0]
-
-                    # Check if tool use was requested
-                    if hasattr(message, "type") and message.type == "tool_use":
-                        # Execute tool
-                        tool_name = message.name
-                        tool_args = message.input
-
-                        tool_result = self.tool_registry.execute_tool(tool_name, tool_args)
-                        
-                        # Track generated files
-                        self._track_generated_file(tool_result)
-
-                        # Add tool result
-                        messages.append(
-                            {
-                                "role": "user",
-                                "content": [
-                                    {
-                                        "type": "tool_result",
-                                        "tool_use_id": message.id,
-                                        "content": json.dumps(
-                                            {
-                                                "status": tool_result.status.value,
-                                                "result": tool_result.result,
-                                                "error": tool_result.error,
-                                            }
-                                        ),
-                                    }
-                                ],
-                            }
-                        )
-                        continue
-                    else:
-                        # Text response
-                        return message.text if hasattr(message, "text") else str(message)
-                elif self.llm_provider == "gemini":
+                # Gemini tool calling
                     # Google GenAI tool calling format
                     from google.genai import types
 
@@ -917,71 +587,6 @@ Output must be suitable for direct insertion into an academic publication withou
                     else:
                         # Text response
                         return response.text
-                elif self.llm_provider == "perplexity":
-                    # Perplexity uses OpenAI-compatible API
-                    response = self.llm_client.chat.completions.create(
-                        model=model_to_use,
-                        messages=messages,
-                        temperature=self.temperature,
-                        tools=tools if tools else None,
-                        tool_choice="auto" if tools else None,
-                    )
-
-                    message = response.choices[0].message
-                    messages.append(message)
-
-                    # Check if tool calls were made
-                    if message.tool_calls:
-                        if self.debug_config.show_tool_calls:
-                            logger.info(
-                                f"[{self.role}] Tool calls requested: {len(message.tool_calls)}"
-                            )
-
-                        # Execute tools
-                        for tool_call in message.tool_calls:
-                            tool_name = tool_call.function.name
-                            tool_args = json.loads(tool_call.function.arguments)
-
-                            if self.debug_config.show_tool_calls:
-                                logger.debug(
-                                    f"[{self.role}] Executing tool: {tool_name} with args: {tool_args}"
-                                )
-
-                            # Execute tool
-                            tool_result = self.tool_registry.execute_tool(tool_name, tool_args)
-
-                            if self.debug_config.show_tool_calls:
-                                if tool_result.status.value == "success":
-                                    logger.info(
-                                        f"[{self.role}] Tool {tool_name} succeeded in {tool_result.execution_time:.2f}s"
-                                    )
-                                else:
-                                    logger.warning(
-                                        f"[{self.role}] Tool {tool_name} failed: {tool_result.error}"
-                                    )
-                            
-                            # Track generated files
-                            self._track_generated_file(tool_result)
-
-                            # Add tool result to messages
-                            messages.append(
-                                {
-                                    "role": "tool",
-                                    "tool_call_id": tool_call.id,
-                                    "content": json.dumps(
-                                        {
-                                            "status": tool_result.status.value,
-                                            "result": tool_result.result,
-                                            "error": tool_result.error,
-                                        }
-                                    ),
-                                }
-                            )
-                        # Continue loop to get LLM response with tool results
-                        continue
-                    else:
-                        # No tool calls, return final response
-                        return message.content or ""
 
             except Exception as e:
                 logger.error(f"Error in tool calling loop: {e}", exc_info=True)

@@ -202,40 +202,15 @@ Return ONLY valid JSON."""
         model_to_use = self.llm_model
         enhanced_prompt = self._inject_topic_context(prompt)
 
-        # Use structured output if available
-        if self.llm_provider == "openai":
-            # OpenAI supports JSON mode
-            response = self.llm_client.chat.completions.create(
-                model=model_to_use,
-                messages=[{"role": "user", "content": enhanced_prompt}],
-                temperature=self.temperature,
-                response_format={"type": "json_object"},  # Force JSON output
+        # Validate provider (Gemini only)
+        if self.llm_provider != "gemini":
+            raise ValueError(
+                f"Structured JSON output only supported with Gemini. "
+                f"Current provider: {self.llm_provider}"
             )
-            content = response.choices[0].message.content
-            return content or "{}"
-        elif self.llm_provider == "anthropic":
-            # Anthropic - request JSON in prompt, parse response
-            json_prompt = enhanced_prompt + "\n\nReturn your response as valid JSON only."
-            response = self.llm_client.messages.create(
-                model="claude-3-opus-20240229"
-                if "gpt-4" in model_to_use
-                else "claude-3-haiku-20240307",
-                max_tokens=1000,
-                temperature=self.temperature,
-                messages=[{"role": "user", "content": json_prompt}],
-            )
-            content = response.content[0].text if response.content else "{}"
-            # Extract JSON from response if wrapped in markdown
-            if "```json" in content:
-                start = content.find("```json") + 7
-                end = content.find("```", start)
-                content = content[start:end].strip()
-            elif "```" in content:
-                start = content.find("```") + 3
-                end = content.find("```", start)
-                content = content[start:end].strip()
-            return content
-        elif self.llm_provider == "gemini":
+        
+        # Use Gemini structured output
+        if self.llm_provider == "gemini":
             # Gemini - request JSON in prompt, parse response
             from google.genai import types
 

@@ -6,9 +6,9 @@ from typing import Dict, Any
 from unittest.mock import Mock
 
 
-def create_mock_openai_response(content: str, tokens: Dict[str, int] = None) -> Mock:
+def create_mock_gemini_response(content: str, tokens: Dict[str, int] = None) -> Mock:
     """
-    Create mock OpenAI API response.
+    Create mock Gemini API response.
 
     Args:
         content: Response content
@@ -21,46 +21,14 @@ def create_mock_openai_response(content: str, tokens: Dict[str, int] = None) -> 
         tokens = {"prompt": 100, "completion": 50, "total": 150}
 
     mock_response = Mock()
-    mock_message = Mock()
-    mock_message.content = content
-    mock_choice = Mock()
-    mock_choice.message = mock_message
-    mock_response.choices = [mock_choice]
+    mock_response.text = content
 
-    # Add usage
+    # Add usage_metadata
     mock_usage = Mock()
-    mock_usage.prompt_tokens = tokens.get("prompt", 100)
-    mock_usage.completion_tokens = tokens.get("completion", 50)
-    mock_usage.total_tokens = tokens.get("total", 150)
-    mock_response.usage = mock_usage
-
-    return mock_response
-
-
-def create_mock_anthropic_response(content: str, tokens: Dict[str, int] = None) -> Mock:
-    """
-    Create mock Anthropic API response.
-
-    Args:
-        content: Response content
-        tokens: Token usage dict with 'input', 'output'
-
-    Returns:
-        Mock response object
-    """
-    if tokens is None:
-        tokens = {"input": 100, "output": 50}
-
-    mock_response = Mock()
-    mock_content = Mock()
-    mock_content.text = content
-    mock_response.content = [mock_content]
-
-    # Add usage
-    mock_usage = Mock()
-    mock_usage.input_tokens = tokens.get("input", 100)
-    mock_usage.output_tokens = tokens.get("output", 50)
-    mock_response.usage = mock_usage
+    mock_usage.prompt_token_count = tokens.get("prompt", 100)
+    mock_usage.candidates_token_count = tokens.get("completion", 50)
+    mock_usage.total_token_count = tokens.get("total", 150)
+    mock_response.usage_metadata = mock_usage
 
     return mock_response
 

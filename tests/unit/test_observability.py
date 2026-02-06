@@ -103,33 +103,21 @@ class TestCostTracker:
         assert len(tracker.entries) == 0
         assert tracker.total_cost == 0.0
 
-    def test_record_openai_call(self):
-        """Test recording OpenAI call."""
+    def test_record_gemini_call(self):
+        """Test recording Gemini call."""
         tracker = CostTracker()
 
         mock_usage = type(
             "Usage", (), {"prompt_tokens": 1000, "completion_tokens": 500, "total_tokens": 1500}
         )()
 
-        tracker.record_call("openai", "gpt-4", mock_usage, agent_name="test_agent")
+        tracker.record_call("gemini", "gemini-2.5-pro", mock_usage, agent_name="test_agent")
 
         assert len(tracker.entries) == 1
         assert tracker.total_cost > 0
-        assert tracker.by_provider["openai"] > 0
-        assert tracker.by_model["gpt-4"] > 0
+        assert tracker.by_provider["gemini"] > 0
+        assert tracker.by_model["gemini-2.5-pro"] > 0
         assert tracker.by_agent["test_agent"] > 0
-
-    def test_record_anthropic_call(self):
-        """Test recording Anthropic call."""
-        tracker = CostTracker()
-
-        mock_usage = type("Usage", (), {"input_tokens": 1000, "output_tokens": 500})()
-
-        tracker.record_call("anthropic", "claude-3-sonnet-20240229", mock_usage)
-
-        assert len(tracker.entries) == 1
-        assert tracker.total_cost > 0
-        assert tracker.by_provider["anthropic"] > 0
 
     def test_get_summary(self):
         """Test getting cost summary."""
@@ -139,7 +127,7 @@ class TestCostTracker:
             "Usage", (), {"prompt_tokens": 1000, "completion_tokens": 500, "total_tokens": 1500}
         )()
 
-        tracker.record_call("openai", "gpt-4", mock_usage)
+        tracker.record_call("gemini", "gemini-2.5-pro", mock_usage)
 
         summary = tracker.get_summary()
         assert "total_cost_usd" in summary
@@ -159,8 +147,8 @@ class TestCostTracker:
             "Usage", (), {"prompt_tokens": 500, "completion_tokens": 250, "total_tokens": 750}
         )()
 
-        tracker.record_call("openai", "gpt-4", mock_usage1, agent_name="agent1")
-        tracker.record_call("openai", "gpt-4", mock_usage2, agent_name="agent2")
+        tracker.record_call("gemini", "gemini-2.5-pro", mock_usage1, agent_name="agent1")
+        tracker.record_call("gemini", "gemini-2.5-flash", mock_usage2, agent_name="agent2")
 
         # Use by_agent dict directly
         assert "agent1" in tracker.by_agent
@@ -176,7 +164,7 @@ class TestCostTracker:
         )()
 
         # Should handle gracefully
-        tracker.record_call("openai", "unknown-model", mock_usage)
+        tracker.record_call("gemini", "unknown-model", mock_usage)
         assert len(tracker.entries) == 1
         # Cost should be 0 for unknown model
         assert tracker.entries[0].cost == 0.0

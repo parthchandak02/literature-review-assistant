@@ -10,15 +10,16 @@ import json
 import logging
 import time
 
-from rich.console import Console
-from rich.panel import Panel
-
+from ..utils.rich_utils import (
+    console,
+    print_llm_request_panel,
+    print_llm_response_panel,
+)
 from ..screening.base_agent import BaseScreeningAgent
 from ..schemas.extraction_schemas import ExtractedDataSchema
 from ..config.debug_config import DebugLevel
 
 logger = logging.getLogger(__name__)
-console = Console()
 
 
 @dataclass
@@ -434,155 +435,25 @@ Return ONLY valid JSON matching this exact structure:
             prompt_preview = (
                 enhanced_prompt[:200] + "..." if len(enhanced_prompt) > 200 else enhanced_prompt
             )
-            console.print()
-            console.print(
-                Panel(
-                    f"[bold cyan]LLM Call (Structured Output)[/bold cyan]\n"
-                    f"[yellow]Model:[/yellow] {model_to_use} ({self.llm_provider})\n"
-                    f"[yellow]Agent:[/yellow] {self.role}\n"
-                    f"[yellow]Temperature:[/yellow] {self.temperature}\n"
-                    f"[yellow]Prompt length:[/yellow] {len(enhanced_prompt)} chars\n"
-                    f"[yellow]Prompt preview:[/yes]\n{prompt_preview}",
-                    title="[bold]→ LLM Request[/bold]",
-                    border_style="cyan",
-                )
+            print_llm_request_panel(
+                model=model_to_use,
+                provider=self.llm_provider,
+                agent=self.role,
+                temperature=self.temperature,
+                prompt_length=len(enhanced_prompt),
+                prompt_preview=prompt_preview,
             )
 
-        # Use structured output if available
+        # Validate provider (Gemini only)
+        if self.llm_provider != "gemini":
+            raise ValueError(
+                f"Structured output only supported with Gemini. "
+                f"Current provider: {self.llm_provider}"
+            )
+        
+        # Use Gemini structured output
         call_start_time = time.time()
-        if self.llm_provider == "openai":
-            # OpenAI supports JSON mode
-            response = self.llm_client.chat.completions.create(
-                model=model_to_use,
-                messages=[{"role": "user", "content": enhanced_prompt}],
-                temperature=self.temperature,
-                response_format={"type": "json_object"},  # Force JSON output
-            )
-            
-            duration = time.time() - call_start_time
-            content = response.choices[0].message.content or "{}"
-            tokens = response.usage.total_tokens if hasattr(response, "usage") else None
-            
-            # Track cost and calculate for display
-            cost = 0.0
-            if self.debug_config.show_costs and hasattr(response, "usage"):
-                from ..observability.cost_tracker import get_cost_tracker, TokenUsage
-                cost_tracker = get_cost_tracker()
-                usage_obj = type(
-                    "Usage",
-                    (),
-                    {
-                        "prompt_tokens": response.usage.prompt_tokens,
-                        "completion_tokens": response.usage.completion_tokens,
-                        "total_tokens": response.usage.total_tokens,
-                    },
-                )()
-                cost_tracker.record_call(
-                    "openai",
-                    model_to_use,
-                    usage_obj,
-                    agent_name=self.role,
-                )
-                # Calculate cost for display
-                cost = cost_tracker._calculate_cost(
-                    "openai",
-                    model_to_use,
-                    TokenUsage(
-                        prompt_tokens=response.usage.prompt_tokens,
-                        completion_tokens=response.usage.completion_tokens,
-                        total_tokens=response.usage.total_tokens,
-                    ),
-                )
-            
-            # Enhanced logging with Rich console
-            if self.debug_config.show_llm_calls or self.debug_config.enabled:
-                response_preview = content[:200] + "..." if len(content) > 200 else content
-                token_info = f"\n[yellow]Tokens:[/yellow] {tokens}" if tokens else ""
-                cost_info = f"\n[yellow]Cost:[/yellow] ${cost:.6f}" if cost > 0 else ""
-                console.print()
-                console.print(
-                    Panel(
-                        f"[bold green]LLM Response[/bold green]\n"
-                        f"[yellow]Duration:[/yellow] {duration:.2f}s{token_info}{cost_info}\n"
-                        f"[yellow]Response preview:[/yellow]\n{response_preview}",
-                        title="[bold]← LLM Response[/bold]",
-                        border_style="green",
-                    )
-                )
-            
-            return content
-        elif self.llm_provider == "anthropic":
-            # Anthropic - request JSON in prompt, parse response
-            json_prompt = enhanced_prompt + "\n\nReturn your response as valid JSON only."
-            response = self.llm_client.messages.create(
-                model="claude-3-opus-20240229"
-                if "gpt-4" in model_to_use
-                else "claude-3-haiku-20240307",
-                max_tokens=2000,
-                temperature=self.temperature,
-                messages=[{"role": "user", "content": json_prompt}],
-            )
-            
-            duration = time.time() - call_start_time
-            content = response.content[0].text if response.content else "{}"
-            # Extract JSON from response if wrapped in markdown
-            if "```json" in content:
-                start = content.find("```json") + 7
-                end = content.find("```", start)
-                content = content[start:end].strip()
-            elif "```" in content:
-                start = content.find("```") + 3
-                end = content.find("```", start)
-                content = content[start:end].strip()
-            
-            # Track cost and calculate for display
-            cost = 0.0
-            anthropic_model = "claude-3-opus-20240229" if "gpt-4" in model_to_use else "claude-3-haiku-20240307"
-            if self.debug_config.show_costs and hasattr(response, "usage"):
-                from ..observability.cost_tracker import get_cost_tracker, TokenUsage
-                cost_tracker = get_cost_tracker()
-                usage_obj = type(
-                    "Usage",
-                    (),
-                    {
-                        "input_tokens": response.usage.input_tokens,
-                        "output_tokens": response.usage.output_tokens,
-                    },
-                )()
-                cost_tracker.record_call(
-                    "anthropic",
-                    anthropic_model,
-                    usage_obj,
-                    agent_name=self.role,
-                )
-                # Calculate cost for display
-                cost = cost_tracker._calculate_cost(
-                    "anthropic",
-                    anthropic_model,
-                    TokenUsage(
-                        prompt_tokens=response.usage.input_tokens,
-                        completion_tokens=response.usage.output_tokens,
-                        total_tokens=response.usage.input_tokens + response.usage.output_tokens,
-                    ),
-                )
-            
-            # Enhanced logging with Rich console
-            if self.debug_config.show_llm_calls or self.debug_config.enabled:
-                response_preview = content[:200] + "..." if len(content) > 200 else content
-                cost_info = f"\n[yellow]Cost:[/yellow] ${cost:.6f}" if cost > 0 else ""
-                console.print()
-                console.print(
-                    Panel(
-                        f"[bold green]LLM Response[/bold green]\n"
-                        f"[yellow]Duration:[/yellow] {duration:.2f}s{cost_info}\n"
-                        f"[yellow]Response preview:[/yellow]\n{response_preview}",
-                        title="[bold]← LLM Response[/bold]",
-                        border_style="green",
-                    )
-                )
-            
-            return content
-        elif self.llm_provider == "gemini":
+        if self.llm_provider == "gemini":
             # Gemini - request JSON in prompt, parse response
             from google.genai import types
 
@@ -638,16 +509,11 @@ Return ONLY valid JSON matching this exact structure:
             # Enhanced logging with Rich console
             if self.debug_config.show_llm_calls or self.debug_config.enabled:
                 response_preview = content[:200] + "..." if len(content) > 200 else content
-                cost_info = f"\n[yellow]Cost:[/yellow] ${cost:.6f}" if cost > 0 else ""
-                console.print()
-                console.print(
-                    Panel(
-                        f"[bold green]LLM Response[/bold green]\n"
-                        f"[yellow]Duration:[/yellow] {duration:.2f}s{cost_info}\n"
-                        f"[yellow]Response preview:[/yellow]\n{response_preview}",
-                        title="[bold]← LLM Response[/bold]",
-                        border_style="green",
-                    )
+                print_llm_response_panel(
+                    duration=duration,
+                    response_preview=response_preview,
+                    tokens=None,
+                    cost=cost,
                 )
             
             return content

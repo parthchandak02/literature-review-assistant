@@ -13,13 +13,14 @@ from typing import Dict, Any, List, Optional
 import os
 import logging
 
-from rich.console import Console
-from rich.panel import Panel
-
+from ..utils.rich_utils import (
+    console,
+    print_llm_request_panel,
+    print_llm_response_panel,
+)
 from ..config.debug_config import DebugLevel
 
 logger = logging.getLogger(__name__)
-console = Console()
 
 
 class QualityAssessmentAutoFiller:
@@ -74,18 +75,13 @@ class QualityAssessmentAutoFiller:
             prompt_preview = (
                 prompt[:200] + "..." if len(prompt) > 200 else prompt
             )
-            console.print()
-            console.print(
-                Panel(
-                    f"[bold cyan]LLM Call[/bold cyan]\n"
-                    f"[yellow]Model:[/yellow] {self.llm_model} ({self.llm_provider})\n"
-                    f"[yellow]Agent:[/yellow] Quality Assessment Auto-Filler\n"
-                    f"[yellow]Temperature:[/yellow] {self.temperature}\n"
-                    f"[yellow]Prompt length:[/yellow] {len(prompt)} chars\n"
-                    f"[yellow]Prompt preview:[/yellow]\n{prompt_preview}",
-                    title="[bold]→ LLM Request[/bold]",
-                    border_style="cyan",
-                )
+            print_llm_request_panel(
+                model=self.llm_model,
+                provider=self.llm_provider,
+                agent="Quality Assessment Auto-Filler",
+                temperature=self.temperature,
+                prompt_length=len(prompt),
+                prompt_preview=prompt_preview,
             )
         
         if self.llm_provider == "gemini":
@@ -104,15 +100,11 @@ class QualityAssessmentAutoFiller:
                 response_preview = (
                     response_text[:200] + "..." if len(response_text) > 200 else response_text
                 )
-                console.print()
-                console.print(
-                    Panel(
-                        f"[bold green]LLM Response[/bold green]\n"
-                        f"[yellow]Duration:[/yellow] {duration:.2f}s\n"
-                        f"[yellow]Response preview:[/yellow]\n{response_preview}",
-                        title="[bold]← LLM Response[/bold]",
-                        border_style="green",
-                    )
+                print_llm_response_panel(
+                    duration=duration,
+                    response_preview=response_preview,
+                    tokens=None,
+                    cost=None,
                 )
             
             return response_text

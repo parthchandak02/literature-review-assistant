@@ -6,10 +6,9 @@ import logging
 from contextlib import contextmanager
 import time
 from rich.rule import Rule
-from rich.console import Console
+from .rich_utils import console
 
 logger = logging.getLogger(__name__)
-console = Console()
 
 
 class LogContext:

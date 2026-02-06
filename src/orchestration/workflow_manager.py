@@ -15,8 +15,12 @@ from datetime import datetime
 # Load environment variables
 load_dotenv()
 
-from rich.console import Console
-from rich.panel import Panel
+from ..utils.rich_utils import (
+    console,
+    print_workflow_status_panel,
+    print_checkpoint_panel,
+    print_phase_panel,
+)
 from rich.rule import Rule
 from rich.progress import (
     Progress,
@@ -48,7 +52,6 @@ except ImportError:
 
 
 logger = get_logger(__name__)
-console = Console()
 
 from src.prisma.prisma_generator import PRISMAGenerator
 from src.search.search_strategy import SearchStrategyBuilder
@@ -570,16 +573,14 @@ class WorkflowManager:
         if start_from_phase is None and self.save_checkpoints:
             existing_checkpoint = self.checkpoint_manager.find_by_topic(self.topic_context.topic)
             if existing_checkpoint:
-                console.print()
-                console.print(Panel(
-                    f"[bold green]Found existing checkpoint for this topic![/bold green]\n\n"
-                    f"[bold]Workflow ID:[/bold] {existing_checkpoint['workflow_id']}\n"
-                    f"[bold]Latest phase:[/bold] {existing_checkpoint['latest_phase']}\n\n"
-                    f"[dim]Resuming from checkpoint...[/dim]",
-                    title="[bold green]Checkpoint Detected[/bold green]",
-                    border_style="green",
-                    padding=(1, 2)
-                ))
+                print_workflow_status_panel(
+                    title="Checkpoint Detected",
+                    message=f"[bold green]Found existing checkpoint for this topic![/bold green]\n\n"
+                            f"[bold]Workflow ID:[/bold] {existing_checkpoint['workflow_id']}\n"
+                            f"[bold]Latest phase:[/bold] {existing_checkpoint['latest_phase']}\n\n"
+                            f"[dim]Resuming from checkpoint...[/dim]",
+                    status_color="green",
+                )
                 console.print()
                 logger.info("=" * 60)
                 logger.info("Found existing checkpoint for this topic!")
@@ -640,12 +641,11 @@ class WorkflowManager:
                 logger.info(f"Checkpoint dependency chain for '{existing_checkpoint['latest_phase']}': {phases_to_load}")
                 
                 # Load checkpoints in dependency order
-                console.print()
-                console.print(Panel(
-                    f"[bold cyan]Loading {len(phases_to_load)} checkpoint(s)...[/bold cyan]",
-                    border_style="cyan",
-                    padding=(1, 2)
-                ))
+                print_checkpoint_panel(
+                    phases_loaded=[],
+                    phases_attempted=len(phases_to_load),
+                    status="loading",
+                )
                 console.print()
                 
                 loaded_phases = []
@@ -724,13 +724,11 @@ class WorkflowManager:
                         logger.error("Failed to load any checkpoints! Starting from scratch.")
                         existing_checkpoint = None  # Reset to start fresh
                 else:
-                    console.print()
-                    console.print(Panel(
-                        f"[bold green]Successfully loaded {len(loaded_phases)} checkpoint(s)[/bold green]\n\n"
-                        f"[dim]{', '.join(loaded_phases)}[/dim]",
-                        border_style="green",
-                        padding=(1, 2)
-                    ))
+                    print_checkpoint_panel(
+                        phases_loaded=loaded_phases,
+                        phases_attempted=len(phases_to_load),
+                        status="loaded",
+                    )
                     console.print()
                     logger.info(f"Successfully loaded {len(loaded_phases)} checkpoint(s) out of {len(phases_to_load)} attempted: {', '.join(loaded_phases)}")
                     if len(loaded_phases) < len(phases_to_load):
@@ -901,13 +899,11 @@ class WorkflowManager:
                     if self.fulltext_results:
                         resume_info_lines.append(f"[dim]Found {len(self.fulltext_results)} fulltext screening results - will reuse[/dim]")
                     
-                    console.print()
-                    console.print(Panel(
-                        "\n".join(resume_info_lines),
-                        title="[bold cyan]Resume Information[/bold cyan]",
-                        border_style="cyan",
-                        padding=(1, 2)
-                    ))
+                    print_workflow_status_panel(
+                        title="Resume Information",
+                        message="\n".join(resume_info_lines),
+                        status_color="cyan",
+                    )
                     console.print()
                     
                     logger.info(f"Resuming from phase {start_from_phase} (completed: {existing_checkpoint['latest_phase']})")
@@ -968,17 +964,13 @@ class WorkflowManager:
                 # Skip if before start phase
                 if start_from_phase and phase.phase_number < start_from_phase:
                     # Display prominent Rich Panel for checkpoint-skipped phase
-                    console.print()
-                    console.print(Panel(
-                        f"[bold yellow]SKIPPED[/bold yellow] - Already completed\n\n"
-                        f"{phase.description or phase_name}\n\n"
-                        f"[dim]Phase {phase.phase_number} - Completed in checkpoint[/dim]\n"
-                        f"[dim]Resuming from phase {start_from_phase}[/dim]",
-                        title=f"[bold yellow]Phase {phase.phase_number}: {phase_name}[/bold yellow]",
-                        border_style="yellow",
-                        padding=(1, 2),
-                        expand=False
-                    ))
+                    print_phase_panel(
+                        phase_name=phase_name,
+                        phase_number=phase.phase_number,
+                        description=f"{phase.description or phase_name}\n\n[dim]Resuming from phase {start_from_phase}[/dim]",
+                        status="skipped_checkpoint",
+                        expand=False,
+                    )
                     console.print()
                     console.print()  # Extra newline for better separation
                     continue
@@ -986,16 +978,13 @@ class WorkflowManager:
                 # Check if phase should run (config-based for optional phases)
                 if not self._should_run_phase(phase):
                     # Display Rich Panel for config-disabled phase
-                    console.print()
-                    console.print(Panel(
-                        f"[bold cyan]SKIPPED[/bold cyan] - Disabled in configuration\n\n"
-                        f"{phase.description or phase_name}\n\n"
-                        f"[dim]Phase {phase.phase_number} - Optional phase disabled[/dim]",
-                        title=f"[bold cyan]Phase {phase.phase_number}: {phase_name}[/bold cyan]",
-                        border_style="cyan",
-                        padding=(1, 2),
-                        expand=False
-                    ))
+                    print_phase_panel(
+                        phase_name=phase_name,
+                        phase_number=phase.phase_number,
+                        description=phase.description or phase_name,
+                        status="skipped_disabled",
+                        expand=False,
+                    )
                     console.print()
                     console.print()  # Extra newline for better separation
                     logger.info(f"Skipping phase '{phase_name}': disabled in config")

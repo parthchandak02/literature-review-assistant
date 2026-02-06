@@ -15,17 +15,6 @@ logger = logging.getLogger(__name__)
 
 # Pricing per 1M tokens (as of 2026)
 PRICING = {
-    "openai": {
-        "gpt-4": {"input": 30.0, "output": 60.0},  # $30/$60 per 1M tokens
-        "gpt-4o": {"input": 5.0, "output": 15.0},
-        "gpt-4o-mini": {"input": 0.15, "output": 0.6},
-        "gpt-3.5-turbo": {"input": 0.5, "output": 1.5},
-    },
-    "anthropic": {
-        "claude-3-opus-20240229": {"input": 15.0, "output": 75.0},
-        "claude-3-sonnet-20240229": {"input": 3.0, "output": 15.0},
-        "claude-3-haiku-20240307": {"input": 0.25, "output": 1.25},
-    },
     "gemini": {
         "gemini-2.5-pro": {
             "input_under_200k": 1.25,
@@ -76,38 +65,27 @@ class CostTracker:
         self,
         provider: str,
         model: str,
-        usage: Any,  # Can be OpenAI or Anthropic usage object
+        usage: Any,  # Gemini usage object
         agent_name: Optional[str] = None,
     ):
         """
         Record an LLM call and calculate cost.
 
         Args:
-            provider: LLM provider ("openai" or "anthropic")
+            provider: LLM provider ("gemini" only)
             model: Model name
-            usage: Usage object (OpenAI or Anthropic format)
+            usage: Usage object (Gemini format)
             agent_name: Optional agent name
         """
-        # Convert usage to TokenUsage
-        if provider == "openai":
-            token_usage = TokenUsage(
-                prompt_tokens=getattr(usage, "prompt_tokens", 0),
-                completion_tokens=getattr(usage, "completion_tokens", 0),
-                total_tokens=getattr(usage, "total_tokens", 0),
-            )
-        elif provider == "anthropic":
-            token_usage = TokenUsage(
-                prompt_tokens=getattr(usage, "input_tokens", 0),
-                completion_tokens=getattr(usage, "output_tokens", 0),
-                total_tokens=getattr(usage, "input_tokens", 0) + getattr(usage, "output_tokens", 0),
-            )
-        elif provider == "gemini":
+        # Convert usage to TokenUsage (Gemini only)
+        if provider == "gemini":
             token_usage = TokenUsage(
                 prompt_tokens=getattr(usage, "prompt_tokens", 0),
                 completion_tokens=getattr(usage, "completion_tokens", 0),
                 total_tokens=getattr(usage, "total_tokens", 0),
             )
         else:
+            logger.warning(f"Unsupported provider for cost tracking: {provider}. Only 'gemini' is supported.")
             token_usage = TokenUsage()
 
         cost = self._calculate_cost(provider, model, token_usage)

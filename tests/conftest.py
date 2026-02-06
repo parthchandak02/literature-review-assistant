@@ -19,49 +19,6 @@ from src.utils.circuit_breaker import CircuitBreakerConfig
 
 
 @pytest.fixture
-def mock_openai_client():
-    """Mock OpenAI client."""
-    client = Mock()
-
-    # Mock chat completion response
-    mock_response = Mock()
-    mock_message = Mock()
-    mock_message.content = (
-        '{"decision": "include", "confidence": 0.85, "reasoning": "Test", "exclusion_reason": null}'
-    )
-    mock_choice = Mock()
-    mock_choice.message = mock_message
-    mock_response.choices = [mock_choice]
-    mock_response.usage = Mock()
-    mock_response.usage.prompt_tokens = 100
-    mock_response.usage.completion_tokens = 50
-    mock_response.usage.total_tokens = 150
-
-    client.chat.completions.create.return_value = mock_response
-    return client
-
-
-@pytest.fixture
-def mock_anthropic_client():
-    """Mock Anthropic client."""
-    client = Mock()
-
-    # Mock messages response
-    mock_content = Mock()
-    mock_content.text = (
-        '{"decision": "include", "confidence": 0.85, "reasoning": "Test", "exclusion_reason": null}'
-    )
-    mock_response = Mock()
-    mock_response.content = [mock_content]
-    mock_response.usage = Mock()
-    mock_response.usage.input_tokens = 100
-    mock_response.usage.output_tokens = 50
-
-    client.messages.create.return_value = mock_response
-    return client
-
-
-@pytest.fixture
 def sample_papers() -> List[Paper]:
     """Generate sample Paper objects for testing."""
     return [
@@ -114,7 +71,7 @@ def sample_agent_config() -> Dict[str, Any]:
         "role": "Test Agent",
         "goal": "Test goal",
         "backstory": "Test backstory",
-        "llm_model": "gpt-4",
+        "llm_model": "gemini-2.5-pro",
         "temperature": 0.3,
         "max_iterations": 5,
     }
@@ -175,7 +132,7 @@ def mock_workflow_config() -> Dict[str, Any]:
                 "role": "Test Screener",
                 "goal": "Test screening",
                 "backstory": "Test",
-                "llm_model": "gpt-4",
+                "llm_model": "gemini-2.5-pro",
                 "temperature": 0.3,
             }
         },
@@ -198,8 +155,8 @@ def setup_test_env(monkeypatch, tmp_path):
     test_output_dir.mkdir()
 
     # Mock environment variables
-    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
-    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
+    monkeypatch.setenv("GEMINI_API_KEY", "test-key")
+    # Note: PERPLEXITY_SEARCH_API_KEY is still used for database search
 
     # Set test paths
     monkeypatch.setattr(

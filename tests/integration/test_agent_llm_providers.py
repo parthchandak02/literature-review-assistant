@@ -70,58 +70,6 @@ class TestAgentWithGoogleGenAI:
         assert result == "Final response"
 
 
-class TestAgentWithPerplexity:
-    """Test agents with Perplexity provider."""
-
-    @patch.dict(os.environ, {"PERPLEXITY_API_KEY": "test-key"})
-    @patch("src.screening.base_agent.Perplexity")
-    def test_agent_with_perplexity(self, mock_perplexity):
-        """Test agent initialization with Perplexity."""
-        mock_client = Mock()
-        mock_perplexity.return_value = mock_client
-
-        class TestAgent(BaseScreeningAgent):
-            def screen(self, title, abstract, inclusion_criteria, exclusion_criteria):
-                return None
-
-        agent = TestAgent(
-            llm_provider="perplexity",
-            api_key="test-key",
-            agent_config={"llm_model": "sonar-pro", "role": "Test Agent", "tools": []},
-        )
-
-        assert agent.llm_provider == "perplexity"
-        assert agent.llm_client == mock_client
-
-    @patch.dict(os.environ, {"PERPLEXITY_API_KEY": "test-key"})
-    @patch("src.screening.base_agent.Perplexity")
-    def test_perplexity_tool_calling(self, mock_perplexity):
-        """Test tool calling with Perplexity (OpenAI-compatible)."""
-        mock_client = Mock()
-        mock_response = Mock()
-        mock_message = Mock()
-        mock_message.content = "Final response"
-        mock_message.tool_calls = None
-        mock_response.choices = [Mock()]
-        mock_response.choices[0].message = mock_message
-        mock_client.chat.completions.create.return_value = mock_response
-        mock_perplexity.return_value = mock_client
-
-        class TestAgent(BaseScreeningAgent):
-            def screen(self, title, abstract, inclusion_criteria, exclusion_criteria):
-                return None
-
-        agent = TestAgent(
-            llm_provider="perplexity",
-            api_key="test-key",
-            agent_config={"llm_model": "sonar-pro", "tools": ["exa_search"]},
-        )
-
-        # Test tool calling
-        result = agent._call_llm_with_tools("Test prompt", max_iterations=1)
-        assert result == "Final response"
-
-
 class TestExaToolIntegration:
     """Test Exa tool integration."""
 

@@ -8,12 +8,11 @@ through the workflow and generates PRISMA 2020-compliant diagrams.
 from typing import Dict, Optional, Any, List
 from pathlib import Path
 import logging
-from rich.console import Console
+from ..utils.rich_utils import console
 from rich.panel import Panel
 from rich.text import Text
 
 logger = logging.getLogger(__name__)
-console = Console()
 
 
 class PRISMACounter:
