@@ -4,24 +4,24 @@
 # Research Topic Configuration
 # Everything you need to configure for a new study is in this section
 topic:
-  topic: "Robotic Medication Dispensing Systems for University Health Centers"
-  keywords: ["robotic medication dispensing", "automated pharmacy", "university health centers", "medication automation", "pharmacy robotics", "health center automation", "medication management systems", "robotic dispensing", "campus health", "student health services"]
-  domain: "healthcare automation and pharmacy technology"
-  scope: "Focus on robotic and automated medication dispensing systems specifically implemented in university health centers, including system architectures, patient safety measures, efficiency improvements, and integration with electronic health records"
-  research_question: "How do robotic medication dispensing systems improve medication safety, efficiency, and patient satisfaction in university health center settings, and what are the key implementation challenges and outcomes?"
-  context: "Robotic medication dispensing systems have been increasingly adopted in hospital pharmacies, but their implementation in university health centers presents unique challenges including high student volume, diverse medication needs, and integration with student health records. This research examines the effectiveness, safety outcomes, and implementation considerations for robotic dispensing systems in academic health center environments."
+  topic: "Conversational AI Tutors for Health Science Education"
+  keywords: ["conversational AI tutor", "AI chatbot education", "virtual teaching assistant", "dialogue-based tutoring", "conversational agent health education", "AI medical education", "chatbot nursing education", "intelligent tutoring system health", "conversational learning health sciences", "AI-powered tutor healthcare"]
+  domain: "AI-powered educational technology in health sciences"
+  scope: "Focus on conversational AI tutors (chatbots, virtual teaching assistants, dialogue-based tutoring systems) used in health science education (medicine, nursing, pharmacy, public health, allied health), including learning outcomes, student engagement, pedagogical approaches, and implementation strategies"
+  research_question: "How do conversational AI tutors impact learning outcomes, engagement, and knowledge retention in health science education, and what are the key design factors and implementation challenges?"
+  context: "Conversational AI tutors are increasingly being adopted in health science education to provide personalized, on-demand learning support. These systems can supplement traditional instruction, provide clinical scenario practice, and help students master complex medical concepts through interactive dialogue. This review examines the effectiveness, pedagogical approaches, and implementation considerations for conversational AI tutoring systems in health science education."
   
   # Inclusion/Exclusion Criteria
   inclusion:
-    - "Studies on robotic or automated medication dispensing systems"
-    - "Implementation in university health centers, student health services, or campus health facilities"
-    - "Medication safety, accuracy, or efficiency outcomes"
-    - "Integration with electronic health records or pharmacy systems"
-    - "Patient satisfaction or user experience evaluations"
-    - "Published in English and peer-reviewed journals or conferences"
+    - "Studies on conversational AI tutors or chatbots for health science education"
+    - "Implementation in medical, nursing, pharmacy, or allied health programs"
+    - "Learning outcomes, knowledge retention, or skill development measures"
+    - "Student engagement, satisfaction, or user experience evaluations"
+    - "Pedagogical design, conversational strategies, or AI techniques"
+    - "Published in English and peer-reviewed"
   exclusion:
-    - "Hospital-only implementations without university health center context"
-    - "Non-robotic medication management systems (manual systems only)"
+    - "Non-conversational educational technology (static content, videos only, non-interactive)"
+    - "Non-health science domains (general education, business, engineering, etc.)"
     - "Studies without empirical evaluation or outcomes data"
     - "Opinion pieces or non-peer-reviewed sources"
     - "Conference abstracts without full papers"
@@ -178,7 +178,7 @@ agents:
 workflow:
   databases: ["PubMed", "arXiv", "Semantic Scholar", "Crossref", "Scopus", "ACM", "Springer", "IEEE Xplore", "Perplexity"]
   date_range:
-    start: null  # null means no start limit
+    start: 2015  # Last 10 years - includes early chatbot research
     end: 2025
   language: "English"
   max_results_per_db: 100
@@ -351,7 +351,7 @@ output:
 
 # Manubot Configuration
 manubot:
-  enabled: true  # Set to true to enable Manubot export
+  enabled: false  # Set to true to enable Manubot export (disabled by default - use submission package instead)
   output_dir: "manuscript"  # Relative to data/outputs/
   citation_style: "ieee"  # Options: "ieee", "apa", "nature", "plos", etc.
   auto_resolve_citations: true  # Automatically resolve citations from DOI/PMID
