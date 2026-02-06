@@ -65,10 +65,10 @@ class IntroductionWriter(BaseScreeningAgent):
         )
 
         if not self.llm_client:
-            result = self._fallback_introduction(research_question, justification)
-        else:
-            response = self._call_llm(prompt)
-            result = response
+            raise RuntimeError("LLM client is required for introduction generation")
+        
+        response = self._call_llm(prompt)
+        result = response
 
         # Restore original context
         if topic_context:
@@ -160,12 +160,3 @@ Write in academic style, use appropriate citations (use [Citation X] format), an
 
         return prompt
 
-    def _fallback_introduction(self, research_question: str, justification: str) -> str:
-        """Fallback introduction."""
-        return f"""## Introduction
-
-{research_question}
-
-{justification}
-
-This systematic review aims to address this research question through a comprehensive analysis of the existing literature."""

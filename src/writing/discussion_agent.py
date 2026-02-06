@@ -66,10 +66,10 @@ class DiscussionWriter(BaseScreeningAgent):
         )
 
         if not self.llm_client:
-            result = self._fallback_discussion(research_question, key_findings, extracted_data)
-        else:
-            response = self._call_llm(prompt)
-            result = response
+            raise RuntimeError("LLM client is required for discussion generation")
+        
+        response = self._call_llm(prompt)
+        result = response
 
         # Restore original context
         if topic_context:
@@ -254,46 +254,3 @@ CRITICAL REQUIREMENTS:
 - Begin immediately with the summary of main findings - do not include any introductory phrases"""
 
         return prompt
-
-    def _fallback_discussion(self, research_question: str, key_findings: List[str], extracted_data: Optional[List] = None) -> str:
-        """Fallback discussion."""
-        num_studies = len(extracted_data) if extracted_data else 0
-
-        if num_studies == 0:
-            return f"""## Discussion
-
-### Summary of Findings
-
-This systematic review addressed the research question: {research_question}
-
-No studies met the inclusion criteria for this systematic review. This indicates a significant gap in the literature.
-
-### Implications
-
-The absence of studies meeting inclusion criteria highlights the need for future research in this area."""
-        elif num_studies == 1:
-            return f"""## Discussion
-
-### Summary of Findings
-
-This systematic review addressed the research question: {research_question}
-
-Key findings from the included study include:
-{chr(10).join(f"- {finding}" for finding in key_findings)}
-
-### Implications
-
-These findings have important implications for both practice and future research. However, the limitation of having only one included study should be considered when interpreting these results."""
-        else:
-            return f"""## Discussion
-
-### Summary of Findings
-
-This systematic review addressed the research question: {research_question}
-
-Key findings from the included studies include:
-{chr(10).join(f"- {finding}" for finding in key_findings)}
-
-### Implications
-
-These findings have important implications for both practice and future research."""

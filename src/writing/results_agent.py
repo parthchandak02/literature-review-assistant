@@ -85,11 +85,11 @@ class ResultsWriter(BaseScreeningAgent):
         )
 
         if not self.llm_client:
-            result = self._fallback_results(extracted_data, prisma_counts)
-        else:
-            # Use tool calling if tools are available
-            if self.tool_registry.list_tools():
-                response = self._call_llm_with_tools(prompt, max_iterations=10)
+            raise RuntimeError("LLM client is required for results generation")
+        
+        # Use tool calling if tools are available
+        if self.tool_registry.list_tools():
+            response = self._call_llm_with_tools(prompt, max_iterations=10)
             else:
                 response = self._call_llm(prompt)
             result = response
@@ -454,40 +454,3 @@ IMPORTANT:
 
         return prompt
 
-    def _fallback_results(
-        self, extracted_data: List[ExtractedData], prisma_counts: Dict[str, int]
-    ) -> str:
-        """Fallback results."""
-        num_studies = len(extracted_data)
-
-        if num_studies == 0:
-            return f"""## Results
-
-### Study Selection
-
-A total of {prisma_counts.get("found", 0)} records were identified through database searching. After removing {prisma_counts.get("found", 0) - prisma_counts.get("no_dupes", 0)} duplicate records, {prisma_counts.get("no_dupes", 0)} unique records remained. After title and abstract screening, {prisma_counts.get("screened", 0)} records were assessed for eligibility. Following full-text review, no studies met the inclusion criteria and were included in the final synthesis.
-
-### No Studies Found
-
-No studies met the inclusion criteria for this systematic review. This may be due to the specificity of the inclusion criteria or the limited availability of research in this area."""
-        elif num_studies == 1:
-            study = extracted_data[0]
-            return f"""## Results
-
-### Study Selection
-
-A total of {prisma_counts.get("found", 0)} records were identified through database searching. After removing {prisma_counts.get("found", 0) - prisma_counts.get("no_dupes", 0)} duplicate records, {prisma_counts.get("no_dupes", 0)} unique records remained. After title and abstract screening, {prisma_counts.get("screened", 0)} records were assessed for eligibility. Following full-text review, one study was included in the final synthesis.
-
-### Study Characteristics
-
-One study was included in this systematic review: {study.title if hasattr(study, 'title') else 'The included study'}."""
-        else:
-            return f"""## Results
-
-### Study Selection
-
-A total of {prisma_counts.get("found", 0)} records were identified through database searching. After removing {prisma_counts.get("found", 0) - prisma_counts.get("no_dupes", 0)} duplicate records, {prisma_counts.get("no_dupes", 0)} unique records remained. After title and abstract screening, {prisma_counts.get("screened", 0)} records were assessed for eligibility. Following full-text review, {prisma_counts.get("quantitative", prisma_counts.get("qualitative", 0))} studies were included in the final synthesis.
-
-### Study Characteristics
-
-{num_studies} studies were included in this systematic review. The studies varied in methodology and focus areas."""

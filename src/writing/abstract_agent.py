@@ -188,29 +188,24 @@ Generate a structured abstract with all 12 elements clearly labeled. Total word 
             style_guidelines += "- Maintain scholarly tone: precise but not robotic\n"
             prompt += style_guidelines
 
-        # If no LLM client, use fallback immediately
+        # Require LLM client
         if not self.llm_client:
-            return self._fallback_prisma_2020_abstract(research_question, included_papers, registration_number, registry, funding_source)
+            raise RuntimeError("LLM client is required for PRISMA 2020 abstract generation")
 
-        # Try to use LLM if available, otherwise fallback
+        # Use _call_llm from BaseScreeningAgent
+        response_text = self._call_llm(prompt)
+        # Try to parse as JSON if it looks like JSON, otherwise use as-is
         try:
-            # Use _call_llm from BaseScreeningAgent
-            response_text = self._call_llm(prompt)
-            # Try to parse as JSON if it looks like JSON, otherwise use as-is
-            try:
-                response_json = json.loads(response_text)
-                if isinstance(response_json, dict) and "abstract" in response_json:
-                    abstract = response_json["abstract"]
-                else:
-                    abstract = response_text
-            except json.JSONDecodeError:
+            response_json = json.loads(response_text)
+            if isinstance(response_json, dict) and "abstract" in response_json:
+                abstract = response_json["abstract"]
+            else:
                 abstract = response_text
+        except json.JSONDecodeError:
+            abstract = response_text
 
-            logger.info(f"Generated PRISMA 2020 structured abstract ({len(abstract.split())} words)")
-            return abstract
-        except Exception as e:
-            logger.warning(f"Could not generate PRISMA 2020 abstract with LLM, using fallback: {e}")
-            return self._fallback_prisma_2020_abstract(research_question, included_papers, registration_number, registry, funding_source)
+        logger.info(f"Generated PRISMA 2020 structured abstract ({len(abstract.split())} words)")
+        return abstract
 
     def _generate_structured_abstract(
         self,
@@ -220,9 +215,9 @@ Generate a structured abstract with all 12 elements clearly labeled. Total word 
         style_patterns: Optional[Dict[str, Dict[str, List[str]]]] = None,
     ) -> str:
         """Generate structured abstract (Background, Objective, Methods, Results, Conclusions)."""
-        # If no LLM client, use fallback
+        # Require LLM client
         if not self.llm_client:
-            return self._fallback_abstract(research_question, included_papers)
+            raise RuntimeError("LLM client is required for abstract generation")
 
         methods_text = article_sections.get("methods", "")
         results_text = article_sections.get("results", "")
@@ -248,23 +243,19 @@ Number of included studies: {len(included_papers)}
 
 Generate a structured abstract with these sections. Total word limit: approximately {self.word_limit} words."""
 
+        response_text = self._call_llm(prompt)
+        # Try to parse as JSON if it looks like JSON, otherwise use as-is
         try:
-            response_text = self._call_llm(prompt)
-            # Try to parse as JSON if it looks like JSON, otherwise use as-is
-            try:
-                response_json = json.loads(response_text)
-                if isinstance(response_json, dict) and "abstract" in response_json:
-                    abstract = response_json["abstract"]
-                else:
-                    abstract = response_text
-            except json.JSONDecodeError:
+            response_json = json.loads(response_text)
+            if isinstance(response_json, dict) and "abstract" in response_json:
+                abstract = response_json["abstract"]
+            else:
                 abstract = response_text
+        except json.JSONDecodeError:
+            abstract = response_text
 
-            logger.info(f"Generated structured abstract ({len(abstract.split())} words)")
-            return abstract
-        except Exception as e:
-            logger.error(f"Error generating abstract: {e}", exc_info=True)
-            return self._fallback_abstract(research_question, included_papers)
+        logger.info(f"Generated structured abstract ({len(abstract.split())} words)")
+        return abstract
 
     def _generate_unstructured_abstract(
         self,
@@ -274,9 +265,9 @@ Generate a structured abstract with these sections. Total word limit: approximat
         style_patterns: Optional[Dict[str, Dict[str, List[str]]]] = None,
     ) -> str:
         """Generate unstructured abstract (single paragraph)."""
-        # If no LLM client, use fallback
+        # Require LLM client
         if not self.llm_client:
-            return self._fallback_abstract(research_question, included_papers)
+            raise RuntimeError("LLM client is required for abstract generation")
 
         methods_text = article_sections.get("methods", "")
         results_text = article_sections.get("results", "")
@@ -296,66 +287,17 @@ Number of included studies: {len(included_papers)}
 
 Generate a single-paragraph abstract that summarizes the background, objective, methods, results, and conclusions."""
 
+        response_text = self._call_llm(prompt)
+        # Try to parse as JSON if it looks like JSON, otherwise use as-is
         try:
-            response_text = self._call_llm(prompt)
-            # Try to parse as JSON if it looks like JSON, otherwise use as-is
-            try:
-                response_json = json.loads(response_text)
-                if isinstance(response_json, dict) and "abstract" in response_json:
-                    abstract = response_json["abstract"]
-                else:
-                    abstract = response_text
-            except json.JSONDecodeError:
+            response_json = json.loads(response_text)
+            if isinstance(response_json, dict) and "abstract" in response_json:
+                abstract = response_json["abstract"]
+            else:
                 abstract = response_text
+        except json.JSONDecodeError:
+            abstract = response_text
 
-            logger.info(f"Generated unstructured abstract ({len(abstract.split())} words)")
-            return abstract
-        except Exception as e:
-            logger.error(f"Error generating abstract: {e}", exc_info=True)
-            return self._fallback_abstract(research_question, included_papers)
+        logger.info(f"Generated unstructured abstract ({len(abstract.split())} words)")
+        return abstract
 
-    def _fallback_prisma_2020_abstract(
-        self, research_question: str, included_papers: List[Paper],
-        registration_number: str = "", registry: str = "PROSPERO",
-        funding_source: str = "No funding received"
-    ) -> str:
-        """Generate a fallback PRISMA 2020 abstract if LLM generation fails."""
-        registration_text = f"{registry} {registration_number}" if registration_number else f"{registry} (not registered)"
-        return f"""Background: This systematic review addresses an important research question in health informatics.
-
-Objectives: {research_question}
-
-Eligibility criteria: Studies were included based on predefined inclusion and exclusion criteria.
-
-Information sources: A comprehensive search was conducted across multiple databases from inception to present.
-
-Risk of bias: Risk of bias was assessed using appropriate tools for each study design.
-
-Synthesis methods: Results were synthesized narratively.
-
-Results: {len(included_papers)} studies met the inclusion criteria and were included in this review.
-
-Limitations: Limitations include potential publication bias and heterogeneity in study designs.
-
-Interpretation: The findings provide insights into the research question and have implications for practice and future research.
-
-Funding: {funding_source}
-
-Registration: {registration_text}"""
-
-    def _fallback_abstract(
-        self, research_question: str, included_papers: List[Paper]
-    ) -> str:
-        """Generate a simple fallback abstract if LLM generation fails."""
-        if self.structured:
-            return f"""Background: This systematic review addresses an important research question in health informatics.
-
-Objective: {research_question}
-
-Methods: A comprehensive search was conducted across multiple databases. Studies were screened and assessed for eligibility.
-
-Results: {len(included_papers)} studies met the inclusion criteria and were included in this review.
-
-Conclusions: The findings provide insights into the research question and have implications for practice and future research."""
-        else:
-            return f"This systematic review addresses the research question: {research_question}. A comprehensive search was conducted across multiple databases, and {len(included_papers)} studies met the inclusion criteria. The findings provide insights with implications for practice and future research."

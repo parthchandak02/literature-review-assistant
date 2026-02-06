@@ -87,13 +87,11 @@ class MethodsWriter(BaseScreeningAgent):
         )
 
         if not self.llm_client:
-            result = self._fallback_methods(
-                search_strategy, databases, inclusion_criteria, exclusion_criteria
-            )
-        else:
-            # Use tool calling if tools are available
-            if self.tool_registry.list_tools():
-                response = self._call_llm_with_tools(prompt, max_iterations=10)
+            raise RuntimeError("LLM client is required for methods generation")
+        
+        # Use tool calling if tools are available
+        if self.tool_registry.list_tools():
+            response = self._call_llm_with_tools(prompt, max_iterations=10)
             else:
                 response = self._call_llm(prompt)
             result = response
@@ -272,30 +270,3 @@ TOOL USAGE INSTRUCTIONS:
 
         return prompt
 
-    def _fallback_methods(
-        self,
-        search_strategy: str,
-        databases: List[str],
-        inclusion_criteria: List[str],
-        exclusion_criteria: List[str],
-    ) -> str:
-        """Fallback methods."""
-        return f"""## Methods
-
-### Search Strategy
-
-{search_strategy}
-
-The following databases were searched: {", ".join(databases)}.
-
-### Eligibility Criteria
-
-Studies were included if they met the following criteria:
-{chr(10).join(f"- {criterion}" for criterion in inclusion_criteria)}
-
-Studies were excluded if they:
-{chr(10).join(f"- {criterion}" for criterion in exclusion_criteria)}
-
-### Study Selection
-
-All retrieved articles were screened in two stages: (1) title and abstract screening and (2) full-text review."""

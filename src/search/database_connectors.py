@@ -3,19 +3,16 @@ Database Connectors
 
 Connectors for various academic databases: PubMed, Scopus, Web of Science, IEEE Xplore, Google Scholar,
 arXiv, Semantic Scholar, Crossref.
-
-This module maintains backward compatibility by re-exporting from the refactored connector modules.
 """
 
-# Re-export base classes and Paper for backward compatibility
+# Base classes and utilities
 from .connectors.base import Paper, DatabaseConnector
 from .models import Author, Affiliation
 from .proxy_manager import ProxyManager
 from .integrity_checker import IntegrityChecker
 from ..utils.html_utils import html_unescape, clean_abstract
 
-# Re-export connectors (will be imported from individual files once created)
-# For now, keep the implementations here but mark them for migration
+# Connector implementations
 from typing import List, Dict, Optional
 import os
 import requests
@@ -1927,7 +1924,7 @@ class SpringerConnector(DatabaseConnector):
 
 
 class IEEEXploreConnector(DatabaseConnector):
-    """IEEE Xplore connector using API (preferred) or web scraping (fallback)."""
+    """IEEE Xplore connector using official API."""
 
     def __init__(
         self,
@@ -1953,23 +1950,18 @@ class IEEEXploreConnector(DatabaseConnector):
 
     @retry_with_backoff(max_attempts=3)
     def search(self, query: str, max_results: int = 100) -> List[Paper]:
-        """Search IEEE Xplore using API if available, otherwise web scraping."""
+        """Search IEEE Xplore using official API."""
         # Check cache first
         if self.cache:
             cached = self.cache.get(query, "IEEE Xplore")
             if cached:
                 return cached[:max_results]
 
-        # Try API first if API key is available
-        if self.use_api:
-            try:
-                return self._search_via_api(query, max_results)
-            except Exception as e:
-                logger.warning(f"IEEE Xplore API search failed: {e}. Falling back to web scraping.")
-                # Fall through to web scraping
+        # Require API key
+        if not self.use_api or not self.api_key:
+            raise APIKeyError("IEEE Xplore requires an API key. Set IEEE_API_KEY in environment variables.")
 
-        # Fallback to web scraping
-        return self._search_via_scraping(query, max_results)
+        return self._search_via_api(query, max_results)
 
     def _search_via_api(self, query: str, max_results: int = 100) -> List[Paper]:
         """Search IEEE Xplore using official API."""
@@ -2083,10 +2075,8 @@ class IEEEXploreConnector(DatabaseConnector):
             self.cache.set(query, "IEEE Xplore", papers)
 
         return papers
-
-    def _search_via_scraping(self, query: str, max_results: int = 100) -> List[Paper]:
-        """Search IEEE Xplore using web scraping (fallback method)."""
-        papers = []
+    def get_database_name(self) -> str:
+        return "IEEE Xplore"
 
         try:
             from bs4 import BeautifulSoup
