@@ -28,7 +28,7 @@ An end-to-end agentic AI system that automates systematic literature reviews fro
 
 **Yes!** You only need:
 - Python 3.8+ and `uv` package manager
-- One LLM API key (Google Gemini recommended - free tier available)
+- Google Gemini API key (free tier available)
 - 5 minutes to get started
 
 The system works with free academic databases by default and includes comprehensive documentation.
@@ -68,7 +68,8 @@ Before you begin, ensure you have the following installed:
   - Linux: `apt-get install pandoc` or `yum install pandoc`
   - Windows: Download from [https://pandoc.org/installing.html](https://pandoc.org/installing.html)
 - **LLM API key** - Required for core functionality (see [API Keys Required](#api-keys-required) section)
-  - Google GenAI (Gemini) recommended, or Perplexity
+  - Google GenAI (Gemini) - Primary LLM provider (free tier available)
+  - Perplexity - Alternative provider for specific use cases
 
 Optional but recommended:
 - **Manubot** - For citation resolution (`uv pip install manubot` or `uv pip install -e ".[manubot-full]"`)
@@ -380,9 +381,9 @@ flowchart TD
 
 ### Technology Stack
 
-**LLM Providers**:
-- Google GenAI (Gemini models - Flash, Flash-Lite, Pro) - Recommended
-- Perplexity (Sonar models) - Alternative option
+**LLM Provider**:
+- Google GenAI (Gemini models: gemini-2.5-pro, gemini-2.5-flash, gemini-2.5-flash-lite)
+- Optimized model selection per phase for cost efficiency and quality
 
 **Academic Databases**:
 - PubMed (free, optional API key)
@@ -470,9 +471,9 @@ Checkpoint behavior is configured in `config/workflow.yaml` (see Configuration s
 
 ### Required for LLM Features
 
-The system requires a Google Gemini API key (recommended) or Perplexity API key:
+The system requires a Google Gemini API key:
 
-**Google GenAI (Gemini)** ⭐ Recommended
+**Google GenAI (Gemini)** ⭐ Recommended & Primary Provider
 ```bash
 GOOGLE_API_KEY=your-key-here
 # OR
@@ -480,17 +481,12 @@ GEMINI_API_KEY=your-key-here
 LLM_PROVIDER=google
 ```
 - **Get API key**: https://aistudio.google.com/app/apikey
-- **Best for**: Quick start, cost-effective, free tier available
-- **Why Gemini?** Free tier with generous quotas, fast API responses, and optimized for research workflows
+- **Best for**: All LLM tasks (screening, extraction, writing)
+- **Why Gemini?** Free tier with generous quotas, fast API responses, cost-effective pricing, and optimized for research workflows
+- **Models**: Uses gemini-2.5-pro for quality-critical tasks, gemini-2.5-flash for balanced tasks, gemini-2.5-flash-lite for high-volume screening
 
-**Perplexity** (Alternative LLM Provider)
-```bash
-PERPLEXITY_API_KEY=your-key-here
-LLM_PROVIDER=perplexity
-```
-- **Get API key**: https://www.perplexity.ai/settings/api
-- **Best for**: Research-focused LLM queries (uses Sonar models)
-- **Note**: This is for LLM tasks only (screening/text generation). For search, use `PERPLEXITY_SEARCH_API_KEY` instead.
+**Alternative Providers**:
+Perplexity support is primarily for academic search (via `PERPLEXITY_SEARCH_API_KEY`), not for LLM tasks. Gemini is currently the fully-supported and recommended LLM provider.
 
 > **Note**: If no API keys are provided, the system will use fallback keyword-based methods (limited functionality).
 

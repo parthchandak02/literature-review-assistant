@@ -44,12 +44,12 @@ topic:
     statement: "The authors declare no conflicts of interest."  # Update as needed
 
 # Agent Configurations
-# Model selection guide based on pricing research (2025):
+# LLM Provider: Google Gemini (gemini-2.5-* models) is the primary and recommended provider
+# Model selection guide based on pricing research (2026):
 #   Gemini 2.5 Flash-Lite ($0.10/1M input, $0.40/1M output): Bulk screening, high-volume classification - RECOMMENDED for full-text screening
 #   Gemini 2.5 Flash ($0.30/1M input, $2.50/1M output): Balanced speed/cost - RECOMMENDED for search and moderate-volume tasks
 #   Gemini 2.5 Pro ($1.25/1M input, $10.00/1M output): Quality-critical decisions - RECOMMENDED for borderline screening, extraction, writing
-#   Gemini 3 Pro ($2.00/1M input, $12.00/1M output): Most advanced reasoning - OPTIONAL upgrade for Pro tasks
-#   Perplexity: sonar-pro, sonar-reasoning-pro, sonar
+# Note: Perplexity is supported for academic SEARCH (via PERPLEXITY_SEARCH_API_KEY), not for LLM tasks
 agents:
   search_agent:
     role: "Literature Search Specialist"
