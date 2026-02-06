@@ -99,9 +99,9 @@ class WorkflowInitializer:
         )
 
         # Initialize agents with YAML configs and topic context
-        # Use separate configs for screening stages, with fallback to screening_agent for backward compatibility
-        title_abstract_config = agents_config.get("title_abstract_screener") or agents_config.get("screening_agent", {})
-        fulltext_config = agents_config.get("fulltext_screener") or agents_config.get("screening_agent", {})
+        # Use separate configs for screening stages
+        title_abstract_config = agents_config.get("title_abstract_screener", {})
+        fulltext_config = agents_config.get("fulltext_screener", {})
         extraction_config = agents_config.get("extraction_agent", {})
         intro_config = agents_config.get("introduction_writer", {})
         methods_config = agents_config.get("methods_writer", {})

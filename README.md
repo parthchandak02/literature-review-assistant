@@ -662,6 +662,59 @@ python main.py --build-package --journal ieee  # Generate journal submission pac
 
 **Journal Templates**: IEEE, Nature, PLOS templates included. Generate submission packages with `--build-package --journal <name>`.
 
+## Maintenance
+
+### Cleanup Old Workflow Folders
+
+Over time, the system creates timestamped workflow folders for each run. Use the cleanup command to remove old folders and free up disk space:
+
+```bash
+# Preview what would be deleted (dry-run mode)
+python main.py --cleanup --dry-run
+
+# Delete old folders (keeps most recent per topic)
+python main.py --cleanup
+
+# Keep 3 most recent folders instead of 1
+python main.py --cleanup --keep-n 3
+
+# Clean up specific topic only
+python main.py --cleanup --topic "financial_trading_system_integ"
+```
+
+**How it works:**
+- Scans both `data/checkpoints/` and `data/outputs/` directories
+- Groups folders by research topic
+- Keeps the N most recent folders per topic (default: 1)
+- Deletes all older folders for each topic
+- The most recent folder always has the complete checkpoint chain
+
+**Example output:**
+```
+Workflow Folder Cleanup Report
+================================
+
+Topic: financial_trading_system_integ
+  Latest folder: workflow_financial_trading_system_integ_20260122_164150
+  Folders to delete: 70
+  Space to free: 450.5 MB
+  
+  Checkpoint folders (70):
+    - workflow_financial_trading_system_integ_20260120_144424 (2.1 MB)
+    - workflow_financial_trading_system_integ_20260120_151806 (2.3 MB)
+    ... (68 more)
+
+================================
+Total Topics: 1
+Total Folders to Delete: 140 (70 checkpoints + 70 outputs)
+Total Space to Free: 900.5 MB
+```
+
+**Safety:**
+- Use `--dry-run` to preview before deleting
+- Latest folder per topic is always preserved
+- Detailed logging to `logs/cleanup_{timestamp}.log`
+
 
 ## Testing
 

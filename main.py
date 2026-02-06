@@ -202,12 +202,51 @@ def parse_args():
         help="Enable automatic LLM-based quality assessment filling (default: enabled, use --no-auto-fill-qa to disable)",
     )
 
+    # Cleanup commands
+    parser.add_argument(
+        "--cleanup",
+        action="store_true",
+        help="Clean up old workflow folders, keeping only the most recent per topic",
+    )
+
+    parser.add_argument(
+        "--topic",
+        type=str,
+        help="Topic filter for cleanup (use with --cleanup)",
+    )
+
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Preview cleanup without actually deleting files (use with --cleanup)",
+    )
+
+    parser.add_argument(
+        "--keep-n",
+        type=int,
+        default=1,
+        help="Number of most recent workflow folders to keep per topic (default: 1, use with --cleanup)",
+    )
+
     return parser.parse_args()
 
 
 def main():
     """Main entry point."""
     args = parse_args()
+
+    # Handle cleanup flag
+    if args.cleanup:
+        from src.utils.workflow_cleaner import WorkflowCleaner
+        
+        cleaner = WorkflowCleaner()
+        report = cleaner.cleanup(
+            dry_run=args.dry_run,
+            topic_filter=args.topic,
+            keep_n=args.keep_n
+        )
+        print(report)
+        sys.exit(0)
 
     # Handle list-journals flag
     if args.list_journals:

@@ -92,19 +92,6 @@ agents:
     temperature: 0.2
     max_iterations: 5
     
-  # DEPRECATED: Use title_abstract_screener and fulltext_screener instead
-  # Kept for backward compatibility - will be used as fallback if new configs are missing
-  screening_agent:
-    role: "Screening Specialist"
-    goal: "Screen papers for relevance to {topic} and {research_question}"
-    backstory: "Meticulous reviewer with expertise in {domain}, focusing on {topic}"
-    # Pro: Advanced reasoning for complex multi-step logic. Higher accuracy for precision-critical tasks.
-    # Excels at complex reasoning, advanced coding, large data analysis with fewer errors.
-    llm_model: "gemini-2.5-pro"
-    tools: ["title_screener", "fulltext_screener"]
-    temperature: 0.2
-    max_iterations: 10
-    
   extraction_agent:
     role: "Data Extraction Specialist"
     goal: "Extract structured data from papers related to {topic}"
