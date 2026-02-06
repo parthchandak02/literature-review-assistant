@@ -320,6 +320,7 @@ writing:
     model: "gemini-2.5-pro"          # LLM model for section extraction
     max_papers: null                 # Max papers to analyze (null = all eligible)
     min_papers: 3                    # Minimum papers required for pattern extraction
+    timeout: 120                     # Timeout for LLM calls in seconds (default: 120)
   
   humanization:
     enabled: true                    # Enable/disable humanization
@@ -329,8 +330,9 @@ writing:
     naturalness_threshold: 0.75      # Minimum naturalness score
     section_specific: true            # Use section-specific strategies
   
-  retry_count: 2                     # Number of retry attempts for section writing (default: 2, set to 0 to disable retries)
+  retry_count: 1                     # Number of retry attempts for section writing (reduced to 1 to avoid long waits)
   checkpoint_per_section: true       # Save checkpoint after each section completes (enables resume from last completed section)
+  llm_timeout: 120                   # Timeout for individual LLM calls in seconds (prevents hanging)
 
 # Quality Assessment Configuration
 quality_assessment:
