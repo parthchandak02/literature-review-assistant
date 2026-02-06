@@ -2649,9 +2649,21 @@ class WorkflowManager:
                         logger.info(f"{section_name} section succeeded on attempt {attempt + 1}")
                     return result
                 else:
-                    logger.warning(f"{section_name} section returned empty result on attempt {attempt + 1}")
+                    logger.warning(
+                        f"{section_name} section returned empty result on attempt {attempt + 1}. "
+                        f"This may be due to: (1) Gemini API rate limiting, (2) API timeout, "
+                        f"(3) prompt too complex, or (4) temporary API unavailability."
+                    )
+            except TimeoutError as e:
+                logger.warning(
+                    f"{section_name} section timed out on attempt {attempt + 1}: {e}. "
+                    f"Consider increasing llm_timeout in config/workflow.yaml if this persists."
+                )
             except Exception as e:
-                logger.warning(f"{section_name} section failed on attempt {attempt + 1}: {e}")
+                logger.warning(
+                    f"{section_name} section failed on attempt {attempt + 1}: {e}. "
+                    f"Error type: {type(e).__name__}"
+                )
             
             # Immediate retry - no delay
             if attempt < max_attempts - 1:
@@ -2866,7 +2878,7 @@ class WorkflowManager:
                     grade_assessments = self.quality_assessment_data.get("grade_summary")
                     grade_table = self.quality_assessment_data.get("grade_table")
 
-                def results_fallback():
+                def results_fallback(*args, **kwargs):
                     return self.results_writer._fallback_results(self.extracted_data, self.prisma_counter.get_counts())
                 
                 results = self._write_section_with_retry(
@@ -2990,7 +3002,7 @@ class WorkflowManager:
             ):
                 research_question = self.topic_context.research_question or self.topic_context.topic
                 
-                def abstract_fallback():
+                def abstract_fallback(*args, **kwargs):
                     return self.abstract_generator._fallback_abstract(research_question, self.final_papers)
                 
                 abstract = self._write_section_with_retry(

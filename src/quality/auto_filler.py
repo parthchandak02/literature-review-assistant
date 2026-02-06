@@ -48,10 +48,15 @@ class QualityAssessmentAutoFiller:
         # Initialize LLM client
         if llm_provider == "gemini":
             from google import genai
+            from google.genai import types
             api_key = os.getenv("GEMINI_API_KEY")
             if not api_key:
                 raise ValueError("GEMINI_API_KEY not found in environment")
-            self.llm_client = genai.Client(api_key=api_key)
+            # Use 120 second timeout for quality assessment LLM calls
+            self.llm_client = genai.Client(
+                api_key=api_key,
+                http_options=types.HttpOptions(timeout=120_000)  # 120 seconds in milliseconds
+            )
         else:
             raise ValueError(f"Unsupported LLM provider: {llm_provider}")
     

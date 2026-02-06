@@ -166,13 +166,23 @@ class BaseScreeningAgent(ABC):
         if self.llm_provider == "gemini":
             try:
                 from google import genai
+                from google.genai import types
 
                 # Use GEMINI_API_KEY
                 api_key = self.api_key or os.getenv("GEMINI_API_KEY")
                 if api_key:
-                    self.llm_client = genai.Client(api_key=api_key)
+                    # Get timeout from agent config (default: 120 seconds)
+                    timeout_seconds = agent_config.get("llm_timeout", 120) if agent_config else 120
+                    timeout_ms = timeout_seconds * 1000  # Convert to milliseconds
+                    
+                    # Create client with timeout configured
+                    self.llm_client = genai.Client(
+                        api_key=api_key,
+                        http_options=types.HttpOptions(timeout=timeout_ms)
+                    )
                     # Store model name separately for use in generate_content calls
                     self.llm_model_name = self.llm_model
+                    logger.debug(f"Initialized Gemini client with {timeout_seconds}s timeout")
                 else:
                     self.llm_client = None
                     print("Warning: Gemini API key not found")
