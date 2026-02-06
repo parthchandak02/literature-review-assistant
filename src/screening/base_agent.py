@@ -172,7 +172,7 @@ class BaseScreeningAgent(ABC):
                 api_key = self.api_key or os.getenv("GEMINI_API_KEY")
                 if api_key:
                     # Get timeout from agent config (default: 120 seconds)
-                    timeout_seconds = agent_config.get("llm_timeout", 120) if agent_config else 120
+                    timeout_seconds = self.agent_config.get("llm_timeout", 120) if self.agent_config else 120
                     timeout_ms = timeout_seconds * 1000  # Convert to milliseconds
                     
                     # Create client with timeout configured
