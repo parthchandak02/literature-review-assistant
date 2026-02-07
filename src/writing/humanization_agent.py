@@ -103,13 +103,13 @@ class HumanizationAgent(BaseScreeningAgent):
         initial_scores = self.naturalness_scorer.score_naturalness(text, section_type)
         initial_naturalness = initial_scores.get("overall_naturalness", 0.5)
 
-        logger.debug(
+        logger.info(
             f"Humanizing {section_type} section: initial naturalness = {initial_naturalness:.2f}"
         )
 
         # If already acceptable, return as-is
         if initial_naturalness >= self.naturalness_threshold:
-            logger.debug(
+            logger.info(
                 f"Text already meets naturalness threshold ({initial_naturalness:.2f} >= {self.naturalness_threshold})"
             )
             return text
@@ -117,7 +117,9 @@ class HumanizationAgent(BaseScreeningAgent):
         # Humanize iteratively
         current_text = text
         for iteration in range(self.max_iterations):
-            logger.debug(f"Humanization iteration {iteration + 1}/{self.max_iterations}")
+            logger.info(
+                f"Humanization iteration {iteration + 1}/{self.max_iterations} for {section_type}"
+            )
 
             # Build humanization prompt
             prompt = self._build_humanization_prompt(
@@ -135,17 +137,18 @@ class HumanizationAgent(BaseScreeningAgent):
                 new_scores = self.naturalness_scorer.score_naturalness(humanized_text, section_type)
                 new_naturalness = new_scores.get("overall_naturalness", 0.5)
 
-                logger.debug(
+                improvement = new_naturalness - initial_naturalness
+                logger.info(
                     f"Iteration {iteration + 1}: "
                     f"naturalness = {new_naturalness:.2f} "
-                    f"(improvement: {new_naturalness - initial_naturalness:+.2f})"
+                    f"(change: {improvement:+.2f})"
                 )
 
                 # If improved and meets threshold, use it
                 if new_naturalness >= self.naturalness_threshold:
                     logger.info(
-                        f"Humanization complete: "
-                        f"naturalness improved from {initial_naturalness:.2f} to {new_naturalness:.2f}"
+                        f"Humanization successful: "
+                        f"{section_type} improved from {initial_naturalness:.2f} to {new_naturalness:.2f}"
                     )
                     return humanized_text
 
@@ -155,7 +158,9 @@ class HumanizationAgent(BaseScreeningAgent):
                     initial_naturalness = new_naturalness
                 else:
                     # No improvement, stop
-                    logger.debug(f"No improvement in iteration {iteration + 1}, stopping")
+                    logger.info(
+                        f"No improvement in iteration {iteration + 1}, stopping humanization"
+                    )
                     break
 
             except Exception as e:

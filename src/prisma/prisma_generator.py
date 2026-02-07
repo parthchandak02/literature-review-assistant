@@ -251,29 +251,32 @@ class PRISMAGenerator:
 
         # Validation rule 4: Check relationship between sought, assessed, and not_retrieved
         # According to PRISMA 2020:
-        # - If all papers are assessed (including those without full-text): assessed = sought
-        # - If only papers with full-text are assessed: assessed = sought - not_retrieved
-        # - The relationship: sought >= assessed >= (sought - not_retrieved)
+        # - "Reports sought for retrieval" = papers that passed title/abstract screening
+        # - "Reports not retrieved" = papers that couldn't be obtained/accessed
+        # - "Reports assessed for eligibility" = papers with full-text that were assessed
+        # - The PRISMA 2020 rule: sought = assessed + not_retrieved
+        # - Therefore: assessed = sought - not_retrieved (only papers with full-text can be assessed)
 
-        # Check if assessed + not_retrieved exceeds sought (indicates double-counting)
+        # Check if assessed + not_retrieved exceeds sought (indicates double-counting or logic error)
         if assessed + not_retrieved > sought:
             warnings.append(
                 f"Sought split mismatch: assessed ({assessed}) + not_retrieved ({not_retrieved}) = "
                 f"{assessed + not_retrieved} > sought ({sought}). "
-                f"This violates PRISMA rules. "
-                f"Fix: Adjust one of: reports.sought, reports.assessed, reports.not_retrieved so they add up consistently. "
-                f"Rule: Typically: db_registers.reports.sought = db_registers.reports.assessed + db_registers.reports.not_retrieved "
+                f"This violates PRISMA 2020 rules. "
+                f"Fix: Ensure assessed = sought - not_retrieved. "
+                f"Rule: db_registers.reports.sought = db_registers.reports.assessed + db_registers.reports.not_retrieved "
                 f"(and likewise for other_methods.* if provided)."
             )
 
         # Check if assessed is within valid range
-        min_assessable = max(0, sought - not_retrieved)  # Minimum: papers with full-text
-        max_assessable = sought  # Maximum: all papers
-        if assessed < min_assessable or assessed > max_assessable:
+        # For PRISMA 2020, assessed should equal sought - not_retrieved (papers with full-text available)
+        # However, allow some flexibility in case of edge cases
+        expected_assessed = max(0, sought - not_retrieved)
+        if assessed != expected_assessed:
             warnings.append(
-                f"Assessed count ({assessed}) is outside valid range [{min_assessable}, {max_assessable}]. "
-                f"Sought: {sought}, Not retrieved: {not_retrieved}. "
-                f"Note: Papers without full-text may still be assessed using title/abstract."
+                f"Assessed count ({assessed}) does not match expected value ({expected_assessed}). "
+                f"Expected: sought ({sought}) - not_retrieved ({not_retrieved}) = {expected_assessed}. "
+                f"Note: Only papers with retrieved full-text should be counted as assessed per PRISMA 2020."
             )
 
         is_valid = len(warnings) == 0
