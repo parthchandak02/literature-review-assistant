@@ -168,3 +168,74 @@ class TestCostTracker:
         assert len(tracker.entries) == 1
         # Cost should be 0 for unknown model
         assert tracker.entries[0].cost == 0.0
+
+    def test_audit_trail_enabled(self, tmp_path):
+        """Test enabling audit trail."""
+        tracker = CostTracker()
+
+        # Enable audit trail
+        output_dir = tmp_path / "output"
+        output_dir.mkdir()
+        tracker.enable_audit_trail(str(output_dir))
+
+        assert tracker.audit_file_path is not None
+        assert tracker.audit_file_path == output_dir / "llm_calls_audit.json"
+
+    def test_audit_trail_writes_entries(self, tmp_path):
+        """Test that audit trail writes entries correctly."""
+        import json
+
+        tracker = CostTracker()
+
+        # Enable audit trail
+        output_dir = tmp_path / "output"
+        output_dir.mkdir()
+        tracker.enable_audit_trail(str(output_dir))
+
+        # Record some calls
+        mock_usage = type(
+            "Usage", (), {"prompt_tokens": 1000, "completion_tokens": 500, "total_tokens": 1500}
+        )()
+
+        tracker.record_call("gemini", "gemini-2.5-pro", mock_usage, agent_name="test_agent")
+        tracker.record_call("gemini", "gemini-2.5-flash", mock_usage, agent_name="another_agent")
+
+        # Check audit file was created
+        audit_file = output_dir / "llm_calls_audit.json"
+        assert audit_file.exists()
+
+        # Read and verify contents
+        with open(audit_file) as f:
+            entries = json.load(f)
+
+        assert len(entries) == 2
+        assert entries[0]["agent"] == "test_agent"
+        assert entries[0]["model"] == "gemini-2.5-pro"
+        assert entries[0]["total_tokens"] == 1500
+        assert entries[1]["agent"] == "another_agent"
+        assert entries[1]["model"] == "gemini-2.5-flash"
+
+    def test_cost_calculation_gemini_pro(self):
+        """Test cost calculation for Gemini Pro model."""
+        tracker = CostTracker()
+
+        from src.observability.cost_tracker import TokenUsage
+
+        # Test under 200k tokens
+        usage = TokenUsage(prompt_tokens=1000, completion_tokens=500, total_tokens=1500)
+        cost = tracker._calculate_cost("gemini", "gemini-2.5-pro", usage)
+
+        # Expected: (1000/1M * $1.25) + (500/1M * $10.00) = $0.00125 + $0.005 = $0.00625
+        assert cost > 0.006 and cost < 0.007
+
+    def test_cost_calculation_gemini_flash(self):
+        """Test cost calculation for Gemini Flash model."""
+        tracker = CostTracker()
+
+        from src.observability.cost_tracker import TokenUsage
+
+        usage = TokenUsage(prompt_tokens=1000, completion_tokens=500, total_tokens=1500)
+        cost = tracker._calculate_cost("gemini", "gemini-2.5-flash", usage)
+
+        # Expected: (1000/1M * $0.30) + (500/1M * $2.50) = $0.0003 + $0.00125 = $0.00155
+        assert cost > 0.0015 and cost < 0.0016
