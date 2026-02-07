@@ -77,6 +77,10 @@ class PandocConverter:
         # Enable citation processing
         extra_args.append("--citeproc")
 
+        # Set resource path to the directory containing the markdown file
+        # This allows Pandoc to find images referenced with relative paths
+        extra_args.extend(["--resource-path", str(markdown_path.parent)])
+
         try:
             pypandoc.convert_file(
                 str(markdown_path),
@@ -131,6 +135,10 @@ class PandocConverter:
 
         # Enable citation processing
         extra_args.append("--citeproc")
+
+        # Set resource path to the directory containing the markdown file
+        # This allows Pandoc to find images referenced with relative paths
+        extra_args.extend(["--resource-path", str(markdown_path.parent)])
 
         try:
             pypandoc.convert_file(
@@ -192,6 +200,10 @@ class PandocConverter:
         # Standalone HTML
         if standalone:
             extra_args.append("--standalone")
+
+        # Set resource path to the directory containing the markdown file
+        # This allows Pandoc to find images referenced with relative paths
+        extra_args.extend(["--resource-path", str(markdown_path.parent)])
 
         try:
             pypandoc.convert_file(

@@ -490,8 +490,13 @@ def main():
                     )
                     from src.export.submission_package import SubmissionPackageBuilder
 
+                    # Look for manuscript.md first, then fallback to final_report.md
                     manuscript_path = Path(results["outputs"].get("final_report", ""))
                     if not manuscript_path.exists():
+                        manuscript_path = Path(manager.output_dir) / "manuscript.md"
+
+                    if not manuscript_path.exists():
+                        # Fallback to final_report.md for backward compatibility
                         manuscript_path = Path(manager.output_dir) / "final_report.md"
 
                     if manuscript_path.exists():

@@ -165,6 +165,8 @@ class SubmissionPackageBuilder:
         """
         Update image paths in manuscript.md to reference figures/ directory.
 
+        Checks if paths are already in correct format before updating (for backward compatibility).
+
         Args:
             manuscript_path: Path to the manuscript.md file
             path_mapping: Dictionary mapping original paths to new figure paths
@@ -177,7 +179,20 @@ class SubmissionPackageBuilder:
 
         content = manuscript_path.read_text(encoding="utf-8")
 
-        # Replace each image path
+        # Check if paths are already in correct format (figures/figure_N.*)
+        # If most image paths are already correct, skip fixing
+        image_pattern = r"!\[[^\]]*\]\(([^)]+)\)"
+        existing_images = re.findall(image_pattern, content)
+        correct_paths = sum(1 for img in existing_images if img.startswith("figures/figure_"))
+
+        if existing_images and correct_paths / len(existing_images) > 0.8:
+            logger.debug(
+                f"Manuscript paths already correct ({correct_paths}/{len(existing_images)} images), skipping path updates"
+            )
+            return
+
+        # Replace each image path (for backward compatibility with old files)
+        replacements_made = 0
         for original_path, new_path in path_mapping.items():
             # Escape special regex characters in the original path
             escaped_original = re.escape(original_path)
@@ -187,11 +202,15 @@ class SubmissionPackageBuilder:
             replacement = r"![\1](" + new_path + r")"
 
             # Replace all occurrences
-            content = re.sub(pattern, replacement, content)
+            content, count = re.subn(pattern, replacement, content)
+            replacements_made += count
 
-        # Write updated content back
-        manuscript_path.write_text(content, encoding="utf-8")
-        logger.debug(f"Updated manuscript paths: {len(path_mapping)} mappings applied")
+        # Write updated content back only if changes were made
+        if replacements_made > 0:
+            manuscript_path.write_text(content, encoding="utf-8")
+            logger.debug(f"Updated manuscript paths: {replacements_made} replacements made")
+        else:
+            logger.debug("No path updates needed")
 
     def _generate_pdf(self, markdown_path: Path, package_dir: Path, journal: str):
         """Generate PDF from markdown."""
