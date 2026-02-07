@@ -296,7 +296,7 @@ The workflow follows these main steps:
 2. **Deduplicate** → Removes duplicate papers using fuzzy matching
 3. **Screen Papers** → Uses AI to screen papers based on title/abstract, then full-text
 4. **Extract Data** → Extracts key information (methods, results, conclusions) from eligible papers
-5. **Assess Quality** → Performs quality assessments (Risk of Bias, GRADE) with optional AI auto-fill
+5. **Assess Quality** → Performs quality assessments (CASP, GRADE) with optional AI auto-fill
 6. **Generate Visualizations** → Creates PRISMA diagrams, publication timelines, citation networks
 7. **Write Article** → Generates complete review article (introduction, methods, results, discussion, abstract)
 8. **Compile Report** → Assembles final markdown report with citations and visualizations
@@ -334,7 +334,7 @@ flowchart TD
     Phase6 -.->|Auto-save| CP6["[CP 6]"]
     Phase6 --> Phase7["Phase 7: Data Extraction<br/>LLM: Gemini Pro<br/>Structured output"]
     Phase7 -.->|Auto-save| CP7["[CP 7]"]
-    Phase7 --> Phase8["Phase 8: Quality Assessment<br/>RoB 2, GRADE<br/>LLM auto-fill"]
+    Phase7 --> Phase8["Phase 8: Quality Assessment<br/>CASP, GRADE<br/>LLM auto-fill"]
     Phase8 -.->|Auto-save| CP8["[CP 8]"]
     
     Phase8 --> Phase9["Phase 9: PRISMA Diagram<br/>prisma-flow-diagram"]
@@ -606,7 +606,11 @@ writing:
 - **LLM-Powered Screening**: Intelligent title/abstract and full-text screening with cost optimization
 - **Screening Safeguards**: Automatic detection of low inclusion rates with borderline paper identification
 - **Structured Data Extraction**: Pydantic schemas for type-safe extraction with optional fields support
-- **Quality Assessment**: Risk of bias (RoB 2, ROBINS-I) and GRADE assessments with automatic LLM-based filling
+- **Quality Assessment**: CASP (Critical Appraisal Skills Programme) checklists for RCTs, cohort studies, and qualitative research, plus GRADE assessments with automatic LLM-based filling
+  - **Auto-Detection**: LLM automatically detects study type and selects appropriate CASP checklist
+  - **Comprehensive Criteria**: Validated checklists with 10-12 questions covering validity, results, and applicability
+  - **Quality Ratings**: Automatic scoring (High/Moderate/Low) based on percentage of criteria met
+  - **GRADE Integration**: Maintains GRADE assessment for overall evidence certainty
 
 ### Writing & Generation
 
