@@ -4,10 +4,12 @@ Cost Tracking for LLM Usage
 Tracks token usage and costs for LLM API calls.
 """
 
+import json
 import logging
 from collections import defaultdict
 from dataclasses import dataclass
 from datetime import datetime
+from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
@@ -60,6 +62,7 @@ class CostTracker:
         self.by_provider: Dict[str, float] = defaultdict(float)
         self.by_model: Dict[str, float] = defaultdict(float)
         self.by_agent: Dict[str, float] = defaultdict(float)
+        self.audit_file_path: Optional[Path] = None
 
     def record_call(
         self,
@@ -107,6 +110,61 @@ class CostTracker:
         self.by_model[model] += cost
         if agent_name:
             self.by_agent[agent_name] += cost
+
+        # Write to audit trail if enabled
+        if self.audit_file_path:
+            self._append_to_audit_trail(entry)
+
+    def enable_audit_trail(self, output_dir: str):
+        """
+        Enable audit trail logging to a JSON file.
+
+        Args:
+            output_dir: Directory where audit trail file will be created
+        """
+        self.audit_file_path = Path(output_dir) / "llm_calls_audit.json"
+        logger.info(f"Audit trail enabled: {self.audit_file_path}")
+
+    def _append_to_audit_trail(self, entry: CostEntry):
+        """
+        Append a cost entry to the audit trail file.
+
+        Args:
+            entry: CostEntry to append
+        """
+        if not self.audit_file_path:
+            return
+
+        try:
+            # Create audit entry
+            audit_entry = {
+                "timestamp": entry.timestamp.isoformat(),
+                "agent": entry.agent_name or "Unknown",
+                "model": entry.model,
+                "provider": entry.provider,
+                "prompt_tokens": entry.token_usage.prompt_tokens,
+                "completion_tokens": entry.token_usage.completion_tokens,
+                "total_tokens": entry.token_usage.total_tokens,
+                "cost_usd": entry.cost,
+            }
+
+            # Append to file (create if doesn't exist)
+            if self.audit_file_path.exists():
+                # Read existing entries
+                with open(self.audit_file_path) as f:
+                    entries = json.load(f)
+            else:
+                entries = []
+
+            # Append new entry
+            entries.append(audit_entry)
+
+            # Write back
+            with open(self.audit_file_path, "w") as f:
+                json.dump(entries, f, indent=2)
+
+        except Exception as e:
+            logger.warning(f"Failed to write to audit trail: {e}")
 
     def _calculate_cost(self, provider: str, model: str, token_usage: TokenUsage) -> float:
         """
