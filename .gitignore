@@ -93,3 +93,10 @@ docs/*/import_analysis.json
 *.svg
 !lib/**/*.svg
 !templates/**/*.svg
+
+# Temporary diagram files (auto-generated for exploration)
+diagrams/
+
+# User-specific utility scripts and backups
+resume_*.sh
+*.backup
