@@ -9,8 +9,9 @@ Used by: make test-prisma
 
 import json
 import sys
-from pathlib import Path
 from datetime import datetime
+from pathlib import Path
+
 from rich.console import Console
 from rich.panel import Panel
 
@@ -36,44 +37,45 @@ OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 def run_tests():
     """Run all PRISMA 2020 tests and generate reports."""
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    
+
     # Output files
     json_output = OUTPUT_DIR / f"test_results_{timestamp}.json"
     txt_output = OUTPUT_DIR / f"test_results_{timestamp}.txt"
     html_output = OUTPUT_DIR / f"test_results_{timestamp}.html"
     latest_json = OUTPUT_DIR / "latest_results.json"
-    
+
     console.print(Panel.fit("[bold blue]Running PRISMA 2020 Tests[/bold blue]"))
     console.print(f"Output directory: {OUTPUT_DIR}")
     console.print(f"Timestamp: {timestamp}\n")
-    
+
     # Build pytest arguments
     pytest_args = [
         *PRISMA_TEST_FILES,
         "-v",
         "--tb=short",
     ]
-    
+
     # Try to add HTML report if pytest-html is available
     import importlib.util
+
     if importlib.util.find_spec("pytest_html") is not None:
-        pytest_args.extend([
-            f"--html={html_output}",
-            "--self-contained-html",
-        ])
+        pytest_args.extend(
+            [
+                f"--html={html_output}",
+                "--self-contained-html",
+            ]
+        )
         console.print("[green]HTML report enabled[/green]")
     else:
         console.print("[yellow]pytest-html not available, skipping HTML report[/yellow]")
-    
+
     # Capture output for parsing
     import subprocess
+
     result = subprocess.run(
-        ["python", "-m", "pytest"] + pytest_args,
-        capture_output=True,
-        text=True,
-        cwd=Path.cwd()
+        ["python", "-m", "pytest", *pytest_args], capture_output=True, text=True, cwd=Path.cwd()
     )
-    
+
     # Parse output to extract test results
     output_lines = result.stdout.split("\n")
     test_results = {
@@ -84,7 +86,7 @@ def run_tests():
         "error": 0,
         "tests": [],
     }
-    
+
     # Parse pytest output
     for line in output_lines:
         if "PASSED" in line:
@@ -99,7 +101,7 @@ def run_tests():
         elif "ERROR" in line:
             test_results["error"] += 1
             test_results["total"] += 1
-    
+
     # Save parsed results to JSON
     results = {
         "summary": test_results,
@@ -107,23 +109,21 @@ def run_tests():
         "timestamp": timestamp,
         "duration": None,  # Will be set after
     }
-    
+
     # Run tests and capture output
     start_time = datetime.now()
-    
+
     # Capture output for parsing
     import subprocess
+
     result = subprocess.run(
-        ["python", "-m", "pytest"] + pytest_args,
-        capture_output=True,
-        text=True,
-        cwd=Path.cwd()
+        ["python", "-m", "pytest", *pytest_args], capture_output=True, text=True, cwd=Path.cwd()
     )
-    
+
     end_time = datetime.now()
     duration = (end_time - start_time).total_seconds()
     exit_code = result.returncode
-    
+
     # Parse output to extract test results
     output_lines = result.stdout.split("\n")
     test_results = {
@@ -134,7 +134,7 @@ def run_tests():
         "error": 0,
         "tests": [],
     }
-    
+
     # Parse pytest output
     for line in output_lines:
         if "PASSED" in line:
@@ -149,7 +149,7 @@ def run_tests():
         elif "ERROR" in line:
             test_results["error"] += 1
             test_results["total"] += 1
-    
+
     # Save parsed results to JSON
     results = {
         "summary": test_results,
@@ -159,18 +159,18 @@ def run_tests():
         "output": result.stdout,
         "errors": result.stderr,
     }
-    
+
     # Save JSON results
     with open(json_output, "w") as f:
         json.dump(results, f, indent=2)
-    
+
     # Generate summary
     summary = generate_summary(results, duration, exit_code)
-    
+
     # Save text summary
     with open(txt_output, "w") as f:
         f.write(summary)
-    
+
     # Create symlink to latest results
     if latest_json.exists():
         latest_json.unlink()
@@ -179,8 +179,9 @@ def run_tests():
     except Exception:
         # Symlinks may not work on all systems, just copy instead
         import shutil
+
         shutil.copy(json_output, latest_json)
-    
+
     # Display summary
     console.print("\n" + "=" * 70)
     console.print(Panel(summary, title="[bold green]Test Summary[/bold green]"))
@@ -191,7 +192,7 @@ def run_tests():
     if html_output.exists():
         console.print(f"  HTML: {html_output}")
     console.print(f"  Latest: {latest_json}\n")
-    
+
     return exit_code == 0
 
 
@@ -204,7 +205,7 @@ def generate_summary(results: dict, duration: float, exit_code: int) -> str:
     lines.append(f"Duration: {duration:.2f} seconds")
     lines.append(f"Exit Code: {exit_code}")
     lines.append("")
-    
+
     # Extract test statistics
     if "summary" in results:
         summary = results["summary"]
@@ -213,14 +214,14 @@ def generate_summary(results: dict, duration: float, exit_code: int) -> str:
         failed = summary.get("failed", 0)
         skipped = summary.get("skipped", 0)
         error = summary.get("error", 0)
-        
+
         lines.append(f"Total Tests: {total}")
         lines.append(f"  Passed:  {passed}")
         lines.append(f"  Failed:  {failed}")
         lines.append(f"  Skipped: {skipped}")
         lines.append(f"  Error:   {error}")
         lines.append("")
-        
+
         # Test files
         if "collectors" in results:
             lines.append("Test Files:")
@@ -228,7 +229,7 @@ def generate_summary(results: dict, duration: float, exit_code: int) -> str:
                 if collector.get("nodeid"):
                     lines.append(f"  - {collector['nodeid']}")
             lines.append("")
-        
+
         # Failed tests
         if failed > 0 or error > 0:
             lines.append("Failed Tests:")
@@ -245,7 +246,7 @@ def generate_summary(results: dict, duration: float, exit_code: int) -> str:
         lines.append("Could not parse detailed results from JSON report.")
         lines.append(f"Exit code indicates: {'SUCCESS' if exit_code == 0 else 'FAILURE'}")
         lines.append("")
-    
+
     return "\n".join(lines)
 
 

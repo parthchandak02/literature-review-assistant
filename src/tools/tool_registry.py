@@ -4,10 +4,11 @@ Tool Registry for Agent Tool Calling
 Manages tool registration, validation, and execution.
 """
 
-from typing import Dict, List, Optional, Any, Callable
+import logging
 from dataclasses import dataclass
 from enum import Enum
-import logging
+from typing import Any, Callable, Dict, List, Optional
+
 from pydantic import BaseModel, Field
 
 logger = logging.getLogger(__name__)

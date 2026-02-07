@@ -5,9 +5,9 @@ Load stage data from checkpoints or test fixtures.
 """
 
 import json
-from pathlib import Path
-from typing import Dict, Any, Optional
 import logging
+from pathlib import Path
+from typing import Any, Dict, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -81,7 +81,7 @@ class StageLoader:
             raise FileNotFoundError(f"Checkpoint not found: {checkpoint_file}")
 
         try:
-            with open(checkpoint_file, "r") as f:
+            with open(checkpoint_file) as f:
                 data = json.load(f)
             logger.info(f"Loaded checkpoint from: {checkpoint_file}")
             return data
@@ -118,7 +118,7 @@ class StageLoader:
             )
 
         try:
-            with open(fixture_file, "r") as f:
+            with open(fixture_file) as f:
                 data = json.load(f)
             logger.info(f"Loaded fixture from: {fixture_file}")
             return data

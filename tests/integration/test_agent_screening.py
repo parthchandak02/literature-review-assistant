@@ -3,8 +3,9 @@ Integration tests for screening agents.
 """
 
 from unittest.mock import patch
-from src.screening.title_abstract_agent import TitleAbstractScreener
+
 from src.screening.base_agent import InclusionDecision
+from src.screening.title_abstract_agent import TitleAbstractScreener
 from tests.fixtures.mock_llm_responses import get_mock_screening_response
 
 

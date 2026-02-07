@@ -3,6 +3,7 @@ Mock Paper objects for testing.
 """
 
 from typing import List
+
 from src.search.database_connectors import Paper
 
 

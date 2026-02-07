@@ -6,6 +6,7 @@ import json
 import tempfile
 from pathlib import Path
 from unittest.mock import Mock
+
 from src.orchestration.checkpoint_manager import CheckpointManager
 
 
@@ -14,7 +15,7 @@ def test_checkpoint_manager_initialization():
     workflow_manager = Mock()
     workflow_manager.checkpoint_dir = Path("/tmp/test")
     workflow_manager.save_checkpoints = True
-    
+
     manager = CheckpointManager(workflow_manager)
     assert manager.workflow_manager == workflow_manager
     assert manager.checkpoint_dir == Path("/tmp/test")
@@ -33,13 +34,13 @@ def test_save_phase_disabled():
     workflow_manager.prisma_counter.get_counts.return_value = {}
     workflow_manager.prisma_counter.get_database_breakdown.return_value = {}
     workflow_manager._serialize_phase_data = Mock(return_value={})
-    
+
     # Mock phase_registry with proper phase structure
     mock_phase = Mock()
     mock_phase.dependencies = []
     workflow_manager.phase_registry = Mock()
     workflow_manager.phase_registry.get_phase.return_value = mock_phase
-    
+
     manager = CheckpointManager(workflow_manager)
     result = manager.save_phase("test_phase")
     assert result is None
@@ -50,19 +51,19 @@ def test_load_phase():
     workflow_manager = Mock()
     workflow_manager.checkpoint_dir = Path("/tmp/test")
     workflow_manager.save_checkpoints = True
-    
+
     manager = CheckpointManager(workflow_manager)
-    
+
     # Create temporary checkpoint file
-    with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
         checkpoint_data = {
             "phase": "test_phase",
             "timestamp": "2024-01-01T00:00:00",
-            "data": {"test": "data"}
+            "data": {"test": "data"},
         }
         json.dump(checkpoint_data, f)
         checkpoint_path = f.name
-    
+
     try:
         result = manager.load_phase(checkpoint_path)
         assert result is not None
@@ -77,7 +78,7 @@ def test_load_phase_not_found():
     workflow_manager = Mock()
     workflow_manager.checkpoint_dir = Path("/tmp/test")
     workflow_manager.save_checkpoints = True
-    
+
     manager = CheckpointManager(workflow_manager)
     result = manager.load_phase("/nonexistent/path.json")
     assert result is None
@@ -88,7 +89,7 @@ def test_find_by_topic_no_checkpoints():
     workflow_manager = Mock()
     workflow_manager.checkpoint_dir = Path("/tmp/nonexistent")
     workflow_manager.save_checkpoints = True
-    
+
     manager = CheckpointManager(workflow_manager)
     result = manager.find_by_topic("test topic")
     assert result is None

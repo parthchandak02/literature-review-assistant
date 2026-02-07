@@ -4,6 +4,7 @@ Unit tests for LLM provider integrations.
 
 import os
 from unittest.mock import Mock, patch
+
 from src.screening.base_agent import (
     BaseScreeningAgent,
     get_default_model_for_provider,
@@ -137,7 +138,7 @@ class TestToolRegistryProviders:
 
     def test_tool_registry_google_format(self):
         """Test tool registry Google format conversion."""
-        from src.tools.tool_registry import ToolRegistry, Tool, ToolParameter
+        from src.tools.tool_registry import Tool, ToolParameter, ToolRegistry
 
         registry = ToolRegistry()
 
@@ -156,7 +157,6 @@ class TestToolRegistryProviders:
         assert len(google_tools) == 1
         assert google_tools[0]["name"] == "test_tool"
         assert "parameters" in google_tools[0]
-
 
 
 class TestDefaultModelSelection:
@@ -193,26 +193,25 @@ class TestDefaultModelUsage:
 
     def test_gemini_uses_default_when_not_in_config(self):
         """Test Gemini provider uses default model when not in config."""
+
         class TestAgent(BaseScreeningAgent):
             def screen(self, title, abstract, inclusion_criteria, exclusion_criteria):
                 return None
 
         agent = TestAgent(llm_provider="gemini", agent_config={})
-        
+
         # Should use Gemini default
         assert agent.llm_model == "gemini-2.5-pro"
 
     def test_config_model_overrides_default(self):
         """Test that model in config overrides default."""
+
         class TestAgent(BaseScreeningAgent):
             def screen(self, title, abstract, inclusion_criteria, exclusion_criteria):
                 return None
 
-        agent = TestAgent(
-            llm_provider="gemini",
-            agent_config={"llm_model": "gemini-2.5-flash"}
-        )
-        
+        agent = TestAgent(llm_provider="gemini", agent_config={"llm_model": "gemini-2.5-flash"})
+
         # Should use config model, not default
         assert agent.llm_model == "gemini-2.5-flash"
         assert agent.llm_model != "gemini-2.5-pro"

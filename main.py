@@ -11,31 +11,34 @@ import sys
 # Configure SSL certificates BEFORE any other imports
 # This ensures all HTTPS requests (including third-party libraries) use certifi
 try:
-    import certifi
     import ssl
-    
+
+    import certifi
+
     # Set environment variables for requests and other libraries
-    os.environ['SSL_CERT_FILE'] = certifi.where()
-    os.environ['REQUESTS_CA_BUNDLE'] = certifi.where()
-    
+    os.environ["SSL_CERT_FILE"] = certifi.where()
+    os.environ["REQUESTS_CA_BUNDLE"] = certifi.where()
+
     # Monkey patch SSL context creation to use certifi
     _original_create_default_context = ssl.create_default_context
-    
+
     def _patched_create_default_context(purpose=ssl.Purpose.SERVER_AUTH, *args, **kwargs):
-        kwargs.setdefault('cafile', certifi.where())
+        kwargs.setdefault("cafile", certifi.where())
         return _original_create_default_context(purpose, *args, **kwargs)
-    
+
     ssl.create_default_context = _patched_create_default_context
 except ImportError:
     pass  # certifi not installed, use system certificates
 
 import argparse
+
 from dotenv import load_dotenv
 from rich.console import Console
 from rich.rule import Rule
-from src.orchestration.workflow_manager import WorkflowManager
+
 from src.config.debug_config import DebugLevel
-from src.utils.logging_config import setup_logging, LogLevel
+from src.orchestration.workflow_manager import WorkflowManager
+from src.utils.logging_config import LogLevel, setup_logging
 
 console = Console()
 
@@ -82,8 +85,8 @@ def parse_args():
     parser.add_argument(
         "--log-file",
         type=str,
-        nargs='?',
-        const='logs/workflow.log',
+        nargs="?",
+        const="logs/workflow.log",
         default=None,
         help="Enable file logging. Use --log-file to log to default location (logs/workflow.log) or --log-file <path> to specify custom path",
     )
@@ -238,20 +241,16 @@ def main():
     # Handle cleanup flag
     if args.cleanup:
         from src.utils.workflow_cleaner import WorkflowCleaner
-        
+
         cleaner = WorkflowCleaner()
-        report = cleaner.cleanup(
-            dry_run=args.dry_run,
-            topic_filter=args.topic,
-            keep_n=args.keep_n
-        )
+        report = cleaner.cleanup(dry_run=args.dry_run, topic_filter=args.topic, keep_n=args.keep_n)
         print(report)
         sys.exit(0)
 
     # Handle list-journals flag
     if args.list_journals:
         from src.export.journal_selector import JournalSelector
-        
+
         selector = JournalSelector()
         journals = selector.list_journals()
         print("Available Journals:")
@@ -265,7 +264,7 @@ def main():
     # Handle resolve-citation flag
     if args.resolve_citation:
         from src.citations.manubot_resolver import ManubotCitationResolver
-        
+
         resolver = ManubotCitationResolver()
         try:
             csl_item = resolver.resolve_from_identifier(args.resolve_citation)
@@ -285,7 +284,7 @@ def main():
     # Handle test-databases flag
     if args.test_databases:
         from scripts.test_database_health import DatabaseHealthChecker
-        
+
         print("Testing database connectors...")
         print("=" * 50)
         checker = DatabaseHealthChecker()
@@ -325,7 +324,9 @@ def main():
         os.environ["LOG_FILE"] = log_file
 
     console.print()
-    console.print(Rule("[bold cyan]Literature Review Assistant - Agentic AI System[/bold cyan]", style="cyan"))
+    console.print(
+        Rule("[bold cyan]Literature Review Assistant - Agentic AI System[/bold cyan]", style="cyan")
+    )
     if args.debug:
         console.print("[bold yellow]DEBUG MODE ENABLED[/bold yellow]")
     elif args.verbose:
@@ -366,6 +367,7 @@ def main():
     # Handle test-stage mode
     if args.test_stage:
         from scripts.test_stage import test_stage
+
         test_stage(
             args.test_stage,
             args.checkpoint,
@@ -385,7 +387,7 @@ def main():
             if not args.checkpoint:
                 print("\nError: --checkpoint required when using --resume-from")
                 sys.exit(1)
-            
+
             manager = WorkflowManager.resume_from_phase(
                 args.resume_from,
                 args.checkpoint,
@@ -403,13 +405,13 @@ def main():
         manager.debug_config.log_file = log_file
         manager.debug_config.show_metrics = not args.no_metrics
         manager.debug_config.show_costs = not args.no_costs
-        
+
         # Override quality assessment auto-fill from CLI args
         if args.no_auto_fill_qa:
             manager.config.setdefault("quality_assessment", {})["auto_fill"] = False
         elif args.auto_fill_qa:
             manager.config.setdefault("quality_assessment", {})["auto_fill"] = True
-        
+
         # Handle checkpoint saving
         if args.no_save_checkpoints:
             manager.save_checkpoints = False
@@ -436,14 +438,15 @@ def main():
             # --resume flag: explicitly enable automatic checkpoint detection
             # (this is the default behavior, but --resume makes it explicit)
             start_phase = None  # Let automatic detection handle it
-        
+
         results = manager.run(start_from_phase=start_phase)
 
         # Handle manuscript pipeline commands
         if args.manubot_export or args.build_package:
             from pathlib import Path
-            from src.export.manubot_exporter import ManubotExporter
+
             from src.citations import CitationManager
+            from src.export.manubot_exporter import ManubotExporter
 
             # Get article sections from results or workflow manager
             article_sections = getattr(manager, "_article_sections", {})
@@ -452,41 +455,49 @@ def main():
 
             if article_sections:
                 citation_manager = CitationManager(manager.final_papers)
-                
+
                 # Manubot export
                 if args.manubot_export:
                     manubot_config = manager.config.get("manubot", {})
                     if manubot_config.get("enabled", True):
-                        output_dir = Path(manager.output_dir) / manubot_config.get("output_dir", "manuscript")
+                        output_dir = Path(manager.output_dir) / manubot_config.get(
+                            "output_dir", "manuscript"
+                        )
                         exporter = ManubotExporter(output_dir, citation_manager)
-                        
+
                         metadata = {
                             "title": f"{manager.topic_context.topic}: A Systematic Review",
-                            "keywords": manager.topic_context.keywords if hasattr(manager.topic_context, 'keywords') else [],
+                            "keywords": manager.topic_context.keywords
+                            if hasattr(manager.topic_context, "keywords")
+                            else [],
                         }
-                        
+
                         manuscript_dir = exporter.export(
                             article_sections,
                             metadata,
                             citation_style=manubot_config.get("citation_style", "ieee"),
-                            auto_resolve_citations=manubot_config.get("auto_resolve_citations", True),
+                            auto_resolve_citations=manubot_config.get(
+                                "auto_resolve_citations", True
+                            ),
                         )
                         results["outputs"]["manubot_export"] = str(manuscript_dir)
                         print(f"\nManubot structure exported to: {manuscript_dir}")
 
                 # Build submission package
                 if args.build_package:
-                    journal = args.journal or manager.config.get("submission", {}).get("default_journal", "ieee")
+                    journal = args.journal or manager.config.get("submission", {}).get(
+                        "default_journal", "ieee"
+                    )
                     from src.export.submission_package import SubmissionPackageBuilder
-                    
+
                     manuscript_path = Path(results["outputs"].get("final_report", ""))
                     if not manuscript_path.exists():
                         manuscript_path = Path(manager.output_dir) / "final_report.md"
-                    
+
                     if manuscript_path.exists():
                         builder = SubmissionPackageBuilder(Path(manager.output_dir))
                         submission_config = manager.config.get("submission", {})
-                        
+
                         package_dir = builder.build_package(
                             results["outputs"],
                             journal,
@@ -494,19 +505,26 @@ def main():
                             generate_pdf=submission_config.get("generate_pdf", True),
                             generate_docx=submission_config.get("generate_docx", True),
                             generate_html=submission_config.get("generate_html", True),
-                            include_supplementary=submission_config.get("include_supplementary", True),
+                            include_supplementary=submission_config.get(
+                                "include_supplementary", True
+                            ),
                         )
                         results["outputs"]["submission_package"] = str(package_dir)
                         print(f"\nSubmission package created: {package_dir}")
 
         # Handle validate-submission
         if args.validate_submission:
-            from src.export.submission_checklist import SubmissionChecklistGenerator
             from pathlib import Path
-            
+
+            from src.export.submission_checklist import SubmissionChecklistGenerator
+
             journal = args.journal or args.validate_submission
-            package_dir = Path(args.validate_submission) if Path(args.validate_submission).is_dir() else Path(manager.output_dir) / f"submission_package_{journal}"
-            
+            package_dir = (
+                Path(args.validate_submission)
+                if Path(args.validate_submission).is_dir()
+                else Path(manager.output_dir) / f"submission_package_{journal}"
+            )
+
             if package_dir.exists():
                 generator = SubmissionChecklistGenerator()
                 checklist = generator.generate_checklist(journal, package_dir)

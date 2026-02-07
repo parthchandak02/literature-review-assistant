@@ -2,10 +2,10 @@
 Unit tests for state serialization utilities.
 """
 
-from src.utils.state_serialization import StateSerializer
-from src.search.connectors.base import Paper
-from src.screening.base_agent import ScreeningResult, InclusionDecision
 from src.extraction.data_extractor_agent import ExtractedData
+from src.screening.base_agent import InclusionDecision, ScreeningResult
+from src.search.connectors.base import Paper
+from src.utils.state_serialization import StateSerializer
 
 
 class TestStateSerializer:
@@ -30,13 +30,13 @@ class TestStateSerializer:
                 year=2021,
             ),
         ]
-        
+
         # Serialize
         serialized = StateSerializer.serialize_papers(papers)
         assert len(serialized) == 2
         assert serialized[0]["title"] == "Test Paper 1"
         assert serialized[0]["year"] == 2020
-        
+
         # Deserialize
         deserialized = StateSerializer.deserialize_papers(serialized)
         assert len(deserialized) == 2
@@ -60,13 +60,13 @@ class TestStateSerializer:
                 exclusion_reason="Wrong topic",
             ),
         ]
-        
+
         # Serialize
         serialized = StateSerializer.serialize_screening_results(results)
         assert len(serialized) == 2
         assert serialized[0]["decision"] == "include"
         assert serialized[0]["confidence"] == 0.9
-        
+
         # Deserialize
         deserialized = StateSerializer.deserialize_screening_results(serialized)
         assert len(deserialized) == 2
@@ -88,12 +88,12 @@ class TestStateSerializer:
                 key_findings=["Finding 1"],
             ),
         ]
-        
+
         # Serialize
         serialized = StateSerializer.serialize_extracted_data(extracted)
         assert len(serialized) == 1
         assert serialized[0]["title"] == "Test Paper"
-        
+
         # Deserialize
         deserialized = StateSerializer.deserialize_extracted_data(serialized)
         assert len(deserialized) == 1

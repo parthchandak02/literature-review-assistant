@@ -5,12 +5,14 @@ Wrapper around prisma-flow-diagram package that tracks study counts
 through the workflow and generates PRISMA 2020-compliant diagrams.
 """
 
-from typing import Dict, Optional, Any, List
-from pathlib import Path
 import logging
-from ..utils.rich_utils import console
+from pathlib import Path
+from typing import Any, Dict, List, Optional
+
 from rich.panel import Panel
 from rich.text import Text
+
+from ..utils.rich_utils import console
 
 logger = logging.getLogger(__name__)
 
@@ -283,7 +285,7 @@ class PRISMAGenerator:
         """Generate using prisma-flow-diagram library."""
         try:
             # Validate PRISMA counts before generating
-            is_valid, warnings = self._validate_prisma_counts(counts)
+            _is_valid, warnings = self._validate_prisma_counts(counts)
             if warnings:
                 # Format warnings with Rich for better visibility
                 warning_text = Text()
@@ -331,7 +333,7 @@ class PRISMAGenerator:
         import matplotlib.pyplot as plt
 
         # Increased figure size for better quality
-        fig, ax = plt.subplots(1, 1, figsize=(16, 20))
+        _fig, ax = plt.subplots(1, 1, figsize=(16, 20))
         ax.set_xlim(0, 12)
         ax.set_ylim(0, 20)
         ax.axis("off")
@@ -668,6 +670,7 @@ class PRISMAGenerator:
     def _draw_box(self, ax, x, y, width, height, text, color, fontsize=10):
         """Draw a rounded box with properly wrapped text."""
         import textwrap
+
         from matplotlib.patches import FancyBboxPatch
 
         # Wrap text to fit in box (approximately 30 chars per line)

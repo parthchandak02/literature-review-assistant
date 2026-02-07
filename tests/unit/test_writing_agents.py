@@ -2,11 +2,11 @@
 Unit tests for writing agents.
 """
 
+from src.extraction.data_extractor_agent import ExtractedData
+from src.writing.discussion_agent import DiscussionWriter
 from src.writing.introduction_agent import IntroductionWriter
 from src.writing.methods_agent import MethodsWriter
 from src.writing.results_agent import ResultsWriter
-from src.writing.discussion_agent import DiscussionWriter
-from src.extraction.data_extractor_agent import ExtractedData
 
 
 class TestIntroductionWriter:
@@ -135,7 +135,12 @@ class TestIntroductionWriter:
         )
 
         # Check that bullet point format is mentioned
-        assert "bullet points" in prompt.lower() or "(1)" in prompt or "(2)" in prompt or "(3)" in prompt
+        assert (
+            "bullet points" in prompt.lower()
+            or "(1)" in prompt
+            or "(2)" in prompt
+            or "(3)" in prompt
+        )
 
 
 class TestMethodsWriter:
@@ -277,9 +282,11 @@ class TestMethodsWriter:
             prisma_counts=None,
             protocol_info=protocol_info,
         )
-        
+
         # Should mention protocol registration in prompt
-        assert "PROSPERO" in prompt or "protocol" in prompt.lower() or "registration" in prompt.lower()
+        assert (
+            "PROSPERO" in prompt or "protocol" in prompt.lower() or "registration" in prompt.lower()
+        )
 
     def test_automation_details(self, sample_topic_context, sample_agent_config):
         """Test automation details inclusion in methods."""
@@ -493,7 +500,7 @@ class TestResultsWriter:
 
         # Generate study characteristics table first
         study_characteristics_table = writer._generate_study_characteristics_table(extracted_data)
-        
+
         prompt = writer._build_results_prompt(
             extracted_data=extracted_data,
             prisma_counts={
@@ -686,7 +693,13 @@ class TestResultsWriter:
 
         result = writer.write(
             extracted_data=extracted_data,
-            prisma_counts={"found": 100, "no_dupes": 95, "screened": 80, "full_text": 50, "quantitative": 30},
+            prisma_counts={
+                "found": 100,
+                "no_dupes": 95,
+                "screened": 80,
+                "full_text": 50,
+                "quantitative": 30,
+            },
             risk_of_bias_summary=risk_of_bias_summary,
             risk_of_bias_table=risk_of_bias_table,
         )
@@ -745,7 +758,13 @@ class TestResultsWriter:
 
         result = writer.write(
             extracted_data=extracted_data,
-            prisma_counts={"found": 100, "no_dupes": 95, "screened": 80, "full_text": 50, "quantitative": 30},
+            prisma_counts={
+                "found": 100,
+                "no_dupes": 95,
+                "screened": 80,
+                "full_text": 50,
+                "quantitative": 30,
+            },
             grade_assessments=grade_assessments,
             grade_table=grade_table,
         )
@@ -959,9 +978,9 @@ class TestDiscussionWriter:
                 accessibility_features=[],
             )
         ]
-        
+
         result = writer._fallback_discussion(
-            research_question="Test question", 
+            research_question="Test question",
             key_findings=["Finding 1"],
             extracted_data=extracted_data,
         )
@@ -1015,8 +1034,14 @@ class TestDiscussionWriter:
             implications=None,
         )
 
-        assert "Limitations of the Evidence" in prompt or "limitations of the evidence" in prompt.lower()
-        assert "Limitations of the Review Process" in prompt or "limitations of the review process" in prompt.lower()
+        assert (
+            "Limitations of the Evidence" in prompt
+            or "limitations of the evidence" in prompt.lower()
+        )
+        assert (
+            "Limitations of the Review Process" in prompt
+            or "limitations of the review process" in prompt.lower()
+        )
         assert "400-600 words" in prompt
 
     def test_implications_split(self, sample_topic_context, sample_agent_config):
@@ -1064,9 +1089,13 @@ class TestDiscussionWriter:
             implications=None,
         )
 
-        assert "Implications for Practice" in prompt or "implications for practice" in prompt.lower()
+        assert (
+            "Implications for Practice" in prompt or "implications for practice" in prompt.lower()
+        )
         assert "Implications for Policy" in prompt or "implications for policy" in prompt.lower()
-        assert "Implications for Research" in prompt or "implications for research" in prompt.lower()
+        assert (
+            "Implications for Research" in prompt or "implications for research" in prompt.lower()
+        )
         assert "350-400 words" in prompt
 
     def test_word_count_enforcement(self, sample_topic_context, sample_agent_config):

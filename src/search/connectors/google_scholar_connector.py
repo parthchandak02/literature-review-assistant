@@ -5,19 +5,18 @@ Connector for Google Scholar using the scholarly library.
 Provides author search, publication search, citation tracking, and related articles.
 """
 
-from typing import List, Optional, Any
 import logging
 import os
+from typing import Any, List, Optional
 
-from .base import DatabaseConnector, Paper
 from ..cache import SearchCache
 from ..proxy_manager import ProxyManager
+from .base import DatabaseConnector, Paper
 
 logger = logging.getLogger(__name__)
 
 try:
-    from scholarly import scholarly
-    from scholarly import ProxyGenerator
+    from scholarly import ProxyGenerator, scholarly
 
     SCHOLARLY_AVAILABLE = True
 except ImportError:

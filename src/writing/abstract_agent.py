@@ -4,14 +4,15 @@ Abstract Generator Agent
 Generates structured or unstructured abstracts for systematic reviews.
 """
 
-from typing import List, Optional, Dict, Any
-import logging
 import json
+import logging
+from typing import Any, Dict, List, Optional
+
 from pydantic import BaseModel, Field
 
-from ..utils.log_context import agent_log_context
-from ..search.connectors.base import Paper
 from ..screening.base_agent import BaseScreeningAgent
+from ..search.connectors.base import Paper
+from ..utils.log_context import agent_log_context
 
 logger = logging.getLogger(__name__)
 
@@ -89,7 +90,7 @@ class AbstractGenerator(BaseScreeningAgent):
         exclusion_criteria: List[str],
     ):
         """Stub implementation - abstract generator doesn't screen papers."""
-        from ..screening.base_agent import ScreeningResult, InclusionDecision
+        from ..screening.base_agent import InclusionDecision, ScreeningResult
 
         return ScreeningResult(
             decision=InclusionDecision.UNCERTAIN,

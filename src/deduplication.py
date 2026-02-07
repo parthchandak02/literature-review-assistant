@@ -4,10 +4,12 @@ Deduplication Module
 Removes duplicate studies across databases using fuzzy matching.
 """
 
-import pandas as pd
-from typing import List, Optional
-from fuzzywuzzy import fuzz
 from dataclasses import dataclass
+from typing import List, Optional
+
+import pandas as pd
+from fuzzywuzzy import fuzz
+
 from src.search.database_connectors import Paper
 
 

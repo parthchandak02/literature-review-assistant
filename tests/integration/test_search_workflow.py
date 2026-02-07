@@ -2,8 +2,8 @@
 Integration tests for search workflow.
 """
 
-from src.search.database_connectors import MultiDatabaseSearcher, MockConnector
 from src.search.cache import SearchCache
+from src.search.database_connectors import MockConnector, MultiDatabaseSearcher
 from src.search.search_logger import SearchLogger
 
 

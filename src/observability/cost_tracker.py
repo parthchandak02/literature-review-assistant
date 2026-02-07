@@ -4,11 +4,11 @@ Cost Tracking for LLM Usage
 Tracks token usage and costs for LLM API calls.
 """
 
-from typing import Dict, Optional, List, Any
+import logging
+from collections import defaultdict
 from dataclasses import dataclass
 from datetime import datetime
-from collections import defaultdict
-import logging
+from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 

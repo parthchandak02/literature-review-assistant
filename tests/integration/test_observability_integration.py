@@ -2,8 +2,8 @@
 Integration tests for observability (metrics and cost tracking).
 """
 
-from src.observability.metrics import MetricsCollector
 from src.observability.cost_tracker import CostTracker
+from src.observability.metrics import MetricsCollector
 
 
 class TestObservabilityIntegration:

@@ -4,9 +4,10 @@ Logging configuration for debug and verbose modes.
 
 import logging
 import sys
+from enum import Enum
 from pathlib import Path
 from typing import Optional
-from enum import Enum
+
 import colorama
 from colorama import Fore, Style
 

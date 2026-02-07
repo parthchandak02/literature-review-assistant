@@ -82,7 +82,7 @@ def test_format_author_name():
     # Test "Last, First" format
     result = IEEEFormatter._format_author_name("Smith, John")
     assert "Smith" in result
-    
+
     # Test "First Last" format
     result = IEEEFormatter._format_author_name("John Smith")
     assert "Smith" in result
@@ -98,7 +98,7 @@ def test_is_preprint():
         database="arXiv",
     )
     assert IEEEFormatter._is_preprint(paper1)
-    
+
     paper2 = Paper(
         title="Test",
         abstract="",
@@ -117,7 +117,7 @@ def test_is_conference():
         journal="IEEE Conference on Testing",
     )
     assert IEEEFormatter._is_conference(paper1)
-    
+
     paper2 = Paper(
         title="Test",
         abstract="",

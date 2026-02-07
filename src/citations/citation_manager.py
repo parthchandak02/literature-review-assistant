@@ -4,9 +4,10 @@ Citation Manager
 Extracts citations from text, maps them to papers, and generates References section.
 """
 
-import re
 import logging
-from typing import Dict, List, Set, Any
+import re
+from typing import Any, Dict, List, Set
+
 from ..search.database_connectors import Paper
 from .ieee_formatter import IEEEFormatter
 
@@ -323,6 +324,7 @@ class CitationManager:
             Path to generated RIS file
         """
         from pathlib import Path
+
         from .ris_formatter import RISFormatter
 
         formatter = RISFormatter()

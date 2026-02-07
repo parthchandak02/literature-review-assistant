@@ -6,7 +6,7 @@ Generates and validates submission checklists for journal submissions.
 
 import logging
 from pathlib import Path
-from typing import Dict, Any, Optional
+from typing import Any, Dict, Optional
 
 logger = logging.getLogger(__name__)
 

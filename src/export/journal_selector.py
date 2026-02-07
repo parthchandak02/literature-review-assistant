@@ -5,9 +5,10 @@ Manages journal configurations and validation.
 """
 
 import logging
-import yaml
 from pathlib import Path
-from typing import Dict, List, Optional, Any
+from typing import Any, Dict, List, Optional
+
+import yaml
 
 logger = logging.getLogger(__name__)
 
@@ -36,7 +37,7 @@ class JournalSelector:
             return {}
 
         try:
-            with open(self.config_path, "r", encoding="utf-8") as f:
+            with open(self.config_path, encoding="utf-8") as f:
                 config = yaml.safe_load(f) or {}
             return config.get("journals", {})
         except Exception as e:

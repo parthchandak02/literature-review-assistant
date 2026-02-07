@@ -4,6 +4,7 @@ Tests for Template Manager
 
 from pathlib import Path
 from unittest.mock import patch
+
 from src.export.template_manager import TemplateManager
 
 
@@ -27,11 +28,11 @@ class TestTemplateManager:
         """Test get_template for existing journal."""
         templates_dir = tmp_path / "templates"
         templates_dir.mkdir(parents=True)
-        
+
         # Create template file
         template_file = templates_dir / "ieee.latex"
         template_file.write_text("\\documentclass{article}")
-        
+
         manager = TemplateManager(templates_dir=templates_dir)
         result = manager.get_template("ieee")
         assert result == template_file
@@ -40,7 +41,7 @@ class TestTemplateManager:
         """Test get_template for non-existent journal."""
         templates_dir = tmp_path / "templates"
         templates_dir.mkdir(parents=True)
-        
+
         manager = TemplateManager(templates_dir=templates_dir)
         result = manager.get_template("nonexistent")
         assert result is None
@@ -49,11 +50,11 @@ class TestTemplateManager:
         """Test get_template tries multiple file extensions."""
         templates_dir = tmp_path / "templates"
         templates_dir.mkdir(parents=True)
-        
+
         # Create .tex file instead of .latex
         template_file = templates_dir / "ieee.tex"
         template_file.write_text("\\documentclass{article}")
-        
+
         manager = TemplateManager(templates_dir=templates_dir)
         result = manager.get_template("ieee")
         assert result == template_file
@@ -62,10 +63,10 @@ class TestTemplateManager:
         """Test get_template handles case-insensitive journal names."""
         templates_dir = tmp_path / "templates"
         templates_dir.mkdir(parents=True)
-        
+
         template_file = templates_dir / "ieee.latex"
         template_file.write_text("\\documentclass{article}")
-        
+
         manager = TemplateManager(templates_dir=templates_dir)
         result = manager.get_template("IEEE")
         assert result == template_file
@@ -74,12 +75,12 @@ class TestTemplateManager:
         """Test list_available_journals."""
         templates_dir = tmp_path / "templates"
         templates_dir.mkdir(parents=True)
-        
+
         # Create multiple template files
         (templates_dir / "ieee.latex").write_text("\\documentclass{article}")
         (templates_dir / "nature.latex").write_text("\\documentclass{article}")
         (templates_dir / "plos.tex").write_text("\\documentclass{article}")
-        
+
         manager = TemplateManager(templates_dir=templates_dir)
         journals = manager.list_available_journals()
         assert "ieee" in journals
@@ -91,7 +92,7 @@ class TestTemplateManager:
         """Test list_available_journals with no templates."""
         templates_dir = tmp_path / "templates"
         templates_dir.mkdir(parents=True)
-        
+
         manager = TemplateManager(templates_dir=templates_dir)
         journals = manager.list_available_journals()
         assert journals == []
@@ -100,10 +101,10 @@ class TestTemplateManager:
         """Test validate_template with valid template."""
         templates_dir = tmp_path / "templates"
         templates_dir.mkdir(parents=True)
-        
+
         template_file = templates_dir / "ieee.latex"
         template_file.write_text("\\documentclass{article}\n\\begin{document}\n\\end{document}")
-        
+
         manager = TemplateManager(templates_dir=templates_dir)
         result = manager.validate_template(template_file)
         assert result is True
@@ -112,9 +113,9 @@ class TestTemplateManager:
         """Test validate_template with missing file."""
         templates_dir = tmp_path / "templates"
         templates_dir.mkdir(parents=True)
-        
+
         template_file = templates_dir / "nonexistent.latex"
-        
+
         manager = TemplateManager(templates_dir=templates_dir)
         result = manager.validate_template(template_file)
         assert result is False
@@ -123,10 +124,10 @@ class TestTemplateManager:
         """Test validate_template with empty file."""
         templates_dir = tmp_path / "templates"
         templates_dir.mkdir(parents=True)
-        
+
         template_file = templates_dir / "empty.latex"
         template_file.write_text("")
-        
+
         manager = TemplateManager(templates_dir=templates_dir)
         result = manager.validate_template(template_file)
         assert result is False
@@ -135,7 +136,7 @@ class TestTemplateManager:
         """Test validate_template with path that is not a file."""
         templates_dir = tmp_path / "templates"
         templates_dir.mkdir(parents=True)
-        
+
         manager = TemplateManager(templates_dir=templates_dir)
         result = manager.validate_template(templates_dir)
         assert result is False
@@ -144,12 +145,12 @@ class TestTemplateManager:
         """Test validate_template with unreadable file."""
         templates_dir = tmp_path / "templates"
         templates_dir.mkdir(parents=True)
-        
+
         template_file = templates_dir / "ieee.latex"
         template_file.write_text("\\documentclass{article}")
-        
+
         manager = TemplateManager(templates_dir=templates_dir)
-        
+
         # Mock read_text to raise exception
         with patch.object(Path, "read_text") as mock_read:
             mock_read.side_effect = PermissionError("Permission denied")
@@ -160,10 +161,10 @@ class TestTemplateManager:
         """Test create_custom_template."""
         templates_dir = tmp_path / "templates"
         templates_dir.mkdir(parents=True)
-        
+
         manager = TemplateManager(templates_dir=templates_dir)
         template_content = "\\documentclass{article}\n\\begin{document}\n\\end{document}"
-        
+
         result = manager.create_custom_template("custom", template_content)
         assert result.exists()
         assert result == templates_dir / "custom.latex"
@@ -173,11 +174,11 @@ class TestTemplateManager:
         """Test create_custom_template overwrites existing template."""
         templates_dir = tmp_path / "templates"
         templates_dir.mkdir(parents=True)
-        
+
         manager = TemplateManager(templates_dir=templates_dir)
         template_file = templates_dir / "custom.latex"
         template_file.write_text("Old content")
-        
+
         new_content = "New content"
         result = manager.create_custom_template("custom", new_content)
         assert result.read_text() == new_content
@@ -185,7 +186,7 @@ class TestTemplateManager:
     def test_template_directory_creation(self, tmp_path):
         """Test template directory creation."""
         templates_dir = tmp_path / "new_templates"
-        
+
         TemplateManager(templates_dir=templates_dir)
         assert templates_dir.exists()
 
@@ -193,11 +194,11 @@ class TestTemplateManager:
         """Test template path resolution."""
         templates_dir = tmp_path / "templates"
         templates_dir.mkdir(parents=True)
-        
+
         # Create template with .lua extension (Pandoc template)
         template_file = templates_dir / "ieee.lua"
         template_file.write_text("-- Pandoc template")
-        
+
         manager = TemplateManager(templates_dir=templates_dir)
         result = manager.get_template("ieee")
         # Should find .lua file

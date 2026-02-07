@@ -6,6 +6,7 @@ Formats citations according to IEEE style guidelines.
 
 import re
 from typing import List
+
 from ..search.database_connectors import Paper
 
 

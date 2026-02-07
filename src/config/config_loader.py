@@ -5,9 +5,10 @@ Loads and processes unified YAML configuration file.
 """
 
 import os
-import yaml
 from pathlib import Path
-from typing import Dict, Any, Optional
+from typing import Any, Dict, Optional
+
+import yaml
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -39,7 +40,7 @@ class ConfigLoader:
         if not self.config_path.exists():
             raise FileNotFoundError(f"Configuration file not found: {self.config_path}")
 
-        with open(self.config_path, "r") as f:
+        with open(self.config_path) as f:
             self.config = yaml.safe_load(f)
 
         if not self.config:

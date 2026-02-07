@@ -5,9 +5,9 @@ Validates screening decisions and provides statistics and calibration tools.
 """
 
 import logging
-from typing import List, Dict, Optional, Any, Tuple
 from dataclasses import dataclass
 from enum import Enum
+from typing import Any, Dict, List, Optional, Tuple
 
 logger = logging.getLogger(__name__)
 
@@ -198,7 +198,7 @@ class ScreeningValidator:
                 if warning:
                     report_lines.append(f"\n  VALIDATION: {warning}")
 
-                is_valid, warning = self.validate_inclusion_rate(stage)
+                _is_valid, warning = self.validate_inclusion_rate(stage)
                 if warning:
                     report_lines.append(f"\n  VALIDATION: {warning}")
 
@@ -227,6 +227,6 @@ class ScreeningValidator:
         if warning:
             logger.warning(warning)
 
-        is_valid, warning = self.validate_inclusion_rate(stage)
+        _is_valid, warning = self.validate_inclusion_rate(stage)
         if warning:
             logger.warning(warning)

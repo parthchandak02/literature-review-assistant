@@ -6,29 +6,30 @@ arXiv, Semantic Scholar, Crossref.
 """
 
 # Base classes and utilities
-from .connectors.base import Paper, DatabaseConnector
-from .models import Author, Affiliation
-from .proxy_manager import ProxyManager
-from .integrity_checker import IntegrityChecker
-from ..utils.html_utils import html_unescape, clean_abstract
+import logging
+import os
+import xml.etree.ElementTree as ET
 
 # Connector implementations
-from typing import List, Dict, Optional
-import os
-import requests
-import xml.etree.ElementTree as ET
-from dotenv import load_dotenv
-import logging
+from typing import Dict, List, Optional
 
+import requests
+from dotenv import load_dotenv
+
+from ..utils.html_utils import clean_abstract, html_unescape
+from .cache import SearchCache
+from .connectors.base import DatabaseConnector, Paper
 from .exceptions import (
+    APIKeyError,
     DatabaseSearchError,
-    RateLimitError,
     NetworkError,
     ParsingError,
-    APIKeyError,
+    RateLimitError,
 )
+from .integrity_checker import IntegrityChecker
+from .models import Affiliation, Author
+from .proxy_manager import ProxyManager
 from .rate_limiter import retry_with_backoff
-from .cache import SearchCache
 
 load_dotenv()
 
@@ -450,7 +451,7 @@ class SemanticScholarConnector(DatabaseConnector):
 
                     # Extract DOI
                     doi = None
-                    if "externalIds" in paper_data and paper_data["externalIds"]:
+                    if paper_data.get("externalIds"):
                         doi = paper_data["externalIds"].get("DOI")
 
                     # Extract year
@@ -576,7 +577,7 @@ class CrossrefConnector(DatabaseConnector):
 
                     # Extract title
                     title = ""
-                    if "title" in item and item["title"]:
+                    if item.get("title"):
                         title = " ".join(item["title"])
 
                     # Extract abstract - Crossref abstracts can be in different formats
@@ -643,11 +644,11 @@ class CrossrefConnector(DatabaseConnector):
 
                     # Extract year
                     year = None
-                    if "published-print" in item and item["published-print"]:
+                    if item.get("published-print"):
                         date_parts = item["published-print"].get("date-parts", [])
                         if date_parts and date_parts[0]:
                             year = date_parts[0][0]
-                    elif "published-online" in item and item["published-online"]:
+                    elif item.get("published-online"):
                         date_parts = item["published-online"].get("date-parts", [])
                         if date_parts and date_parts[0]:
                             year = date_parts[0][0]
@@ -657,7 +658,7 @@ class CrossrefConnector(DatabaseConnector):
 
                     # Extract journal
                     journal = None
-                    if "container-title" in item and item["container-title"]:
+                    if item.get("container-title"):
                         journal = item["container-title"][0]
 
                     # Extract publisher
@@ -925,7 +926,8 @@ class ScopusConnector(DatabaseConnector):
         """
         try:
             from pybliometrics.scopus import AuthorRetrieval
-            from .models import Author, Affiliation
+
+            from .models import Affiliation, Author
         except ImportError:
             logger.warning(
                 "pybliometrics not available. Install with: pip install pybliometrics or pip install -e '.[bibliometrics]'"
@@ -1021,6 +1023,7 @@ class ScopusConnector(DatabaseConnector):
         """
         try:
             from pybliometrics.scopus import AffiliationRetrieval
+
             from .models import Affiliation
         except ImportError:
             logger.warning(
@@ -1664,8 +1667,9 @@ class SpringerConnector(DatabaseConnector):
         papers = []
 
         try:
-            from bs4 import BeautifulSoup
             import time
+
+            from bs4 import BeautifulSoup
 
             session = self._get_session()
             request_kwargs = self._get_request_kwargs()
@@ -2181,8 +2185,9 @@ class IEEEXploreConnector(DatabaseConnector):
         """Search IEEE Xplore via web scraping (fallback method)."""
         papers = []
         try:
-            from bs4 import BeautifulSoup
             import time
+
+            from bs4 import BeautifulSoup
 
             session = self._get_session()
             request_kwargs = self._get_request_kwargs()

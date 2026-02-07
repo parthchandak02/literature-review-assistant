@@ -1,18 +1,18 @@
 """Literature Search Module."""
 
-from .connectors.base import Paper, DatabaseConnector
-from .multi_database_searcher import MultiDatabaseSearcher
+from .connectors.base import DatabaseConnector, Paper
 from .database_connectors import (
-    PubMedConnector,
-    ArxivConnector,
-    SemanticScholarConnector,
-    CrossrefConnector,
-    ScopusConnector,
     ACMConnector,
-    SpringerConnector,
+    ArxivConnector,
+    CrossrefConnector,
     IEEEXploreConnector,
     MockConnector,
+    PubMedConnector,
+    ScopusConnector,
+    SemanticScholarConnector,
+    SpringerConnector,
 )
+from .multi_database_searcher import MultiDatabaseSearcher
 
 try:
     from .connectors.google_scholar_connector import GoogleScholarConnector
@@ -20,9 +20,9 @@ except ImportError:
     GoogleScholarConnector = None
 
 try:
-    from .models import Author, Affiliation
     from .author_service import AuthorService
-    from .citation_network import CitationNetworkBuilder, CitationEdge
+    from .citation_network import CitationEdge, CitationNetworkBuilder
+    from .models import Affiliation, Author
 except ImportError:
     # Models may not be available
     Author = None
@@ -30,54 +30,54 @@ except ImportError:
     AuthorService = None
     CitationNetworkBuilder = None
     CitationEdge = None
-from .search_strategy import SearchStrategyBuilder, SearchTerm
-from ..deduplication import Deduplicator, DeduplicationResult
+from ..deduplication import DeduplicationResult, Deduplicator
 from .cache import SearchCache
-from .rate_limiter import RateLimiter, get_rate_limiter, retry_with_backoff
 from .exceptions import (
-    DatabaseSearchError,
-    RateLimitError,
     APIKeyError,
-    NetworkError,
-    ParsingError,
+    DatabaseSearchError,
     DatabaseUnavailableError,
     InvalidQueryError,
+    NetworkError,
+    ParsingError,
+    RateLimitError,
 )
+from .rate_limiter import RateLimiter, get_rate_limiter, retry_with_backoff
 from .search_logger import SearchLogger
+from .search_strategy import SearchStrategyBuilder, SearchTerm
 
 __all__ = [
-    "Paper",
-    "DatabaseConnector",
-    "PubMedConnector",
-    "ArxivConnector",
-    "SemanticScholarConnector",
-    "CrossrefConnector",
-    "ScopusConnector",
     "ACMConnector",
-    "SpringerConnector",
-    "IEEEXploreConnector",
+    "APIKeyError",
+    "Affiliation",
+    "ArxivConnector",
+    "Author",
+    "AuthorService",
+    "CitationEdge",
+    "CitationNetworkBuilder",
+    "CrossrefConnector",
+    "DatabaseConnector",
+    "DatabaseSearchError",
+    "DatabaseUnavailableError",
+    "DeduplicationResult",
+    "Deduplicator",
     "GoogleScholarConnector",
+    "IEEEXploreConnector",
+    "InvalidQueryError",
     "MockConnector",
     "MultiDatabaseSearcher",
+    "NetworkError",
+    "Paper",
+    "ParsingError",
+    "PubMedConnector",
+    "RateLimitError",
+    "RateLimiter",
+    "ScopusConnector",
+    "SearchCache",
+    "SearchLogger",
     "SearchStrategyBuilder",
     "SearchTerm",
-    "Deduplicator",
-    "DeduplicationResult",
-    "SearchCache",
-    "RateLimiter",
+    "SemanticScholarConnector",
+    "SpringerConnector",
     "get_rate_limiter",
     "retry_with_backoff",
-    "DatabaseSearchError",
-    "RateLimitError",
-    "APIKeyError",
-    "NetworkError",
-    "ParsingError",
-    "DatabaseUnavailableError",
-    "InvalidQueryError",
-    "SearchLogger",
-    "Author",
-    "Affiliation",
-    "AuthorService",
-    "CitationNetworkBuilder",
-    "CitationEdge",
 ]

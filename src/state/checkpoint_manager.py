@@ -5,11 +5,11 @@ Enables checkpoint/resume functionality for workflows.
 """
 
 import json
-from typing import Dict, Optional, Any
-from dataclasses import dataclass, asdict
+import logging
+from dataclasses import asdict, dataclass
 from datetime import datetime
 from pathlib import Path
-import logging
+from typing import Any, Dict, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -144,7 +144,7 @@ class CheckpointManager:
             return None
 
         try:
-            with open(checkpoint_file, "r") as f:
+            with open(checkpoint_file) as f:
                 data = json.load(f)
                 checkpoint = WorkflowCheckpoint.from_dict(data)
                 self.checkpoints[checkpoint_id] = checkpoint
@@ -159,7 +159,7 @@ class CheckpointManager:
 
         for checkpoint_file in self.checkpoint_dir.glob(f"{workflow_id}_*.json"):
             try:
-                with open(checkpoint_file, "r") as f:
+                with open(checkpoint_file) as f:
                     data = json.load(f)
                     checkpoint = WorkflowCheckpoint.from_dict(data)
                     checkpoints.append(checkpoint)

@@ -4,19 +4,19 @@ Data Extraction Agent
 Extracts structured data from research papers using LLM with structured outputs.
 """
 
-from typing import Dict, List, Optional, Any
-from dataclasses import dataclass, asdict
 import json
 import logging
 import time
+from dataclasses import asdict, dataclass
+from typing import Any, Dict, List, Optional
 
+from ..config.debug_config import DebugLevel
+from ..schemas.extraction_schemas import ExtractedDataSchema
+from ..screening.base_agent import BaseScreeningAgent
 from ..utils.rich_utils import (
     print_llm_request_panel,
     print_llm_response_panel,
 )
-from ..screening.base_agent import BaseScreeningAgent
-from ..schemas.extraction_schemas import ExtractedDataSchema
-from ..config.debug_config import DebugLevel
 
 logger = logging.getLogger(__name__)
 
@@ -70,7 +70,7 @@ class DataExtractorAgent(BaseScreeningAgent):
         exclusion_criteria: List[str],
     ):
         """Stub implementation - extraction agents don't screen papers."""
-        from ..screening.base_agent import ScreeningResult, InclusionDecision
+        from ..screening.base_agent import InclusionDecision, ScreeningResult
 
         return ScreeningResult(
             decision=InclusionDecision.UNCERTAIN,
@@ -200,6 +200,25 @@ class DataExtractorAgent(BaseScreeningAgent):
                 result = self._parse_extraction_response(response, title, abstract)
                 if is_verbose:
                     logger.debug(f"[{self.role}] Parsed extraction completed")
+
+        # Check for completely empty extraction results and log warning
+        objectives_empty = not result.study_objectives or len(result.study_objectives) == 0
+        outcomes_empty = not result.outcomes or len(result.outcomes) == 0
+        findings_empty = not result.key_findings or len(result.key_findings) == 0
+        
+        if objectives_empty and outcomes_empty and findings_empty:
+            abstract_preview = (abstract or "")[:150].replace("\n", " ")
+            logger.warning(
+                f"[{self.role}] Empty extraction for paper '{title[:80]}': "
+                f"0 objectives, 0 outcomes, 0 findings. "
+                f"Abstract preview: {abstract_preview}... "
+                f"This may indicate: (1) LLM returned 'not available' values, "
+                f"(2) paper lacks structured data, or (3) extraction prompt needs refinement."
+            )
+            if self.debug_config.enabled and self.debug_config.level == DebugLevel.FULL:
+                logger.debug(
+                    f"[{self.role}] Full abstract for empty extraction: {abstract}"
+                )
 
         # Restore original context
         if topic_context:
@@ -488,9 +507,9 @@ Return ONLY valid JSON matching this exact structure:
             cost = 0.0
             if self.debug_config.show_costs:
                 from ..observability.cost_tracker import (
-                    get_cost_tracker,
-                    TokenUsage,
                     LLMCostTracker,
+                    TokenUsage,
+                    get_cost_tracker,
                 )
 
                 cost_tracker = get_cost_tracker()

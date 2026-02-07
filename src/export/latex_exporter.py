@@ -7,10 +7,10 @@ Supports IEEE and other journal templates.
 Uses pylatexenc for proper LaTeX escaping and markdown library for conversion.
 """
 
+import logging
 import re
 from pathlib import Path
-from typing import Dict, List, Optional, Any
-import logging
+from typing import Any, Dict, List, Optional
 
 try:
     from pylatexenc.latexencode import unicode_to_latex
@@ -390,8 +390,8 @@ class LaTeXExporter:
 
     def _format_ieee_reference(self, ref: Dict[str, Any], number: int) -> str:
         """Format a single reference in IEEE style."""
-        from ..search.connectors.base import Paper
         from ..citations.ieee_formatter import IEEEFormatter
+        from ..search.connectors.base import Paper
 
         # Create a Paper object from the reference dict to use IEEEFormatter
         paper = Paper(

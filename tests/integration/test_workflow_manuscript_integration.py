@@ -2,9 +2,11 @@
 Integration tests for WorkflowManager Phase 17-18 (Manubot and Submission Package)
 """
 
-import pytest
 from pathlib import Path
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
+
+import pytest
+
 from src.orchestration.workflow_manager import WorkflowManager
 from src.search.connectors.base import Paper
 
@@ -39,12 +41,12 @@ workflow:
         ]
         workflow_manager.topic_context.topic = "Test Topic"
         workflow_manager.topic_context.keywords = ["test"]
-        
+
         article_sections = {
             "abstract": "Test abstract",
             "introduction": "Test introduction",
         }
-        
+
         manubot_path = workflow_manager._export_manubot_structure(article_sections)
         assert manubot_path is not None
         assert Path(manubot_path).exists()
@@ -54,7 +56,7 @@ workflow:
     def test_phase_17_disabled(self, workflow_manager):
         """Test Phase 17 with manubot.enabled=false."""
         workflow_manager.config["manubot"] = {"enabled": False}
-        
+
         article_sections = {"abstract": "Test"}
         manubot_path = workflow_manager._export_manubot_structure(article_sections)
         assert manubot_path is None
@@ -69,16 +71,16 @@ workflow:
             "generate_html": False,
         }
         workflow_manager.output_dir = tmp_path
-        
+
         # Create manuscript file
         manuscript_path = tmp_path / "final_report.md"
         manuscript_path.write_text("# Test Report\n\nContent here.")
-        
+
         workflow_outputs = {
             "final_report": str(manuscript_path),
         }
         article_sections = {"abstract": "Test"}
-        
+
         package_path = workflow_manager._generate_submission_package(
             workflow_outputs,
             article_sections,
@@ -91,7 +93,7 @@ workflow:
     def test_phase_18_disabled(self, workflow_manager):
         """Test Phase 18 with submission.enabled=false."""
         workflow_manager.config["submission"] = {"enabled": False}
-        
+
         package_path = workflow_manager._generate_submission_package(
             {},
             {},
@@ -108,11 +110,11 @@ workflow:
         workflow_manager.output_dir = tmp_path
         workflow_manager.final_papers = []
         workflow_manager.topic_context.topic = "Test"
-        
+
         # Mock exporter to raise exception
         with patch("src.orchestration.workflow_manager.ManubotExporter") as mock_exporter:
             mock_exporter.side_effect = Exception("Export failed")
-            
+
             article_sections = {"abstract": "Test"}
             manubot_path = workflow_manager._export_manubot_structure(article_sections)
             # Should return None on error, not raise exception
@@ -125,16 +127,16 @@ workflow:
             "default_journal": "ieee",
         }
         workflow_manager.output_dir = tmp_path
-        
+
         # Mock builder to raise exception
         with patch("src.orchestration.workflow_manager.SubmissionPackageBuilder") as mock_builder:
             mock_instance = MagicMock()
             mock_instance.build_package.side_effect = Exception("Build failed")
             mock_builder.return_value = mock_instance
-            
+
             manuscript_path = tmp_path / "final_report.md"
             manuscript_path.write_text("# Test")
-            
+
             package_path = workflow_manager._generate_submission_package(
                 {"final_report": str(manuscript_path)},
                 {},
@@ -153,10 +155,10 @@ workflow:
         workflow_manager.final_papers = []
         workflow_manager.topic_context.topic = "Test"
         workflow_manager.save_checkpoints = True
-        
+
         article_sections = {"abstract": "Test"}
         workflow_manager._export_manubot_structure(article_sections)
-        
+
         # Checkpoint should be saved (verify via state file existence)
         # This is tested indirectly through workflow run
 
@@ -168,16 +170,16 @@ workflow:
         }
         workflow_manager.output_dir = tmp_path
         workflow_manager.save_checkpoints = True
-        
+
         manuscript_path = tmp_path / "final_report.md"
         manuscript_path.write_text("# Test")
-        
+
         workflow_manager._generate_submission_package(
             {"final_report": str(manuscript_path)},
             {},
             str(manuscript_path),
         )
-        
+
         # Checkpoint should be saved (verify via state file existence)
 
     def test_phase_17_resumption(self, workflow_manager, tmp_path):
@@ -191,7 +193,7 @@ workflow:
         workflow_manager.output_dir = tmp_path
         workflow_manager.final_papers = []
         workflow_manager.topic_context.topic = "Test"
-        
+
         article_sections = {"abstract": "Test"}
         manubot_path = workflow_manager._export_manubot_structure(article_sections)
         assert manubot_path is not None
@@ -203,10 +205,10 @@ workflow:
             "default_journal": "ieee",
         }
         workflow_manager.output_dir = tmp_path
-        
+
         manuscript_path = tmp_path / "final_report.md"
         manuscript_path.write_text("# Test")
-        
+
         package_path = workflow_manager._generate_submission_package(
             {"final_report": str(manuscript_path)},
             {},
@@ -225,10 +227,10 @@ workflow:
         workflow_manager.output_dir = tmp_path
         workflow_manager.final_papers = []
         workflow_manager.topic_context.topic = "Test"
-        
+
         article_sections = {"abstract": "Test"}
         manubot_path = workflow_manager._export_manubot_structure(article_sections)
-        
+
         assert manubot_path is not None
         assert "custom_manuscript" in manubot_path
 
@@ -242,21 +244,21 @@ workflow:
             "generate_html": True,
         }
         workflow_manager.output_dir = tmp_path
-        
+
         manuscript_path = tmp_path / "final_report.md"
         manuscript_path.write_text("# Test")
-        
+
         with patch("src.orchestration.workflow_manager.SubmissionPackageBuilder") as mock_builder:
             mock_instance = MagicMock()
             mock_instance.build_package.return_value = tmp_path / "package"
             mock_builder.return_value = mock_instance
-            
+
             workflow_manager._generate_submission_package(
                 {"final_report": str(manuscript_path)},
                 {},
                 str(manuscript_path),
             )
-            
+
             # Verify journal was passed correctly
             call_args = mock_instance.build_package.call_args
             assert call_args[0][1] == "nature"  # journal parameter
@@ -271,16 +273,16 @@ workflow:
         workflow_manager.final_papers = []
         workflow_manager.topic_context.topic = "Test Topic"
         workflow_manager.topic_context.keywords = ["keyword1", "keyword2"]
-        
+
         article_sections = {"abstract": "Test"}
-        
+
         with patch("src.orchestration.workflow_manager.ManubotExporter") as mock_exporter_class:
             mock_exporter = MagicMock()
             mock_exporter.export.return_value = tmp_path / "manuscript"
             mock_exporter_class.return_value = mock_exporter
-            
+
             workflow_manager._export_manubot_structure(article_sections)
-            
+
             # Verify metadata was passed correctly
             call_args = mock_exporter.export.call_args
             metadata = call_args[1]["metadata"]
@@ -294,7 +296,7 @@ workflow:
             "default_journal": "ieee",
         }
         workflow_manager.output_dir = tmp_path
-        
+
         # No manuscript file exists
         package_path = workflow_manager._generate_submission_package(
             {},

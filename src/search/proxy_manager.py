@@ -5,10 +5,11 @@ Manages proxy configuration and rotation for database connectors.
 Inspired by scholarly's ProxyGenerator but adapted for our use case.
 """
 
-import os
 import logging
-from typing import Optional, Dict, Any, Callable
+import os
 from enum import Enum
+from typing import Any, Callable, Dict, Optional
+
 import requests
 
 logger = logging.getLogger(__name__)

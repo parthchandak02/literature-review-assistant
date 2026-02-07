@@ -10,6 +10,7 @@ which is tested in tests/unit/orchestration/test_checkpoint_manager.py
 """
 
 from pathlib import Path
+
 from src.state.checkpoint_manager import CheckpointManager, WorkflowCheckpoint
 from src.state.state_store import FileStateStore
 

@@ -4,11 +4,11 @@ State Store for Distributed State Management
 Provides interface for state persistence (file-based, Redis, etc.).
 """
 
-from abc import ABC, abstractmethod
-from typing import Dict, Optional, Any, List
 import json
-from pathlib import Path
 import logging
+from abc import ABC, abstractmethod
+from pathlib import Path
+from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -103,7 +103,7 @@ class FileStateStore(StateStore):
             return None
 
         try:
-            with open(state_file, "r") as f:
+            with open(state_file) as f:
                 return json.load(f)
         except Exception as e:
             logger.error(f"Failed to load state {key}: {e}", exc_info=True)

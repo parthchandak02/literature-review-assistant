@@ -5,9 +5,9 @@ Base classes for database connectors. Individual connector implementations
 are in database_connectors.py.
 """
 
-from .base import Paper, DatabaseConnector
+from .base import DatabaseConnector, Paper
 
 __all__ = [
-    "Paper",
     "DatabaseConnector",
+    "Paper",
 ]

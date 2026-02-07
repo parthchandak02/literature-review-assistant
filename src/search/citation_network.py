@@ -4,9 +4,9 @@ Citation Network Builder
 Builds citation networks from papers, tracks citing papers, and exports network graphs.
 """
 
-from typing import List, Dict, Optional, Any
 import logging
 from dataclasses import dataclass
+from typing import Any, Dict, List, Optional
 
 from .connectors.base import Paper
 from .connectors.google_scholar_connector import GoogleScholarConnector

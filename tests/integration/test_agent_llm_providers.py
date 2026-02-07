@@ -4,10 +4,11 @@ Integration tests for LLM provider integrations with agents.
 
 import os
 from unittest.mock import Mock, patch
+
 from src.screening.base_agent import BaseScreeningAgent
-from src.tools.tool_registry import ToolRegistry
 from src.tools.exa_tool import create_exa_search_tool
 from src.tools.tavily_tool import create_tavily_search_tool
+from src.tools.tool_registry import ToolRegistry
 
 
 class TestAgentWithGoogleGenAI:

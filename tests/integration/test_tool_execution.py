@@ -2,10 +2,10 @@
 Integration tests for tool execution.
 """
 
-from src.tools.tool_registry import ToolRegistry
+from src.search.database_connectors import MultiDatabaseSearcher
 from src.tools.database_search_tool import DatabaseSearchTool
 from src.tools.query_builder_tool import QueryBuilderTool
-from src.search.database_connectors import MultiDatabaseSearcher
+from src.tools.tool_registry import ToolRegistry
 
 
 def test_database_search_tool_execution():

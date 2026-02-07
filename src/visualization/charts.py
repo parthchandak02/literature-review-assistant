@@ -4,13 +4,15 @@ Bibliometric Charts Generator
 Generates charts for papers per year, countries, subject areas, etc.
 """
 
+import logging
+import re
+from collections import Counter
+from pathlib import Path
+from typing import Any, Dict, List, Optional
+
 import matplotlib.pyplot as plt
 import pandas as pd
-import re
-import logging
-from typing import List, Optional, Dict, Any
-from pathlib import Path
-from collections import Counter
+
 from ..search.database_connectors import Paper
 
 logger = logging.getLogger(__name__)
@@ -68,7 +70,7 @@ class ChartGenerator:
         year_counts = pd.Series(years).value_counts().sort_index()
 
         # Create chart
-        fig, ax = plt.subplots(figsize=(10, 6))
+        _fig, ax = plt.subplots(figsize=(10, 6))
         ax.bar(year_counts.index, year_counts.values, color="steelblue", alpha=0.7)
         ax.set_xlabel("Year", fontsize=12)
         ax.set_ylabel("Number of Papers", fontsize=12)
@@ -193,7 +195,7 @@ class ChartGenerator:
         # Create chart
         countries_list, counts_list = zip(*top_countries)
 
-        fig, ax = plt.subplots(figsize=(12, 6))
+        _fig, ax = plt.subplots(figsize=(12, 6))
         ax.barh(range(len(countries_list)), counts_list, color="steelblue", alpha=0.7)
         ax.set_yticks(range(len(countries_list)))
         ax.set_yticklabels(countries_list)
@@ -457,7 +459,7 @@ class ChartGenerator:
         # Create chart
         subjects_list, counts_list = zip(*top_subjects)
 
-        fig, ax = plt.subplots(figsize=(12, 6))
+        _fig, ax = plt.subplots(figsize=(12, 6))
         ax.barh(range(len(subjects_list)), counts_list, color="steelblue", alpha=0.7)
         ax.set_yticks(range(len(subjects_list)))
         ax.set_yticklabels(subjects_list)
@@ -887,7 +889,7 @@ class ChartGenerator:
 
             pos = nx.spring_layout(G, k=2, iterations=100, seed=42)
 
-            fig, ax = plt.subplots(figsize=(14, 10))
+            _fig, ax = plt.subplots(figsize=(14, 10))
 
             # Draw edges
             edges_list = list(G.edges())
@@ -979,8 +981,8 @@ class ChartGenerator:
 
         # Keyword overlap
         if paper1.keywords and paper2.keywords:
-            keywords1 = set(kw.lower() for kw in paper1.keywords)
-            keywords2 = set(kw.lower() for kw in paper2.keywords)
+            keywords1 = {kw.lower() for kw in paper1.keywords}
+            keywords2 = {kw.lower() for kw in paper2.keywords}
             if keywords1 or keywords2:
                 overlap = len(keywords1 & keywords2)
                 union = len(keywords1 | keywords2)
@@ -989,8 +991,8 @@ class ChartGenerator:
 
         # Author overlap
         if paper1.authors and paper2.authors:
-            authors1 = set(a.lower() for a in paper1.authors)
-            authors2 = set(a.lower() for a in paper2.authors)
+            authors1 = {a.lower() for a in paper1.authors}
+            authors2 = {a.lower() for a in paper2.authors}
             if authors1 or authors2:
                 overlap = len(authors1 & authors2)
                 union = len(authors1 | authors2)
@@ -1050,7 +1052,7 @@ class ChartGenerator:
         unique_domains = df["Domain"].unique()
 
         # Create figure
-        fig, ax = plt.subplots(
+        _fig, ax = plt.subplots(
             figsize=(max(8, len(unique_studies) * 0.8), max(6, len(unique_domains) * 0.6))
         )
 
@@ -1143,7 +1145,7 @@ class ChartGenerator:
             return ""
 
         # Create figure
-        fig, ax = plt.subplots(figsize=(10, max(6, len(outcomes) * 0.8)))
+        _fig, ax = plt.subplots(figsize=(10, max(6, len(outcomes) * 0.8)))
 
         # Create horizontal bar chart
         y_pos = range(len(outcomes))

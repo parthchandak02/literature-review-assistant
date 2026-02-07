@@ -3,9 +3,11 @@ Log context management for adding context to logs.
 """
 
 import logging
-from contextlib import contextmanager
 import time
+from contextlib import contextmanager
+
 from rich.rule import Rule
+
 from .rich_utils import console
 
 logger = logging.getLogger(__name__)

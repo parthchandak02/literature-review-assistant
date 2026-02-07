@@ -5,12 +5,13 @@ Retrieves full-text PDFs from DOIs and extracts text content.
 Supports multiple retrieval methods with fallback strategies.
 """
 
-import os
 import logging
-from typing import Optional, Any
+import os
 from pathlib import Path
-import requests
+from typing import Any, Optional
+
 import certifi
+import requests
 
 logger = logging.getLogger(__name__)
 
@@ -190,7 +191,7 @@ class PDFRetriever:
                 cache_path = self.cache_dir / f"{cache_key}.txt"
                 if cache_path.exists():
                     logger.debug(f"Loading PDF text from cache: {cache_path}")
-                    with open(cache_path, "r", encoding="utf-8") as f:
+                    with open(cache_path, encoding="utf-8") as f:
                         return f.read()
 
             # Download PDF

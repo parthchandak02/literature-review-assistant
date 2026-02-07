@@ -5,7 +5,8 @@ LLM-based evaluation system to measure text naturalness.
 """
 
 import logging
-from typing import Dict, Optional, List
+from typing import Dict, List, Optional
+
 from ..screening.base_agent import BaseScreeningAgent
 
 logger = logging.getLogger(__name__)
@@ -22,7 +23,7 @@ class NaturalnessScorer(BaseScreeningAgent):
         exclusion_criteria: List[str],
     ):
         """Stub implementation - naturalness scorer doesn't screen papers."""
-        from ..screening.base_agent import ScreeningResult, InclusionDecision
+        from ..screening.base_agent import InclusionDecision, ScreeningResult
 
         return ScreeningResult(
             decision=InclusionDecision.UNCERTAIN,

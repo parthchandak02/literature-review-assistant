@@ -5,42 +5,43 @@ Comprehensive prompts for each CASP checklist with detailed criteria,
 examples, and scoring guidance for LLM-based quality assessment.
 """
 
-from typing import Dict, Any
+from typing import Any, Dict
 
 
-def build_casp_rct_prompt(
-    study_title: str,
-    extracted_data: Dict[str, Any]
-) -> str:
+def build_casp_rct_prompt(study_title: str, extracted_data: Dict[str, Any]) -> str:
     """
     Build comprehensive CASP RCT Checklist prompt.
-    
+
     CASP RCT Checklist: 11 questions organized in 3 sections
     - Section A: Validity (Q1-3)
     - Section B: Results (Q4-7)
     - Section C: Applicability (Q8-11)
-    
+
     Args:
         study_title: Title of the study being assessed
         extracted_data: Dictionary with extracted study information
-        
+
     Returns:
         Comprehensive prompt string for LLM assessment
     """
     # Extract relevant fields
-    study_design = extracted_data.get('study_design', 'Not specified')
-    methodology = extracted_data.get('methodology', 'Not specified')
-    participants = extracted_data.get('participants', 'Not specified')
-    interventions = extracted_data.get('interventions', [])
-    outcomes = extracted_data.get('outcomes', [])
-    key_findings = extracted_data.get('key_findings', [])
-    limitations = extracted_data.get('limitations', [])
-    
-    interventions_str = '\n'.join(f"- {i}" for i in interventions) if interventions else "Not specified"
-    outcomes_str = '\n'.join(f"- {o}" for o in outcomes) if outcomes else "Not specified"
-    findings_str = '\n'.join(f"- {f}" for f in key_findings) if key_findings else "Not specified"
-    limitations_str = '\n'.join(f"- {lim}" for lim in limitations) if limitations else "Not specified"
-    
+    study_design = extracted_data.get("study_design", "Not specified")
+    methodology = extracted_data.get("methodology", "Not specified")
+    participants = extracted_data.get("participants", "Not specified")
+    interventions = extracted_data.get("interventions", [])
+    outcomes = extracted_data.get("outcomes", [])
+    key_findings = extracted_data.get("key_findings", [])
+    limitations = extracted_data.get("limitations", [])
+
+    interventions_str = (
+        "\n".join(f"- {i}" for i in interventions) if interventions else "Not specified"
+    )
+    outcomes_str = "\n".join(f"- {o}" for o in outcomes) if outcomes else "Not specified"
+    findings_str = "\n".join(f"- {f}" for f in key_findings) if key_findings else "Not specified"
+    limitations_str = (
+        "\n".join(f"- {lim}" for lim in limitations) if limitations else "Not specified"
+    )
+
     prompt = f"""You are conducting quality assessment using the CASP RCT Checklist (Randomized Controlled Trial).
 
 ABOUT CASP RCT CHECKLIST:
@@ -507,42 +508,43 @@ Return your assessment as valid JSON only (no markdown, no code blocks):
 }}
 
 Respond with JSON only:"""
-    
+
     return prompt
 
 
-def build_casp_cohort_prompt(
-    study_title: str,
-    extracted_data: Dict[str, Any]
-) -> str:
+def build_casp_cohort_prompt(study_title: str, extracted_data: Dict[str, Any]) -> str:
     """
     Build comprehensive CASP Cohort Study Checklist prompt.
-    
+
     CASP Cohort Checklist: 12 questions organized in 3 sections
     - Section A: Validity (Q1-6)
     - Section B: Results (Q7-9)
     - Section C: Applicability (Q10-12)
-    
+
     Args:
         study_title: Title of the study being assessed
         extracted_data: Dictionary with extracted study information
-        
+
     Returns:
         Comprehensive prompt string for LLM assessment
     """
-    study_design = extracted_data.get('study_design', 'Not specified')
-    methodology = extracted_data.get('methodology', 'Not specified')
-    participants = extracted_data.get('participants', 'Not specified')
-    interventions = extracted_data.get('interventions', [])
-    outcomes = extracted_data.get('outcomes', [])
-    key_findings = extracted_data.get('key_findings', [])
-    limitations = extracted_data.get('limitations', [])
-    
-    interventions_str = '\n'.join(f"- {i}" for i in interventions) if interventions else "Not specified"
-    outcomes_str = '\n'.join(f"- {o}" for o in outcomes) if outcomes else "Not specified"
-    findings_str = '\n'.join(f"- {f}" for f in key_findings) if key_findings else "Not specified"
-    limitations_str = '\n'.join(f"- {lim}" for lim in limitations) if limitations else "Not specified"
-    
+    study_design = extracted_data.get("study_design", "Not specified")
+    methodology = extracted_data.get("methodology", "Not specified")
+    participants = extracted_data.get("participants", "Not specified")
+    interventions = extracted_data.get("interventions", [])
+    outcomes = extracted_data.get("outcomes", [])
+    key_findings = extracted_data.get("key_findings", [])
+    limitations = extracted_data.get("limitations", [])
+
+    interventions_str = (
+        "\n".join(f"- {i}" for i in interventions) if interventions else "Not specified"
+    )
+    outcomes_str = "\n".join(f"- {o}" for o in outcomes) if outcomes else "Not specified"
+    findings_str = "\n".join(f"- {f}" for f in key_findings) if key_findings else "Not specified"
+    limitations_str = (
+        "\n".join(f"- {lim}" for lim in limitations) if limitations else "Not specified"
+    )
+
     prompt = f"""You are conducting quality assessment using the CASP Cohort Study Checklist.
 
 ABOUT CASP COHORT CHECKLIST:
@@ -1035,38 +1037,37 @@ Return your assessment as valid JSON only (no markdown, no code blocks):
 }}
 
 Respond with JSON only:"""
-    
+
     return prompt
 
 
-def build_casp_qualitative_prompt(
-    study_title: str,
-    extracted_data: Dict[str, Any]
-) -> str:
+def build_casp_qualitative_prompt(study_title: str, extracted_data: Dict[str, Any]) -> str:
     """
     Build comprehensive CASP Qualitative Research Checklist prompt.
-    
+
     CASP Qualitative Checklist: 10 questions organized in 3 sections
     - Section A: Validity (Q1-6)
     - Section B: Results (Q7-8)
     - Section C: Value (Q9-10)
-    
+
     Args:
         study_title: Title of the study being assessed
         extracted_data: Dictionary with extracted study information
-        
+
     Returns:
         Comprehensive prompt string for LLM assessment
     """
-    study_design = extracted_data.get('study_design', 'Not specified')
-    methodology = extracted_data.get('methodology', 'Not specified')
-    participants = extracted_data.get('participants', 'Not specified')
-    key_findings = extracted_data.get('key_findings', [])
-    limitations = extracted_data.get('limitations', [])
-    
-    findings_str = '\n'.join(f"- {f}" for f in key_findings) if key_findings else "Not specified"
-    limitations_str = '\n'.join(f"- {lim}" for lim in limitations) if limitations else "Not specified"
-    
+    study_design = extracted_data.get("study_design", "Not specified")
+    methodology = extracted_data.get("methodology", "Not specified")
+    participants = extracted_data.get("participants", "Not specified")
+    key_findings = extracted_data.get("key_findings", [])
+    limitations = extracted_data.get("limitations", [])
+
+    findings_str = "\n".join(f"- {f}" for f in key_findings) if key_findings else "Not specified"
+    limitations_str = (
+        "\n".join(f"- {lim}" for lim in limitations) if limitations else "Not specified"
+    )
+
     prompt = f"""You are conducting quality assessment using the CASP Qualitative Research Checklist.
 
 ABOUT CASP QUALITATIVE CHECKLIST:
@@ -1484,62 +1485,62 @@ Return your assessment as valid JSON only (no markdown, no code blocks):
 }}
 
 Respond with JSON only:"""
-    
+
     return prompt
 
 
 def get_checklist_info(checklist_type: str) -> Dict[str, Any]:
     """
     Get metadata about a CASP checklist.
-    
+
     Args:
         checklist_type: Type of checklist ('casp_rct', 'casp_cohort', 'casp_qualitative')
-        
+
     Returns:
         Dictionary with checklist information
     """
     info_map = {
-        'casp_rct': {
-            'name': 'CASP RCT Checklist',
-            'full_name': 'CASP Randomized Controlled Trial Checklist',
-            'num_questions': 11,
-            'sections': ['Validity (Q1-3)', 'Results (Q4-7)', 'Applicability (Q8-11)'],
-            'scoring': {
-                'high': '9-11 Yes responses (>80%)',
-                'moderate': '5-8 Yes responses (50-80%)',
-                'low': '0-4 Yes responses (<50%)'
+        "casp_rct": {
+            "name": "CASP RCT Checklist",
+            "full_name": "CASP Randomized Controlled Trial Checklist",
+            "num_questions": 11,
+            "sections": ["Validity (Q1-3)", "Results (Q4-7)", "Applicability (Q8-11)"],
+            "scoring": {
+                "high": "9-11 Yes responses (>80%)",
+                "moderate": "5-8 Yes responses (50-80%)",
+                "low": "0-4 Yes responses (<50%)",
             },
-            'description': 'For randomized controlled trials and experimental studies'
+            "description": "For randomized controlled trials and experimental studies",
         },
-        'casp_cohort': {
-            'name': 'CASP Cohort Study Checklist',
-            'full_name': 'CASP Cohort Study Checklist',
-            'num_questions': 12,
-            'sections': ['Validity (Q1-6)', 'Results (Q7-9)', 'Applicability (Q10-12)'],
-            'scoring': {
-                'high': '10-12 Yes responses (>80%)',
-                'moderate': '6-9 Yes responses (50-80%)',
-                'low': '0-5 Yes responses (<50%)'
+        "casp_cohort": {
+            "name": "CASP Cohort Study Checklist",
+            "full_name": "CASP Cohort Study Checklist",
+            "num_questions": 12,
+            "sections": ["Validity (Q1-6)", "Results (Q7-9)", "Applicability (Q10-12)"],
+            "scoring": {
+                "high": "10-12 Yes responses (>80%)",
+                "moderate": "6-9 Yes responses (50-80%)",
+                "low": "0-5 Yes responses (<50%)",
             },
-            'description': 'For observational cohort studies and longitudinal research'
+            "description": "For observational cohort studies and longitudinal research",
         },
-        'casp_qualitative': {
-            'name': 'CASP Qualitative Research Checklist',
-            'full_name': 'CASP Qualitative Research Checklist',
-            'num_questions': 10,
-            'sections': ['Validity (Q1-6)', 'Results (Q7-8)', 'Value (Q9-10)'],
-            'scoring': {
-                'high': '8-10 Yes responses (>80%)',
-                'moderate': '5-7 Yes responses (50-80%)',
-                'low': '0-4 Yes responses (<50%)'
+        "casp_qualitative": {
+            "name": "CASP Qualitative Research Checklist",
+            "full_name": "CASP Qualitative Research Checklist",
+            "num_questions": 10,
+            "sections": ["Validity (Q1-6)", "Results (Q7-8)", "Value (Q9-10)"],
+            "scoring": {
+                "high": "8-10 Yes responses (>80%)",
+                "moderate": "5-7 Yes responses (50-80%)",
+                "low": "0-4 Yes responses (<50%)",
             },
-            'description': 'For qualitative research including interviews, focus groups, and ethnography'
-        }
+            "description": "For qualitative research including interviews, focus groups, and ethnography",
+        },
     }
-    
+
     return info_map.get(checklist_type, {})
 
 
 def get_all_checklist_types() -> list:
     """Get list of all available CASP checklist types."""
-    return ['casp_rct', 'casp_cohort', 'casp_qualitative']
+    return ["casp_rct", "casp_cohort", "casp_qualitative"]

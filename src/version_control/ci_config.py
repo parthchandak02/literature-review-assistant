@@ -6,7 +6,7 @@ Configuration for continuous integration and deployment of manuscripts.
 
 import logging
 from pathlib import Path
-from typing import Dict, List, Optional, Any
+from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -40,7 +40,7 @@ class CIConfig:
             try:
                 import yaml
 
-                with open(self.config_path, "r") as f:
+                with open(self.config_path) as f:
                     user_config = yaml.safe_load(f) or {}
                 default_config.update(user_config)
             except Exception as e:

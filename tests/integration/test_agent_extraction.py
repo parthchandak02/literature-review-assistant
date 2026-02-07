@@ -3,6 +3,7 @@ Integration tests for extraction agents.
 """
 
 from unittest.mock import patch
+
 from src.extraction.data_extractor_agent import DataExtractorAgent
 from tests.fixtures.mock_llm_responses import get_mock_extraction_response
 

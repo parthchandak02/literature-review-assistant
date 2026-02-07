@@ -4,9 +4,9 @@ Tavily Search Tool
 Wrapper for Tavily API to provide search capabilities as a tool.
 """
 
-import os
-from typing import Dict, Any, Optional, List
 import logging
+import os
+from typing import Any, Dict, List, Optional
 
 from .tool_registry import Tool, ToolParameter
 

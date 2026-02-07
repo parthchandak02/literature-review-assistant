@@ -4,13 +4,13 @@ State Serialization Utilities
 Serialize and deserialize workflow state objects (Paper, ScreeningResult, ExtractedData).
 """
 
-from typing import List, Dict, Any
 from dataclasses import asdict
 from enum import Enum
+from typing import Any, Dict, List
 
-from ..search.connectors.base import Paper
-from ..screening.base_agent import ScreeningResult, InclusionDecision
 from ..extraction.data_extractor_agent import ExtractedData
+from ..screening.base_agent import InclusionDecision, ScreeningResult
+from ..search.connectors.base import Paper
 
 
 class StateSerializer:

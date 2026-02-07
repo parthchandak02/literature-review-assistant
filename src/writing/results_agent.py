@@ -4,9 +4,10 @@ Results Writer Agent
 Generates results section for research articles.
 """
 
-from typing import List, Dict, Optional, Any
-from ..screening.base_agent import BaseScreeningAgent
+from typing import Any, Dict, List, Optional
+
 from ..extraction.data_extractor_agent import ExtractedData
+from ..screening.base_agent import BaseScreeningAgent
 from ..utils.text_cleaner import clean_writing_output
 
 
@@ -25,7 +26,7 @@ class ResultsWriter(BaseScreeningAgent):
         exclusion_criteria: List[str],
     ):
         """Stub implementation - writing agents don't screen papers."""
-        from ..screening.base_agent import ScreeningResult, InclusionDecision
+        from ..screening.base_agent import InclusionDecision, ScreeningResult
 
         return ScreeningResult(
             decision=InclusionDecision.UNCERTAIN,

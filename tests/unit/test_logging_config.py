@@ -3,7 +3,8 @@ Unit tests for logging config.
 """
 
 import logging
-from src.utils.logging_config import setup_logging, LogLevel, get_logger, ColoredFormatter
+
+from src.utils.logging_config import ColoredFormatter, LogLevel, get_logger, setup_logging
 
 
 class TestLogLevel:

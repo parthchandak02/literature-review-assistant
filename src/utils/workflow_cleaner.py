@@ -6,10 +6,10 @@ Manages cleanup of old workflow checkpoint and output folders.
 
 import re
 import shutil
-from pathlib import Path
-from typing import Dict, List, Optional, Tuple
 from dataclasses import dataclass
 from datetime import datetime
+from pathlib import Path
+from typing import Dict, List, Optional, Tuple
 
 from .logging_config import get_logger
 

@@ -5,6 +5,7 @@ Tests the CitationManager class and citation handling functionality.
 """
 
 import pytest
+
 from src.citations import CitationManager
 from src.search.database_connectors import Paper
 
@@ -67,7 +68,7 @@ def test_references_section_generation(sample_papers):
     text = "See [Citation 1] and [Citation 2]."
     manager.extract_and_map_citations(text)
     references = manager.generate_references_section()
-    
+
     assert "## References" in references
     assert "Test Paper 1" in references or "Author A" in references
     assert "Test Paper 2" in references or "Author C" in references

@@ -2,9 +2,10 @@
 Unit tests for PRISMA validator.
 """
 
-import pytest
 import json
 from pathlib import Path
+
+import pytest
 
 from src.validation.prisma_validator import PRISMAValidator
 
@@ -230,9 +231,9 @@ def test_report_validation_complete(validator, complete_report_markdown, tmp_pat
     """Test validation of complete report."""
     report_path = tmp_path / "complete_report.md"
     report_path.write_text(complete_report_markdown)
-    
+
     results = validator.validate_report(str(report_path))
-    
+
     assert results["report_path"] == str(report_path)
     assert "prisma_items" in results
     assert "abstract_items" in results
@@ -245,9 +246,9 @@ def test_report_validation_incomplete(validator, incomplete_report_markdown, tmp
     """Test validation of incomplete report."""
     report_path = tmp_path / "incomplete_report.md"
     report_path.write_text(incomplete_report_markdown)
-    
+
     results = validator.validate_report(str(report_path))
-    
+
     assert results["compliance_score"] < 0.5  # Should be low for incomplete report
     assert len(results["missing_items"]) > 10  # Should have many missing items
 
@@ -262,12 +263,12 @@ def test_abstract_elements_detection(validator, report_with_all_abstract_element
     """Test detection of all 12 abstract elements."""
     report_path = tmp_path / "abstract_report.md"
     report_path.write_text(report_with_all_abstract_elements)
-    
+
     results = validator.validate_report(str(report_path))
-    
+
     abstract_items = results["abstract_items"]
     assert len(abstract_items) == 12
-    
+
     # Check that key elements are detected
     assert abstract_items.get("background", {}).get("present", False)
     assert abstract_items.get("objectives", {}).get("present", False)
@@ -286,21 +287,21 @@ def test_compliance_scoring(validator, complete_report_markdown, tmp_path):
     """Test compliance score calculation."""
     report_path = tmp_path / "scoring_report.md"
     report_path.write_text(complete_report_markdown)
-    
+
     results = validator.validate_report(str(report_path))
-    
+
     # Score should be between 0 and 1
     assert 0 <= results["compliance_score"] <= 1
-    
+
     # For complete report, score should be high
     assert results["compliance_score"] > 0.7
-    
+
     # Verify score calculation: present_items / total_items
     total_items = len(validator.prisma_2020_items) + len(validator.abstract_items)
-    present_items = sum(
-        1 for item in results["prisma_items"].values() if item["present"]
-    ) + sum(1 for item in results["abstract_items"].values() if item["present"])
-    
+    present_items = sum(1 for item in results["prisma_items"].values() if item["present"]) + sum(
+        1 for item in results["abstract_items"].values() if item["present"]
+    )
+
     expected_score = present_items / total_items if total_items > 0 else 0.0
     assert abs(results["compliance_score"] - expected_score) < 0.01
 
@@ -309,9 +310,9 @@ def test_edge_cases_empty_report(validator, tmp_path):
     """Test validation with empty report."""
     report_path = tmp_path / "empty_report.md"
     report_path.write_text("")
-    
+
     results = validator.validate_report(str(report_path))
-    
+
     assert results["compliance_score"] == 0.0
     assert len(results["missing_items"]) > 0
 
@@ -320,9 +321,9 @@ def test_edge_cases_malformed_markdown(validator, tmp_path):
     """Test validation with malformed markdown."""
     report_path = tmp_path / "malformed_report.md"
     report_path.write_text("### Invalid\n\n# Missing sections\n\nRandom text")
-    
+
     results = validator.validate_report(str(report_path))
-    
+
     # Should still return results without crashing
     assert "compliance_score" in results
     assert "missing_items" in results
@@ -332,17 +333,17 @@ def test_validation_report_generation(validator, complete_report_markdown, tmp_p
     """Test generation of validation report JSON."""
     report_path = tmp_path / "validation_report.md"
     report_path.write_text(complete_report_markdown)
-    
+
     results = validator.validate_report(str(report_path))
     output_path = tmp_path / "validation_output.json"
-    
+
     saved_path = validator.generate_validation_report(results, str(output_path))
-    
+
     assert Path(saved_path).exists()
-    
-    with open(saved_path, "r") as f:
+
+    with open(saved_path) as f:
         saved_data = json.load(f)
-    
+
     assert saved_data["report_path"] == str(report_path)
     assert "prisma_items" in saved_data
     assert "abstract_items" in saved_data
@@ -353,14 +354,14 @@ def test_validation_report_default_path(validator, complete_report_markdown, tmp
     """Test validation report generation with default path."""
     report_path = tmp_path / "default_report.md"
     report_path.write_text(complete_report_markdown)
-    
+
     results = validator.validate_report(str(report_path))
-    
+
     saved_path = validator.generate_validation_report(results)
-    
+
     assert Path(saved_path).exists()
     assert saved_path.endswith("prisma_validation_report.json")
-    
+
     # Should be in same directory as report
     assert Path(saved_path).parent == Path(report_path).parent
 
@@ -368,25 +369,33 @@ def test_validation_report_default_path(validator, complete_report_markdown, tmp
 def test_item_detection_title(validator):
     """Test detection of title item."""
     content = "# Systematic Review of Test Topic"
-    assert validator._check_item_presence(content, "title", "Identify the report as a systematic review", "Title")
+    assert validator._check_item_presence(
+        content, "title", "Identify the report as a systematic review", "Title"
+    )
 
 
 def test_item_detection_objectives(validator):
     """Test detection of objectives item."""
     content = "## Introduction\n\nThe objectives of this review are to investigate."
-    assert validator._check_item_presence(content, "objectives", "Provide explicit statement of objectives", "Introduction")
+    assert validator._check_item_presence(
+        content, "objectives", "Provide explicit statement of objectives", "Introduction"
+    )
 
 
 def test_item_detection_eligibility(validator):
     """Test detection of eligibility criteria."""
     content = "## Methods\n\nInclusion and exclusion criteria are specified using PICOS."
-    assert validator._check_item_presence(content, "eligibility_criteria", "Specify inclusion and exclusion criteria", "Methods")
+    assert validator._check_item_presence(
+        content, "eligibility_criteria", "Specify inclusion and exclusion criteria", "Methods"
+    )
 
 
 def test_item_detection_search_strategy(validator):
     """Test detection of search strategy."""
     content = "## Methods\n\nThe search strategy for PubMed is presented."
-    assert validator._check_item_presence(content, "search_strategy", "Present full search strategies", "Methods")
+    assert validator._check_item_presence(
+        content, "search_strategy", "Present full search strategies", "Methods"
+    )
 
 
 def test_abstract_extraction(validator):
@@ -410,7 +419,7 @@ This is introduction content.
 def test_abstract_element_checking(validator):
     """Test checking individual abstract elements."""
     abstract = "Background: Context. Objectives: Aims. Eligibility: Criteria."
-    
+
     assert validator._check_abstract_element(abstract, "background", "Background")
     assert validator._check_abstract_element(abstract, "objectives", "Objectives")
     assert validator._check_abstract_element(abstract, "eligibility", "Eligibility criteria")

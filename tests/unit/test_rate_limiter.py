@@ -3,6 +3,7 @@ Unit tests for rate limiter.
 """
 
 import time
+
 from src.search.rate_limiter import RateLimiter, get_rate_limiter
 
 

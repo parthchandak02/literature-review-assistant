@@ -5,10 +5,11 @@ JSON Schema-based protocol for reliable agent-to-agent communication
 with topic context included in every handoff.
 """
 
-from typing import Dict, Optional, Any
-from dataclasses import dataclass, asdict
-from datetime import datetime
 import json
+from dataclasses import asdict, dataclass
+from datetime import datetime
+from typing import Any, Dict, Optional
+
 from ..orchestration.topic_propagator import TopicContext
 
 

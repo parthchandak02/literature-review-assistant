@@ -2,19 +2,20 @@
 Pytest configuration and fixtures.
 """
 
-import pytest
 import sys
 from pathlib import Path
-from typing import Dict, Any, List
+from typing import Any, Dict, List
+
+import pytest
 
 # Add src to path
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
-from src.search.database_connectors import Paper
 from src.orchestration.topic_propagator import TopicContext
-from src.tools.tool_registry import ToolRegistry, Tool, ToolParameter
-from src.utils.retry_strategies import RetryConfig
+from src.search.database_connectors import Paper
+from src.tools.tool_registry import Tool, ToolParameter, ToolRegistry
 from src.utils.circuit_breaker import CircuitBreakerConfig
+from src.utils.retry_strategies import RetryConfig
 
 
 @pytest.fixture
@@ -140,7 +141,7 @@ def mock_workflow_config() -> Dict[str, Any]:
                 "backstory": "Test",
                 "llm_model": "gemini-2.5-flash-lite",
                 "temperature": 0.2,
-            }
+            },
         },
         "workflow": {
             "databases": ["PubMed"],

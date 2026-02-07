@@ -4,17 +4,18 @@ Base Database Connector
 Base classes and Paper dataclass for database connectors.
 """
 
-from typing import List, Optional, Dict, TYPE_CHECKING
-from dataclasses import dataclass
-from abc import ABC, abstractmethod
 import logging
-import requests
+from abc import ABC, abstractmethod
+from dataclasses import dataclass
 from pathlib import Path
+from typing import TYPE_CHECKING, Dict, List, Optional
+
 import certifi
+import requests
 
 from ..cache import SearchCache
-from ..rate_limiter import get_rate_limiter
 from ..proxy_manager import ProxyManager
+from ..rate_limiter import get_rate_limiter
 
 if TYPE_CHECKING:
     from ..integrity_checker import IntegrityChecker

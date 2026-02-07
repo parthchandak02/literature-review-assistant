@@ -2,18 +2,19 @@
 Unit tests for database connectors.
 """
 
-import pytest
 from unittest.mock import Mock, patch
 
+import pytest
+
+from src.search.cache import SearchCache
 from src.search.database_connectors import (
-    Paper,
-    PubMedConnector,
     ArxivConnector,
-    SemanticScholarConnector,
     CrossrefConnector,
     MockConnector,
+    Paper,
+    PubMedConnector,
+    SemanticScholarConnector,
 )
-from src.search.cache import SearchCache
 
 
 class TestPaper:

@@ -5,12 +5,12 @@ Formats citations using Citation Style Language (CSL) styles.
 Supports multiple citation styles: IEEE, APA, Nature, PLOS, etc.
 """
 
-import logging
 import json
-from pathlib import Path
-from typing import Dict, List, Optional, Any
-import urllib.request
+import logging
 import urllib.error
+import urllib.request
+from pathlib import Path
+from typing import Any, Dict, List, Optional
 
 from ..search.connectors.base import Paper
 

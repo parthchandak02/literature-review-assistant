@@ -5,10 +5,8 @@ Provides CASP quality assessment and GRADE certainty assessment functionality
 for systematic reviews.
 """
 
-from .grade_assessor import GRADEAssessor
-from .template_generator import QualityAssessmentTemplateGenerator
 from .auto_filler import QualityAssessmentAutoFiller, auto_fill_assessments
-from .study_type_detector import StudyTypeDetector
+from .grade_assessor import GRADEAssessor
 from .quality_assessment_schemas import (
     CASPAssessment,
     CASPQuestionResponse,
@@ -16,16 +14,18 @@ from .quality_assessment_schemas import (
     GRADEAssessment,
     QualityAssessmentData,
 )
+from .study_type_detector import StudyTypeDetector
+from .template_generator import QualityAssessmentTemplateGenerator
 
 __all__ = [
-    "GRADEAssessor",
-    "QualityAssessmentTemplateGenerator",
-    "QualityAssessmentAutoFiller",
-    "auto_fill_assessments",
-    "StudyTypeDetector",
     "CASPAssessment",
     "CASPQuestionResponse",
     "CASPScore",
     "GRADEAssessment",
+    "GRADEAssessor",
+    "QualityAssessmentAutoFiller",
     "QualityAssessmentData",
+    "QualityAssessmentTemplateGenerator",
+    "StudyTypeDetector",
+    "auto_fill_assessments",
 ]

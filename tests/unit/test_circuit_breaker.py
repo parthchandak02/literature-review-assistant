@@ -2,8 +2,10 @@
 Unit tests for circuit breaker.
 """
 
-import pytest
 import time
+
+import pytest
+
 from src.utils.circuit_breaker import (
     CircuitBreaker,
     CircuitBreakerConfig,

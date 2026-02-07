@@ -4,7 +4,7 @@ Test fixtures for quality assessments.
 Includes both CASP (primary) and legacy RoB 2 fixtures for backward compatibility.
 """
 
-from typing import Dict, List, Any
+from typing import Any, Dict, List
 
 
 def get_mock_risk_of_bias_assessments() -> List[Dict[str, Any]]:
@@ -137,7 +137,7 @@ def get_mock_quality_assessment_template() -> Dict[str, Any]:
 def get_completed_quality_assessment_template() -> Dict[str, Any]:
     """Get completed quality assessment template."""
     template = get_mock_quality_assessment_template()
-    
+
     # Complete risk of bias assessments
     template["studies"][0]["risk_of_bias"]["domains"] = {
         "Bias arising from the randomization process": "Low",
@@ -147,7 +147,7 @@ def get_completed_quality_assessment_template() -> Dict[str, Any]:
         "Bias in selection of the reported result": "Low",
     }
     template["studies"][0]["risk_of_bias"]["overall"] = "Some concerns"
-    
+
     template["studies"][1]["risk_of_bias"]["domains"] = {
         "Bias arising from the randomization process": "High",
         "Bias due to deviations from intended interventions": "High",
@@ -156,12 +156,12 @@ def get_completed_quality_assessment_template() -> Dict[str, Any]:
         "Bias in selection of the reported result": "Some concerns",
     }
     template["studies"][1]["risk_of_bias"]["overall"] = "High"
-    
+
     # Complete GRADE assessments
     template["grade_assessments"][0]["certainty"] = "High"
     template["grade_assessments"][1]["certainty"] = "Moderate"
     template["grade_assessments"][1]["downgrade_reasons"] = ["Risk of bias"]
-    
+
     return template
 
 
@@ -180,12 +180,18 @@ def get_mock_casp_assessments() -> List[Dict[str, Any]]:
                     "q1": {"answer": "Yes", "justification": "Clear PICO elements defined"},
                     "q2": {"answer": "Yes", "justification": "Computer-generated randomization"},
                     "q3": {"answer": "Yes", "justification": "All participants accounted for"},
-                    "q4": {"answer": "No", "justification": "Not blinded due to intervention nature"},
+                    "q4": {
+                        "answer": "No",
+                        "justification": "Not blinded due to intervention nature",
+                    },
                     "q5": {"answer": "Yes", "justification": "Groups well-matched at baseline"},
                     "q6": {"answer": "Yes", "justification": "Equal treatment except intervention"},
                     "q7": {"answer": "Yes", "justification": "Large effect size (d=0.8)"},
                     "q8": {"answer": "Yes", "justification": "Narrow confidence intervals"},
-                    "q9": {"answer": "Yes", "justification": "Setting applicable to similar contexts"},
+                    "q9": {
+                        "answer": "Yes",
+                        "justification": "Setting applicable to similar contexts",
+                    },
                     "q10": {"answer": "Yes", "justification": "Comprehensive outcome measures"},
                     "q11": {"answer": "Yes", "justification": "Benefits outweigh minimal harms"},
                 },
@@ -212,14 +218,20 @@ def get_mock_casp_assessments() -> List[Dict[str, Any]]:
                     "q2": {"answer": "Yes", "justification": "Appropriate recruitment strategy"},
                     "q3": {"answer": "Yes", "justification": "Exposure measured consistently"},
                     "q4": {"answer": "Yes", "justification": "Valid outcome measures used"},
-                    "q5": {"answer": "Can't Tell", "justification": "Some confounders not identified"},
+                    "q5": {
+                        "answer": "Can't Tell",
+                        "justification": "Some confounders not identified",
+                    },
                     "q6": {"answer": "Yes", "justification": "Multivariable analysis conducted"},
                     "q7": {"answer": "No", "justification": "30% loss to follow-up"},
                     "q8": {"answer": "Yes", "justification": "Adequate follow-up duration"},
                     "q9": {"answer": "Yes", "justification": "Clear effect estimates reported"},
                     "q10": {"answer": "Yes", "justification": "Narrow confidence intervals"},
                     "q11": {"answer": "Yes", "justification": "Plausible results"},
-                    "q12": {"answer": "Yes", "justification": "Results applicable to similar settings"},
+                    "q12": {
+                        "answer": "Yes",
+                        "justification": "Results applicable to similar settings",
+                    },
                 },
                 "score": {
                     "yes_count": 9,
@@ -244,7 +256,10 @@ def get_mock_casp_assessments() -> List[Dict[str, Any]]:
                     "q2": {"answer": "Yes", "justification": "Qualitative methodology appropriate"},
                     "q3": {"answer": "Yes", "justification": "Research design fits aims"},
                     "q4": {"answer": "Yes", "justification": "Purposive sampling used"},
-                    "q5": {"answer": "Yes", "justification": "Semi-structured interviews appropriate"},
+                    "q5": {
+                        "answer": "Yes",
+                        "justification": "Semi-structured interviews appropriate",
+                    },
                     "q6": {"answer": "Yes", "justification": "Reflexivity discussed"},
                     "q7": {"answer": "Yes", "justification": "Ethics approval obtained"},
                     "q8": {"answer": "Yes", "justification": "Rigorous thematic analysis"},
@@ -277,7 +292,9 @@ def get_mock_casp_template() -> Dict[str, Any]:
                 "detection_confidence": 0.95,
                 "quality_assessment": {
                     "checklist_used": "casp_rct",
-                    "questions": {f"q{i}": {"answer": "", "justification": ""} for i in range(1, 12)},
+                    "questions": {
+                        f"q{i}": {"answer": "", "justification": ""} for i in range(1, 12)
+                    },
                     "score": {
                         "yes_count": None,
                         "no_count": None,
@@ -296,7 +313,9 @@ def get_mock_casp_template() -> Dict[str, Any]:
                 "detection_confidence": 0.85,
                 "quality_assessment": {
                     "checklist_used": "casp_cohort",
-                    "questions": {f"q{i}": {"answer": "", "justification": ""} for i in range(1, 13)},
+                    "questions": {
+                        f"q{i}": {"answer": "", "justification": ""} for i in range(1, 13)
+                    },
                     "score": {
                         "yes_count": None,
                         "no_count": None,

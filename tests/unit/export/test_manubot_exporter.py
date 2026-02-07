@@ -2,8 +2,8 @@
 Tests for Manubot Exporter
 """
 
-from src.export.manubot_exporter import ManubotExporter
 from src.citations import CitationManager
+from src.export.manubot_exporter import ManubotExporter
 
 
 class TestManubotExporter:
@@ -36,7 +36,7 @@ class TestManubotExporter:
         }
 
         result_path = exporter.export(article_sections, metadata)
-        
+
         assert result_path.exists()
         assert (result_path / "content").exists()
         assert (result_path / "manubot.yaml").exists()

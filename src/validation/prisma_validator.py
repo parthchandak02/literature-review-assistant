@@ -4,11 +4,11 @@ PRISMA 2020 Compliance Validator
 Validates generated reports against PRISMA 2020 checklist (27 items + 12 abstract elements).
 """
 
-import re
 import json
-from pathlib import Path
-from typing import Dict, Optional, Any
 import logging
+import re
+from pathlib import Path
+from typing import Any, Dict, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -240,7 +240,7 @@ class PRISMAValidator:
         if not report_path_obj.exists():
             raise FileNotFoundError(f"Report file not found: {report_path}")
 
-        with open(report_path_obj, "r", encoding="utf-8") as f:
+        with open(report_path_obj, encoding="utf-8") as f:
             report_content = f.read()
 
         results = {

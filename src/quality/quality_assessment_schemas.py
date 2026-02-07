@@ -2,20 +2,21 @@
 Pydantic schemas for quality assessment data.
 """
 
-from typing import Dict, List, Optional, Any
+from typing import Dict, List, Optional
+
 from pydantic import BaseModel, Field
 
 
 class CASPQuestionResponse(BaseModel):
     """Response to a single CASP checklist question."""
-    
+
     answer: str = Field(description="Answer: 'Yes', 'No', or 'Can't Tell'")
     justification: str = Field(description="Justification for the answer with specific evidence")
 
 
 class CASPScore(BaseModel):
     """Score summary for CASP assessment."""
-    
+
     yes_count: int = Field(description="Number of 'Yes' responses")
     no_count: int = Field(description="Number of 'No' responses")
     cant_tell_count: int = Field(description="Number of 'Can't Tell' responses")
@@ -25,13 +26,19 @@ class CASPScore(BaseModel):
 
 class CASPAssessment(BaseModel):
     """CASP quality assessment for a single study."""
-    
+
     study_id: str = Field(description="Unique identifier for the study")
     study_title: str = Field(description="Title of the study")
     study_design: str = Field(description="Study design (e.g., RCT, cohort, qualitative)")
-    detected_type: Optional[str] = Field(default=None, description="Auto-detected CASP checklist type")
-    detection_confidence: Optional[float] = Field(default=None, description="Confidence score for detection (0-1)")
-    checklist_used: str = Field(description="CASP checklist used: 'casp_rct', 'casp_cohort', or 'casp_qualitative'")
+    detected_type: Optional[str] = Field(
+        default=None, description="Auto-detected CASP checklist type"
+    )
+    detection_confidence: Optional[float] = Field(
+        default=None, description="Confidence score for detection (0-1)"
+    )
+    checklist_used: str = Field(
+        description="CASP checklist used: 'casp_rct', 'casp_cohort', or 'casp_qualitative'"
+    )
     questions: Dict[str, CASPQuestionResponse] = Field(
         description="Responses to each question (q1, q2, ...)"
     )
@@ -42,7 +49,7 @@ class CASPAssessment(BaseModel):
 class RiskOfBiasAssessment(BaseModel):
     """
     DEPRECATED: Legacy risk of bias assessment schema.
-    
+
     This schema is maintained for backward compatibility only.
     New code should use CASPAssessment instead.
     """
@@ -50,12 +57,8 @@ class RiskOfBiasAssessment(BaseModel):
     study_id: str = Field(description="Unique identifier for the study")
     study_title: str = Field(description="Title of the study")
     tool: str = Field(description="Assessment tool used (DEPRECATED - use CASP)")
-    domains: Dict[str, str] = Field(
-        description="Risk of bias ratings for each domain (DEPRECATED)"
-    )
-    overall: str = Field(
-        description="Overall risk of bias rating (DEPRECATED)"
-    )
+    domains: Dict[str, str] = Field(description="Risk of bias ratings for each domain (DEPRECATED)")
+    overall: str = Field(description="Overall risk of bias rating (DEPRECATED)")
     notes: Optional[str] = Field(default=None, description="Additional notes about the assessment")
 
 

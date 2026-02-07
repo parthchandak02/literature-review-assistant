@@ -5,7 +5,8 @@ Declarative phase registration system for workflow orchestration.
 """
 
 from dataclasses import dataclass
-from typing import Callable, List, Optional, Dict, Set
+from typing import Callable, Dict, List, Optional, Set
+
 from ..utils.logging_config import get_logger
 
 logger = get_logger(__name__)
@@ -85,7 +86,7 @@ class PhaseRegistry:
             List of phase names in execution order
         """
         # Build dependency graph
-        in_degree: Dict[str, int] = {name: 0 for name in self.phases.keys()}
+        in_degree: Dict[str, int] = dict.fromkeys(self.phases.keys(), 0)
         graph: Dict[str, List[str]] = {name: [] for name in self.phases.keys()}
 
         for phase_name, phase in self.phases.items():

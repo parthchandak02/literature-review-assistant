@@ -5,8 +5,8 @@ Formats papers in RIS (Research Information Systems) format.
 RIS is used by reference managers like EndNote, Zotero, Mendeley, etc.
 """
 
-from typing import List, Optional
 from datetime import datetime
+from typing import List, Optional
 
 from ..search.connectors.base import Paper
 

@@ -4,22 +4,22 @@ Test Helpers
 Utilities for generating mock test data and managing test state.
 """
 
-from typing import List, Dict, Any
 from dataclasses import asdict
+from typing import Any, Dict, List
 
-from src.search.connectors.base import Paper
-from src.screening.base_agent import ScreeningResult, InclusionDecision
 from src.extraction.data_extractor_agent import ExtractedData
+from src.screening.base_agent import InclusionDecision, ScreeningResult
+from src.search.connectors.base import Paper
 
 
 def create_mock_papers(count: int, topic: str = "test topic") -> List[Paper]:
     """
     Generate mock Paper objects for testing.
-    
+
     Args:
         count: Number of papers to generate
         topic: Topic for generating relevant titles
-    
+
     Returns:
         List of Paper objects
     """
@@ -27,25 +27,25 @@ def create_mock_papers(count: int, topic: str = "test topic") -> List[Paper]:
     countries = ["USA", "UK", "Canada", "Australia", "Germany", "France"]
     subjects = ["Machine Learning", "Health", "Education", "Technology"]
     journals = ["Journal A", "Journal B", "Conference C"]
-    
+
     for i in range(count):
         paper = Paper(
-            title=f"{topic} Research Paper {i+1}",
-            abstract=f"This paper discusses {topic} and presents findings from study {i+1}. "
-                     f"It explores various aspects and provides insights into the field.",
-            authors=[f"Author {i+1}A", f"Author {i+1}B", f"Author {i+1}C"],
+            title=f"{topic} Research Paper {i + 1}",
+            abstract=f"This paper discusses {topic} and presents findings from study {i + 1}. "
+            f"It explores various aspects and provides insights into the field.",
+            authors=[f"Author {i + 1}A", f"Author {i + 1}B", f"Author {i + 1}C"],
             year=2020 + (i % 5),
-            doi=f"10.1000/test.{i+1}",
+            doi=f"10.1000/test.{i + 1}",
             journal=journals[i % len(journals)],
             database=["PubMed", "arXiv", "Semantic Scholar"][i % 3],
-            url=f"https://example.com/paper{i+1}",
+            url=f"https://example.com/paper{i + 1}",
             keywords=[topic, subjects[i % len(subjects)], "research"],
-            affiliations=[f"University {i+1}", f"Institution {i+1}"],
+            affiliations=[f"University {i + 1}", f"Institution {i + 1}"],
             subjects=[subjects[i % len(subjects)]],
             country=countries[i % len(countries)],
         )
         papers.append(paper)
-    
+
     return papers
 
 
@@ -55,17 +55,17 @@ def create_mock_screening_results(
 ) -> List[ScreeningResult]:
     """
     Generate mock ScreeningResult objects.
-    
+
     Args:
         papers: List of papers to create results for
         include_ratio: Ratio of papers to include (default: 0.7)
-    
+
     Returns:
         List of ScreeningResult objects
     """
     results = []
     import random
-    
+
     for i, paper in enumerate(papers):
         # Determine decision based on ratio
         if i < len(papers) * include_ratio:
@@ -78,7 +78,7 @@ def create_mock_screening_results(
             confidence = 0.5 + random.random() * 0.3  # 0.5-0.8
             reasoning = "Paper does not meet inclusion criteria"
             exclusion_reason = "Not relevant to research question"
-        
+
         result = ScreeningResult(
             decision=decision,
             confidence=confidence,
@@ -86,7 +86,7 @@ def create_mock_screening_results(
             exclusion_reason=exclusion_reason,
         )
         results.append(result)
-    
+
     return results
 
 
@@ -95,15 +95,15 @@ def create_mock_extracted_data(
 ) -> List[ExtractedData]:
     """
     Generate mock ExtractedData objects.
-    
+
     Args:
         papers: List of papers to create extracted data for
-    
+
     Returns:
         List of ExtractedData objects
     """
     extracted = []
-    
+
     for paper in papers:
         data = ExtractedData(
             title=paper.title,
@@ -131,28 +131,28 @@ def create_mock_extracted_data(
             accessibility_features=["Feature 1", "Feature 2"],
         )
         extracted.append(data)
-    
+
     return extracted
 
 
 def load_state_from_checkpoint(checkpoint_path: str) -> Dict[str, Any]:
     """
     Load and deserialize state from checkpoint.
-    
+
     Args:
         checkpoint_path: Path to checkpoint file
-    
+
     Returns:
         State dictionary
     """
     import json
     from pathlib import Path
-    
+
     checkpoint_file = Path(checkpoint_path)
     if not checkpoint_file.exists():
         raise FileNotFoundError(f"Checkpoint not found: {checkpoint_path}")
-    
-    with open(checkpoint_file, "r") as f:
+
+    with open(checkpoint_file) as f:
         return json.load(f)
 
 
@@ -163,26 +163,26 @@ def save_test_state(
 ) -> str:
     """
     Save test state to JSON file.
-    
+
     Args:
         state: State dictionary
         output_dir: Output directory
         filename: Output filename
-    
+
     Returns:
         Path to saved file
     """
     import json
     from pathlib import Path
-    
+
     output_path = Path(output_dir)
     output_path.mkdir(parents=True, exist_ok=True)
-    
+
     file_path = output_path / filename
-    
+
     with open(file_path, "w") as f:
         json.dump(state, f, indent=2, default=str)
-    
+
     return str(file_path)
 
 
@@ -197,12 +197,14 @@ def serialize_screening_results_for_json(
     """Convert ScreeningResult objects to JSON-serializable dicts."""
     serialized = []
     for result in results:
-        serialized.append({
-            "decision": result.decision.value,
-            "confidence": result.confidence,
-            "reasoning": result.reasoning,
-            "exclusion_reason": result.exclusion_reason,
-        })
+        serialized.append(
+            {
+                "decision": result.decision.value,
+                "confidence": result.confidence,
+                "reasoning": result.reasoning,
+                "exclusion_reason": result.exclusion_reason,
+            }
+        )
     return serialized
 
 

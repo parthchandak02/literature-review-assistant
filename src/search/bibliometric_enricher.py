@@ -4,12 +4,12 @@ Bibliometric Enricher
 Enriches papers with bibliometric data from pybliometrics and scholarly.
 """
 
-from typing import List, Optional, Dict, Any
 import logging
+from typing import Any, Dict, List, Optional
 
-from .connectors.base import Paper
 from .author_service import AuthorService
 from .citation_network import CitationNetworkBuilder
+from .connectors.base import Paper
 
 logger = logging.getLogger(__name__)
 

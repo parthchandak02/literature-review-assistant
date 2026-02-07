@@ -2,9 +2,11 @@
 Tests for Pandoc Converter
 """
 
-import pytest
 from unittest.mock import patch
-from src.export.pandoc_converter import PandocConverter, PYPANDOC_AVAILABLE
+
+import pytest
+
+from src.export.pandoc_converter import PYPANDOC_AVAILABLE, PandocConverter
 
 
 class TestPandocConverter:
@@ -18,10 +20,10 @@ class TestPandocConverter:
     def test_check_pandoc_available_with_pypandoc(self):
         """Test check_pandoc_available when pypandoc is available."""
         converter = PandocConverter()
-        
+
         if not PYPANDOC_AVAILABLE:
             pytest.skip("pypandoc not installed")
-        
+
         with patch("src.export.pandoc_converter.pypandoc.get_pandoc_version") as mock_version:
             mock_version.return_value = "3.0.0"
             result = converter.check_pandoc_available()
@@ -38,7 +40,7 @@ class TestPandocConverter:
         """Test check_pandoc_available when get_pandoc_version raises exception."""
         if not PYPANDOC_AVAILABLE:
             pytest.skip("pypandoc not installed")
-        
+
         converter = PandocConverter()
         with patch("src.export.pandoc_converter.pypandoc.get_pandoc_version") as mock_version:
             mock_version.side_effect = Exception("Pandoc not found")
@@ -52,7 +54,7 @@ class TestPandocConverter:
             markdown_path = tmp_path / "test.md"
             markdown_path.write_text("# Test")
             output_path = tmp_path / "test.pdf"
-            
+
             with pytest.raises(ImportError) as exc_info:
                 converter.markdown_to_pdf(markdown_path, output_path)
             assert "pypandoc required" in str(exc_info.value)
@@ -64,7 +66,7 @@ class TestPandocConverter:
         markdown_path = tmp_path / "test.md"
         markdown_path.write_text("# Test Document\n\nThis is a test.")
         output_path = tmp_path / "test.pdf"
-        
+
         with patch("src.export.pandoc_converter.pypandoc.convert_file") as mock_convert:
             mock_convert.return_value = None
             result = converter.markdown_to_pdf(markdown_path, output_path)
@@ -81,7 +83,7 @@ class TestPandocConverter:
         output_path = tmp_path / "test.pdf"
         csl_style = tmp_path / "ieee.csl"
         csl_style.write_text("/* IEEE Style */")
-        
+
         with patch("src.export.pandoc_converter.pypandoc.convert_file") as mock_convert:
             mock_convert.return_value = None
             converter.markdown_to_pdf(markdown_path, output_path, csl_style=csl_style)
@@ -98,7 +100,7 @@ class TestPandocConverter:
         output_path = tmp_path / "test.pdf"
         template = tmp_path / "template.latex"
         template.write_text("\\documentclass{article}")
-        
+
         with patch("src.export.pandoc_converter.pypandoc.convert_file") as mock_convert:
             mock_convert.return_value = None
             converter.markdown_to_pdf(markdown_path, output_path, template=template)
@@ -114,7 +116,7 @@ class TestPandocConverter:
         markdown_path.write_text("# Test")
         output_path = tmp_path / "test.pdf"
         metadata = {"title": "Test Title", "author": "Test Author"}
-        
+
         with patch("src.export.pandoc_converter.pypandoc.convert_file") as mock_convert:
             mock_convert.return_value = None
             converter.markdown_to_pdf(markdown_path, output_path, metadata=metadata)
@@ -129,7 +131,7 @@ class TestPandocConverter:
         markdown_path = tmp_path / "test.md"
         markdown_path.write_text("# Test")
         output_path = tmp_path / "subdir" / "test.pdf"
-        
+
         with patch("src.export.pandoc_converter.pypandoc.convert_file") as mock_convert:
             mock_convert.return_value = None
             converter.markdown_to_pdf(markdown_path, output_path)
@@ -142,7 +144,7 @@ class TestPandocConverter:
         markdown_path = tmp_path / "test.md"
         markdown_path.write_text("# Test")
         output_path = tmp_path / "test.pdf"
-        
+
         with patch("src.export.pandoc_converter.pypandoc.convert_file") as mock_convert:
             mock_convert.side_effect = Exception("Conversion failed")
             with pytest.raises(RuntimeError) as exc_info:
@@ -157,7 +159,7 @@ class TestPandocConverter:
         markdown_path.write_text("# Test")
         output_path = tmp_path / "test.pdf"
         csl_style = tmp_path / "nonexistent.csl"
-        
+
         with patch("src.export.pandoc_converter.pypandoc.convert_file") as mock_convert:
             mock_convert.return_value = None
             # Should not include --csl if file doesn't exist
@@ -173,7 +175,7 @@ class TestPandocConverter:
         markdown_path.write_text("# Test")
         output_path = tmp_path / "test.pdf"
         template = tmp_path / "nonexistent.latex"
-        
+
         with patch("src.export.pandoc_converter.pypandoc.convert_file") as mock_convert:
             mock_convert.return_value = None
             # Should not include --template if file doesn't exist
@@ -188,7 +190,7 @@ class TestPandocConverter:
         markdown_path = tmp_path / "test.md"
         markdown_path.write_text("# Test Document")
         output_path = tmp_path / "test.docx"
-        
+
         with patch("src.export.pandoc_converter.pypandoc.convert_file") as mock_convert:
             mock_convert.return_value = None
             result = converter.markdown_to_docx(markdown_path, output_path)
@@ -207,7 +209,7 @@ class TestPandocConverter:
         output_path = tmp_path / "test.docx"
         csl_style = tmp_path / "ieee.csl"
         csl_style.write_text("/* IEEE Style */")
-        
+
         with patch("src.export.pandoc_converter.pypandoc.convert_file") as mock_convert:
             mock_convert.return_value = None
             converter.markdown_to_docx(markdown_path, output_path, csl_style=csl_style)
@@ -221,7 +223,7 @@ class TestPandocConverter:
         markdown_path = tmp_path / "test.md"
         markdown_path.write_text("# Test")
         output_path = tmp_path / "test.docx"
-        
+
         with patch("src.export.pandoc_converter.pypandoc.convert_file") as mock_convert:
             mock_convert.side_effect = Exception("Conversion failed")
             with pytest.raises(RuntimeError) as exc_info:
@@ -235,7 +237,7 @@ class TestPandocConverter:
         markdown_path = tmp_path / "test.md"
         markdown_path.write_text("# Test Document")
         output_path = tmp_path / "test.html"
-        
+
         with patch("src.export.pandoc_converter.pypandoc.convert_file") as mock_convert:
             mock_convert.return_value = None
             result = converter.markdown_to_html(markdown_path, output_path)
@@ -252,7 +254,7 @@ class TestPandocConverter:
         markdown_path = tmp_path / "test.md"
         markdown_path.write_text("# Test")
         output_path = tmp_path / "test.html"
-        
+
         with patch("src.export.pandoc_converter.pypandoc.convert_file") as mock_convert:
             mock_convert.return_value = None
             converter.markdown_to_html(markdown_path, output_path, standalone=True)
@@ -266,7 +268,7 @@ class TestPandocConverter:
         markdown_path = tmp_path / "test.md"
         markdown_path.write_text("# Test")
         output_path = tmp_path / "test.html"
-        
+
         with patch("src.export.pandoc_converter.pypandoc.convert_file") as mock_convert:
             mock_convert.return_value = None
             converter.markdown_to_html(markdown_path, output_path, standalone=False)
@@ -280,7 +282,7 @@ class TestPandocConverter:
         markdown_path = tmp_path / "test.md"
         markdown_path.write_text("# Test")
         output_path = tmp_path / "test.html"
-        
+
         with patch("src.export.pandoc_converter.pypandoc.convert_file") as mock_convert:
             mock_convert.side_effect = Exception("Conversion failed")
             with pytest.raises(RuntimeError) as exc_info:
@@ -294,7 +296,7 @@ class TestPandocConverter:
         markdown_path = tmp_path / "test.md"
         markdown_path.write_text("# Test & Special Characters\n\n< > & \" '")
         output_path = tmp_path / "test.pdf"
-        
+
         with patch("src.export.pandoc_converter.pypandoc.convert_file") as mock_convert:
             mock_convert.return_value = None
             converter.markdown_to_pdf(markdown_path, output_path)
@@ -309,7 +311,7 @@ class TestPandocConverter:
         output_path = tmp_path / "test.pdf"
         csl_style = tmp_path / "ieee.csl"
         csl_style.write_text("/* IEEE Style */")
-        
+
         with patch("src.export.pandoc_converter.pypandoc.convert_file") as mock_convert:
             mock_convert.return_value = None
             converter.markdown_to_pdf(markdown_path, output_path, csl_style=csl_style)

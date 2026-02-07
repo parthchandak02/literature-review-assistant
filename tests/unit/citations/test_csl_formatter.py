@@ -2,12 +2,14 @@
 Tests for CSL Formatter
 """
 
-import pytest
 import json
-import urllib.request
 import urllib.error
+import urllib.request
 from pathlib import Path
-from unittest.mock import patch, mock_open, MagicMock
+from unittest.mock import MagicMock, mock_open, patch
+
+import pytest
+
 from src.citations.csl_formatter import CSLFormatter
 from src.search.connectors.base import Paper
 
@@ -75,7 +77,7 @@ class TestCSLFormatter:
     def test_paper_to_csl_author_formats(self):
         """Test Paper to CSL with various author name formats."""
         formatter = CSLFormatter()
-        
+
         # Test with "Last, First" format
         paper1 = Paper(
             title="Paper 1",
@@ -85,7 +87,7 @@ class TestCSLFormatter:
         assert len(csl_item1["author"]) == 2
         assert csl_item1["author"][0]["family"] == "Smith"
         assert csl_item1["author"][0]["given"] == "John"
-        
+
         # Test with "First Last" format
         paper2 = Paper(
             title="Paper 2",
@@ -95,7 +97,7 @@ class TestCSLFormatter:
         assert len(csl_item2["author"]) == 2
         assert csl_item2["author"][0]["family"] == "Smith"
         assert csl_item2["author"][0]["given"] == "John"
-        
+
         # Test with single name
         paper3 = Paper(
             title="Paper 3",
@@ -162,9 +164,9 @@ class TestCSLFormatter:
         result_path = formatter.export_csl_json(papers, output_path)
         assert result_path.exists()
         assert result_path == output_path
-        
+
         # Verify JSON content
-        with open(result_path, "r") as f:
+        with open(result_path) as f:
             data = json.load(f)
         assert isinstance(data, list)
         assert len(data) == 1
@@ -176,9 +178,9 @@ class TestCSLFormatter:
         output_path = tmp_path / "references.json"
         result_path = formatter.export_csl_json([], output_path)
         assert result_path.exists()
-        
+
         # Verify JSON content is empty list
-        with open(result_path, "r") as f:
+        with open(result_path) as f:
             data = json.load(f)
         assert isinstance(data, list)
         assert len(data) == 0
@@ -202,12 +204,12 @@ class TestCSLFormatter:
         """Test CSL style caching behavior."""
         cache_dir = tmp_path / "csl_cache"
         formatter = CSLFormatter(cache_dir=cache_dir)
-        
+
         # Create a cached style file
         style_file = cache_dir / "ieee.csl"
         style_file.parent.mkdir(parents=True, exist_ok=True)
         style_file.write_text("/* IEEE Style */")
-        
+
         # Should return cached file without downloading
         with patch("urllib.request.urlretrieve") as mock_download:
             result = formatter.download_style("ieee")
@@ -218,14 +220,14 @@ class TestCSLFormatter:
         """Test CSL style downloading with mocking."""
         cache_dir = tmp_path / "csl_cache"
         formatter = CSLFormatter(cache_dir=cache_dir)
-        
+
         # Mock successful download
         with patch("urllib.request.urlretrieve") as mock_download:
             # Create a mock file-like object
             mock_file = MagicMock()
             mock_file.write = MagicMock()
             mock_download.return_value = (mock_file, None)
-            
+
             # Mock file writing
             with patch("builtins.open", mock_open()):
                 style_path = formatter.download_style("ieee")
@@ -236,13 +238,11 @@ class TestCSLFormatter:
         """Test style download failure handling."""
         cache_dir = tmp_path / "csl_cache"
         formatter = CSLFormatter(cache_dir=cache_dir)
-        
+
         # Mock all download attempts failing
         with patch("urllib.request.urlretrieve") as mock_download:
-            mock_download.side_effect = urllib.error.HTTPError(
-                "url", 404, "Not Found", {}, None
-            )
-            
+            mock_download.side_effect = urllib.error.HTTPError("url", 404, "Not Found", {}, None)
+
             with pytest.raises(ValueError) as exc_info:
                 formatter.download_style("nonexistent-style")
             assert "Could not download CSL style" in str(exc_info.value)
@@ -251,9 +251,9 @@ class TestCSLFormatter:
         """Test that download tries multiple possible file names."""
         cache_dir = tmp_path / "csl_cache"
         formatter = CSLFormatter(cache_dir=cache_dir)
-        
+
         call_count = 0
-        
+
         def mock_urlretrieve(url, filename):
             nonlocal call_count
             call_count += 1
@@ -261,7 +261,7 @@ class TestCSLFormatter:
                 Path(filename).write_text("/* Style */")
                 return
             raise urllib.error.HTTPError("url", 404, "Not Found", {}, None)
-        
+
         with patch("urllib.request.urlretrieve", side_effect=mock_urlretrieve):
             style_path = formatter.download_style("test-style")
             assert style_path.exists()
@@ -271,12 +271,12 @@ class TestCSLFormatter:
         """Test get_style_path with existing cached style."""
         cache_dir = tmp_path / "csl_cache"
         formatter = CSLFormatter(cache_dir=cache_dir)
-        
+
         # Create cached style
         style_file = cache_dir / "ieee.csl"
         style_file.parent.mkdir(parents=True, exist_ok=True)
         style_file.write_text("/* IEEE Style */")
-        
+
         result = formatter.get_style_path("ieee")
         assert result == style_file
 
@@ -284,11 +284,11 @@ class TestCSLFormatter:
         """Test get_style_path with non-existent style."""
         cache_dir = tmp_path / "csl_cache"
         formatter = CSLFormatter(cache_dir=cache_dir)
-        
+
         # Mock download to fail
         with patch.object(formatter, "download_style") as mock_download:
             mock_download.side_effect = ValueError("Style not found")
-            
+
             with pytest.raises(ValueError):
                 formatter.get_style_path("nonexistent-style")
 

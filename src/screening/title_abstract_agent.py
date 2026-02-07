@@ -4,19 +4,19 @@ Title/Abstract Screening Agent
 Screens papers based on title and abstract using LLM with structured outputs.
 """
 
-from typing import List, Optional, Dict, Any, Set
 import logging
 import re
+from typing import Any, Dict, List, Optional, Set
 
 from fuzzywuzzy import fuzz
 
-from .base_agent import BaseScreeningAgent, ScreeningResult, InclusionDecision
+from ..config.debug_config import DebugLevel
 from ..schemas.screening_schemas import (
-    ScreeningResultSchema,
     InclusionDecision as SchemaInclusionDecision,
+    ScreeningResultSchema,
 )
 from ..utils.log_context import agent_log_context
-from ..config.debug_config import DebugLevel
+from .base_agent import BaseScreeningAgent, InclusionDecision, ScreeningResult
 
 logger = logging.getLogger(__name__)
 

@@ -5,8 +5,8 @@ Maintains and enriches topic context throughout the workflow,
 ensuring topic awareness propagates through all agents.
 """
 
-from typing import Dict, List, Optional, Any
 from dataclasses import dataclass, field
+from typing import Any, Dict, List, Optional
 
 
 @dataclass

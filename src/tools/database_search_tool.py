@@ -4,10 +4,11 @@ Database Search Tool
 Tool for searching academic databases.
 """
 
-from typing import Dict, Any, List
-from .tool_registry import Tool, ToolParameter
-from ..search.multi_database_searcher import MultiDatabaseSearcher
+from typing import Any, Dict, List
+
 from ..search.database_connectors import MockConnector
+from ..search.multi_database_searcher import MultiDatabaseSearcher
+from .tool_registry import Tool, ToolParameter
 
 
 def create_database_search_tool(searcher: MultiDatabaseSearcher) -> Tool:

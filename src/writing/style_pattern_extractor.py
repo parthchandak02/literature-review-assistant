@@ -7,10 +7,11 @@ Reuses full-text already retrieved during screening/extraction.
 
 import logging
 import re
-from typing import List, Dict, Optional, Any
+from typing import Any, Dict, List, Optional
+
+from ..screening.base_agent import BaseScreeningAgent
 from ..search.connectors.base import Paper
 from ..utils.pdf_retriever import PDFRetriever
-from ..screening.base_agent import BaseScreeningAgent
 from .style_reference import StylePatterns
 
 logger = logging.getLogger(__name__)
@@ -27,7 +28,7 @@ class StylePatternExtractor(BaseScreeningAgent):
         exclusion_criteria: List[str],
     ):
         """Stub implementation - pattern extractor doesn't screen papers."""
-        from ..screening.base_agent import ScreeningResult, InclusionDecision
+        from ..screening.base_agent import InclusionDecision, ScreeningResult
 
         return ScreeningResult(
             decision=InclusionDecision.UNCERTAIN,

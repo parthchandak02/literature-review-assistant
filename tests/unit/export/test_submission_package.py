@@ -3,6 +3,7 @@ Tests for Submission Package Builder
 """
 
 from unittest.mock import patch
+
 from src.export.submission_package import SubmissionPackageBuilder
 
 
@@ -23,7 +24,7 @@ class TestSubmissionPackageBuilder:
         workflow_outputs = {}
         manuscript_path = tmp_path / "manuscript.md"
         manuscript_path.write_text("# Test")
-        
+
         package_dir = builder.build_package(
             workflow_outputs,
             "ieee",
@@ -41,7 +42,7 @@ class TestSubmissionPackageBuilder:
         workflow_outputs = {}
         manuscript_path = tmp_path / "manuscript.md"
         manuscript_path.write_text("# Test Manuscript")
-        
+
         package_dir = builder.build_package(
             workflow_outputs,
             "ieee",
@@ -50,7 +51,7 @@ class TestSubmissionPackageBuilder:
             generate_docx=False,
             generate_html=False,
         )
-        
+
         copied_manuscript = package_dir / "manuscript.md"
         assert copied_manuscript.exists()
         assert copied_manuscript.read_text() == "# Test Manuscript"
@@ -61,7 +62,7 @@ class TestSubmissionPackageBuilder:
         workflow_outputs = {}
         manuscript_path = tmp_path / "manuscript.md"
         manuscript_path.write_text("# Test")
-        
+
         with patch.object(builder.pandoc_converter, "markdown_to_pdf") as mock_pdf:
             mock_pdf.return_value = tmp_path / "manuscript.pdf"
             builder.build_package(
@@ -80,7 +81,7 @@ class TestSubmissionPackageBuilder:
         workflow_outputs = {}
         manuscript_path = tmp_path / "manuscript.md"
         manuscript_path.write_text("# Test")
-        
+
         with patch.object(builder.pandoc_converter, "markdown_to_docx") as mock_docx:
             mock_docx.return_value = tmp_path / "manuscript.docx"
             builder.build_package(
@@ -99,7 +100,7 @@ class TestSubmissionPackageBuilder:
         workflow_outputs = {}
         manuscript_path = tmp_path / "manuscript.md"
         manuscript_path.write_text("# Test")
-        
+
         with patch.object(builder.pandoc_converter, "markdown_to_html") as mock_html:
             mock_html.return_value = tmp_path / "manuscript.html"
             builder.build_package(
@@ -117,13 +118,13 @@ class TestSubmissionPackageBuilder:
         builder = SubmissionPackageBuilder(tmp_path)
         prisma_diagram = tmp_path / "prisma.png"
         prisma_diagram.write_bytes(b"fake png data")
-        
+
         workflow_outputs = {
             "prisma_diagram": str(prisma_diagram),
         }
         manuscript_path = tmp_path / "manuscript.md"
         manuscript_path.write_text("# Test")
-        
+
         package_dir = builder.build_package(
             workflow_outputs,
             "ieee",
@@ -132,7 +133,7 @@ class TestSubmissionPackageBuilder:
             generate_docx=False,
             generate_html=False,
         )
-        
+
         figures_dir = package_dir / "figures"
         assert figures_dir.exists()
         assert len(list(figures_dir.iterdir())) > 0
@@ -142,13 +143,13 @@ class TestSubmissionPackageBuilder:
         builder = SubmissionPackageBuilder(tmp_path)
         search_strategies = tmp_path / "search_strategies.md"
         search_strategies.write_text("# Search Strategies")
-        
+
         workflow_outputs = {
             "search_strategies": str(search_strategies),
         }
         manuscript_path = tmp_path / "manuscript.md"
         manuscript_path.write_text("# Test")
-        
+
         package_dir = builder.build_package(
             workflow_outputs,
             "ieee",
@@ -158,7 +159,7 @@ class TestSubmissionPackageBuilder:
             generate_html=False,
             include_supplementary=True,
         )
-        
+
         supplementary_dir = package_dir / "supplementary"
         assert supplementary_dir.exists()
         assert (supplementary_dir / "search_strategies.md").exists()
@@ -166,17 +167,17 @@ class TestSubmissionPackageBuilder:
     def test_build_package_copies_references(self, tmp_path):
         """Test build_package references copying."""
         builder = SubmissionPackageBuilder(tmp_path)
-        
+
         # Create reference files in output_dir
         bibtex_path = tmp_path / "references.bib"
         bibtex_path.write_text("@article{test2023}")
         ris_path = tmp_path / "references.ris"
         ris_path.write_text("TY  - JOUR")
-        
+
         workflow_outputs = {}
         manuscript_path = tmp_path / "manuscript.md"
         manuscript_path.write_text("# Test")
-        
+
         package_dir = builder.build_package(
             workflow_outputs,
             "ieee",
@@ -185,7 +186,7 @@ class TestSubmissionPackageBuilder:
             generate_docx=False,
             generate_html=False,
         )
-        
+
         assert (package_dir / "references.bib").exists()
         assert (package_dir / "references.ris").exists()
 
@@ -195,7 +196,7 @@ class TestSubmissionPackageBuilder:
         workflow_outputs = {}
         manuscript_path = tmp_path / "manuscript.md"
         manuscript_path.write_text("# Test")
-        
+
         package_dir = builder.build_package(
             workflow_outputs,
             "ieee",
@@ -204,7 +205,7 @@ class TestSubmissionPackageBuilder:
             generate_docx=False,
             generate_html=False,
         )
-        
+
         checklist_path = package_dir / "submission_checklist.md"
         assert checklist_path.exists()
         checklist_content = checklist_path.read_text()
@@ -217,7 +218,7 @@ class TestSubmissionPackageBuilder:
         workflow_outputs = {}
         manuscript_path = tmp_path / "manuscript.md"
         manuscript_path.write_text("# Test")
-        
+
         with patch.object(builder, "build_package") as mock_build:
             mock_build.return_value = tmp_path / "package"
             packages = builder.build_for_multiple_journals(
@@ -228,7 +229,7 @@ class TestSubmissionPackageBuilder:
                 generate_docx=False,
                 generate_html=False,
             )
-            
+
             assert len(packages) == 3
             assert "ieee" in packages
             assert "nature" in packages
@@ -241,13 +242,13 @@ class TestSubmissionPackageBuilder:
         workflow_outputs = {}
         manuscript_path = tmp_path / "manuscript.md"
         manuscript_path.write_text("# Test")
-        
+
         def mock_build(*args, **kwargs):
             journal = args[1]
             if journal == "nature":
                 raise Exception("Build failed")
             return tmp_path / f"package_{journal}"
-        
+
         with patch.object(builder, "build_package", side_effect=mock_build):
             packages = builder.build_for_multiple_journals(
                 workflow_outputs,
@@ -257,7 +258,7 @@ class TestSubmissionPackageBuilder:
                 generate_docx=False,
                 generate_html=False,
             )
-            
+
             assert packages["ieee"] is not None
             assert packages["nature"] is None
             assert packages["plos"] is not None
@@ -266,7 +267,7 @@ class TestSubmissionPackageBuilder:
         """Test build_package without manuscript path."""
         builder = SubmissionPackageBuilder(tmp_path)
         workflow_outputs = {}
-        
+
         package_dir = builder.build_package(
             workflow_outputs,
             "ieee",
@@ -275,7 +276,7 @@ class TestSubmissionPackageBuilder:
             generate_docx=False,
             generate_html=False,
         )
-        
+
         assert package_dir.exists()
         assert not (package_dir / "manuscript.md").exists()
 
@@ -285,7 +286,7 @@ class TestSubmissionPackageBuilder:
         workflow_outputs = {}
         manuscript_path = tmp_path / "manuscript.md"
         manuscript_path.write_text("# Test")
-        
+
         package_dir = builder.build_package(
             workflow_outputs,
             "ieee",
@@ -295,7 +296,7 @@ class TestSubmissionPackageBuilder:
             generate_html=False,
             include_supplementary=False,
         )
-        
+
         supplementary_dir = package_dir / "supplementary"
         assert not supplementary_dir.exists()
 
@@ -305,7 +306,7 @@ class TestSubmissionPackageBuilder:
         workflow_outputs = {}
         manuscript_path = tmp_path / "manuscript.md"
         manuscript_path.write_text("# Test")
-        
+
         with patch.object(builder.pandoc_converter, "markdown_to_pdf") as mock_pdf:
             mock_pdf.side_effect = Exception("PDF generation failed")
             # Should not raise exception, just log warning
@@ -326,7 +327,7 @@ class TestSubmissionPackageBuilder:
         viz1.write_bytes(b"fake png")
         viz2 = tmp_path / "viz2.png"
         viz2.write_bytes(b"fake png")
-        
+
         workflow_outputs = {
             "visualizations": {
                 "chart1": str(viz1),
@@ -335,7 +336,7 @@ class TestSubmissionPackageBuilder:
         }
         manuscript_path = tmp_path / "manuscript.md"
         manuscript_path.write_text("# Test")
-        
+
         package_dir = builder.build_package(
             workflow_outputs,
             "ieee",
@@ -344,7 +345,7 @@ class TestSubmissionPackageBuilder:
             generate_docx=False,
             generate_html=False,
         )
-        
+
         figures_dir = package_dir / "figures"
         assert figures_dir.exists()
         figure_files = list(figures_dir.glob("*.png"))
@@ -355,7 +356,7 @@ class TestSubmissionPackageBuilder:
         builder = SubmissionPackageBuilder(tmp_path)
         html_viz = tmp_path / "viz.html"
         html_viz.write_text("<html>")
-        
+
         workflow_outputs = {
             "visualizations": {
                 "interactive": str(html_viz),
@@ -363,7 +364,7 @@ class TestSubmissionPackageBuilder:
         }
         manuscript_path = tmp_path / "manuscript.md"
         manuscript_path.write_text("# Test")
-        
+
         package_dir = builder.build_package(
             workflow_outputs,
             "ieee",
@@ -372,7 +373,7 @@ class TestSubmissionPackageBuilder:
             generate_docx=False,
             generate_html=False,
         )
-        
+
         figures_dir = package_dir / "figures"
         if figures_dir.exists():
             html_files = list(figures_dir.glob("*.html"))
@@ -384,7 +385,7 @@ class TestSubmissionPackageBuilder:
         workflow_outputs = {}
         manuscript_path = tmp_path / "manuscript.md"
         manuscript_path.write_text("# Test")
-        
+
         package_dir = builder.build_package(
             workflow_outputs,
             "ieee",
@@ -393,7 +394,7 @@ class TestSubmissionPackageBuilder:
             generate_docx=False,
             generate_html=False,
         )
-        
+
         assert package_dir.exists()
         # Should still create package structure
         assert (package_dir / "manuscript.md").exists()
@@ -407,7 +408,7 @@ class TestSubmissionPackageBuilder:
         }
         manuscript_path = tmp_path / "manuscript.md"
         manuscript_path.write_text("# Test")
-        
+
         package_dir = builder.build_package(
             workflow_outputs,
             "ieee",
@@ -416,7 +417,7 @@ class TestSubmissionPackageBuilder:
             generate_docx=False,
             generate_html=False,
         )
-        
+
         assert package_dir.exists()
         # Should handle missing files gracefully
         figures_dir = package_dir / "figures"

@@ -4,9 +4,9 @@ Exa Search Tool
 Wrapper for Exa API to provide search capabilities as a tool.
 """
 
-import os
-from typing import Dict, Any, Optional
 import logging
+import os
+from typing import Any, Dict, Optional
 
 from .tool_registry import Tool, ToolParameter
 

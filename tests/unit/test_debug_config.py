@@ -3,11 +3,12 @@ Unit tests for debug config.
 """
 
 import yaml
+
 from src.config.debug_config import (
     DebugConfig,
     DebugLevel,
-    load_debug_config,
     get_debug_config_from_env,
+    load_debug_config,
 )
 
 

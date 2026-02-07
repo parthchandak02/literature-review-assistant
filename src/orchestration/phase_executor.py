@@ -4,12 +4,13 @@ Phase Executor
 Handles phase execution with dependency checking and checkpointing.
 """
 
-from typing import Dict, Any, Optional, List
-from ..utils.rich_utils import console, print_phase_panel
-from ..utils.logging_config import get_logger
+from typing import Any, Dict, List, Optional
+
 from ..utils.log_context import workflow_phase_context
-from .phase_registry import PhaseRegistry
+from ..utils.logging_config import get_logger
+from ..utils.rich_utils import console, print_phase_panel
 from .checkpoint_manager import CheckpointManager
+from .phase_registry import PhaseRegistry
 
 logger = get_logger(__name__)
 

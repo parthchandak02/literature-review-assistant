@@ -4,12 +4,12 @@ Distributed Tracing for Agent Calls
 Provides tracing context for tracking agent execution across workflow phases.
 """
 
+import logging
 import uuid
-from typing import Dict, Optional, Any, List
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import datetime
-from contextlib import contextmanager
-import logging
+from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 

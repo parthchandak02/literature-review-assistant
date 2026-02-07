@@ -2,10 +2,11 @@
 Debug configuration and settings.
 """
 
-from typing import Optional, Dict, Any
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
+from typing import Any, Dict, Optional
+
 import yaml
 
 
@@ -79,7 +80,7 @@ def load_debug_config(config_path: Optional[str] = None) -> DebugConfig:
         return DebugConfig()
 
     try:
-        with open(config_path, "r") as f:
+        with open(config_path) as f:
             config = yaml.safe_load(f)
 
         debug_section = config.get("debug", {})

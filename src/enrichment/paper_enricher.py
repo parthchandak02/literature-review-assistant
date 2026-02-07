@@ -6,14 +6,15 @@ Enriches Paper objects with missing metadata by fetching from Crossref API using
 
 import logging
 import os
-import requests
-import certifi
 from typing import List, Optional
+
+import certifi
+import requests
 
 from ..search.connectors.base import Paper
 from ..search.database_connectors import CrossrefConnector
-from ..search.exceptions import RateLimitError, NetworkError, DatabaseSearchError
-from ..search.rate_limiter import retry_with_backoff, get_rate_limiter
+from ..search.exceptions import DatabaseSearchError, NetworkError, RateLimitError
+from ..search.rate_limiter import get_rate_limiter, retry_with_backoff
 
 logger = logging.getLogger(__name__)
 

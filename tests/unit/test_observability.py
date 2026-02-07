@@ -2,8 +2,8 @@
 Unit tests for observability (metrics, cost tracker, tracing).
 """
 
-from src.observability.metrics import MetricsCollector
 from src.observability.cost_tracker import CostTracker
+from src.observability.metrics import MetricsCollector
 
 
 class TestMetricsCollector:

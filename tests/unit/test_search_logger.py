@@ -3,8 +3,9 @@ Unit tests for search logger.
 """
 
 from pathlib import Path
-from src.search.search_logger import SearchLogger
+
 from src.search.database_connectors import Paper
+from src.search.search_logger import SearchLogger
 
 
 class TestSearchLogger:

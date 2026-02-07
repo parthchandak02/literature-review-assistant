@@ -4,9 +4,10 @@ Query Builder Tool
 Tool for building search queries.
 """
 
-from typing import Dict, Any, List
-from .tool_registry import Tool, ToolParameter
+from typing import Any, Dict, List, Optional
+
 from ..search.search_strategy import SearchStrategyBuilder
+from .tool_registry import Tool, ToolParameter
 
 
 def create_query_builder_tool() -> Tool:
@@ -20,7 +21,7 @@ def create_query_builder_tool() -> Tool:
     def execute_build_query(
         term_groups: List[Dict[str, Any]],
         database: str = "generic",
-        date_range: Dict[str, Any] = None,
+        date_range: Optional[Dict[str, Any]] = None,
         language: str = "English",
     ) -> Dict[str, Any]:
         """

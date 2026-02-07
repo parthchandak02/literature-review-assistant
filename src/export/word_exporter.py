@@ -4,14 +4,14 @@ Word Exporter
 Exports systematic review reports to Microsoft Word format (.docx) for journal submission.
 """
 
-from pathlib import Path
-from typing import Dict, List, Optional, Any
 import logging
+from pathlib import Path
+from typing import Any, Dict, List, Optional
 
 try:
     from docx import Document
-    from docx.shared import Inches
     from docx.enum.text import WD_ALIGN_PARAGRAPH
+    from docx.shared import Inches
 
     DOCX_AVAILABLE = True
 except ImportError:

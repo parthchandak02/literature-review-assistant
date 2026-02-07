@@ -8,15 +8,15 @@ Validates all phases, error handling, and outputs.
 import json
 import time
 from pathlib import Path
-from dotenv import load_dotenv
 
 import pytest
+from dotenv import load_dotenv
 
-from src.orchestration.workflow_manager import WorkflowManager
-from src.search.database_connectors import ACMConnector
 from src.extraction.data_extractor_agent import DataExtractorAgent
+from src.orchestration.workflow_manager import WorkflowManager
 from src.schemas.extraction_schemas import ExtractedDataSchema
 from src.search.connectors.base import Paper
+from src.search.database_connectors import ACMConnector
 
 # Load environment variables
 load_dotenv()
@@ -37,23 +37,24 @@ def test_acm_403_handling():
     """Test that ACM connector handles 403 errors gracefully without retries."""
     # Create ACM connector
     connector = ACMConnector()
-    
+
     # Mock a 403 response by patching the session
-    import requests
     from unittest.mock import Mock, patch
-    
+
+    import requests
+
     mock_response = Mock()
     mock_response.status_code = 403
     mock_response.raise_for_status = Mock(side_effect=requests.HTTPError("403 Forbidden"))
-    
-    with patch.object(connector, '_get_session') as mock_session:
+
+    with patch.object(connector, "_get_session") as mock_session:
         mock_session.return_value.get.return_value = mock_response
-        
+
         # This should return empty list without retrying
         start_time = time.time()
         papers = connector.search("test query", max_results=10)
         elapsed = time.time() - start_time
-        
+
         # Should return empty list immediately (not retry 3 times)
         assert papers == [], f"Expected empty list, got {len(papers)} papers"
         assert elapsed < 5.0, f"Should be fast, not waiting for retries (took {elapsed:.2f}s)"
@@ -78,7 +79,7 @@ def test_pydantic_schema_validation():
         "key_findings": [],
         "limitations": None,
     }
-    
+
     # Should validate successfully
     schema_result = ExtractedDataSchema(**test_data)
     assert schema_result.methodology is None, f"Expected None, got {schema_result.methodology}"
@@ -96,29 +97,33 @@ def test_data_extraction_with_null_methodology():
             "temperature": 0.1,
         },
     )
-    
+
     # Test normalization with null methodology
-    test_json = json.dumps({
-        "title": "Test Paper",
-        "authors": [],
-        "year": None,
-        "journal": None,
-        "doi": None,
-        "study_objectives": [],
-        "methodology": None,
-        "study_design": None,
-        "participants": None,
-        "interventions": None,
-        "outcomes": [],
-        "key_findings": [],
-        "limitations": None,
-    })
-    
+    test_json = json.dumps(
+        {
+            "title": "Test Paper",
+            "authors": [],
+            "year": None,
+            "journal": None,
+            "doi": None,
+            "study_objectives": [],
+            "methodology": None,
+            "study_design": None,
+            "participants": None,
+            "interventions": None,
+            "outcomes": [],
+            "key_findings": [],
+            "limitations": None,
+        }
+    )
+
     normalized = agent._normalize_extraction_response(test_json)
-    
+
     # Should normalize successfully
-    assert normalized.get("methodology") is None, f"Expected None, got {normalized.get('methodology')}"
-    
+    assert normalized.get("methodology") is None, (
+        f"Expected None, got {normalized.get('methodology')}"
+    )
+
     # Test schema validation
     schema_result = ExtractedDataSchema(**normalized)
     assert schema_result.methodology is None, f"Expected None, got {schema_result.methodology}"
@@ -129,19 +134,19 @@ def test_workflow_phases_independently(test_config_path):
     """Test each workflow phase independently."""
     # Initialize workflow manager
     manager = WorkflowManager(config_path=test_config_path)
-    
+
     # Test search phase
     assert manager.searcher is not None, "Searcher not initialized"
-    
+
     # Test deduplication phase
     assert manager.deduplicator is not None, "Deduplicator not initialized"
-    
+
     # Test screening agents (may be lazy-loaded)
-    if hasattr(manager, 'title_abstract_screener'):
+    if hasattr(manager, "title_abstract_screener"):
         assert manager.title_abstract_screener is not None, "Screening agents not initialized"
-    
+
     # Test extraction agent (may be lazy-loaded)
-    if hasattr(manager, 'extraction_agent'):
+    if hasattr(manager, "extraction_agent"):
         assert manager.extraction_agent is not None, "Extraction agent not initialized"
 
 
@@ -169,14 +174,16 @@ def test_mock_workflow_run():
             database="Mock",
         ),
     ]
-    
+
     # Test deduplication
     from src.deduplication import Deduplicator
+
     deduplicator = Deduplicator(similarity_threshold=85)
     deduplicated = deduplicator.deduplicate_papers(mock_papers)
-    
-    assert len(deduplicated.unique_papers) == len(mock_papers), \
+
+    assert len(deduplicated.unique_papers) == len(mock_papers), (
         f"Expected {len(mock_papers)}, got {len(deduplicated.unique_papers)}"
+    )
 
 
 @pytest.mark.e2e
@@ -185,7 +192,7 @@ def test_error_recovery():
     # Test that ACM connector returns empty list on 403 (already tested above)
     # Test that other connectors handle errors gracefully
     from src.search.database_connectors import CrossrefConnector
-    
+
     connector = CrossrefConnector()
     # This should not raise an exception even if network fails
     # (it will be handled by retry decorator)
@@ -199,7 +206,7 @@ def test_output_validation():
     output_dir = Path("data/outputs")
     # Directory may not exist yet, but path should be valid
     assert output_dir.parent.exists(), "Output directory parent should exist"
-    
+
     # Check checkpoint directory
     checkpoint_dir = Path("data/checkpoints")
     # Directory may not exist yet, but path should be valid

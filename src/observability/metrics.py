@@ -4,11 +4,11 @@ Metrics Collection for Agent Performance Monitoring
 Tracks agent performance metrics including task duration, success rates, etc.
 """
 
-from typing import Dict, Optional, Any
+import logging
+from collections import defaultdict
 from dataclasses import dataclass, field
 from datetime import datetime
-from collections import defaultdict
-import logging
+from typing import Any, Dict, Optional
 
 logger = logging.getLogger(__name__)
 

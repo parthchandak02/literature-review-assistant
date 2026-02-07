@@ -6,7 +6,8 @@ Uses style patterns extracted from eligible papers.
 """
 
 import logging
-from typing import Dict, Optional, Any, List
+from typing import Any, Dict, List, Optional
+
 from ..screening.base_agent import BaseScreeningAgent
 from .naturalness_scorer import NaturalnessScorer
 
@@ -24,7 +25,7 @@ class HumanizationAgent(BaseScreeningAgent):
         exclusion_criteria: List[str],
     ):
         """Stub implementation - humanization agent doesn't screen papers."""
-        from ..screening.base_agent import ScreeningResult, InclusionDecision
+        from ..screening.base_agent import InclusionDecision, ScreeningResult
 
         return ScreeningResult(
             decision=InclusionDecision.UNCERTAIN,

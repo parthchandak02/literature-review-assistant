@@ -6,8 +6,8 @@ Inspired by pybliometrics' integrity checking system.
 """
 
 import logging
-from typing import List, Optional
 from enum import Enum
+from typing import List, Optional
 
 from .connectors.base import Paper
 

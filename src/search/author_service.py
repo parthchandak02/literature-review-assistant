@@ -5,10 +5,11 @@ Unified interface for author retrieval across multiple databases.
 Aggregates author profiles and bibliometric data from different sources.
 """
 
-from typing import List, Optional, Dict, Any
 import logging
-from .models import Author, Affiliation
+from typing import Any, Dict, List, Optional
+
 from .connectors.base import DatabaseConnector
+from .models import Affiliation, Author
 
 logger = logging.getLogger(__name__)
 

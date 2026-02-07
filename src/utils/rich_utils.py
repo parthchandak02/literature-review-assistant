@@ -5,9 +5,10 @@ This module provides a singleton Console instance and helper functions
 for common Rich operations, ensuring consistent formatting across the application.
 """
 
+from typing import Dict, List, Optional, Tuple
+
 from rich.console import Console
 from rich.panel import Panel
-from typing import Optional, List, Tuple, Dict
 
 # Singleton console instance - used throughout the application
 console = Console()

@@ -4,7 +4,8 @@ Introduction Writer Agent
 Generates introduction section for research articles.
 """
 
-from typing import List, Dict, Optional, Any
+from typing import Any, Dict, List, Optional
+
 from ..screening.base_agent import BaseScreeningAgent
 from ..utils.text_cleaner import clean_writing_output
 
@@ -24,7 +25,7 @@ class IntroductionWriter(BaseScreeningAgent):
         exclusion_criteria: List[str],
     ):
         """Stub implementation - writing agents don't screen papers."""
-        from ..screening.base_agent import ScreeningResult, InclusionDecision
+        from ..screening.base_agent import InclusionDecision, ScreeningResult
 
         return ScreeningResult(
             decision=InclusionDecision.UNCERTAIN,

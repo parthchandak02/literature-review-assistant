@@ -2,15 +2,17 @@
 End-to-end test for full workflow.
 """
 
+from unittest.mock import Mock, patch
+
 import pytest
 import yaml
-from unittest.mock import Mock, patch
+
 from src.orchestration.workflow_manager import WorkflowManager
-from tests.fixtures.workflow_configs import get_test_workflow_config
 from tests.fixtures.mock_llm_responses import (
-    get_mock_screening_response,
     get_mock_extraction_response,
+    get_mock_screening_response,
 )
+from tests.fixtures.workflow_configs import get_test_workflow_config
 
 
 @pytest.fixture
@@ -119,7 +121,7 @@ def test_workflow_error_scenarios(mock_workflow_config_file):
 def test_workflow_different_configurations(tmp_path):
     """Test workflow with different configurations."""
     import yaml
-    
+
     # Minimal config
     minimal_config = {
         "topic": {"topic": "Minimal Topic"},
@@ -137,7 +139,7 @@ def test_workflow_different_configurations(tmp_path):
                 "backstory": "Test",
                 "llm_model": "gemini-2.5-flash-lite",
                 "temperature": 0.2,
-            }
+            },
         },
         "workflow": {
             "databases": ["PubMed"],

@@ -3,7 +3,8 @@ Unit tests for handoff protocol.
 """
 
 import pytest
-from src.orchestration.handoff_protocol import HandoffProtocol, HandoffData
+
+from src.orchestration.handoff_protocol import HandoffData, HandoffProtocol
 from src.orchestration.topic_propagator import TopicContext
 
 

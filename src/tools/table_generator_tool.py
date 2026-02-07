@@ -6,7 +6,7 @@ Generates markdown tables for thematic analysis, topic-specific summaries, and i
 
 import logging
 from pathlib import Path
-from typing import List, Dict, Any, Optional
+from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 

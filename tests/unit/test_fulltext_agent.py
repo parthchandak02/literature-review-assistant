@@ -3,8 +3,9 @@ Unit tests for fulltext screening agent.
 """
 
 from unittest.mock import Mock, patch
-from src.screening.fulltext_agent import FullTextScreener
+
 from src.screening.base_agent import InclusionDecision
+from src.screening.fulltext_agent import FullTextScreener
 
 
 class TestFullTextScreener:

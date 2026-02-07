@@ -4,22 +4,22 @@ Database Connector Factory
 Factory for creating database connectors based on configuration and API keys.
 """
 
-import os
 import logging
+import os
 from typing import Optional
 
 from ..search.connectors.base import DatabaseConnector
 from ..search.database_connectors import (
-    PubMedConnector,
-    ArxivConnector,
-    SemanticScholarConnector,
-    CrossrefConnector,
-    ScopusConnector,
     ACMConnector,
-    SpringerConnector,
+    ArxivConnector,
+    CrossrefConnector,
     IEEEXploreConnector,
-    PerplexityConnector,
     MockConnector,
+    PerplexityConnector,
+    PubMedConnector,
+    ScopusConnector,
+    SemanticScholarConnector,
+    SpringerConnector,
 )
 
 try:
@@ -30,8 +30,8 @@ except ImportError:
     GOOGLE_SCHOLAR_AVAILABLE = False
     GoogleScholarConnector = None
 from ..search.cache import SearchCache
-from ..search.proxy_manager import ProxyManager
 from ..search.integrity_checker import IntegrityChecker
+from ..search.proxy_manager import ProxyManager
 
 logger = logging.getLogger(__name__)
 

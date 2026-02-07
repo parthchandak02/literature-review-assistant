@@ -4,10 +4,11 @@ Integration test for PRISMA diagram generation with real workflow data.
 Tests that PRISMA diagram is generated correctly and matches workflow counts.
 """
 
-import pytest
-import yaml
 from pathlib import Path
 from typing import Dict
+
+import pytest
+import yaml
 from dotenv import load_dotenv
 from PIL import Image
 
@@ -132,10 +133,10 @@ def test_config_file(tmp_path):
     """Create test config file."""
     config = get_test_config()
     config_file = tmp_path / "workflow.yaml"
-    
+
     with open(config_file, "w") as f:
         yaml.dump(config, f)
-    
+
     return str(config_file)
 
 
@@ -157,31 +158,32 @@ class TestPRISMAWithRealData:
         # Run search phase
         workflow_manager._build_search_strategy()
         papers = workflow_manager._search_databases()
-        
+
         if len(papers) == 0:
             pytest.skip("No papers found to test PRISMA")
-        
+
         workflow_manager.all_papers = papers
-        
+
         # Set PRISMA counts
         db_breakdown = workflow_manager._get_database_breakdown()
         workflow_manager.prisma_counter.set_found(len(papers), db_breakdown)
-        
+
         # Deduplicate
         dedup_result = workflow_manager.deduplicator.deduplicate_papers(papers)
         workflow_manager.unique_papers = dedup_result.unique_papers
         workflow_manager.prisma_counter.set_no_dupes(len(workflow_manager.unique_papers))
-        
+
         # Verify counts match
         counts = workflow_manager.prisma_counter.get_counts()
-        
-        assert counts["found"] == len(papers), \
+
+        assert counts["found"] == len(papers), (
             f"Found count mismatch: {counts['found']} != {len(papers)}"
-        assert counts["no_dupes"] == len(workflow_manager.unique_papers), \
+        )
+        assert counts["no_dupes"] == len(workflow_manager.unique_papers), (
             f"No dupes count mismatch: {counts['no_dupes']} != {len(workflow_manager.unique_papers)}"
-        assert counts["no_dupes"] <= counts["found"], \
-            "Unique papers should be <= total papers"
-        
+        )
+        assert counts["no_dupes"] <= counts["found"], "Unique papers should be <= total papers"
+
         print("\nPRISMA Counts Match:")
         print(f"  Found: {counts['found']} == {len(papers)} papers")
         print(f"  No dupes: {counts['no_dupes']} == {len(workflow_manager.unique_papers)} unique")
@@ -193,53 +195,54 @@ class TestPRISMAWithRealData:
         # Set up workflow state
         workflow_manager._build_search_strategy()
         papers = workflow_manager._search_databases()
-        
+
         if len(papers) == 0:
             pytest.skip("No papers found to generate PRISMA diagram")
-        
+
         workflow_manager.all_papers = papers
         workflow_manager.prisma_counter.set_found(
-            len(papers),
-            workflow_manager._get_database_breakdown()
+            len(papers), workflow_manager._get_database_breakdown()
         )
-        
+
         dedup_result = workflow_manager.deduplicator.deduplicate_papers(papers)
         workflow_manager.unique_papers = dedup_result.unique_papers
         workflow_manager.prisma_counter.set_no_dupes(len(workflow_manager.unique_papers))
-        
+
         # Generate PRISMA diagram
         try:
             prisma_path = workflow_manager._generate_prisma_diagram()
-            
+
             # Verify diagram exists
             assert prisma_path is not None, "PRISMA path should not be None"
             assert Path(prisma_path).exists(), f"PRISMA diagram file should exist: {prisma_path}"
-            
+
             # Verify file is valid PNG
             try:
                 img = Image.open(prisma_path)
                 assert img.format == "PNG", f"PRISMA diagram should be PNG, got {img.format}"
-                
+
                 # Verify image has reasonable dimensions
                 width, height = img.size
                 assert width > 0 and height > 0, "PRISMA diagram should have non-zero dimensions"
                 assert width >= 800, "PRISMA diagram should be at least 800px wide"
-                
+
                 print("\nPRISMA Diagram Valid:")
                 print(f"  Path: {prisma_path}")
                 print(f"  Format: {img.format}")
                 print(f"  Dimensions: {width}x{height}")
-                
+
             except Exception as e:
                 pytest.fail(f"PRISMA diagram is not a valid image: {e}")
-            
+
             # Verify file size is reasonable
             file_size = Path(prisma_path).stat().st_size
             assert file_size > 1000, f"PRISMA diagram should be > 1KB, got {file_size} bytes"
-            assert file_size < 10 * 1024 * 1024, f"PRISMA diagram should be < 10MB, got {file_size} bytes"
-            
+            assert file_size < 10 * 1024 * 1024, (
+                f"PRISMA diagram should be < 10MB, got {file_size} bytes"
+            )
+
             print(f"  File size: {file_size} bytes")
-            
+
         except Exception as e:
             pytest.skip(f"PRISMA diagram generation failed: {e}")
 
@@ -250,38 +253,39 @@ class TestPRISMAWithRealData:
         # Set up workflow with known counts
         workflow_manager._build_search_strategy()
         papers = workflow_manager._search_databases()
-        
+
         if len(papers) == 0:
             pytest.skip("No papers found")
-        
+
         workflow_manager.all_papers = papers
-        
+
         # Set specific counts
         db_breakdown = workflow_manager._get_database_breakdown()
         workflow_manager.prisma_counter.set_found(len(papers), db_breakdown)
-        
+
         dedup_result = workflow_manager.deduplicator.deduplicate_papers(papers)
         workflow_manager.unique_papers = dedup_result.unique_papers
         workflow_manager.prisma_counter.set_no_dupes(len(workflow_manager.unique_papers))
-        
+
         # Get counts before generation
         expected_counts = workflow_manager.prisma_counter.get_counts()
-        
+
         # Generate diagram
         try:
             workflow_manager._generate_prisma_diagram()
-            
+
             # Verify counts after generation (should be unchanged)
             actual_counts = workflow_manager.prisma_counter.get_counts()
-            
+
             for key in expected_counts:
-                assert actual_counts[key] == expected_counts[key], \
+                assert actual_counts[key] == expected_counts[key], (
                     f"Count mismatch for {key}: {actual_counts[key]} != {expected_counts[key]}"
-            
+                )
+
             print("\nPRISMA Counts Verified:")
             for key, value in expected_counts.items():
                 print(f"  {key}: {value}")
-            
+
         except Exception as e:
             pytest.skip(f"PRISMA generation failed: {e}")
 
@@ -292,42 +296,41 @@ class TestPRISMAWithRealData:
         # Set up workflow
         workflow_manager._build_search_strategy()
         papers = workflow_manager._search_databases()
-        
+
         if len(papers) == 0:
             pytest.skip("No papers found")
-        
+
         workflow_manager.all_papers = papers
         workflow_manager.prisma_counter.set_found(
-            len(papers),
-            workflow_manager._get_database_breakdown()
+            len(papers), workflow_manager._get_database_breakdown()
         )
-        
+
         dedup_result = workflow_manager.deduplicator.deduplicate_papers(papers)
         workflow_manager.unique_papers = dedup_result.unique_papers
         workflow_manager.prisma_counter.set_no_dupes(len(workflow_manager.unique_papers))
-        
+
         # Try screening (may fail if no LLM API)
         try:
             workflow_manager.unique_papers = workflow_manager.unique_papers[:5]
             workflow_manager._screen_title_abstract()
-            
+
             workflow_manager.prisma_counter.set_screened(len(workflow_manager.screened_papers))
             excluded = len(workflow_manager.unique_papers) - len(workflow_manager.screened_papers)
             workflow_manager.prisma_counter.set_screen_exclusions(excluded)
-            
+
             # Generate PRISMA with screening counts
             prisma_path = workflow_manager._generate_prisma_diagram()
-            
+
             counts = workflow_manager.prisma_counter.get_counts()
-            
+
             assert "screened" in counts or "no_dupes" in counts
             assert counts.get("screened", counts.get("no_dupes", 0)) <= counts["no_dupes"]
-            
+
             print("\nPRISMA with Screening:")
             print(f"  Found: {counts.get('found', 0)}")
             print(f"  No dupes: {counts.get('no_dupes', 0)}")
             print(f"  Screened: {counts.get('screened', 0)}")
-            
+
         except Exception:
             # Screening may fail, but PRISMA should still work
             prisma_path = workflow_manager._generate_prisma_diagram()

@@ -2,7 +2,7 @@
 Test configurations.
 """
 
-from typing import Dict, Any
+from typing import Any, Dict
 
 
 def get_test_workflow_config() -> Dict[str, Any]:

@@ -110,34 +110,34 @@ Implications for practice, policy, and research are provided.""",
 def get_sample_report_markdown() -> str:
     """Get sample complete report markdown."""
     sections = get_complete_article_sections()
-    
-    return f"""# {sections['title']}
+
+    return f"""# {sections["title"]}
 
 ## Abstract
 
-{sections['abstract']}
+{sections["abstract"]}
 
 ## Keywords
 
-{sections['keywords']}
+{sections["keywords"]}
 
-{sections['introduction']}
+{sections["introduction"]}
 
-{sections['methods']}
+{sections["methods"]}
 
-{sections['results']}
+{sections["results"]}
 
-{sections['discussion']}
+{sections["discussion"]}
 
 ## Funding
 
-{sections['funding']}
+{sections["funding"]}
 
 ## Conflicts of Interest
 
-{sections['conflicts_of_interest']}
+{sections["conflicts_of_interest"]}
 
 ## Data Availability
 
-{sections['data_availability']}
+{sections["data_availability"]}
 """

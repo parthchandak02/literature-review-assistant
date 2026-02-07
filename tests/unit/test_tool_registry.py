@@ -2,7 +2,7 @@
 Unit tests for tool registry.
 """
 
-from src.tools.tool_registry import ToolRegistry, Tool, ToolParameter, ToolResultStatus
+from src.tools.tool_registry import Tool, ToolParameter, ToolRegistry, ToolResultStatus
 
 
 def test_tool_registry_register():

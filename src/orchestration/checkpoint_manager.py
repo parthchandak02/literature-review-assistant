@@ -5,9 +5,9 @@ Manages workflow checkpoint saving and loading.
 """
 
 import json
-from pathlib import Path
-from typing import Dict, List, Optional, Any
 from datetime import datetime
+from pathlib import Path
+from typing import Any, Dict, List, Optional
 
 from ..utils.logging_config import get_logger
 from ..utils.state_serialization import StateSerializer
@@ -62,11 +62,27 @@ class CheckpointManager:
             }
 
             checkpoint_file = self.checkpoint_dir / f"{phase_name}_state.json"
+            
+            # Ensure checkpoint directory exists before writing file
+            try:
+                checkpoint_file.parent.mkdir(parents=True, exist_ok=True)
+                logger.debug(f"Checkpoint directory verified: {checkpoint_file.parent}")
+            except Exception as dir_error:
+                error_msg = (
+                    f"Failed to create checkpoint directory '{checkpoint_file.parent}': {dir_error}. "
+                    f"Please ensure the parent directory exists and has write permissions."
+                )
+                logger.error(error_msg)
+                raise RuntimeError(error_msg) from dir_error
+            
             with open(checkpoint_file, "w") as f:
                 json.dump(checkpoint_data, f, indent=2, default=str)
 
             logger.info(f"Saved checkpoint for phase: {phase_name}")
             return str(checkpoint_file)
+        except RuntimeError:
+            # Re-raise RuntimeError for fail-fast behavior
+            raise
         except Exception as e:
             logger.warning(f"Failed to save checkpoint for {phase_name}: {e}")
             return None
@@ -87,7 +103,7 @@ class CheckpointManager:
             return None
 
         try:
-            with open(checkpoint_file, "r") as f:
+            with open(checkpoint_file) as f:
                 checkpoint_data = json.load(f)
             return checkpoint_data
         except Exception as e:

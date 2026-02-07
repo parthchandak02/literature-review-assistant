@@ -3,11 +3,12 @@ Integration tests for writing workflow.
 """
 
 from unittest.mock import Mock, patch
+
+from src.extraction.data_extractor_agent import ExtractedData
+from src.writing.discussion_agent import DiscussionWriter
 from src.writing.introduction_agent import IntroductionWriter
 from src.writing.methods_agent import MethodsWriter
 from src.writing.results_agent import ResultsWriter
-from src.writing.discussion_agent import DiscussionWriter
-from src.extraction.data_extractor_agent import ExtractedData
 
 
 class TestWritingWorkflow:

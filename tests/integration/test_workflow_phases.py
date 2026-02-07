@@ -2,9 +2,11 @@
 Integration tests for workflow phases.
 """
 
-import pytest
-from pathlib import Path
 import tempfile
+from pathlib import Path
+
+import pytest
+
 from src.orchestration.workflow_manager import WorkflowManager
 from tests.fixtures.workflow_configs import get_test_workflow_config
 

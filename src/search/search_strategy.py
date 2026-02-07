@@ -5,8 +5,8 @@ Builds Boolean search queries with MeSH terms and keyword combinations
 for systematic literature reviews.
 """
 
-from typing import List, Dict, Optional
 from dataclasses import dataclass
+from typing import Dict, List, Optional
 
 
 @dataclass
@@ -19,7 +19,7 @@ class SearchTerm:
 
     def to_query(self, database: str = "generic") -> str:
         """Convert to database-specific query format."""
-        all_terms = [self.main_term] + self.synonyms
+        all_terms = [self.main_term, *self.synonyms]
         if self.mesh_terms:
             all_terms.extend(self.mesh_terms)
 
@@ -123,7 +123,7 @@ class SearchStrategyBuilder:
         """Build PubMed-specific query with MeSH terms."""
         queries = []
         for group in self.term_groups:
-            terms = [f'"{term}"[Title/Abstract]' for term in [group.main_term] + group.synonyms]
+            terms = [f'"{term}"[Title/Abstract]' for term in [group.main_term, *group.synonyms]]
             if group.mesh_terms:
                 mesh_terms = [f"{term}[MeSH Terms]" for term in group.mesh_terms]
                 terms.extend(mesh_terms)
@@ -142,7 +142,7 @@ class SearchStrategyBuilder:
         """Build Scopus-specific query."""
         queries = []
         for group in self.term_groups:
-            terms = [f'"{term}"' for term in [group.main_term] + group.synonyms]
+            terms = [f'"{term}"' for term in [group.main_term, *group.synonyms]]
             queries.append("(" + " OR ".join(terms) + ")")
 
         combined = " AND ".join(queries)
@@ -160,7 +160,7 @@ class SearchStrategyBuilder:
         """Build Web of Science-specific query."""
         queries = []
         for group in self.term_groups:
-            terms = [f'"{term}"' for term in [group.main_term] + group.synonyms]
+            terms = [f'"{term}"' for term in [group.main_term, *group.synonyms]]
             queries.append("(" + " OR ".join(terms) + ")")
 
         combined = " AND ".join(queries)
@@ -176,7 +176,7 @@ class SearchStrategyBuilder:
         """Build IEEE Xplore-specific query."""
         queries = []
         for group in self.term_groups:
-            terms = [f'"{term}"' for term in [group.main_term] + group.synonyms]
+            terms = [f'"{term}"' for term in [group.main_term, *group.synonyms]]
             queries.append("(" + " OR ".join(terms) + ")")
 
         combined = " AND ".join(queries)
@@ -197,7 +197,7 @@ class SearchStrategyBuilder:
             # arXiv supports field-specific searches
             # Format: ti:title OR abs:abstract OR au:author
             terms = []
-            for term in [group.main_term] + group.synonyms:
+            for term in [group.main_term, *group.synonyms]:
                 # Search in title and abstract
                 terms.append(f'ti:"{term}"')
                 terms.append(f'abs:"{term}"')
@@ -219,7 +219,7 @@ class SearchStrategyBuilder:
         queries = []
         for group in self.term_groups:
             # Combine all terms with OR
-            terms = [group.main_term] + group.synonyms
+            terms = [group.main_term, *group.synonyms]
             # Semantic Scholar supports field queries like title:term, abstract:term
             term_parts = [f'"{term}"' for term in terms]
             queries.append("(" + " OR ".join(term_parts) + ")")
@@ -241,7 +241,7 @@ class SearchStrategyBuilder:
         # Crossref uses simple query strings, filters are applied via API parameters
         queries = []
         for group in self.term_groups:
-            terms = [group.main_term] + group.synonyms
+            terms = [group.main_term, *group.synonyms]
             term_parts = [f'"{term}"' for term in terms]
             queries.append("(" + " OR ".join(term_parts) + ")")
 
@@ -256,7 +256,7 @@ class SearchStrategyBuilder:
         # ACM uses simple text search, similar to Semantic Scholar
         queries = []
         for group in self.term_groups:
-            terms = [group.main_term] + group.synonyms
+            terms = [group.main_term, *group.synonyms]
             term_parts = [f'"{term}"' for term in terms]
             queries.append("(" + " OR ".join(term_parts) + ")")
 

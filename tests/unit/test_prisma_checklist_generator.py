@@ -2,9 +2,10 @@
 Unit tests for PRISMA checklist generator.
 """
 
-import pytest
 import json
 from pathlib import Path
+
+import pytest
 
 from src.prisma.checklist_generator import PRISMAChecklistGenerator
 
@@ -85,15 +86,15 @@ Some results.
 def test_checklist_generation(generator, complete_report_content, tmp_path):
     """Test checklist generation with complete report."""
     output_path = tmp_path / "checklist.json"
-    
+
     result_path = generator.generate_checklist(complete_report_content, str(output_path))
-    
+
     assert Path(result_path).exists()
     assert result_path == str(output_path)
-    
-    with open(result_path, "r") as f:
+
+    with open(result_path) as f:
         checklist = json.load(f)
-    
+
     assert checklist["prisma_version"] == "2020"
     assert "report_title" in checklist
     assert "items" in checklist
@@ -104,12 +105,12 @@ def test_checklist_item_detection(generator, complete_report_content, tmp_path):
     """Test that checklist correctly detects items."""
     output_path = tmp_path / "checklist.json"
     generator.generate_checklist(complete_report_content, str(output_path))
-    
-    with open(output_path, "r") as f:
+
+    with open(output_path) as f:
         checklist = json.load(f)
-    
+
     items = {item["item"]: item for item in checklist["items"]}
-    
+
     # Check that key items are detected
     assert items[1]["reported"] == "Yes"  # Title
     assert items[4]["reported"] == "Yes"  # Objectives
@@ -130,12 +131,12 @@ def test_checklist_missing_items(generator, incomplete_report_content, tmp_path)
     """Test checklist with missing items."""
     output_path = tmp_path / "checklist.json"
     generator.generate_checklist(incomplete_report_content, str(output_path))
-    
-    with open(output_path, "r") as f:
+
+    with open(output_path) as f:
         checklist = json.load(f)
-    
+
     items = checklist["items"]
-    
+
     # Should have many "No" items
     no_items = [item for item in items if item["reported"] == "No"]
     assert len(no_items) > 10
@@ -145,17 +146,17 @@ def test_checklist_json_output(generator, complete_report_content, tmp_path):
     """Test JSON output format."""
     output_path = tmp_path / "checklist.json"
     generator.generate_checklist(complete_report_content, str(output_path))
-    
-    with open(output_path, "r") as f:
+
+    with open(output_path) as f:
         checklist = json.load(f)
-    
+
     # Verify structure
     assert isinstance(checklist, dict)
     assert "prisma_version" in checklist
     assert "report_title" in checklist
     assert "items" in checklist
     assert isinstance(checklist["items"], list)
-    
+
     # Verify item structure
     for item in checklist["items"]:
         assert "item" in item
@@ -171,7 +172,7 @@ def test_title_extraction(generator):
     content = "# Systematic Review: Test Topic\n\nContent here."
     title = generator._extract_title(content)
     assert title == "Systematic Review: Test Topic"
-    
+
     # Test with no title
     content_no_title = "Content without title."
     title = generator._extract_title(content_no_title)
@@ -181,13 +182,13 @@ def test_title_extraction(generator):
 def test_item_checking(generator):
     """Test individual item checking."""
     content = "# Systematic Review\n\n## Methods\n\nSearch strategy is presented."
-    
+
     # Test item 1 (title)
     assert generator._check_item(content, 1, "Identify the report as a systematic review", "Title")
-    
+
     # Test item 7 (search strategy)
     assert generator._check_item(content, 7, "Present full search strategies", "Methods")
-    
+
     # Test item that doesn't exist
     assert not generator._check_item(content, 24, "Provide registration information", "Other")
 
@@ -196,9 +197,9 @@ def test_page_number_estimation(generator):
     """Test page number estimation."""
     # Create content with sections at different line positions
     content = "\n".join([f"Line {i}" for i in range(200)]) + "\n## Methods\n\nContent"
-    
+
     page_num = generator._find_page_number(content, "Methods")
-    
+
     # Should estimate based on line number (approximately)
     assert page_num is not None
     assert isinstance(page_num, int)
@@ -215,7 +216,7 @@ def test_page_number_not_found(generator):
 def test_checklist_all_items_present(generator):
     """Test that all 27 items are included in checklist."""
     assert len(generator.checklist_items) == 27
-    
+
     # Verify item numbers are sequential
     item_numbers = [item["item"] for item in generator.checklist_items]
     assert item_numbers == list(range(1, 28))
@@ -229,7 +230,7 @@ def test_checklist_section_mapping(generator):
         if section not in sections:
             sections[section] = []
         sections[section].append(item["item"])
-    
+
     # Verify expected sections exist
     assert "Title" in sections
     assert "Abstract" in sections
@@ -238,7 +239,7 @@ def test_checklist_section_mapping(generator):
     assert "Results" in sections
     assert "Discussion" in sections
     assert "Other" in sections
-    
+
     # Verify item 1 is in Title
     assert 1 in sections["Title"]
     # Verify item 2 is in Abstract

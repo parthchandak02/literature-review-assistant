@@ -5,10 +5,10 @@ Generates PRISMA 2020 checklist file marking items as present/absent.
 """
 
 import json
-from pathlib import Path
-from typing import Dict, List, Optional, Any
 import logging
 import re
+from pathlib import Path
+from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 

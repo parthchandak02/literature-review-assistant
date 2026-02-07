@@ -10,14 +10,21 @@ Tests error handling throughout the workflow:
 - PRISMA generation failure recovery
 """
 
-import pytest
 import os
 from unittest.mock import Mock, patch
-from src.orchestration.workflow_manager import WorkflowManager
-from src.search.database_connectors import DatabaseConnector, DatabaseSearchError, NetworkError, APIKeyError
-from tests.fixtures.workflow_configs import get_test_workflow_config
+
+import pytest
 import yaml
 from dotenv import load_dotenv
+
+from src.orchestration.workflow_manager import WorkflowManager
+from src.search.database_connectors import (
+    APIKeyError,
+    DatabaseConnector,
+    DatabaseSearchError,
+    NetworkError,
+)
+from tests.fixtures.workflow_configs import get_test_workflow_config
 
 load_dotenv()
 
@@ -135,31 +142,31 @@ def test_error_context_propagation(error_test_config):
 def test_database_api_failure_recovery(error_test_config):
     """Test that workflow continues when one database fails."""
     manager = WorkflowManager(error_test_config)
-    
+
     # Create a mock connector that fails
     class FailingConnector(DatabaseConnector):
         def search(self, query: str, max_results: int = 100):
             raise DatabaseSearchError("Simulated database failure")
-        
+
         def get_database_name(self) -> str:
             return "FailingDB"
-    
+
     # Add failing connector
     failing_connector = FailingConnector()
-    
+
     # Mock the connector creation to include failing one
     original_create = manager._create_connector
-    
+
     def mock_create(db_name, cache=None):
         if db_name == "FailingDB":
             return failing_connector
         return original_create(db_name, cache)
-    
+
     manager._create_connector = mock_create
-    
+
     # Build search strategy
     manager._build_search_strategy()
-    
+
     # Search should continue even if one database fails
     # (This depends on MultiDatabaseSearcher implementation)
     # For now, verify that error handling exists
@@ -169,13 +176,13 @@ def test_database_api_failure_recovery(error_test_config):
 def test_network_timeout_handling(error_test_config):
     """Test network timeout handling."""
     import requests
-    
+
     manager = WorkflowManager(error_test_config)
-    
+
     # Mock requests.get to raise timeout
-    with patch('requests.get') as mock_get:
+    with patch("requests.get") as mock_get:
         mock_get.side_effect = requests.Timeout("Connection timeout")
-        
+
         # Should handle timeout gracefully
         # This tests the retry mechanism in database connectors
         try:
@@ -191,19 +198,19 @@ def test_network_timeout_handling(error_test_config):
 def test_invalid_api_key_handling(error_test_config):
     """Test handling of invalid API keys."""
     WorkflowManager(error_test_config)
-    
+
     # Create connector with invalid key
     from src.search.database_connectors import ScopusConnector
-    
+
     # Mock the API call to return 401
-    with patch('requests.get') as mock_get:
+    with patch("requests.get") as mock_get:
         mock_response = Mock()
         mock_response.status_code = 401
         mock_response.raise_for_status.side_effect = Exception("401 Unauthorized")
         mock_get.return_value = mock_response
-        
+
         connector = ScopusConnector(api_key="invalid_key")
-        
+
         # Should raise APIKeyError
         with pytest.raises(APIKeyError):
             connector.search("test query", max_results=1)
@@ -212,18 +219,18 @@ def test_invalid_api_key_handling(error_test_config):
 def test_empty_search_results_handling(error_test_config):
     """Test handling of empty search results."""
     manager = WorkflowManager(error_test_config)
-    
+
     # Mock connector that returns empty results
     class EmptyConnector(DatabaseConnector):
         def search(self, query: str, max_results: int = 100):
             return []  # Empty results
-        
+
         def get_database_name(self) -> str:
             return "EmptyDB"
-    
+
     # Workflow should handle empty results gracefully
     manager._build_search_strategy()
-    
+
     # Empty results should not crash workflow
     # (Actual behavior: workflow continues with empty results)
 
@@ -231,11 +238,11 @@ def test_empty_search_results_handling(error_test_config):
 def test_llm_api_failure_handling(error_test_config):
     """Test LLM API failure handling."""
     manager = WorkflowManager(error_test_config)
-    
+
     # Mock LLM to fail
     manager.title_screener.llm_client = None
     manager.title_screener.api_key = None
-    
+
     # Should use fallback or handle gracefully
     result = manager.title_screener.screen(
         title="Test Title",
@@ -243,7 +250,7 @@ def test_llm_api_failure_handling(error_test_config):
         inclusion_criteria=["Test"],
         exclusion_criteria=[],
     )
-    
+
     # Should return a result (may be fallback)
     assert result is not None
     assert result.decision is not None
@@ -253,17 +260,17 @@ def test_prisma_generation_failure_recovery(error_test_config, tmp_path):
     """Test PRISMA generation failure recovery."""
     manager = WorkflowManager(error_test_config)
     manager.output_dir = tmp_path
-    
+
     # Set up minimal workflow state
     manager.all_papers = []
     manager.unique_papers = []
     manager.prisma_counter.set_found(0, {})
     manager.prisma_counter.set_no_dupes(0)
-    
+
     # Mock PRISMA generator to fail
-    with patch.object(manager.prisma_generator, 'generate_diagram') as mock_gen:
+    with patch.object(manager.prisma_generator, "generate_diagram") as mock_gen:
         mock_gen.side_effect = Exception("PRISMA generation failed")
-        
+
         # Should handle failure gracefully
         try:
             manager._generate_prisma_diagram()
@@ -277,14 +284,14 @@ def test_partial_results_saved_on_failure(error_test_config, tmp_path):
     """Test that partial results are saved when workflow fails."""
     manager = WorkflowManager(error_test_config)
     manager.output_dir = tmp_path
-    
+
     # Set up some workflow state
     manager.all_papers = []
     manager.unique_papers = []
-    
+
     # Simulate partial completion
     manager.prisma_counter.set_found(10, {"PubMed": 10})
-    
+
     # Save state (should work even if workflow incomplete)
     try:
         state_path = manager._save_workflow_state()
@@ -298,11 +305,11 @@ def test_partial_results_saved_on_failure(error_test_config, tmp_path):
 def test_workflow_continues_after_non_critical_error(error_test_config):
     """Test workflow continues after non-critical errors."""
     manager = WorkflowManager(error_test_config)
-    
+
     # Build search strategy (should always work)
     manager._build_search_strategy()
     assert manager.search_strategy is not None
-    
+
     # Even if search fails, workflow should handle it
     # (Actual behavior depends on implementation)
     # For now, verify workflow manager is resilient

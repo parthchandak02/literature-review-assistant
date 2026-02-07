@@ -14,9 +14,9 @@ import pytest
 from dotenv import load_dotenv
 
 from src.enrichment.paper_enricher import PaperEnricher
-from src.visualization.charts import ChartGenerator
-from src.utils.state_serialization import StateSerializer
 from src.search.connectors.base import Paper
+from src.utils.state_serialization import StateSerializer
+from src.visualization.charts import ChartGenerator
 
 load_dotenv()
 logger = logging.getLogger(__name__)
@@ -26,14 +26,14 @@ def find_best_checkpoint(checkpoint_path: str) -> str:
     """Find the best checkpoint file (preferring later stages with final_papers)."""
     checkpoint_file = Path(checkpoint_path)
     checkpoint_dir = checkpoint_file.parent
-    
+
     # Prefer checkpoints in this order (later stages have final_papers)
     preferred_files = [
         "data_extraction_state.json",
         "fulltext_screening_state.json",
         "title_abstract_screening_state.json",
     ]
-    
+
     # If a specific file was provided, check if it exists
     if checkpoint_file.exists():
         # Check if it's a directory or file
@@ -46,17 +46,17 @@ def find_best_checkpoint(checkpoint_path: str) -> str:
                 if preferred_path.exists():
                     return str(preferred_path)
             return str(checkpoint_file)
-    
+
     # Try to find preferred checkpoints in the directory
     for preferred in preferred_files:
         preferred_path = checkpoint_dir / preferred
         if preferred_path.exists():
             return str(preferred_path)
-    
+
     # Fall back to provided path
     if checkpoint_file.exists():
         return str(checkpoint_file)
-    
+
     raise FileNotFoundError(f"No checkpoint found: {checkpoint_path}")
 
 
@@ -65,15 +65,15 @@ def load_checkpoint_papers(checkpoint_path: str) -> List[Paper]:
     # Find the best checkpoint
     best_checkpoint = find_best_checkpoint(checkpoint_path)
     checkpoint_file = Path(best_checkpoint)
-    
+
     if not checkpoint_file.exists():
         raise FileNotFoundError(f"Checkpoint not found: {best_checkpoint}")
-    
-    with open(checkpoint_file, "r") as f:
+
+    with open(checkpoint_file) as f:
         checkpoint_data = json.load(f)
-    
+
     serializer = StateSerializer()
-    
+
     # Try to get final_papers first, then eligible_papers, then screened_papers
     papers_data = None
     if "final_papers" in checkpoint_data.get("data", {}):
@@ -84,7 +84,7 @@ def load_checkpoint_papers(checkpoint_path: str) -> List[Paper]:
         papers_data = checkpoint_data["data"]["screened_papers"]
     else:
         raise ValueError("No papers found in checkpoint data")
-    
+
     papers = serializer.deserialize_papers(papers_data)
     return papers
 
@@ -102,19 +102,19 @@ def test_enrichment(sample_checkpoint_path, tmp_path):
     # Skip if checkpoint doesn't exist
     if not Path(sample_checkpoint_path).exists():
         pytest.skip(f"Checkpoint not found: {sample_checkpoint_path}")
-    
+
     papers = load_checkpoint_papers(sample_checkpoint_path)
-    
+
     # Count papers that need enrichment
     papers_needing_enrichment = [p for p in papers if not p.affiliations and p.doi]
-    
+
     if not papers_needing_enrichment:
         pytest.skip("No papers need enrichment")
-    
+
     # Run enrichment
     enricher = PaperEnricher()
     enriched_count = 0
-    
+
     for paper in papers_needing_enrichment[:5]:  # Limit to 5 for testing
         try:
             enriched_paper = enricher._fetch_by_doi(paper.doi)
@@ -123,7 +123,7 @@ def test_enrichment(sample_checkpoint_path, tmp_path):
                 enriched_count += 1
         except Exception as e:
             logger.warning(f"Failed to enrich paper (DOI: {paper.doi}): {e}")
-    
+
     # Verify at least some enrichment occurred (or skipped if rate limited)
     assert enriched_count >= 0, "Enrichment should not fail"
 
@@ -135,35 +135,35 @@ def test_visualization_generation(sample_checkpoint_path, tmp_path):
     # Skip if checkpoint doesn't exist
     if not Path(sample_checkpoint_path).exists():
         pytest.skip(f"Checkpoint not found: {sample_checkpoint_path}")
-    
+
     papers = load_checkpoint_papers(sample_checkpoint_path)
-    
+
     # Generate visualizations
     output_dir = str(tmp_path)
     chart_generator = ChartGenerator(output_dir=output_dir)
-    
+
     # Generate all visualizations
     viz_paths = {}
-    
+
     year_path = chart_generator.papers_per_year(papers)
     if year_path:
         viz_paths["papers_per_year"] = year_path
-    
+
     country_path = chart_generator.papers_by_country(papers)
     if country_path:
         viz_paths["papers_by_country"] = country_path
-    
+
     subject_path = chart_generator.papers_by_subject(papers)
     if subject_path:
         viz_paths["papers_by_subject"] = subject_path
-    
+
     network_path = chart_generator.network_graph(papers)
     if network_path:
         viz_paths["network_graph"] = network_path
-    
+
     # Verify visualizations were generated
     assert len(viz_paths) > 0, "At least one visualization should be generated"
-    
+
     # Verify files exist
     for _name, path in viz_paths.items():
         assert Path(path).exists(), f"Visualization file should exist: {path}"

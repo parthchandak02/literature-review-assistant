@@ -4,6 +4,7 @@ Unit tests for config loader.
 
 import pytest
 import yaml
+
 from src.config.config_loader import ConfigLoader
 from src.orchestration.topic_propagator import TopicContext
 

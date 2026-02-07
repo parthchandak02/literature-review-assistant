@@ -4,31 +4,31 @@ Base Agent for Screening
 Base classes for LLM-powered screening agents.
 """
 
-from abc import ABC, abstractmethod
-from typing import Dict, List, Optional, Any
-from dataclasses import dataclass
-from enum import Enum
 import json
 import logging
 import time
+from abc import ABC, abstractmethod
+from dataclasses import dataclass
+from enum import Enum
+from typing import Any, Dict, List, Optional
 
-from ..utils.rich_utils import (
-    console,
-    print_llm_request_panel,
-    print_llm_response_panel,
-)
-from ..utils.retry_strategies import (
-    create_llm_retry_decorator,
-    LLM_RETRY_CONFIG,
-    RetryConfig,
-)
+from ..config.debug_config import get_debug_config_from_env
+from ..tools.tool_registry import Tool, ToolRegistry
 from ..utils.circuit_breaker import (
     CircuitBreaker,
     CircuitBreakerConfig,
     CircuitBreakerOpenError,
 )
-from ..tools.tool_registry import ToolRegistry, Tool
-from ..config.debug_config import get_debug_config_from_env
+from ..utils.retry_strategies import (
+    LLM_RETRY_CONFIG,
+    RetryConfig,
+    create_llm_retry_decorator,
+)
+from ..utils.rich_utils import (
+    console,
+    print_llm_request_panel,
+    print_llm_response_panel,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -269,7 +269,7 @@ class BaseScreeningAgent(ABC):
                 topic_info.append(f"Research Question: {self.topic_context['research_question']}")
             if "domain" in self.topic_context:
                 topic_info.append(f"Domain: {self.topic_context['domain']}")
-            if "keywords" in self.topic_context and self.topic_context["keywords"]:
+            if self.topic_context.get("keywords"):
                 topic_info.append(f"Keywords: {', '.join(self.topic_context['keywords'])}")
 
             if topic_info:
@@ -390,9 +390,9 @@ Output must be suitable for direct insertion into an academic publication withou
                     cost = 0.0
                     if self.debug_config.show_costs:
                         from ..observability.cost_tracker import (
-                            get_cost_tracker,
-                            TokenUsage,
                             LLMCostTracker,
+                            TokenUsage,
+                            get_cost_tracker,
                         )
 
                         cost_tracker = get_cost_tracker()
@@ -489,7 +489,7 @@ Output must be suitable for direct insertion into an academic publication withou
                 metrics = get_metrics_collector()
                 metrics.record_call(self.role, 0.0, success=False, error_type=type(e).__name__)
             # Graceful degradation
-            return f"Error: {str(e)}"
+            return f"Error: {e!s}"
 
     def _call_llm_with_tools(
         self, prompt: str, model: Optional[str] = None, max_iterations: int = 5
@@ -610,7 +610,7 @@ Output must be suitable for direct insertion into an academic publication withou
 
             except Exception as e:
                 logger.error(f"Error in tool calling loop: {e}", exc_info=True)
-                return f"Error: {str(e)}"
+                return f"Error: {e!s}"
 
         # Max iterations reached
         logger.warning(f"[{self.role}] Max tool calling iterations ({max_iterations}) reached")

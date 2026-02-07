@@ -2,13 +2,13 @@
 Caching layer for search results.
 """
 
-import json
 import hashlib
+import json
+import logging
 import sqlite3
 import time
-from typing import Optional, List, Dict, Any, TYPE_CHECKING
 from pathlib import Path
-import logging
+from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 if TYPE_CHECKING:
     from .database_connectors import Paper
@@ -162,7 +162,7 @@ class SearchCache:
         conn.close()
 
         if row:
-            results_json, expires_at = row
+            results_json, _expires_at = row
             logger.debug(f"Cache hit for {database}: {query[:50]}...")
             return self._deserialize_papers(results_json)
 

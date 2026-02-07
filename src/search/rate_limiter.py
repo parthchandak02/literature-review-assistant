@@ -2,21 +2,22 @@
 Rate limiting and retry logic for database API calls.
 """
 
-import time
+import logging
 import random
-from typing import Callable
-from threading import Lock
+import time
 from collections import deque
+from threading import Lock
+from typing import Callable
+
 from tenacity import (
+    before_sleep_log,
     retry,
+    retry_if_exception_type,
     stop_after_attempt,
     wait_exponential,
-    retry_if_exception_type,
-    before_sleep_log,
 )
-import logging
 
-from .exceptions import NetworkError, DatabaseUnavailableError
+from .exceptions import DatabaseUnavailableError, NetworkError
 
 logger = logging.getLogger(__name__)
 

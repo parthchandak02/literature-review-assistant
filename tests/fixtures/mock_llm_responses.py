@@ -2,11 +2,11 @@
 Mock LLM responses for testing.
 """
 
-from typing import Dict, Any
+from typing import Any, Dict, Optional
 from unittest.mock import Mock
 
 
-def create_mock_gemini_response(content: str, tokens: Dict[str, int] = None) -> Mock:
+def create_mock_gemini_response(content: str, tokens: Optional[Dict[str, int]] = None) -> Mock:
     """
     Create mock Gemini API response.
 

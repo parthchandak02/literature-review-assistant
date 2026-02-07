@@ -4,12 +4,12 @@ Circuit Breaker Pattern Implementation
 Prevents cascading failures by stopping requests to failing services.
 """
 
-import time
-from enum import Enum
-from typing import Callable, TypeVar, Optional, Any
-from dataclasses import dataclass, field
-from threading import Lock
 import logging
+import time
+from dataclasses import dataclass, field
+from enum import Enum
+from threading import Lock
+from typing import Any, Callable, Optional, TypeVar
 
 logger = logging.getLogger(__name__)
 

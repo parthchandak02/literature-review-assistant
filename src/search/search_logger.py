@@ -2,12 +2,12 @@
 PRISMA-compliant search logging and documentation generation.
 """
 
-import json
 import csv
-from typing import List, Dict, Optional, Any
+import json
+import logging
 from datetime import datetime
 from pathlib import Path
-import logging
+from typing import Any, Dict, List, Optional
 
 from .database_connectors import Paper
 from .search_strategy import SearchStrategyBuilder
@@ -286,7 +286,7 @@ class SearchLogger:
             databases_searched.add(search["database"])
 
         return {
-            "databases_searched": sorted(list(databases_searched)),
+            "databases_searched": sorted(databases_searched),
             "study_registries": [],  # Can be added if used
             "online_resources": [],  # Can be added if used
             "citation_searching": False,  # Can be enabled if used
@@ -349,13 +349,13 @@ class SearchLogger:
         """
         total_searches = len(self.search_history)
         total_results = sum(s["total_found"] for s in self.search_history)
-        databases_used = set(s["database"] for s in self.search_history)
+        databases_used = {s["database"] for s in self.search_history}
         total_errors = sum(len(s.get("errors", [])) for s in self.search_history)
 
         return {
             "total_searches": total_searches,
             "total_results": total_results,
-            "databases_used": sorted(list(databases_used)),
+            "databases_used": sorted(databases_used),
             "total_errors": total_errors,
             "average_results_per_search": total_results / total_searches
             if total_searches > 0

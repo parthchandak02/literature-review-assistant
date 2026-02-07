@@ -32,13 +32,13 @@ class TestJournalSelector:
     def test_validate_for_journal(self, tmp_path):
         """Test journal validation."""
         selector = JournalSelector()
-        
+
         # Create test manuscript
         manuscript_path = tmp_path / "manuscript.md"
         manuscript_path.write_text(
             "# Title\n\n## Abstract\n\nTest abstract.\n\n## Introduction\n\nTest."
         )
-        
+
         results = selector.validate_for_journal(manuscript_path, "ieee")
         assert isinstance(results, dict)
         # Should check for required sections

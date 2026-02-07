@@ -2,9 +2,11 @@
 Integration tests for checkpoint resumption with manuscript phases (17-18)
 """
 
-import pytest
 import json
 from unittest.mock import patch
+
+import pytest
+
 from src.orchestration.workflow_manager import WorkflowManager
 from src.search.connectors.base import Paper
 
@@ -34,12 +36,12 @@ submission:
         workflow_manager.output_dir = tmp_path
         workflow_manager.final_papers = [Paper(title="Test", authors=["Author"])]
         workflow_manager.topic_context.topic = "Test Topic"
-        
+
         # Create checkpoint directory
         workflow_id = "test_workflow_123"
         checkpoint_dir = tmp_path / workflow_id / "checkpoints"
         checkpoint_dir.mkdir(parents=True)
-        
+
         # Create manubot_export checkpoint
         checkpoint_data = {
             "phase": "manubot_export",
@@ -51,11 +53,11 @@ submission:
             },
             "dependencies": ["article_writing"],
         }
-        
+
         checkpoint_file = checkpoint_dir / "manubot_export_state.json"
         with open(checkpoint_file, "w") as f:
             json.dump(checkpoint_data, f)
-        
+
         # Create article_writing checkpoint (dependency)
         article_checkpoint = {
             "phase": "article_writing",
@@ -65,7 +67,7 @@ submission:
         }
         with open(checkpoint_dir / "article_writing_state.json", "w") as f:
             json.dump(article_checkpoint, f)
-        
+
         # Mock _find_existing_checkpoint_by_topic to return our checkpoint
         with patch.object(workflow_manager, "_find_existing_checkpoint_by_topic") as mock_find:
             mock_find.return_value = {
@@ -73,22 +75,24 @@ submission:
                 "latest_phase": "manubot_export",
                 "checkpoint_dir": str(checkpoint_dir.parent),
             }
-            
+
             # Test that checkpoint can be loaded
             # This tests the dependency resolution
-            existing = workflow_manager.checkpoint_manager.find_by_topic(workflow_manager.topic_context.topic)
+            existing = workflow_manager.checkpoint_manager.find_by_topic(
+                workflow_manager.topic_context.topic
+            )
             assert existing is not None
             assert existing["latest_phase"] == "manubot_export"
 
     def test_resume_from_submission_package_checkpoint(self, workflow_manager, tmp_path):
         """Test resumption from submission_package checkpoint."""
         workflow_manager.output_dir = tmp_path
-        
+
         # Create checkpoint directory
         workflow_id = "test_workflow_123"
         checkpoint_dir = tmp_path / workflow_id / "checkpoints"
         checkpoint_dir.mkdir(parents=True)
-        
+
         # Create submission_package checkpoint
         checkpoint_data = {
             "phase": "submission_package",
@@ -100,11 +104,11 @@ submission:
             },
             "dependencies": ["article_writing", "report_generation"],
         }
-        
+
         checkpoint_file = checkpoint_dir / "submission_package_state.json"
         with open(checkpoint_file, "w") as f:
             json.dump(checkpoint_data, f)
-        
+
         # Create dependency checkpoints
         for dep in ["article_writing", "report_generation"]:
             dep_checkpoint = {
@@ -113,7 +117,7 @@ submission:
             }
             with open(checkpoint_dir / f"{dep}_state.json", "w") as f:
                 json.dump(dep_checkpoint, f)
-        
+
         # Mock checkpoint finder
         with patch.object(workflow_manager, "_find_existing_checkpoint_by_topic") as mock_find:
             mock_find.return_value = {
@@ -121,20 +125,22 @@ submission:
                 "latest_phase": "submission_package",
                 "checkpoint_dir": str(checkpoint_dir.parent),
             }
-            
-            existing = workflow_manager.checkpoint_manager.find_by_topic(workflow_manager.topic_context.topic)
+
+            existing = workflow_manager.checkpoint_manager.find_by_topic(
+                workflow_manager.topic_context.topic
+            )
             assert existing is not None
             assert existing["latest_phase"] == "submission_package"
 
     def test_checkpoint_dependencies_loaded(self, workflow_manager, tmp_path):
         """Test that dependencies are loaded correctly for phases 17-18."""
         workflow_manager.output_dir = tmp_path
-        
+
         # Test dependency resolution
         phase_manubot = workflow_manager.phase_registry.get_phase("manubot_export")
         deps_manubot = phase_manubot.dependencies if phase_manubot else []
         assert "article_writing" in deps_manubot
-        
+
         phase_submission = workflow_manager.phase_registry.get_phase("submission_package")
         deps_submission = phase_submission.dependencies if phase_submission else []
         assert "article_writing" in deps_submission
@@ -145,7 +151,7 @@ submission:
         workflow_manager.output_dir = tmp_path
         workflow_manager._manubot_export_path = tmp_path / "manuscript"
         workflow_manager._article_sections = {"abstract": "Test"}
-        
+
         data = workflow_manager._serialize_phase_data("manubot_export")
         assert "manubot_export_path" in data
         assert "article_sections" in data
@@ -155,7 +161,7 @@ submission:
         workflow_manager.output_dir = tmp_path
         workflow_manager._submission_package_path = tmp_path / "submission_package_ieee"
         workflow_manager._article_sections = {"abstract": "Test"}
-        
+
         data = workflow_manager._serialize_phase_data("submission_package")
         assert "submission_package_path" in data
         assert "article_sections" in data
@@ -163,32 +169,36 @@ submission:
     def test_phases_skip_if_already_completed(self, workflow_manager, tmp_path):
         """Test that phases 17-18 skip if checkpoints exist."""
         workflow_manager.output_dir = tmp_path
-        
+
         # Create checkpoints indicating phases already completed
         workflow_id = "test_workflow"
         checkpoint_dir = tmp_path / workflow_id / "checkpoints"
         checkpoint_dir.mkdir(parents=True)
-        
+
         # Create completed checkpoints
         for phase in ["manubot_export", "submission_package"]:
             checkpoint_file = checkpoint_dir / f"{phase}_state.json"
-            checkpoint_file.write_text(json.dumps({
-                "phase": phase,
-                "timestamp": "2024-01-01T00:00:00",
-            }))
-        
+            checkpoint_file.write_text(
+                json.dumps(
+                    {
+                        "phase": phase,
+                        "timestamp": "2024-01-01T00:00:00",
+                    }
+                )
+            )
+
         # When resuming, these phases should be detected as completed
         # This is tested indirectly through the checkpoint loading logic
 
     def test_checkpoint_loading_with_dependencies(self, workflow_manager, tmp_path):
         """Test checkpoint loading includes dependencies for phases 17-18."""
         workflow_manager.output_dir = tmp_path
-        
+
         # Create checkpoint structure
         workflow_id = "test_workflow"
         checkpoint_dir = tmp_path / workflow_id / "checkpoints"
         checkpoint_dir.mkdir(parents=True)
-        
+
         # Create article_writing checkpoint (dependency)
         article_data = {
             "phase": "article_writing",
@@ -201,7 +211,7 @@ submission:
         }
         with open(checkpoint_dir / "article_writing_state.json", "w") as f:
             json.dump(article_data, f)
-        
+
         # Create manubot_export checkpoint
         manubot_data = {
             "phase": "manubot_export",
@@ -212,6 +222,6 @@ submission:
         }
         with open(checkpoint_dir / "manubot_export_state.json", "w") as f:
             json.dump(manubot_data, f)
-        
+
         # Test that dependencies are loaded
         # This would be tested through the actual checkpoint loading mechanism

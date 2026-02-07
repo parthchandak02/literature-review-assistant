@@ -4,18 +4,20 @@ Unit tests for quality assessment module.
 Tests both CASP framework (primary) and backward compatibility with legacy RoB 2.
 """
 
-import pytest
 import json
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
+import pytest
+
+from src.extraction.data_extractor_agent import ExtractedData
 from src.quality import (
-    QualityAssessmentTemplateGenerator,
     GRADEAssessor,
+    QualityAssessmentTemplateGenerator,
 )
+
 # Import deprecated classes for backward compatibility tests
 from src.quality.risk_of_bias_assessor import RiskOfBiasAssessor
-from src.extraction.data_extractor_agent import ExtractedData
 
 
 @pytest.fixture
@@ -78,25 +80,25 @@ def test_template_generator_casp(sample_extracted_data):
     with TemporaryDirectory() as tmpdir:
         generator = QualityAssessmentTemplateGenerator(framework="CASP")
         template_path = Path(tmpdir) / "test_casp_assessments.json"
-        
+
         template_path_str = generator.generate_template(
             sample_extracted_data,
             str(template_path),
             grade_outcomes=["Outcome 1", "Outcome 2"],
         )
-        
+
         assert Path(template_path_str).exists()
-        
-        with open(template_path_str, "r") as f:
+
+        with open(template_path_str) as f:
             template_data = json.load(f)
-        
+
         assert "framework" in template_data
         assert template_data["framework"] == "CASP"
         assert "studies" in template_data
         assert len(template_data["studies"]) == 2
         assert "grade_assessments" in template_data
         assert len(template_data["grade_assessments"]) == 2
-        
+
         # Verify CASP structure
         study = template_data["studies"][0]
         assert "quality_assessment" in study
@@ -110,18 +112,18 @@ def test_template_generator_legacy_rob2(sample_extracted_data):
     with TemporaryDirectory() as tmpdir:
         generator = QualityAssessmentTemplateGenerator(framework="RoB 2")
         template_path = Path(tmpdir) / "test_rob2_assessments.json"
-        
+
         template_path_str = generator.generate_template(
             sample_extracted_data,
             str(template_path),
             grade_outcomes=["Outcome 1", "Outcome 2"],
         )
-        
+
         assert Path(template_path_str).exists()
-        
-        with open(template_path_str, "r") as f:
+
+        with open(template_path_str) as f:
             template_data = json.load(f)
-        
+
         assert "studies" in template_data
         assert len(template_data["studies"]) == 2
         assert "grade_assessments" in template_data
@@ -147,11 +149,11 @@ def test_risk_of_bias_assessor_legacy(sample_extracted_data):
                             "Bias due to deviations from intended interventions": "Some concerns",
                             "Bias due to missing outcome data": "Low",
                             "Bias in measurement of the outcome": "Low",
-                            "Bias in selection of the reported result": "Low"
+                            "Bias in selection of the reported result": "Low",
                         },
                         "overall": "Some concerns",
-                        "notes": "Minor concerns"
-                    }
+                        "notes": "Minor concerns",
+                    },
                 },
                 {
                     "study_id": "Study_2",
@@ -164,26 +166,26 @@ def test_risk_of_bias_assessor_legacy(sample_extracted_data):
                             "Bias due to deviations from intended interventions": "High",
                         },
                         "overall": "High",
-                        "notes": "High risk"
-                    }
-                }
+                        "notes": "High risk",
+                    },
+                },
             ],
-            "grade_assessments": []
+            "grade_assessments": [],
         }
-        
+
         with open(template_path, "w") as f:
             json.dump(legacy_data, f)
-        
+
         # Verify RiskOfBiasAssessor can load old format
         assessor = RiskOfBiasAssessor()
         assessments = assessor.load_assessments(str(template_path))
-        
+
         assert len(assessments) == 2
-        
+
         # Generate summary table
         table = assessor.generate_summary_table(assessments)
         assert "Study ID" in table or "Study_1" in table
-        
+
         # Generate narrative
         narrative = assessor.generate_narrative_summary(assessments)
         assert len(narrative) > 0
@@ -201,31 +203,31 @@ def test_grade_assessor(sample_extracted_data):
             str(template_path),
             grade_outcomes=["Outcome 1", "Outcome 2"],
         )
-        
+
         # Load and complete assessments
-        with open(template_path, "r") as f:
+        with open(template_path) as f:
             template_data = json.load(f)
-        
+
         # Complete GRADE assessments
         template_data["grade_assessments"][0]["certainty"] = "High"
         template_data["grade_assessments"][0]["downgrade_reasons"] = []
         template_data["grade_assessments"][1]["certainty"] = "Moderate"
         template_data["grade_assessments"][1]["downgrade_reasons"] = ["Risk of bias"]
-        
+
         with open(template_path, "w") as f:
             json.dump(template_data, f)
-        
+
         # Load assessments
         assessor = GRADEAssessor()
         assessments = assessor.load_assessments(str(template_path))
-        
+
         assert len(assessments) == 2
-        
+
         # Generate evidence profile table
         table = assessor.generate_evidence_profile_table(assessments)
         assert "Outcome" in table
         assert "Certainty" in table
-        
+
         # Generate narrative
         narrative = assessor.generate_narrative_summary(assessments)
         assert len(narrative) > 0

@@ -7,17 +7,18 @@ Handles initialization of all workflow components.
 import os
 from pathlib import Path
 from typing import Optional
+
 from dotenv import load_dotenv
 
 load_dotenv()
 
 from ..config.config_loader import ConfigLoader
-from ..config.debug_config import load_debug_config, get_debug_config_from_env
-from ..utils.logging_config import setup_logging, LogLevel
-from ..observability.metrics import get_metrics_collector
+from ..config.debug_config import get_debug_config_from_env, load_debug_config
 from ..observability.cost_tracker import get_cost_tracker
-from ..orchestration.topic_propagator import TopicContext
+from ..observability.metrics import get_metrics_collector
 from ..orchestration.handoff_protocol import HandoffProtocol
+from ..orchestration.topic_propagator import TopicContext
+from ..utils.logging_config import LogLevel, setup_logging
 
 try:
     from ..observability.tracing import TracingContext, set_tracing_context
@@ -28,21 +29,21 @@ except ImportError:
         return None
 
 
-from src.prisma.prisma_generator import PRISMACounter
-from src.search.multi_database_searcher import MultiDatabaseSearcher
 from src.deduplication import Deduplicator
-from src.screening.title_abstract_agent import TitleAbstractScreener
-from src.screening.fulltext_agent import FullTextScreener
 from src.extraction.data_extractor_agent import DataExtractorAgent
+from src.prisma.prisma_generator import PRISMACounter
+from src.screening.fulltext_agent import FullTextScreener
+from src.screening.title_abstract_agent import TitleAbstractScreener
+from src.search.multi_database_searcher import MultiDatabaseSearcher
+from src.utils.pdf_retriever import PDFRetriever
 from src.visualization.charts import ChartGenerator
+from src.writing.abstract_agent import AbstractGenerator
+from src.writing.discussion_agent import DiscussionWriter
+from src.writing.humanization_agent import HumanizationAgent
 from src.writing.introduction_agent import IntroductionWriter
 from src.writing.methods_agent import MethodsWriter
 from src.writing.results_agent import ResultsWriter
-from src.writing.discussion_agent import DiscussionWriter
-from src.writing.abstract_agent import AbstractGenerator
 from src.writing.style_pattern_extractor import StylePatternExtractor
-from src.writing.humanization_agent import HumanizationAgent
-from src.utils.pdf_retriever import PDFRetriever
 
 
 class WorkflowInitializer:
@@ -204,10 +205,10 @@ class WorkflowInitializer:
         logger = logging.getLogger(__name__)
 
         try:
-            from ..tools.mermaid_diagram_tool import create_mermaid_diagram_tool, MERMAID_AVAILABLE
+            from ..tools.mermaid_diagram_tool import MERMAID_AVAILABLE, create_mermaid_diagram_tool
             from ..tools.table_generator_tool import (
-                create_table_generator_tools,
                 TABULATE_AVAILABLE,
+                create_table_generator_tools,
             )
 
             if not MERMAID_AVAILABLE:

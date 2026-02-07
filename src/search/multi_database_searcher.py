@@ -4,11 +4,11 @@ Multi-Database Searcher
 Searches across multiple databases with caching and error handling.
 """
 
-from typing import List, Dict, Optional
 import logging
+from typing import Dict, List, Optional
 
-from .connectors.base import DatabaseConnector, Paper
 from .cache import SearchCache
+from .connectors.base import DatabaseConnector, Paper
 
 logger = logging.getLogger(__name__)
 

@@ -8,11 +8,11 @@ Collects all required files: manuscript, figures, tables, supplementary material
 import logging
 import shutil
 from pathlib import Path
-from typing import Dict, List, Optional, Any
+from typing import Any, Dict, List, Optional
 
 from .pandoc_converter import PandocConverter
-from .template_manager import TemplateManager
 from .submission_checklist import SubmissionChecklistGenerator
+from .template_manager import TemplateManager
 
 logger = logging.getLogger(__name__)
 

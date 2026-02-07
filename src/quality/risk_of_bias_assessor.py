@@ -5,9 +5,9 @@ Processes risk of bias assessments and generates summary tables and narratives.
 """
 
 import json
+import logging
 from pathlib import Path
 from typing import List
-import logging
 
 from .quality_assessment_schemas import RiskOfBiasAssessment
 
@@ -31,7 +31,7 @@ class RiskOfBiasAssessor:
         if not template_path_obj.exists():
             raise FileNotFoundError(f"Assessment file not found: {template_path}")
 
-        with open(template_path_obj, "r") as f:
+        with open(template_path_obj) as f:
             data = json.load(f)
 
         assessments = []
@@ -69,7 +69,7 @@ class RiskOfBiasAssessor:
         for assessment in assessments:
             all_domains.update(assessment.domains.keys())
 
-        domains = sorted(list(all_domains))
+        domains = sorted(all_domains)
 
         # Build table header
         header = "| Study ID | Study Title"

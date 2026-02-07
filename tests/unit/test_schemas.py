@@ -8,12 +8,13 @@ Tests Pydantic schemas for:
 
 import pytest
 from pydantic import ValidationError
+
+from src.schemas.extraction_schemas import ExtractedDataSchema, ExtractionRequestSchema
 from src.schemas.screening_schemas import (
-    ScreeningResultSchema,
     InclusionDecision,
     ScreeningRequestSchema,
+    ScreeningResultSchema,
 )
-from src.schemas.extraction_schemas import ExtractedDataSchema, ExtractionRequestSchema
 
 
 def test_screening_result_schema_valid():
@@ -118,7 +119,7 @@ def test_extracted_data_schema_null_methodology():
         study_objectives=["Objective 1"],
         methodology=None,  # Should be accepted
     )
-    
+
     assert data.methodology is None
     assert data.title == "Test Paper"
 

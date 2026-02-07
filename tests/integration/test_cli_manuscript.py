@@ -2,9 +2,9 @@
 Integration tests for CLI manuscript commands
 """
 
+import subprocess
 import sys
 from pathlib import Path
-import subprocess
 
 
 class TestCLIManuscript:
@@ -32,7 +32,11 @@ class TestCLIManuscript:
         )
         # May fail if Manubot not installed or network unavailable
         # Just verify command is recognized
-        assert "resolve" in result.stdout.lower() or "error" in result.stderr.lower() or result.returncode in [0, 1]
+        assert (
+            "resolve" in result.stdout.lower()
+            or "error" in result.stderr.lower()
+            or result.returncode in [0, 1]
+        )
 
     def test_resolve_citation_flag_pmid(self):
         """Test --resolve-citation flag with PMID."""
@@ -122,7 +126,11 @@ class TestCLIManuscript:
             cwd=Path(__file__).parent.parent.parent,
         )
         # Should show error about unknown flag
-        assert result.returncode != 0 or "error" in result.stderr.lower() or "unrecognized" in result.stderr.lower()
+        assert (
+            result.returncode != 0
+            or "error" in result.stderr.lower()
+            or "unrecognized" in result.stderr.lower()
+        )
 
     def test_cli_error_messages_missing_dependencies(self):
         """Test CLI error messages for missing dependencies."""

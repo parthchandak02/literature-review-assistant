@@ -6,54 +6,56 @@ Main orchestrator that coordinates all phases of the systematic review workflow.
 
 import json
 import os
-from pathlib import Path
-from typing import Dict, List, Optional, Any
-from dotenv import load_dotenv
 import time
 from datetime import datetime
+from pathlib import Path
+from typing import Any, Dict, List, Optional
+
+from dotenv import load_dotenv
 
 # Load environment variables
 load_dotenv()
 
-from ..utils.rich_utils import (
-    console,
-    print_workflow_status_panel,
-    print_checkpoint_panel,
-    print_phase_panel,
-)
-from rich.rule import Rule
 from rich.progress import (
-    Progress,
     BarColumn,
+    Progress,
+    SpinnerColumn,
     TextColumn,
     TimeElapsedColumn,
-    SpinnerColumn,
 )
+from rich.rule import Rule
 
-from ..utils.logging_config import get_logger
-from ..utils.log_context import workflow_phase_context
 from ..config.debug_config import DebugLevel
+from ..utils.log_context import workflow_phase_context
+from ..utils.logging_config import get_logger
+from ..utils.rich_utils import (
+    console,
+    print_checkpoint_panel,
+    print_phase_panel,
+    print_workflow_status_panel,
+)
 
 logger = get_logger(__name__)
 
-from src.prisma.prisma_generator import PRISMAGenerator
-from src.search.search_strategy import SearchStrategyBuilder
-from src.search.connectors.base import Paper, DatabaseConnector
-from src.search.cache import SearchCache
-from src.search.proxy_manager import ProxyManager, create_proxy_manager_from_config
-from src.search.integrity_checker import IntegrityChecker, create_integrity_checker_from_config
-from src.extraction.data_extractor_agent import ExtractedData
-from src.orchestration.workflow_initializer import WorkflowInitializer
-from src.orchestration.database_connector_factory import DatabaseConnectorFactory
-from src.utils.pdf_retriever import PDFRetriever
-from src.utils.screening_validator import ScreeningValidator, ScreeningStage
-from src.utils.state_serialization import StateSerializer
 from src.enrichment.paper_enricher import PaperEnricher
-from src.search.bibliometric_enricher import BibliometricEnricher
+from src.extraction.data_extractor_agent import ExtractedData
+from src.orchestration.database_connector_factory import DatabaseConnectorFactory
+from src.orchestration.workflow_initializer import WorkflowInitializer
+from src.prisma.prisma_generator import PRISMAGenerator
 from src.search.author_service import AuthorService
-from .phase_registry import PhaseRegistry, PhaseDefinition
+from src.search.bibliometric_enricher import BibliometricEnricher
+from src.search.cache import SearchCache
+from src.search.connectors.base import DatabaseConnector, Paper
+from src.search.integrity_checker import IntegrityChecker, create_integrity_checker_from_config
+from src.search.proxy_manager import ProxyManager, create_proxy_manager_from_config
+from src.search.search_strategy import SearchStrategyBuilder
+from src.utils.pdf_retriever import PDFRetriever
+from src.utils.screening_validator import ScreeningStage, ScreeningValidator
+from src.utils.state_serialization import StateSerializer
+
 from .checkpoint_manager import CheckpointManager
 from .phase_executor import PhaseExecutor
+from .phase_registry import PhaseDefinition, PhaseRegistry
 
 
 class WorkflowManager:
@@ -606,7 +608,7 @@ class WorkflowManager:
                 target_file = target_dir / source_file.name
                 try:
                     # Load and validate JSON
-                    with open(source_file, "r") as f:
+                    with open(source_file) as f:
                         checkpoint_data = json.load(f)
 
                     # Update workflow_id to new value
@@ -822,7 +824,7 @@ class WorkflowManager:
 
                 # Get all phases we need to load (dependencies + latest phase)
                 # Build full dependency chain recursively
-                def get_all_dependencies(phase: str, visited: set = None) -> List[str]:
+                def get_all_dependencies(phase: str, visited: Optional[set] = None) -> List[str]:
                     """Recursively get all dependencies for a phase."""
                     if visited is None:
                         visited = set()
@@ -1843,7 +1845,7 @@ class WorkflowManager:
                     except Exception as e:
                         logger.error(f"Error LLM screening paper ({paper_title}): {e}")
                         if is_verbose:
-                            progress.log(f"  [red]Error: {str(e)}[/red]")
+                            progress.log(f"  [red]Error: {e!s}[/red]")
                         # Use keyword result as fallback
                         self.title_abstract_results.append(keyword_result)  # Store fallback result
                         if keyword_result.decision.value == "include":
@@ -2247,7 +2249,7 @@ class WorkflowManager:
         )
 
     def _check_minimum_papers_safeguard(
-        self, stage: str, included_count: int, total_count: int, min_papers: int = None
+        self, stage: str, included_count: int, total_count: int, min_papers: Optional[int] = None
     ) -> Dict[str, Any]:
         """
         Check if minimum paper threshold is met and provide recommendations.
@@ -2466,6 +2468,35 @@ class WorkflowManager:
         # Accumulate findings in topic context
         findings = [extracted.to_dict() for extracted in self.extracted_data]
         self.topic_context.accumulate_findings(findings)
+        
+        # Log extraction statistics
+        empty_extraction_count = 0
+        for extracted in self.extracted_data:
+            objectives_empty = not extracted.study_objectives or len(extracted.study_objectives) == 0
+            outcomes_empty = not extracted.outcomes or len(extracted.outcomes) == 0
+            findings_empty = not extracted.key_findings or len(extracted.key_findings) == 0
+            if objectives_empty and outcomes_empty and findings_empty:
+                empty_extraction_count += 1
+        
+        if empty_extraction_count > 0:
+            percentage = (empty_extraction_count / len(self.extracted_data)) * 100 if self.extracted_data else 0
+            if percentage > 50:
+                logger.error(
+                    f"High number of empty extractions: {empty_extraction_count}/{len(self.extracted_data)} "
+                    f"({percentage:.1f}%) papers returned no objectives, outcomes, or findings. "
+                    f"This may indicate: (1) papers lack extractable structured data, "
+                    f"(2) extraction prompt needs refinement, or (3) LLM issues."
+                )
+            elif percentage > 20:
+                logger.warning(
+                    f"Moderate number of empty extractions: {empty_extraction_count}/{len(self.extracted_data)} "
+                    f"({percentage:.1f}%) papers returned no objectives, outcomes, or findings."
+                )
+            else:
+                logger.info(
+                    f"Extraction statistics: {empty_extraction_count}/{len(self.extracted_data)} "
+                    f"({percentage:.1f}%) papers had empty extractions (may be expected for some papers)."
+                )
 
     def _quality_assessment(self) -> Dict[str, Any]:
         """
@@ -2475,8 +2506,8 @@ class WorkflowManager:
             Dictionary with CASP quality assessments and GRADE assessment data
         """
         from ..quality import (
-            QualityAssessmentTemplateGenerator,
             GRADEAssessor,
+            QualityAssessmentTemplateGenerator,
         )
         from ..quality.study_type_detector import StudyTypeDetector
 
@@ -2484,7 +2515,7 @@ class WorkflowManager:
         qa_config = self.config.get("quality_assessment", {})
         framework = qa_config.get("framework", "CASP")
         grade_assessment = qa_config.get("grade_assessment", True)
-        
+
         # Get CASP-specific config
         casp_config = qa_config.get("casp", {})
         auto_detect = casp_config.get("auto_detect", {})
@@ -2506,7 +2537,7 @@ class WorkflowManager:
         # Check if assessment file exists
         if not template_path_obj.exists():
             # Generate template
-            logger.info(f"Quality assessment template not found. Generating CASP template...")
+            logger.info("Quality assessment template not found. Generating CASP template...")
 
             # Detect study types if auto-detection is enabled
             detected_types = {}
@@ -2516,24 +2547,24 @@ class WorkflowManager:
                     # Initialize LLM client for detector
                     from google import genai
                     from google.genai import types
+
                     api_key = os.getenv("GEMINI_API_KEY")
                     if api_key:
                         llm_client = genai.Client(
-                            api_key=api_key,
-                            http_options=types.HttpOptions(timeout=120_000)
+                            api_key=api_key, http_options=types.HttpOptions(timeout=120_000)
                         )
                         detector = StudyTypeDetector(
                             llm_client=llm_client,
                             llm_model=detector_model,
-                            debug_config=self.debug_config
+                            debug_config=self.debug_config,
                         )
-                        
+
                         # Detect type for each study
                         for study in self.extracted_data:
-                            study_dict = study.to_dict() if hasattr(study, 'to_dict') else study
+                            study_dict = study.to_dict() if hasattr(study, "to_dict") else study
                             detection_result = detector.detect_study_type(study_dict)
                             detected_types[study.title] = detection_result
-                        
+
                         logger.info(f"Detected study types for {len(detected_types)} studies")
                     else:
                         logger.warning("GEMINI_API_KEY not found, skipping study type detection")
@@ -2546,7 +2577,7 @@ class WorkflowManager:
                 all_outcomes = set()
                 for data in self.extracted_data:
                     all_outcomes.update(data.outcomes)
-                grade_outcomes = sorted(list(all_outcomes))[:10]  # Limit to 10 outcomes
+                grade_outcomes = sorted(all_outcomes)[:10]  # Limit to 10 outcomes
 
             template_path_str = template_generator.generate_template(
                 self.extracted_data,
@@ -2558,12 +2589,11 @@ class WorkflowManager:
             # Check if auto-fill is enabled
             auto_fill = qa_config.get("auto_fill", True)  # Default to True
             if auto_fill:
-                logger.info(f"Auto-filling CASP quality assessments using LLM...")
+                logger.info("Auto-filling CASP quality assessments using LLM...")
                 try:
                     from ..quality.auto_filler import auto_fill_assessments
 
                     # Get LLM provider/model from config
-                    agents_config = self.config.get("agents", {})
                     assessment_llm_config = qa_config.get("assessment_llm", {})
                     llm_provider = os.getenv("LLM_PROVIDER", "gemini")
                     llm_model = assessment_llm_config.get("model", "gemini-2.5-pro")
@@ -2633,24 +2663,38 @@ class WorkflowManager:
 
         casp_assessments = []
         grade_assessments_list = []
-        
+
         # Load CASP assessments from template
         try:
-            with open(template_path_obj, 'r') as f:
+            with open(template_path_obj) as f:
                 template_data = json.load(f)
-            
-            casp_assessments = template_data.get('studies', [])
+
+            casp_assessments = template_data.get("studies", [])
             logger.info(f"Loaded {len(casp_assessments)} CASP quality assessments")
-            
+
             # Log summary of quality ratings
             if casp_assessments:
-                high_count = sum(1 for s in casp_assessments 
-                               if s.get('quality_assessment', {}).get('score', {}).get('quality_rating') == 'High')
-                moderate_count = sum(1 for s in casp_assessments 
-                                   if s.get('quality_assessment', {}).get('score', {}).get('quality_rating') == 'Moderate')
-                low_count = sum(1 for s in casp_assessments 
-                              if s.get('quality_assessment', {}).get('score', {}).get('quality_rating') == 'Low')
-                logger.info(f"Quality ratings: {high_count} High, {moderate_count} Moderate, {low_count} Low")
+                high_count = sum(
+                    1
+                    for s in casp_assessments
+                    if s.get("quality_assessment", {}).get("score", {}).get("quality_rating")
+                    == "High"
+                )
+                moderate_count = sum(
+                    1
+                    for s in casp_assessments
+                    if s.get("quality_assessment", {}).get("score", {}).get("quality_rating")
+                    == "Moderate"
+                )
+                low_count = sum(
+                    1
+                    for s in casp_assessments
+                    if s.get("quality_assessment", {}).get("score", {}).get("quality_rating")
+                    == "Low"
+                )
+                logger.info(
+                    f"Quality ratings: {high_count} High, {moderate_count} Moderate, {low_count} Low"
+                )
         except Exception as e:
             logger.warning(f"Could not load CASP assessments: {e}")
 
@@ -2690,68 +2734,100 @@ class WorkflowManager:
         }
 
         return self.quality_assessment_data
-    
+
     def _generate_casp_summary_table(self, casp_assessments: List[Dict[str, Any]]) -> str:
         """Generate markdown table summarizing CASP quality assessments."""
         if not casp_assessments:
             return ""
-        
+
         lines = []
         lines.append("| Study | Checklist | Quality Rating | Yes Count | Total Questions |")
         lines.append("|-------|-----------|----------------|-----------|-----------------|")
-        
+
         for assessment in casp_assessments:
-            study_title = assessment.get('study_title', 'Unknown')[:50]
-            qa = assessment.get('quality_assessment', {})
-            checklist = qa.get('checklist_used', 'Unknown')
-            score = qa.get('score', {})
-            rating = score.get('quality_rating', 'Unknown')
-            yes_count = score.get('yes_count', 0)
-            total = score.get('total_questions', 0)
-            
+            study_title = assessment.get("study_title", "Unknown")[:50]
+            qa = assessment.get("quality_assessment", {})
+            checklist = qa.get("checklist_used", "Unknown")
+            score = qa.get("score", {})
+            rating = score.get("quality_rating", "Unknown")
+            yes_count = score.get("yes_count", 0)
+            total = score.get("total_questions", 0)
+
             # Shorten checklist name
-            checklist_short = checklist.replace('casp_', '').upper()
-            
-            lines.append(f"| {study_title} | {checklist_short} | {rating} | {yes_count} | {total} |")
-        
-        return '\n'.join(lines)
-    
+            checklist_short = checklist.replace("casp_", "").upper()
+
+            lines.append(
+                f"| {study_title} | {checklist_short} | {rating} | {yes_count} | {total} |"
+            )
+
+        return "\n".join(lines)
+
     def _generate_casp_narrative_summary(self, casp_assessments: List[Dict[str, Any]]) -> str:
         """Generate narrative summary of CASP quality assessments."""
         if not casp_assessments:
             return "No quality assessments available."
-        
+
         total_studies = len(casp_assessments)
-        
+
         # Count by quality rating
-        high_count = sum(1 for s in casp_assessments 
-                        if s.get('quality_assessment', {}).get('score', {}).get('quality_rating') == 'High')
-        moderate_count = sum(1 for s in casp_assessments 
-                           if s.get('quality_assessment', {}).get('score', {}).get('quality_rating') == 'Moderate')
-        low_count = sum(1 for s in casp_assessments 
-                       if s.get('quality_assessment', {}).get('score', {}).get('quality_rating') == 'Low')
-        
+        high_count = sum(
+            1
+            for s in casp_assessments
+            if s.get("quality_assessment", {}).get("score", {}).get("quality_rating") == "High"
+        )
+        moderate_count = sum(
+            1
+            for s in casp_assessments
+            if s.get("quality_assessment", {}).get("score", {}).get("quality_rating") == "Moderate"
+        )
+        low_count = sum(
+            1
+            for s in casp_assessments
+            if s.get("quality_assessment", {}).get("score", {}).get("quality_rating") == "Low"
+        )
+
         # Count by checklist type
-        rct_count = sum(1 for s in casp_assessments 
-                       if s.get('quality_assessment', {}).get('checklist_used') == 'casp_rct')
-        cohort_count = sum(1 for s in casp_assessments 
-                          if s.get('quality_assessment', {}).get('checklist_used') == 'casp_cohort')
-        qual_count = sum(1 for s in casp_assessments 
-                        if s.get('quality_assessment', {}).get('checklist_used') == 'casp_qualitative')
-        
+        rct_count = sum(
+            1
+            for s in casp_assessments
+            if s.get("quality_assessment", {}).get("checklist_used") == "casp_rct"
+        )
+        cohort_count = sum(
+            1
+            for s in casp_assessments
+            if s.get("quality_assessment", {}).get("checklist_used") == "casp_cohort"
+        )
+        qual_count = sum(
+            1
+            for s in casp_assessments
+            if s.get("quality_assessment", {}).get("checklist_used") == "casp_qualitative"
+        )
+
         summary = []
-        summary.append(f"Quality assessment was conducted using the CASP (Critical Appraisal Skills Programme) framework for {total_studies} included studies.")
-        summary.append(f"Studies were assessed using three CASP checklists: {rct_count} RCT studies, {cohort_count} cohort studies, and {qual_count} qualitative studies.")
-        
+        summary.append(
+            f"Quality assessment was conducted using the CASP (Critical Appraisal Skills Programme) framework for {total_studies} included studies."
+        )
+        summary.append(
+            f"Studies were assessed using three CASP checklists: {rct_count} RCT studies, {cohort_count} cohort studies, and {qual_count} qualitative studies."
+        )
+
         if high_count > 0:
-            summary.append(f"{high_count} studies ({high_count/total_studies*100:.0f}%) were rated as high quality, meeting >80% of CASP quality criteria.")
+            summary.append(
+                f"{high_count} studies ({high_count / total_studies * 100:.0f}%) were rated as high quality, meeting >80% of CASP quality criteria."
+            )
         if moderate_count > 0:
-            summary.append(f"{moderate_count} studies ({moderate_count/total_studies*100:.0f}%) were rated as moderate quality, meeting 50-80% of criteria.")
+            summary.append(
+                f"{moderate_count} studies ({moderate_count / total_studies * 100:.0f}%) were rated as moderate quality, meeting 50-80% of criteria."
+            )
         if low_count > 0:
-            summary.append(f"{low_count} studies ({low_count/total_studies*100:.0f}%) were rated as low quality, meeting <50% of criteria.")
-        
-        summary.append("The CASP checklists assess study design appropriateness, methodological rigor, reporting quality, and applicability of findings.")
-        
+            summary.append(
+                f"{low_count} studies ({low_count / total_studies * 100:.0f}%) were rated as low quality, meeting <50% of criteria."
+            )
+
+        summary.append(
+            "The CASP checklists assess study design appropriateness, methodological rigor, reporting quality, and applicability of findings."
+        )
+
         return " ".join(summary)
 
     def _generate_prisma_diagram(self) -> str:
@@ -2788,12 +2864,14 @@ class WorkflowManager:
         # Quality assessment visualizations
         if self.quality_assessment_data:
             framework = self.quality_assessment_data.get("framework", "CASP")
-            
+
             # Quality assessment plot (framework-dependent)
             if framework == "CASP":
                 # For CASP, skip traditional RoB plot as structure is different
                 # CASP uses Yes/No/Can't Tell questions rather than domain ratings
-                logger.info("Skipping traditional RoB plot for CASP framework (use CASP-specific visualization)")
+                logger.info(
+                    "Skipping traditional RoB plot for CASP framework (use CASP-specific visualization)"
+                )
             else:
                 # Traditional risk of bias plot for RoB 2, ROBINS-I, etc.
                 rob_assessments = self.quality_assessment_data.get("risk_of_bias_assessments", [])
@@ -2801,8 +2879,11 @@ class WorkflowManager:
                     # Convert to list of dicts for visualization
                     rob_data = []
                     for assessment in rob_assessments:
-                        domains = (assessment.domains if hasattr(assessment, "domains") 
-                                 else assessment.get("domains", {}))
+                        domains = (
+                            assessment.domains
+                            if hasattr(assessment, "domains")
+                            else assessment.get("domains", {})
+                        )
                         # Only include if domains exist and are non-empty
                         if domains:
                             rob_data.append(
@@ -3015,7 +3096,7 @@ class WorkflowManager:
             try:
                 import json
 
-                with open(checkpoint_file, "r") as f:
+                with open(checkpoint_file) as f:
                     checkpoint_data = json.load(f)
 
                 # Validate workflow_id matches
@@ -3041,7 +3122,7 @@ class WorkflowManager:
         self, section_name: str, writer_func: callable, *args, **kwargs
     ) -> tuple:
         """
-        Write a section with retry logic.
+        Write a section with retry logic and exponential backoff.
 
         Args:
             section_name: Name of the section
@@ -3052,6 +3133,7 @@ class WorkflowManager:
             Tuple of (section_text, duration, word_count)
         """
         import time
+
         from ..utils.rich_utils import print_section_retry_panel
 
         writing_config = self.config.get("writing", {})
@@ -3060,10 +3142,26 @@ class WorkflowManager:
 
         section_start_time = time.time()
         last_error_reason = "Unknown error"
+        
+        # Get context for better error messages
+        model_name = getattr(writer_func, '__self__', None)
+        if model_name:
+            model_name = getattr(model_name, 'llm_model', 'unknown')
+        else:
+            model_name = 'unknown'
+        
+        paper_count = len(self.extracted_data) if hasattr(self, 'extracted_data') else 0
 
         for attempt in range(max_attempts):
             # Show retry panel if this is not the first attempt
             if attempt > 0:
+                # Exponential backoff: 2^(attempt-1) seconds (2s, 4s, 8s, ...)
+                backoff_delay = 2 ** (attempt - 1)
+                logger.info(
+                    f"Waiting {backoff_delay}s before retry (exponential backoff)..."
+                )
+                time.sleep(backoff_delay)
+                
                 print_section_retry_panel(
                     section_name=section_name.title(),
                     attempt_number=attempt + 1,
@@ -3073,7 +3171,8 @@ class WorkflowManager:
 
             try:
                 logger.info(
-                    f"Writing {section_name} section - attempt {attempt + 1}/{max_attempts}"
+                    f"Writing {section_name} section - attempt {attempt + 1}/{max_attempts} "
+                    f"(model: {model_name}, papers: {paper_count})"
                 )
                 result = writer_func(*args, **kwargs)
                 if result is not None and result.strip():
@@ -3089,32 +3188,42 @@ class WorkflowManager:
                     last_error_reason = "Empty response from LLM"
                     logger.warning(
                         f"{section_name} section returned empty result on attempt {attempt + 1}. "
-                        f"This may be due to: (1) Gemini API rate limiting, (2) API timeout, "
-                        f"(3) prompt too complex, or (4) temporary API unavailability."
+                        f"Context: model={model_name}, papers={paper_count}. "
+                        f"Possible causes: (1) Gemini API rate limiting, (2) API timeout (increase llm_timeout in config), "
+                        f"(3) prompt too complex (reduce paper count or simplify), or (4) temporary API unavailability."
                     )
             except TimeoutError as e:
-                last_error_reason = f"Timeout: {str(e)}"
+                last_error_reason = f"Timeout: {e!s}"
                 logger.warning(
                     f"{section_name} section timed out on attempt {attempt + 1}: {e}. "
-                    f"Consider increasing llm_timeout in config/workflow.yaml if this persists."
+                    f"SOLUTION: Increase 'llm_timeout' in config/workflow.yaml under writing section. "
+                    f"Current timeout may be too short for {paper_count} papers with model {model_name}."
                 )
             except Exception as e:
-                last_error_reason = f"{type(e).__name__}: {str(e)}"
+                last_error_reason = f"{type(e).__name__}: {e!s}"
                 logger.warning(
                     f"{section_name} section failed on attempt {attempt + 1}: {e}. "
-                    f"Error type: {type(e).__name__}"
+                    f"Error type: {type(e).__name__}. "
+                    f"Context: model={model_name}, papers={paper_count}"
                 )
 
-            # Immediate retry - no delay
-            if attempt < max_attempts - 1:
-                logger.info(
-                    f"Retrying {section_name} section immediately (attempt {attempt + 2}/{max_attempts})..."
-                )
-
-        # All retries failed, raise exception
-        logger.error(
-            f"All {max_attempts} attempts failed for {section_name} section. Last error: {last_error_reason}"
+        # All retries failed, provide actionable error message
+        actionable_suggestions = [
+            f"1. Check API key and quota for {model_name}",
+            f"2. Increase llm_timeout in config/workflow.yaml",
+            f"3. Reduce number of papers (currently {paper_count})",
+            "4. Simplify extraction criteria",
+            "5. Try a different LLM model (e.g., switch between gemini-2.5-pro and gemini-2.5-flash)",
+            "6. Check network connectivity and API status",
+        ]
+        
+        error_msg = (
+            f"All {max_attempts} attempts failed for {section_name} section. "
+            f"Last error: {last_error_reason}\n\n"
+            f"Actionable suggestions:\n" + "\n".join(actionable_suggestions)
         )
+        
+        logger.error(error_msg)
         raise RuntimeError(
             f"Failed to write {section_name} section after {max_attempts} attempts: {last_error_reason}"
         )
@@ -3153,7 +3262,7 @@ class WorkflowManager:
 
         # Introduction
         if "introduction" not in sections:
-            from ..utils.rich_utils import print_section_start_panel, print_section_complete_panel
+            from ..utils.rich_utils import print_section_complete_panel, print_section_start_panel
 
             # Show START panel
             print_section_start_panel(
@@ -3225,7 +3334,7 @@ class WorkflowManager:
 
         # Methods
         if "methods" not in sections:
-            from ..utils.rich_utils import print_section_start_panel, print_section_complete_panel
+            from ..utils.rich_utils import print_section_complete_panel, print_section_start_panel
 
             # Show START panel
             print_section_start_panel(
@@ -3352,7 +3461,7 @@ class WorkflowManager:
 
         # Results
         if "results" not in sections:
-            from ..utils.rich_utils import print_section_start_panel, print_section_complete_panel
+            from ..utils.rich_utils import print_section_complete_panel, print_section_start_panel
 
             # Show START panel
             print_section_start_panel(
@@ -3363,9 +3472,38 @@ class WorkflowManager:
                 status="Starting...",
             )
 
+            # Validation checks before writing results section
+            if not self.extracted_data:
+                error_msg = (
+                    "Cannot write results section: No extracted data available. "
+                    "Ensure data extraction phase completed successfully."
+                )
+                logger.error(error_msg)
+                raise RuntimeError(error_msg)
+            
             key_findings = []
             for data in self.extracted_data:
                 key_findings.extend(data.key_findings[:2])  # Top 2 findings per study
+            
+            # Warn if key findings are insufficient
+            if not key_findings:
+                logger.warning(
+                    f"No key findings found in {len(self.extracted_data)} extracted papers. "
+                    f"Results section may be limited. This could indicate: "
+                    f"(1) papers lack findings data, (2) extraction failed, or "
+                    f"(3) papers are not suitable for systematic review."
+                )
+            elif len(key_findings) < len(self.extracted_data) * 0.3:
+                # Less than 30% of expected findings (assuming ~1-2 per paper)
+                logger.warning(
+                    f"Low number of key findings: {len(key_findings)} findings from {len(self.extracted_data)} papers. "
+                    f"Results section may lack sufficient detail."
+                )
+            
+            logger.info(
+                f"Writing results section with {len(self.extracted_data)} papers, "
+                f"{len(key_findings)} key findings"
+            )
 
             self.handoff_protocol.create_handoff(
                 from_agent="methods_writer",
@@ -3460,7 +3598,7 @@ class WorkflowManager:
 
         # Discussion
         if "discussion" not in sections:
-            from ..utils.rich_utils import print_section_start_panel, print_section_complete_panel
+            from ..utils.rich_utils import print_section_complete_panel, print_section_start_panel
 
             # Show START panel
             print_section_start_panel(
@@ -3539,7 +3677,7 @@ class WorkflowManager:
 
         # Abstract (generate after all sections are written)
         if "abstract" not in sections:
-            from ..utils.rich_utils import print_section_start_panel, print_section_complete_panel
+            from ..utils.rich_utils import print_section_complete_panel, print_section_start_panel
 
             # Show START panel
             print_section_start_panel(
@@ -4080,7 +4218,7 @@ class WorkflowManager:
         from ..prisma.checklist_generator import PRISMAChecklistGenerator
 
         try:
-            with open(report_path, "r", encoding="utf-8") as f:
+            with open(report_path, encoding="utf-8") as f:
                 report_content = f.read()
 
             generator = PRISMAChecklistGenerator()
@@ -4101,8 +4239,8 @@ class WorkflowManager:
         Returns:
             Path to Manubot manuscript directory, or None if disabled
         """
-        from ..export.manubot_exporter import ManubotExporter
         from ..citations import CitationManager
+        from ..export.manubot_exporter import ManubotExporter
 
         manubot_config = self.config.get("manubot", {})
         if not manubot_config.get("enabled", False):
@@ -4162,8 +4300,9 @@ class WorkflowManager:
         Returns:
             Path to submission package directory, or None if disabled
         """
-        from ..export.submission_package import SubmissionPackageBuilder
         from pathlib import Path
+
+        from ..export.submission_package import SubmissionPackageBuilder
 
         submission_config = self.config.get("submission", {})
         if not submission_config.get("enabled", False):
@@ -4291,7 +4430,7 @@ class WorkflowManager:
                 try:
                     import json
 
-                    with open(checkpoint_file, "r") as f:
+                    with open(checkpoint_file) as f:
                         checkpoint_data = json.load(f)
                     # Validate workflow_id matches
                     if checkpoint_data.get("workflow_id") == self.workflow_id:
