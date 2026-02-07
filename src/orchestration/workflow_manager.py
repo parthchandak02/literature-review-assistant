@@ -2468,7 +2468,7 @@ class WorkflowManager:
         # Accumulate findings in topic context
         findings = [extracted.to_dict() for extracted in self.extracted_data]
         self.topic_context.accumulate_findings(findings)
-        
+
         # Log extraction statistics
         empty_extraction_count = 0
         for extracted in self.extracted_data:
@@ -2477,7 +2477,7 @@ class WorkflowManager:
             findings_empty = not extracted.key_findings or len(extracted.key_findings) == 0
             if objectives_empty and outcomes_empty and findings_empty:
                 empty_extraction_count += 1
-        
+
         if empty_extraction_count > 0:
             percentage = (empty_extraction_count / len(self.extracted_data)) * 100 if self.extracted_data else 0
             if percentage > 50:
@@ -3142,14 +3142,14 @@ class WorkflowManager:
 
         section_start_time = time.time()
         last_error_reason = "Unknown error"
-        
+
         # Get context for better error messages
         model_name = getattr(writer_func, '__self__', None)
         if model_name:
             model_name = getattr(model_name, 'llm_model', 'unknown')
         else:
             model_name = 'unknown'
-        
+
         paper_count = len(self.extracted_data) if hasattr(self, 'extracted_data') else 0
 
         for attempt in range(max_attempts):
@@ -3161,7 +3161,7 @@ class WorkflowManager:
                     f"Waiting {backoff_delay}s before retry (exponential backoff)..."
                 )
                 time.sleep(backoff_delay)
-                
+
                 print_section_retry_panel(
                     section_name=section_name.title(),
                     attempt_number=attempt + 1,
@@ -3210,19 +3210,19 @@ class WorkflowManager:
         # All retries failed, provide actionable error message
         actionable_suggestions = [
             f"1. Check API key and quota for {model_name}",
-            f"2. Increase llm_timeout in config/workflow.yaml",
+            "2. Increase llm_timeout in config/workflow.yaml",
             f"3. Reduce number of papers (currently {paper_count})",
             "4. Simplify extraction criteria",
             "5. Try a different LLM model (e.g., switch between gemini-2.5-pro and gemini-2.5-flash)",
             "6. Check network connectivity and API status",
         ]
-        
+
         error_msg = (
             f"All {max_attempts} attempts failed for {section_name} section. "
             f"Last error: {last_error_reason}\n\n"
             f"Actionable suggestions:\n" + "\n".join(actionable_suggestions)
         )
-        
+
         logger.error(error_msg)
         raise RuntimeError(
             f"Failed to write {section_name} section after {max_attempts} attempts: {last_error_reason}"
@@ -3480,11 +3480,11 @@ class WorkflowManager:
                 )
                 logger.error(error_msg)
                 raise RuntimeError(error_msg)
-            
+
             key_findings = []
             for data in self.extracted_data:
                 key_findings.extend(data.key_findings[:2])  # Top 2 findings per study
-            
+
             # Warn if key findings are insufficient
             if not key_findings:
                 logger.warning(
@@ -3499,7 +3499,7 @@ class WorkflowManager:
                     f"Low number of key findings: {len(key_findings)} findings from {len(self.extracted_data)} papers. "
                     f"Results section may lack sufficient detail."
                 )
-            
+
             logger.info(
                 f"Writing results section with {len(self.extracted_data)} papers, "
                 f"{len(key_findings)} key findings"

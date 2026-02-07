@@ -62,7 +62,7 @@ class CheckpointManager:
             }
 
             checkpoint_file = self.checkpoint_dir / f"{phase_name}_state.json"
-            
+
             # Ensure checkpoint directory exists before writing file
             try:
                 checkpoint_file.parent.mkdir(parents=True, exist_ok=True)
@@ -74,7 +74,7 @@ class CheckpointManager:
                 )
                 logger.error(error_msg)
                 raise RuntimeError(error_msg) from dir_error
-            
+
             with open(checkpoint_file, "w") as f:
                 json.dump(checkpoint_data, f, indent=2, default=str)
 

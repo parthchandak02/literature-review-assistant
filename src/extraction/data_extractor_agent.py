@@ -205,7 +205,7 @@ class DataExtractorAgent(BaseScreeningAgent):
         objectives_empty = not result.study_objectives or len(result.study_objectives) == 0
         outcomes_empty = not result.outcomes or len(result.outcomes) == 0
         findings_empty = not result.key_findings or len(result.key_findings) == 0
-        
+
         if objectives_empty and outcomes_empty and findings_empty:
             abstract_preview = (abstract or "")[:150].replace("\n", " ")
             logger.warning(
