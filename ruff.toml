@@ -1,10 +1,182 @@
 # Ruff configuration file
 # See https://docs.astral.sh/ruff/configuration/
+#
+# Project: research-article-writer
+# Size: ~240 Python files, ~52K lines of code
+# Strategy: Incremental adoption with focus on bug-catching rules
+# Python: >=3.8 (consider upgrading to 3.9+ for better UP rule support)
 
-# Line length
+# General configuration
 line-length = 100
+target-version = "py38"  # TODO: Upgrade to py39+ when constraints allow (Python 3.8 EOL: Oct 2024)
+required-version = ">=0.1.0"  # Enforce minimum Ruff version for consistency
+cache-dir = ".ruff_cache"
 
-# Allow imports after load_dotenv() - this is intentional
+# Python file discovery
+# Default includes: *.py, *.pyi, *.ipynb
+# Explicitly include if you use other extensions
+
+# Exclusion patterns - organized by category for maintainability
+extend-exclude = [
+    # Python cache and temporary files
+    "**/__pycache__/**",
+    "**/.pytest_cache/**",
+    "**/.mypy_cache/**",
+    "**/.ruff_cache/**",
+    "**/.hypothesis/**",
+    
+    # Build and distribution artifacts
+    "**/dist/**",
+    "**/build/**",
+    "**/*.egg-info/**",
+    
+    # Generated and output files (project-specific)
+    "data/**",
+    "logs/**",
+    "htmlcov/**",
+    ".coverage",
+    "**/*_STATUS.md",
+    "**/*_REPORT.md",
+    "**/*_VERIFICATION.md",
+    "**/*_READINESS_REPORT.md",
+    "WORKFLOW_*.md",
+    "PRISMA_*.md",
+    "IEEE_*.md",
+    
+    # Documentation and reference (not part of codebase)
+    "reference-docs/**",
+    "references/**",
+    
+    # Third-party libraries (if not using virtualenv isolation)
+    "lib/**",
+]
+
+# Linting configuration
 [lint]
-# Ignore import order errors for files that need load_dotenv() first
-ignore = ["E402"]
+# Core rule selection: pragmatic focus on bugs and best practices
+# Strategy: Start conservative, gradually enable more rules over time
+select = [
+    # F: Pyflakes - catches real bugs (undefined names, unused imports, etc.)
+    "F",
+    # E: pycodestyle errors - syntax and style errors
+    "E",
+    # W: pycodestyle warnings - style warnings
+    "W",
+    # B: flake8-bugbear - common bugs and design problems
+    "B",
+    # S: flake8-bandit - security issues
+    "S",
+    # UP: pyupgrade - modernize Python syntax (limited by target-version)
+    "UP",
+    # I: isort - import sorting and organization
+    "I",
+    # C4: flake8-comprehensions - better comprehensions
+    "C4",
+    # RUF: Ruff-specific useful patterns
+    "RUF",
+    # RUF100: Detect unused noqa comments (keeps codebase clean)
+    "RUF100",
+]
+
+# Rules to ignore - strategic choices with documented rationale
+ignore = [
+    # E402: Module import not at top of file
+    # Needed for patterns like load_dotenv() before imports
+    "E402",
+    
+    # E501: Line too long
+    # Handled by formatter for most cases; long strings (prompts, test data) are common
+    "E501",
+    
+    # S101: assert detected
+    # Acceptable in tests and debugging contexts
+    "S101",
+    
+    # S110: try-except-pass detected
+    # Legitimate for graceful degradation in some contexts
+    "S110",
+    
+    # T201: print found
+    # Acceptable for CLI tools and scripts
+    "T201",
+    
+    # PLR0912/0915/0911: Too many branches/statements/returns
+    # Orchestration code legitimately has complexity
+    "PLR0912",
+    "PLR0915",
+    "PLR0911",
+    
+    # ANN: Missing type annotations
+    # Gradual adoption preferred; basic types encouraged where clear
+    "ANN",
+    
+    # PLC0415: import not at top-level
+    # Legitimate for conditional/lazy imports
+    "PLC0415",
+    
+    # COM812: Trailing comma missing
+    # Handled by formatter; rule creates noise during adoption
+    "COM812",
+]
+
+# Per-file rule customization - context-specific relaxations
+[lint.per-file-ignores]
+# Test files: relaxed rules appropriate for test context
+"tests/**/*.py" = [
+    "S101",      # assert is the expected pattern in tests
+    "S110",      # try-except-pass acceptable in test utilities
+    "T201",      # print acceptable for test debugging
+    "ANN",       # Type hints less critical in tests
+    "PLR0915",   # Tests often have many statements
+    "PLR0912",   # Tests often have branching for scenarios
+    "B006",      # Mutable defaults acceptable in test fixtures
+]
+
+# Script files: more pragmatic approach
+"scripts/**/*.py" = [
+    "T201",      # print is primary output mechanism
+    "ANN",       # Type hints less critical in scripts
+    "PLR0915",   # Scripts can be procedural and lengthy
+    "PLR0912",   # Scripts can have complex branching
+    "S101",      # Assertions acceptable in scripts
+]
+
+# Main entry point
+"main.py" = [
+    "PLR0912",   # CLI argument handling can be complex
+    "PLR0915",   # Main can have procedural flow
+    "ANN201",    # Return type annotation less critical for main()
+]
+
+# Complex orchestration logic
+"src/orchestration/workflow_manager.py" = [
+    "PLR0912",   # Orchestration logic is inherently complex
+    "PLR0915",   # Workflow managers have many statements
+    "C901",      # Complex functions acceptable in orchestration
+]
+
+# Import sorting configuration
+[lint.isort]
+# Known first-party packages (src-layout assumed)
+known-first-party = ["src"]
+# Force single-line imports when they're long
+force-single-line = false
+# Allow combining 'as' imports
+combine-as-imports = true
+# Split imports into sections: stdlib, third-party, first-party
+split-on-trailing-comma = true
+
+# Formatting configuration
+[format]
+# String quoting style (double quotes for consistency)
+quote-style = "double"
+# Indent style (spaces, not tabs)
+indent-style = "space"
+# Preserve magic trailing commas (Black-compatible)
+skip-magic-trailing-comma = false
+# Auto-detect line endings (CRLF on Windows, LF on Unix)
+line-ending = "auto"
+
+# Docstring configuration
+docstring-code-format = true
+docstring-code-line-length = 88  # Slightly more generous than 80 for code examples
