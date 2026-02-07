@@ -216,9 +216,7 @@ class DataExtractorAgent(BaseScreeningAgent):
                 f"(2) paper lacks structured data, or (3) extraction prompt needs refinement."
             )
             if self.debug_config.enabled and self.debug_config.level == DebugLevel.FULL:
-                logger.debug(
-                    f"[{self.role}] Full abstract for empty extraction: {abstract}"
-                )
+                logger.debug(f"[{self.role}] Full abstract for empty extraction: {abstract}")
 
         # Restore original context
         if topic_context:
@@ -536,6 +534,12 @@ Return ONLY valid JSON matching this exact structure:
                             completion_tokens=completion_tokens,
                             total_tokens=total_tokens,
                         ),
+                    )
+
+                    # Log per-call cost details
+                    logger.debug(
+                        f"[{self.role}] LLM Call: ${cost:.4f} "
+                        f"({total_tokens:,} tokens in {duration:.2f}s)"
                     )
 
             # Enhanced logging with Rich console

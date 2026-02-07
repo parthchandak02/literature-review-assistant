@@ -386,40 +386,45 @@ Output must be suitable for direct insertion into an academic publication withou
                     content = response.text if hasattr(response, "text") else str(response)
                     model_name = getattr(self, "llm_model_name", self.llm_model)
 
-                    # Extract usage_metadata and track cost
+                    # Extract usage_metadata and track cost (always, not conditional on debug config)
                     cost = 0.0
-                    if self.debug_config.show_costs:
-                        from ..observability.cost_tracker import (
-                            LLMCostTracker,
-                            TokenUsage,
-                            get_cost_tracker,
+                    from ..observability.cost_tracker import (
+                        LLMCostTracker,
+                        TokenUsage,
+                        get_cost_tracker,
+                    )
+
+                    cost_tracker = get_cost_tracker()
+                    llm_cost_tracker = LLMCostTracker(cost_tracker)
+
+                    # Extract usage_metadata from Gemini response
+                    if hasattr(response, "usage_metadata") and response.usage_metadata:
+                        usage_metadata = response.usage_metadata
+                        prompt_tokens = getattr(usage_metadata, "prompt_token_count", 0)
+                        completion_tokens = getattr(usage_metadata, "candidates_token_count", 0)
+                        total_tokens = getattr(usage_metadata, "total_token_count", 0)
+
+                        # Track cost
+                        llm_cost_tracker.track_gemini_response(
+                            response, model_name, agent_name=self.role
                         )
 
-                        cost_tracker = get_cost_tracker()
-                        llm_cost_tracker = LLMCostTracker(cost_tracker)
+                        # Calculate cost for logging and display
+                        cost = cost_tracker._calculate_cost(
+                            "gemini",
+                            model_name,
+                            TokenUsage(
+                                prompt_tokens=prompt_tokens,
+                                completion_tokens=completion_tokens,
+                                total_tokens=total_tokens,
+                            ),
+                        )
 
-                        # Extract usage_metadata from Gemini response
-                        if hasattr(response, "usage_metadata") and response.usage_metadata:
-                            usage_metadata = response.usage_metadata
-                            prompt_tokens = getattr(usage_metadata, "prompt_token_count", 0)
-                            completion_tokens = getattr(usage_metadata, "candidates_token_count", 0)
-                            total_tokens = getattr(usage_metadata, "total_token_count", 0)
-
-                            # Track cost
-                            llm_cost_tracker.track_gemini_response(
-                                response, model_name, agent_name=self.role
-                            )
-
-                            # Calculate cost for display
-                            cost = cost_tracker._calculate_cost(
-                                "gemini",
-                                model_name,
-                                TokenUsage(
-                                    prompt_tokens=prompt_tokens,
-                                    completion_tokens=completion_tokens,
-                                    total_tokens=total_tokens,
-                                ),
-                            )
+                        # Log per-call cost details
+                        logger.debug(
+                            f"[{self.role}] LLM Call: ${cost:.4f} "
+                            f"({total_tokens:,} tokens in {duration:.2f}s)"
+                        )
 
                     # Enhanced logging with Rich console
                     if self.debug_config.show_llm_calls or self.debug_config.enabled:

@@ -218,6 +218,46 @@ Respond with JSON only:"""
 
         response_text = response.text if hasattr(response, "text") else str(response)
 
+        # Track cost (always, not conditional on debug config)
+        cost = 0.0
+        from ..observability.cost_tracker import (
+            LLMCostTracker,
+            TokenUsage,
+            get_cost_tracker,
+        )
+
+        cost_tracker = get_cost_tracker()
+        llm_cost_tracker = LLMCostTracker(cost_tracker)
+
+        # Extract usage_metadata from Gemini response
+        if hasattr(response, "usage_metadata") and response.usage_metadata:
+            usage_metadata = response.usage_metadata
+            prompt_tokens = getattr(usage_metadata, "prompt_token_count", 0)
+            completion_tokens = getattr(usage_metadata, "candidates_token_count", 0)
+            total_tokens = getattr(usage_metadata, "total_token_count", 0)
+
+            # Track cost
+            llm_cost_tracker.track_gemini_response(
+                response, self.llm_model, agent_name="Study Type Detector"
+            )
+
+            # Calculate cost for display
+            cost = cost_tracker._calculate_cost(
+                "gemini",
+                self.llm_model,
+                TokenUsage(
+                    prompt_tokens=prompt_tokens,
+                    completion_tokens=completion_tokens,
+                    total_tokens=total_tokens,
+                ),
+            )
+
+            # Log per-call cost details
+            logger.debug(
+                f"[Study Type Detector] LLM Call: ${cost:.4f} "
+                f"({total_tokens:,} tokens in {duration:.2f}s)"
+            )
+
         # Enhanced logging with Rich console for response
         if should_show_verbose:
             response_preview = (
@@ -227,7 +267,7 @@ Respond with JSON only:"""
                 duration=duration,
                 response_preview=response_preview,
                 tokens=None,
-                cost=None,
+                cost=cost,
             )
 
         return response_text
@@ -269,7 +309,7 @@ Respond with JSON only:"""
         except json.JSONDecodeError as e:
             logger.error(f"Failed to parse JSON response: {e}")
             logger.debug(f"Response text: {response[:200]}...")
-            raise ValueError(f"Invalid JSON response from LLM: {e}")
+            raise ValueError(f"Invalid JSON response from LLM: {e}") from e
         except Exception as e:
             logger.error(f"Error parsing detection response: {e}")
             raise
