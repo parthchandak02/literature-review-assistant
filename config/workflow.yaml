@@ -323,10 +323,42 @@ writing:
 
 # Quality Assessment Configuration
 quality_assessment:
-  risk_of_bias_tool: "RoB 2"  # Options: "RoB 2", "ROBINS-I", "CASP"
+  # Assessment framework
+  framework: "CASP"  # Critical Appraisal Skills Programme
+  
+  # CASP settings
+  casp:
+    enabled_checklists:
+      - rct          # CASP RCT Checklist (11 questions)
+      - cohort       # CASP Cohort Study Checklist (12 questions)
+      - qualitative  # CASP Qualitative Research Checklist (10 questions)
+    
+    # Study type detection
+    auto_detect:
+      enabled: true
+      method: "llm"  # Use LLM to analyze study and select checklist
+      llm_model: "gemini-2.5-flash"  # Fast classification
+      confidence_threshold: 0.7  # Use cohort as fallback if confidence lower
+      fallback_checklist: "cohort"  # Most flexible for uncertain cases
+    
+    # Manual override (optional)
+    allow_manual_override: true  # Users can specify checklist in template if needed
+  
+  # GRADE assessment (complementary to CASP)
   grade_assessment: true  # Enable GRADE certainty assessment
-  auto_fill: true  # Automatically fill assessments using LLM (default: true, set to false for manual assessment)
-  template_path: "data/quality_assessments/{workflow_id}_assessments.json"  # Path template for assessment file
+  grade_outcomes: []  # Auto-detected from extracted outcomes
+  
+  # LLM settings for quality assessment
+  assessment_llm:
+    model: "gemini-2.5-pro"  # Pro model for quality-critical assessment
+    temperature: 0.2
+    timeout: 120
+  
+  # Auto-fill settings
+  auto_fill: true  # Automatically fill using LLM
+  
+  # Output paths
+  template_path: "data/quality_assessments/{workflow_id}_assessments.json"
 
 
 # Output Configuration
