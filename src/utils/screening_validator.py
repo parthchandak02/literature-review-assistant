@@ -14,6 +14,7 @@ logger = logging.getLogger(__name__)
 
 class ScreeningStage(Enum):
     """Screening stages."""
+
     TITLE_ABSTRACT = "title_abstract"
     FULL_TEXT = "full_text"
 
@@ -21,6 +22,7 @@ class ScreeningStage(Enum):
 @dataclass
 class ScreeningStatistics:
     """Statistics for screening decisions."""
+
     total_papers: int
     included: int
     excluded: int

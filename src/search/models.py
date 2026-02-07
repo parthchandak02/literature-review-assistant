@@ -111,7 +111,10 @@ class Author:
             "subject_areas": self.subject_areas,
             "research_interests": self.research_interests,
             "coauthor_count": self.coauthor_count,
-            "coauthors": [coauth.to_dict() if isinstance(coauth, Author) else coauth for coauth in self.coauthors],
+            "coauthors": [
+                coauth.to_dict() if isinstance(coauth, Author) else coauth
+                for coauth in self.coauthors
+            ],
             "first_publication_year": self.first_publication_year,
             "last_publication_year": self.last_publication_year,
             "database": self.database,

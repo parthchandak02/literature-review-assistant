@@ -244,7 +244,9 @@ class SearchLogger:
 
         with open(output_path, "w", encoding="utf-8") as f:
             f.write("# Search Strategies\n\n")
-            f.write("This document contains the complete search strategies used for all databases.\n\n")
+            f.write(
+                "This document contains the complete search strategies used for all databases.\n\n"
+            )
             f.write("---\n\n")
 
             strategies = self._generate_strategies_section()

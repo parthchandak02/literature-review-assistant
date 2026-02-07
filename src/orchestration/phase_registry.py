@@ -33,7 +33,7 @@ class PhaseRegistry:
         self.phases: Dict[str, PhaseDefinition] = {}
         self._phase_order: List[str] = []
 
-    def register(self, phase: PhaseDefinition) -> 'PhaseRegistry':
+    def register(self, phase: PhaseDefinition) -> "PhaseRegistry":
         """
         Register a phase.
 
@@ -119,7 +119,9 @@ class PhaseRegistry:
 
         return result
 
-    def get_all_dependencies(self, phase_name: str, visited: Optional[Set[str]] = None) -> List[str]:
+    def get_all_dependencies(
+        self, phase_name: str, visited: Optional[Set[str]] = None
+    ) -> List[str]:
         """
         Recursively get all dependencies for a phase (transitive closure).
 

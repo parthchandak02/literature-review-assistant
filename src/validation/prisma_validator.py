@@ -292,9 +292,7 @@ class PRISMAValidator:
 
         return results
 
-    def _check_item_presence(
-        self, content: str, key: str, description: str, section: str
-    ) -> bool:
+    def _check_item_presence(self, content: str, key: str, description: str, section: str) -> bool:
         """Check if a PRISMA item is present in the report."""
         # Check for section presence
         section_patterns = {
@@ -314,7 +312,9 @@ class PRISMAValidator:
             title_match = re.search(r"^#\s+(.+)$", content, re.MULTILINE)
             if title_match:
                 title = title_match.group(1)
-                has_systematic_review = bool(re.search(r"systematic\s+review", title, re.IGNORECASE))
+                has_systematic_review = bool(
+                    re.search(r"systematic\s+review", title, re.IGNORECASE)
+                )
                 is_not_generic = not title.lower().startswith("systematic review report")
                 return has_systematic_review and is_not_generic
             return bool(re.search(r"systematic\s+review", content, re.IGNORECASE))
@@ -332,9 +332,7 @@ class PRISMAValidator:
             )
         elif key == "information_sources":
             return bool(
-                re.search(
-                    r"database|PubMed|Scopus|search\s+sources?", content, re.IGNORECASE
-                )
+                re.search(r"database|PubMed|Scopus|search\s+sources?", content, re.IGNORECASE)
             )
         elif key == "search_strategy":
             return bool(re.search(r"search\s+strategy|search\s+query", content, re.IGNORECASE))
@@ -355,7 +353,9 @@ class PRISMAValidator:
             if results_match:
                 results_section = results_match.group(1)
                 has_study_selection = bool(
-                    re.search(r"###\s+Study\s+Selection|study\s+selection", results_section, re.IGNORECASE)
+                    re.search(
+                        r"###\s+Study\s+Selection|study\s+selection", results_section, re.IGNORECASE
+                    )
                 )
                 # Check PRISMA diagram is in Results (not separate section)
                 prisma_in_results = bool(
@@ -473,9 +473,7 @@ class PRISMAValidator:
             return bool(re.search(r"funding|financial\s+support", content, re.IGNORECASE))
         elif key == "data_availability":
             return bool(
-                re.search(
-                    r"data\s+availability|supplementary\s+materials", content, re.IGNORECASE
-                )
+                re.search(r"data\s+availability|supplementary\s+materials", content, re.IGNORECASE)
             )
 
         # Generic check for section presence
@@ -550,9 +548,7 @@ def main():
     import argparse
 
     parser = argparse.ArgumentParser(description="Validate PRISMA 2020 compliance")
-    parser.add_argument(
-        "--report", type=str, required=True, help="Path to markdown report file"
-    )
+    parser.add_argument("--report", type=str, required=True, help="Path to markdown report file")
     parser.add_argument(
         "--output",
         type=str,

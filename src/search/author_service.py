@@ -50,12 +50,12 @@ class AuthorService:
         # If database specified, use that connector
         if database and database in self.connectors:
             connector = self.connectors[database]
-            if hasattr(connector, 'get_author_by_id'):
+            if hasattr(connector, "get_author_by_id"):
                 return connector.get_author_by_id(author_id)
 
         # Try all connectors that support author retrieval
         for db_name, connector in self.connectors.items():
-            if hasattr(connector, 'get_author_by_id'):
+            if hasattr(connector, "get_author_by_id"):
                 try:
                     author = connector.get_author_by_id(author_id)
                     if author:
@@ -66,7 +66,11 @@ class AuthorService:
 
         # If ID lookup failed and name provided, try search
         if author_name:
-            return self.search_author(author_name, max_results=1)[0] if self.search_author(author_name, max_results=1) else None
+            return (
+                self.search_author(author_name, max_results=1)[0]
+                if self.search_author(author_name, max_results=1)
+                else None
+            )
 
         return None
 
@@ -92,13 +96,13 @@ class AuthorService:
         # If database specified, use that connector
         if database and database in self.connectors:
             connector = self.connectors[database]
-            if hasattr(connector, 'search_authors'):
+            if hasattr(connector, "search_authors"):
                 try:
                     results = connector.search_authors(query, max_results)
                     authors.extend(results)
                 except Exception as e:
                     logger.debug(f"Error searching authors in {database}: {e}")
-            elif hasattr(connector, 'search_author'):
+            elif hasattr(connector, "search_author"):
                 # Google Scholar uses search_author
                 try:
                     results = connector.search_author(query, max_results)
@@ -114,10 +118,10 @@ class AuthorService:
         # Search all databases
         for db_name, connector in self.connectors.items():
             try:
-                if hasattr(connector, 'search_authors'):
+                if hasattr(connector, "search_authors"):
                     results = connector.search_authors(query, max_results)
                     authors.extend(results)
-                elif hasattr(connector, 'search_author'):
+                elif hasattr(connector, "search_author"):
                     # Google Scholar
                     results = connector.search_author(query, max_results)
                     for result in results:
@@ -233,7 +237,9 @@ class AuthorService:
             # Merge metrics (take maximum or average)
             if profile.h_index and (not base.h_index or profile.h_index > base.h_index):
                 base.h_index = profile.h_index
-            if profile.citation_count and (not base.citation_count or profile.citation_count > base.citation_count):
+            if profile.citation_count and (
+                not base.citation_count or profile.citation_count > base.citation_count
+            ):
                 base.citation_count = profile.citation_count
 
             # Merge affiliations
@@ -262,25 +268,23 @@ class AuthorService:
             # scholarly returns dictionaries, need to fill for full data
             # For now, create basic author from available data
             author = Author(
-                name=scholar_data.get('name', ''),
-                id=scholar_data.get('id'),
-                email=scholar_data.get('email'),
-                h_index=scholar_data.get('hindex'),
-                i10_index=scholar_data.get('i10index'),
-                citation_count=scholar_data.get('citedby'),
+                name=scholar_data.get("name", ""),
+                id=scholar_data.get("id"),
+                email=scholar_data.get("email"),
+                h_index=scholar_data.get("hindex"),
+                i10_index=scholar_data.get("i10index"),
+                citation_count=scholar_data.get("citedby"),
                 database="Google Scholar",
-                url=scholar_data.get('url_picture'),
+                url=scholar_data.get("url_picture"),
             )
 
             # Add affiliation if available
-            if scholar_data.get('affiliation'):
-                author.current_affiliations.append(Affiliation(
-                    name=scholar_data['affiliation']
-                ))
+            if scholar_data.get("affiliation"):
+                author.current_affiliations.append(Affiliation(name=scholar_data["affiliation"]))
 
             # Add research interests
-            if scholar_data.get('interests'):
-                author.research_interests = scholar_data['interests']
+            if scholar_data.get("interests"):
+                author.research_interests = scholar_data["interests"]
 
             return author
         except Exception as e:

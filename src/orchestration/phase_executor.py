@@ -29,10 +29,7 @@ class PhaseExecutor:
         self.checkpoint_manager = checkpoint_manager
 
     def execute_phase(
-        self,
-        phase_name: str,
-        workflow_manager: Any,
-        context: Optional[Dict[str, Any]] = None
+        self, phase_name: str, workflow_manager: Any, context: Optional[Dict[str, Any]] = None
     ) -> Any:
         """
         Execute a single phase with dependency checking and checkpointing.
@@ -59,8 +56,7 @@ class PhaseExecutor:
         # Check dependencies
         if not self._check_dependencies(phase_name, workflow_manager):
             raise ValueError(
-                f"Phase '{phase_name}' dependencies not met. "
-                f"Dependencies: {phase.dependencies}"
+                f"Phase '{phase_name}' dependencies not met. Dependencies: {phase.dependencies}"
             )
 
         # Execute phase handler
@@ -132,11 +128,7 @@ class PhaseExecutor:
         """
         return self.registry.get_execution_order()
 
-    def should_execute_phase(
-        self,
-        phase_name: str,
-        start_from_phase: Optional[int] = None
-    ) -> bool:
+    def should_execute_phase(self, phase_name: str, start_from_phase: Optional[int] = None) -> bool:
         """
         Determine if phase should be executed based on start phase.
 

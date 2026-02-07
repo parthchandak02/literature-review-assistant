@@ -162,7 +162,9 @@ class BibliometricEnricher:
             network_data = self.citation_network_builder.build_network_from_papers(papers)
             stats = self.citation_network_builder.get_citation_statistics()
 
-            logger.info(f"Citation network built: {stats.get('total_papers', 0)} papers, {stats.get('citation_edges', 0)} edges")
+            logger.info(
+                f"Citation network built: {stats.get('total_papers', 0)} papers, {stats.get('citation_edges', 0)} edges"
+            )
 
             return {
                 "network": network_data,

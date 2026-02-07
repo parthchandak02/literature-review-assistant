@@ -18,20 +18,26 @@ logger = logging.getLogger(__name__)
 
 class AbstractSchema(BaseModel):
     """Schema for abstract output."""
+
     abstract: str = Field(description="The complete abstract text")
 
 
 class PRISMA2020AbstractSchema(BaseModel):
     """Schema for PRISMA 2020 structured abstract with 12 elements."""
+
     background: str = Field(description="Brief context and rationale")
     objectives: str = Field(description="Explicit statement of main objective(s) or question(s)")
     eligibility_criteria: str = Field(description="Inclusion and exclusion criteria")
-    information_sources: str = Field(description="Information sources (databases, registers) and dates searched")
+    information_sources: str = Field(
+        description="Information sources (databases, registers) and dates searched"
+    )
     risk_of_bias: str = Field(description="Methods used to assess risk of bias")
     synthesis_methods: str = Field(description="Methods used to present and synthesize results")
     results: str = Field(description="Number of included studies, participants, and main results")
     limitations: str = Field(description="Limitations of the evidence included in the review")
-    interpretation: str = Field(description="General interpretation of results and important implications")
+    interpretation: str = Field(
+        description="General interpretation of results and important implications"
+    )
     funding: str = Field(description="Primary source of funding for the review")
     registration: str = Field(description="Register name and registration number")
 
@@ -71,7 +77,9 @@ class AbstractGenerator(BaseScreeningAgent):
         self.config = config or {}
         self.structured = self.config.get("structured", True)
         self.word_limit = self.config.get("word_limit", 250)
-        self.prisma_2020_format = self.config.get("prisma_2020_format", True)  # Default to PRISMA 2020
+        self.prisma_2020_format = self.config.get(
+            "prisma_2020_format", True
+        )  # Default to PRISMA 2020
 
     def screen(
         self,
@@ -138,7 +146,11 @@ class AbstractGenerator(BaseScreeningAgent):
         if self.config:
             protocol_info = self.config.get("topic", {}).get("protocol", {})
         else:
-            protocol_info = self.topic_context.get("protocol", {}) if isinstance(self.topic_context, dict) else {}
+            protocol_info = (
+                self.topic_context.get("protocol", {})
+                if isinstance(self.topic_context, dict)
+                else {}
+            )
         registration_number = protocol_info.get("registration_number", "")
         registry = protocol_info.get("registry", "PROSPERO")
 
@@ -146,7 +158,11 @@ class AbstractGenerator(BaseScreeningAgent):
         if self.config:
             funding_info = self.config.get("topic", {}).get("funding", {})
         else:
-            funding_info = self.topic_context.get("funding", {}) if isinstance(self.topic_context, dict) else {}
+            funding_info = (
+                self.topic_context.get("funding", {})
+                if isinstance(self.topic_context, dict)
+                else {}
+            )
         funding_source = funding_info.get("source", "No funding received")
 
         prompt = f"""Generate a PRISMA 2020 structured abstract for a systematic review with exactly 12 elements:
@@ -300,4 +316,3 @@ Generate a single-paragraph abstract that summarizes the background, objective, 
 
         logger.info(f"Generated unstructured abstract ({len(abstract.split())} words)")
         return abstract
-

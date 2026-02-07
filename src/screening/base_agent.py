@@ -62,10 +62,7 @@ def validate_model_provider_compatibility(model: str, provider: str) -> bool:
 
     # Gemini models only
     if provider_lower == "gemini":
-        return any(
-            model_lower.startswith(prefix)
-            for prefix in ["gemini", "gemma"]
-        )
+        return any(model_lower.startswith(prefix) for prefix in ["gemini", "gemma"])
 
     # Only gemini is supported for LLM calls
     logger.warning(f"Unsupported LLM provider: {provider}. Only 'gemini' is supported.")
@@ -172,13 +169,14 @@ class BaseScreeningAgent(ABC):
                 api_key = self.api_key or os.getenv("GEMINI_API_KEY")
                 if api_key:
                     # Get timeout from agent config (default: 120 seconds)
-                    timeout_seconds = self.agent_config.get("llm_timeout", 120) if self.agent_config else 120
+                    timeout_seconds = (
+                        self.agent_config.get("llm_timeout", 120) if self.agent_config else 120
+                    )
                     timeout_ms = timeout_seconds * 1000  # Convert to milliseconds
 
                     # Create client with timeout configured
                     self.llm_client = genai.Client(
-                        api_key=api_key,
-                        http_options=types.HttpOptions(timeout=timeout_ms)
+                        api_key=api_key, http_options=types.HttpOptions(timeout=timeout_ms)
                     )
                     # Store model name separately for use in generate_content calls
                     self.llm_model_name = self.llm_model
@@ -191,7 +189,9 @@ class BaseScreeningAgent(ABC):
                 print("Warning: google-genai library not installed")
         else:
             self.llm_client = None
-            logger.warning(f"Unsupported LLM provider: {self.llm_provider}. Only 'gemini' is supported.")
+            logger.warning(
+                f"Unsupported LLM provider: {self.llm_provider}. Only 'gemini' is supported."
+            )
 
     def _register_tools_from_config(self):
         """Register tools from agent config."""
@@ -389,7 +389,11 @@ Output must be suitable for direct insertion into an academic publication withou
                     # Extract usage_metadata and track cost
                     cost = 0.0
                     if self.debug_config.show_costs:
-                        from ..observability.cost_tracker import get_cost_tracker, TokenUsage, LLMCostTracker
+                        from ..observability.cost_tracker import (
+                            get_cost_tracker,
+                            TokenUsage,
+                            LLMCostTracker,
+                        )
 
                         cost_tracker = get_cost_tracker()
                         llm_cost_tracker = LLMCostTracker(cost_tracker)
@@ -402,7 +406,9 @@ Output must be suitable for direct insertion into an academic publication withou
                             total_tokens = getattr(usage_metadata, "total_token_count", 0)
 
                             # Track cost
-                            llm_cost_tracker.track_gemini_response(response, model_name, agent_name=self.role)
+                            llm_cost_tracker.track_gemini_response(
+                                response, model_name, agent_name=self.role
+                            )
 
                             # Calculate cost for display
                             cost = cost_tracker._calculate_cost(
@@ -427,7 +433,9 @@ Output must be suitable for direct insertion into an academic publication withou
 
                     return content
                 else:
-                    raise ValueError(f"Unsupported LLM provider: {self.llm_provider}. Only 'gemini' is supported.")
+                    raise ValueError(
+                        f"Unsupported LLM provider: {self.llm_provider}. Only 'gemini' is supported."
+                    )
             except Exception as e:
                 duration = time.time() - call_start_time
                 logger.debug(f"[{self.role}] LLM call failed after {duration:.2f}s: {e}")
@@ -444,7 +452,9 @@ Output must be suitable for direct insertion into an academic publication withou
             # Log total duration (includes retry/circuit breaker overhead)
             total_duration = time.time() - start_time
             if self.debug_config.show_llm_calls or self.debug_config.enabled:
-                console.print(f"[dim]Total LLM call time (including overhead): {total_duration:.2f}s[/dim]")
+                console.print(
+                    f"[dim]Total LLM call time (including overhead): {total_duration:.2f}s[/dim]"
+                )
                 console.print()  # Add spacing after LLM call display
 
             # Track metrics
@@ -521,82 +531,82 @@ Output must be suitable for direct insertion into an academic publication withou
         for _iteration in range(max_iterations):
             try:
                 # Gemini tool calling
-                    # Google GenAI tool calling format
-                    from google.genai import types
+                # Google GenAI tool calling format
+                from google.genai import types
 
-                    # Convert messages to Google GenAI format
-                    contents = []
-                    for msg in messages:
-                        if msg.get("role") == "user":
-                            contents.append(
-                                types.UserContent(parts=[types.Part.from_text(text=msg["content"])])
+                # Convert messages to Google GenAI format
+                contents = []
+                for msg in messages:
+                    if msg.get("role") == "user":
+                        contents.append(
+                            types.UserContent(parts=[types.Part.from_text(text=msg["content"])])
+                        )
+                    elif msg.get("role") == "assistant":
+                        if "tool_calls" in msg or "function_calls" in msg:
+                            # Handle tool call responses
+                            continue
+                        contents.append(
+                            types.ModelContent(
+                                parts=[types.Part.from_text(text=msg.get("content", ""))]
                             )
-                        elif msg.get("role") == "assistant":
-                            if "tool_calls" in msg or "function_calls" in msg:
-                                # Handle tool call responses
-                                continue
-                            contents.append(
-                                types.ModelContent(
-                                    parts=[types.Part.from_text(text=msg.get("content", ""))]
+                        )
+
+                # Prepare tools for Google GenAI
+                google_tools = None
+                if tools:
+                    # Google GenAI supports automatic function calling with Python functions
+                    # For now, we'll use manual function declarations
+                    function_declarations = []
+                    for tool_def in tools:
+                        if isinstance(tool_def, dict) and "function" in tool_def:
+                            func_def = tool_def["function"]
+                            function_declarations.append(
+                                types.FunctionDeclaration(
+                                    name=func_def["name"],
+                                    description=func_def.get("description", ""),
+                                    parameters=func_def.get("parameters", {}),
                                 )
                             )
+                    if function_declarations:
+                        google_tools = [types.Tool(function_declarations=function_declarations)]
 
-                    # Prepare tools for Google GenAI
-                    google_tools = None
-                    if tools:
-                        # Google GenAI supports automatic function calling with Python functions
-                        # For now, we'll use manual function declarations
-                        function_declarations = []
-                        for tool_def in tools:
-                            if isinstance(tool_def, dict) and "function" in tool_def:
-                                func_def = tool_def["function"]
-                                function_declarations.append(
-                                    types.FunctionDeclaration(
-                                        name=func_def["name"],
-                                        description=func_def.get("description", ""),
-                                        parameters=func_def.get("parameters", {}),
-                                    )
-                                )
-                        if function_declarations:
-                            google_tools = [types.Tool(function_declarations=function_declarations)]
+                response = self.llm_client.models.generate_content(
+                    model=getattr(self, "llm_model_name", model_to_use),
+                    contents=contents,
+                    config=types.GenerateContentConfig(
+                        temperature=self.temperature, tools=google_tools
+                    ),
+                )
 
-                    response = self.llm_client.models.generate_content(
-                        model=getattr(self, "llm_model_name", model_to_use),
-                        contents=contents,
-                        config=types.GenerateContentConfig(
-                            temperature=self.temperature, tools=google_tools
-                        ),
-                    )
+                # Check for function calls
+                if hasattr(response, "function_calls") and response.function_calls:
+                    # Execute tools
+                    for func_call in response.function_calls:
+                        tool_name = func_call.name
+                        tool_args = func_call.args if hasattr(func_call, "args") else {}
 
-                    # Check for function calls
-                    if hasattr(response, "function_calls") and response.function_calls:
-                        # Execute tools
-                        for func_call in response.function_calls:
-                            tool_name = func_call.name
-                            tool_args = func_call.args if hasattr(func_call, "args") else {}
+                        tool_result = self.tool_registry.execute_tool(tool_name, tool_args)
 
-                            tool_result = self.tool_registry.execute_tool(tool_name, tool_args)
+                        # Track generated files
+                        self._track_generated_file(tool_result)
 
-                            # Track generated files
-                            self._track_generated_file(tool_result)
-
-                            # Add tool result to messages
-                            messages.append(
-                                {
-                                    "role": "user",
-                                    "content": json.dumps(
-                                        {
-                                            "status": tool_result.status.value,
-                                            "result": tool_result.result,
-                                            "error": tool_result.error,
-                                        }
-                                    ),
-                                }
-                            )
-                        continue
-                    else:
-                        # Text response
-                        return response.text
+                        # Add tool result to messages
+                        messages.append(
+                            {
+                                "role": "user",
+                                "content": json.dumps(
+                                    {
+                                        "status": tool_result.status.value,
+                                        "result": tool_result.result,
+                                        "error": tool_result.error,
+                                    }
+                                ),
+                            }
+                        )
+                    continue
+                else:
+                    # Text response
+                    return response.text
 
             except Exception as e:
                 logger.error(f"Error in tool calling loop: {e}", exc_info=True)
@@ -627,8 +637,11 @@ Output must be suitable for direct insertion into an academic publication withou
         if tool_result.status.value == "success" and tool_result.result:
             result_str = str(tool_result.result)
             # Check if result is a file path
-            if result_str and any(result_str.endswith(ext) for ext in ['.svg', '.html', '.png', '.jpg', '.pdf', '.md']):
+            if result_str and any(
+                result_str.endswith(ext) for ext in [".svg", ".html", ".png", ".jpg", ".pdf", ".md"]
+            ):
                 from pathlib import Path
+
                 if Path(result_str).exists():
                     self._generated_files.append(result_str)
                     logger.debug(f"[{self.role}] Tracked generated file: {result_str}")

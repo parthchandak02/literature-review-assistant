@@ -72,7 +72,6 @@ class PRISMACounter:
         """Set full-text articles excluded."""
         self.counts["full_text_exclusions"] = count
 
-
     def set_qualitative(self, count: int):
         """Set studies included in qualitative synthesis."""
         self.counts["qualitative"] = count
@@ -125,7 +124,9 @@ class PRISMAGenerator:
         else:
             return self._generate_fallback(counts, output_path, format)
 
-    def _map_counts_to_library_format(self, counts: Dict[str, int]) -> tuple[Dict[str, Any], Dict[str, int]]:
+    def _map_counts_to_library_format(
+        self, counts: Dict[str, int]
+    ) -> tuple[Dict[str, Any], Dict[str, int]]:
         """
         Map PRISMACounter counts to the library's expected format.
 
@@ -165,7 +166,7 @@ class PRISMAGenerator:
                 "assessed": counts.get(
                     "full_text_assessed",
                     counts.get("full_text_sought", counts.get("full_text", 0))
-                    - counts.get("full_text_not_retrieved", 0)
+                    - counts.get("full_text_not_retrieved", 0),
                 ),
                 "excluded_reasons": {
                     "Not eligible": counts.get("full_text_exclusions", 0),
@@ -321,6 +322,7 @@ class PRISMAGenerator:
             print(f"Error generating with library: {e}")
             print("Falling back to matplotlib generator...")
             import traceback
+
             traceback.print_exc()
             return self._generate_fallback(counts, output_path, format)
 
@@ -502,7 +504,9 @@ class PRISMAGenerator:
         assessed_count = counts.get("full_text_assessed", sought_count - not_retrieved_count)
 
         if not_retrieved_count > 0:
-            ft_sought_text = f"Full-text articles sought\n{sought_count}\n(Not retrieved: {not_retrieved_count})"
+            ft_sought_text = (
+                f"Full-text articles sought\n{sought_count}\n(Not retrieved: {not_retrieved_count})"
+            )
             self._draw_box(
                 ax,
                 x_left,

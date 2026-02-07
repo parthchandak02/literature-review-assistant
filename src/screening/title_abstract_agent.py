@@ -60,7 +60,9 @@ class TitleAbstractScreener(BaseScreeningAgent):
 
         # If title/abstract is very short, log warning
         if len(title.strip()) < 5 and len(abstract.strip()) < 50:
-            logger.warning(f"[{self.role}] Paper has very short title/abstract, may affect screening quality")
+            logger.warning(
+                f"[{self.role}] Paper has very short title/abstract, may affect screening quality"
+            )
 
         # Validate criteria
         if not inclusion_criteria:
@@ -82,7 +84,7 @@ class TitleAbstractScreener(BaseScreeningAgent):
         with agent_log_context(self.role, "screen_paper", paper_title=title[:50]):
             if is_verbose:
                 logger.debug(
-                    f"[{self.role}] Screening paper \"{title[:60]}...\" - "
+                    f'[{self.role}] Screening paper "{title[:60]}..." - '
                     f"Building prompt with {len(inclusion_criteria)} inclusion criteria, "
                     f"{len(exclusion_criteria)} exclusion criteria"
                 )
@@ -128,9 +130,7 @@ class TitleAbstractScreener(BaseScreeningAgent):
                         f"(confidence: {result.confidence:.2f})"
                     )
                     if is_verbose:
-                        logger.debug(
-                            f"[{self.role}] Parsed response: {response[:200]}..."
-                        )
+                        logger.debug(f"[{self.role}] Parsed response: {response[:200]}...")
 
             # Log decision details if debug enabled
             if is_verbose:
@@ -301,7 +301,7 @@ Return ONLY valid JSON."""
         keywords = set()
         for criterion in criteria:
             # Split into words and filter
-            words = re.findall(r'\b\w+\b', criterion.lower())
+            words = re.findall(r"\b\w+\b", criterion.lower())
             keywords.update(word for word in words if len(word) >= min_word_length)
         return keywords
 
@@ -334,7 +334,7 @@ Return ONLY valid JSON."""
                 group_keywords = set()
                 for synonym in synonyms:
                     # Split multi-word synonyms and add individual words
-                    words = re.findall(r'\b\w+\b', synonym.lower())
+                    words = re.findall(r"\b\w+\b", synonym.lower())
                     group_keywords.update(word for word in words if len(word) >= 3)
                     # Also add the full phrase as a potential match
                     if len(synonym.split()) > 1:
@@ -353,11 +353,21 @@ Return ONLY valid JSON."""
         if exclusion_criteria:
             # Only match explicit exclusion phrases, not individual words
             explicit_exclusion_phrases = [
-                "rule-based", "rule based", "non-llm", "non llm",
-                "without chatbot", "no chatbot", "case study", "case studies",
-                "opinion piece", "non-peer-reviewed", "conference abstract",
+                "rule-based",
+                "rule based",
+                "non-llm",
+                "non llm",
+                "without chatbot",
+                "no chatbot",
+                "case study",
+                "case studies",
+                "opinion piece",
+                "non-peer-reviewed",
+                "conference abstract",
             ]
-            keyword_sets["exclusion_keywords"].update(phrase.lower() for phrase in explicit_exclusion_phrases)
+            keyword_sets["exclusion_keywords"].update(
+                phrase.lower() for phrase in explicit_exclusion_phrases
+            )
 
             # Extract only meaningful exclusion phrases from criteria (not generic words)
             for criterion in exclusion_criteria:
@@ -403,7 +413,7 @@ Return ONLY valid JSON."""
                 else:
                     # Use fuzzy matching for variations
                     # Check against individual words in text
-                    text_words = re.findall(r'\b\w+\b', text_lower)
+                    text_words = re.findall(r"\b\w+\b", text_lower)
                     for word in text_words:
                         if len(word) >= 3:  # Skip very short words
                             similarity = fuzz.ratio(keyword, word) / 100.0
@@ -448,9 +458,7 @@ Return ONLY valid JSON."""
         text = (title + " " + abstract).lower()
 
         if is_verbose:
-            logger.debug(
-                f"[{self.role}] Keyword matching: Checking exclusion keywords..."
-            )
+            logger.debug(f"[{self.role}] Keyword matching: Checking exclusion keywords...")
 
         # Build comprehensive keyword sets
         keyword_sets = self._build_keyword_sets(
@@ -462,15 +470,27 @@ Return ONLY valid JSON."""
         # STAGE 1: Check exclusion criteria first (strict filtering)
         # Only exclude if explicit exclusion phrases are found (not generic words)
         exclusion_matches = self._fuzzy_match_keywords(
-            text, keyword_sets["exclusion_keywords"], threshold=0.80  # Higher threshold for exclusions
+            text,
+            keyword_sets["exclusion_keywords"],
+            threshold=0.80,  # Higher threshold for exclusions
         )
 
         if exclusion_matches:
             # Only exclude if we have clear exclusion matches (not just generic words)
             # Check if matches are meaningful exclusion phrases
             meaningful_exclusions = [
-                kw for kw, score in exclusion_matches
-                if any(phrase in kw for phrase in ["rule-based", "non-llm", "without chatbot", "case study", "opinion"])
+                kw
+                for kw, score in exclusion_matches
+                if any(
+                    phrase in kw
+                    for phrase in [
+                        "rule-based",
+                        "non-llm",
+                        "without chatbot",
+                        "case study",
+                        "opinion",
+                    ]
+                )
             ]
 
             if meaningful_exclusions:
@@ -488,9 +508,7 @@ Return ONLY valid JSON."""
                 )
 
         if is_verbose:
-            logger.debug(
-                f"[{self.role}] No exclusion matches. Checking inclusion groups..."
-            )
+            logger.debug(f"[{self.role}] No exclusion matches. Checking inclusion groups...")
 
         # STAGE 2: Check inclusion criteria (permissive matching)
         # Use Boolean logic: OR within concept groups, AND between groups
@@ -537,7 +555,7 @@ Return ONLY valid JSON."""
                 if is_verbose:
                     matched_kws = [kw for kw, _ in group_matches[:2]]
                     logger.debug(
-                        f"[{self.role}] Matched inclusion group {i+1}/{len(inclusion_groups)}: {matched_kws}"
+                        f"[{self.role}] Matched inclusion group {i + 1}/{len(inclusion_groups)}: {matched_kws}"
                     )
 
         # Calculate confidence based on how many groups matched

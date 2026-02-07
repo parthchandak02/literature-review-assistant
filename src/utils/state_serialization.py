@@ -49,12 +49,16 @@ class StateSerializer:
         """Serialize screening results."""
         serialized = []
         for result in results:
-            serialized.append({
-                "decision": result.decision.value if isinstance(result.decision, Enum) else result.decision,
-                "confidence": result.confidence,
-                "reasoning": result.reasoning,
-                "exclusion_reason": result.exclusion_reason,
-            })
+            serialized.append(
+                {
+                    "decision": result.decision.value
+                    if isinstance(result.decision, Enum)
+                    else result.decision,
+                    "confidence": result.confidence,
+                    "reasoning": result.reasoning,
+                    "exclusion_reason": result.exclusion_reason,
+                }
+            )
         return serialized
 
     @staticmethod

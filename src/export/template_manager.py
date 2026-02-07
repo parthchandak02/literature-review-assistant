@@ -104,9 +104,7 @@ class TemplateManager:
             logger.error(f"Error reading template {template_path}: {e}")
             return False
 
-    def create_custom_template(
-        self, journal: str, template_content: str
-    ) -> Path:
+    def create_custom_template(self, journal: str, template_content: str) -> Path:
         """
         Create a custom template for a journal.
 

@@ -51,9 +51,7 @@ class RiskOfBiasAssessor:
         logger.info(f"Loaded {len(assessments)} risk of bias assessments")
         return assessments
 
-    def generate_summary_table(
-        self, assessments: List[RiskOfBiasAssessment]
-    ) -> str:
+    def generate_summary_table(self, assessments: List[RiskOfBiasAssessment]) -> str:
         """
         Generate markdown summary table of risk of bias assessments.
 
@@ -177,9 +175,7 @@ class RiskOfBiasAssessor:
             concern_descriptions = []
             for domain, study_ids in list(domain_concerns.items())[:3]:  # Limit to 3 domains
                 short_domain = domain.split(" ")[:3]  # First 3 words
-                concern_descriptions.append(
-                    f"{' '.join(short_domain)} ({len(study_ids)} studies)"
-                )
+                concern_descriptions.append(f"{' '.join(short_domain)} ({len(study_ids)} studies)")
             narrative += ", ".join(concern_descriptions) + ". "
 
         # Ensure word count is approximately correct

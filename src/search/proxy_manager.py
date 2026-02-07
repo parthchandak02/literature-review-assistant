@@ -16,6 +16,7 @@ logger = logging.getLogger(__name__)
 
 class ProxyType(Enum):
     """Proxy type enumeration."""
+
     NONE = "none"
     HTTP = "http"
     SOCKS5 = "socks5"
@@ -96,7 +97,9 @@ class ProxyManager:
             self.http_proxy = f"http://{self.http_proxy}"
 
         if not self.https_proxy.startswith(("http://", "https://")):
-            self.https_proxy = f"https://{self.https_proxy}" if self.https_proxy else self.http_proxy
+            self.https_proxy = (
+                f"https://{self.https_proxy}" if self.https_proxy else self.http_proxy
+            )
 
         self._proxies = {
             "http": self.http_proxy,
@@ -112,8 +115,11 @@ class ProxyManager:
     def _setup_socks5_proxy(self):
         """Setup SOCKS5 proxy."""
         import importlib.util
+
         if importlib.util.find_spec("socks") is None:
-            logger.error("SOCKS5 proxy requires 'requests[socks]' or 'PySocks'. Install with: pip install requests[socks]")
+            logger.error(
+                "SOCKS5 proxy requires 'requests[socks]' or 'PySocks'. Install with: pip install requests[socks]"
+            )
             return
 
         if not self.http_proxy:

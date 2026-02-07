@@ -9,6 +9,7 @@ from typing import Dict, Any
 
 try:
     from manubot.cite.citekey import citekey_to_csl_item
+
     MANUBOT_AVAILABLE = True
 except ImportError:
     MANUBOT_AVAILABLE = False
@@ -16,6 +17,7 @@ except ImportError:
     def citekey_to_csl_item(*args, **kwargs):
         """Placeholder function when Manubot is not available."""
         raise ImportError("Manubot package required. Install with: pip install manubot")
+
 
 from ..search.connectors.base import Paper
 
@@ -29,9 +31,7 @@ class ManubotCitationResolver:
         """Initialize Manubot citation resolver."""
         self._manubot_available = MANUBOT_AVAILABLE
         if not self._manubot_available:
-            logger.warning(
-                "Manubot not available. Install with: pip install manubot"
-            )
+            logger.warning("Manubot not available. Install with: pip install manubot")
 
     def resolve_from_doi(self, doi: str) -> Dict[str, Any]:
         """
@@ -173,9 +173,7 @@ class ManubotCitationResolver:
                 logger.debug(f"Resolved citekey {identifier} to CSL item")
                 return csl_item
             except Exception as e:
-                raise ValueError(
-                    f"Could not resolve identifier {identifier}: {e}"
-                ) from e
+                raise ValueError(f"Could not resolve identifier {identifier}: {e}") from e
 
     def csl_to_paper(self, csl_item: Dict[str, Any]) -> Paper:
         """
@@ -216,9 +214,7 @@ class ManubotCitationResolver:
 
         # Extract journal
         journal = (
-            csl_item.get("container-title")
-            or csl_item.get("journal")
-            or csl_item.get("publisher")
+            csl_item.get("container-title") or csl_item.get("journal") or csl_item.get("publisher")
         )
 
         # Extract URL

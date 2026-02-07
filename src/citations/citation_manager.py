@@ -30,6 +30,7 @@ class CitationManager:
         # Initialize Manubot resolver (optional)
         try:
             from .manubot_resolver import ManubotCitationResolver
+
             self.manubot_resolver = ManubotCitationResolver()
         except ImportError:
             self.manubot_resolver = None
@@ -50,9 +51,7 @@ class CitationManager:
             ValueError: If identifier resolution fails
         """
         if not self.manubot_resolver:
-            raise ImportError(
-                "Manubot resolver not available. Install with: pip install manubot"
-            )
+            raise ImportError("Manubot resolver not available. Install with: pip install manubot")
 
         # Resolve citation
         csl_item = self.manubot_resolver.resolve_from_identifier(identifier)
@@ -90,6 +89,7 @@ class CitationManager:
         Returns:
             Text with citations replaced as [X]
         """
+
         # First, handle [Citation X] format and convert to [X]
         def replace_citation_placeholder(match):
             """Replace citation placeholder with numbered citation."""
@@ -160,6 +160,7 @@ class CitationManager:
 
         # Handle Manubot-style citations if auto_resolve is enabled
         if auto_resolve and self.manubot_resolver:
+
             def resolve_manubot_citation(match):
                 """Resolve Manubot-style citation and replace with numbered citation."""
                 citekey = match.group(1)  # Extract citekey from [@citekey]
@@ -203,7 +204,9 @@ class CitationManager:
                 else:
                     # Citation referenced but paper not available (e.g., placeholder citation)
                     # Still include it in references with a note
-                    references.append(f"[{cit_num}] Citation referenced but paper data not available.")
+                    references.append(
+                        f"[{cit_num}] Citation referenced but paper data not available."
+                    )
             else:
                 # Citation used but not mapped (citation number exceeds available papers)
                 # This can happen when writing agents generate citations for papers that don't exist
@@ -236,14 +239,16 @@ class CitationManager:
                 paper_idx = self.citation_map[cit_num]
                 if 0 <= paper_idx < len(self.papers):
                     paper = self.papers[paper_idx]
-                    references.append({
-                        "authors": paper.authors or [],
-                        "title": paper.title or "",
-                        "journal": paper.journal,
-                        "year": paper.year,
-                        "doi": paper.doi,
-                        "url": paper.url,
-                    })
+                    references.append(
+                        {
+                            "authors": paper.authors or [],
+                            "title": paper.title or "",
+                            "journal": paper.journal,
+                            "year": paper.year,
+                            "doi": paper.doi,
+                            "url": paper.url,
+                        }
+                    )
 
         return references
 

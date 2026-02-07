@@ -13,6 +13,7 @@ logger = logging.getLogger(__name__)
 
 try:
     import pypandoc
+
     PYPANDOC_AVAILABLE = True
 except ImportError:
     PYPANDOC_AVAILABLE = False
@@ -25,9 +26,7 @@ class PandocConverter:
     def __init__(self):
         """Initialize Pandoc converter."""
         if not PYPANDOC_AVAILABLE:
-            logger.warning(
-                "pypandoc not available. Install with: pip install pypandoc"
-            )
+            logger.warning("pypandoc not available. Install with: pip install pypandoc")
             logger.warning("Pandoc must be installed separately on your system")
 
     def markdown_to_pdf(
@@ -56,9 +55,7 @@ class PandocConverter:
             RuntimeError: If Pandoc conversion fails
         """
         if not PYPANDOC_AVAILABLE:
-            raise ImportError(
-                "pypandoc required. Install with: pip install pypandoc"
-            )
+            raise ImportError("pypandoc required. Install with: pip install pypandoc")
 
         output_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -117,9 +114,7 @@ class PandocConverter:
             RuntimeError: If Pandoc conversion fails
         """
         if not PYPANDOC_AVAILABLE:
-            raise ImportError(
-                "pypandoc required. Install with: pip install pypandoc"
-            )
+            raise ImportError("pypandoc required. Install with: pip install pypandoc")
 
         output_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -176,9 +171,7 @@ class PandocConverter:
             RuntimeError: If Pandoc conversion fails
         """
         if not PYPANDOC_AVAILABLE:
-            raise ImportError(
-                "pypandoc required. Install with: pip install pypandoc"
-            )
+            raise ImportError("pypandoc required. Install with: pip install pypandoc")
 
         output_path.parent.mkdir(parents=True, exist_ok=True)
 

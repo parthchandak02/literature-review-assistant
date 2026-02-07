@@ -66,7 +66,7 @@ class IntroductionWriter(BaseScreeningAgent):
 
         if not self.llm_client:
             raise RuntimeError("LLM client is required for introduction generation")
-        
+
         response = self._call_llm(prompt)
         result = response
 
@@ -104,9 +104,15 @@ Justification: {justification}
         style_guidelines = ""
         if style_patterns and "introduction" in style_patterns:
             intro_patterns = style_patterns["introduction"]
-            style_guidelines = "\n\nSTYLE GUIDELINES (based on analysis of included papers in this review):\n"
-            style_guidelines += "- Vary sentence structures: mix simple, compound, and complex sentences\n"
-            style_guidelines += "- Use natural academic vocabulary with domain-specific terms from the field\n"
+            style_guidelines = (
+                "\n\nSTYLE GUIDELINES (based on analysis of included papers in this review):\n"
+            )
+            style_guidelines += (
+                "- Vary sentence structures: mix simple, compound, and complex sentences\n"
+            )
+            style_guidelines += (
+                "- Use natural academic vocabulary with domain-specific terms from the field\n"
+            )
             style_guidelines += "- Integrate citations naturally: vary placement and phrasing\n"
             style_guidelines += "- Create natural flow: avoid formulaic transitions\n"
             style_guidelines += "- Maintain scholarly tone: precise but not robotic\n"
@@ -120,7 +126,9 @@ Justification: {justification}
                 vocab = intro_patterns["vocabulary"][:5]
                 style_guidelines += f"Domain vocabulary examples: {', '.join(vocab)}\n"
 
-        prompt += style_guidelines + """
+        prompt += (
+            style_guidelines
+            + """
 
 CRITICAL OUTPUT CONSTRAINTS:
 - Begin IMMEDIATELY with substantive content - do NOT start with phrases like "Here is an introduction for..." or "Of course. Here is..."
@@ -157,6 +165,6 @@ Please write a well-structured introduction that includes:
 CRITICAL REQUIREMENT: You MUST include an explicit "Objectives" paragraph or subsection with bullet points listing the specific objectives. This is required by PRISMA 2020 (Item #4).
 
 Write in academic style, use appropriate citations (use [Citation X] format), and ensure the introduction flows logically. Begin immediately with the background content - do not include any introductory phrases."""
+        )
 
         return prompt
-

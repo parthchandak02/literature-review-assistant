@@ -14,11 +14,13 @@ import logging
 
 try:
     from pylatexenc.latexencode import unicode_to_latex
+
     PYLATEXENC_AVAILABLE = True
 except ImportError:
     PYLATEXENC_AVAILABLE = False
 
 import importlib.util
+
 MARKDOWN_AVAILABLE = importlib.util.find_spec("markdown") is not None
 
 logger = logging.getLogger(__name__)
@@ -85,7 +87,9 @@ class LaTeXExporter:
 
         return self.template
 
-    def _generate_latex(self, report_data: Dict[str, Any], template: str, output_path: Optional[str] = None) -> str:
+    def _generate_latex(
+        self, report_data: Dict[str, Any], template: str, output_path: Optional[str] = None
+    ) -> str:
         """Generate LaTeX content from report data."""
         if template == "ieee":
             return self._generate_ieee_latex(report_data, output_path)
@@ -93,7 +97,9 @@ class LaTeXExporter:
             # Default to IEEE template
             return self._generate_ieee_latex(report_data, output_path)
 
-    def _generate_ieee_latex(self, report_data: Dict[str, Any], output_path: Optional[str] = None) -> str:
+    def _generate_ieee_latex(
+        self, report_data: Dict[str, Any], output_path: Optional[str] = None
+    ) -> str:
         """Generate IEEE-style LaTeX document."""
         lines = []
         output_dir = Path(output_path).parent if output_path else Path.cwd()
@@ -123,8 +129,12 @@ class LaTeXExporter:
         if authors:
             author_lines = []
             for author in authors:
-                author_lines.append(f"\\author{{{self._escape_latex(author.get('name', 'Author'))}}}")
-            lines.append("\\author{" + "\\and ".join([f"{a.get('name', '')}" for a in authors]) + "}")
+                author_lines.append(
+                    f"\\author{{{self._escape_latex(author.get('name', 'Author'))}}}"
+                )
+            lines.append(
+                "\\author{" + "\\and ".join([f"{a.get('name', '')}" for a in authors]) + "}"
+            )
         else:
             lines.append("\\author{Anonymous Author(s)}")
 
@@ -331,7 +341,7 @@ class LaTeXExporter:
         for col_idx in range(len(headers)):
             # Check if column contains mostly numbers (right-align) or text (left-align)
             has_numbers = False
-            for row in table_rows[:min(5, len(table_rows))]:  # Sample first 5 rows
+            for row in table_rows[: min(5, len(table_rows))]:  # Sample first 5 rows
                 if col_idx < len(row) and row[col_idx]:
                     # Check if cell looks like a number
                     cell = row[col_idx].strip()
@@ -358,7 +368,7 @@ class LaTeXExporter:
             # Ensure all rows have same number of cells as headers
             while len(row_cells) < len(headers):
                 row_cells.append("")
-            latex_lines.append(" & ".join(row_cells[:len(headers)]) + " \\\\")
+            latex_lines.append(" & ".join(row_cells[: len(headers)]) + " \\\\")
 
         latex_lines.append("\\bottomrule")
         latex_lines.append("\\end{tabular}")
@@ -432,7 +442,9 @@ class LaTeXExporter:
             r"Information\s*sources?\s*:",
         ]
 
-        is_structured = any(re.search(pattern, abstract, re.IGNORECASE) for pattern in structured_patterns)
+        is_structured = any(
+            re.search(pattern, abstract, re.IGNORECASE) for pattern in structured_patterns
+        )
 
         if not is_structured:
             # Already unstructured, return as-is (but ensure single paragraph)

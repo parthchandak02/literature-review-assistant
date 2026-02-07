@@ -23,6 +23,7 @@ class NaturalnessScorer(BaseScreeningAgent):
     ):
         """Stub implementation - naturalness scorer doesn't screen papers."""
         from ..screening.base_agent import ScreeningResult, InclusionDecision
+
         return ScreeningResult(
             decision=InclusionDecision.UNCERTAIN,
             confidence=0.0,
@@ -74,11 +75,7 @@ class NaturalnessScorer(BaseScreeningAgent):
             return self._score_cache[cache_key]
 
         # Show evaluating panel
-        print_naturalness_panel(
-            section_name=section_type.title(),
-            status="evaluating",
-            scores=None
-        )
+        print_naturalness_panel(section_name=section_type.title(), status="evaluating", scores=None)
 
         prompt = self._build_scoring_prompt(text, section_type)
 
@@ -96,9 +93,7 @@ class NaturalnessScorer(BaseScreeningAgent):
             }
 
             overall = sum(
-                scores.get(key, 0.5) * weight
-                for key, weight in weights.items()
-                if key in scores
+                scores.get(key, 0.5) * weight for key, weight in weights.items() if key in scores
             )
             scores["overall_naturalness"] = overall
 
@@ -108,9 +103,7 @@ class NaturalnessScorer(BaseScreeningAgent):
 
             # Show complete panel with scores
             print_naturalness_panel(
-                section_name=section_type.title(),
-                status="complete",
-                scores=scores
+                section_name=section_type.title(), status="complete", scores=scores
             )
 
             return scores
@@ -129,9 +122,7 @@ class NaturalnessScorer(BaseScreeningAgent):
 
             # Show complete panel with default scores
             print_naturalness_panel(
-                section_name=section_type.title(),
-                status="complete",
-                scores=default_scores
+                section_name=section_type.title(), status="complete", scores=default_scores
             )
 
             return default_scores
@@ -215,9 +206,7 @@ Do not include any other text or explanations."""
 
         return scores
 
-    def is_acceptable(
-        self, text: str, section_type: str, threshold: float = 0.75
-    ) -> bool:
+    def is_acceptable(self, text: str, section_type: str, threshold: float = 0.75) -> bool:
         """
         Check if text meets naturalness threshold.
 
@@ -233,9 +222,7 @@ Do not include any other text or explanations."""
         overall = scores.get("overall_naturalness", 0.0)
         return overall >= threshold
 
-    def score_dimension(
-        self, text: str, dimension: str, section_type: str = "general"
-    ) -> float:
+    def score_dimension(self, text: str, dimension: str, section_type: str = "general") -> float:
         """
         Score a specific dimension.
 

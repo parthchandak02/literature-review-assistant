@@ -13,6 +13,7 @@ from .database_connectors import (
     IEEEXploreConnector,
     MockConnector,
 )
+
 try:
     from .connectors.google_scholar_connector import GoogleScholarConnector
 except ImportError:

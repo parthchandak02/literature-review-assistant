@@ -173,7 +173,9 @@ class CheckpointManager:
                 logger.debug(f"No checkpoint files found in {workflow_dir.name}")
                 continue
 
-            logger.debug(f"Checking workflow {workflow_dir.name} ({len(checkpoint_files)} checkpoint files)")
+            logger.debug(
+                f"Checking workflow {workflow_dir.name} ({len(checkpoint_files)} checkpoint files)"
+            )
 
             # Try to find the latest checkpoint and check its topic
             latest_checkpoint = max(checkpoint_files, key=lambda p: p.stat().st_mtime)
@@ -184,7 +186,9 @@ class CheckpointManager:
                     continue
 
                 # Check if topic matches
-                checkpoint_topic = checkpoint_data.get("topic_context", {}).get("topic", "").lower().strip()
+                checkpoint_topic = (
+                    checkpoint_data.get("topic_context", {}).get("topic", "").lower().strip()
+                )
                 logger.debug(f"  Checkpoint topic: '{checkpoint_topic}'")
 
                 if checkpoint_topic == current_topic:
@@ -224,18 +228,26 @@ class CheckpointManager:
 
                     if latest_phase:
                         # Calculate completeness score
-                        completeness = self._calculate_checkpoint_completeness(workflow_dir, phase_order)
-                        logger.info(f"  Latest phase found: {latest_phase} (article sections: {article_sections_count}, completeness: {completeness})")
-                        phase_index = phase_order.index(latest_phase) if latest_phase in phase_order else -1
-                        matches.append({
-                            "checkpoint_dir": str(workflow_dir),
-                            "latest_phase": latest_phase,
-                            "latest_phase_time": latest_phase_time,
-                            "workflow_id": workflow_dir.name,
-                            "phase_index": phase_index,
-                            "article_sections_count": article_sections_count,
-                            "completeness": completeness,
-                        })
+                        completeness = self._calculate_checkpoint_completeness(
+                            workflow_dir, phase_order
+                        )
+                        logger.info(
+                            f"  Latest phase found: {latest_phase} (article sections: {article_sections_count}, completeness: {completeness})"
+                        )
+                        phase_index = (
+                            phase_order.index(latest_phase) if latest_phase in phase_order else -1
+                        )
+                        matches.append(
+                            {
+                                "checkpoint_dir": str(workflow_dir),
+                                "latest_phase": latest_phase,
+                                "latest_phase_time": latest_phase_time,
+                                "workflow_id": workflow_dir.name,
+                                "phase_index": phase_index,
+                                "article_sections_count": article_sections_count,
+                                "completeness": completeness,
+                            }
+                        )
                 else:
                     logger.debug(f"  Topic mismatch: '{checkpoint_topic}' != '{current_topic}'")
             except Exception as e:
@@ -251,10 +263,12 @@ class CheckpointManager:
                     m["completeness"],
                     m["phase_index"],
                     m["article_sections_count"],
-                    m["latest_phase_time"]
-                )
+                    m["latest_phase_time"],
+                ),
             )
-            logger.info(f"Selected best checkpoint: {best_match['workflow_id']} (phase: {best_match['latest_phase']}, completeness: {best_match['completeness']}, article sections: {best_match['article_sections_count']})")
+            logger.info(
+                f"Selected best checkpoint: {best_match['workflow_id']} (phase: {best_match['latest_phase']}, completeness: {best_match['completeness']}, article sections: {best_match['article_sections_count']})"
+            )
             return {
                 "checkpoint_dir": best_match["checkpoint_dir"],
                 "latest_phase": best_match["latest_phase"],
@@ -268,7 +282,7 @@ class CheckpointManager:
         self,
         checkpoint_dir: Path,
         phases_to_load: List[str],
-        phase_dependencies: Dict[str, List[str]]
+        phase_dependencies: Dict[str, List[str]],
     ) -> Dict[str, Any]:
         """
         Load a chain of checkpoints in dependency order.
@@ -288,7 +302,9 @@ class CheckpointManager:
         for phase in phases_to_load:
             checkpoint_file = checkpoint_dir / f"{phase}_state.json"
             if not checkpoint_file.exists():
-                logger.debug(f"Missing checkpoint: {phase} (will skip, may use data from later phases)")
+                logger.debug(
+                    f"Missing checkpoint: {phase} (will skip, may use data from later phases)"
+                )
                 continue
 
             logger.debug(f"Found checkpoint: {phase}")
@@ -319,7 +335,9 @@ class CheckpointManager:
             logger.error("Failed to load any checkpoints!")
             return {}
 
-        logger.info(f"Successfully loaded {len(loaded_phases)} checkpoint(s) out of {len(phases_to_load)} attempted: {', '.join(loaded_phases)}")
+        logger.info(
+            f"Successfully loaded {len(loaded_phases)} checkpoint(s) out of {len(phases_to_load)} attempted: {', '.join(loaded_phases)}"
+        )
         if len(loaded_phases) < len(phases_to_load):
             missing = set(phases_to_load) - set(loaded_phases)
             logger.warning(f"Missing checkpoints (will use available data): {', '.join(missing)}")

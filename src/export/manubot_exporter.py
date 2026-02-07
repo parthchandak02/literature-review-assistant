@@ -130,7 +130,7 @@ class ManubotExporter:
 
         if keywords:
             keywords_str = ", ".join(keywords)
-            lines.append(f'keywords: [{keywords_str}]')
+            lines.append(f"keywords: [{keywords_str}]")
 
         lines.append("---")
         lines.append("")

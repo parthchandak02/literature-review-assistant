@@ -16,6 +16,7 @@ logger = logging.getLogger(__name__)
 
 class IntegrityAction(Enum):
     """Action to take when integrity check fails."""
+
     WARN = "warn"
     RAISE = "raise"
 
@@ -112,7 +113,9 @@ class IntegrityChecker:
             except AttributeError:
                 # If action is "raise", we still want to continue with other papers
                 # but log the error
-                logger.error(f"Skipping paper due to integrity check failure: {paper.title[:50] if paper.title else 'N/A'}...")
+                logger.error(
+                    f"Skipping paper due to integrity check failure: {paper.title[:50] if paper.title else 'N/A'}..."
+                )
                 continue
 
         if len(valid_papers) < len(papers):

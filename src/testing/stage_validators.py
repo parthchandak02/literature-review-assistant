@@ -15,6 +15,7 @@ logger = logging.getLogger(__name__)
 @dataclass
 class ValidationResult:
     """Result of validation."""
+
     is_valid: bool
     errors: List[str]
     warnings: List[str]
@@ -160,6 +161,7 @@ class CitationValidator(StageValidator):
 
         # Validate citation format (should be [Citation N] or [N])
         import re
+
         citation_regex = r"\[Citation\s+\d+\]|\[\d+\]"
 
         for _section_name, section_text in article_sections.items():
@@ -255,9 +257,7 @@ class ScreeningValidator(StageValidator):
         warnings = []
 
         if len(papers) != len(results):
-            errors.append(
-                f"Mismatch: {len(papers)} papers but {len(results)} screening results"
-            )
+            errors.append(f"Mismatch: {len(papers)} papers but {len(results)} screening results")
 
         # Check for valid decisions
         valid_decisions = ["include", "exclude", "uncertain"]

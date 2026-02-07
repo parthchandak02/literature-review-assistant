@@ -17,9 +17,7 @@ class SubmissionChecklistGenerator:
     def __init__(self):
         """Initialize checklist generator."""
 
-    def generate_checklist(
-        self, journal: str, package_dir: Path
-    ) -> str:
+    def generate_checklist(self, journal: str, package_dir: Path) -> str:
         """
         Generate submission checklist markdown.
 
@@ -93,15 +91,23 @@ class SubmissionChecklistGenerator:
         lines.append("")
 
         total_checks = len(required_files) + len(content_checks) + len(formatting_checks)
-        passed_checks = sum([
-            checks.get("has_abstract", False),
-            checks.get("has_introduction", False),
-            checks.get("has_methods", False),
-            checks.get("has_results", False),
-            checks.get("has_discussion", False),
-            checks.get("has_references", False),
-            checks.get("has_figures", False),
-        ]) + sum([v for k, v in checks.items() if k in ["citations_valid", "figure_captions", "tables_valid"]])
+        passed_checks = sum(
+            [
+                checks.get("has_abstract", False),
+                checks.get("has_introduction", False),
+                checks.get("has_methods", False),
+                checks.get("has_results", False),
+                checks.get("has_discussion", False),
+                checks.get("has_references", False),
+                checks.get("has_figures", False),
+            ]
+        ) + sum(
+            [
+                v
+                for k, v in checks.items()
+                if k in ["citations_valid", "figure_captions", "tables_valid"]
+            ]
+        )
 
         lines.append(f"**Total checks:** {total_checks}")
         lines.append(f"**Passed:** {passed_checks}")
@@ -150,7 +156,9 @@ class SubmissionChecklistGenerator:
             results["has_methods"] = "methods" in content.lower()
             results["has_results"] = "results" in content.lower()
             results["has_discussion"] = "discussion" in content.lower()
-            results["has_references"] = "references" in content.lower() or "reference" in content.lower()
+            results["has_references"] = (
+                "references" in content.lower() or "reference" in content.lower()
+            )
             results["citations_valid"] = "[" in content and "]" in content  # Basic citation check
 
         # Check figures
@@ -160,7 +168,9 @@ class SubmissionChecklistGenerator:
             # Check for figure captions in manuscript
             if manuscript_md.exists():
                 content = manuscript_md.read_text(encoding="utf-8")
-                results["figure_captions"] = "figure" in content.lower() and "caption" in content.lower()
+                results["figure_captions"] = (
+                    "figure" in content.lower() and "caption" in content.lower()
+                )
 
         # Check references
         bibtex_path = package_dir / "references.bib"

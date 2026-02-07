@@ -12,6 +12,7 @@ try:
     from docx import Document
     from docx.shared import Inches
     from docx.enum.text import WD_ALIGN_PARAGRAPH
+
     DOCX_AVAILABLE = True
 except ImportError:
     DOCX_AVAILABLE = False
@@ -25,7 +26,9 @@ class WordExporter:
     def __init__(self):
         """Initialize Word exporter."""
         if not DOCX_AVAILABLE:
-            raise ImportError("python-docx is required for Word export. Install with: pip install python-docx")
+            raise ImportError(
+                "python-docx is required for Word export. Install with: pip install python-docx"
+            )
 
     def export(
         self,
@@ -138,7 +141,7 @@ class WordExporter:
                 continue
 
             # Check for markdown table
-            if line.startswith("|") and "---" in lines[i+1] if i+1 < len(lines) else False:
+            if line.startswith("|") and "---" in lines[i + 1] if i + 1 < len(lines) else False:
                 # Parse table
                 table = self._parse_markdown_table(lines, i)
                 if table:
@@ -220,6 +223,7 @@ class WordExporter:
         """Add formatted text to paragraph."""
         # Handle bold **text**
         import re
+
         parts = re.split(r"(\*\*.*?\*\*)", text)
         for part in parts:
             if part.startswith("**") and part.endswith("**"):

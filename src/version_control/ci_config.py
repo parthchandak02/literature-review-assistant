@@ -39,6 +39,7 @@ class CIConfig:
         if self.config_path and self.config_path.exists():
             try:
                 import yaml
+
                 with open(self.config_path, "r") as f:
                     user_config = yaml.safe_load(f) or {}
                 default_config.update(user_config)

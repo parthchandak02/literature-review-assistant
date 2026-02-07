@@ -51,9 +51,9 @@ def remove_html_tags(text: Optional[str]) -> Optional[str]:
     try:
         # Remove HTML tags using regex
         # This is a simple approach - for more complex HTML, use BeautifulSoup
-        clean_text = re.sub(r'<[^>]+>', '', text)
+        clean_text = re.sub(r"<[^>]+>", "", text)
         # Clean up multiple spaces
-        clean_text = re.sub(r'\s+', ' ', clean_text)
+        clean_text = re.sub(r"\s+", " ", clean_text)
         return clean_text.strip()
     except Exception:
         return text
@@ -100,7 +100,7 @@ def clean_abstract(abstract: Optional[str]) -> Optional[str]:
     # Remove common artifacts
     if cleaned:
         # Remove excessive whitespace
-        cleaned = re.sub(r'\n\s*\n', '\n\n', cleaned)
+        cleaned = re.sub(r"\n\s*\n", "\n\n", cleaned)
         cleaned = cleaned.strip()
 
     return cleaned

@@ -65,9 +65,7 @@ class JournalSelector:
         journal_lower = journal.lower()
         return self.journals_config.get(journal_lower)
 
-    def validate_for_journal(
-        self, manuscript_path: Path, journal: str
-    ) -> Dict[str, bool]:
+    def validate_for_journal(self, manuscript_path: Path, journal: str) -> Dict[str, bool]:
         """
         Validate manuscript for journal requirements.
 

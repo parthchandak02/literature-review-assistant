@@ -25,6 +25,7 @@ class HumanizationAgent(BaseScreeningAgent):
     ):
         """Stub implementation - humanization agent doesn't screen papers."""
         from ..screening.base_agent import ScreeningResult, InclusionDecision
+
         return ScreeningResult(
             decision=InclusionDecision.UNCERTAIN,
             confidence=0.0,
@@ -87,7 +88,9 @@ class HumanizationAgent(BaseScreeningAgent):
             return ""
 
         if not isinstance(text, str):
-            logger.warning(f"Received non-string text for {section_type} section (type: {type(text)}), converting to string")
+            logger.warning(
+                f"Received non-string text for {section_type} section (type: {type(text)}), converting to string"
+            )
             text = str(text)
 
         if not text or len(text.strip()) < 50:
@@ -100,13 +103,14 @@ class HumanizationAgent(BaseScreeningAgent):
         initial_naturalness = initial_scores.get("overall_naturalness", 0.5)
 
         logger.debug(
-            f"Humanizing {section_type} section: "
-            f"initial naturalness = {initial_naturalness:.2f}"
+            f"Humanizing {section_type} section: initial naturalness = {initial_naturalness:.2f}"
         )
 
         # If already acceptable, return as-is
         if initial_naturalness >= self.naturalness_threshold:
-            logger.debug(f"Text already meets naturalness threshold ({initial_naturalness:.2f} >= {self.naturalness_threshold})")
+            logger.debug(
+                f"Text already meets naturalness threshold ({initial_naturalness:.2f} >= {self.naturalness_threshold})"
+            )
             return text
 
         # Humanize iteratively
@@ -127,9 +131,7 @@ class HumanizationAgent(BaseScreeningAgent):
                 humanized_text = self._clean_humanized_text(humanized_text)
 
                 # Score the humanized text
-                new_scores = self.naturalness_scorer.score_naturalness(
-                    humanized_text, section_type
-                )
+                new_scores = self.naturalness_scorer.score_naturalness(humanized_text, section_type)
                 new_naturalness = new_scores.get("overall_naturalness", 0.5)
 
                 logger.debug(
@@ -152,9 +154,7 @@ class HumanizationAgent(BaseScreeningAgent):
                     initial_naturalness = new_naturalness
                 else:
                     # No improvement, stop
-                    logger.debug(
-                        f"No improvement in iteration {iteration + 1}, stopping"
-                    )
+                    logger.debug(f"No improvement in iteration {iteration + 1}, stopping")
                     break
 
             except Exception as e:

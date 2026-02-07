@@ -23,27 +23,79 @@ class PRISMAChecklistGenerator:
     def _load_checklist_template(self) -> List[Dict[str, Any]]:
         """Load PRISMA 2020 checklist template."""
         return [
-            {"item": 1, "section": "Title", "description": "Identify the report as a systematic review"},
-            {"item": 2, "section": "Abstract", "description": "See PRISMA 2020 for Abstracts checklist"},
-            {"item": 3, "section": "Introduction", "description": "Describe the rationale for the review"},
-            {"item": 4, "section": "Introduction", "description": "Provide explicit statement of objectives"},
-            {"item": 5, "section": "Methods", "description": "Specify inclusion and exclusion criteria"},
-            {"item": 6, "section": "Methods", "description": "Specify all databases and sources searched"},
+            {
+                "item": 1,
+                "section": "Title",
+                "description": "Identify the report as a systematic review",
+            },
+            {
+                "item": 2,
+                "section": "Abstract",
+                "description": "See PRISMA 2020 for Abstracts checklist",
+            },
+            {
+                "item": 3,
+                "section": "Introduction",
+                "description": "Describe the rationale for the review",
+            },
+            {
+                "item": 4,
+                "section": "Introduction",
+                "description": "Provide explicit statement of objectives",
+            },
+            {
+                "item": 5,
+                "section": "Methods",
+                "description": "Specify inclusion and exclusion criteria",
+            },
+            {
+                "item": 6,
+                "section": "Methods",
+                "description": "Specify all databases and sources searched",
+            },
             {"item": 7, "section": "Methods", "description": "Present full search strategies"},
             {"item": 8, "section": "Methods", "description": "Specify methods for study selection"},
             {"item": 9, "section": "Methods", "description": "Specify methods for data collection"},
-            {"item": 10, "section": "Methods", "description": "List and define outcomes and variables"},
-            {"item": 11, "section": "Methods", "description": "Specify methods for risk of bias assessment"},
+            {
+                "item": 10,
+                "section": "Methods",
+                "description": "List and define outcomes and variables",
+            },
+            {
+                "item": 11,
+                "section": "Methods",
+                "description": "Specify methods for risk of bias assessment",
+            },
             {"item": 12, "section": "Methods", "description": "Specify effect measures"},
             {"item": 13, "section": "Methods", "description": "Describe synthesis methods"},
-            {"item": 14, "section": "Methods", "description": "Describe methods for assessing reporting bias"},
-            {"item": 15, "section": "Methods", "description": "Describe methods for assessing certainty"},
-            {"item": 16, "section": "Results", "description": "Describe results of search and selection"},
-            {"item": 17, "section": "Results", "description": "Cite each included study and present characteristics"},
+            {
+                "item": 14,
+                "section": "Methods",
+                "description": "Describe methods for assessing reporting bias",
+            },
+            {
+                "item": 15,
+                "section": "Methods",
+                "description": "Describe methods for assessing certainty",
+            },
+            {
+                "item": 16,
+                "section": "Results",
+                "description": "Describe results of search and selection",
+            },
+            {
+                "item": 17,
+                "section": "Results",
+                "description": "Cite each included study and present characteristics",
+            },
             {"item": 18, "section": "Results", "description": "Present risk of bias assessments"},
             {"item": 19, "section": "Results", "description": "Present results for each study"},
             {"item": 20, "section": "Results", "description": "Present results of syntheses"},
-            {"item": 21, "section": "Results", "description": "Present assessments of reporting biases"},
+            {
+                "item": 21,
+                "section": "Results",
+                "description": "Present assessments of reporting biases",
+            },
             {"item": 22, "section": "Results", "description": "Present assessments of certainty"},
             {"item": 23, "section": "Discussion", "description": "Provide general interpretation"},
             {"item": 24, "section": "Other", "description": "Provide registration information"},
@@ -52,9 +104,7 @@ class PRISMAChecklistGenerator:
             {"item": 27, "section": "Other", "description": "Report data availability"},
         ]
 
-    def generate_checklist(
-        self, report_content: str, output_path: str
-    ) -> str:
+    def generate_checklist(self, report_content: str, output_path: str) -> str:
         """
         Generate PRISMA checklist file from report content.
 
@@ -80,13 +130,15 @@ class PRISMAChecklistGenerator:
             is_present = self._check_item(report_content, item_num, description, section)
             page_number = self._find_page_number(report_content, section)
 
-            checklist["items"].append({
-                "item": item_num,
-                "section": section,
-                "description": description,
-                "reported": "Yes" if is_present else "No",
-                "page_number": page_number if page_number else "N/A",
-            })
+            checklist["items"].append(
+                {
+                    "item": item_num,
+                    "section": section,
+                    "description": description,
+                    "reported": "Yes" if is_present else "No",
+                    "page_number": page_number if page_number else "N/A",
+                }
+            )
 
         # Save checklist
         output_path_obj = Path(output_path)
@@ -105,9 +157,7 @@ class PRISMAChecklistGenerator:
             return title_match.group(1).strip()
         return "Systematic Review Report"
 
-    def _check_item(
-        self, content: str, item_num: int, description: str, section: str
-    ) -> bool:
+    def _check_item(self, content: str, item_num: int, description: str, section: str) -> bool:
         """Check if a PRISMA item is present in the report."""
         content_lower = content.lower()
 
@@ -129,9 +179,18 @@ class PRISMAChecklistGenerator:
         elif item_num == 15:
             return bool(re.search(r"GRADE|certainty|confidence\s+in\s+evidence", content_lower))
         elif item_num == 17:
-            return bool(re.search(r"study\s+characteristics|characteristics\s+of\s+included\s+studies", content_lower))
+            return bool(
+                re.search(
+                    r"study\s+characteristics|characteristics\s+of\s+included\s+studies",
+                    content_lower,
+                )
+            )
         elif item_num == 18:
-            return bool(re.search(r"risk\s+of\s+bias.*results?|quality\s+assessment.*results?", content_lower))
+            return bool(
+                re.search(
+                    r"risk\s+of\s+bias.*results?|quality\s+assessment.*results?", content_lower
+                )
+            )
         elif item_num == 22:
             return bool(re.search(r"GRADE.*results?|certainty.*results?", content_lower))
         elif item_num == 24:
@@ -139,7 +198,9 @@ class PRISMAChecklistGenerator:
         elif item_num == 25:
             return bool(re.search(r"funding|financial\s+support", content_lower))
         elif item_num == 26:
-            return bool(re.search(r"conflicts?\s+of\s+interest|competing\s+interests", content_lower))
+            return bool(
+                re.search(r"conflicts?\s+of\s+interest|competing\s+interests", content_lower)
+            )
         elif item_num == 27:
             return bool(re.search(r"data\s+availability|supplementary\s+materials", content_lower))
 
@@ -162,7 +223,7 @@ class PRISMAChecklistGenerator:
         # Markdown doesn't have page numbers, but we can estimate based on line numbers
         section_match = re.search(rf"##\s+{section}", content, re.IGNORECASE)
         if section_match:
-            line_number = content[:section_match.start()].count("\n") + 1
+            line_number = content[: section_match.start()].count("\n") + 1
             # Approximate: ~50 lines per page
             return (line_number // 50) + 1
         return None

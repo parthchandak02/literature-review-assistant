@@ -28,6 +28,7 @@ class StylePatternExtractor(BaseScreeningAgent):
     ):
         """Stub implementation - pattern extractor doesn't screen papers."""
         from ..screening.base_agent import ScreeningResult, InclusionDecision
+
         return ScreeningResult(
             decision=InclusionDecision.UNCERTAIN,
             confidence=0.0,
@@ -90,7 +91,7 @@ class StylePatternExtractor(BaseScreeningAgent):
         for i, paper in enumerate(papers_to_analyze):
             try:
                 logger.debug(
-                    f"Extracting patterns from paper {i+1}/{len(papers_to_analyze)}: {paper.title[:50]}..."
+                    f"Extracting patterns from paper {i + 1}/{len(papers_to_analyze)}: {paper.title[:50]}..."
                 )
 
                 # Retrieve full-text from cache (already extracted during screening)
@@ -242,9 +243,7 @@ Do not include any meta-commentary or explanations - only the section text conte
                 words = sentence.split()[:15]
                 opening = " ".join(words)
                 if len(opening) > 20:
-                    style_patterns.add_pattern(
-                        section_type, "sentence_openings", opening
-                    )
+                    style_patterns.add_pattern(section_type, "sentence_openings", opening)
 
         # Extract citation patterns
         citation_patterns = re.findall(
@@ -282,9 +281,7 @@ Do not include any meta-commentary or explanations - only the section text conte
                     end = min(len(section_text), match.end() + 50)
                     context = section_text[start:end].strip()
                     if len(context) > 20:
-                        style_patterns.add_pattern(
-                            section_type, "transitions", context[:100]
-                        )
+                        style_patterns.add_pattern(section_type, "transitions", context[:100])
                         break  # One example per transition word
 
         # Extract domain-specific vocabulary (academic terms, technical terms)
@@ -307,8 +304,6 @@ Do not include any meta-commentary or explanations - only the section text conte
                 word_freq[word_lower] = word_freq.get(word_lower, 0) + 1
 
         # Add frequently used words as vocabulary patterns
-        for word, freq in sorted(word_freq.items(), key=lambda x: x[1], reverse=True)[
-            :10
-        ]:
+        for word, freq in sorted(word_freq.items(), key=lambda x: x[1], reverse=True)[:10]:
             if freq >= 2 and len(word) > 6:  # Technical/academic terms
                 style_patterns.add_pattern(section_type, "vocabulary", word)

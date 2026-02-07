@@ -85,7 +85,9 @@ class CostTracker:
                 total_tokens=getattr(usage, "total_tokens", 0),
             )
         else:
-            logger.warning(f"Unsupported provider for cost tracking: {provider}. Only 'gemini' is supported.")
+            logger.warning(
+                f"Unsupported provider for cost tracking: {provider}. Only 'gemini' is supported."
+            )
             token_usage = TokenUsage()
 
         cost = self._calculate_cost(provider, model, token_usage)

@@ -306,10 +306,7 @@ def print_section_start_panel(
     if add_spacing:
         console.print()
 
-    content = (
-        f"[yellow]Model:[/yellow] {model}\n"
-        f"[yellow]Status:[/yellow] {status}"
-    )
+    content = f"[yellow]Model:[/yellow] {model}\n[yellow]Status:[/yellow] {status}"
 
     console.print(
         Panel(
@@ -473,7 +470,9 @@ def print_naturalness_panel(
 
                 # Format key to be more readable
                 readable_key = key.replace("_", " ").title()
-                score_lines.append(f"[yellow]{readable_key}:[/yellow] [{score_color}]{value:.2f}[/{score_color}]")
+                score_lines.append(
+                    f"[yellow]{readable_key}:[/yellow] [{score_color}]{value:.2f}[/{score_color}]"
+                )
 
             content = "\n".join(score_lines)
         else:

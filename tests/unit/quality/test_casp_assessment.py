@@ -360,14 +360,11 @@ class TestCASPAssessment:
         
         assert rating == 'Low'
     
-    @patch('src.quality.auto_filler.genai')
-    def test_assess_with_invalid_response(self, mock_genai):
+    def test_assess_with_invalid_response(self):
         """Test handling of invalid LLM response."""
         # Mock invalid response
-        mock_client = Mock()
         mock_client_instance = Mock()
         mock_client_instance.models.generate_content.return_value.text = "Invalid JSON"
-        mock_genai.Client.return_value = mock_client_instance
         
         filler = QualityAssessmentAutoFiller(llm_provider="gemini")
         filler.llm_client = mock_client_instance

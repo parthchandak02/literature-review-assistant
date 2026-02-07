@@ -114,9 +114,17 @@ class DataExtractorAgent(BaseScreeningAgent):
 
         if is_verbose:
             fields_to_extract = extraction_fields or [
-                "study_objectives", "methodology", "study_design", "participants",
-                "interventions", "outcomes", "key_findings", "limitations",
-                "ux_strategies", "adaptivity_frameworks", "patient_populations",
+                "study_objectives",
+                "methodology",
+                "study_design",
+                "participants",
+                "interventions",
+                "outcomes",
+                "key_findings",
+                "limitations",
+                "ux_strategies",
+                "adaptivity_frameworks",
+                "patient_populations",
                 "accessibility_features",
             ]
             logger.debug(
@@ -479,7 +487,11 @@ Return ONLY valid JSON matching this exact structure:
             # Extract usage_metadata and track cost
             cost = 0.0
             if self.debug_config.show_costs:
-                from ..observability.cost_tracker import get_cost_tracker, TokenUsage, LLMCostTracker
+                from ..observability.cost_tracker import (
+                    get_cost_tracker,
+                    TokenUsage,
+                    LLMCostTracker,
+                )
 
                 cost_tracker = get_cost_tracker()
                 llm_cost_tracker = LLMCostTracker(cost_tracker)
@@ -492,7 +504,9 @@ Return ONLY valid JSON matching this exact structure:
                     total_tokens = getattr(usage_metadata, "total_token_count", 0)
 
                     # Track cost
-                    llm_cost_tracker.track_gemini_response(response, model_name, agent_name=self.role)
+                    llm_cost_tracker.track_gemini_response(
+                        response, model_name, agent_name=self.role
+                    )
 
                     # Calculate cost for display
                     cost = cost_tracker._calculate_cost(

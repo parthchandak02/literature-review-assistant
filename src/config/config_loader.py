@@ -136,7 +136,9 @@ class ConfigLoader:
                 raise ValueError("Topic configuration must include 'topic' field")
             # Check if criteria are in topic section (unified location)
             if "inclusion" in topic_config and "exclusion" in topic_config:
-                if not isinstance(topic_config["inclusion"], list) or not isinstance(topic_config["exclusion"], list):
+                if not isinstance(topic_config["inclusion"], list) or not isinstance(
+                    topic_config["exclusion"], list
+                ):
                     raise ValueError("Topic inclusion/exclusion must be lists")
         elif not isinstance(topic_config, str):
             raise ValueError("Topic must be a string or dictionary")
@@ -152,15 +154,19 @@ class ConfigLoader:
 
         # Validate criteria (must be in topic section)
         topic_has_criteria = (
-            isinstance(topic_config, dict) and
-            "inclusion" in topic_config and
-            "exclusion" in topic_config
+            isinstance(topic_config, dict)
+            and "inclusion" in topic_config
+            and "exclusion" in topic_config
         )
 
         if not topic_has_criteria:
-            raise ValueError("No inclusion/exclusion criteria found. Add them to topic.inclusion and topic.exclusion sections.")
+            raise ValueError(
+                "No inclusion/exclusion criteria found. Add them to topic.inclusion and topic.exclusion sections."
+            )
 
-        if not isinstance(topic_config["inclusion"], list) or not isinstance(topic_config["exclusion"], list):
+        if not isinstance(topic_config["inclusion"], list) or not isinstance(
+            topic_config["exclusion"], list
+        ):
             raise ValueError("Topic inclusion/exclusion must be lists")
 
     def get_config(self) -> Dict[str, Any]:

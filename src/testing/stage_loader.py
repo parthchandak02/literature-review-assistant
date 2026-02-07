@@ -110,14 +110,11 @@ class StageLoader:
             "visualization_generation": "stage_07_visualizations.json",
         }
 
-        fixture_file = self.fixtures_dir / stage_to_fixture.get(
-            stage_name, f"{stage_name}.json"
-        )
+        fixture_file = self.fixtures_dir / stage_to_fixture.get(stage_name, f"{stage_name}.json")
 
         if not fixture_file.exists():
             raise FileNotFoundError(
-                f"Fixture not found: {fixture_file}. "
-                f"Create it or use a checkpoint instead."
+                f"Fixture not found: {fixture_file}. Create it or use a checkpoint instead."
             )
 
         try:

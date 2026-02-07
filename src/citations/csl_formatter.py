@@ -138,18 +138,22 @@ class CSLFormatter:
                 # Parse author string (format: "Last, First" or "First Last")
                 if "," in author_str:
                     parts = author_str.split(",", 1)
-                    authors.append({
-                        "family": parts[0].strip(),
-                        "given": parts[1].strip() if len(parts) > 1 else "",
-                    })
+                    authors.append(
+                        {
+                            "family": parts[0].strip(),
+                            "given": parts[1].strip() if len(parts) > 1 else "",
+                        }
+                    )
                 else:
                     # Try to split "First Last"
                     parts = author_str.strip().split()
                     if len(parts) >= 2:
-                        authors.append({
-                            "family": parts[-1],
-                            "given": " ".join(parts[:-1]),
-                        })
+                        authors.append(
+                            {
+                                "family": parts[-1],
+                                "given": " ".join(parts[:-1]),
+                            }
+                        )
                     else:
                         authors.append({"literal": author_str})
             csl_item["author"] = authors
@@ -183,9 +187,7 @@ class CSLFormatter:
 
         return csl_item
 
-    def format_citations(
-        self, papers: List[Paper], style: str = "ieee"
-    ) -> List[Dict[str, Any]]:
+    def format_citations(self, papers: List[Paper], style: str = "ieee") -> List[Dict[str, Any]]:
         """
         Format papers using CSL style.
 

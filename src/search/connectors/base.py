@@ -100,12 +100,15 @@ class DatabaseConnector(ABC):
                 proxies = self.proxy_manager.get_proxies()
                 if proxies:
                     self._session.proxies = proxies
-                    logger.debug(f"Using proxy for {self.get_database_name()}: {proxies.get('http', 'N/A')}")
+                    logger.debug(
+                        f"Using proxy for {self.get_database_name()}: {proxies.get('http', 'N/A')}"
+                    )
 
             # Configure cookie persistence if enabled
             if self.persistent_session and self.cookie_jar:
                 try:
                     from http.cookiejar import LWPCookieJar
+
                     cookie_path = Path(self.cookie_jar)
                     cookie_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -123,7 +126,7 @@ class DatabaseConnector(ABC):
         """Save session cookies if persistent session is enabled."""
         if self._session and self.persistent_session and self.cookie_jar:
             try:
-                if hasattr(self._session.cookies, 'save'):
+                if hasattr(self._session.cookies, "save"):
                     self._session.cookies.save(ignore_discard=True)
                     logger.debug(f"Saved cookies to {self.cookie_jar}")
             except Exception as e:

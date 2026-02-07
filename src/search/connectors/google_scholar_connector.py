@@ -18,6 +18,7 @@ logger = logging.getLogger(__name__)
 try:
     from scholarly import scholarly
     from scholarly import ProxyGenerator
+
     SCHOLARLY_AVAILABLE = True
 except ImportError:
     SCHOLARLY_AVAILABLE = False
@@ -139,69 +140,69 @@ class GoogleScholarConnector(DatabaseConnector):
 
                 try:
                     # Fill publication data if needed
-                    if not pub.get('filled', False):
+                    if not pub.get("filled", False):
                         pub = scholarly.fill(pub)
 
                     # Extract paper data
-                    bib = pub.get('bib', {})
+                    bib = pub.get("bib", {})
 
                     # Extract authors
                     authors = []
-                    if 'author' in bib:
-                        if isinstance(bib['author'], list):
-                            authors = bib['author']
+                    if "author" in bib:
+                        if isinstance(bib["author"], list):
+                            authors = bib["author"]
                         else:
-                            authors = [bib['author']]
+                            authors = [bib["author"]]
 
                     # Extract year
                     year = None
-                    if 'pub_year' in bib:
+                    if "pub_year" in bib:
                         try:
-                            year = int(bib['pub_year'])
+                            year = int(bib["pub_year"])
                         except (ValueError, TypeError):
                             pass
-                    elif 'year' in bib:
+                    elif "year" in bib:
                         try:
-                            year = int(bib['year'])
+                            year = int(bib["year"])
                         except (ValueError, TypeError):
                             pass
 
                     # Extract citation count
                     citation_count = None
-                    if 'cites' in pub:
+                    if "cites" in pub:
                         try:
-                            citation_count = int(pub['cites'])
+                            citation_count = int(pub["cites"])
                         except (ValueError, TypeError):
                             pass
 
                     # Extract URL
                     url = None
-                    if 'pub_url' in pub:
-                        url = pub['pub_url']
-                    elif 'eprint_url' in bib:
-                        url = bib['eprint_url']
-                    elif 'url' in bib:
-                        url = bib['url']
+                    if "pub_url" in pub:
+                        url = pub["pub_url"]
+                    elif "eprint_url" in bib:
+                        url = bib["eprint_url"]
+                    elif "url" in bib:
+                        url = bib["url"]
 
                     # Extract related/citing papers
                     related_papers = []
-                    if 'citedby' in pub:
+                    if "citedby" in pub:
                         # This would require additional API calls
                         pass
 
                     paper = Paper(
-                        title=bib.get('title', ''),
-                        abstract=bib.get('abstract', ''),
+                        title=bib.get("title", ""),
+                        abstract=bib.get("abstract", ""),
                         authors=authors,
                         year=year,
-                        doi=bib.get('doi'),
-                        journal=bib.get('venue', '') or bib.get('journal', ''),
+                        doi=bib.get("doi"),
+                        journal=bib.get("venue", "") or bib.get("journal", ""),
                         database="Google Scholar",
                         url=url,
-                        keywords=bib.get('keywords', []),
+                        keywords=bib.get("keywords", []),
                         citation_count=citation_count,
                         cited_by_count=None,  # Would need to call citedby() separately
-                        scholar_id=pub.get('author_id'),  # Store author ID if available
+                        scholar_id=pub.get("author_id"),  # Store author ID if available
                         related_papers=related_papers if related_papers else None,
                     )
 

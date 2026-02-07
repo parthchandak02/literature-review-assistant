@@ -17,8 +17,9 @@ logger = logging.getLogger(__name__)
 @dataclass
 class CitationEdge:
     """Represents a citation relationship between two papers."""
+
     citing_paper_id: str  # ID of paper that cites
-    cited_paper_id: str   # ID of paper being cited
+    cited_paper_id: str  # ID of paper being cited
     citing_paper_title: Optional[str] = None
     cited_paper_title: Optional[str] = None
 
@@ -96,7 +97,9 @@ class CitationNetworkBuilder:
         )
 
         # Avoid duplicates
-        if not any(e.citing_paper_id == citing_id and e.cited_paper_id == cited_id for e in self.edges):
+        if not any(
+            e.citing_paper_id == citing_id and e.cited_paper_id == cited_id for e in self.edges
+        ):
             self.edges.append(edge)
 
     def find_citing_papers(
@@ -205,7 +208,9 @@ class CitationNetworkBuilder:
         stats = {
             "total_papers": len(self.papers),
             "total_citations": sum(citation_counts) if citation_counts else 0,
-            "average_citations": sum(citation_counts) / len(citation_counts) if citation_counts else 0,
+            "average_citations": sum(citation_counts) / len(citation_counts)
+            if citation_counts
+            else 0,
             "max_citations": max(citation_counts) if citation_counts else 0,
             "papers_with_citations": len(citation_counts),
             "citation_edges": len(self.edges),
@@ -228,6 +233,7 @@ class CitationNetworkBuilder:
         else:
             # Fallback to title hash
             import hashlib
+
             return f"title:{hashlib.md5(paper.title.encode()).hexdigest()[:8]}"
 
     def _paper_to_node(self, paper: Paper) -> Dict[str, Any]:

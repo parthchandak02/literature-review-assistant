@@ -18,12 +18,14 @@ logger = logging.getLogger(__name__)
 try:
     from sklearn.feature_extraction.text import TfidfVectorizer
     from sklearn.metrics.pairwise import cosine_similarity
+
     SKLEARN_AVAILABLE = True
 except ImportError:
     SKLEARN_AVAILABLE = False
 
 try:
     import pycountry
+
     PYCOUNTRY_AVAILABLE = True
 except ImportError:
     PYCOUNTRY_AVAILABLE = False
@@ -140,7 +142,11 @@ class ChartGenerator:
                     # Try common name
                     if not normalized:
                         for c in pycountry.countries:
-                            if hasattr(c, 'common_name') and c.common_name and c.common_name == country:
+                            if (
+                                hasattr(c, "common_name")
+                                and c.common_name
+                                and c.common_name == country
+                            ):
                                 normalized = c.name
                                 break
 
@@ -240,7 +246,7 @@ class ChartGenerator:
         if PYCOUNTRY_AVAILABLE:
             for country in pycountry.countries:
                 country_names.add(country.name.upper())
-                if hasattr(country, 'common_name') and country.common_name:
+                if hasattr(country, "common_name") and country.common_name:
                     country_names.add(country.common_name.upper())
                     country_common_names[country.common_name.upper()] = country.name
                 # Also add alpha_2 and alpha_3 codes
@@ -262,7 +268,7 @@ class ChartGenerator:
             # Try to find country name using pycountry
             if PYCOUNTRY_AVAILABLE:
                 # Split affiliation by common delimiters and check each part
-                parts = re.split(r'[,;]|\s+', affiliation_upper)
+                parts = re.split(r"[,;]|\s+", affiliation_upper)
                 # Check from end (country usually at the end)
                 for part in reversed(parts):
                     part = part.strip()
@@ -272,7 +278,9 @@ class ChartGenerator:
                     # Check if it's a country code
                     if len(part) == 2 or len(part) == 3:
                         try:
-                            country = pycountry.countries.get(alpha_2=part) or pycountry.countries.get(alpha_3=part)
+                            country = pycountry.countries.get(
+                                alpha_2=part
+                            ) or pycountry.countries.get(alpha_3=part)
                             if country:
                                 return country.name
                         except (KeyError, AttributeError):
@@ -287,7 +295,11 @@ class ChartGenerator:
                             for country in pycountry.countries:
                                 if country.name.upper() == part:
                                     return country.name
-                                if hasattr(country, 'common_name') and country.common_name and country.common_name.upper() == part:
+                                if (
+                                    hasattr(country, "common_name")
+                                    and country.common_name
+                                    and country.common_name.upper() == part
+                                ):
                                     return country.name
                         except (KeyError, AttributeError):
                             pass
@@ -371,9 +383,20 @@ class ChartGenerator:
 
                 if text_to_analyze:
                     # Check for specific health subcategories first
-                    if any(term in text_to_analyze for term in ["health equity", "health disparities"]):
+                    if any(
+                        term in text_to_analyze for term in ["health equity", "health disparities"]
+                    ):
                         paper_subjects.append("Health Equity / Health Disparities")
-                    elif any(term in text_to_analyze for term in ["health informatics", "digital health", "ehealth", "mhealth", "telemedicine"]):
+                    elif any(
+                        term in text_to_analyze
+                        for term in [
+                            "health informatics",
+                            "digital health",
+                            "ehealth",
+                            "mhealth",
+                            "telemedicine",
+                        ]
+                    ):
                         paper_subjects.append("Health Informatics / Digital Health")
                     elif any(term in text_to_analyze for term in ["health communication"]):
                         paper_subjects.append("Health Communication")
@@ -387,9 +410,15 @@ class ChartGenerator:
                         paper_subjects.append("Clinical Medicine")
                     elif any(term in text_to_analyze for term in ["health", "medical", "clinical"]):
                         paper_subjects.append("Health Sciences")
-                    elif any(term in text_to_analyze for term in ["ai", "machine learning", "llm", "chatbot"]):
+                    elif any(
+                        term in text_to_analyze
+                        for term in ["ai", "machine learning", "llm", "chatbot"]
+                    ):
                         paper_subjects.append("Artificial Intelligence")
-                    elif any(term in text_to_analyze for term in ["nlp", "language model", "natural language"]):
+                    elif any(
+                        term in text_to_analyze
+                        for term in ["nlp", "language model", "natural language"]
+                    ):
                         paper_subjects.append("Natural Language Processing")
 
             subjects.extend(paper_subjects)
@@ -489,7 +518,6 @@ class ChartGenerator:
             ("pharmacology", "Health Sciences"),
             ("nursing", "Health Sciences"),
             ("patient", "Health Sciences"),
-
             # Artificial Intelligence & Machine Learning
             ("large language model", "Artificial Intelligence"),
             ("llm", "Artificial Intelligence"),
@@ -502,7 +530,6 @@ class ChartGenerator:
             ("artificial intelligence", "Artificial Intelligence"),
             ("ai", "Artificial Intelligence"),
             ("ml", "Machine Learning"),
-
             # Natural Language Processing
             ("natural language processing", "Natural Language Processing"),
             ("nlp", "Natural Language Processing"),
@@ -510,7 +537,6 @@ class ChartGenerator:
             ("text mining", "Natural Language Processing"),
             ("computational linguistics", "Natural Language Processing"),
             ("speech recognition", "Natural Language Processing"),
-
             # Computer Science
             ("computer science", "Computer Science"),
             ("software engineering", "Computer Science"),
@@ -521,7 +547,6 @@ class ChartGenerator:
             ("algorithm", "Computer Science"),
             ("programming", "Computer Science"),
             ("computing", "Computer Science"),
-
             # Social Sciences
             ("social science", "Social Sciences"),
             ("sociology", "Social Sciences"),
@@ -531,34 +556,28 @@ class ChartGenerator:
             ("social", "Social Sciences"),
             ("anthropology", "Social Sciences"),
             ("economics", "Social Sciences"),
-
             # Education
             ("education", "Education"),
             ("pedagogy", "Education"),
             ("learning", "Education"),
             ("teaching", "Education"),
-
             # Engineering
             ("engineering", "Engineering"),
             ("electrical engineering", "Engineering"),
             ("mechanical engineering", "Engineering"),
-
             # Mathematics & Statistics
             ("mathematics", "Mathematics"),
             ("statistics", "Mathematics"),
             ("statistical", "Mathematics"),
             ("math", "Mathematics"),
-
             # Biology & Life Sciences
             ("biology", "Life Sciences"),
             ("biochemistry", "Life Sciences"),
             ("genetics", "Life Sciences"),
             ("molecular biology", "Life Sciences"),
-
             # Physics
             ("physics", "Physics"),
             ("quantum", "Physics"),
-
             # Chemistry
             ("chemistry", "Chemistry"),
             ("chemical", "Chemistry"),
@@ -580,42 +599,97 @@ class ChartGenerator:
         journal_lower = journal.lower()
 
         # Health/Medical journals
-        health_terms = ["health", "medical", "medicine", "clinical", "biomedical",
-                       "pharmacy", "nursing", "public health", "epidemiology",
-                       "healthcare", "health care", "the lancet", "nejm", "jama",
-                       "bmj", "nature medicine", "plos medicine"]
+        health_terms = [
+            "health",
+            "medical",
+            "medicine",
+            "clinical",
+            "biomedical",
+            "pharmacy",
+            "nursing",
+            "public health",
+            "epidemiology",
+            "healthcare",
+            "health care",
+            "the lancet",
+            "nejm",
+            "jama",
+            "bmj",
+            "nature medicine",
+            "plos medicine",
+        ]
         if any(term in journal_lower for term in health_terms):
             return "Health Sciences"
 
         # AI/ML journals
-        ai_terms = ["artificial intelligence", "machine learning", "ai", "ml",
-                   "neural", "deep learning", "ieee transactions on neural",
-                   "jmlr", "icml", "neurips", "aaai", "ijcai"]
+        ai_terms = [
+            "artificial intelligence",
+            "machine learning",
+            "ai",
+            "ml",
+            "neural",
+            "deep learning",
+            "ieee transactions on neural",
+            "jmlr",
+            "icml",
+            "neurips",
+            "aaai",
+            "ijcai",
+        ]
         if any(term in journal_lower for term in ai_terms):
             return "Artificial Intelligence"
 
         # NLP journals
-        nlp_terms = ["nlp", "natural language", "computational linguistics",
-                    "acl", "emnlp", "naacl", "computational linguistics",
-                    "language processing", "speech"]
+        nlp_terms = [
+            "nlp",
+            "natural language",
+            "computational linguistics",
+            "acl",
+            "emnlp",
+            "naacl",
+            "computational linguistics",
+            "language processing",
+            "speech",
+        ]
         if any(term in journal_lower for term in nlp_terms):
             return "Natural Language Processing"
 
         # Computer Science journals
-        cs_terms = ["computer science", "computing", "software", "ieee transactions",
-                   "acm", "information systems", "data science", "cybersecurity"]
+        cs_terms = [
+            "computer science",
+            "computing",
+            "software",
+            "ieee transactions",
+            "acm",
+            "information systems",
+            "data science",
+            "cybersecurity",
+        ]
         if any(term in journal_lower for term in cs_terms):
             return "Computer Science"
 
         # Social Sciences journals
-        social_terms = ["social science", "sociology", "psychology", "behavioral",
-                       "anthropology", "economics", "social research"]
+        social_terms = [
+            "social science",
+            "sociology",
+            "psychology",
+            "behavioral",
+            "anthropology",
+            "economics",
+            "social research",
+        ]
         if any(term in journal_lower for term in social_terms):
             return "Social Sciences"
 
         # Education journals
-        education_terms = ["education", "pedagogy", "learning", "teaching",
-                          "educational", "instructional"]
+        education_terms = [
+            "education",
+            "pedagogy",
+            "learning",
+            "teaching",
+            "educational",
+            "instructional",
+        ]
         if any(term in journal_lower for term in education_terms):
             return "Education"
 
@@ -652,7 +726,7 @@ class ChartGenerator:
 
         # Add nodes (papers)
         for i, paper in enumerate(papers):
-            G.add_node(i, title=paper.title if paper.title else f"Paper {i+1}")
+            G.add_node(i, title=paper.title if paper.title else f"Paper {i + 1}")
 
         # Build similarity matrix
         similarity_matrix = self._compute_similarity_matrix(papers)
@@ -696,7 +770,7 @@ class ChartGenerator:
             notebook=False,
             directed=False,
             bgcolor="#ffffff",
-            font_color="#000000"
+            font_color="#000000",
         )
 
         # Configure physics for better layout
@@ -736,8 +810,16 @@ class ChartGenerator:
 
         # Color palette for years (viridis-like colors)
         year_colors = [
-            "#440154", "#482777", "#3f4a8a", "#31688e", "#26828e",
-            "#1f9e89", "#35b779", "#6ece58", "#b5de2b", "#fee825"
+            "#440154",
+            "#482777",
+            "#3f4a8a",
+            "#31688e",
+            "#26828e",
+            "#1f9e89",
+            "#35b779",
+            "#6ece58",
+            "#b5de2b",
+            "#fee825",
         ]
 
         # Add nodes with full information
@@ -779,7 +861,7 @@ class ChartGenerator:
                 color=node_color,
                 size=node_size,
                 url=paper.url if paper.url else None,
-                shape="dot"
+                shape="dot",
             )
 
         # Add edges with weights
@@ -790,7 +872,9 @@ class ChartGenerator:
             weight = data.get("weight", 0.1)
             # Scale edge width based on weight
             width = max(1, int(weight * 10 / max_weight))
-            net.add_edge(u, v, value=weight, width=width, color={"color": "#848484", "highlight": "#000000"})
+            net.add_edge(
+                u, v, value=weight, width=width, color={"color": "#848484", "highlight": "#000000"}
+            )
 
         # Save network
         net.save_graph(str(output_path))
@@ -800,6 +884,7 @@ class ChartGenerator:
         try:
             # Try to generate a static version using matplotlib as fallback
             import matplotlib.pyplot as plt
+
             pos = nx.spring_layout(G, k=2, iterations=100, seed=42)
 
             fig, ax = plt.subplots(figsize=(14, 10))
@@ -819,17 +904,28 @@ class ChartGenerator:
                     node_colors_list.append(0.5)
 
             nx.draw_networkx_nodes(
-                G, pos, node_color=node_colors_list, node_size=800,
-                cmap=plt.cm.viridis, alpha=0.8, ax=ax
+                G,
+                pos,
+                node_color=node_colors_list,
+                node_size=800,
+                cmap=plt.cm.viridis,
+                alpha=0.8,
+                ax=ax,
             )
 
             # Draw labels
-            labels = {i: papers[i].title[:30] + "..." if len(papers[i].title) > 30 else papers[i].title
-                     for i in range(len(papers))}
+            labels = {
+                i: papers[i].title[:30] + "..." if len(papers[i].title) > 30 else papers[i].title
+                for i in range(len(papers))
+            }
             nx.draw_networkx_labels(G, pos, labels, font_size=7, ax=ax)
 
-            ax.set_title("Network Visualization (Similarity-Based)\nInteractive version: " + str(output_path.name),
-                        fontsize=14, fontweight="bold")
+            ax.set_title(
+                "Network Visualization (Similarity-Based)\nInteractive version: "
+                + str(output_path.name),
+                fontsize=14,
+                fontweight="bold",
+            )
             ax.axis("off")
 
             plt.tight_layout()
@@ -870,7 +966,9 @@ class ChartGenerator:
                 if similarity_matrix[i][j] == 0.0:
                     similarity_matrix[i][j] = overlap_score
                 else:
-                    similarity_matrix[i][j] = (similarity_matrix[i][j] * 0.7) + (overlap_score * 0.3)
+                    similarity_matrix[i][j] = (similarity_matrix[i][j] * 0.7) + (
+                        overlap_score * 0.3
+                    )
                 similarity_matrix[j][i] = similarity_matrix[i][j]
 
         return similarity_matrix
@@ -937,11 +1035,7 @@ class ChartGenerator:
             return ""
 
         # Create DataFrame
-        df = pd.DataFrame({
-            "Study": study_ids,
-            "Domain": domains,
-            "Rating": ratings
-        })
+        df = pd.DataFrame({"Study": study_ids, "Domain": domains, "Rating": ratings})
 
         # Map ratings to colors and numeric values
         rating_map = {
@@ -956,7 +1050,9 @@ class ChartGenerator:
         unique_domains = df["Domain"].unique()
 
         # Create figure
-        fig, ax = plt.subplots(figsize=(max(8, len(unique_studies) * 0.8), max(6, len(unique_domains) * 0.6)))
+        fig, ax = plt.subplots(
+            figsize=(max(8, len(unique_studies) * 0.8), max(6, len(unique_domains) * 0.6))
+        )
 
         # Create grid for traffic lights
         y_positions = {domain: i for i, domain in enumerate(unique_domains)}
@@ -986,9 +1082,9 @@ class ChartGenerator:
 
         # Add legend
         from matplotlib.patches import Patch
+
         legend_elements = [
-            Patch(facecolor=color, label=rating)
-            for rating, color in rating_map.items()
+            Patch(facecolor=color, label=rating) for rating, color in rating_map.items()
         ]
         ax.legend(handles=legend_elements, loc="upper left", bbox_to_anchor=(1, 1))
 
@@ -1079,8 +1175,14 @@ class ChartGenerator:
         # Add value labels on bars
         for _i, (bar, certainty) in enumerate(zip(bars, certainty_levels)):
             width = bar.get_width()
-            ax.text(width + 0.1, bar.get_y() + bar.get_height() / 2,
-                   certainty, ha="left", va="center", fontweight="bold")
+            ax.text(
+                width + 0.1,
+                bar.get_y() + bar.get_height() / 2,
+                certainty,
+                ha="left",
+                va="center",
+                fontweight="bold",
+            )
 
         plt.tight_layout()
 

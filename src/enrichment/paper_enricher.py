@@ -73,13 +73,9 @@ class PaperEnricher:
                         f"(found {len(enriched_paper.affiliations)} affiliations)"
                     )
                 else:
-                    logger.debug(
-                        f"No affiliations found for paper {i}/{len(papers)}: {paper.doi}"
-                    )
+                    logger.debug(f"No affiliations found for paper {i}/{len(papers)}: {paper.doi}")
             except Exception as e:
-                logger.warning(
-                    f"Failed to enrich paper {i}/{len(papers)} (DOI: {paper.doi}): {e}"
-                )
+                logger.warning(f"Failed to enrich paper {i}/{len(papers)} (DOI: {paper.doi}): {e}")
 
             enriched.append(paper)
 
@@ -186,7 +182,9 @@ class PaperEnricher:
             # Create Paper object with enriched data
             if unique_affiliations:
                 enriched_paper = Paper(
-                    title=item.get("title", [""])[0] if isinstance(item.get("title"), list) else item.get("title", ""),
+                    title=item.get("title", [""])[0]
+                    if isinstance(item.get("title"), list)
+                    else item.get("title", ""),
                     abstract="",  # Not needed for enrichment
                     authors=authors,
                     year=None,

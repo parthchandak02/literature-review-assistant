@@ -20,7 +20,9 @@ class ExtractedDataSchema(BaseModel):
     study_objectives: List[str] = Field(
         default_factory=list, description="List of main research objectives"
     )
-    methodology: Optional[str] = Field(default=None, description="Description of research methodology")
+    methodology: Optional[str] = Field(
+        default=None, description="Description of research methodology"
+    )
     study_design: Optional[str] = Field(
         default=None, description="Type of study (e.g., RCT, case study, survey)"
     )
@@ -32,9 +34,7 @@ class ExtractedDataSchema(BaseModel):
     )
     outcomes: List[str] = Field(default_factory=list, description="List of measured outcomes")
     # Additional fields for study characteristics table
-    country: Optional[str] = Field(
-        default=None, description="Country where study was conducted"
-    )
+    country: Optional[str] = Field(default=None, description="Country where study was conducted")
     setting: Optional[str] = Field(
         default=None, description="Study setting (e.g., hospital, community, online)"
     )
@@ -42,10 +42,12 @@ class ExtractedDataSchema(BaseModel):
         default=None, description="Number of participants in the study"
     )
     detailed_outcomes: List[str] = Field(
-        default_factory=list, description="Detailed outcome measures with units and measurement methods"
+        default_factory=list,
+        description="Detailed outcome measures with units and measurement methods",
     )
     quantitative_results: Optional[str] = Field(
-        default=None, description="Quantitative results including effect sizes, confidence intervals, p-values, and statistical tests"
+        default=None,
+        description="Quantitative results including effect sizes, confidence intervals, p-values, and statistical tests",
     )
     key_findings: List[str] = Field(
         default_factory=list, description="List of key findings/results"
@@ -67,24 +69,18 @@ class ExtractedDataSchema(BaseModel):
     )
 
     # Bibliometric fields (enhanced from pybliometrics and scholarly)
-    citation_count: Optional[int] = Field(
-        default=None, description="Total number of citations"
-    )
+    citation_count: Optional[int] = Field(default=None, description="Total number of citations")
     cited_by_count: Optional[int] = Field(
         default=None, description="Number of papers citing this paper"
     )
     h_index: Optional[int] = Field(
         default=None, description="Author h-index (if available from author profile)"
     )
-    coauthors: List[str] = Field(
-        default_factory=list, description="List of coauthor names"
-    )
+    coauthors: List[str] = Field(default_factory=list, description="List of coauthor names")
     subject_areas: List[str] = Field(
         default_factory=list, description="Subject area classifications"
     )
-    related_papers: List[str] = Field(
-        default_factory=list, description="Related paper IDs or DOIs"
-    )
+    related_papers: List[str] = Field(default_factory=list, description="Related paper IDs or DOIs")
 
     @field_validator(
         "authors",

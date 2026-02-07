@@ -13,6 +13,7 @@ logger = logging.getLogger(__name__)
 
 try:
     import mermaid as md
+
     MERMAID_AVAILABLE = True
 except ImportError:
     MERMAID_AVAILABLE = False
@@ -42,9 +43,7 @@ def generate_mermaid_diagram(
         ValueError: If diagram_type is invalid
     """
     if not MERMAID_AVAILABLE:
-        raise ImportError(
-            "mermaid-py is not installed. Install it with: pip install mermaid-py"
-        )
+        raise ImportError("mermaid-py is not installed. Install it with: pip install mermaid-py")
 
     # Validate diagram type
     valid_types = [
@@ -66,18 +65,14 @@ def generate_mermaid_diagram(
         "architecture",
     ]
     if diagram_type not in valid_types:
-        raise ValueError(
-            f"Invalid diagram_type: {diagram_type}. Must be one of {valid_types}"
-        )
+        raise ValueError(f"Invalid diagram_type: {diagram_type}. Must be one of {valid_types}")
 
     # Create output directory if it doesn't exist
     output_path = Path(output_dir)
     output_path.mkdir(parents=True, exist_ok=True)
 
     # Generate filename
-    safe_title = (
-        diagram_title.replace(" ", "_").lower() if diagram_title else "diagram"
-    )
+    safe_title = diagram_title.replace(" ", "_").lower() if diagram_title else "diagram"
     safe_title = "".join(c for c in safe_title if c.isalnum() or c in ("_", "-"))
     filename = f"{diagram_type}_{safe_title}.svg"
     filepath = output_path / filename

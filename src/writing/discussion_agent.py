@@ -62,12 +62,17 @@ class DiscussionWriter(BaseScreeningAgent):
             self.topic_context = topic_context
 
         prompt = self._build_discussion_prompt(
-            research_question, key_findings, extracted_data, limitations, implications, style_patterns
+            research_question,
+            key_findings,
+            extracted_data,
+            limitations,
+            implications,
+            style_patterns,
         )
 
         if not self.llm_client:
             raise RuntimeError("LLM client is required for discussion generation")
-        
+
         response = self._call_llm(prompt)
         result = response
 
@@ -114,7 +119,9 @@ Key Findings:
         limitations_text += "Total limitations section should be 400-600 words.\n"
 
         if limitations:
-            limitations_text += f"\nSuggested limitations:\n{chr(10).join(f'- {lim}' for lim in limitations)}"
+            limitations_text += (
+                f"\nSuggested limitations:\n{chr(10).join(f'- {lim}' for lim in limitations)}"
+            )
         else:
             # Add default limitations based on study count
             if num_studies == 0:
@@ -122,7 +129,9 @@ Key Findings:
                 limitations_text += "\nReview process limitations:\n- Search may have missed relevant studies, language restrictions"
             elif num_studies == 1:
                 limitations_text += "\nEvidence limitations:\n- Only one study was included, limiting generalizability and synthesis"
-                limitations_text += "\nReview process limitations:\n- Single reviewer screening, potential for bias"
+                limitations_text += (
+                    "\nReview process limitations:\n- Single reviewer screening, potential for bias"
+                )
             else:
                 limitations_text += "\nEvidence limitations:\n- Limited number of included studies may affect generalizability"
                 limitations_text += "\nReview process limitations:\n- Potential for publication bias, language restrictions"
@@ -138,7 +147,9 @@ Key Findings:
         implications_text += "Total implications section should be 350-400 words.\n"
 
         if implications:
-            implications_text += f"\nSuggested implications:\n{chr(10).join(f'- {imp}' for imp in implications)}"
+            implications_text += (
+                f"\nSuggested implications:\n{chr(10).join(f'- {imp}' for imp in implications)}"
+            )
         else:
             implications_text += "\nGenerate specific, actionable implications for each category."
 
@@ -148,9 +159,15 @@ Key Findings:
         style_guidelines = ""
         if style_patterns and "discussion" in style_patterns:
             discussion_patterns = style_patterns["discussion"]
-            style_guidelines = "\n\nSTYLE GUIDELINES (based on analysis of included papers in this review):\n"
-            style_guidelines += "- Vary sentence structures: mix simple, compound, and complex sentences\n"
-            style_guidelines += "- Use natural academic vocabulary with domain-specific terms from the field\n"
+            style_guidelines = (
+                "\n\nSTYLE GUIDELINES (based on analysis of included papers in this review):\n"
+            )
+            style_guidelines += (
+                "- Vary sentence structures: mix simple, compound, and complex sentences\n"
+            )
+            style_guidelines += (
+                "- Use natural academic vocabulary with domain-specific terms from the field\n"
+            )
             style_guidelines += "- Integrate citations naturally: vary placement and phrasing\n"
             style_guidelines += "- Create natural flow: avoid formulaic transitions\n"
             style_guidelines += "- Maintain scholarly tone: precise but not robotic\n"
@@ -164,7 +181,9 @@ Key Findings:
                 vocab = discussion_patterns["vocabulary"][:5]
                 style_guidelines += f"Domain vocabulary examples: {', '.join(vocab)}\n"
 
-        constraint_text = style_guidelines + """
+        constraint_text = (
+            style_guidelines
+            + """
 CRITICAL OUTPUT CONSTRAINTS:
 - Begin IMMEDIATELY with substantive content - do NOT start with phrases like "Let me now discuss..." or "Of course. As an expert..."
 - NO conversational preamble, acknowledgments, or meta-commentary whatsoever
@@ -188,9 +207,12 @@ EXAMPLE OF CORRECT OUTPUT FORMAT:
 This systematic review demonstrates that the intervention produces moderate to large effect sizes...
 [END - NO CLOSING REMARKS]
 """
+        )
 
         if num_studies == 0:
-            prompt += constraint_text + """
+            prompt += (
+                constraint_text
+                + """
 
 Please write a discussion section that includes:
 1. Summary of Search Results (explain why no studies were found)
@@ -209,8 +231,11 @@ CRITICAL REQUIREMENTS:
 - Total implications section: 350-400 words
 - Write in present tense for interpretations, use appropriate academic language, and acknowledge the limitation of having no included studies
 - Begin immediately with the summary of findings - do not include any introductory phrases"""
+            )
         elif num_studies == 1:
-            prompt += constraint_text + """
+            prompt += (
+                constraint_text
+                + """
 
 Please write a discussion section that includes:
 1. Summary of Main Findings (detailed findings from the single study)
@@ -231,8 +256,11 @@ CRITICAL REQUIREMENTS:
 - Write in present tense for interpretations, use SINGULAR language (e.g., "the study" not "studies"), use appropriate citations (use [Citation X] format), and ensure logical flow
 - IMPORTANT: Do not use plural language like "studies" or "multiple studies"
 - Begin immediately with the summary of main findings - do not include any introductory phrases"""
+            )
         else:
-            prompt += constraint_text + """
+            prompt += (
+                constraint_text
+                + """
 
 Please write a detailed discussion section that includes:
 1. Summary of Main Findings (synthesize key findings across studies)
@@ -252,5 +280,6 @@ CRITICAL REQUIREMENTS:
 - Total implications section: 350-400 words
 - Write in present tense for interpretations, use appropriate citations (use [Citation X] format), and ensure logical flow
 - Begin immediately with the summary of main findings - do not include any introductory phrases"""
+            )
 
         return prompt

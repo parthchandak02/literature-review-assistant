@@ -29,9 +29,7 @@ class PDFRetriever:
         if self.cache_dir:
             self.cache_dir.mkdir(parents=True, exist_ok=True)
 
-    def retrieve_full_text(
-        self, paper: Any, max_length: int = 50000
-    ) -> Optional[str]:
+    def retrieve_full_text(self, paper: Any, max_length: int = 50000) -> Optional[str]:
         """
         Retrieve full text for a paper.
 
@@ -67,7 +65,9 @@ class PDFRetriever:
                     logger.debug(f"Retrieved full-text from arXiv: {paper.url}")
                     return text[:max_length] if len(text) > max_length else text
 
-        logger.debug(f"Could not retrieve full-text for paper: {getattr(paper, 'title', 'Unknown')}")
+        logger.debug(
+            f"Could not retrieve full-text for paper: {getattr(paper, 'title', 'Unknown')}"
+        )
         return None
 
     def _retrieve_from_doi(self, doi: str) -> Optional[str]:
@@ -98,7 +98,9 @@ class PDFRetriever:
         # Try direct DOI resolution
         try:
             doi_url = f"https://doi.org/{doi}"
-            response = requests.get(doi_url, allow_redirects=True, timeout=10, verify=certifi.where())
+            response = requests.get(
+                doi_url, allow_redirects=True, timeout=10, verify=certifi.where()
+            )
             final_url = response.url
             if final_url.endswith(".pdf"):
                 return self._download_and_extract_pdf(final_url)
@@ -131,12 +133,16 @@ class PDFRetriever:
                 content = response.text
                 # Look for PDF links (simple pattern matching)
                 import re
-                pdf_links = re.findall(r'href=["\']([^"\']*\.pdf[^"\']*)["\']', content, re.IGNORECASE)
+
+                pdf_links = re.findall(
+                    r'href=["\']([^"\']*\.pdf[^"\']*)["\']', content, re.IGNORECASE
+                )
                 if pdf_links:
                     pdf_url = pdf_links[0]
                     # Make absolute URL if relative
                     if not pdf_url.startswith("http"):
                         from urllib.parse import urljoin
+
                         pdf_url = urljoin(url, pdf_url)
                     return self._download_and_extract_pdf(pdf_url)
         except Exception as e:
@@ -199,6 +205,7 @@ class PDFRetriever:
 
             # Save to temporary file
             import tempfile
+
             with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp_file:
                 tmp_path = tmp_file.name
                 for chunk in response.iter_content(chunk_size=8192):
@@ -243,6 +250,7 @@ class PDFRetriever:
         # Method 1: Try pypdf (lightweight)
         try:
             import pypdf
+
             with open(pdf_path, "rb") as f:
                 reader = pypdf.PdfReader(f)
                 pages_text = []
@@ -260,6 +268,7 @@ class PDFRetriever:
         # Method 2: Try pdfplumber (better formatting)
         try:
             import pdfplumber
+
             with pdfplumber.open(pdf_path) as pdf:
                 pages_text = []
                 for page in pdf.pages[:50]:  # Limit to first 50 pages
@@ -278,6 +287,7 @@ class PDFRetriever:
         # Method 3: Try unstructured (if available)
         try:
             from unstructured.partition.pdf import partition_pdf
+
             elements = partition_pdf(pdf_path, strategy="hi_res", max_pages=50)
             text = "\n\n".join([str(el) for el in elements if hasattr(el, "text")])
             if text and len(text.strip()) > 100:
@@ -293,4 +303,5 @@ class PDFRetriever:
     def _get_cache_key(self, url: str) -> str:
         """Generate cache key from URL."""
         import hashlib
+
         return hashlib.md5(url.encode()).hexdigest()

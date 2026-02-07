@@ -103,9 +103,7 @@ class SubmissionPackageBuilder:
 
         # Generate submission checklist
         checklist_path = package_dir / "submission_checklist.md"
-        checklist = self.checklist_generator.generate_checklist(
-            journal, package_dir
-        )
+        checklist = self.checklist_generator.generate_checklist(journal, package_dir)
         checklist_path.write_text(checklist, encoding="utf-8")
 
         logger.info(f"Submission package created: {package_dir}")
@@ -157,17 +155,13 @@ class SubmissionPackageBuilder:
 
         return packages
 
-    def _copy_manuscript(
-        self, manuscript_path: Path, package_dir: Path, journal: str
-    ):
+    def _copy_manuscript(self, manuscript_path: Path, package_dir: Path, journal: str):
         """Copy manuscript markdown to package."""
         target = package_dir / "manuscript.md"
         shutil.copy2(manuscript_path, target)
         logger.debug(f"Copied manuscript to {target}")
 
-    def _update_manuscript_paths(
-        self, manuscript_path: Path, path_mapping: Dict[str, str]
-    ) -> None:
+    def _update_manuscript_paths(self, manuscript_path: Path, path_mapping: Dict[str, str]) -> None:
         """
         Update image paths in manuscript.md to reference figures/ directory.
 
@@ -189,8 +183,8 @@ class SubmissionPackageBuilder:
             escaped_original = re.escape(original_path)
 
             # Match markdown image syntax: ![alt](path)
-            pattern = r'!\[([^\]]*)\]\(' + escaped_original + r'\)'
-            replacement = r'![\1](' + new_path + r')'
+            pattern = r"!\[([^\]]*)\]\(" + escaped_original + r"\)"
+            replacement = r"![\1](" + new_path + r")"
 
             # Replace all occurrences
             content = re.sub(pattern, replacement, content)
@@ -199,15 +193,14 @@ class SubmissionPackageBuilder:
         manuscript_path.write_text(content, encoding="utf-8")
         logger.debug(f"Updated manuscript paths: {len(path_mapping)} mappings applied")
 
-    def _generate_pdf(
-        self, markdown_path: Path, package_dir: Path, journal: str
-    ):
+    def _generate_pdf(self, markdown_path: Path, package_dir: Path, journal: str):
         """Generate PDF from markdown."""
         try:
             output_path = package_dir / "manuscript.pdf"
 
             # Get CSL style
             from ..citations.csl_formatter import CSLFormatter
+
             csl_formatter = CSLFormatter()
             csl_style_path = csl_formatter.get_style_path(journal)
 
@@ -224,15 +217,14 @@ class SubmissionPackageBuilder:
         except Exception as e:
             logger.warning(f"Failed to generate PDF: {e}")
 
-    def _generate_docx(
-        self, markdown_path: Path, package_dir: Path, journal: str
-    ):
+    def _generate_docx(self, markdown_path: Path, package_dir: Path, journal: str):
         """Generate DOCX from markdown."""
         try:
             output_path = package_dir / "manuscript.docx"
 
             # Get CSL style
             from ..citations.csl_formatter import CSLFormatter
+
             csl_formatter = CSLFormatter()
             csl_style_path = csl_formatter.get_style_path(journal)
 
@@ -245,15 +237,14 @@ class SubmissionPackageBuilder:
         except Exception as e:
             logger.warning(f"Failed to generate DOCX: {e}")
 
-    def _generate_html(
-        self, markdown_path: Path, package_dir: Path, journal: str
-    ):
+    def _generate_html(self, markdown_path: Path, package_dir: Path, journal: str):
         """Generate HTML from markdown."""
         try:
             output_path = package_dir / "manuscript.html"
 
             # Get CSL style
             from ..citations.csl_formatter import CSLFormatter
+
             csl_formatter = CSLFormatter()
             csl_style_path = csl_formatter.get_style_path(journal)
 
@@ -311,17 +302,13 @@ class SubmissionPackageBuilder:
 
         return path_mapping
 
-    def _collect_tables(
-        self, workflow_outputs: Dict[str, Any], tables_dir: Path
-    ):
+    def _collect_tables(self, workflow_outputs: Dict[str, Any], tables_dir: Path):
         """Collect table files."""
         # Tables would typically be in extracted data or supplementary materials
         # This is a placeholder for future table collection
         pass
 
-    def _collect_supplementary(
-        self, workflow_outputs: Dict[str, Any], supplementary_dir: Path
-    ):
+    def _collect_supplementary(self, workflow_outputs: Dict[str, Any], supplementary_dir: Path):
         """Collect supplementary materials."""
         # Search strategies
         if "search_strategies" in workflow_outputs:
@@ -344,9 +331,7 @@ class SubmissionPackageBuilder:
                 target = supplementary_dir / "data_extraction_form.md"
                 shutil.copy2(form_path, target)
 
-    def _copy_references(
-        self, workflow_outputs: Dict[str, Any], package_dir: Path
-    ):
+    def _copy_references(self, workflow_outputs: Dict[str, Any], package_dir: Path):
         """Copy reference files."""
         # BibTeX
         bibtex_path = self.output_dir / "references.bib"

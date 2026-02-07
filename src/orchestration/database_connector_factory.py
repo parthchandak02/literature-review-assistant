@@ -21,8 +21,10 @@ from ..search.database_connectors import (
     PerplexityConnector,
     MockConnector,
 )
+
 try:
     from ..search.connectors.google_scholar_connector import GoogleScholarConnector
+
     GOOGLE_SCHOLAR_AVAILABLE = True
 except ImportError:
     GOOGLE_SCHOLAR_AVAILABLE = False
@@ -98,7 +100,9 @@ class DatabaseConnectorFactory:
             if api_key:
                 logger.info("Semantic Scholar: Using real connector (API key: SET)")
             else:
-                logger.info("Semantic Scholar: Using real connector (no API key, lower rate limits)")
+                logger.info(
+                    "Semantic Scholar: Using real connector (no API key, lower rate limits)"
+                )
             return SemanticScholarConnector(
                 api_key=api_key,
                 cache=cache,
@@ -198,7 +202,9 @@ class DatabaseConnectorFactory:
                     "Consider enabling proxy in configuration."
                 )
 
-            logger.info(f"Google Scholar: Using real connector (proxy: {'ENABLED' if use_proxy else 'DISABLED'})")
+            logger.info(
+                f"Google Scholar: Using real connector (proxy: {'ENABLED' if use_proxy else 'DISABLED'})"
+            )
             return GoogleScholarConnector(
                 cache=cache,
                 proxy_manager=proxy_manager,
@@ -222,7 +228,9 @@ class DatabaseConnectorFactory:
                     cookie_jar=cookie_jar,
                 )
             else:
-                logger.warning("Perplexity: Search API key required but not set (PERPLEXITY_SEARCH_API_KEY), skipping")
+                logger.warning(
+                    "Perplexity: Search API key required but not set (PERPLEXITY_SEARCH_API_KEY), skipping"
+                )
                 return None  # Skip Perplexity if no key
 
         else:
@@ -273,10 +281,20 @@ class DatabaseConnectorFactory:
                 reason = "Works without API key (web scraping)"
             elif db_lower == "google scholar":
                 can_use = GOOGLE_SCHOLAR_AVAILABLE
-                reason = "scholarly library required" if not can_use else "Works without API key (proxy recommended)"
+                reason = (
+                    "scholarly library required"
+                    if not can_use
+                    else "Works without API key (proxy recommended)"
+                )
             elif db_lower == "perplexity":
-                can_use = bool(os.getenv("PERPLEXITY_SEARCH_API_KEY") or os.getenv("PERPLEXITY_API_KEY"))
-                reason = "Search API key required (PERPLEXITY_SEARCH_API_KEY)" if not can_use else "Search API key available"
+                can_use = bool(
+                    os.getenv("PERPLEXITY_SEARCH_API_KEY") or os.getenv("PERPLEXITY_API_KEY")
+                )
+                reason = (
+                    "Search API key required (PERPLEXITY_SEARCH_API_KEY)"
+                    if not can_use
+                    else "Search API key available"
+                )
             else:
                 can_use = False
                 reason = "Unknown database"

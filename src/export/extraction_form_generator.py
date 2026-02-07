@@ -31,12 +31,14 @@ class ExtractionFormGenerator:
             field_type = field_info.get("type", "string")
             description = field_info.get("description", "")
 
-            fields.append({
-                "name": field_name,
-                "type": field_type,
-                "description": description,
-                "required": field_name in schema.get("required", []),
-            })
+            fields.append(
+                {
+                    "name": field_name,
+                    "type": field_type,
+                    "description": description,
+                    "required": field_name in schema.get("required", []),
+                }
+            )
 
         return fields
 
@@ -142,13 +144,15 @@ class ExtractionFormGenerator:
         }
 
         for field in self.fields:
-            form_template["fields"].append({
-                "name": field["name"],
-                "type": field["type"],
-                "description": field["description"],
-                "required": field["required"],
-                "value": None,
-            })
+            form_template["fields"].append(
+                {
+                    "name": field["name"],
+                    "type": field["type"],
+                    "description": field["description"],
+                    "required": field["required"],
+                    "value": None,
+                }
+            )
 
         with open(output_path, "w", encoding="utf-8") as f:
             json.dump(form_template, f, indent=2)

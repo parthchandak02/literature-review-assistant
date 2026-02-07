@@ -9,6 +9,7 @@ from pathlib import Path
 
 try:
     import git
+
     GITPYTHON_AVAILABLE = True
 except ImportError:
     GITPYTHON_AVAILABLE = False
@@ -31,9 +32,7 @@ class GitManuscriptManager:
             ImportError: If gitpython is not installed
         """
         if not GITPYTHON_AVAILABLE:
-            raise ImportError(
-                "gitpython required. Install with: pip install gitpython"
-            )
+            raise ImportError("gitpython required. Install with: pip install gitpython")
 
         self.repo_path = Path(repo_path)
         self.repo = None

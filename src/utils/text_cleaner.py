@@ -27,20 +27,19 @@ def find_content_start(text: str) -> int:
     Returns:
         Index of first content line, or 0 if not found
     """
-    lines = text.split('\n')
+    lines = text.split("\n")
 
     conversational_patterns = [
-        r'^(of course|certainly|here is|here\'s|below is)',
-        r'^(as an expert|let me|i\'ll|allow me)',
-        r'^(as requested|following your instructions)',
+        r"^(of course|certainly|here is|here\'s|below is)",
+        r"^(as an expert|let me|i\'ll|allow me)",
+        r"^(as requested|following your instructions)",
     ]
 
     def is_conversational_line(line: str) -> bool:
         """Check if a line starts with conversational phrase."""
         stripped = line.strip()
         return any(
-            re.match(pattern, stripped, re.IGNORECASE)
-            for pattern in conversational_patterns
+            re.match(pattern, stripped, re.IGNORECASE) for pattern in conversational_patterns
         )
 
     def get_next_substantive_line(start_idx: int, max_lookahead: int = 10) -> Tuple[int, str]:
@@ -50,9 +49,9 @@ def find_content_start(text: str) -> int:
         """
         for i in range(start_idx + 1, min(start_idx + max_lookahead + 1, len(lines))):
             stripped = lines[i].strip()
-            if stripped and not re.match(r'^[\*\-\_\=]{3,}$', stripped):
+            if stripped and not re.match(r"^[\*\-\_\=]{3,}$", stripped):
                 return i, stripped
-        return -1, ''
+        return -1, ""
 
     # Priority 1: Find markdown header that is followed by actual content
     # Skip headers that are followed by conversational text
@@ -60,7 +59,7 @@ def find_content_start(text: str) -> int:
         stripped = line.strip()
 
         # Check for markdown header (# through ######)
-        if re.match(r'^#{1,6}\s+', stripped):
+        if re.match(r"^#{1,6}\s+", stripped):
             # Found a header - check what follows it
             next_idx, next_line = get_next_substantive_line(i, max_lookahead=5)
 
@@ -87,7 +86,7 @@ def find_content_start(text: str) -> int:
             continue
 
         # Skip separator lines (***, ---, ===)
-        if re.match(r'^[\*\-\_\=]{3,}$', stripped):
+        if re.match(r"^[\*\-\_\=]{3,}$", stripped):
             continue
 
         # Skip if too short to be substantive
@@ -116,18 +115,22 @@ def _conservative_clean(text: str) -> str:
     Returns:
         Conservatively cleaned text
     """
-    lines = text.split('\n')
+    lines = text.split("\n")
 
     # Remove separator lines
-    cleaned_lines = [
-        line for line in lines
-        if not re.match(r'^[\*\-\_\=]{3,}$', line.strip())
-    ]
+    cleaned_lines = [line for line in lines if not re.match(r"^[\*\-\_\=]{3,}$", line.strip())]
 
     # Remove lines starting with obvious conversational phrases
     conversational_starters = [
-        'of course', 'here is', 'here\'s', 'below is', 'certainly',
-        'as an expert', 'let me', 'i\'ll', 'allow me'
+        "of course",
+        "here is",
+        "here's",
+        "below is",
+        "certainly",
+        "as an expert",
+        "let me",
+        "i'll",
+        "allow me",
     ]
 
     final_lines = []
@@ -138,7 +141,7 @@ def _conservative_clean(text: str) -> str:
 
         if skip_until_content:
             # Check if this is actual content (has header or substantive)
-            if re.match(r'^#{1,6}\s+', stripped) or (
+            if re.match(r"^#{1,6}\s+", stripped) or (
                 len(stripped) > 20 and stripped and stripped[0].isupper()
             ):
                 skip_until_content = False
@@ -151,9 +154,9 @@ def _conservative_clean(text: str) -> str:
                 continue
             final_lines.append(line)
 
-    cleaned = '\n'.join(final_lines)
+    cleaned = "\n".join(final_lines)
     # Remove multiple consecutive empty lines
-    cleaned = re.sub(r'\n{3,}', '\n\n', cleaned)
+    cleaned = re.sub(r"\n{3,}", "\n\n", cleaned)
     return cleaned.strip()
 
 
@@ -181,8 +184,8 @@ def clean_writing_output(text: str) -> str:
     content_start_idx = find_content_start(text)
 
     if content_start_idx > 0:
-        lines = text.split('\n')
-        cleaned = '\n'.join(lines[content_start_idx:]).strip()
+        lines = text.split("\n")
+        cleaned = "\n".join(lines[content_start_idx:]).strip()
 
         # Validation: don't remove too much (safety check)
         removal_ratio = 1 - (len(cleaned) / original_length) if original_length > 0 else 0
@@ -195,9 +198,9 @@ def clean_writing_output(text: str) -> str:
             return _conservative_clean(text)
 
         # Additional cleanup: remove any remaining separator lines
-        cleaned = re.sub(r'^[\*\-\_\=]{3,}\s*$', '', cleaned, flags=re.MULTILINE)
+        cleaned = re.sub(r"^[\*\-\_\=]{3,}\s*$", "", cleaned, flags=re.MULTILINE)
         # Remove multiple consecutive empty lines
-        cleaned = re.sub(r'\n{3,}', '\n\n', cleaned)
+        cleaned = re.sub(r"\n{3,}", "\n\n", cleaned)
 
         return cleaned.strip()
 

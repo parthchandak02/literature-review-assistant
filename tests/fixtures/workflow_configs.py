@@ -61,7 +61,7 @@ def get_test_workflow_config() -> Dict[str, Any]:
         },
         "quality_assessment": {
             "enabled": True,
-            "risk_of_bias_tool": "RoB 2",
+            "framework": "CASP",  # Updated from legacy "risk_of_bias_tool": "RoB 2"
             "grade_outcomes": ["Primary outcome", "Secondary outcome"],
             "template_path": None,  # Will be generated if not provided
         },

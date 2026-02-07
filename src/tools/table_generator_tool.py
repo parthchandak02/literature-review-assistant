@@ -12,6 +12,7 @@ logger = logging.getLogger(__name__)
 
 try:
     from tabulate import tabulate
+
     TABULATE_AVAILABLE = True
 except ImportError:
     TABULATE_AVAILABLE = False
@@ -38,9 +39,7 @@ def generate_thematic_table(
         Path to markdown table file
     """
     if not TABULATE_AVAILABLE:
-        raise ImportError(
-            "tabulate is not installed. Install it with: pip install tabulate"
-        )
+        raise ImportError("tabulate is not installed. Install it with: pip install tabulate")
 
     # Create output directory if it doesn't exist
     output_path = Path(output_dir)
@@ -80,7 +79,9 @@ def generate_thematic_table(
                     )
                 if study_objectives:
                     text_to_search += " ".join(
-                        study_objectives if isinstance(study_objectives, list) else [study_objectives]
+                        study_objectives
+                        if isinstance(study_objectives, list)
+                        else [study_objectives]
                     )
                 if outcomes:
                     text_to_search += " ".join(
@@ -96,7 +97,9 @@ def generate_thematic_table(
 
         # Build evidence string
         if evidence_studies:
-            evidence = f"Found in {len(evidence_studies)} studies: {', '.join(evidence_studies[:3])}"
+            evidence = (
+                f"Found in {len(evidence_studies)} studies: {', '.join(evidence_studies[:3])}"
+            )
             if len(evidence_studies) > 3:
                 evidence += f" and {len(evidence_studies) - 3} more"
         elif extracted_data:
@@ -139,9 +142,7 @@ def generate_topic_analysis_table(
         Path to markdown table file
     """
     if not TABULATE_AVAILABLE:
-        raise ImportError(
-            "tabulate is not installed. Install it with: pip install tabulate"
-        )
+        raise ImportError("tabulate is not installed. Install it with: pip install tabulate")
 
     # Create output directory if it doesn't exist
     output_path = Path(output_dir)
@@ -177,7 +178,10 @@ def generate_topic_analysis_table(
                         outcomes if isinstance(outcomes, list) else [outcomes]
                     )
 
-                if area.lower() in text_to_search.lower() or topic_focus.lower() in text_to_search.lower():
+                if (
+                    area.lower() in text_to_search.lower()
+                    or topic_focus.lower() in text_to_search.lower()
+                ):
                     study_ref = title or "Unknown Study"
                     evidence_studies.append(study_ref)
 
@@ -222,9 +226,7 @@ def generate_inclusion_exclusion_table(
         Path to markdown table file
     """
     if not TABULATE_AVAILABLE:
-        raise ImportError(
-            "tabulate is not installed. Install it with: pip install tabulate"
-        )
+        raise ImportError("tabulate is not installed. Install it with: pip install tabulate")
 
     # Create output directory if it doesn't exist
     output_path = Path(output_dir)
