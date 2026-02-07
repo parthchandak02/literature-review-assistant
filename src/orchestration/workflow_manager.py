@@ -2787,7 +2787,7 @@ class WorkflowManager:
 
         # Quality assessment visualizations
         if self.quality_assessment_data:
-            framework = self.quality_assessment_data.get("framework", "RoB 2")
+            framework = self.quality_assessment_data.get("framework", "CASP")
             
             # Quality assessment plot (framework-dependent)
             if framework == "CASP":

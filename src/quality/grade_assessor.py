@@ -49,9 +49,7 @@ class GRADEAssessor:
         logger.info(f"Loaded {len(assessments)} GRADE assessments")
         return assessments
 
-    def generate_evidence_profile_table(
-        self, assessments: List[GRADEAssessment]
-    ) -> str:
+    def generate_evidence_profile_table(self, assessments: List[GRADEAssessment]) -> str:
         """
         Generate markdown evidence profile table for GRADE assessments.
 
@@ -91,9 +89,7 @@ class GRADEAssessor:
         table = header + separator + "".join(rows)
         return table
 
-    def generate_narrative_summary(
-        self, assessments: List[GRADEAssessment]
-    ) -> str:
+    def generate_narrative_summary(self, assessments: List[GRADEAssessment]) -> str:
         """
         Generate narrative summary of GRADE assessments.
 
@@ -121,9 +117,7 @@ class GRADEAssessor:
         total_outcomes = len(assessments)
 
         # Build narrative
-        narrative = (
-            f"GRADE assessment was conducted for {total_outcomes} critical outcomes. "
-        )
+        narrative = f"GRADE assessment was conducted for {total_outcomes} critical outcomes. "
 
         # Describe certainty distribution
         certainty_descriptions = []
@@ -160,9 +154,7 @@ class GRADEAssessor:
                 downgrade_reasons[reason] += 1
 
         if downgrade_reasons:
-            top_reasons = sorted(
-                downgrade_reasons.items(), key=lambda x: x[1], reverse=True
-            )[:3]
+            top_reasons = sorted(downgrade_reasons.items(), key=lambda x: x[1], reverse=True)[:3]
             narrative += (
                 "Common reasons for downgrading certainty included: "
                 + ", ".join([f"{reason} ({count} outcomes)" for reason, count in top_reasons])

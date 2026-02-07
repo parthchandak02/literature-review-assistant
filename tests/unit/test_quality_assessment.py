@@ -1,5 +1,7 @@
 """
 Unit tests for quality assessment module.
+
+Tests both CASP framework (primary) and backward compatibility with legacy RoB 2.
 """
 
 import pytest
@@ -9,9 +11,10 @@ from tempfile import TemporaryDirectory
 
 from src.quality import (
     QualityAssessmentTemplateGenerator,
-    RiskOfBiasAssessor,
     GRADEAssessor,
 )
+# Import deprecated classes for backward compatibility tests
+from src.quality.risk_of_bias_assessor import RiskOfBiasAssessor
 from src.extraction.data_extractor_agent import ExtractedData
 
 
@@ -70,11 +73,43 @@ def sample_extracted_data():
     ]
 
 
-def test_template_generator(sample_extracted_data):
-    """Test quality assessment template generation."""
+def test_template_generator_casp(sample_extracted_data):
+    """Test CASP quality assessment template generation."""
     with TemporaryDirectory() as tmpdir:
-        generator = QualityAssessmentTemplateGenerator(risk_of_bias_tool="RoB 2")
-        template_path = Path(tmpdir) / "test_assessments.json"
+        generator = QualityAssessmentTemplateGenerator(framework="CASP")
+        template_path = Path(tmpdir) / "test_casp_assessments.json"
+        
+        template_path_str = generator.generate_template(
+            sample_extracted_data,
+            str(template_path),
+            grade_outcomes=["Outcome 1", "Outcome 2"],
+        )
+        
+        assert Path(template_path_str).exists()
+        
+        with open(template_path_str, "r") as f:
+            template_data = json.load(f)
+        
+        assert "framework" in template_data
+        assert template_data["framework"] == "CASP"
+        assert "studies" in template_data
+        assert len(template_data["studies"]) == 2
+        assert "grade_assessments" in template_data
+        assert len(template_data["grade_assessments"]) == 2
+        
+        # Verify CASP structure
+        study = template_data["studies"][0]
+        assert "quality_assessment" in study
+        assert "checklist_used" in study["quality_assessment"]
+        assert "questions" in study["quality_assessment"]
+        assert "score" in study["quality_assessment"]
+
+
+def test_template_generator_legacy_rob2(sample_extracted_data):
+    """Test legacy RoB 2 template generation (backward compatibility)."""
+    with TemporaryDirectory() as tmpdir:
+        generator = QualityAssessmentTemplateGenerator(framework="RoB 2")
+        template_path = Path(tmpdir) / "test_rob2_assessments.json"
         
         template_path_str = generator.generate_template(
             sample_extracted_data,
@@ -93,8 +128,8 @@ def test_template_generator(sample_extracted_data):
         assert len(template_data["grade_assessments"]) == 2
 
 
-def test_risk_of_bias_assessor(sample_extracted_data):
-    """Test risk of bias assessor."""
+def test_risk_of_bias_assessor_legacy(sample_extracted_data):
+    """Test legacy risk of bias assessor (backward compatibility)."""
     with TemporaryDirectory() as tmpdir:
         # Generate template
         generator = QualityAssessmentTemplateGenerator(risk_of_bias_tool="RoB 2")
@@ -138,10 +173,10 @@ def test_risk_of_bias_assessor(sample_extracted_data):
 
 
 def test_grade_assessor(sample_extracted_data):
-    """Test GRADE assessor."""
+    """Test GRADE assessor with CASP framework."""
     with TemporaryDirectory() as tmpdir:
         # Generate template
-        generator = QualityAssessmentTemplateGenerator(risk_of_bias_tool="RoB 2")
+        generator = QualityAssessmentTemplateGenerator(framework="CASP")
         template_path = Path(tmpdir) / "test_assessments.json"
         generator.generate_template(
             sample_extracted_data,
