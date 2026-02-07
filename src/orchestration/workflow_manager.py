@@ -166,6 +166,9 @@ class WorkflowManager:
         workflow_output_dir.mkdir(parents=True, exist_ok=True)
         self.output_dir = workflow_output_dir
 
+        # Enable audit trail for cost tracking
+        self.cost_tracker.enable_audit_trail(str(workflow_output_dir))
+
         # Update ChartGenerator to use workflow-specific output directory
         # (ChartGenerator was initialized with base directory, needs update)
         self.chart_generator.output_dir = workflow_output_dir
@@ -414,9 +417,10 @@ class WorkflowManager:
         # "not_retrieved" = papers where full-text was unavailable
         not_retrieved_count = self.fulltext_unavailable_count
         self.prisma_counter.set_full_text_not_retrieved(not_retrieved_count)
-        # "assessed" = papers actually assessed for eligibility
-        # We assess all papers (with or without full-text), so assessed = sought
-        assessed_count = sought_count
+        # "assessed" = papers actually assessed for eligibility (only those with full-text available)
+        # PRISMA 2020 rule: sought = assessed + not_retrieved
+        # Therefore: assessed = sought - not_retrieved
+        assessed_count = sought_count - not_retrieved_count
         self.prisma_counter.set_full_text_assessed(assessed_count)
         excluded_at_fulltext = len(self.screened_papers) - len(self.eligible_papers)
         self.prisma_counter.set_full_text_exclusions(excluded_at_fulltext)
@@ -723,6 +727,21 @@ class WorkflowManager:
                     f"Failed to copy {len(failed_items)} item(s): {', '.join(failed_items[:5])}"
                 )
 
+            # Backward compatibility: if source has final_report.md but not manuscript.md,
+            # copy final_report.md as manuscript.md in target
+            source_manuscript = target_output_dir / "manuscript.md"
+            source_final_report = target_output_dir / "final_report.md"
+
+            if not source_manuscript.exists() and source_final_report.exists():
+                try:
+                    shutil.copy2(source_final_report, source_manuscript)
+                    logger.info(
+                        "Copied final_report.md to manuscript.md for backward compatibility"
+                    )
+                    copied_count += 1
+                except Exception as e:
+                    logger.warning(f"Failed to create manuscript.md from final_report.md: {e}")
+
             logger.info(
                 f"Copied {copied_count}/{len(items)} item(s) from output directory "
                 f"(skipped: {skipped_count})"
@@ -755,6 +774,9 @@ class WorkflowManager:
         logger.info("Starting systematic review workflow")
         logger.info(f"Topic: {self.topic_context.topic}")
         logger.info(f"Output directory: {self.output_dir}")
+
+        # Enable audit trail for LLM cost tracking
+        self.cost_tracker.enable_audit_trail(str(self.output_dir))
 
         # Auto-detect and resume from existing checkpoint if available
         if start_from_phase is None and self.save_checkpoints:
@@ -1206,39 +1228,6 @@ class WorkflowManager:
                         results["outputs"]["exports"] = export_paths
                         logger.info(f"Exported to additional formats: {export_paths}")
 
-            # Phase 13: Export Search Strategies
-            supplementary_config = self.config.get("supplementary_materials", {})
-            if supplementary_config.get("search_strategies", True):
-                with workflow_phase_context("search_strategy_export"):
-                    search_strategies_path = self._export_search_strategies()
-                    if search_strategies_path:
-                        results["outputs"]["search_strategies"] = search_strategies_path
-                        logger.info(f"Search strategies exported: {search_strategies_path}")
-
-            # Phase 14: Generate PRISMA Checklist
-            with workflow_phase_context("prisma_checklist"):
-                checklist_path = self._generate_prisma_checklist(str(report_path))
-                if checklist_path:
-                    results["outputs"]["prisma_checklist"] = checklist_path
-                    logger.info(f"PRISMA checklist generated: {checklist_path}")
-
-            # Phase 15: Generate Data Extraction Forms
-            supplementary_config = self.config.get("supplementary_materials", {})
-            if supplementary_config.get("extracted_data", True):
-                with workflow_phase_context("extraction_forms"):
-                    extraction_form_path = self._generate_extraction_forms()
-                    if extraction_form_path:
-                        results["outputs"]["extraction_form"] = extraction_form_path
-                        logger.info(f"Extraction form generated: {extraction_form_path}")
-
-            # Phase 16: Export to Additional Formats
-            export_config = self.config.get("output", {}).get("formats", [])
-            if "latex" in export_config or "word" in export_config:
-                with workflow_phase_context("export"):
-                    export_paths = self._export_report(article_sections, prisma_path, viz_paths)
-                    results["outputs"]["exports"] = export_paths
-                    logger.info(f"Exported to additional formats: {export_paths}")
-
             # Phase 17: Manubot Export
             # Skip if all phases are complete (start_from_phase >= 19 means everything is done)
             if not (start_from_phase and start_from_phase >= 19):
@@ -1283,12 +1272,11 @@ class WorkflowManager:
             results["outputs"]["workflow_state"] = state_path
 
             workflow_duration = time.time() - workflow_start
-            logger.info("=" * 60)
-            logger.info(f"Workflow complete in {workflow_duration:.2f}s")
-            logger.info(f"Outputs saved to: {self.output_dir}")
+
+            # Clear any remaining progress displays
+            console.print()
 
             # Display output location summary
-            console.print()
             final_report = self.output_dir / "final_report.md"
             prisma_diagram = self.output_dir / "prisma_diagram.png"
 
@@ -1309,10 +1297,14 @@ class WorkflowManager:
                 f"- Final Report: [cyan]{final_report.name if final_report.exists() else 'final_report.md'}[/cyan]\n"
                 f"- PRISMA Diagram: [cyan]{prisma_diagram.name if prisma_diagram.exists() else 'prisma_diagram.png'}[/cyan]\n"
                 f"- Submission Package: [cyan]{submission_package}[/cyan]\n\n"
+                f"[bold]Duration:[/bold] {workflow_duration:.1f}s\n\n"
                 f"[dim]View outputs: cd {self.output_dir}[/dim]",
                 status_color="green",
             )
             console.print()
+
+            # Display screening statistics in rich format
+            self._display_screening_summary()
 
             # Display summary if debug enabled
             if self.debug_config.show_metrics:
@@ -1321,11 +1313,7 @@ class WorkflowManager:
             if self.debug_config.show_costs:
                 self._display_cost_summary()
 
-            # Display screening validation summary
-            validation_report = self.screening_validator.get_summary_report()
-            logger.info("\n" + validation_report)
-
-            logger.info("=" * 60)
+            logger.info(f"Workflow completed successfully in {workflow_duration:.2f}s")
 
         except Exception as e:
             logger.error(f"Workflow failed: {e}", exc_info=True)
@@ -1333,45 +1321,122 @@ class WorkflowManager:
 
         return results
 
+    def _display_screening_summary(self):
+        """Display screening statistics in rich format."""
+        from rich.table import Table
+
+        from .screening_validator import ScreeningStage
+
+        # Check if we have statistics
+        if not self.screening_validator.stats_by_stage:
+            return
+
+        # Create table for screening statistics
+        table = Table(title="Screening Statistics", show_header=True, header_style="bold cyan")
+        table.add_column("Stage", style="cyan", width=20)
+        table.add_column("Total", justify="right", style="white")
+        table.add_column("Included", justify="right", style="green")
+        table.add_column("Excluded", justify="right", style="red")
+        table.add_column("Inclusion Rate", justify="right", style="yellow")
+
+        for stage in ScreeningStage:
+            if stage in self.screening_validator.stats_by_stage:
+                stats = self.screening_validator.stats_by_stage[stage]
+                stage_name = stage.value.replace("_", " ").title()
+                table.add_row(
+                    stage_name,
+                    str(stats.total_papers),
+                    str(stats.included),
+                    str(stats.excluded),
+                    f"{stats.inclusion_rate:.1%}",
+                )
+
+        console.print(table)
+        console.print()
+
     def _display_metrics_summary(self):
         """Display metrics summary."""
-        summary = self.metrics.get_summary()
-        logger.info("\n" + "=" * 60)
-        logger.info("METRICS SUMMARY")
-        logger.info("=" * 60)
-        logger.info(f"Total agents: {summary['total_agents']}")
-        logger.info(f"Total calls: {summary['total_calls']}")
-        logger.info(f"Successful: {summary['total_successful']}")
-        logger.info(f"Failed: {summary['total_failed']}")
-        logger.info(f"Success rate: {summary['overall_success_rate']:.2%}")
+        from rich.table import Table
 
+        summary = self.metrics.get_summary()
+
+        # Create metrics table
+        table = Table(title="Agent Metrics", show_header=True, header_style="bold cyan")
+        table.add_column("Metric", style="cyan", width=20)
+        table.add_column("Value", justify="right", style="white")
+
+        table.add_row("Total Agents", str(summary["total_agents"]))
+        table.add_row("Total Calls", str(summary["total_calls"]))
+        table.add_row("Successful", str(summary["total_successful"]))
+        table.add_row("Failed", str(summary["total_failed"]))
+        table.add_row("Success Rate", f"{summary['overall_success_rate']:.2%}")
+
+        console.print(table)
+        console.print()
+
+        # Display per-agent metrics if available
         if summary.get("agents") and len(summary["agents"]) > 0:
-            logger.info("\nPer-Agent Metrics:")
+            agent_table = Table(
+                title="Per-Agent Metrics", show_header=True, header_style="bold cyan"
+            )
+            agent_table.add_column("Agent", style="cyan", width=35)
+            agent_table.add_column("Calls", justify="right", style="white")
+            agent_table.add_column("Success Rate", justify="right", style="green")
+            agent_table.add_column("Avg Duration", justify="right", style="yellow")
+
             for agent_name, agent_metrics in summary["agents"].items():
-                logger.info(f"  {agent_name}:")
-                logger.info(f"    Calls: {agent_metrics['total_calls']}")
-                logger.info(f"    Success rate: {agent_metrics['success_rate']:.2%}")
-                logger.info(f"    Avg duration: {agent_metrics['average_duration']:.2f}s")
+                agent_table.add_row(
+                    agent_name,
+                    str(agent_metrics["total_calls"]),
+                    f"{agent_metrics['success_rate']:.2%}",
+                    f"{agent_metrics['average_duration']:.2f}s",
+                )
+
+            console.print(agent_table)
+            console.print()
 
     def _display_cost_summary(self):
         """Display cost summary."""
+        from rich.table import Table
+
         summary = self.cost_tracker.get_summary()
-        logger.info("\n" + "=" * 60)
-        logger.info("COST SUMMARY")
-        logger.info("=" * 60)
-        logger.info(f"Total cost: ${summary['total_cost_usd']:.4f}")
-        logger.info(f"Total calls: {summary['total_calls']}")
-        logger.info(f"Total tokens: {summary['total_tokens']}")
 
-        if summary["by_provider"]:
-            logger.info("\nBy Provider:")
+        # Create cost table
+        table = Table(title="Cost Summary", show_header=True, header_style="bold cyan")
+        table.add_column("Metric", style="cyan", width=20)
+        table.add_column("Value", justify="right", style="white")
+
+        table.add_row("Total Cost", f"${summary['total_cost_usd']:.4f}")
+        table.add_row("Total Calls", str(summary["total_calls"]))
+        table.add_row("Total Tokens", f"{summary['total_tokens']:,}")
+
+        console.print(table)
+
+        # Show breakdown by provider if available
+        if summary["by_provider"] and len(summary["by_provider"]) > 0:
+            provider_table = Table(
+                title="Cost by Provider", show_header=True, header_style="bold cyan"
+            )
+            provider_table.add_column("Provider", style="cyan")
+            provider_table.add_column("Cost", justify="right", style="green")
+
             for provider, cost in summary["by_provider"].items():
-                logger.info(f"  {provider}: ${cost:.4f}")
+                provider_table.add_row(provider, f"${cost:.4f}")
 
-        if summary["by_agent"]:
-            logger.info("\nBy Agent:")
-            for agent, cost in summary["by_agent"].items():
-                logger.info(f"  {agent}: ${cost:.4f}")
+            console.print(provider_table)
+
+        # Show breakdown by agent if available
+        if summary.get("by_agent") and len(summary["by_agent"]) > 0:
+            agent_table = Table(title="Cost by Agent", show_header=True, header_style="bold cyan")
+            agent_table.add_column("Agent", style="cyan", width=35)
+            agent_table.add_column("Cost", justify="right", style="green")
+
+            for agent_name, cost in summary["by_agent"].items():
+                agent_table.add_row(agent_name, f"${cost:.4f}")
+
+            console.print(agent_table)
+
+        console.print()
 
     def _build_search_strategy(self):
         """Build search strategy."""
@@ -2472,14 +2537,20 @@ class WorkflowManager:
         # Log extraction statistics
         empty_extraction_count = 0
         for extracted in self.extracted_data:
-            objectives_empty = not extracted.study_objectives or len(extracted.study_objectives) == 0
+            objectives_empty = (
+                not extracted.study_objectives or len(extracted.study_objectives) == 0
+            )
             outcomes_empty = not extracted.outcomes or len(extracted.outcomes) == 0
             findings_empty = not extracted.key_findings or len(extracted.key_findings) == 0
             if objectives_empty and outcomes_empty and findings_empty:
                 empty_extraction_count += 1
 
         if empty_extraction_count > 0:
-            percentage = (empty_extraction_count / len(self.extracted_data)) * 100 if self.extracted_data else 0
+            percentage = (
+                (empty_extraction_count / len(self.extracted_data)) * 100
+                if self.extracted_data
+                else 0
+            )
             if percentage > 50:
                 logger.error(
                     f"High number of empty extractions: {empty_extraction_count}/{len(self.extracted_data)} "
@@ -3144,22 +3215,20 @@ class WorkflowManager:
         last_error_reason = "Unknown error"
 
         # Get context for better error messages
-        model_name = getattr(writer_func, '__self__', None)
+        model_name = getattr(writer_func, "__self__", None)
         if model_name:
-            model_name = getattr(model_name, 'llm_model', 'unknown')
+            model_name = getattr(model_name, "llm_model", "unknown")
         else:
-            model_name = 'unknown'
+            model_name = "unknown"
 
-        paper_count = len(self.extracted_data) if hasattr(self, 'extracted_data') else 0
+        paper_count = len(self.extracted_data) if hasattr(self, "extracted_data") else 0
 
         for attempt in range(max_attempts):
             # Show retry panel if this is not the first attempt
             if attempt > 0:
                 # Exponential backoff: 2^(attempt-1) seconds (2s, 4s, 8s, ...)
                 backoff_delay = 2 ** (attempt - 1)
-                logger.info(
-                    f"Waiting {backoff_delay}s before retry (exponential backoff)..."
-                )
+                logger.info(f"Waiting {backoff_delay}s before retry (exponential backoff)...")
                 time.sleep(backoff_delay)
 
                 print_section_retry_panel(
@@ -3747,6 +3816,58 @@ class WorkflowManager:
 
         return sections
 
+    def _prepare_figure_paths(self, prisma_path: str, viz_paths: Dict[str, str]) -> Dict[str, str]:
+        """
+        Organize figures into figures/ directory and return path mapping.
+
+        Args:
+            prisma_path: Path to PRISMA diagram
+            viz_paths: Dictionary of visualization paths
+
+        Returns:
+            Dictionary mapping figure names to relative paths (figures/figure_N.ext)
+        """
+        import shutil
+
+        # Create figures directory in output_dir
+        figures_dir = self.output_dir / "figures"
+        figures_dir.mkdir(exist_ok=True)
+
+        # Collect all figure paths
+        figures = []
+        figure_names = []
+
+        # Add PRISMA diagram first (will be figure_1)
+        if prisma_path:
+            prisma_path_obj = Path(prisma_path)
+            if prisma_path_obj.exists():
+                figures.append(prisma_path_obj)
+                figure_names.append("prisma_diagram")
+
+        # Add visualizations
+        if viz_paths:
+            for name, path in viz_paths.items():
+                # Skip HTML files (network graphs)
+                if not str(path).endswith(".html"):
+                    path_obj = Path(path)
+                    if path_obj.exists():
+                        figures.append(path_obj)
+                        figure_names.append(name)
+
+        # Copy figures and build path mapping
+        path_mapping = {}
+        for i, (fig_path, fig_name) in enumerate(zip(figures, figure_names), 1):
+            # Use figure_N naming convention
+            target = figures_dir / f"figure_{i}{fig_path.suffix}"
+            shutil.copy2(fig_path, target)
+            logger.debug(f"Copied figure to: {target}")
+
+            # Store mapping with relative path from output_dir
+            relative_path = f"figures/figure_{i}{fig_path.suffix}"
+            path_mapping[fig_name] = relative_path
+
+        return path_mapping
+
     def _generate_final_report(
         self,
         article_sections: Dict[str, str],
@@ -3756,40 +3877,19 @@ class WorkflowManager:
         """Generate final markdown report."""
         from ..citations import CitationManager
 
-        report_path = self.output_dir / "final_report.md"
+        # Prepare figures and get path mapping
+        figure_paths = self._prepare_figure_paths(prisma_path, viz_paths)
+
+        # Generate manuscript.md with correct figure paths
+        manuscript_path = self.output_dir / "manuscript.md"
 
         # Ensure output directory exists
-        report_path.parent.mkdir(parents=True, exist_ok=True)
-
-        # Convert absolute paths to relative paths for markdown
-        # This ensures images display correctly when viewing the markdown file
-        if prisma_path:
-            prisma_path_obj = Path(prisma_path)
-            if prisma_path_obj.is_absolute():
-                try:
-                    prisma_path = str(prisma_path_obj.relative_to(self.output_dir))
-                except ValueError:
-                    # Fallback: use filename only if path is outside output_dir
-                    prisma_path = prisma_path_obj.name
-
-        # Convert visualization paths to relative
-        if viz_paths:
-            converted_viz_paths = {}
-            for name, path in viz_paths.items():
-                path_obj = Path(path)
-                if path_obj.is_absolute():
-                    try:
-                        converted_viz_paths[name] = str(path_obj.relative_to(self.output_dir))
-                    except ValueError:
-                        converted_viz_paths[name] = path_obj.name
-                else:
-                    converted_viz_paths[name] = path
-            viz_paths = converted_viz_paths
+        manuscript_path.parent.mkdir(parents=True, exist_ok=True)
 
         # Initialize citation manager with included papers
         citation_manager = CitationManager(self.final_papers)
 
-        with open(report_path, "w") as f:
+        with open(manuscript_path, "w") as f:
             # Generate topic-specific title
             topic = self.topic_context.topic or "Systematic Review"
             title = f"{topic}: A Systematic Review"
@@ -3859,60 +3959,48 @@ class WorkflowManager:
             results_text = citation_manager.extract_and_map_citations(article_sections["results"])
 
             # Insert PRISMA diagram into Results section after Study Selection subsection
-            # Find the end of Study Selection subsection or insert after first paragraph
-            prisma_insertion_point = results_text.find("### Study Selection")
-            if prisma_insertion_point != -1:
-                # Find the end of Study Selection subsection (next ### or end of text)
-                next_subsection = results_text.find("\n### ", prisma_insertion_point + 1)
-                if next_subsection == -1:
-                    # No next subsection, insert before end
-                    insertion_pos = len(results_text)
-                else:
-                    # Insert before next subsection
-                    insertion_pos = next_subsection
+            # Use the figure path from the mapping (figures/figure_1.xxx)
+            prisma_fig_path = figure_paths.get("prisma_diagram", "")
+            if prisma_fig_path:
+                prisma_insertion_point = results_text.find("### Study Selection")
+                if prisma_insertion_point != -1:
+                    # Find the end of Study Selection subsection (next ### or end of text)
+                    next_subsection = results_text.find("\n### ", prisma_insertion_point + 1)
+                    if next_subsection == -1:
+                        # No next subsection, insert before end
+                        insertion_pos = len(results_text)
+                    else:
+                        # Insert before next subsection
+                        insertion_pos = next_subsection
 
-                # Insert PRISMA diagram
-                prisma_section = f"\n\n![PRISMA Diagram]({prisma_path})\n\n"
-                prisma_section += "**Figure 1:** PRISMA 2020 flow diagram showing the study selection process.\n\n"
-                results_text = (
-                    results_text[:insertion_pos] + prisma_section + results_text[insertion_pos:]
-                )
-            else:
-                # If Study Selection subsection not found, insert PRISMA diagram at the beginning
-                prisma_section = f"![PRISMA Diagram]({prisma_path})\n\n"
-                prisma_section += "**Figure 1:** PRISMA 2020 flow diagram showing the study selection process.\n\n\n"
-                results_text = prisma_section + results_text
+                    # Insert PRISMA diagram with correct figure path
+                    prisma_section = f"\n\n![PRISMA Diagram]({prisma_fig_path})\n\n"
+                    prisma_section += "**Figure 1:** PRISMA 2020 flow diagram showing the study selection process.\n\n"
+                    results_text = (
+                        results_text[:insertion_pos] + prisma_section + results_text[insertion_pos:]
+                    )
+                else:
+                    # If Study Selection subsection not found, insert PRISMA diagram at the beginning
+                    prisma_section = f"![PRISMA Diagram]({prisma_fig_path})\n\n"
+                    prisma_section += "**Figure 1:** PRISMA 2020 flow diagram showing the study selection process.\n\n\n"
+                    results_text = prisma_section + results_text
 
             # Insert visualizations into Results section after Synthesis subsection
             figure_num = 2  # PRISMA diagram is Figure 1
-            if viz_paths:
-                # Build visualizations section
+            if figure_paths:
+                # Build visualizations section using figure_paths mapping
                 viz_section = "\n\n"
-                for name, path in viz_paths.items():
+                for name, fig_path in figure_paths.items():
+                    # Skip PRISMA diagram (already handled)
+                    if name == "prisma_diagram":
+                        continue
+
                     viz_name = name.replace("_", " ").title()
-                    # Handle HTML files (network graph) differently from images
-                    if path.endswith(".html"):
-                        viz_section += f"[Interactive {viz_name}]({path})\n\n"
-                        # Also try to reference PNG version if it exists
-                        png_path = path.replace(".html", ".png")
-                        png_full_path = self.output_dir / Path(png_path).name
-                        if png_full_path.exists():
-                            caption = f"**Figure {figure_num}:** {viz_name} showing bibliometric analysis of included studies.\n\n"
-                            viz_section += f"![{name}]({png_path})\n\n"
-                            viz_section += caption
-                            figure_num += 1
-                    elif path.endswith(".svg"):
-                        # Handle SVG files (from Mermaid diagrams)
-                        caption = f"**Figure {figure_num}:** {viz_name} showing analysis of included studies.\n\n"
-                        viz_section += f"![{name}]({path})\n\n"
-                        viz_section += caption
-                        figure_num += 1
-                    else:
-                        # Handle PNG, JPG, etc.
-                        caption = f"**Figure {figure_num}:** {viz_name} showing bibliometric analysis of included studies.\n\n"
-                        viz_section += f"![{name}]({path})\n\n"
-                        viz_section += caption
-                        figure_num += 1
+                    # Use the correct figure path
+                    caption = f"**Figure {figure_num}:** {viz_name} showing bibliometric analysis of included studies.\n\n"
+                    viz_section += f"![{name}]({fig_path})\n\n"
+                    viz_section += caption
+                    figure_num += 1
 
                 # Find Synthesis subsection using multiple patterns (3-level and 4-level headers)
                 synthesis_patterns = [
@@ -4056,7 +4144,16 @@ class WorkflowManager:
             else:
                 f.write("Data availability information is not specified.\n\n")
 
-        return str(report_path)
+        # Copy manuscript.md to final_report.md for backward compatibility
+        import shutil
+
+        final_report_path = self.output_dir / "final_report.md"
+        shutil.copy2(manuscript_path, final_report_path)
+        logger.info(
+            "Generated manuscript.md and copied to final_report.md for backward compatibility"
+        )
+
+        return str(manuscript_path)
 
     def _export_report(
         self,
@@ -4312,17 +4409,24 @@ class WorkflowManager:
             # Get journal
             journal = submission_config.get("default_journal", "ieee")
 
-            # Get manuscript path - handle None case
+            # Get manuscript path - look for manuscript.md first, then fallback to final_report.md
             if report_path is None:
-                manuscript_path = self.output_dir / "final_report.md"
+                manuscript_path = self.output_dir / "manuscript.md"
             else:
                 manuscript_path = Path(report_path)
 
+            # Try manuscript.md first, then fallback to final_report.md for backward compatibility
             if not manuscript_path.exists():
+                manuscript_path = self.output_dir / "manuscript.md"
+
+            if not manuscript_path.exists():
+                # Fallback to final_report.md for backward compatibility
                 manuscript_path = self.output_dir / "final_report.md"
 
             if not manuscript_path.exists():
-                logger.warning("Manuscript file not found for submission package")
+                logger.warning(
+                    "Manuscript file not found for submission package (tried manuscript.md and final_report.md)"
+                )
                 return None
 
             # Create builder
