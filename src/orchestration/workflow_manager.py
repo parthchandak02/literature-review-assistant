@@ -1325,8 +1325,6 @@ class WorkflowManager:
         """Display screening statistics in rich format."""
         from rich.table import Table
 
-        from .screening_validator import ScreeningStage
-
         # Check if we have statistics
         if not self.screening_validator.stats_by_stage:
             return
