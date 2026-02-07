@@ -13,6 +13,7 @@ import json
 import os
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from unittest.mock import Mock
 
 # Set up minimal environment
 os.environ.setdefault("GEMINI_API_KEY", "test-key-for-structure-test")
