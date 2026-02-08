@@ -130,8 +130,8 @@ class CleanupReport:
 class WorkflowCleaner:
     """Manages cleanup of old workflow folders."""
 
-    # Pattern for workflow folder names
-    WORKFLOW_PATTERN = re.compile(r"^workflow_(.+)_(\d{8}_\d{6})$")
+    # Pattern for workflow folder names: TIMESTAMP_workflow_TOPIC
+    WORKFLOW_PATTERN = re.compile(r"^(\d{8}_\d{6})_workflow_(.+)$")
 
     def __init__(self, checkpoint_dir: Optional[Path] = None, output_dir: Optional[Path] = None):
         """
@@ -149,15 +149,15 @@ class WorkflowCleaner:
         Parse workflow folder name to extract topic and timestamp.
 
         Args:
-            folder_name: Name of the folder (e.g., "workflow_topic_20260120_144424")
+            folder_name: Name of the folder (e.g., "20260207_215219_workflow_conversational_ai_tutors_for_h")
 
         Returns:
             Tuple of (topic, timestamp) or None if parsing fails
         """
         match = self.WORKFLOW_PATTERN.match(folder_name)
         if match:
-            topic = match.group(1)
-            timestamp = match.group(2)
+            timestamp = match.group(1)
+            topic = match.group(2)
             return (topic, timestamp)
         return None
 
