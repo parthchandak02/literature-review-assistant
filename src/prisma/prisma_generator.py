@@ -9,10 +9,13 @@ import logging
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+import matplotlib
 from rich.panel import Panel
 from rich.text import Text
 
 from ..utils.rich_utils import console
+
+matplotlib.use('Agg')
 
 logger = logging.getLogger(__name__)
 

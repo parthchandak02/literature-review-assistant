@@ -110,6 +110,19 @@ class CheckpointManager:
             logger.error(f"Failed to load checkpoint from {checkpoint_path}: {e}", exc_info=True)
             return None
 
+    def is_phase_complete(self, phase_name: str) -> bool:
+        """
+        Check if a phase has been completed (has a checkpoint file).
+
+        Args:
+            phase_name: Name of the phase to check
+
+        Returns:
+            True if phase checkpoint exists, False otherwise
+        """
+        checkpoint_file = self.checkpoint_dir / f"{phase_name}_state.json"
+        return checkpoint_file.exists()
+
     def _calculate_checkpoint_completeness(self, workflow_dir: Path, phase_order: List[str]) -> int:
         """
         Calculate checkpoint completeness score for a workflow.

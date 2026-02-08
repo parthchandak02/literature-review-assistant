@@ -4,12 +4,14 @@ Workflow Manager
 Main orchestrator that coordinates all phases of the systematic review workflow.
 """
 
+import asyncio
 import json
 import os
+import sys
 import time
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 from dotenv import load_dotenv
 
@@ -752,6 +754,64 @@ class WorkflowManager:
             logger.error(f"Error copying output data: {e}", exc_info=True)
             return False
 
+    async def _execute_phases_parallel(
+        self,
+        phase_names: List[str],
+        phase_handlers: Dict[str, Callable]
+    ) -> Dict[str, Any]:
+        """
+        Execute multiple independent phases in parallel using asyncio.TaskGroup.
+
+        Requires Python 3.11+ for TaskGroup support.
+
+        Args:
+            phase_names: List of phase names to execute
+            phase_handlers: Dict mapping phase names to their handler functions
+
+        Returns:
+            Dict mapping phase names to their results
+
+        Raises:
+            RuntimeError: If Python version < 3.11
+            ExceptionGroup: If any tasks fail
+        """
+        # Verify Python version
+        if sys.version_info < (3, 11):
+            raise RuntimeError(
+                f"Parallel execution requires Python 3.11+. "
+                f"Current version: {sys.version_info.major}.{sys.version_info.minor}"
+            )
+
+        logger.info(f"Starting parallel execution of phases: {', '.join(phase_names)}")
+        parallel_start_time = time.time()
+
+        results = {}
+
+        # Use TaskGroup for structured concurrency (Python 3.11+)
+        async with asyncio.TaskGroup() as tg:
+            # Create tasks for all parallel phases
+            # Use to_thread to run synchronous handlers in thread pool
+            tasks = {
+                phase_name: tg.create_task(
+                    asyncio.to_thread(phase_handlers[phase_name]),
+                    name=phase_name
+                )
+                for phase_name in phase_names
+            }
+
+        # All tasks completed successfully, collect results
+        for phase_name, task in tasks.items():
+            results[phase_name] = task.result()
+            logger.info(f"Phase '{phase_name}' completed successfully")
+
+        parallel_duration = time.time() - parallel_start_time
+        logger.info(
+            f"Parallel execution completed in {parallel_duration:.2f}s "
+            f"({len(phase_names)} phases)"
+        )
+
+        return results
+
     def run(self, start_from_phase: Optional[int] = None) -> Dict[str, Any]:
         """
         Execute the complete workflow.
@@ -824,6 +884,20 @@ class WorkflowManager:
                 existing_checkpoint["checkpoint_dir"] = str(self.checkpoint_dir)
 
                 logger.info(f"Using output directory: {self.output_dir}")
+
+                # Load existing audit trail if present (AFTER checkpoint copying)
+                audit_file = self.output_dir / "llm_calls_audit.json"
+                if audit_file.exists():
+                    logger.info(f"Loading historical metrics from {audit_file}")
+                    cost_summary = self.cost_tracker.load_from_audit_trail(audit_file)
+                    self.metrics.load_from_audit_trail(audit_file)
+                    if cost_summary['historical_calls'] > 0:
+                        logger.info(
+                            f"Loaded {cost_summary['historical_calls']} historical LLM calls "
+                            f"(${cost_summary['historical_cost']:.4f}) from previous runs"
+                        )
+                else:
+                    logger.debug(f"No audit trail found at {audit_file}")
 
                 # Load all prerequisite checkpoints in order
                 checkpoint_dir = Path(existing_checkpoint["checkpoint_dir"])
@@ -1058,6 +1132,19 @@ class WorkflowManager:
                             f"Found {len(self.fulltext_results)} fulltext screening results - will reuse"
                         )
 
+        # Load audit trail for fresh workflows (no checkpoint found)
+        if not start_from_phase:
+            audit_file = self.output_dir / "llm_calls_audit.json"
+            if audit_file.exists():
+                logger.info(f"Loading historical metrics from {audit_file}")
+                cost_summary = self.cost_tracker.load_from_audit_trail(audit_file)
+                self.metrics.load_from_audit_trail(audit_file)
+                if cost_summary['historical_calls'] > 0:
+                    logger.info(
+                        f"Loaded {cost_summary['historical_calls']} historical LLM calls "
+                        f"(${cost_summary['historical_cost']:.4f}) from previous runs"
+                    )
+
         if start_from_phase:
             logger.info(f"Resuming from phase {start_from_phase}")
         logger.info("=" * 60)
@@ -1140,6 +1227,88 @@ class WorkflowManager:
                     # After fulltext screening, set final papers
                     # We'll do this after the phase executes
                     pass
+
+                # PARALLEL EXECUTION: Check if we should execute phases 8-11 in parallel
+                # This happens when we reach quality_assessment (phase 8) and parallel phases haven't run yet
+                parallel_phases = ["quality_assessment", "prisma_generation", "visualization_generation", "article_writing"]
+                if phase_name == "quality_assessment" and not hasattr(self, "_parallel_phases_executed"):
+                    # Check which of the parallel phases need to be executed
+                    phases_to_run_parallel = []
+                    phase_handlers = {}
+
+                    for parallel_phase_name in parallel_phases:
+                        parallel_phase = self.phase_registry.get_phase(parallel_phase_name)
+                        if parallel_phase and self._should_run_phase(parallel_phase):
+                            # Check if phase was already completed in checkpoint
+                            phase_completed = self.checkpoint_manager.is_phase_complete(parallel_phase_name)
+                            if not phase_completed:
+                                phases_to_run_parallel.append(parallel_phase_name)
+                                # Map phase name to handler method
+                                phase_handlers[parallel_phase_name] = parallel_phase.handler
+
+                    if phases_to_run_parallel:
+                        logger.info(f"Executing {len(phases_to_run_parallel)} phases in parallel: {', '.join(phases_to_run_parallel)}")
+                        console.print()
+                        console.print(f"[bold cyan]Running phases {', '.join(phases_to_run_parallel)} in parallel...[/bold cyan]")
+                        console.print()
+
+                        try:
+                            # Run parallel execution using asyncio
+                            parallel_results = asyncio.run(
+                                self._execute_phases_parallel(
+                                    phases_to_run_parallel,
+                                    phase_handlers
+                                )
+                            )
+
+                            # Process results for each parallel phase
+                            for parallel_phase_name, parallel_result in parallel_results.items():
+                                if parallel_phase_name == "quality_assessment":
+                                    results["outputs"]["quality_assessment"] = parallel_result
+                                    self.quality_assessment_data = parallel_result
+                                    self.checkpoint_manager.save_phase("quality_assessment")
+                                elif parallel_phase_name == "prisma_generation":
+                                    prisma_path = parallel_result
+                                    results["outputs"]["prisma_diagram"] = prisma_path
+                                    self._prisma_path = prisma_path
+                                    self.checkpoint_manager.save_phase("prisma_generation")
+                                elif parallel_phase_name == "visualization_generation":
+                                    viz_paths = parallel_result
+                                    results["outputs"]["visualizations"] = viz_paths
+                                    self._viz_paths = viz_paths
+                                    self.checkpoint_manager.save_phase("visualization_generation")
+                                elif parallel_phase_name == "article_writing":
+                                    article_sections = parallel_result
+                                    results["outputs"]["article_sections"] = article_sections
+                                    self._article_sections = article_sections
+                                    self.checkpoint_manager.save_phase("article_writing")
+
+                            logger.info("Parallel execution completed successfully")
+                            console.print()
+                            console.print("[bold green]Parallel phases completed successfully[/bold green]")
+                            console.print()
+
+                            # Mark that parallel phases have been executed
+                            self._parallel_phases_executed = True
+
+                            # Skip the individual execution of these phases in the loop
+                            if phase_name in parallel_phases:
+                                continue
+
+                        except Exception as e:
+                            logger.error(f"Parallel execution failed: {e}", exc_info=True)
+                            console.print()
+                            console.print(f"[bold red]Parallel execution failed: {e}[/bold red]")
+                            console.print()
+                            # Fall back to sequential execution on error
+                            logger.warning("Falling back to sequential execution")
+                    else:
+                        logger.info("All parallel phases already completed, skipping parallel execution")
+                        self._parallel_phases_executed = True
+
+                # Skip if this phase was already executed in parallel
+                if phase_name in parallel_phases and hasattr(self, "_parallel_phases_executed"):
+                    continue
 
                 # Execute phase
                 try:
@@ -1394,45 +1563,114 @@ class WorkflowManager:
             console.print()
 
     def _display_cost_summary(self):
-        """Display cost summary."""
+        """Display cost summary with historical and current session breakdown."""
+        from rich.columns import Columns
         from rich.table import Table
 
         summary = self.cost_tracker.get_summary()
+        has_historical = summary.get('historical_calls', 0) > 0
 
-        # Create cost table
-        table = Table(title="Cost Summary", show_header=True, header_style="bold cyan")
-        table.add_column("Metric", style="cyan", width=20)
-        table.add_column("Value", justify="right", style="white")
+        if has_historical:
+            # Create two tables side-by-side
 
-        table.add_row("Total Cost", f"${summary['total_cost_usd']:.4f}")
-        table.add_row("Total Calls", str(summary["total_calls"]))
-        table.add_row("Total Tokens", f"{summary['total_tokens']:,}")
-
-        console.print(table)
-
-        # Show breakdown by provider if available
-        if summary["by_provider"] and len(summary["by_provider"]) > 0:
-            provider_table = Table(
-                title="Cost by Provider", show_header=True, header_style="bold cyan"
+            # Historical table
+            hist_table = Table(
+                title="[bold magenta]Previous Runs[/bold magenta]",
+                show_header=True,
+                header_style="bold magenta"
             )
-            provider_table.add_column("Provider", style="cyan")
-            provider_table.add_column("Cost", justify="right", style="green")
+            hist_table.add_column("Metric", style="magenta", width=20)
+            hist_table.add_column("Value", justify="right", style="white")
 
-            for provider, cost in summary["by_provider"].items():
-                provider_table.add_row(provider, f"${cost:.4f}")
+            hist_table.add_row("Total Cost", f"${summary['historical_cost']:.4f}")
+            hist_table.add_row("Total Calls", str(summary["historical_calls"]))
+            hist_table.add_row("Total Tokens", f"{summary['historical_tokens']:,}")
 
-            console.print(provider_table)
+            # Current session table
+            curr_table = Table(
+                title="[bold cyan]This Session[/bold cyan]",
+                show_header=True,
+                header_style="bold cyan"
+            )
+            curr_table.add_column("Metric", style="cyan", width=20)
+            curr_table.add_column("Value", justify="right", style="white")
 
-        # Show breakdown by agent if available
-        if summary.get("by_agent") and len(summary["by_agent"]) > 0:
-            agent_table = Table(title="Cost by Agent", show_header=True, header_style="bold cyan")
-            agent_table.add_column("Agent", style="cyan", width=35)
-            agent_table.add_column("Cost", justify="right", style="green")
+            curr_table.add_row("Total Cost", f"${summary['total_cost_usd']:.4f}")
+            curr_table.add_row("Total Calls", str(summary["total_calls"]))
+            curr_table.add_row("Total Tokens", f"{summary['total_tokens']:,}")
 
-            for agent_name, cost in summary["by_agent"].items():
-                agent_table.add_row(agent_name, f"${cost:.4f}")
+            # Display side-by-side
+            console.print(Columns([hist_table, curr_table], equal=True, expand=True))
+            console.print()
 
-            console.print(agent_table)
+            # Show historical breakdown by agent if available
+            if summary.get("historical_by_agent") and len(summary["historical_by_agent"]) > 0:
+                hist_agent_table = Table(
+                    title="[bold magenta]Previous Runs - Cost by Agent[/bold magenta]",
+                    show_header=True,
+                    header_style="bold magenta"
+                )
+                hist_agent_table.add_column("Agent", style="magenta", width=35)
+                hist_agent_table.add_column("Cost", justify="right", style="white")
+
+                for agent_name, cost in summary["historical_by_agent"].items():
+                    hist_agent_table.add_row(agent_name, f"${cost:.4f}")
+
+                console.print(hist_agent_table)
+                console.print()
+
+            # Show current breakdown by agent if available
+            if summary.get("by_agent") and len(summary["by_agent"]) > 0:
+                curr_agent_table = Table(
+                    title="[bold cyan]This Session - Cost by Agent[/bold cyan]",
+                    show_header=True,
+                    header_style="bold cyan"
+                )
+                curr_agent_table.add_column("Agent", style="cyan", width=35)
+                curr_agent_table.add_column("Cost", justify="right", style="white")
+
+                for agent_name, cost in summary["by_agent"].items():
+                    curr_agent_table.add_row(agent_name, f"${cost:.4f}")
+
+                console.print(curr_agent_table)
+
+        else:
+            # Fresh workflow - single table display
+            table = Table(title="Cost Summary", show_header=True, header_style="bold cyan")
+            table.add_column("Metric", style="cyan", width=20)
+            table.add_column("Value", justify="right", style="white")
+
+            table.add_row("Total Cost", f"${summary['total_cost_usd']:.4f}")
+            table.add_row("Total Calls", str(summary["total_calls"]))
+            table.add_row("Total Tokens", f"{summary['total_tokens']:,}")
+
+            console.print(table)
+
+            # Show breakdown by provider if available
+            if summary["by_provider"] and len(summary["by_provider"]) > 0:
+                provider_table = Table(
+                    title="Cost by Provider", show_header=True, header_style="bold cyan"
+                )
+                provider_table.add_column("Provider", style="cyan")
+                provider_table.add_column("Cost", justify="right", style="green")
+
+                for provider, cost in summary["by_provider"].items():
+                    provider_table.add_row(provider, f"${cost:.4f}")
+
+                console.print(provider_table)
+
+            # Show breakdown by agent if available
+            if summary.get("by_agent") and len(summary["by_agent"]) > 0:
+                agent_table = Table(
+                    title="Cost by Agent", show_header=True, header_style="bold cyan"
+                )
+                agent_table.add_column("Agent", style="cyan", width=35)
+                agent_table.add_column("Cost", justify="right", style="green")
+
+                for agent_name, cost in summary["by_agent"].items():
+                    agent_table.add_row(agent_name, f"${cost:.4f}")
+
+                console.print(agent_table)
 
         console.print()
 
