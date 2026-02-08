@@ -4,13 +4,16 @@ Title/Abstract Screening Agent
 Screens papers based on title and abstract using LLM with structured outputs.
 """
 
+import json
 import logging
 import re
 from typing import Any, Dict, List, Optional, Set
 
 from fuzzywuzzy import fuzz
+from pydantic import ValidationError
 
 from ..config.debug_config import DebugLevel
+from ..observability.llm_metrics import llm_metrics
 from ..schemas.llm_response_schemas import ScreeningResultSchema
 from ..schemas.screening_schemas import (
     InclusionDecision as SchemaInclusionDecision,
@@ -106,11 +109,25 @@ class TitleAbstractScreener(BaseScreeningAgent):
                         f"[{self.role}] Using structured output with {self.llm_model}"
                     )
 
-                schema_result = self._call_llm_with_schema(
-                    prompt=prompt,
-                    response_model=ScreeningResultSchema,
-                )
-                result = self._convert_schema_to_result(schema_result)
+                try:
+                    schema_result = self._call_llm_with_schema(
+                        prompt=prompt,
+                        response_model=ScreeningResultSchema,
+                    )
+                    result = self._convert_schema_to_result(schema_result)
+                except (ValidationError, json.JSONDecodeError, Exception) as e:
+                    # If schema-based parsing fails after retries, fall back to text parsing
+                    logger.warning(
+                        f"[{self.role}] Schema-based LLM call failed after retries: {e}. "
+                        f"Falling back to text-based parsing..."
+                    )
+                    # Make a regular LLM call without schema and parse manually
+                    response_text = self._call_llm(prompt)
+                    result = self._parse_llm_response(response_text)
+                    
+                    # Record fallback usage
+                    fallback_success = result is not None and result.decision is not None
+                    llm_metrics.record_fallback(success=fallback_success)
 
                 logger.info(
                     f"[{self.role}] Screening decision: {result.decision.value} "
@@ -224,6 +241,17 @@ Return ONLY valid JSON."""
 
     def _convert_schema_to_result(self, schema_result: ScreeningResultSchema) -> ScreeningResult:
         """Convert Pydantic schema to ScreeningResult dataclass."""
+        # Handle None case (should not happen if _call_llm_with_schema works correctly)
+        if schema_result is None:
+            logger.error(
+                f"[{self.role}] Received None schema_result, returning UNCERTAIN decision"
+            )
+            return ScreeningResult(
+                decision=InclusionDecision.UNCERTAIN,
+                confidence=0.3,
+                reasoning="LLM response parsing failed - unable to determine decision",
+            )
+
         # Map schema enum to dataclass enum
         decision_map = {
             SchemaInclusionDecision.INCLUDE: InclusionDecision.INCLUDE,

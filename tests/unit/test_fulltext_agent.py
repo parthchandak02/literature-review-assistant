@@ -3,9 +3,14 @@ Unit tests for fulltext screening agent.
 """
 
 from unittest.mock import Mock, patch
+import json
+import pytest
+from pydantic import ValidationError
 
 from src.screening.base_agent import InclusionDecision
 from src.screening.fulltext_agent import FullTextScreener
+from tests.fixtures.recorded_llm_responses import PLAIN_TEXT_RESPONSE_PAPER4
+from tests.fixtures.llm_response_factory import LLMResponseFactory
 
 
 class TestFullTextScreener:
@@ -249,3 +254,88 @@ REASONING: Unclear if meets criteria"""
 
         # Should include if matches enough inclusion criteria
         assert result.decision in [InclusionDecision.INCLUDE, InclusionDecision.EXCLUDE]
+
+    @pytest.mark.fast
+    @pytest.mark.regression
+    def test_convert_schema_to_result_with_none(self, sample_topic_context, sample_agent_config):
+        """Test _convert_schema_to_result handles None gracefully (NEW)."""
+        screener = FullTextScreener(
+            llm_provider="gemini",
+            api_key="test-key",
+            topic_context=sample_topic_context.to_dict(),
+            agent_config=sample_agent_config,
+        )
+
+        # Pass None - should not crash
+        result = screener._convert_schema_to_result(None)
+
+        assert result is not None
+        assert result.decision == InclusionDecision.UNCERTAIN
+        assert result.confidence == 0.3
+        assert "parsing failed" in result.reasoning.lower()
+
+    @pytest.mark.fast
+    @pytest.mark.regression
+    def test_screen_with_structured_output_failure_fallback(
+        self, sample_topic_context, sample_agent_config
+    ):
+        """Test screen falls back to text parsing when structured output fails (NEW)."""
+        screener = FullTextScreener(
+            llm_provider="gemini",
+            api_key="test-key",
+            topic_context=sample_topic_context.to_dict(),
+            agent_config=sample_agent_config,
+        )
+
+        # Mock structured output to fail
+        with patch.object(screener, "_call_llm_with_schema") as mock_schema:
+            mock_schema.side_effect = ValidationError("Schema validation failed", [])
+
+            # Mock text-based call to succeed
+            with patch.object(screener, "_call_llm") as mock_text:
+                mock_text.return_value = PLAIN_TEXT_RESPONSE_PAPER4
+
+                result = screener.screen(
+                    title="Test Paper",
+                    abstract="Test abstract",
+                    full_text="Test full text",
+                    inclusion_criteria=["health science"],
+                    exclusion_criteria=["general education"],
+                )
+
+                # Verify fallback was used
+                assert result is not None
+                assert mock_text.called
+                assert result.decision == InclusionDecision.EXCLUDE
+
+    @pytest.mark.fast
+    @pytest.mark.regression
+    def test_screen_handles_plain_text_response(self, sample_topic_context, sample_agent_config):
+        """Test screen handles plain text response from LLM (NEW - Paper 4 scenario)."""
+        screener = FullTextScreener(
+            llm_provider="gemini",
+            api_key="test-key",
+            topic_context=sample_topic_context.to_dict(),
+            agent_config=sample_agent_config,
+        )
+
+        # Simulate the exact Paper 4 crash scenario
+        with patch.object(screener, "_call_llm_with_schema") as mock_schema:
+            # Structured output fails completely
+            mock_schema.side_effect = Exception("response.parsed is None")
+
+            with patch.object(screener, "_call_llm") as mock_text:
+                mock_text.return_value = PLAIN_TEXT_RESPONSE_PAPER4
+
+                # This MUST NOT crash
+                result = screener.screen(
+                    title="Conversational AI as an Intelligent Tutor",
+                    abstract="A review of dialogue-based learning systems",
+                    full_text="Full text content...",
+                    inclusion_criteria=["health science education"],
+                    exclusion_criteria=["general education"],
+                )
+
+                assert result is not None
+                assert result.decision is not None
+                assert isinstance(result.confidence, float)

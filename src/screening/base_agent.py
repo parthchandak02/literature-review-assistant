@@ -16,6 +16,7 @@ from pydantic import BaseModel, ValidationError
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential
 
 from ..config.debug_config import get_debug_config_from_env
+from ..observability.llm_metrics import llm_metrics
 from ..tools.tool_registry import Tool, ToolRegistry
 from ..utils.circuit_breaker import (
     CircuitBreaker,
@@ -363,10 +364,35 @@ class BaseScreeningAgent(ABC):
             # The response.parsed property returns a Pydantic model instance
             result = response.parsed
 
+            # Check if parsing failed (returns None when LLM doesn't follow schema)
+            if result is None:
+                error_msg = (
+                    f"LLM returned None for {response_model.__name__}. "
+                    f"Response may not be valid JSON. Response text: {content[:200]}..."
+                )
+                logger.warning(error_msg)
+                
+                # Try to parse the response text manually as a fallback
+                try:
+                    # Parse JSON manually if Gemini didn't parse it
+                    parsed_dict = json.loads(content)
+                    result = response_model(**parsed_dict)
+                    logger.debug(f"Successfully parsed response manually for {response_model.__name__}")
+                except (json.JSONDecodeError, ValidationError) as e:
+                    logger.error(f"Manual parsing also failed: {e}. Will trigger retry...")
+                    # Record failure and retry
+                    llm_metrics.record_structured_failure(error_type="manual_parsing_failed", duration=duration)
+                    llm_metrics.record_retry()
+                    # Raise ValidationError to trigger retry decorator
+                    raise
+
             logger.debug(
                 f"LLM call with schema successful: {response_model.__name__} "
                 f"(duration: {duration:.2f}s)"
             )
+
+            # Record success metric
+            llm_metrics.record_structured_success(duration=duration)
 
             return result
 
@@ -375,6 +401,9 @@ class BaseScreeningAgent(ABC):
                 f"Pydantic validation failed for {response_model.__name__}: {e}. "
                 f"LLM response did not match expected schema. Retrying..."
             )
+            # Record validation failure
+            llm_metrics.record_structured_failure(error_type="validation_error")
+            llm_metrics.record_retry()
             raise  # Will trigger retry decorator
 
         except json.JSONDecodeError as e:
@@ -382,6 +411,9 @@ class BaseScreeningAgent(ABC):
                 f"JSON decode failed for {response_model.__name__}: {e}. "
                 f"LLM returned invalid JSON. Retrying..."
             )
+            # Record JSON decode failure
+            llm_metrics.record_structured_failure(error_type="json_decode_error")
+            llm_metrics.record_retry()
             raise  # Will trigger retry decorator
 
         except Exception as e:

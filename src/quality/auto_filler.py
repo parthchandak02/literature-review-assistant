@@ -221,6 +221,7 @@ class QualityAssessmentAutoFiller:
             )
 
             duration = time.time() - call_start_time
+            content = response.text if hasattr(response, "text") else str(response)
 
             # Track cost
             if hasattr(response, "usage_metadata") and response.usage_metadata:
@@ -234,6 +235,25 @@ class QualityAssessmentAutoFiller:
 
             # Use Gemini's parsed response which is already validated
             result = response.parsed
+
+            # Check if parsing failed (returns None when LLM doesn't follow schema)
+            if result is None:
+                error_msg = (
+                    f"LLM returned None for {response_model.__name__}. "
+                    f"Response may not be valid JSON. Response text: {content[:200]}..."
+                )
+                logger.warning(error_msg)
+                
+                # Try to parse the response text manually as a fallback
+                try:
+                    # Parse JSON manually if Gemini didn't parse it
+                    parsed_dict = json.loads(content)
+                    result = response_model(**parsed_dict)
+                    logger.debug(f"Successfully parsed response manually for {response_model.__name__}")
+                except (json.JSONDecodeError, ValidationError) as e:
+                    logger.error(f"Manual parsing also failed: {e}. Will trigger retry...")
+                    # Raise ValidationError to trigger retry decorator
+                    raise
 
             if should_show_verbose:
                 console.print(f"[bold green]LLM Response validated as {response_model.__name__}[/bold green]")

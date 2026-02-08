@@ -1,13 +1,58 @@
-# Pre-commit hooks for test structure validation
-# Install with: pre-commit install
-# Run manually: pre-commit run --all-files
+# Modern pre-commit hooks using ruff and pytest
+# ruff replaces: black, isort, flake8, pyupgrade, and more (100x faster!)
 
 repos:
+  # Ruff - ultra-fast Python linter and formatter
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.8.4
+    hooks:
+      # Run the linter
+      - id: ruff
+        args: [--fix]
+        types_or: [python, pyi]
+      # Run the formatter
+      - id: ruff-format
+        types_or: [python, pyi]
+
+  # Standard pre-commit hooks
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.5.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+      - id: check-added-large-files
+        args: ['--maxkb=1000']
+      - id: check-json
+      - id: check-toml
+      - id: mixed-line-ending
+
+  # Local hooks for project-specific checks
   - repo: local
     hooks:
-      - id: check-test-naming
-        name: Check Test File Naming
-        entry: bash -c 'for file in $(git diff --cached --name-only --diff-filter=A | grep "tests/.*\.py$"); do if [[ ! "$file" =~ ^tests/.*test_.*\.py$ ]] && [[ "$file" != "tests/conftest.py" ]] && [[ "$file" != "tests/__init__.py" ]] && [[ ! "$file" =~ ^tests/fixtures/ ]]; then echo "ERROR: Test file $file does not follow naming convention (should start with test_)"; exit 1; fi; done'
+      # Fast unit tests - runs in 2-3 seconds
+      - id: pytest-fast
+        name: Run fast unit tests
+        entry: pytest tests/unit -v -m "fast" --tb=short -x --disable-warnings -q
         language: system
         pass_filenames: false
+        always_run: true
+        stages: [commit]
+
+      # Check for debug prints (avoid committing debug code)
+      - id: no-debug-prints
+        name: Check for debug prints in src/
+        entry: sh -c 'if grep -r "print(" src/ --exclude-dir=__pycache__; then echo "ERROR: Found print() statements in src/. Use logger instead."; exit 1; fi'
+        language: system
+        pass_filenames: false
+        always_run: false
+        stages: [commit]
+
+      # Check for breakpoints
+      - id: no-breakpoints
+        name: Check for breakpoints
+        entry: sh -c 'if grep -r "breakpoint()" src/ --exclude-dir=__pycache__; then echo "ERROR: Found breakpoint() in src/"; exit 1; fi'
+        language: system
+        pass_filenames: false
+        always_run: false
         stages: [commit]

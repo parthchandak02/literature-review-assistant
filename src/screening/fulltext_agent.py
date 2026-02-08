@@ -4,10 +4,14 @@ Full-text Screening Agent
 Screens papers based on full-text content using LLM.
 """
 
+import json
 import logging
 from typing import Any, Dict, List, Optional
 
+from pydantic import ValidationError
+
 from ..config.debug_config import DebugLevel
+from ..observability.llm_metrics import llm_metrics
 from ..schemas.llm_response_schemas import ScreeningResultSchema
 from ..schemas.screening_schemas import InclusionDecision as SchemaInclusionDecision
 from .base_agent import BaseScreeningAgent, InclusionDecision, ScreeningResult
@@ -122,11 +126,25 @@ class FullTextScreener(BaseScreeningAgent):
                     )
 
                 # Use new _call_llm_with_schema method with automatic retry logic
-                schema_result = self._call_llm_with_schema(
-                    prompt=prompt,
-                    response_model=ScreeningResultSchema,
-                )
-                result = self._convert_schema_to_result(schema_result)
+                try:
+                    schema_result = self._call_llm_with_schema(
+                        prompt=prompt,
+                        response_model=ScreeningResultSchema,
+                    )
+                    result = self._convert_schema_to_result(schema_result)
+                except (ValidationError, json.JSONDecodeError, Exception) as e:
+                    # If schema-based parsing fails after retries, fall back to text parsing
+                    logger.warning(
+                        f"[{self.role}] Schema-based LLM call failed after retries: {e}. "
+                        f"Falling back to text-based parsing..."
+                    )
+                    # Make a regular LLM call without schema and parse manually
+                    response_text = self._call_llm(prompt)
+                    result = self._parse_llm_response(response_text)
+                    
+                    # Record fallback usage
+                    fallback_success = result is not None and result.decision is not None
+                    llm_metrics.record_fallback(success=fallback_success)
 
                 if is_verbose:
                     logger.debug(
@@ -161,6 +179,17 @@ class FullTextScreener(BaseScreeningAgent):
 
     def _convert_schema_to_result(self, schema_result: ScreeningResultSchema) -> ScreeningResult:
         """Convert Pydantic schema to ScreeningResult dataclass."""
+        # Handle None case (should not happen if _call_llm_with_schema works correctly)
+        if schema_result is None:
+            logger.error(
+                f"[{self.role}] Received None schema_result, returning UNCERTAIN decision"
+            )
+            return ScreeningResult(
+                decision=InclusionDecision.UNCERTAIN,
+                confidence=0.3,
+                reasoning="LLM response parsing failed - unable to determine decision",
+            )
+
         # Map schema enum to dataclass enum
         decision_map = {
             SchemaInclusionDecision.INCLUDE: InclusionDecision.INCLUDE,
