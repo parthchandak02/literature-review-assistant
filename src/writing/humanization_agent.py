@@ -8,6 +8,7 @@ Uses style patterns extracted from eligible papers.
 import logging
 from typing import Any, Dict, List, Optional
 
+from ..schemas.llm_response_schemas import HumanizationResponse
 from ..screening.base_agent import BaseScreeningAgent
 from .naturalness_scorer import NaturalnessScorer
 
@@ -127,8 +128,12 @@ class HumanizationAgent(BaseScreeningAgent):
             )
 
             try:
-                # Call LLM for humanization
-                humanized_text = self._call_llm(prompt)
+                # Call LLM for humanization with structured output
+                schema_result = self._call_llm_with_schema(
+                    prompt=prompt,
+                    response_model=HumanizationResponse,
+                )
+                humanized_text = schema_result.humanized_content
 
                 # Clean up the response (remove any meta-commentary)
                 humanized_text = self._clean_humanized_text(humanized_text)

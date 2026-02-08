@@ -4,12 +4,12 @@ Abstract Generator Agent
 Generates structured or unstructured abstracts for systematic reviews.
 """
 
-import json
 import logging
 from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel, Field
 
+from ..schemas.llm_response_schemas import AbstractResponse
 from ..screening.base_agent import BaseScreeningAgent
 from ..search.connectors.base import Paper
 from ..utils.log_context import agent_log_context
@@ -209,17 +209,12 @@ Generate a structured abstract with all 12 elements clearly labeled. Total word 
         if not self.llm_client:
             raise RuntimeError("LLM client is required for PRISMA 2020 abstract generation")
 
-        # Use _call_llm from BaseScreeningAgent
-        response_text = self._call_llm(prompt)
-        # Try to parse as JSON if it looks like JSON, otherwise use as-is
-        try:
-            response_json = json.loads(response_text)
-            if isinstance(response_json, dict) and "abstract" in response_json:
-                abstract = response_json["abstract"]
-            else:
-                abstract = response_text
-        except json.JSONDecodeError:
-            abstract = response_text
+        # Use structured output with Pydantic validation
+        result = self._call_llm_with_schema(
+            prompt=prompt,
+            response_model=AbstractResponse,
+        )
+        abstract = result.abstract_content
 
         logger.info(f"Generated PRISMA 2020 structured abstract ({len(abstract.split())} words)")
         return abstract
@@ -260,16 +255,12 @@ Number of included studies: {len(included_papers)}
 
 Generate a structured abstract with these sections. Total word limit: approximately {self.word_limit} words."""
 
-        response_text = self._call_llm(prompt)
-        # Try to parse as JSON if it looks like JSON, otherwise use as-is
-        try:
-            response_json = json.loads(response_text)
-            if isinstance(response_json, dict) and "abstract" in response_json:
-                abstract = response_json["abstract"]
-            else:
-                abstract = response_text
-        except json.JSONDecodeError:
-            abstract = response_text
+        # Use structured output with Pydantic validation
+        result = self._call_llm_with_schema(
+            prompt=prompt,
+            response_model=AbstractResponse,
+        )
+        abstract = result.abstract_content
 
         logger.info(f"Generated structured abstract ({len(abstract.split())} words)")
         return abstract
@@ -304,16 +295,12 @@ Number of included studies: {len(included_papers)}
 
 Generate a single-paragraph abstract that summarizes the background, objective, methods, results, and conclusions."""
 
-        response_text = self._call_llm(prompt)
-        # Try to parse as JSON if it looks like JSON, otherwise use as-is
-        try:
-            response_json = json.loads(response_text)
-            if isinstance(response_json, dict) and "abstract" in response_json:
-                abstract = response_json["abstract"]
-            else:
-                abstract = response_text
-        except json.JSONDecodeError:
-            abstract = response_text
+        # Use structured output with Pydantic validation
+        result = self._call_llm_with_schema(
+            prompt=prompt,
+            response_model=AbstractResponse,
+        )
+        abstract = result.abstract_content
 
         logger.info(f"Generated unstructured abstract ({len(abstract.split())} words)")
         return abstract

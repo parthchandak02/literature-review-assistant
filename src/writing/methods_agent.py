@@ -6,6 +6,7 @@ Generates methods section for research articles.
 
 from typing import Any, Dict, List, Optional
 
+from ..schemas.llm_response_schemas import MethodsResponse
 from ..screening.base_agent import BaseScreeningAgent
 from ..utils.text_cleaner import clean_writing_output
 
@@ -93,9 +94,14 @@ class MethodsWriter(BaseScreeningAgent):
         # Use tool calling if tools are available
         if self.tool_registry.list_tools():
             response = self._call_llm_with_tools(prompt, max_iterations=10)
+            result = response
         else:
-            response = self._call_llm(prompt)
-        result = response
+            # Use structured output with Pydantic validation
+            schema_result = self._call_llm_with_schema(
+                prompt=prompt,
+                response_model=MethodsResponse,
+            )
+            result = schema_result.section_content
 
         # Restore original context
         if topic_context:

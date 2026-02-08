@@ -7,6 +7,7 @@ Generates discussion section for research articles.
 from typing import Any, Dict, List, Optional
 
 from ..extraction.data_extractor_agent import ExtractedData
+from ..schemas.llm_response_schemas import DiscussionResponse
 from ..screening.base_agent import BaseScreeningAgent
 from ..utils.text_cleaner import clean_writing_output
 
@@ -74,8 +75,12 @@ class DiscussionWriter(BaseScreeningAgent):
         if not self.llm_client:
             raise RuntimeError("LLM client is required for discussion generation")
 
-        response = self._call_llm(prompt)
-        result = response
+        # Use structured output with Pydantic validation
+        schema_result = self._call_llm_with_schema(
+            prompt=prompt,
+            response_model=DiscussionResponse,
+        )
+        result = schema_result.section_content
 
         # Restore original context
         if topic_context:

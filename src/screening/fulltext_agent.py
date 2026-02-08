@@ -8,6 +8,8 @@ import logging
 from typing import Any, Dict, List, Optional
 
 from ..config.debug_config import DebugLevel
+from ..schemas.llm_response_schemas import ScreeningResultSchema
+from ..schemas.screening_schemas import InclusionDecision as SchemaInclusionDecision
 from .base_agent import BaseScreeningAgent, InclusionDecision, ScreeningResult
 
 logger = logging.getLogger(__name__)
@@ -116,10 +118,15 @@ class FullTextScreener(BaseScreeningAgent):
             else:
                 if is_verbose:
                     logger.debug(
-                        f"[{self.role}] Calling LLM ({self.llm_model}) for full-text screening..."
+                        f"[{self.role}] Calling LLM ({self.llm_model}) for full-text screening with structured output..."
                     )
-                response = self._call_llm(prompt)
-                result = self._parse_llm_response(response)
+
+                # Use new _call_llm_with_schema method with automatic retry logic
+                schema_result = self._call_llm_with_schema(
+                    prompt=prompt,
+                    response_model=ScreeningResultSchema,
+                )
+                result = self._convert_schema_to_result(schema_result)
 
                 if is_verbose:
                     logger.debug(
@@ -151,6 +158,22 @@ class FullTextScreener(BaseScreeningAgent):
             self.llm_provider, self.api_key, self.topic_context, self.agent_config
         )
         return screener.screen(title, abstract, inclusion_criteria, exclusion_criteria)
+
+    def _convert_schema_to_result(self, schema_result: ScreeningResultSchema) -> ScreeningResult:
+        """Convert Pydantic schema to ScreeningResult dataclass."""
+        # Map schema enum to dataclass enum
+        decision_map = {
+            SchemaInclusionDecision.INCLUDE: InclusionDecision.INCLUDE,
+            SchemaInclusionDecision.EXCLUDE: InclusionDecision.EXCLUDE,
+            SchemaInclusionDecision.UNCERTAIN: InclusionDecision.UNCERTAIN,
+        }
+
+        return ScreeningResult(
+            decision=decision_map.get(schema_result.decision, InclusionDecision.UNCERTAIN),
+            confidence=schema_result.confidence,
+            reasoning=schema_result.reasoning,
+            exclusion_reason=schema_result.exclusion_reason,
+        )
 
     def _build_fulltext_prompt(
         self,

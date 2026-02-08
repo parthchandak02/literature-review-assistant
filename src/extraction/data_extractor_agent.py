@@ -136,70 +136,27 @@ class DataExtractorAgent(BaseScreeningAgent):
                 logger.debug(f"[{self.role}] LLM client not available, using fallback extraction")
             result = self._fallback_extract(title, abstract, full_text)
         else:
-            # Try structured output first, fallback to parsing if needed
-            try:
-                if is_verbose:
-                    logger.debug(f"[{self.role}] Attempting structured output extraction")
-                response = self._call_llm_structured(prompt)
+            # Use new _call_llm_with_schema method with automatic validation and retry
+            if is_verbose:
+                logger.debug(f"[{self.role}] Using structured output extraction with schema validation")
 
-                # Normalize response before validation
-                try:
-                    normalized_data = self._normalize_extraction_response(response)
-                    normalized_json = json.dumps(normalized_data)
-                except Exception as norm_error:
-                    logger.warning(
-                        f"[{self.role}] Response normalization failed: {norm_error}. "
-                        f"Attempting validation with original response."
-                    )
-                    normalized_json = response
+            # Call LLM with schema enforcement - returns validated ExtractedDataSchema
+            # The new method handles retries automatically on validation failures
+            schema_result = self._call_llm_with_schema(
+                prompt=prompt,
+                response_model=ExtractedDataSchema,
+            )
 
-                # Validate with Pydantic
-                try:
-                    schema_result = ExtractedDataSchema.model_validate_json(normalized_json)
-                except Exception as validation_error:
-                    # Extract detailed error information
-                    error_msg = str(validation_error)
-                    if hasattr(validation_error, "errors"):
-                        # Pydantic v2 error format
-                        error_details = []
-                        for err in validation_error.errors():
-                            field_path = " -> ".join(str(loc) for loc in err.get("loc", []))
-                            error_type = err.get("type", "unknown")
-                            error_input = err.get("input", "N/A")
-                            error_details.append(
-                                f"Field '{field_path}': type={error_type}, received={error_input!r}"
-                            )
-                        detailed_error = "; ".join(error_details)
-                        logger.warning(
-                            f"[{self.role}] Pydantic validation failed: {detailed_error}. "
-                            f"Response preview: {response[:200]}..."
-                        )
-                    else:
-                        logger.warning(
-                            f"[{self.role}] Pydantic validation failed: {error_msg}. "
-                            f"Response preview: {response[:200]}..."
-                        )
-                    raise
+            # Update with provided metadata
+            schema_result.title = title
+            result = self._convert_schema_to_extracted_data(schema_result)
 
-                # Update with provided metadata
-                schema_result.title = title
-                result = self._convert_schema_to_extracted_data(schema_result)
-                if is_verbose:
-                    logger.debug(
-                        f"[{self.role}] Structured extraction successful - "
-                        f"extracted {len(result.study_objectives)} objectives, "
-                        f"{len(result.outcomes)} outcomes, {len(result.key_findings)} findings"
-                    )
-            except Exception as e:
-                logger.warning(
-                    f"[{self.role}] Structured output failed, falling back to parsing: {e}"
+            if is_verbose:
+                logger.debug(
+                    f"[{self.role}] Structured extraction successful - "
+                    f"extracted {len(result.study_objectives)} objectives, "
+                    f"{len(result.outcomes)} outcomes, {len(result.key_findings)} findings"
                 )
-                if is_verbose:
-                    logger.debug(f"[{self.role}] Falling back to text parsing extraction")
-                response = self._call_llm(prompt)
-                result = self._parse_extraction_response(response, title, abstract)
-                if is_verbose:
-                    logger.debug(f"[{self.role}] Parsed extraction completed")
 
         # Check for completely empty extraction results and log warning
         objectives_empty = not result.study_objectives or len(result.study_objectives) == 0

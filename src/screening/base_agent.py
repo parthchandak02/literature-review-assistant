@@ -10,7 +10,10 @@ import time
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from enum import Enum
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Type, TypeVar
+
+from pydantic import BaseModel, ValidationError
+from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential
 
 from ..config.debug_config import get_debug_config_from_env
 from ..tools.tool_registry import Tool, ToolRegistry
@@ -29,6 +32,9 @@ from ..utils.rich_utils import (
     print_llm_request_panel,
     print_llm_response_panel,
 )
+
+# TypeVar for generic Pydantic model return type
+T = TypeVar('T', bound=BaseModel)
 
 logger = logging.getLogger(__name__)
 
@@ -232,6 +238,156 @@ class BaseScreeningAgent(ABC):
                     logger.warning("Tavily tool not available (tavily-python not installed)")
             # Other tools (database_search, query_builder, etc.) are registered elsewhere
             # or handled by specific agent implementations
+
+    @retry(
+        retry=retry_if_exception_type((ValidationError, json.JSONDecodeError)),
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=1, min=2, max=10),
+        reraise=True,
+    )
+    def _call_llm_with_schema(
+        self,
+        prompt: str,
+        response_model: Type[T],
+        **kwargs
+    ) -> T:
+        """
+        Call LLM with Pydantic schema enforcement and automatic retry on validation errors.
+
+        This method uses Gemini's native structured output support to enforce response schemas
+        at the API level, eliminating JSON parsing errors and ensuring type-safe responses.
+
+        Args:
+            prompt: The prompt to send to the LLM
+            response_model: Pydantic model class for response validation
+            **kwargs: Additional configuration options:
+                - temperature: Temperature override (default: self.temperature)
+                - system_instruction: System instruction override
+                - max_tokens: Maximum tokens for response
+
+        Returns:
+            Validated Pydantic model instance of type T
+
+        Raises:
+            ValidationError: If LLM response doesn't match schema after 3 retries
+            json.JSONDecodeError: If LLM response is not valid JSON after 3 retries
+            Exception: For other LLM API errors
+
+        Example:
+            ```python
+            from ..schemas.llm_response_schemas import ScreeningResultSchema
+
+            result = self._call_llm_with_schema(
+                prompt="Screen this paper...",
+                response_model=ScreeningResultSchema,
+            )
+            # result is guaranteed to be a valid ScreeningResultSchema instance
+            decision = result.decision  # Type-safe access
+            ```
+        """
+        if not self.llm_client:
+            raise ValueError("LLM client not initialized. Check API key and provider configuration.")
+
+        # Extract configuration with defaults
+        temperature = kwargs.get('temperature', self.temperature)
+        system_instruction = kwargs.get('system_instruction', self._get_system_instruction())
+        max_output_tokens = kwargs.get('max_tokens')
+
+        # Import Gemini types
+        from google.genai import types
+
+        # Build config dictionary
+        config_dict = {
+            "temperature": temperature,
+            "response_mime_type": "application/json",
+            "response_schema": response_model,  # Pass Pydantic model directly
+        }
+
+        # Add optional parameters
+        if system_instruction:
+            config_dict["system_instruction"] = system_instruction
+        if max_output_tokens:
+            config_dict["max_output_tokens"] = max_output_tokens
+
+        config = types.GenerateContentConfig(**config_dict)
+
+        # Track call start time for cost tracking
+        call_start_time = time.time()
+
+        # Make LLM call
+        try:
+            response = self.llm_client.models.generate_content(
+                model=getattr(self, "llm_model_name", self.llm_model),
+                contents=prompt,
+                config=config,
+            )
+
+            # Track duration and cost (using existing cost tracking infrastructure)
+            duration = time.time() - call_start_time
+            content = response.text if hasattr(response, "text") else str(response)
+            model_name = getattr(self, "llm_model_name", self.llm_model)
+
+            # Track cost if available
+            if hasattr(response, "usage_metadata") and response.usage_metadata:
+                from ..observability.cost_tracker import LLMCostTracker, get_cost_tracker
+
+                cost_tracker = get_cost_tracker()
+                llm_cost_tracker = LLMCostTracker(cost_tracker)
+                llm_cost_tracker.track_gemini_response(
+                    response, model_name, agent_name=self.role
+                )
+
+            # Debug logging if enabled
+            from ..config.debug_config import DebugLevel
+
+            is_verbose = self.debug_config and self.debug_config.level in [
+                DebugLevel.DETAILED,
+                DebugLevel.FULL,
+            ]
+
+            if is_verbose:
+                print_llm_request_panel(
+                    model=model_name,
+                    provider=self.llm_provider,
+                    agent=self.role,
+                    temperature=temperature,
+                    prompt_length=len(prompt),
+                    prompt_preview=prompt[:500] if prompt else "",
+                )
+                print_llm_response_panel(
+                    duration=duration,
+                    response_preview=content[:500] if content else "",
+                )
+
+            # Use Gemini's parsed response which is already validated
+            # The response.parsed property returns a Pydantic model instance
+            result = response.parsed
+
+            logger.debug(
+                f"LLM call with schema successful: {response_model.__name__} "
+                f"(duration: {duration:.2f}s)"
+            )
+
+            return result
+
+        except ValidationError as e:
+            logger.error(
+                f"Pydantic validation failed for {response_model.__name__}: {e}. "
+                f"LLM response did not match expected schema. Retrying..."
+            )
+            raise  # Will trigger retry decorator
+
+        except json.JSONDecodeError as e:
+            logger.error(
+                f"JSON decode failed for {response_model.__name__}: {e}. "
+                f"LLM returned invalid JSON. Retrying..."
+            )
+            raise  # Will trigger retry decorator
+
+        except Exception as e:
+            # Other errors (API errors, network issues, etc.) don't trigger retry
+            logger.error(f"LLM API call failed: {e}")
+            raise
 
     @abstractmethod
     def screen(

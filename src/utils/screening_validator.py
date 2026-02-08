@@ -194,7 +194,7 @@ class ScreeningValidator:
                         report_lines.append(f"    - {reason}: {count}")
 
                 # Validation warnings
-                is_valid, warning = self.validate_exclusion_rate(stage)
+                _is_valid, warning = self.validate_exclusion_rate(stage)
                 if warning:
                     report_lines.append(f"\n  VALIDATION: {warning}")
 
@@ -223,7 +223,7 @@ class ScreeningValidator:
         logger.info(f"  Uncertain: {stats.uncertain}")
 
         # Validation warnings
-        is_valid, warning = self.validate_exclusion_rate(stage)
+        _is_valid, warning = self.validate_exclusion_rate(stage)
         if warning:
             logger.warning(warning)
 

@@ -163,7 +163,7 @@ class ChartGenerator:
 
         if not countries:
             # Fallback: Create placeholder chart
-            fig, ax = plt.subplots(figsize=(10, 6))
+            _fig, ax = plt.subplots(figsize=(10, 6))
             ax.text(
                 0.5,
                 0.5,
@@ -427,7 +427,7 @@ class ChartGenerator:
 
         if not subjects:
             # Fallback: Create placeholder chart
-            fig, ax = plt.subplots(figsize=(10, 6))
+            _fig, ax = plt.subplots(figsize=(10, 6))
             ax.text(
                 0.5,
                 0.5,

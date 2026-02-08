@@ -11,7 +11,10 @@ import os
 import re
 import time
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Type, TypeVar
+
+from pydantic import BaseModel, ValidationError
+from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential
 
 from ..config.debug_config import DebugLevel
 from ..utils.rich_utils import (
@@ -19,6 +22,9 @@ from ..utils.rich_utils import (
     print_llm_request_panel,
     print_llm_response_panel,
 )
+
+# TypeVar for generic Pydantic model return type
+T = TypeVar('T', bound=BaseModel)
 
 logger = logging.getLogger(__name__)
 
@@ -153,6 +159,110 @@ class QualityAssessmentAutoFiller:
 
             return response_text
         return ""
+
+    @retry(
+        retry=retry_if_exception_type((ValidationError, json.JSONDecodeError)),
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=1, min=2, max=10),
+        reraise=True,
+    )
+    def _call_llm_with_schema(
+        self,
+        prompt: str,
+        response_model: Type[T],
+        **kwargs
+    ) -> T:
+        """
+        Call LLM with Pydantic schema enforcement and automatic retry on validation errors.
+
+        Args:
+            prompt: The prompt to send to the LLM
+            response_model: Pydantic model class for response validation
+            **kwargs: Additional configuration options (e.g., temperature)
+
+        Returns:
+            Validated Pydantic model instance of type T
+
+        Raises:
+            ValidationError: If LLM response doesn't match schema after 3 retries
+            json.JSONDecodeError: If LLM response is not valid JSON after 3 retries
+        """
+        # Extract configuration with defaults
+        temperature = kwargs.get('temperature', self.temperature)
+
+        # Import Gemini types
+        from google.genai import types
+
+        # Build config with schema
+        config = types.GenerateContentConfig(
+            temperature=temperature,
+            response_mime_type="application/json",
+            response_schema=response_model,  # Pass Pydantic model directly
+        )
+
+        # Enhanced logging
+        should_show_verbose = self.debug_config and (
+            self.debug_config.show_llm_calls or self.debug_config.enabled
+        )
+
+        if should_show_verbose:
+            console.print(f"[bold cyan]LLM Request ({self.llm_model} with schema {response_model.__name__})[/bold cyan]")
+            console.print(f"Prompt length: {len(prompt)} chars")
+
+        # Track call start time
+        call_start_time = time.time()
+
+        # Make LLM call
+        try:
+            response = self.llm_client.models.generate_content(
+                model=self.llm_model,
+                contents=prompt,
+                config=config,
+            )
+
+            duration = time.time() - call_start_time
+
+            # Track cost
+            if hasattr(response, "usage_metadata") and response.usage_metadata:
+                from ..observability.cost_tracker import LLMCostTracker, get_cost_tracker
+
+                cost_tracker = get_cost_tracker()
+                llm_cost_tracker = LLMCostTracker(cost_tracker)
+                llm_cost_tracker.track_gemini_response(
+                    response, self.llm_model, agent_name="Quality Assessment Auto-Filler"
+                )
+
+            # Use Gemini's parsed response which is already validated
+            result = response.parsed
+
+            if should_show_verbose:
+                console.print(f"[bold green]LLM Response validated as {response_model.__name__}[/bold green]")
+                console.print(f"Duration: {duration:.2f}s")
+
+            logger.debug(
+                f"LLM call with schema successful: {response_model.__name__} "
+                f"(duration: {duration:.2f}s)"
+            )
+
+            return result
+
+        except ValidationError as e:
+            logger.error(
+                f"Pydantic validation failed for {response_model.__name__}: {e}. "
+                f"LLM response did not match expected schema. Retrying..."
+            )
+            raise  # Will trigger retry decorator
+
+        except json.JSONDecodeError as e:
+            logger.error(
+                f"JSON decode failed for {response_model.__name__}: {e}. "
+                f"LLM returned invalid JSON. Retrying..."
+            )
+            raise  # Will trigger retry decorator
+
+        except Exception as e:
+            logger.error(f"LLM API call failed: {e}")
+            raise
 
     def assess_with_casp(
         self, study_title: str, checklist_type: str, extracted_data: Dict[str, Any]

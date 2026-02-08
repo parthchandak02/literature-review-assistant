@@ -11,9 +11,9 @@ from typing import Any, Dict, List, Optional, Set
 from fuzzywuzzy import fuzz
 
 from ..config.debug_config import DebugLevel
+from ..schemas.llm_response_schemas import ScreeningResultSchema
 from ..schemas.screening_schemas import (
     InclusionDecision as SchemaInclusionDecision,
-    ScreeningResultSchema,
 )
 from ..utils.log_context import agent_log_context
 from .base_agent import BaseScreeningAgent, InclusionDecision, ScreeningResult
@@ -100,37 +100,26 @@ class TitleAbstractScreener(BaseScreeningAgent):
                     title, abstract, inclusion_criteria, exclusion_criteria
                 )
             else:
-                # Try structured output first, fallback to parsing if needed
-                try:
-                    if is_verbose:
-                        logger.debug(
-                            f"[{self.role}] Attempting structured output with {self.llm_model}"
-                        )
-                    response = self._call_llm_structured(prompt)
-                    schema_result = ScreeningResultSchema.model_validate_json(response)
-                    result = self._convert_schema_to_result(schema_result)
-                    logger.info(
-                        f"[{self.role}] Screening decision: {result.decision.value} "
-                        f"(confidence: {result.confidence:.2f})"
+                # Use new _call_llm_with_schema method with automatic retry logic
+                if is_verbose:
+                    logger.debug(
+                        f"[{self.role}] Using structured output with {self.llm_model}"
                     )
-                    if is_verbose:
-                        logger.debug(
-                            f"[{self.role}] Structured response received: {response[:200]}..."
-                        )
-                except Exception as e:
-                    logger.warning(
-                        f"[{self.role}] Structured output failed, falling back to parsing: {e}"
+
+                schema_result = self._call_llm_with_schema(
+                    prompt=prompt,
+                    response_model=ScreeningResultSchema,
+                )
+                result = self._convert_schema_to_result(schema_result)
+
+                logger.info(
+                    f"[{self.role}] Screening decision: {result.decision.value} "
+                    f"(confidence: {result.confidence:.2f})"
+                )
+                if is_verbose:
+                    logger.debug(
+                        f"[{self.role}] Structured response validated successfully"
                     )
-                    if is_verbose:
-                        logger.debug(f"[{self.role}] Falling back to text parsing")
-                    response = self._call_llm(prompt)
-                    result = self._parse_llm_response(response)
-                    logger.info(
-                        f"[{self.role}] Screening decision (parsed): {result.decision.value} "
-                        f"(confidence: {result.confidence:.2f})"
-                    )
-                    if is_verbose:
-                        logger.debug(f"[{self.role}] Parsed response: {response[:200]}...")
 
             # Log decision details if debug enabled
             if is_verbose:
