@@ -64,6 +64,13 @@ class CostTracker:
         self.by_agent: Dict[str, float] = defaultdict(float)
         self.audit_file_path: Optional[Path] = None
 
+        # Historical data (loaded from audit trail)
+        self.historical_entries: List[CostEntry] = []
+        self.historical_total_cost: float = 0.0
+        self.historical_by_provider: Dict[str, float] = defaultdict(float)
+        self.historical_by_model: Dict[str, float] = defaultdict(float)
+        self.historical_by_agent: Dict[str, float] = defaultdict(float)
+
     def record_call(
         self,
         provider: str,
@@ -221,20 +228,130 @@ class CostTracker:
 
         return input_cost + output_cost
 
+    def load_from_audit_trail(self, audit_file_path: Path) -> Dict[str, Any]:
+        """
+        Load historical metrics from audit trail file.
+
+        Args:
+            audit_file_path: Path to audit trail JSON file
+
+        Returns:
+            Dictionary with loaded metrics summary
+        """
+        try:
+            if not audit_file_path.exists():
+                logger.debug(f"No audit trail found at {audit_file_path}")
+                return {
+                    "historical_calls": 0,
+                    "historical_cost": 0.0,
+                    "historical_tokens": 0,
+                }
+
+            with open(audit_file_path) as f:
+                audit_entries = json.load(f)
+
+            if not audit_entries:
+                logger.debug("Audit trail is empty")
+                return {
+                    "historical_calls": 0,
+                    "historical_cost": 0.0,
+                    "historical_tokens": 0,
+                }
+
+            # Reconstruct historical entries
+            self.historical_entries = []
+            self.historical_total_cost = 0.0
+            self.historical_by_provider = defaultdict(float)
+            self.historical_by_model = defaultdict(float)
+            self.historical_by_agent = defaultdict(float)
+
+            for audit_entry in audit_entries:
+                try:
+                    # Parse timestamp
+                    timestamp_str = audit_entry.get("timestamp", "")
+                    try:
+                        timestamp = datetime.fromisoformat(timestamp_str)
+                    except (ValueError, AttributeError):
+                        timestamp = datetime.now()
+
+                    # Create TokenUsage
+                    token_usage = TokenUsage(
+                        prompt_tokens=audit_entry.get("prompt_tokens", 0),
+                        completion_tokens=audit_entry.get("completion_tokens", 0),
+                        total_tokens=audit_entry.get("total_tokens", 0),
+                    )
+
+                    # Create CostEntry
+                    cost_entry = CostEntry(
+                        provider=audit_entry.get("provider", "gemini"),
+                        model=audit_entry.get("model", "unknown"),
+                        token_usage=token_usage,
+                        cost=audit_entry.get("cost_usd", 0.0),
+                        timestamp=timestamp,
+                        agent_name=audit_entry.get("agent", "Unknown"),
+                    )
+
+                    # Add to historical data
+                    self.historical_entries.append(cost_entry)
+                    self.historical_total_cost += cost_entry.cost
+                    self.historical_by_provider[cost_entry.provider] += cost_entry.cost
+                    self.historical_by_model[cost_entry.model] += cost_entry.cost
+                    if cost_entry.agent_name:
+                        self.historical_by_agent[cost_entry.agent_name] += cost_entry.cost
+
+                except Exception as entry_error:
+                    logger.warning(f"Failed to parse audit entry: {entry_error}")
+                    continue
+
+            logger.info(
+                f"Loaded {len(self.historical_entries)} historical calls "
+                f"(${self.historical_total_cost:.4f}) from audit trail"
+            )
+
+            return {
+                "historical_calls": len(self.historical_entries),
+                "historical_cost": self.historical_total_cost,
+                "historical_tokens": sum(e.token_usage.total_tokens for e in self.historical_entries),
+            }
+
+        except json.JSONDecodeError as e:
+            logger.warning(f"Corrupted audit trail JSON: {e}")
+            return {
+                "historical_calls": 0,
+                "historical_cost": 0.0,
+                "historical_tokens": 0,
+            }
+        except Exception as e:
+            logger.error(f"Failed to load audit trail: {e}")
+            return {
+                "historical_calls": 0,
+                "historical_cost": 0.0,
+                "historical_tokens": 0,
+            }
+
     def get_summary(self) -> Dict:
         """
-        Get cost summary.
+        Get cost summary with historical and current breakdown.
 
         Returns:
             Summary dictionary
         """
         return {
+            # Current session
             "total_cost_usd": self.total_cost,
             "total_calls": len(self.entries),
             "by_provider": dict(self.by_provider),
             "by_model": dict(self.by_model),
             "by_agent": dict(self.by_agent),
             "total_tokens": sum(e.token_usage.total_tokens for e in self.entries),
+
+            # Historical (if loaded from audit trail)
+            "historical_cost": self.historical_total_cost,
+            "historical_calls": len(self.historical_entries),
+            "historical_tokens": sum(e.token_usage.total_tokens for e in self.historical_entries),
+            "historical_by_provider": dict(self.historical_by_provider),
+            "historical_by_model": dict(self.historical_by_model),
+            "historical_by_agent": dict(self.historical_by_agent),
         }
 
 
