@@ -150,9 +150,9 @@ class WorkflowInitializer:
         # Style pattern extractor
         if style_extraction_config.get("enabled", False):
             self.style_pattern_extractor = StylePatternExtractor(
-                enabled=True,
-                reference_papers_dir=style_extraction_config.get("reference_papers_dir"),
-                output_dir=str(self.output_dir),
+                llm_provider=llm_provider,
+                api_key=llm_api_key,
+                agent_config=style_extraction_config,
             )
         else:
             self.style_pattern_extractor = None
