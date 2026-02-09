@@ -119,7 +119,6 @@ def create_empty_state() -> WorkflowState:
 
 
 def validate_state_transition(
-    from_phase: str,
     to_phase: str,
     state: WorkflowState
 ) -> bool:
@@ -127,7 +126,6 @@ def validate_state_transition(
     Validate that state is ready for phase transition.
     
     Args:
-        from_phase: Current phase name
         to_phase: Target phase name
         state: Current workflow state
     

@@ -43,6 +43,7 @@ class LogContext:
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         """Exit context."""
+        _ = exc_type, exc_val, exc_tb  # Unused but required by protocol
         # Restore original factory
         logging.setLogRecordFactory(logging.getLogRecordFactory())
 

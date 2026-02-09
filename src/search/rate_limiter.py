@@ -130,7 +130,7 @@ def retry_with_backoff(
         @retry(
             stop=stop_after_attempt(max_attempts),
             wait=wait_exponential(multiplier=initial_wait, max=max_wait, exp_base=exponential_base)
-            + (lambda retry_state: random.uniform(0, 0.1) if jitter else 0),
+            + (lambda _: random.uniform(0, 0.1) if jitter else 0),
             retry=retry_if_exception_type((NetworkError, DatabaseUnavailableError)),
             before_sleep=before_sleep_log(logger, logging.WARNING),
         )

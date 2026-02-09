@@ -43,7 +43,6 @@ from src.enrichment.paper_enricher import PaperEnricher
 from src.extraction.data_extractor_agent import ExtractedData
 from src.orchestration.database_connector_factory import DatabaseConnectorFactory
 from src.orchestration.workflow_initializer import WorkflowInitializer
-from src.prisma.prisma_generator import PRISMAGenerator
 from src.search.author_service import AuthorService
 from src.search.bibliometric_enricher import BibliometricEnricher
 from src.search.cache import SearchCache
@@ -76,7 +75,6 @@ class WorkflowManager:
         # Copy all initialized components
         self.config = initializer.config
         self.topic_context = initializer.topic_context
-        self.prisma_counter = initializer.prisma_counter
         self.output_dir = initializer.output_dir
         self.search_strategy = initializer.search_strategy
         self.searcher = initializer.searcher
@@ -84,14 +82,6 @@ class WorkflowManager:
         self.title_screener = initializer.title_screener
         self.fulltext_screener = initializer.fulltext_screener
         self.extractor = initializer.extractor
-        self.chart_generator = initializer.chart_generator
-        self.intro_writer = initializer.intro_writer
-        self.methods_writer = initializer.methods_writer
-        self.results_writer = initializer.results_writer
-        self.discussion_writer = initializer.discussion_writer
-        self.abstract_generator = initializer.abstract_generator
-        self.style_pattern_extractor = initializer.style_pattern_extractor
-        self.humanization_agent = initializer.humanization_agent
         self.handoff_protocol = initializer.handoff_protocol
         self.debug_config = initializer.debug_config
         self.metrics = initializer.metrics
@@ -171,9 +161,6 @@ class WorkflowManager:
         # Enable audit trail for cost tracking
         self.cost_tracker.enable_audit_trail(str(workflow_output_dir))
 
-        # Update ChartGenerator to use workflow-specific output directory
-        # (ChartGenerator was initialized with base directory, needs update)
-        self.chart_generator.output_dir = workflow_output_dir
 
         # Initialize phase registry and executor
         self.phase_registry = self._register_all_phases()
@@ -356,7 +343,6 @@ class WorkflowManager:
         """Wrapper for search_databases phase with checkpoint handling."""
         search_results = self._search_databases()
         self.all_papers = search_results
-        self.prisma_counter.set_found(len(self.all_papers), self._get_database_breakdown())
         logger.info(
             f"Found {len(self.all_papers)} papers across {len(self.config['workflow']['databases'])} databases"
         )
@@ -388,17 +374,14 @@ class WorkflowManager:
         """Wrapper for deduplication phase with checkpoint handling."""
         dedup_result = self.deduplicator.deduplicate_papers(self.all_papers)
         self.unique_papers = dedup_result.unique_papers
-        self.prisma_counter.set_no_dupes(len(self.unique_papers))
         logger.info(
             f"Removed {dedup_result.duplicates_removed} duplicates, {len(self.unique_papers)} unique papers remain"
         )
 
     def _title_abstract_screening_phase(self):
-        """Wrapper for title/abstract screening phase with PRISMA tracking."""
+        """Wrapper for title/abstract screening phase."""
         self._screen_title_abstract()
-        self.prisma_counter.set_screened(len(self.screened_papers))
         excluded_at_screening = len(self.unique_papers) - len(self.screened_papers)
-        self.prisma_counter.set_screen_exclusions(excluded_at_screening)
         logger.info(
             f"Screened {len(self.unique_papers)} papers, {len(self.screened_papers)} included, {excluded_at_screening} excluded"
         )
@@ -4948,14 +4931,12 @@ class WorkflowManager:
     def run_from_stage(
         self,
         start_stage: str,
-        end_stage: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
         Execute workflow from specific stage.
 
         Args:
             start_stage: Stage to start from (short name or full phase name)
-            end_stage: Optional stage to end at
 
         Returns:
             Dictionary with workflow results
