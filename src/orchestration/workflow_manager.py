@@ -75,6 +75,7 @@ class WorkflowManager:
         # Copy all initialized components
         self.config = initializer.config
         self.topic_context = initializer.topic_context
+        self.prisma_counter = initializer.prisma_counter
         self.output_dir = initializer.output_dir
         self.search_strategy = initializer.search_strategy
         self.searcher = initializer.searcher
@@ -1060,8 +1061,6 @@ class WorkflowManager:
                             workflow_output_dir = base_output_dir / self.workflow_id
                             workflow_output_dir.mkdir(parents=True, exist_ok=True)
                             self.output_dir = workflow_output_dir
-                            # Update ChartGenerator to use correct output directory
-                            self.chart_generator.output_dir = workflow_output_dir
 
                 # Determine start phase from checkpoint
                 start_from_phase = self._determine_start_phase(existing_checkpoint)
@@ -3106,88 +3105,9 @@ class WorkflowManager:
         return ""
 
     def _generate_visualizations(self) -> Dict[str, str]:
-        """Generate bibliometric visualizations."""
-        paths = {}
-
-        # Papers per year
-        year_path = self.chart_generator.papers_per_year(self.final_papers)
-        if year_path:
-            paths["papers_per_year"] = year_path
-
-        # Network graph
-        network_path = self.chart_generator.network_graph(self.final_papers)
-        if network_path:
-            paths["network_graph"] = network_path
-
-        # Papers by country (placeholder)
-        country_path = self.chart_generator.papers_by_country(self.final_papers)
-        if country_path:
-            paths["papers_by_country"] = country_path
-
-        # Papers by subject (placeholder)
-        subject_path = self.chart_generator.papers_by_subject(self.final_papers)
-        if subject_path:
-            paths["papers_by_subject"] = subject_path
-
-        # Quality assessment visualizations
-        if self.quality_assessment_data:
-            framework = self.quality_assessment_data.get("framework", "CASP")
-
-            # Quality assessment plot (framework-dependent)
-            if framework == "CASP":
-                # For CASP, skip traditional RoB plot as structure is different
-                # CASP uses Yes/No/Can't Tell questions rather than domain ratings
-                logger.info(
-                    "Skipping traditional RoB plot for CASP framework (use CASP-specific visualization)"
-                )
-            else:
-                # Traditional risk of bias plot for RoB 2, ROBINS-I, etc.
-                rob_assessments = self.quality_assessment_data.get("risk_of_bias_assessments", [])
-                if rob_assessments:
-                    # Convert to list of dicts for visualization
-                    rob_data = []
-                    for assessment in rob_assessments:
-                        domains = (
-                            assessment.domains
-                            if hasattr(assessment, "domains")
-                            else assessment.get("domains", {})
-                        )
-                        # Only include if domains exist and are non-empty
-                        if domains:
-                            rob_data.append(
-                                {
-                                    "study_id": assessment.study_id
-                                    if hasattr(assessment, "study_id")
-                                    else assessment.get("study_id", ""),
-                                    "domains": domains,
-                                }
-                            )
-                    if rob_data:  # Only generate if we have valid data
-                        rob_plot_path = self.chart_generator.generate_risk_of_bias_plot(rob_data)
-                        if rob_plot_path:
-                            paths["risk_of_bias_plot"] = rob_plot_path
-
-            # GRADE evidence profile
-            grade_assessments = self.quality_assessment_data.get("grade_assessments", [])
-            if grade_assessments:
-                # Convert to list of dicts for visualization
-                grade_data = []
-                for assessment in grade_assessments:
-                    grade_data.append(
-                        {
-                            "outcome": assessment.outcome
-                            if hasattr(assessment, "outcome")
-                            else assessment.get("outcome", ""),
-                            "certainty": assessment.certainty
-                            if hasattr(assessment, "certainty")
-                            else assessment.get("certainty", ""),
-                        }
-                    )
-                grade_plot_path = self.chart_generator.generate_grade_evidence_profile(grade_data)
-                if grade_plot_path:
-                    paths["grade_evidence_profile"] = grade_plot_path
-
-        return paths
+        """Generate bibliometric visualizations - visualization module removed."""
+        logger.warning("Visualization generation is no longer available")
+        return {}
 
     def _collect_mermaid_diagrams(self) -> Dict[str, str]:
         """
