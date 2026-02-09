@@ -3169,51 +3169,9 @@ class WorkflowManager:
         return mermaid_paths
 
     def _extract_style_patterns(self):
-        """Extract writing style patterns from eligible papers."""
-        if not self.final_papers:
-            logger.warning("No eligible papers to extract patterns from")
-            self.style_patterns = {}
-            return
-
-        # Check if style extraction is enabled
-        writing_config = self.config.get("writing", {})
-        style_extraction_config = writing_config.get("style_extraction", {})
-
-        if not style_extraction_config.get("enabled", True):
-            logger.info("Style pattern extraction is disabled")
-            self.style_patterns = {}
-            return
-
-        if not self.style_pattern_extractor:
-            logger.warning("Style pattern extractor not initialized")
-            self.style_patterns = {}
-            return
-
-        logger.info(f"Extracting style patterns from {len(self.final_papers)} eligible papers...")
-
-        max_papers = style_extraction_config.get("max_papers")
-        min_papers = style_extraction_config.get("min_papers", 3)
-
-        if len(self.final_papers) < min_papers:
-            logger.warning(
-                f"Not enough papers for pattern extraction "
-                f"({len(self.final_papers)} < {min_papers})"
-            )
-            self.style_patterns = {}
-            return
-
-        try:
-            self.style_patterns = self.style_pattern_extractor.extract_patterns(
-                self.final_papers,
-                domain=self.topic_context.domain,
-                max_papers=max_papers,
-            )
-            logger.info(
-                f"Successfully extracted style patterns from {len(self.final_papers)} papers"
-            )
-        except Exception as e:
-            logger.error(f"Error extracting style patterns: {e}", exc_info=True)
-            self.style_patterns = {}
+        """Extract writing style patterns from eligible papers - feature removed."""
+        logger.warning("Style pattern extraction is no longer available")
+        self.style_patterns = {}
 
     def _save_section_checkpoint(self, section_name: str, sections: Dict[str, str]) -> bool:
         """
