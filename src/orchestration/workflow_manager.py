@@ -267,18 +267,7 @@ class WorkflowManager:
             )
         )
 
-        # Phase 9: PRISMA Generation
-        registry.register(
-            PhaseDefinition(
-                name="prisma_generation",
-                phase_number=9,
-                dependencies=["data_extraction"],
-                handler=self._generate_prisma_diagram,
-                description="Generate PRISMA flow diagram",
-            )
-        )
-
-        # Phase 10: Visualization Generation
+        # Phase 9: Visualization Generation (PRISMA removed)
         registry.register(
             PhaseDefinition(
                 name="visualization_generation",
@@ -3112,11 +3101,9 @@ class WorkflowManager:
         return " ".join(summary)
 
     def _generate_prisma_diagram(self) -> str:
-        """Generate PRISMA flow diagram."""
-        generator = PRISMAGenerator(self.prisma_counter)
-        output_path = self.output_dir / "prisma_diagram.png"
-        path = generator.generate(str(output_path), format="png")
-        return path
+        """PRISMA diagram generation removed - feature not used."""
+        logger.warning("PRISMA diagram generation is no longer available")
+        return ""
 
     def _generate_visualizations(self) -> Dict[str, str]:
         """Generate bibliometric visualizations."""
@@ -4085,8 +4072,6 @@ class WorkflowManager:
         viz_paths: Dict[str, str],
     ) -> str:
         """Generate final markdown report."""
-        from ..citations import CitationManager
-
         # Prepare figures and get path mapping
         figure_paths = self._prepare_figure_paths(prisma_path, viz_paths)
 
@@ -4096,22 +4081,18 @@ class WorkflowManager:
         # Ensure output directory exists
         manuscript_path.parent.mkdir(parents=True, exist_ok=True)
 
-        # Initialize citation manager with included papers
-        citation_manager = CitationManager(self.final_papers)
-
         with open(manuscript_path, "w") as f:
             # Generate topic-specific title
             topic = self.topic_context.topic or "Systematic Review"
             title = f"{topic}: A Systematic Review"
             f.write(f"# {title}\n\n")
 
-            # Abstract (with citation processing)
+            # Abstract
             abstract = article_sections.get("abstract", "")
             if abstract:
-                abstract_text = citation_manager.extract_and_map_citations(abstract)
                 f.write("## Abstract\n\n")
                 f.write("**Systematic Review**\n\n")
-                f.write(abstract_text)
+                f.write(abstract)
                 f.write("\n\n---\n\n")
 
             # Keywords - aggregate from topic context and papers
@@ -4151,22 +4132,20 @@ class WorkflowManager:
                 f.write(f"**Keywords:** {keywords_text}\n\n")
                 f.write("---\n\n")
 
-            # Introduction (with citation processing)
-            intro_text = citation_manager.extract_and_map_citations(
-                article_sections["introduction"]
-            )
+            # Introduction
+            intro_text = article_sections["introduction"]
             f.write("## Introduction\n\n")
             f.write(intro_text)
             f.write("\n\n---\n\n")
 
-            # Methods (with citation processing)
-            methods_text = citation_manager.extract_and_map_citations(article_sections["methods"])
+            # Methods
+            methods_text = article_sections["methods"]
             f.write("## Methods\n\n")
             f.write(methods_text)
             f.write("\n\n---\n\n")
 
-            # Results (with citation processing)
-            results_text = citation_manager.extract_and_map_citations(article_sections["results"])
+            # Results
+            results_text = article_sections["results"]
 
             # Insert PRISMA diagram into Results section after Study Selection subsection
             # Use the figure path from the mapping (figures/figure_1.xxx)
@@ -4278,10 +4257,8 @@ class WorkflowManager:
             f.write(results_text)
             f.write("\n\n---\n\n")
 
-            # Discussion (with citation processing)
-            discussion_text = citation_manager.extract_and_map_citations(
-                article_sections["discussion"]
-            )
+            # Discussion
+            discussion_text = article_sections["discussion"]
             f.write("## Discussion\n\n")
             f.write(discussion_text)
             f.write("\n\n---\n\n")
@@ -4371,13 +4348,9 @@ class WorkflowManager:
         prisma_path: str,
         viz_paths: Dict[str, str],
     ) -> Dict[str, str]:
-        """Export report to LaTeX and Word formats."""
-        from ..citations import CitationManager
-        from ..export.latex_exporter import LaTeXExporter
-        from ..export.word_exporter import WordExporter
-
-        export_paths = {}
-        citation_manager = CitationManager(self.final_papers)
+        """Export report to LaTeX and Word formats - export modules removed."""
+        logger.warning("Export functionality is no longer available")
+        return {}
 
         # Aggregate keywords from topic context and papers
         keywords = self.topic_context.keywords if hasattr(self.topic_context, "keywords") else []
@@ -4508,33 +4481,14 @@ class WorkflowManager:
             return None
 
     def _generate_extraction_forms(self) -> Optional[str]:
-        """Generate data extraction form templates."""
-        from ..export.extraction_form_generator import ExtractionFormGenerator
-
-        try:
-            generator = ExtractionFormGenerator()
-            form_path = self.output_dir / "data_extraction_form.md"
-            path = generator.generate_form(str(form_path), format="markdown")
-            return path
-        except Exception as e:
-            logger.warning(f"Could not generate extraction form: {e}")
-            return None
+        """Generate data extraction form templates - export modules removed."""
+        logger.warning("Extraction form generation is no longer available")
+        return None
 
     def _generate_prisma_checklist(self, report_path: str) -> Optional[str]:
-        """Generate PRISMA 2020 checklist file."""
-        from ..prisma.checklist_generator import PRISMAChecklistGenerator
-
-        try:
-            with open(report_path, encoding="utf-8") as f:
-                report_content = f.read()
-
-            generator = PRISMAChecklistGenerator()
-            checklist_path = self.output_dir / "prisma_checklist.json"
-            path = generator.generate_checklist(report_content, str(checklist_path))
-            return path
-        except Exception as e:
-            logger.warning(f"Could not generate PRISMA checklist: {e}")
-            return None
+        """Generate PRISMA 2020 checklist file - PRISMA modules removed."""
+        logger.warning("PRISMA checklist generation is no longer available")
+        return None
 
     def _export_manubot_structure(self, article_sections: Dict[str, str]) -> Optional[str]:
         """
@@ -4544,51 +4498,10 @@ class WorkflowManager:
             article_sections: Dictionary with section names and content
 
         Returns:
-            Path to Manubot manuscript directory, or None if disabled
+            None - export functionality removed
         """
-        from ..citations import CitationManager
-        from ..export.manubot_exporter import ManubotExporter
-
-        manubot_config = self.config.get("manubot", {})
-        if not manubot_config.get("enabled", False):
-            return None
-
-        try:
-            # Get output directory
-            output_dir_name = manubot_config.get("output_dir", "manuscript")
-            manuscript_dir = self.output_dir / output_dir_name
-
-            # Initialize citation manager
-            citation_manager = CitationManager(self.final_papers)
-
-            # Create exporter
-            exporter = ManubotExporter(manuscript_dir, citation_manager)
-
-            # Prepare metadata
-            metadata = {
-                "title": f"{self.topic_context.topic}: A Systematic Review",
-                "keywords": (
-                    self.topic_context.keywords if hasattr(self.topic_context, "keywords") else []
-                ),
-            }
-
-            # Export
-            citation_style = manubot_config.get("citation_style", "ieee")
-            auto_resolve = manubot_config.get("auto_resolve_citations", True)
-
-            manuscript_path = exporter.export(
-                article_sections,
-                metadata,
-                citation_style=citation_style,
-                auto_resolve_citations=auto_resolve,
-            )
-
-            logger.info(f"Manubot structure exported to {manuscript_path}")
-            return str(manuscript_path)
-
-        except Exception as e:
-            logger.error(f"Failed to export Manubot structure: {e}", exc_info=True)
-            return None
+        logger.warning("Manubot export functionality is no longer available")
+        return None
 
     def _generate_submission_package(
         self,
