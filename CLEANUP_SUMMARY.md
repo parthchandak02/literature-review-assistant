@@ -41,8 +41,15 @@ Successfully removed ~4,000 lines of dead code from the research-article-writer 
 
 3. **workflow_manager.py**
    - Removed writing agent references
-   - Removed PRISMA counter references (partial)
-   - Removed chart generator references (partial)
+   - Stubbed out PRISMA diagram generation
+   - Removed CitationManager usage in report generation
+   - Stubbed out export methods (_export_report, _export_manubot_structure, _generate_submission_package)
+   - Removed PRISMA phase registration
+
+4. **prisma_counter_stub.py** (NEW)
+   - Created minimal PRISMACounter implementation
+   - Tracks workflow counts without diagram generation
+   - Preserves existing tracking functionality
 
 4. **Unused Variables**
    - `workflow_manager.py`: Removed `end_stage` parameter
@@ -90,6 +97,9 @@ All changes committed to branch `remove-dead-code`:
 1. Initial checkpoint commit
 2. Removed unused modules and cleaned up imports
 3. Fixed retry_state parameter (required by tenacity library)
+4. Added cleanup summary with metrics
+5. Fixed remaining module references (citations, prisma, export)
+6. Added PRISMACounter stub for workflow tracking
 
 ## Next Steps
 
