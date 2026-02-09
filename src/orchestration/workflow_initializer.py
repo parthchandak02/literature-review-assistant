@@ -63,6 +63,10 @@ class WorkflowInitializer:
         workflow_config = self.config["workflow"]
         output_config = self.config["output"]
 
+        # Initialize PRISMA counter stub (for tracking counts only, no diagram generation)
+        from .prisma_counter_stub import PRISMACounter
+        self.prisma_counter = PRISMACounter()
+        
         self.output_dir = Path(output_config["directory"])
         self.output_dir.mkdir(parents=True, exist_ok=True)
 
