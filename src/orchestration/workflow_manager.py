@@ -43,6 +43,7 @@ from src.enrichment.paper_enricher import PaperEnricher
 from src.extraction.data_extractor_agent import ExtractedData
 from src.orchestration.database_connector_factory import DatabaseConnectorFactory
 from src.orchestration.workflow_initializer import WorkflowInitializer
+from src.prisma.prisma_generator import PRISMAGenerator
 from src.search.author_service import AuthorService
 from src.search.bibliometric_enricher import BibliometricEnricher
 from src.search.cache import SearchCache
@@ -83,6 +84,14 @@ class WorkflowManager:
         self.title_screener = initializer.title_screener
         self.fulltext_screener = initializer.fulltext_screener
         self.extractor = initializer.extractor
+        self.chart_generator = initializer.chart_generator
+        self.intro_writer = initializer.intro_writer
+        self.methods_writer = initializer.methods_writer
+        self.results_writer = initializer.results_writer
+        self.discussion_writer = initializer.discussion_writer
+        self.abstract_generator = initializer.abstract_generator
+        self.style_pattern_extractor = initializer.style_pattern_extractor
+        self.humanization_agent = initializer.humanization_agent
         self.handoff_protocol = initializer.handoff_protocol
         self.debug_config = initializer.debug_config
         self.metrics = initializer.metrics
@@ -3100,14 +3109,95 @@ class WorkflowManager:
         return " ".join(summary)
 
     def _generate_prisma_diagram(self) -> str:
-        """PRISMA diagram generation removed - feature not used."""
-        logger.warning("PRISMA diagram generation is no longer available")
-        return ""
+        """Generate PRISMA flow diagram."""
+        generator = PRISMAGenerator(self.prisma_counter)
+        output_path = self.output_dir / "prisma_diagram.png"
+        path = generator.generate(str(output_path), format="png")
+        return path
 
     def _generate_visualizations(self) -> Dict[str, str]:
-        """Generate bibliometric visualizations - visualization module removed."""
-        logger.warning("Visualization generation is no longer available")
-        return {}
+        """Generate bibliometric visualizations."""
+        paths = {}
+
+        # Papers per year
+        year_path = self.chart_generator.papers_per_year(self.final_papers)
+        if year_path:
+            paths["papers_per_year"] = year_path
+
+        # Network graph
+        network_path = self.chart_generator.network_graph(self.final_papers)
+        if network_path:
+            paths["network_graph"] = network_path
+
+        # Papers by country (placeholder)
+        country_path = self.chart_generator.papers_by_country(self.final_papers)
+        if country_path:
+            paths["papers_by_country"] = country_path
+
+        # Papers by subject (placeholder)
+        subject_path = self.chart_generator.papers_by_subject(self.final_papers)
+        if subject_path:
+            paths["papers_by_subject"] = subject_path
+
+        # Quality assessment visualizations
+        if self.quality_assessment_data:
+            framework = self.quality_assessment_data.get("framework", "CASP")
+
+            # Quality assessment plot (framework-dependent)
+            if framework == "CASP":
+                # For CASP, skip traditional RoB plot as structure is different
+                # CASP uses Yes/No/Can't Tell questions rather than domain ratings
+                logger.info(
+                    "Skipping traditional RoB plot for CASP framework (use CASP-specific visualization)"
+                )
+            else:
+                # Traditional risk of bias plot for RoB 2, ROBINS-I, etc.
+                rob_assessments = self.quality_assessment_data.get("risk_of_bias_assessments", [])
+                if rob_assessments:
+                    # Convert to list of dicts for visualization
+                    rob_data = []
+                    for assessment in rob_assessments:
+                        domains = (
+                            assessment.domains
+                            if hasattr(assessment, "domains")
+                            else assessment.get("domains", {})
+                        )
+                        # Only include if domains exist and are non-empty
+                        if domains:
+                            rob_data.append(
+                                {
+                                    "study_id": assessment.study_id
+                                    if hasattr(assessment, "study_id")
+                                    else assessment.get("study_id", ""),
+                                    "domains": domains,
+                                }
+                            )
+                    if rob_data:  # Only generate if we have valid data
+                        rob_plot_path = self.chart_generator.generate_risk_of_bias_plot(rob_data)
+                        if rob_plot_path:
+                            paths["risk_of_bias_plot"] = rob_plot_path
+
+            # GRADE evidence profile
+            grade_assessments = self.quality_assessment_data.get("grade_assessments", [])
+            if grade_assessments:
+                # Convert to list of dicts for visualization
+                grade_data = []
+                for assessment in grade_assessments:
+                    grade_data.append(
+                        {
+                            "outcome": assessment.outcome
+                            if hasattr(assessment, "outcome")
+                            else assessment.get("outcome", ""),
+                            "certainty": assessment.certainty
+                            if hasattr(assessment, "certainty")
+                            else assessment.get("certainty", ""),
+                        }
+                    )
+                grade_plot_path = self.chart_generator.generate_grade_evidence_profile(grade_data)
+                if grade_plot_path:
+                    paths["grade_evidence_profile"] = grade_plot_path
+
+        return paths
 
     def _collect_mermaid_diagrams(self) -> Dict[str, str]:
         """
