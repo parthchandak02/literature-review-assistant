@@ -1252,56 +1252,47 @@ class WorkflowManager:
                         console.print(f"[bold cyan]Running phases {', '.join(phases_to_run_parallel)} in parallel...[/bold cyan]")
                         console.print()
 
-                        try:
-                            # Run parallel execution using asyncio
-                            parallel_results = asyncio.run(
-                                self._execute_phases_parallel(
-                                    phases_to_run_parallel,
-                                    phase_handlers
-                                )
+                        # Run parallel execution using asyncio
+                        parallel_results = asyncio.run(
+                            self._execute_phases_parallel(
+                                phases_to_run_parallel,
+                                phase_handlers
                             )
+                        )
 
-                            # Process results for each parallel phase
-                            for parallel_phase_name, parallel_result in parallel_results.items():
-                                if parallel_phase_name == "quality_assessment":
-                                    results["outputs"]["quality_assessment"] = parallel_result
-                                    self.quality_assessment_data = parallel_result
-                                    self.checkpoint_manager.save_phase("quality_assessment")
-                                elif parallel_phase_name == "prisma_generation":
-                                    prisma_path = parallel_result
-                                    results["outputs"]["prisma_diagram"] = prisma_path
-                                    self._prisma_path = prisma_path
-                                    self.checkpoint_manager.save_phase("prisma_generation")
-                                elif parallel_phase_name == "visualization_generation":
-                                    viz_paths = parallel_result
-                                    results["outputs"]["visualizations"] = viz_paths
-                                    self._viz_paths = viz_paths
-                                    self.checkpoint_manager.save_phase("visualization_generation")
-                                elif parallel_phase_name == "article_writing":
-                                    article_sections = parallel_result
-                                    results["outputs"]["article_sections"] = article_sections
-                                    self._article_sections = article_sections
-                                    self.checkpoint_manager.save_phase("article_writing")
+                        # Process results for each parallel phase
+                        for parallel_phase_name, parallel_result in parallel_results.items():
+                            if parallel_phase_name == "quality_assessment":
+                                results["outputs"]["quality_assessment"] = parallel_result
+                                self.quality_assessment_data = parallel_result
+                                self.checkpoint_manager.save_phase("quality_assessment")
+                            elif parallel_phase_name == "prisma_generation":
+                                prisma_path = parallel_result
+                                results["outputs"]["prisma_diagram"] = prisma_path
+                                self._prisma_path = prisma_path
+                                self.checkpoint_manager.save_phase("prisma_generation")
+                            elif parallel_phase_name == "visualization_generation":
+                                viz_paths = parallel_result
+                                results["outputs"]["visualizations"] = viz_paths
+                                self._viz_paths = viz_paths
+                                self.checkpoint_manager.save_phase("visualization_generation")
+                            elif parallel_phase_name == "article_writing":
+                                article_sections = parallel_result
+                                results["outputs"]["article_sections"] = article_sections
+                                self._article_sections = article_sections
+                                self.checkpoint_manager.save_phase("article_writing")
 
-                            logger.info("Parallel execution completed successfully")
-                            console.print()
-                            console.print("[bold green]Parallel phases completed successfully[/bold green]")
-                            console.print()
+                        logger.info("Parallel execution completed successfully")
+                        console.print()
+                        console.print("[bold green]Parallel phases completed successfully[/bold green]")
+                        console.print()
 
-                            # Mark that parallel phases have been executed
-                            self._parallel_phases_executed = True
+                        # Mark that parallel phases have been executed
+                        self._parallel_phases_executed = True
 
-                            # Skip the individual execution of these phases in the loop
-                            if phase_name in parallel_phases:
-                                continue
-
-                        except Exception as e:
-                            logger.error(f"Parallel execution failed: {e}", exc_info=True)
-                            console.print()
-                            console.print(f"[bold red]Parallel execution failed: {e}[/bold red]")
-                            console.print()
-                            # Fall back to sequential execution on error
-                            logger.warning("Falling back to sequential execution")
+                        # Skip the individual execution of these phases in the loop
+                        if phase_name in parallel_phases:
+                            continue
                     else:
                         logger.info("All parallel phases already completed, skipping parallel execution")
                         self._parallel_phases_executed = True

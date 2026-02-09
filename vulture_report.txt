@@ -1,0 +1,7 @@
+src/citations/csl_formatter.py:190: unused variable 'style' (100% confidence, 1 line)
+src/orchestration/workflow_manager.py:4951: unused variable 'end_stage' (100% confidence, 1 line)
+src/orchestration/workflow_state.py:122: unused variable 'from_phase' (100% confidence, 1 line)
+src/search/rate_limiter.py:133: unused variable 'retry_state' (100% confidence, 1 line)
+src/utils/log_context.py:44: unused variable 'exc_tb' (100% confidence, 1 line)
+src/utils/log_context.py:44: unused variable 'exc_type' (100% confidence, 1 line)
+src/utils/log_context.py:44: unused variable 'exc_val' (100% confidence, 1 line)

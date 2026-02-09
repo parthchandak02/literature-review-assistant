@@ -11,7 +11,6 @@ from typing import Any, Dict, List, Optional
 from pydantic import ValidationError
 
 from ..config.debug_config import DebugLevel
-from ..observability.llm_metrics import llm_metrics
 from ..schemas.llm_response_schemas import ScreeningResultSchema
 from ..schemas.screening_schemas import InclusionDecision as SchemaInclusionDecision
 from .base_agent import BaseScreeningAgent, InclusionDecision, ScreeningResult
@@ -144,7 +143,7 @@ class FullTextScreener(BaseScreeningAgent):
                     
                     # Record fallback usage
                     fallback_success = result is not None and result.decision is not None
-                    llm_metrics.record_fallback(success=fallback_success)
+                    # llm_metrics.record_fallback(success=fallback_success)
 
                 if is_verbose:
                     logger.debug(

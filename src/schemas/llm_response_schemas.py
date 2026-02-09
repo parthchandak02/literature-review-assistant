@@ -9,6 +9,23 @@ from typing import Dict, List, Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+
+# ============================================================================
+# Helper Models for Gemini API Compatibility
+# ============================================================================
+
+
+class KeyValuePair(BaseModel):
+    """
+    Key-value pair model for Gemini API compatibility.
+    
+    Gemini API does not support additionalProperties in JSON schemas,
+    so we use List[KeyValuePair] instead of Dict[str, str].
+    """
+    
+    key: str = Field(description="The key")
+    value: str = Field(description="The value")
+
 # Re-export existing schemas for convenience
 from .extraction_schemas import ExtractedDataSchema
 from .screening_schemas import InclusionDecision, ScreeningResultSchema
@@ -150,13 +167,13 @@ class AbstractResponse(BaseModel):
 
     abstract_content: str = Field(
         min_length=150,
-        max_length=350,
-        description="Complete abstract text (typically 150-350 words)",
+        max_length=3000,
+        description="Complete abstract text (typically 250-300 words, max 3000 characters)",
     )
     word_count: int = Field(description="Exact word count (positive integer)")
-    structured_sections: Dict[str, str] = Field(
-        default_factory=dict,
-        description="Structured abstract sections (Background, Methods, Results, Conclusions)",
+    structured_sections: List[KeyValuePair] = Field(
+        default_factory=list,
+        description="Structured abstract sections as key-value pairs (e.g., Background, Methods, Results, Conclusions)",
     )
     keywords: List[str] = Field(
         default_factory=list,
@@ -168,12 +185,12 @@ class AbstractResponse(BaseModel):
             "example": {
                 "abstract_content": "Background: This systematic review examined...",
                 "word_count": 247,
-                "structured_sections": {
-                    "Background": "This systematic review examined...",
-                    "Methods": "We searched five databases...",
-                    "Results": "We identified 23 studies...",
-                    "Conclusions": "The findings suggest...",
-                },
+                "structured_sections": [
+                    {"key": "Background", "value": "This systematic review examined..."},
+                    {"key": "Methods", "value": "We searched five databases..."},
+                    {"key": "Results", "value": "We identified 23 studies..."},
+                    {"key": "Conclusions", "value": "The findings suggest..."},
+                ],
                 "keywords": ["telemedicine", "user experience", "accessibility"],
             }
         }
@@ -273,8 +290,9 @@ class QualityAssessmentResponse(BaseModel):
     overall_quality: Literal["high", "moderate", "low"] = Field(
         description="Overall study quality rating"
     )
-    casp_scores: Dict[str, str] = Field(
-        description="Dictionary mapping CASP criteria to scores (yes/no/unclear/not_applicable)"
+    casp_scores: List[KeyValuePair] = Field(
+        default_factory=list,
+        description="CASP criteria scores as key-value pairs (criterion -> score: yes/no/unclear/not_applicable)",
     )
     casp_detailed_scores: List[CASPScoreResponse] = Field(
         default_factory=list,
@@ -305,13 +323,13 @@ class QualityAssessmentResponse(BaseModel):
 
     @field_validator("casp_scores")
     @classmethod
-    def validate_casp_scores(cls, v: Dict[str, str]) -> Dict[str, str]:
+    def validate_casp_scores(cls, v: List[KeyValuePair]) -> List[KeyValuePair]:
         """Ensure CASP scores use valid values."""
         valid_scores = {"yes", "no", "unclear", "not_applicable"}
-        for criterion, score in v.items():
-            if score.lower() not in valid_scores:
+        for pair in v:
+            if pair.value.lower() not in valid_scores:
                 raise ValueError(
-                    f"Invalid CASP score '{score}' for criterion '{criterion}'. "
+                    f"Invalid CASP score '{pair.value}' for criterion '{pair.key}'. "
                     f"Must be one of: {valid_scores}"
                 )
         return v
@@ -450,9 +468,9 @@ class QueryBuilderResponse(BaseModel):
     query_components: Dict[str, List[str]] = Field(
         description="Query broken down into components (concepts, synonyms, etc.)",
     )
-    filters_suggested: Dict[str, str] = Field(
-        default_factory=dict,
-        description="Suggested filters (date range, publication type, etc.)",
+    filters_suggested: List[KeyValuePair] = Field(
+        default_factory=list,
+        description="Suggested filters as key-value pairs (e.g., date_range, publication_type)",
     )
     expansion_terms: List[str] = Field(
         default_factory=list,
@@ -467,10 +485,10 @@ class QueryBuilderResponse(BaseModel):
                     "primary_concept": ["telemedicine", "telehealth"],
                     "secondary_concept": ["usability", "user experience"],
                 },
-                "filters_suggested": {
-                    "date_range": "2018-2024",
-                    "publication_type": "Journal Article",
-                },
+                "filters_suggested": [
+                    {"key": "date_range", "value": "2018-2024"},
+                    {"key": "publication_type", "value": "Journal Article"},
+                ],
                 "expansion_terms": ["remote healthcare", "digital health"],
             }
         }

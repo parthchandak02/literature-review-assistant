@@ -1,0 +1,131 @@
+Name                                                Stmts   Miss   Cover   Missing
+----------------------------------------------------------------------------------
+src/agents/__init__.py                                  3      3   0.00%   7-10
+src/agents/base_llm_agent.py                           52     52   0.00%   8-169
+src/agents/base_writing_agent.py                       17     17   0.00%   7-102
+src/citations/__init__.py                               7      7   0.00%   7-14
+src/citations/bibtex_formatter.py                     122    122   0.00%   7-291
+src/citations/citation_manager.py                     142    142   0.00%   7-335
+src/citations/csl_formatter.py                         83     83   0.00%   8-229
+src/citations/ieee_formatter.py                       104    104   0.00%   7-202
+src/citations/manubot_resolver.py                     100    100   0.00%   7-232
+src/citations/ris_formatter.py                         62     62   0.00%   8-170
+src/config/config_loader.py                            81     20  75.31%   28, 41, 47, 131, 137, 143-145, 149, 154, 164, 171, 183-185, 198-202
+src/config/debug_config.py                             64     10  84.38%   43, 48, 75, 80, 88-89, 108-109, 116-117
+src/deduplication.py                                  138    122  11.59%   47-75, 99-138, 142-155, 159-231, 247-314, 328-329
+src/enrichment/__init__.py                              2      0 100.00%
+src/enrichment/paper_enricher.py                       98     82  16.33%   46-95, 109-209
+src/export/__init__.py                                  9      9   0.00%   7-16
+src/export/extraction_form_generator.py                97     97   0.00%   7-184
+src/export/journal_selector.py                         47     47   0.00%   7-106
+src/export/latex_exporter.py                          264    264   0.00%   10-500
+src/export/manubot_exporter.py                         76     76   0.00%   8-183
+src/export/pandoc_converter.py                         85     85   0.00%   8-237
+src/export/submission_checklist.py                     64     64   0.00%   7-180
+src/export/submission_package.py                      167    167   0.00%   8-365
+src/export/template_manager.py                         52     52   0.00%   7-121
+src/export/word_exporter.py                           160    160   0.00%   7-257
+src/extraction/data_extractor_agent.py                159    136  14.47%   55, 59, 73-75, 103-182, 192-281, 297-395, 407-514, 520, 548-583, 589-606
+src/observability/__init__.py                           4      0 100.00%
+src/observability/cost_tracker.py                     158    112  29.11%   91-123, 142-174, 188-229, 241-326, 339, 368, 379-386, 397-404, 415-431
+src/observability/llm_metrics.py                      128    128   0.00%   7-304
+src/observability/metrics.py                          127     72  43.31%   77-100, 104, 157-175, 187-189, 201-208, 217-221, 233-286, 299-344
+src/observability/tracing.py                           55     30  45.45%   43-45, 59-84, 95-96, 111, 140, 146, 162-170
+src/orchestration/__init__.py                           4      0 100.00%
+src/orchestration/checkpoint_manager.py               167    149  10.78%   42-88, 100-111, 123-124, 137-153, 165-308, 327-374
+src/orchestration/database_connector_factory.py       127    110  13.39%   29-31, 65-238, 251-309
+src/orchestration/error_boundary.py                    53     53   0.00%   7-197
+src/orchestration/handoff_protocol.py                  48     19  60.42%   43, 47, 52, 83, 121-130, 155-170, 183, 196
+src/orchestration/phase_executor.py                    53     17  67.92%   51, 55, 59, 79, 92-97, 112, 130, 143-152
+src/orchestration/phase_registry.py                    74     27  63.51%   48, 78-79, 115-116, 136-155, 164-171, 175, 179
+src/orchestration/phases/__init__.py                   46     46   0.00%   8-148
+src/orchestration/phases/export_phase.py               53     53   0.00%   7-136
+src/orchestration/phases/extraction_phase.py           23     23   0.00%   7-64
+src/orchestration/phases/quality_phase.py              23     23   0.00%   7-63
+src/orchestration/phases/screening_phase.py            83     83   0.00%   7-225
+src/orchestration/phases/search_phase.py               73     73   0.00%   7-169
+src/orchestration/phases/writing_phase.py              65     65   0.00%   7-174
+src/orchestration/topic_propagator.py                  56     29  48.21%   43, 62, 71-83, 105-106, 110, 124-137, 141, 155-162
+src/orchestration/workflow_graph.py                   180    180   0.00%   7-333
+src/orchestration/workflow_initializer.py             128     26  79.69%   25-29, 87-88, 164, 174, 189, 215, 224-227, 238-239, 243-258
+src/orchestration/workflow_manager.py                2195   1948  11.25%   135-136, 153, 357-385, 389-392, 398-411, 415-443, 448-487, 491-495, 499-519, 533-540, 553-572, 585-650, 663-755, 779-813, 843-1131, 1137-1143, 1162-1167, 1189, 1194, 1199-1208, 1213-1223, 1229, 1236-1298, 1302, 1313, 1315-1317, 1319-1321, 1323-1325, 1327-1329, 1331, 1333-1334, 1336-1337, 1347-1476, 1479-1482, 1486-1513, 1517-1554, 1558-1666, 1715-1726, 1742-1743, 1747-1830, 1834-1838, 1843-1851, 1857-1866, 1871-2206, 2213-2536, 2558-2606, 2617-2640, 2644-2653, 2657-2794, 2806-3034, 3038-3061, 3065-3129, 3133-3136, 3140-3220, 3232-3279, 3283-3326, 3339-3375, 3385-3417, 3433-3523, 3530-4044, 4057-4096, 4105-4383, 4392-4491, 4495-4525, 4529-4538, 4542-4554, 4566-4608, 4627-4678, 4682-4705, 4715-4794, 4800, 4804-4900, 4920-4946, 4964-4998
+src/orchestration/workflow_state.py                    12     12   0.00%   7-152
+src/prisma/__init__.py                                  2      0 100.00%
+src/prisma/checklist_generator.py                      73     73   0.00%   7-229
+src/prisma/prisma_generator.py                        207    172  16.91%   44-46, 50, 54, 58, 62, 66, 70, 74, 78, 82, 86, 90, 94, 101-109, 125-130, 142-189, 198-286, 292-335, 339-674, 678-707, 737-743
+src/quality/__init__.py                                 6      6   0.00%   8-20
+src/quality/auto_filler.py                            278    278   0.00%   8-750
+src/quality/casp_prompts.py                            44     44   0.00%   8-1546
+src/quality/grade_assessor.py                          72     72   0.00%   7-164
+src/quality/quality_assessment_schemas.py              43     43   0.00%   5-107
+src/quality/risk_of_bias_assessor.py                   95     95   0.00%   7-190
+src/quality/study_type_detector.py                     93     93   0.00%   8-315
+src/quality/template_generator.py                      47     47   0.00%   8-195
+src/schemas/__init__.py                                 3      0 100.00%
+src/schemas/extraction_schemas.py                      51     11  78.43%   109-131
+src/schemas/llm_response_schemas.py                   101     12  88.12%   86-88, 230-235, 328-335
+src/schemas/screening_schemas.py                       25      3  88.00%   36-38
+src/screening/base_agent.py                           297    211  28.96%   74-75, 140, 191-198, 208-214, 216-222, 224-230, 232-238, 288-421, 445-470, 482, 494, 521-684, 700-809, 829-839, 848, 852
+src/screening/fulltext_agent.py                       115     99  13.91%   47-161, 171-177, 182-199, 216-252, 256-283, 299-326
+src/screening/title_abstract_agent.py                 232    210   9.48%   51-154, 164-192, 204-239, 244-261, 270-297, 317-322, 341-405, 421-445, 469-623
+src/search/__init__.py                                 24      8  66.67%   19-20, 26-32
+src/search/author_service.py                          111     98  11.71%   32, 52-76, 95-136, 153-157, 185-200, 219-256, 268-293
+src/search/bibliometric_enricher.py                    70     53  24.29%   70-104, 114-139, 154-175
+src/search/cache.py                                    94     75  20.21%   32-41, 45-64, 77-78, 90-105, 117-135, 148-170, 181-202, 206-217, 221-230, 239-255
+src/search/citation_network.py                         90     69  23.33%   42-45, 58-72, 82-103, 120-134, 147-160, 173-194, 203-219, 223-237, 241, 252
+src/search/connectors/__init__.py                       2      0 100.00%
+src/search/connectors/base.py                          97     48  50.52%   80-82, 91-124, 128-134, 143-153, 165-172, 184-186
+src/search/connectors/google_scholar_connector.py     137    119  13.14%   22-25, 52-68, 72-106, 119-226, 239-255, 268-275, 288-293, 297
+src/search/database_connectors.py                    1434   1354   5.58%   52-61, 67-159, 165-257, 260, 274-286, 292-351, 354, 369-377, 383-504, 507, 536-731, 734, 751-769, 774-912, 915, 927-1012, 1024-1062, 1075-1105, 1119-1128, 1134-1281, 1285-1351, 1355-1630, 1633, 1647-1656, 1662-1791, 1795-1855, 1859-2020, 2023, 2038-2049, 2055-2066, 2070-2179, 2182, 2186-2332, 2336-2398, 2402-2564, 2579-2587, 2592-2859, 2862, 2869-2870, 2874-2887, 2890
+src/search/exceptions.py                               16      0 100.00%
+src/search/integrity_checker.py                        65     51  21.54%   45-50, 65-95, 107-127, 140-160, 176-181
+src/search/models.py                                   47      2  95.74%   31, 93
+src/search/multi_database_searcher.py                  32     20  37.50%   32-34, 42-56, 60-66
+src/search/proxy_manager.py                           138    112  18.84%   59-74, 78-88, 92-114, 118-143, 147-191, 195-198, 210-231, 240-243, 252, 256-263, 272-276, 285, 298-303
+src/search/rate_limiter.py                             49     24  51.02%   50-69, 74-78, 108, 138-144
+src/search/search_logger.py                           125    103  17.60%   33-40, 58, 79-104, 108-110, 128-132, 150-175, 187-225, 237-280, 284-288, 298-315, 319-333, 350-355
+src/search/search_strategy.py                         186    150  19.35%   22-36, 81-97, 101-120, 124-139, 143-157, 161-173, 177-191, 195-214, 219-237, 242-252, 257-273, 277-290, 299-314, 319-351
+src/state/__init__.py                                   3      3   0.00%   5-8
+src/state/checkpoint_manager.py                        77     77   0.00%   7-185
+src/state/state_store.py                               48     48   0.00%   7-136
+src/testing/stage_loader.py                            61     61   0.00%   7-160
+src/testing/stage_validators.py                       110    110   0.00%   7-301
+src/tools/__init__.py                                   6      0 100.00%
+src/tools/database_search_tool.py                      18     10  44.44%   25-59, 90-91, 95
+src/tools/exa_tool.py                                  43     30  30.23%   26-34, 48, 62, 75-76, 95, 110-124, 155-165
+src/tools/mermaid_diagram_tool.py                      45     32  28.89%   18-20, 45-112, 134-135
+src/tools/query_builder_tool.py                        25     18  28.00%   21-63, 101, 105
+src/tools/table_generator_tool.py                     136    122  10.29%   16, 41-123, 144-209, 228-254, 267-407
+src/tools/tavily_tool.py                               44     30  31.82%   26-36, 50, 63, 76, 89, 104, 117-131, 162-172
+src/tools/tool_registry.py                            107     69  35.51%   57-70, 86, 92-110, 130-153, 165-189, 206, 221, 225, 237-247, 260-268
+src/utils/circuit_breaker.py                           93     54  41.94%   84-103, 107-111, 115-125, 129-141, 145-150, 154, 158, 179-188
+src/utils/html_utils.py                                35     28  20.00%   24-35, 48-59, 72-81, 94-106
+src/utils/log_context.py                               53     14  73.58%   52, 64, 77-86, 107-109
+src/utils/logging_config.py                            50      7  86.00%   67-72, 90, 98
+src/utils/pdf_retriever.py                            164    145  11.59%   45-72, 88-111, 123-152, 164-175, 187-236, 249-302, 306-308
+src/utils/retry_strategies.py                          50     27  46.00%   73-80, 104-139, 153
+src/utils/rich_utils.py                                99     73  26.26%   42-45, 73-82, 104-113, 144-147, 198-208, 247-268, 307-312, 352-366, 403-412, 450-482
+src/utils/screening_validator.py                       90     71  21.11%   60-88, 107-126, 145-164, 173-206, 215-232
+src/utils/state_serialization.py                       57     36  36.84%   22, 27-45, 50-62, 67-83, 88, 93-120, 125-136
+src/utils/text_cleaner.py                              73     68   6.85%   30-104, 118-160, 178-208
+src/utils/workflow_cleaner.py                         189    189   0.00%   7-418
+src/validation/__init__.py                              2      2   0.00%   7-9
+src/validation/prisma_validator.py                    157    157   0.00%   7-580
+src/version_control/__init__.py                         2      2   0.00%   7-9
+src/version_control/ci_config.py                       27     27   0.00%   7-65
+src/version_control/git_manager.py                     59     59   0.00%   7-130
+src/visualization/charts.py                           531    499   6.03%   25-26, 32-33, 60-96, 112-222, 226-319, 323-333, 349-486, 490-594, 598-698, 711-940, 944-976, 980-1002, 1019-1105, 1122-1201
+src/writing/__init__.py                                 5      0 100.00%
+src/writing/abstract_agent.py                          89     54  39.33%   93-95, 119-130, 142-220, 231-266, 277-306
+src/writing/discussion_agent.py                        76     66  13.16%   20, 30-32, 62-91, 103-291
+src/writing/humanization_agent.py                      90     74  17.78%   29-31, 88-176, 187-252, 257-273
+src/writing/introduction_agent.py                      47     38  19.15%   19, 29-31, 61-85, 96-176
+src/writing/methods_agent.py                           74     65  12.16%   19, 29-31, 72-112, 131-285
+src/writing/naturalness_scorer.py                      61     47  22.95%   26-28, 70-129, 134-181, 185-208, 222-224, 238-239
+src/writing/results_agent.py                          112    101   9.82%   20, 30-32, 67-121, 133-177, 193-502
+src/writing/style_pattern_extractor.py                 98     80  18.37%   31-33, 79-134, 147-154, 159-194, 198-220, 239-310
+src/writing/style_reference.py                         24     16  33.33%   15, 56-68, 83-89, 93, 98-100
+----------------------------------------------------------------------------------
+TOTAL                                               13821  11725  15.17%
+
+7 empty files skipped.

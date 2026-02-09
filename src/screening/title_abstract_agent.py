@@ -13,7 +13,6 @@ from fuzzywuzzy import fuzz
 from pydantic import ValidationError
 
 from ..config.debug_config import DebugLevel
-from ..observability.llm_metrics import llm_metrics
 from ..schemas.llm_response_schemas import ScreeningResultSchema
 from ..schemas.screening_schemas import (
     InclusionDecision as SchemaInclusionDecision,
@@ -127,7 +126,7 @@ class TitleAbstractScreener(BaseScreeningAgent):
                     
                     # Record fallback usage
                     fallback_success = result is not None and result.decision is not None
-                    llm_metrics.record_fallback(success=fallback_success)
+                    # llm_metrics.record_fallback(success=fallback_success)
 
                 logger.info(
                     f"[{self.role}] Screening decision: {result.decision.value} "

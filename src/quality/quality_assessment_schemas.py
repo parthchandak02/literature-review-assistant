@@ -6,6 +6,8 @@ from typing import Dict, List, Optional
 
 from pydantic import BaseModel, Field
 
+from ..schemas.llm_response_schemas import KeyValuePair
+
 
 class CASPQuestionResponse(BaseModel):
     """Response to a single CASP checklist question."""
@@ -24,6 +26,13 @@ class CASPScore(BaseModel):
     quality_rating: str = Field(description="Overall quality rating: 'High', 'Moderate', or 'Low'")
 
 
+class CASPQuestionPair(BaseModel):
+    """Key-value pair for CASP questions for Gemini API compatibility."""
+    
+    key: str = Field(description="Question ID (e.g., q1, q2)")
+    value: CASPQuestionResponse = Field(description="Question response")
+
+
 class CASPAssessment(BaseModel):
     """CASP quality assessment for a single study."""
 
@@ -39,8 +48,9 @@ class CASPAssessment(BaseModel):
     checklist_used: str = Field(
         description="CASP checklist used: 'casp_rct', 'casp_cohort', or 'casp_qualitative'"
     )
-    questions: Dict[str, CASPQuestionResponse] = Field(
-        description="Responses to each question (q1, q2, ...)"
+    questions: List[CASPQuestionPair] = Field(
+        default_factory=list,
+        description="Responses to each question as key-value pairs (e.g., q1, q2, ...)",
     )
     score: CASPScore = Field(description="Score summary")
     overall_notes: str = Field(description="Overall assessment notes and summary")
@@ -57,7 +67,10 @@ class RiskOfBiasAssessment(BaseModel):
     study_id: str = Field(description="Unique identifier for the study")
     study_title: str = Field(description="Title of the study")
     tool: str = Field(description="Assessment tool used (DEPRECATED - use CASP)")
-    domains: Dict[str, str] = Field(description="Risk of bias ratings for each domain (DEPRECATED)")
+    domains: List[KeyValuePair] = Field(
+        default_factory=list,
+        description="Risk of bias ratings for each domain as key-value pairs (DEPRECATED)",
+    )
     overall: str = Field(description="Overall risk of bias rating (DEPRECATED)")
     notes: Optional[str] = Field(default=None, description="Additional notes about the assessment")
 

@@ -16,7 +16,6 @@ from pydantic import BaseModel, ValidationError
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential
 
 from ..config.debug_config import get_debug_config_from_env
-from ..observability.llm_metrics import llm_metrics
 from ..tools.tool_registry import Tool, ToolRegistry
 from ..utils.circuit_breaker import (
     CircuitBreaker,
@@ -381,8 +380,8 @@ class BaseScreeningAgent(ABC):
                 except (json.JSONDecodeError, ValidationError) as e:
                     logger.error(f"Manual parsing also failed: {e}. Will trigger retry...")
                     # Record failure and retry
-                    llm_metrics.record_structured_failure(error_type="manual_parsing_failed", duration=duration)
-                    llm_metrics.record_retry()
+                    # llm_metrics.record_structured_failure(error_type="manual_parsing_failed", duration=duration)
+                    # llm_metrics.record_retry()
                     # Raise ValidationError to trigger retry decorator
                     raise
 
@@ -392,7 +391,7 @@ class BaseScreeningAgent(ABC):
             )
 
             # Record success metric
-            llm_metrics.record_structured_success(duration=duration)
+            # llm_metrics.record_structured_success(duration=duration)
 
             return result
 
@@ -402,8 +401,8 @@ class BaseScreeningAgent(ABC):
                 f"LLM response did not match expected schema. Retrying..."
             )
             # Record validation failure
-            llm_metrics.record_structured_failure(error_type="validation_error")
-            llm_metrics.record_retry()
+            # llm_metrics.record_structured_failure(error_type="validation_error")
+            # llm_metrics.record_retry()
             raise  # Will trigger retry decorator
 
         except json.JSONDecodeError as e:
@@ -412,8 +411,8 @@ class BaseScreeningAgent(ABC):
                 f"LLM returned invalid JSON. Retrying..."
             )
             # Record JSON decode failure
-            llm_metrics.record_structured_failure(error_type="json_decode_error")
-            llm_metrics.record_retry()
+            # llm_metrics.record_structured_failure(error_type="json_decode_error")
+            # llm_metrics.record_retry()
             raise  # Will trigger retry decorator
 
         except Exception as e:
