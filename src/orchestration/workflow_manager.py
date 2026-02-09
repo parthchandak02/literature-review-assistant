@@ -428,6 +428,9 @@ class WorkflowManager:
         """Wrapper for report generation phase."""
         # Get article sections from previous phase
         article_sections = getattr(self, "_article_sections", {})
+        if not article_sections:
+            article_sections = self._load_existing_sections()
+            self._article_sections = article_sections
 
         # Get PRISMA path (may need to generate if not available)
         prisma_path = None
@@ -547,7 +550,7 @@ class WorkflowManager:
             "prisma_generation": 9,  # Next: visualization/writing
             "visualization_generation": 10,  # Next: article_writing
             "article_writing": 11,  # Next: report_generation
-            "report_generation": 12,  # Next: export/search_strategies
+            "report_generation": 11,  # Rerun writing to refresh citations before report
             "manubot_export": 18,  # Next: submission_package
             "submission_package": 19,  # All phases complete - skip everything
         }
@@ -893,9 +896,16 @@ class WorkflowManager:
                         "paper_enrichment"
                     ],  # paper_enrichment may not exist, will fallback to fulltext_screening data
                     "quality_assessment": ["data_extraction"],
+                    "prisma_generation": ["data_extraction"],
+                    "visualization_generation": ["data_extraction"],
                     "article_writing": [
                         "data_extraction"
                     ],  # Need final_papers from data_extraction for citations
+                    "report_generation": [
+                        "article_writing",
+                        "prisma_generation",
+                        "visualization_generation",
+                    ],
                     "manubot_export": ["article_writing"],
                     "submission_package": ["article_writing", "report_generation"],
                 }
@@ -1073,6 +1083,26 @@ class WorkflowManager:
 
                 # Determine start phase from checkpoint
                 start_from_phase = self._determine_start_phase(existing_checkpoint)
+                if start_from_phase and start_from_phase >= 12:
+                    # Guard: if checkpointed article sections contain invalid/legacy citations,
+                    # rerun article writing to regenerate sections with the canonical citation contract.
+                    checkpoint_sections = self._load_existing_sections()
+                    if checkpoint_sections and self.final_papers:
+                        self._ensure_citation_registry()
+                        invalid_sections = []
+                        for section_name, section_text in checkpoint_sections.items():
+                            is_valid = self._validate_section_citations(
+                                section_name, section_text, fail_on_invalid=True
+                            )
+                            if not is_valid:
+                                invalid_sections.append(section_name)
+                        if invalid_sections:
+                            logger.warning(
+                                "Detected invalid citations in checkpointed sections (%s); "
+                                "forcing resume from article_writing to regenerate sections.",
+                                ", ".join(sorted(invalid_sections)),
+                            )
+                            start_from_phase = 11
                 if start_from_phase and existing_checkpoint is not None:
                     resume_info_lines = [
                         f"[bold cyan]Resuming from phase {start_from_phase}[/bold cyan]",
@@ -3199,6 +3229,210 @@ class WorkflowManager:
 
         return paths
 
+    def _validate_section_citations(
+        self, section_name: str, section_text: str, fail_on_invalid: bool = False
+    ) -> bool:
+        """
+        Validate citations in a section.
+        
+        Args:
+            section_name: Name of the section
+            section_text: Section text to validate
+            
+        Returns:
+            True if all citations are valid, False otherwise
+        """
+        if not hasattr(self, 'citation_registry') or not self.citation_registry:
+            logger.warning(f"Citation registry not available for validation of {section_name}")
+            return True  # Skip validation if registry not built
+        
+        # Extract all citekeys from section
+        citekeys = self.citation_registry.extract_citekeys_from_text(section_text)
+        
+        if not citekeys:
+            logger.info(f"No citations found in {section_name} section")
+            return True
+        
+        # Validate citekeys
+        valid, invalid = self.citation_registry.validate_citekeys(citekeys)
+        
+        if invalid:
+            logger.warning(f"Found {len(invalid)} invalid citations in {section_name}: {invalid[:5]}")
+            logger.warning("These citations do not match any paper in final_papers")
+            if fail_on_invalid:
+                return False
+        
+        unique_valid = len(set(valid))
+        logger.info(f"Validated {section_name}: {unique_valid} unique valid citations, {len(invalid)} invalid")
+        
+        return True
+
+    def _ensure_citation_registry(self) -> None:
+        """Build citation registry if not already initialized."""
+        if hasattr(self, "citation_registry") and self.citation_registry is not None:
+            return
+        from .citation_registry import CitationRegistry
+
+        self.citation_registry = CitationRegistry(self.final_papers)
+        logger.info(
+            f"Initialized citation registry with {len(self.citation_registry.citekey_to_paper)} papers"
+        )
+    
+    def _extract_and_map_citations(self, text: str, citation_map: dict) -> str:
+        """
+        Extract author-year citations and replace with numbered citations.
+        
+        Args:
+            text: Text containing citations like [Kaufman2020]
+            citation_map: Dict mapping citekeys to paper indices
+            
+        Returns:
+            Text with citations replaced with [1], [2], etc.
+        """
+        import re
+        
+        # Pattern to match author-year citations: [Author2020], [AuthorName2020a]
+        pattern = r'\[([A-Z][a-zA-Z]+\d{4}[a-z]?)\]'
+        
+        def replace_citation(match):
+            citekey = match.group(1)
+            if citekey in citation_map:
+                return f"[{citation_map[citekey]}]"
+            else:
+                # Citation not found in papers - keep original
+                logger.warning(f"Citation {citekey} not found in final papers")
+                return match.group(0)
+        
+        return re.sub(pattern, replace_citation, text)
+    
+    def _build_citation_map(self, all_text: str) -> dict:
+        """
+        Build a mapping from citekeys to paper indices.
+        
+        Args:
+            all_text: Combined text from all sections
+            
+        Returns:
+            Dict mapping citekeys like 'Kaufman2020' to citation numbers like 1, 2, 3
+        """
+        import re
+        
+        # Extract all citekeys from text
+        pattern = r'\[([A-Z][a-zA-Z]+\d{4}[a-z]?)\]'
+        citekeys = re.findall(pattern, all_text)
+        unique_citekeys = list(dict.fromkeys(citekeys))  # Preserve order, remove dupes
+        
+        # Map each citekey to a paper
+        citation_map = {}
+        citation_number = 1
+        
+        for citekey in unique_citekeys:
+            # Extract author surname and year from citekey
+            match = re.match(r'([A-Z][a-zA-Z]+)(\d{4})([a-z]?)', citekey)
+            if not match:
+                continue
+                
+            author_surname = match.group(1).lower()
+            year_str = match.group(2)
+            
+            # Find matching paper in final_papers
+            for paper in self.final_papers:
+                if not paper.authors or not paper.year:
+                    continue
+                    
+                # Check if first author surname matches (case-insensitive)
+                first_author = paper.authors[0].lower()
+                # Extract surname from "Firstname Surname" or "Surname, Firstname"
+                if ',' in first_author:
+                    paper_surname = first_author.split(',')[0].strip()
+                else:
+                    # Take last word as surname
+                    paper_surname = first_author.split()[-1]
+                
+                # Check year match
+                if paper_surname == author_surname.lower() and str(paper.year) == year_str:
+                    citation_map[citekey] = citation_number
+                    citation_number += 1
+                    break
+            else:
+                # No matching paper found - still assign a number to avoid breaking citations
+                logger.warning(f"No paper found for citation {citekey}")
+                citation_map[citekey] = citation_number
+                citation_number += 1
+        
+        return citation_map
+    
+    def _generate_references_from_citations(self, citation_map: dict) -> str:
+        """
+        Generate references section for cited papers only.
+        
+        Args:
+            citation_map: Dict mapping citekeys to citation numbers
+            
+        Returns:
+            Formatted references section
+        """
+        if not citation_map:
+            return "## References\n\nNo citations found in the document.\n\n"
+        
+        # Create reverse map: citation_number -> citekey
+        reverse_map = {num: key for key, num in citation_map.items()}
+        
+        # Generate references in numerical order
+        refs = ["## References\n\n"]
+        for num in sorted(reverse_map.keys()):
+            citekey = reverse_map[num]
+            
+            # Find the paper for this citekey
+            match = re.match(r'([A-Z][a-zA-Z]+)(\d{4})([a-z]?)', citekey)
+            if not match:
+                refs.append(f"[{num}] {citekey} (citation not found)\n\n")
+                continue
+                
+            author_surname = match.group(1).lower()
+            year_str = match.group(2)
+            
+            # Find paper
+            paper = None
+            for p in self.final_papers:
+                if not p.authors or not p.year:
+                    continue
+                first_author = p.authors[0].lower()
+                if ',' in first_author:
+                    paper_surname = first_author.split(',')[0].strip()
+                else:
+                    paper_surname = first_author.split()[-1]
+                
+                if paper_surname == author_surname.lower() and str(p.year) == year_str:
+                    paper = p
+                    break
+            
+            if not paper:
+                refs.append(f"[{num}] {citekey} (paper not found)\n\n")
+                continue
+            
+            # Format reference in IEEE/Vancouver style
+            authors = paper.authors[:3] if paper.authors else ["Unknown"]
+            authors_str = ", ".join(authors)
+            if len(paper.authors) > 3:
+                authors_str += " et al."
+            
+            title = paper.title or "Untitled"
+            journal = paper.journal or ""
+            year = paper.year or "n.d."
+            doi = paper.doi or ""
+            
+            ref = f"[{num}] {authors_str}. {title}."
+            if journal:
+                ref += f" {journal},"
+            ref += f" {year}."
+            if doi:
+                ref += f" DOI: {doi}"
+            
+            refs.append(ref + "\n\n")
+        
+        return "".join(refs)
+
     def _collect_mermaid_diagrams(self) -> Dict[str, str]:
         """
         Scan output directory for mermaid diagram SVG files (fallback method).
@@ -3481,6 +3715,28 @@ class WorkflowManager:
             logger.info("Each section requires an LLM call and may take some time.")
         console.print()
 
+        # Build citation registry from final papers
+        self._ensure_citation_registry()
+        citation_catalog = self.citation_registry.catalog_for_prompt()
+        logger.info(f"Built citation registry with {len(self.citation_registry.citekey_to_paper)} papers")
+
+        # Validate checkpointed sections against current citation registry.
+        # If citations are invalid (legacy/hallucinated keys), force regeneration.
+        removed_sections = []
+        for section_name, section_text in list(sections.items()):
+            is_valid = self._validate_section_citations(
+                section_name, section_text, fail_on_invalid=True
+            )
+            if not is_valid:
+                sections.pop(section_name, None)
+                removed_sections.append(section_name)
+        if removed_sections:
+            logger.warning(
+                "Removed checkpointed sections with invalid citations; will regenerate: "
+                + ", ".join(sorted(removed_sections))
+            )
+            completed_sections = list(sections.keys())
+
         # Extract style patterns before writing
         self._extract_style_patterns()
 
@@ -3524,6 +3780,7 @@ class WorkflowManager:
                 justification,
                 topic_context=writing_context,
                 style_patterns=self.style_patterns,
+                citation_catalog=citation_catalog,
             )
 
             # Humanize if enabled
@@ -3542,6 +3799,13 @@ class WorkflowManager:
                 humanized = True
 
             sections["introduction"] = intro
+            
+            # Validate citations in introduction
+            if not self._validate_section_citations(
+                "introduction", intro, fail_on_invalid=True
+            ):
+                raise RuntimeError("Generated introduction contains invalid citations")
+            
             checkpoint_saved = self._save_section_checkpoint("introduction", sections)
 
             # Show COMPLETE panel
@@ -3648,6 +3912,7 @@ class WorkflowManager:
                 topic_context=writing_context,
                 full_search_strategies=searched_db_strategies,
                 protocol_info=protocol_info,
+                citation_catalog=citation_catalog,
                 automation_details=automation_details,
                 style_patterns=self.style_patterns,
                 output_dir=str(self.output_dir),
@@ -3669,6 +3934,13 @@ class WorkflowManager:
                 humanized = True
 
             sections["methods"] = methods
+            
+            # Validate citations in methods
+            if not self._validate_section_citations(
+                "methods", methods, fail_on_invalid=True
+            ):
+                raise RuntimeError("Generated methods contains invalid citations")
+            
             checkpoint_saved = self._save_section_checkpoint("methods", sections)
 
             # Show COMPLETE panel
@@ -3768,6 +4040,7 @@ class WorkflowManager:
                 grade_table=grade_table,
                 style_patterns=self.style_patterns,
                 output_dir=str(self.output_dir),
+                citation_catalog=citation_catalog,
             )
 
             # Humanize if enabled
@@ -3786,6 +4059,13 @@ class WorkflowManager:
                 humanized = True
 
             sections["results"] = results
+            
+            # Validate citations in results
+            if not self._validate_section_citations(
+                "results", results, fail_on_invalid=True
+            ):
+                raise RuntimeError("Generated results contains invalid citations")
+            
             checkpoint_saved = self._save_section_checkpoint("results", sections)
 
             # Show COMPLETE panel
@@ -3867,6 +4147,7 @@ class WorkflowManager:
                 ["Implications for practice", "Future research directions"],
                 topic_context=writing_context,
                 style_patterns=self.style_patterns,
+                citation_catalog=citation_catalog,
             )
 
             # Humanize if enabled
@@ -3885,6 +4166,13 @@ class WorkflowManager:
                 humanized = True
 
             sections["discussion"] = discussion
+            
+            # Validate citations in discussion
+            if not self._validate_section_citations(
+                "discussion", discussion, fail_on_invalid=True
+            ):
+                raise RuntimeError("Generated discussion contains invalid citations")
+            
             checkpoint_saved = self._save_section_checkpoint("discussion", sections)
 
             # Show COMPLETE panel
@@ -4036,8 +4324,24 @@ class WorkflowManager:
         viz_paths: Dict[str, str],
     ) -> str:
         """Generate final markdown report."""
+        import re
+        self._ensure_citation_registry()
+
         # Prepare figures and get path mapping
         figure_paths = self._prepare_figure_paths(prisma_path, viz_paths)
+
+        # Use citation registry to convert citekeys to numbers
+        all_text = "\n\n".join([
+            article_sections.get("abstract", ""),
+            article_sections.get("introduction", ""),
+            article_sections.get("methods", ""),
+            article_sections.get("results", ""),
+            article_sections.get("discussion", "")
+        ])
+        
+        # Get transformed text and used citekeys from registry
+        _, used_citekeys = self.citation_registry.replace_citekeys_with_numbers(all_text)
+        logger.info(f"Found {len(used_citekeys)} unique citations in article")
 
         # Generate manuscript.md with correct figure paths
         manuscript_path = self.output_dir / "manuscript.md"
@@ -4056,7 +4360,9 @@ class WorkflowManager:
             if abstract:
                 f.write("## Abstract\n\n")
                 f.write("**Systematic Review**\n\n")
-                f.write(abstract)
+                # Replace citations in abstract
+                abstract_with_numbers, _ = self.citation_registry.replace_citekeys_with_numbers(abstract)
+                f.write(abstract_with_numbers)
                 f.write("\n\n---\n\n")
 
             # Keywords - aggregate from topic context and papers
@@ -4097,19 +4403,21 @@ class WorkflowManager:
                 f.write("---\n\n")
 
             # Introduction
-            intro_text = article_sections["introduction"]
+            intro_text = article_sections.get("introduction", "")
+            intro_text_with_numbers, _ = self.citation_registry.replace_citekeys_with_numbers(intro_text)
             f.write("## Introduction\n\n")
-            f.write(intro_text)
+            f.write(intro_text_with_numbers)
             f.write("\n\n---\n\n")
 
             # Methods
-            methods_text = article_sections["methods"]
+            methods_text = article_sections.get("methods", "")
+            methods_text_with_numbers, _ = self.citation_registry.replace_citekeys_with_numbers(methods_text)
             f.write("## Methods\n\n")
-            f.write(methods_text)
+            f.write(methods_text_with_numbers)
             f.write("\n\n---\n\n")
 
             # Results
-            results_text = article_sections["results"]
+            results_text = article_sections.get("results", "")
 
             # Insert PRISMA diagram into Results section after Study Selection subsection
             # Use the figure path from the mapping (figures/figure_1.xxx)
@@ -4216,19 +4524,21 @@ class WorkflowManager:
                         # No separator found, append at end
                         results_text = results_text + viz_section
 
-            # Write the modified results text
+            # Write the modified results text (with citations replaced)
+            results_text_with_numbers, _ = self.citation_registry.replace_citekeys_with_numbers(results_text)
             f.write("## Results\n\n")
-            f.write(results_text)
+            f.write(results_text_with_numbers)
             f.write("\n\n---\n\n")
 
             # Discussion
-            discussion_text = article_sections["discussion"]
+            discussion_text = article_sections.get("discussion", "")
+            discussion_text_with_numbers, _ = self.citation_registry.replace_citekeys_with_numbers(discussion_text)
             f.write("## Discussion\n\n")
-            f.write(discussion_text)
+            f.write(discussion_text_with_numbers)
             f.write("\n\n---\n\n")
 
             # References section (before Summary)
-            references_section = citation_manager.generate_references_section()
+            references_section = self.citation_registry.references_markdown(used_citekeys)
             f.write(references_section)
             f.write("\n---\n\n")
 
@@ -4312,102 +4622,52 @@ class WorkflowManager:
         prisma_path: str,
         viz_paths: Dict[str, str],
     ) -> Dict[str, str]:
-        """Export report to LaTeX and Word formats - export modules removed."""
-        logger.warning("Export functionality is no longer available")
-        return {}
-
-        # Aggregate keywords from topic context and papers
-        keywords = self.topic_context.keywords if hasattr(self.topic_context, "keywords") else []
-        paper_keywords = []
-        for paper in self.final_papers:
-            if paper.keywords:
-                if isinstance(paper.keywords, list):
-                    paper_keywords.extend(paper.keywords)
-                elif isinstance(paper.keywords, str):
-                    paper_keywords.extend([kw.strip() for kw in paper.keywords.split(",")])
-
-        # Combine and deduplicate keywords
-        seen = set()
-        all_keywords = []
-        for kw in keywords + paper_keywords:
-            kw_lower = kw.lower().strip()
-            if kw_lower and kw_lower not in seen:
-                seen.add(kw_lower)
-                all_keywords.append(kw.strip())
-
-        # Limit to 5-10 keywords for IEEE
-        all_keywords = all_keywords[:10]
-
-        # Prepare report data
-        report_data = {
-            "title": f"Systematic Review: {self.topic_context.topic}",
-            "abstract": article_sections.get("abstract", ""),
-            "keywords": all_keywords,
-            "introduction": citation_manager.extract_and_map_citations(
-                article_sections.get("introduction", "")
-            ),
-            "methods": citation_manager.extract_and_map_citations(
-                article_sections.get("methods", "")
-            ),
-            "results": citation_manager.extract_and_map_citations(
-                article_sections.get("results", "")
-            ),
-            "discussion": citation_manager.extract_and_map_citations(
-                article_sections.get("discussion", "")
-            ),
-            "references": citation_manager.get_references(),
-            "figures": [],
-        }
-
-        # Add figures
-        if prisma_path:
-            report_data["figures"].append(
-                {
-                    "path": prisma_path,
-                    "caption": "PRISMA 2020 flow diagram showing the study selection process.",
-                }
-            )
-
-        for name, path in viz_paths.items():
-            if not path.endswith(".html"):
-                report_data["figures"].append(
-                    {
-                        "path": path,
-                        "caption": f"{name.replace('_', ' ').title()} showing bibliometric analysis of included studies.",
-                    }
-                )
-
-        # Export to LaTeX if requested
+        """Export report to BibTeX and RIS formats using citation registry."""
+        self._ensure_citation_registry()
+        export_paths = {}
+        
+        # Get export configuration
         export_config = self.config.get("output", {}).get("formats", [])
-        if "latex" in export_config:
-            latex_exporter = LaTeXExporter()
-            latex_path = self.output_dir / "final_report.tex"
-            latex_exporter.export(report_data, str(latex_path), journal="IEEE")
-            export_paths["latex"] = str(latex_path)
-            logger.info(f"LaTeX export generated: {latex_path}")
-
-        # Export to Word if requested
-        if "word" in export_config or "docx" in export_config:
-            word_exporter = WordExporter()
-            word_path = self.output_dir / "final_report.docx"
-            word_exporter.export(report_data, str(word_path))
-            export_paths["word"] = str(word_path)
-            logger.info(f"Word export generated: {word_path}")
-
+        
+        if not export_config:
+            logger.info("No export formats configured")
+            return export_paths
+        
+        # Get used citations from all sections
+        all_text = "\n\n".join([
+            article_sections.get("abstract", ""),
+            article_sections.get("introduction", ""),
+            article_sections.get("methods", ""),
+            article_sections.get("results", ""),
+            article_sections.get("discussion", "")
+        ])
+        
+        _, used_citekeys = self.citation_registry.replace_citekeys_with_numbers(all_text)
+        
         # Export to BibTeX if requested
-        if "bibtex" in export_config:
+        if "bibtex" in export_config or "bib" in export_config:
             bibtex_path = self.output_dir / "references.bib"
-            citation_manager.export_bibtex(str(bibtex_path))
+            bibtex_content = self.citation_registry.to_bibtex(used_citekeys)
+            with open(bibtex_path, 'w') as f:
+                f.write(bibtex_content)
             export_paths["bibtex"] = str(bibtex_path)
             logger.info(f"BibTeX file generated: {bibtex_path}")
-
+        
         # Export to RIS if requested
         if "ris" in export_config:
             ris_path = self.output_dir / "references.ris"
-            citation_manager.export_ris(str(ris_path))
+            ris_content = self.citation_registry.to_ris(used_citekeys)
+            with open(ris_path, 'w') as f:
+                f.write(ris_content)
             export_paths["ris"] = str(ris_path)
             logger.info(f"RIS file generated: {ris_path}")
-
+        
+        # LaTeX and Word export not currently supported
+        if "latex" in export_config:
+            logger.warning("LaTeX export not currently supported (export modules removed)")
+        if "word" in export_config or "docx" in export_config:
+            logger.warning("Word export not currently supported (export modules removed)")
+        
         return export_paths
 
     def _export_search_strategies(self) -> Optional[str]:
@@ -4486,13 +4746,19 @@ class WorkflowManager:
         """
         from pathlib import Path
 
-        from ..export.submission_package import SubmissionPackageBuilder
-
         submission_config = self.config.get("submission", {})
         if not submission_config.get("enabled", False):
             return None
 
         try:
+            try:
+                from ..export.submission_package import SubmissionPackageBuilder
+            except ModuleNotFoundError:
+                logger.warning(
+                    "Submission package module is unavailable (src.export removed); skipping submission package generation"
+                )
+                return None
+
             # Get journal
             journal = submission_config.get("default_journal", "ieee")
 

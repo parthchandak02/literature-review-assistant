@@ -49,6 +49,7 @@ class MethodsWriter(BaseScreeningAgent):
         automation_details: Optional[str] = None,
         style_patterns: Optional[Dict[str, Dict[str, List[str]]]] = None,
         output_dir: Optional[str] = None,
+        citation_catalog: Optional[str] = None,
     ) -> str:
         """
         Write methods section.
@@ -64,6 +65,7 @@ class MethodsWriter(BaseScreeningAgent):
             full_search_strategies: Dictionary mapping database names to full search queries
             protocol_info: Protocol registration information (registry, number, url)
             automation_details: Details about automation tools used (LLM for screening/extraction)
+            citation_catalog: Optional citation catalog from CitationRegistry
 
         Returns:
             Methods text
@@ -86,6 +88,7 @@ class MethodsWriter(BaseScreeningAgent):
             automation_details,
             style_patterns,
             output_dir,
+            citation_catalog,
         )
 
         if not self.llm_client:
@@ -125,6 +128,7 @@ class MethodsWriter(BaseScreeningAgent):
         automation_details: Optional[str] = None,
         style_patterns: Optional[Dict[str, Dict[str, List[str]]]] = None,
         output_dir: Optional[str] = None,
+        citation_catalog: Optional[str] = None,
     ) -> str:
         """Build prompt for methods writing."""
         # Build protocol registration text
@@ -160,9 +164,14 @@ class MethodsWriter(BaseScreeningAgent):
             automation_text = f"\n\nAutomation Tools:\n{automation_details}"
         else:
             automation_text = "\n\nAutomation: Large language models (LLMs) were used to assist with title/abstract screening, full-text screening, and data extraction. All LLM outputs were verified and supplemented by human reviewers."
+        
+        # Add citation catalog if provided
+        citation_text = ""
+        if citation_catalog:
+            citation_text = f"\n\n{citation_catalog}\n"
 
         prompt = f"""Write a comprehensive methods section for a systematic review following PRISMA 2020 guidelines.
-
+{citation_text}
 {protocol_text}
 
 Search Strategy Overview:
@@ -258,6 +267,12 @@ Please write a detailed methods section that includes:
 8. Reporting Bias Assessment (methods used to assess reporting biases, such as publication bias, selective outcome reporting, etc.)
 9. Certainty Assessment (GRADE or other methods used to assess certainty of evidence)
 10. Data Synthesis Methods (narrative synthesis, meta-analysis if applicable)
+
+CITATION REQUIREMENTS:
+- Use ONLY citations from the provided catalog above (if provided)
+- Use exact citekey format: [Smith2023], [Jones2024a], etc.
+- Do NOT use [Citation X] or [Citation 1] format
+- Do NOT invent or make up citations
 
 IMPORTANT: Include the full search strategies for ALL databases in the methods section. The full search queries are provided above. Write in past tense, use PRISMA 2020 terminology, and ensure all methodological details are clearly described. Begin immediately with protocol registration or search strategy - do not include any introductory phrases."""
         )

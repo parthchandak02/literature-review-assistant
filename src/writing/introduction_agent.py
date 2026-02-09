@@ -42,6 +42,7 @@ class IntroductionWriter(BaseScreeningAgent):
         gap_description: Optional[str] = None,
         topic_context: Optional[Dict[str, Any]] = None,
         style_patterns: Optional[Dict[str, Dict[str, List[str]]]] = None,
+        citation_catalog: Optional[str] = None,
     ) -> str:
         """
         Write introduction section.
@@ -53,6 +54,7 @@ class IntroductionWriter(BaseScreeningAgent):
             gap_description: Description of research gap (optional)
             topic_context: Optional topic context
             style_patterns: Optional style patterns extracted from eligible papers
+            citation_catalog: Optional citation catalog from CitationRegistry
 
         Returns:
             Introduction text
@@ -63,7 +65,7 @@ class IntroductionWriter(BaseScreeningAgent):
             self.topic_context = topic_context
 
         prompt = self._build_introduction_prompt(
-            research_question, justification, background_context, gap_description, style_patterns
+            research_question, justification, background_context, gap_description, style_patterns, citation_catalog
         )
 
         if not self.llm_client:
@@ -91,6 +93,7 @@ class IntroductionWriter(BaseScreeningAgent):
         background_context: Optional[str],
         gap_description: Optional[str],
         style_patterns: Optional[Dict[str, Dict[str, List[str]]]] = None,
+        citation_catalog: Optional[str] = None,
     ) -> str:
         """Build prompt for introduction writing."""
         prompt = f"""Write a comprehensive introduction section for a systematic review research article.
@@ -105,6 +108,10 @@ Justification: {justification}
 
         if gap_description:
             prompt += f"\nResearch Gap: {gap_description}"
+        
+        # Add citation catalog if provided
+        if citation_catalog:
+            prompt += f"\n\n{citation_catalog}\n"
 
         # Add style guidelines if patterns available
         style_guidelines = ""
@@ -170,7 +177,14 @@ Please write a well-structured introduction that includes:
 
 CRITICAL REQUIREMENT: You MUST include an explicit "Objectives" paragraph or subsection with bullet points listing the specific objectives. This is required by PRISMA 2020 (Item #4).
 
-Write in academic style, use appropriate citations (use [Citation X] format), and ensure the introduction flows logically. Begin immediately with the background content - do not include any introductory phrases."""
+CITATION REQUIREMENTS:
+- Use ONLY citations from the provided catalog above
+- Use exact citekey format: [Smith2023], [Jones2024a], etc.
+- Do NOT use [Citation X] or [Citation 1] format
+- Do NOT invent or make up citations
+- Each citation must match an entry from the catalog exactly
+
+Write in academic style, integrate citations naturally from the catalog, and ensure the introduction flows logically. Begin immediately with the background content - do not include any introductory phrases."""
         )
 
         return prompt

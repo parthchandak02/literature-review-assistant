@@ -47,6 +47,7 @@ class ResultsWriter(BaseScreeningAgent):
         grade_table: Optional[str] = None,
         style_patterns: Optional[Dict[str, Dict[str, List[str]]]] = None,
         output_dir: Optional[str] = None,
+        citation_catalog: Optional[str] = None,
     ) -> str:
         """
         Write results section.
@@ -59,6 +60,7 @@ class ResultsWriter(BaseScreeningAgent):
             risk_of_bias_table: Markdown table of risk of bias assessments
             grade_assessments: Narrative summary of GRADE assessments
             grade_table: Markdown table of GRADE evidence profile
+            citation_catalog: Optional citation catalog from CitationRegistry
 
         Returns:
             Results text
@@ -95,6 +97,7 @@ class ResultsWriter(BaseScreeningAgent):
             grade_table,
             style_patterns,
             output_dir,
+            citation_catalog,
         )
 
         if not self.llm_client:
@@ -188,12 +191,18 @@ class ResultsWriter(BaseScreeningAgent):
         grade_table: Optional[str] = None,
         style_patterns: Optional[Dict[str, Dict[str, List[str]]]] = None,
         output_dir: Optional[str] = None,
+        citation_catalog: Optional[str] = None,
     ) -> str:
         """Build prompt for results writing."""
         num_studies = len(extracted_data)
+        
+        # Add citation catalog if provided
+        citation_text = ""
+        if citation_catalog:
+            citation_text = f"{citation_catalog}\n\n"
 
         prompt = f"""Write a comprehensive results section for a systematic review.
-
+{citation_text}
 Study Selection:
 - Total records identified: {prisma_counts.get("found", 0)}
 - Records after duplicates removed: {prisma_counts.get("no_dupes", 0)}
@@ -315,6 +324,11 @@ Please write a results section that includes:
 2. Explanation of why no studies met inclusion criteria
 3. Summary of search results and screening process
 
+CITATION REQUIREMENTS (if catalog provided):
+- Use ONLY citations from the provided catalog above
+- Use exact citekey format: [Smith2023], [Jones2024a], etc.
+- Do NOT use [Citation X] or [Citation 1] format
+
 Write in past tense and use appropriate academic language. Begin immediately with the study selection summary - do not include any introductory phrases.
 - DO NOT include a "Results" subsection header (### Results) - the Results section header is already provided, start directly with "### Study Selection" """
             )
@@ -329,6 +343,11 @@ Please write a results section that includes:
 3. Risk of Bias in Studies (if risk of bias table is provided above, include it)
 4. Key Findings (detailed findings from the single study)
 5. Note the limitation of having only one study
+
+CITATION REQUIREMENTS (if catalog provided):
+- Use ONLY citations from the provided catalog above
+- Use exact citekey format: [Smith2023], [Jones2024a], etc.
+- Do NOT use [Citation X] or [Citation 1] format
 
 Write in past tense, use SINGULAR language (e.g., "the study" not "studies"), and use appropriate academic language. Begin immediately with the study selection summary - do not include any introductory phrases.
 - DO NOT include a "Results" subsection header (### Results) - the Results section header is already provided, start directly with "### Study Selection" """
@@ -492,6 +511,11 @@ IMPORTANT:
 - Include the study characteristics table exactly as provided above
 - If risk of bias information is provided, include the table and write a narrative summary (150-200 words)
 - If GRADE information is provided, include the GRADE evidence profile table and write a narrative summary
+CITATION REQUIREMENTS (if catalog provided):
+- Use ONLY citations from the provided catalog above
+- Use exact citekey format: [Smith2023], [Jones2024a], etc.
+- Do NOT use [Citation X] or [Citation 1] format
+
 - Write in past tense, synthesize findings across studies, and use appropriate academic language
 - Begin immediately with the study selection summary - do not include any introductory phrases
 - DO NOT include a "Results" subsection header (### Results) - the Results section header is already provided, start directly with "### Study Selection"

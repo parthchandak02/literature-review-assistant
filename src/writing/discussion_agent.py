@@ -44,6 +44,7 @@ class DiscussionWriter(BaseScreeningAgent):
         implications: Optional[List[str]] = None,
         topic_context: Optional[Dict[str, Any]] = None,
         style_patterns: Optional[Dict[str, Dict[str, List[str]]]] = None,
+        citation_catalog: Optional[str] = None,
     ) -> str:
         """
         Write discussion section.
@@ -54,6 +55,7 @@ class DiscussionWriter(BaseScreeningAgent):
             extracted_data: List of extracted data from studies
             limitations: Study limitations (optional)
             implications: Implications for practice/research (optional)
+            citation_catalog: Optional citation catalog from CitationRegistry
 
         Returns:
             Discussion text
@@ -70,6 +72,7 @@ class DiscussionWriter(BaseScreeningAgent):
             limitations,
             implications,
             style_patterns,
+            citation_catalog,
         )
 
         if not self.llm_client:
@@ -98,12 +101,18 @@ class DiscussionWriter(BaseScreeningAgent):
         limitations: Optional[List[str]],
         implications: Optional[List[str]],
         style_patterns: Optional[Dict[str, Dict[str, List[str]]]] = None,
+        citation_catalog: Optional[str] = None,
     ) -> str:
         """Build prompt for discussion writing."""
         num_studies = len(extracted_data)
+        
+        # Add citation catalog if provided
+        citation_text = ""
+        if citation_catalog:
+            citation_text = f"{citation_catalog}\n\n"
 
         prompt = f"""Write a comprehensive discussion section for a systematic review.
-
+{citation_text}
 Research Question: {research_question}
 
 Number of Included Studies: {num_studies}
@@ -235,6 +244,11 @@ CRITICAL REQUIREMENTS:
 - Total limitations section: 400-600 words
 - Implications section MUST have three subsections: "Implications for Practice", "Implications for Policy", "Implications for Research"
 - Total implications section: 350-400 words
+CITATION REQUIREMENTS (if catalog provided):
+- Use ONLY citations from the provided catalog above
+- Use exact citekey format: [Smith2023], [Jones2024a], etc.
+- Do NOT use [Citation X] or [Citation 1] format
+
 - Write in present tense for interpretations, use appropriate academic language, and acknowledge the limitation of having no included studies
 - Begin immediately with the summary of findings - do not include any introductory phrases"""
             )
@@ -259,7 +273,12 @@ CRITICAL REQUIREMENTS:
 - Total limitations section: 400-600 words
 - Implications section MUST have three subsections: "Implications for Practice", "Implications for Policy", "Implications for Research"
 - Total implications section: 350-400 words
-- Write in present tense for interpretations, use SINGULAR language (e.g., "the study" not "studies"), use appropriate citations (use [Citation X] format), and ensure logical flow
+CITATION REQUIREMENTS (if catalog provided):
+- Use ONLY citations from the provided catalog above
+- Use exact citekey format: [Smith2023], [Jones2024a], etc.
+- Do NOT use [Citation X] or [Citation 1] format
+
+- Write in present tense for interpretations, use SINGULAR language (e.g., "the study" not "studies"), and ensure logical flow
 - IMPORTANT: Do not use plural language like "studies" or "multiple studies"
 - Begin immediately with the summary of main findings - do not include any introductory phrases"""
             )
@@ -284,7 +303,12 @@ CRITICAL REQUIREMENTS:
 - Total limitations section: 400-600 words
 - Implications section MUST have three subsections: "Implications for Practice", "Implications for Policy", "Implications for Research"
 - Total implications section: 350-400 words
-- Write in present tense for interpretations, use appropriate citations (use [Citation X] format), and ensure logical flow
+CITATION REQUIREMENTS (if catalog provided):
+- Use ONLY citations from the provided catalog above
+- Use exact citekey format: [Smith2023], [Jones2024a], etc.
+- Do NOT use [Citation X] or [Citation 1] format
+
+- Write in present tense for interpretations and ensure logical flow
 - Begin immediately with the summary of main findings - do not include any introductory phrases"""
             )
 

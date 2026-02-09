@@ -46,8 +46,11 @@ class ReportGenerationPhase(WorkflowPhase):
             if not prisma_path:
                 prisma_path = self.manager._generate_prisma_diagram()
             
-            # Generate report using existing manager method
-            report_path = self.manager._generate_report(article_sections, prisma_path)
+            # Generate report using workflow manager method
+            viz_paths = getattr(self.manager, "_viz_paths", {})
+            report_path = self.manager._generate_final_report(
+                article_sections, prisma_path, viz_paths
+            )
             
             message = f"Generated final report at {report_path}"
             logger.info(message)
