@@ -59,9 +59,6 @@ The system works with free academic databases by default and includes comprehens
 # Create virtual environment and install dependencies
 uv venv && source .venv/bin/activate  # On Windows: .venv\Scripts\activate
 uv pip install -e .
-
-# Optional: Install manuscript pipeline dependencies (recommended)
-uv pip install -e ".[manubot-full]"
 ```
 
 ### Step 2: Get Your API Key (Recommended: Google Gemini)
@@ -133,7 +130,7 @@ Results are saved to `data/outputs/workflow_{topic}_{timestamp}/`:
 
 - **View outputs**: Check `data/outputs/workflow_{topic}_{timestamp}/final_report.md`
 - **Customize configuration**: Edit `config/workflow.yaml` for your research needs
-- **Export to journal format**: Run `python main.py --build-package --journal ieee` (requires Step 1 optional dependencies)
+- **Review visualizations**: Explore PRISMA diagrams and publication charts in the output directory
 
 ## What You Get
 
@@ -178,7 +175,6 @@ The workflow follows these main steps:
 - **Phases 1-7**: Sequential processing with automatic checkpointing after each phase
 - **Phases 8-11**: Run in parallel after Phase 7 (quality assessment, PRISMA diagram, visualizations, article writing)
 - **Phase 12**: Report generation (waits for phases 9-11)
-- **Phases 17-18**: Optional export and submission package generation
 
 ### Complete Workflow Diagram
 
@@ -232,11 +228,6 @@ flowchart TD
     Abs --> P12
     
     P12 --> Done([Complete!])
-    
-    Abs -.->|Optional| P17["Phase 17: Manubot Export"]
-    P12 -.->|Optional| P18["Phase 18: Submission Package"]
-    P17 --> Done
-    P18 --> Done
 ```
 
 **Key Features:**
@@ -245,7 +236,6 @@ flowchart TD
 - **Resume capability**: Automatically detects and resumes from last checkpoint or completed section
 - **Parallel execution**: Phases 8-11 run simultaneously after Phase 7 completes (quality assessment, PRISMA, visualizations, article writing)
 - **Flexible generation**: Phase 12 waits only for phases 9-11 (not phase 8), allowing quality assessment to complete independently
-- **Optional phases**: Manubot export and submission package generation are opt-in
 - **Topic matching**: Checkpoints matched by topic name, enabling separate workflows per research topic
 
 ## How Checkpoints Work
@@ -290,8 +280,7 @@ Before you begin, ensure you have:
 - Disk: 500 MB for installation + ~10-50 MB per workflow run
 - Network: Internet connection required for database searches and LLM API calls
 
-Optional but recommended:
-- **Manubot** - For citation resolution (`uv pip install -e ".[manubot-full]"`)
+Optional:
 - **Bibliometric dependencies** - For enhanced Scopus/Google Scholar features (`uv pip install -e ".[bibliometrics]"`)
 
 ## API Keys Setup
@@ -402,12 +391,7 @@ writing:
 - Text humanization with style pattern extraction
 - PRISMA 2020-compliant reports and flow diagrams
 - Publication timelines, citation networks, and geographic visualizations
-
-**Export & Submission**:
-- IEEE-formatted references and BibTeX export
-- Multi-format export (LaTeX, Word, PDF, HTML)
-- Multi-journal submission packages (IEEE, Nature, PLOS)
-- Manubot integration for collaborative writing
+- BibTeX reference export for citation management
 
 **System Features**:
 - Phase registry architecture with automatic dependency resolution
@@ -444,12 +428,12 @@ The codebase is organized into focused modules:
 **Article Writing** (`src/writing/`):
 - `introduction_agent.py`, `methods_agent.py`, `results_agent.py`, `discussion_agent.py`, `abstract_agent.py`
 - `humanization_agent.py` - Text naturalness refinement
+- `style_pattern_extractor.py` - Extract writing styles from reference papers
 
-**Export & Visualization** (`src/export/`, `src/visualization/`, `src/prisma/`):
-- `manubot_exporter.py` - Export to Manubot format
-- `submission_package.py` - Journal-specific submission packages
-- `charts.py` - Publication timelines, citation networks
+**Visualization & PRISMA** (`src/visualization/`, `src/prisma/`):
+- `charts.py` - Publication timelines, citation networks, geographic distribution
 - `prisma_generator.py` - PRISMA 2020 flow diagram generation
+- `checklist_generator.py` - PRISMA 2020 checklist validation
 
 **Configuration**:
 - `config/workflow.yaml` - Unified workflow configuration
@@ -520,11 +504,11 @@ Based on PRISMA 2020 standards and analysis of reference systematic reviews, the
 - **Comparison Tables**: Side-by-side comparison with previous systematic reviews
 - **Research Gaps Visualization**: Concept maps identifying understudied areas
 
-### 7. Multiple Journal Format Support
-- **Template Library**: Pre-built templates for 20+ top journals (Nature, Science, Lancet, BMJ, JAMA, etc.)
+### 7. Enhanced Export Formats
+- **Multi-Format Export**: Export to LaTeX, Word (DOCX), PDF, and HTML formats
 - **Citation Style Management**: Automatic conversion between Vancouver, APA, Chicago, Harvard styles
-- **Journal-Specific Formatting**: Automated compliance with word limits, section headings, and figure requirements
-- **One-Click Reformatting**: Convert between journal formats without regenerating content
+- **Journal-Specific Formatting**: Templates for top journals (Nature, Science, Lancet, BMJ, JAMA, etc.)
+- **Pandoc Integration**: Leverage Pandoc for high-quality document conversion
 
 ### 8. Advanced Citation Management
 - **Citation Network Analysis**: Identify key papers and citation relationships
