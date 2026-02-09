@@ -3397,12 +3397,8 @@ class WorkflowManager:
         # Get topic context for writing agents
         writing_context = self.topic_context.get_for_agent("introduction_writer")
 
-        # Check if humanization is enabled
-        writing_config = self.config.get("writing", {})
-        humanization_config = writing_config.get("humanization", {})
-        humanization_enabled = (
-            humanization_config.get("enabled", True) and self.humanization_agent is not None
-        )
+        # Humanization disabled - writing module removed
+        humanization_enabled = False
 
         # Introduction
         if "introduction" not in sections:
