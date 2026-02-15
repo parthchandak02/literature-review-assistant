@@ -7,11 +7,13 @@ Main orchestrator that coordinates all phases of the systematic review workflow.
 import asyncio
 import json
 import os
+import re
 import sys
 import time
+from collections.abc import Callable
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any
 
 from dotenv import load_dotenv
 
@@ -44,6 +46,15 @@ from src.extraction.data_extractor_agent import ExtractedData
 from src.orchestration.database_connector_factory import DatabaseConnectorFactory
 from src.orchestration.workflow_initializer import WorkflowInitializer
 from src.prisma.prisma_generator import PRISMAGenerator
+from src.restart.capability_contract import validate_capability_contract
+from src.restart.mvp_pipeline import (
+    CandidatePaper as RestartCandidatePaper,
+    MVPGraphPipeline,
+    ScreeningDecision,
+    SearchQueryInput,
+    SectionDraft,
+)
+from src.restart.reliability_gates import GateResult
 from src.search.author_service import AuthorService
 from src.search.bibliometric_enricher import BibliometricEnricher
 from src.search.cache import SearchCache
@@ -63,7 +74,7 @@ from .phase_registry import PhaseDefinition, PhaseRegistry
 class WorkflowManager:
     """Manages the complete systematic review workflow."""
 
-    def __init__(self, config_path: Optional[str] = None):
+    def __init__(self, config_path: str | None = None):
         """
         Initialize workflow manager.
 
@@ -97,16 +108,41 @@ class WorkflowManager:
         self.metrics = initializer.metrics
         self.cost_tracker = initializer.cost_tracker
         self.tracing_context = initializer.tracing_context
+        self.restart_services = initializer.get_restart_services()
+        self.restart_fulltext_pipeline = self.restart_services.get("fulltext_pipeline")
+        self.restart_ingestion_hub = self.restart_services.get("ingestion_hub")
+        restart_cfg = self.config.get("restart", {})
+        self.restart_runtime_checks = bool(restart_cfg.get("enable_runtime_checks", True))
+        self.restart_strict_checks = bool(restart_cfg.get("strict_runtime_checks", False))
 
         # Workflow state
-        self.all_papers: List[Paper] = []
-        self.unique_papers: List[Paper] = []
-        self.screened_papers: List[Paper] = []
-        self.eligible_papers: List[Paper] = []
-        self.final_papers: List[Paper] = []
-        self.extracted_data: List[ExtractedData] = []
-        self.quality_assessment_data: Optional[Dict[str, Any]] = None
-        self.style_patterns: Dict[str, Dict[str, List[str]]] = {}
+        self.all_papers: list[Paper] = []
+        self.unique_papers: list[Paper] = []
+        self.screened_papers: list[Paper] = []
+        self.eligible_papers: list[Paper] = []
+        self.final_papers: list[Paper] = []
+        self.extracted_data: list[ExtractedData] = []
+        self.quality_assessment_data: dict[str, Any] | None = None
+        self.style_patterns: dict[str, dict[str, list[str]]] = {}
+
+        # Adjudication tracking for uncertain screening decisions
+        self.uncertain_title_abstract: list[dict[str, Any]] = []
+        self.uncertain_fulltext: list[dict[str, Any]] = []
+        self.screening_outcome_counts: dict[str, dict[str, int]] = {
+            "title_abstract": {
+                "include": 0,
+                "exclude": 0,
+                "uncertain": 0,
+                "missing_fulltext": 0,
+            },
+            "fulltext": {
+                "include": 0,
+                "exclude": 0,
+                "uncertain": 0,
+                "missing_fulltext": 0,
+            },
+        }
+        self.citation_incomplete_papers: list[dict[str, Any]] = []
 
         # Initialize PDF retriever
         cache_dir = self.config.get("workflow", {}).get("cache", {}).get("cache_dir", "data/cache")
@@ -277,7 +313,18 @@ class WorkflowManager:
             )
         )
 
-        # Phase 9: Visualization Generation (PRISMA removed)
+        # Phase 9: PRISMA Generation
+        registry.register(
+            PhaseDefinition(
+                name="prisma_generation",
+                phase_number=9,
+                dependencies=["data_extraction"],
+                handler=self._generate_prisma_diagram,
+                description="Generate PRISMA flow diagram",
+            )
+        )
+
+        # Phase 10: Visualization Generation
         registry.register(
             PhaseDefinition(
                 name="visualization_generation",
@@ -338,7 +385,61 @@ class WorkflowManager:
 
         return registry
 
-    def _search_databases_phase(self) -> List[Paper]:
+    def _get_phase_number(self, phase_name: str) -> int | None:
+        """Get phase number from registered phases."""
+        phase = self.phase_registry.get_phase(phase_name)
+        if not phase:
+            return None
+        return phase.phase_number
+
+    def _get_next_phase_number(self, phase_name: str) -> int | None:
+        """
+        Get next phase number after a completed phase.
+
+        Returns None if there is no next phase.
+        """
+        current_phase = self.phase_registry.get_phase(phase_name)
+        if not current_phase:
+            return None
+
+        unique_phase_numbers = sorted(
+            {
+                phase.phase_number
+                for phase in self.phase_registry.phases.values()
+            }
+        )
+
+        for phase_number in unique_phase_numbers:
+            if phase_number > current_phase.phase_number:
+                return phase_number
+
+        return None
+
+    def _get_checkpoint_dependency_chain(self, latest_phase: str) -> list[str]:
+        """
+        Get checkpoint dependency chain for a phase using registry dependencies.
+
+        Only includes checkpoint-enabled phases because non-checkpoint phases
+        never produce state files to load.
+        """
+        phase = self.phase_registry.get_phase(latest_phase)
+        if not phase:
+            return [latest_phase]
+
+        dependencies = self.phase_registry.get_all_dependencies(latest_phase)
+        ordered_chain = [*dependencies, latest_phase]
+        seen = set()
+        chain = []
+        for phase_name in ordered_chain:
+            if phase_name in seen:
+                continue
+            seen.add(phase_name)
+            phase_definition = self.phase_registry.get_phase(phase_name)
+            if phase_definition and phase_definition.checkpoint:
+                chain.append(phase_name)
+        return chain
+
+    def _search_databases_phase(self) -> list[Paper]:
         """Wrapper for search_databases phase with checkpoint handling."""
         search_results = self._search_databases()
         self.all_papers = search_results
@@ -424,6 +525,94 @@ class WorkflowManager:
         self.prisma_counter.set_quantitative(len(self.final_papers))
         logger.info(f"Final included studies: {len(self.final_papers)}")
 
+    def _compute_citation_validation_metrics(
+        self, article_sections: dict[str, str]
+    ) -> tuple[bool, int, int]:
+        """Compute citation validation status and invalid/total citekey counts."""
+        if not article_sections:
+            return False, 0, 0
+
+        if not self.final_papers:
+            return False, 0, 0
+
+        self._ensure_citation_registry()
+        all_citekeys: list[str] = []
+        section_results: list[bool] = []
+        for section_name, section_text in article_sections.items():
+            section_results.append(
+                self._validate_section_citations(
+                    section_name,
+                    section_text,
+                    fail_on_invalid=True,
+                )
+            )
+            section_citekeys = self.citation_registry.extract_citekeys_from_text(section_text)
+            all_citekeys.extend(section_citekeys)
+
+        if not all_citekeys:
+            return False, 0, 0
+
+        _, invalid_citekeys = self.citation_registry.validate_citekeys(all_citekeys)
+        return all(section_results), len(invalid_citekeys), len(all_citekeys)
+
+    def _build_restart_validation_state(self, article_sections: dict[str, str]) -> dict[str, Any]:
+        """Build validation state consumed by restart capability checks and gates."""
+        citation_passed, invalid_count, total_count = self._compute_citation_validation_metrics(
+            article_sections
+        )
+        try:
+            total_cost_usd = float(self.cost_tracker.get_summary().get("total_cost_usd", 0.0))
+        except Exception:
+            total_cost_usd = 0.0
+        return {
+            "prisma_diagram_path": getattr(self, "_prisma_path", None),
+            "citation_validation_passed": citation_passed,
+            "checkpoint_resume_enabled": bool(self.save_checkpoints),
+            "manuscript_sections": article_sections,
+            "invalid_citation_count": invalid_count,
+            "total_citation_count": total_count,
+            "total_cost_usd": total_cost_usd,
+        }
+
+    def _log_gate_results(self, gate_results: list[GateResult]) -> None:
+        """Log gate results for observability."""
+        if not gate_results:
+            return
+        for gate in gate_results:
+            if gate.passed:
+                logger.info("Reliability gate PASS [%s]: %s", gate.gate_name, gate.details)
+            else:
+                logger.warning("Reliability gate FAIL [%s]: %s", gate.gate_name, gate.details)
+
+    def _run_restart_pre_export_checks(self, article_sections: dict[str, str]) -> None:
+        """Run restart capability contract and reliability gates before exports."""
+        if not self.restart_runtime_checks:
+            return
+
+        validation_state = self._build_restart_validation_state(article_sections)
+        contract_result = validate_capability_contract(validation_state)
+        gate_runner = self.restart_services.get("reliability_gates")
+        gate_results: list[GateResult] = []
+        if gate_runner is not None:
+            gate_results = gate_runner.run(validation_state)
+            self._log_gate_results(gate_results)
+
+        failed_gates = [g.gate_name for g in gate_results if not g.passed]
+        if not contract_result.is_valid:
+            message = (
+                "Restart capability contract violations: "
+                + ", ".join(contract_result.missing_capabilities)
+            )
+            if self.restart_strict_checks:
+                raise RuntimeError(message)
+            logger.warning(message)
+
+        if failed_gates:
+            message = f"Restart reliability gates failed: {', '.join(failed_gates)}"
+            if self.restart_strict_checks:
+                raise RuntimeError(message)
+            logger.warning(message)
+
     def _report_generation_phase(self) -> str:
         """Wrapper for report generation phase."""
         # Get article sections from previous phase
@@ -468,20 +657,29 @@ class WorkflowManager:
                     viz_paths[name] = path
             self._viz_paths = viz_paths
 
+        self._run_restart_pre_export_checks(article_sections)
+
+        citation_pipeline = self.restart_services.get("citation_pipeline")
+        if citation_pipeline is not None:
+            artifacts = citation_pipeline.prepare_layout()
+            logger.info("Prepared %d citation/publishing artifacts", len(artifacts))
+
         report_path = self._generate_final_report(article_sections, prisma_path, viz_paths)
         return report_path
 
-    def _manubot_export_phase(self) -> Optional[str]:
+    def _manubot_export_phase(self) -> str | None:
         """Wrapper for manubot export phase."""
         article_sections = getattr(self, "_article_sections", {})
+        self._run_restart_pre_export_checks(article_sections)
         manubot_path = self._export_manubot_structure(article_sections)
         if manubot_path:
             self._manubot_export_path = manubot_path
         return manubot_path
 
-    def _submission_package_phase(self) -> Optional[str]:
+    def _submission_package_phase(self) -> str | None:
         """Wrapper for submission package phase."""
         article_sections = getattr(self, "_article_sections", {})
+        self._run_restart_pre_export_checks(article_sections)
         report_path = getattr(self, "_report_path", None)
         if not report_path:
             # Generate report if not available
@@ -525,7 +723,7 @@ class WorkflowManager:
             return value.get("enabled", False) if isinstance(value, dict) else bool(value)
         return True
 
-    def _determine_start_phase(self, checkpoint: Optional[Dict[str, Any]]) -> Optional[int]:
+    def _determine_start_phase(self, checkpoint: dict[str, Any] | None) -> int | None:
         """
         Determine start phase from checkpoint.
 
@@ -538,23 +736,24 @@ class WorkflowManager:
         if checkpoint is None:
             return None
 
-        # Map phase name to phase number (next phase to run)
-        phase_to_next_number = {
-            "search_databases": 3,  # Next: deduplication
-            "deduplication": 4,  # Next: title_abstract_screening
-            "title_abstract_screening": 5,  # Next: fulltext_screening
-            "fulltext_screening": 7,  # Next: paper_enrichment
-            "paper_enrichment": 7,  # Next: data_extraction
-            "data_extraction": 8,  # Next: quality_assessment/prisma
-            "quality_assessment": 9,  # Next: prisma/visualization/writing
-            "prisma_generation": 9,  # Next: visualization/writing
-            "visualization_generation": 10,  # Next: article_writing
-            "article_writing": 11,  # Next: report_generation
-            "report_generation": 11,  # Rerun writing to refresh citations before report
-            "manubot_export": 18,  # Next: submission_package
-            "submission_package": 19,  # All phases complete - skip everything
+        latest_phase = checkpoint.get("latest_phase")
+        if not latest_phase:
+            return None
+
+        # Intentional behavior: rerun article writing before report generation to
+        # refresh citations and references from the canonical contract.
+        if latest_phase == "report_generation":
+            return self._get_phase_number("article_writing")
+
+        next_phase_number = self._get_next_phase_number(latest_phase)
+        if next_phase_number is not None:
+            return next_phase_number
+
+        # Backward compatibility for legacy checkpoint names.
+        legacy_phase_to_next_number = {
+            "submission_package": 19,
         }
-        return phase_to_next_number.get(checkpoint.get("latest_phase"), None)
+        return legacy_phase_to_next_number.get(latest_phase, None)
 
     def _copy_checkpoint_data(self, source_workflow_id: str, target_workflow_id: str) -> bool:
         """
@@ -741,24 +940,27 @@ class WorkflowManager:
 
     async def _execute_phases_parallel(
         self,
-        phase_names: List[str],
-        phase_handlers: Dict[str, Callable]
-    ) -> Dict[str, Any]:
+        phase_names: list[str],
+        phase_handlers: dict[str, Callable]
+    ) -> dict[str, Any]:
         """
-        Execute multiple independent phases in parallel using asyncio.TaskGroup.
+        Execute multiple independent phases in parallel with strict failure handling.
 
         Requires Python 3.11+ for TaskGroup support.
+
+        Critical phases (article_writing, quality_assessment) must succeed or workflow stops.
+        Non-critical phases (prisma_generation, visualization_generation) are logged but
+        don't stop the workflow.
 
         Args:
             phase_names: List of phase names to execute
             phase_handlers: Dict mapping phase names to their handler functions
 
         Returns:
-            Dict mapping phase names to their results
+            Dict mapping phase names to their results (includes None for failed phases)
 
         Raises:
-            RuntimeError: If Python version < 3.11
-            ExceptionGroup: If any tasks fail
+            RuntimeError: If Python version < 3.11 or critical phase fails
         """
         # Verify Python version
         if sys.version_info < (3, 11):
@@ -767,37 +969,239 @@ class WorkflowManager:
                 f"Current version: {sys.version_info.major}.{sys.version_info.minor}"
             )
 
+        # Define critical phases that must succeed
+        CRITICAL_PHASES = {"article_writing", "quality_assessment"}
+
         logger.info(f"Starting parallel execution of phases: {', '.join(phase_names)}")
         parallel_start_time = time.time()
 
         results = {}
+        phase_errors = {}
 
-        # Use TaskGroup for structured concurrency (Python 3.11+)
-        async with asyncio.TaskGroup() as tg:
-            # Create tasks for all parallel phases
-            # Use to_thread to run synchronous handlers in thread pool
-            tasks = {
-                phase_name: tg.create_task(
-                    asyncio.to_thread(phase_handlers[phase_name]),
-                    name=phase_name
+        try:
+            # Use TaskGroup for structured concurrency (Python 3.11+)
+            async with asyncio.TaskGroup() as tg:
+                # Create tasks for all parallel phases
+                # Use to_thread to run synchronous handlers in thread pool
+                tasks = {
+                    phase_name: tg.create_task(
+                        asyncio.to_thread(phase_handlers[phase_name]),
+                        name=phase_name
+                    )
+                    for phase_name in phase_names
+                }
+
+            # All tasks completed successfully, collect results
+            for phase_name, task in tasks.items():
+                results[phase_name] = task.result()
+                logger.info(f"Phase '{phase_name}' completed successfully")
+
+        except* Exception as eg:
+            # Handle ExceptionGroup from TaskGroup
+            # Normalize errors into structured phase-level results
+            logger.error("Parallel phase execution encountered errors")
+
+            # Extract and classify failures
+            for exc in eg.exceptions:
+                # Try to determine which phase failed from the exception or task name
+                failed_phase = None
+                for phase_name, task in tasks.items():
+                    try:
+                        if task.done() and not task.cancelled():
+                            try:
+                                task.result()
+                            except Exception as task_exc:
+                                if task_exc is exc or str(task_exc) == str(exc):
+                                    failed_phase = phase_name
+                                    break
+                    except Exception:
+                        pass
+
+                if not failed_phase:
+                    # Fallback: try to parse from exception message
+                    failed_phase = "unknown_phase"
+
+                phase_errors[failed_phase] = {
+                    "error_type": type(exc).__name__,
+                    "error_message": str(exc),
+                    "traceback": str(exc.__traceback__) if hasattr(exc, '__traceback__') else None,
+                }
+                logger.error(f"Phase '{failed_phase}' failed: {type(exc).__name__}: {exc}")
+
+            # Collect successful results from completed tasks
+            for phase_name, task in tasks.items():
+                if task.done() and not task.cancelled():
+                    try:
+                        results[phase_name] = task.result()
+                        logger.info(f"Phase '{phase_name}' completed successfully despite sibling failures")
+                    except Exception:
+                        results[phase_name] = None
+                else:
+                    results[phase_name] = None
+                    if phase_name not in phase_errors:
+                        phase_errors[phase_name] = {
+                            "error_type": "CancelledError",
+                            "error_message": "Task was cancelled due to sibling failure",
+                            "traceback": None,
+                        }
+
+            # Check if any critical phases failed
+            critical_failures = [
+                phase for phase in CRITICAL_PHASES
+                if phase in phase_errors or ((phase in phase_names) and (results.get(phase) is None))
+            ]
+
+            if critical_failures:
+                # Build diagnostic message
+                error_msg = (
+                    f"Critical parallel phase(s) failed: {', '.join(critical_failures)}\n\n"
+                    f"Workflow stopped due to critical phase failure (strict policy).\n"
                 )
-                for phase_name in phase_names
-            }
 
-        # All tasks completed successfully, collect results
-        for phase_name, task in tasks.items():
-            results[phase_name] = task.result()
-            logger.info(f"Phase '{phase_name}' completed successfully")
+                for phase in critical_failures:
+                    if phase in phase_errors:
+                        err_info = phase_errors[phase]
+                        error_msg += (
+                            f"\n{phase} failure:\n"
+                            f"  Type: {err_info['error_type']}\n"
+                            f"  Message: {err_info['error_message']}\n"
+                        )
+
+                # Log all phase statuses for diagnostics
+                logger.error("=" * 60)
+                logger.error("PARALLEL PHASE EXECUTION SUMMARY")
+                logger.error("=" * 60)
+                for phase_name in phase_names:
+                    if phase_name in phase_errors:
+                        logger.error(f"  {phase_name}: FAILED")
+                    elif results.get(phase_name) is not None:
+                        logger.error(f"  {phase_name}: SUCCESS")
+                    else:
+                        logger.error(f"  {phase_name}: CANCELLED/NO RESULT")
+                logger.error("=" * 60)
+
+                raise RuntimeError(error_msg) from None
+
+            # Non-critical failures: log warnings but continue
+            non_critical_failures = [
+                phase for phase in phase_errors.keys()
+                if phase not in CRITICAL_PHASES
+            ]
+            if non_critical_failures:
+                logger.warning(
+                    f"Non-critical phase(s) failed but workflow continues: "
+                    f"{', '.join(non_critical_failures)}"
+                )
+                for phase in non_critical_failures:
+                    err_info = phase_errors[phase]
+                    logger.warning(
+                        f"  {phase}: {err_info['error_type']}: {err_info['error_message']}"
+                    )
 
         parallel_duration = time.time() - parallel_start_time
         logger.info(
             f"Parallel execution completed in {parallel_duration:.2f}s "
-            f"({len(phase_names)} phases)"
+            f"({len([r for r in results.values() if r is not None])}/{len(phase_names)} phases succeeded)"
         )
 
         return results
 
-    def run(self, start_from_phase: Optional[int] = None) -> Dict[str, Any]:
+    def _get_parallel_phase_group(self) -> list[str]:
+        """Return late-phase parallel group with optional LLM contention deconfliction."""
+        parallel_cfg = self.config.get("workflow", {}).get("parallel_execution", {})
+        deconflict_llm_heavy = bool(parallel_cfg.get("deconflict_llm_heavy_phases", True))
+        if deconflict_llm_heavy:
+            return ["quality_assessment", "prisma_generation", "visualization_generation"]
+        return ["quality_assessment", "prisma_generation", "visualization_generation", "article_writing"]
+
+    def _run_restart_mvp_flow(self) -> dict[str, Any]:
+        """Optional MVP execution path for restart validation."""
+        topic_cfg = self.config.get("topic", {})
+        inclusion_criteria = topic_cfg.get("inclusion", [])
+        exclusion_criteria = topic_cfg.get("exclusion", [])
+        research_question = self.topic_context.research_question or self.topic_context.topic
+        justification = topic_cfg.get(
+            "justification",
+            "This systematic review synthesizes evidence for the specified research question.",
+        )
+
+        def search_fn(search_input: SearchQueryInput) -> list[RestartCandidatePaper]:
+            items: list[RestartCandidatePaper] = []
+            if self.restart_ingestion_hub is not None:
+                source_results = self.restart_ingestion_hub.search_core_sources(
+                    search_input.query,
+                    per_source_limit=search_input.max_results,
+                )
+                for source_name, source_items in source_results.items():
+                    for item in source_items:
+                        title = item.get("title", "")
+                        abstract = item.get("abstract", "") or ""
+                        if not title or len(abstract.strip()) < 20:
+                            continue
+                        items.append(
+                            RestartCandidatePaper(
+                                title=title,
+                                abstract=abstract,
+                                source=source_name,
+                                doi=item.get("doi"),
+                                url=item.get("url"),
+                            )
+                        )
+            return items
+
+        def screen_fn(paper: RestartCandidatePaper) -> ScreeningDecision:
+            result = self.title_screener.screen(
+                paper.title,
+                paper.abstract,
+                inclusion_criteria,
+                exclusion_criteria,
+                topic_context=self.topic_context.get_for_agent("title_abstract_screener"),
+            )
+            return ScreeningDecision(
+                include=result.decision.value == "include",
+                confidence=result.confidence,
+                reasoning=result.reasoning,
+            )
+
+        def write_fn(papers: list[RestartCandidatePaper]) -> SectionDraft:
+            # Keep MVP writer deterministic and lightweight: single section draft.
+            section_text = self.intro_writer.write(
+                research_question=research_question,
+                justification=justification,
+                topic_context=self.topic_context.get_for_agent("introduction_writer"),
+            )
+            citations = []
+            if hasattr(self, "citation_registry") and self.citation_registry is not None:
+                citations = sorted(self.citation_registry.extract_citekeys_from_text(section_text))
+            return SectionDraft(
+                section_name="introduction",
+                content=section_text,
+                citations=citations,
+            )
+
+        pipeline = MVPGraphPipeline(search_fn=search_fn, screen_fn=screen_fn, write_fn=write_fn)
+        max_results = int(self.config.get("workflow", {}).get("max_results_per_db", 30))
+        state = pipeline.run(research_question, max_results=max_results)
+        draft = state.get("introduction_draft", {})
+        article_sections = {}
+        if isinstance(draft, dict) and draft.get("content"):
+            article_sections["introduction"] = draft["content"]
+        self._article_sections = article_sections
+        return {
+            "workflow_id": self.workflow_id,
+            "output_dir": str(self.output_dir),
+            "phase_summary": {
+                "mvp_mode": True,
+                "candidates": len(state.get("candidates", [])),
+                "included_candidates": len(state.get("included_candidates", [])),
+            },
+            "outputs": {
+                "article_sections": article_sections,
+                "workflow_state": state,
+            },
+        }
+
+    def run(self, start_from_phase: int | None = None) -> dict[str, Any]:
         """
         Execute the complete workflow.
 
@@ -808,6 +1212,38 @@ class WorkflowManager:
             Dictionary with workflow results and output paths
         """
         workflow_start = time.time()
+
+        # Log effective configuration settings for transparency
+        writing_config = self.config.get("writing", {})
+        logger.info("=" * 60)
+        logger.info("WORKFLOW CONFIGURATION")
+        logger.info("=" * 60)
+        logger.info(f"Writing LLM Timeout: {writing_config.get('llm_timeout', 120)}s")
+        logger.info(f"Writing Retry Count: {writing_config.get('retry_count', 2)}")
+        logger.info(f"Introduction Writer Model: {getattr(self.intro_writer, 'llm_model', 'N/A')}")
+        logger.info(f"Methods Writer Model: {getattr(self.methods_writer, 'llm_model', 'N/A')}")
+        logger.info(f"Results Writer Model: {getattr(self.results_writer, 'llm_model', 'N/A')}")
+        logger.info(f"Discussion Writer Model: {getattr(self.discussion_writer, 'llm_model', 'N/A')}")
+        logger.info("=" * 60)
+        orchestration_decision = self.restart_services.get("orchestration_decision")
+        if orchestration_decision is not None:
+            logger.info(
+                "Orchestration backend decision: %s (%s)",
+                getattr(orchestration_decision, "backend", "unknown"),
+                getattr(orchestration_decision, "reason", "no reason provided"),
+            )
+            if getattr(orchestration_decision, "backend", "") == "temporal":
+                logger.warning(
+                    "Temporal backend requested by policy, but this runtime currently executes "
+                    "in LangGraph-compatible phase mode. Proceeding with current executor."
+                )
+
+        if self.config.get("restart", {}).get("use_mvp_pipeline", False):
+            logger.info("Restart MVP pipeline mode enabled")
+            if not self.search_strategy:
+                self._build_search_strategy()
+            return self._run_restart_mvp_flow()
+
         console.print()
         console.print(
             Rule("[bold cyan]Starting Systematic Review Workflow[/bold cyan]", style="cyan")
@@ -886,52 +1322,9 @@ class WorkflowManager:
 
                 # Load all prerequisite checkpoints in order
                 checkpoint_dir = Path(existing_checkpoint["checkpoint_dir"])
-                phase_dependencies = {
-                    "search_databases": [],
-                    "deduplication": ["search_databases"],
-                    "title_abstract_screening": ["deduplication"],
-                    "fulltext_screening": ["title_abstract_screening"],
-                    "paper_enrichment": ["fulltext_screening"],
-                    "data_extraction": [
-                        "paper_enrichment"
-                    ],  # paper_enrichment may not exist, will fallback to fulltext_screening data
-                    "quality_assessment": ["data_extraction"],
-                    "prisma_generation": ["data_extraction"],
-                    "visualization_generation": ["data_extraction"],
-                    "article_writing": [
-                        "data_extraction"
-                    ],  # Need final_papers from data_extraction for citations
-                    "report_generation": [
-                        "article_writing",
-                        "prisma_generation",
-                        "visualization_generation",
-                    ],
-                    "manubot_export": ["article_writing"],
-                    "submission_package": ["article_writing", "report_generation"],
-                }
-
-                # Get all phases we need to load (dependencies + latest phase)
-                # Build full dependency chain recursively
-                def get_all_dependencies(phase: str, visited: Optional[set] = None) -> List[str]:
-                    """Recursively get all dependencies for a phase."""
-                    if visited is None:
-                        visited = set()
-                    if phase in visited:
-                        return []
-                    visited.add(phase)
-
-                    deps = phase_dependencies.get(phase, [])
-                    all_deps = []
-                    for dep in deps:
-                        all_deps.extend(get_all_dependencies(dep, visited))
-                        all_deps.append(dep)
-                    return all_deps
-
-                phases_to_load = get_all_dependencies(existing_checkpoint["latest_phase"])
-                phases_to_load.append(existing_checkpoint["latest_phase"])
-                # Remove duplicates while preserving order
-                seen = set()
-                phases_to_load = [p for p in phases_to_load if not (p in seen or seen.add(p))]
+                phases_to_load = self._get_checkpoint_dependency_chain(
+                    existing_checkpoint["latest_phase"]
+                )
                 logger.info(
                     f"Checkpoint dependency chain for '{existing_checkpoint['latest_phase']}': {phases_to_load}"
                 )
@@ -1238,9 +1631,9 @@ class WorkflowManager:
                     # We'll do this after the phase executes
                     pass
 
-                # PARALLEL EXECUTION: Check if we should execute phases 8-11 in parallel
-                # This happens when we reach quality_assessment (phase 8) and parallel phases haven't run yet
-                parallel_phases = ["quality_assessment", "prisma_generation", "visualization_generation", "article_writing"]
+                # PARALLEL EXECUTION: Check if we should execute a parallel phase group.
+                # This happens when we reach quality_assessment and parallel phases have not run yet.
+                parallel_phases = self._get_parallel_phase_group()
                 if phase_name == "quality_assessment" and not hasattr(self, "_parallel_phases_executed"):
                     # Check which of the parallel phases need to be executed
                     phases_to_run_parallel = []
@@ -1701,12 +2094,12 @@ class WorkflowManager:
     def _create_connector(
         self,
         db_name: str,
-        cache: Optional[SearchCache] = None,
-        proxy_manager: Optional[ProxyManager] = None,
-        integrity_checker: Optional[IntegrityChecker] = None,
+        cache: SearchCache | None = None,
+        proxy_manager: ProxyManager | None = None,
+        integrity_checker: IntegrityChecker | None = None,
         persistent_session: bool = True,
-        cookie_jar: Optional[str] = None,
-    ) -> Optional[DatabaseConnector]:
+        cookie_jar: str | None = None,
+    ) -> DatabaseConnector | None:
         """
         Create appropriate connector based on database name and available API keys.
 
@@ -1742,7 +2135,7 @@ class WorkflowManager:
             cookie_jar,
         )
 
-    def _validate_database_config(self) -> Dict[str, bool]:
+    def _validate_database_config(self) -> dict[str, bool]:
         """
         Validate which databases can be used based on API keys.
 
@@ -1752,7 +2145,7 @@ class WorkflowManager:
         databases = self.config["workflow"]["databases"]
         return DatabaseConnectorFactory.validate_database_config(databases)
 
-    def _search_databases(self) -> List[Paper]:
+    def _search_databases(self) -> list[Paper]:
         """Search all configured databases."""
         databases = self.config["workflow"]["databases"]
         max_results = self.config["workflow"].get("max_results_per_db", 100)
@@ -1807,7 +2200,19 @@ class WorkflowManager:
                 logger.warning(f"Skipping {db_name} - connector creation failed")
 
         if connectors_added == 0:
-            logger.error("No connectors were added! Check API key configuration.")
+            logger.warning("No connectors were added. Trying restart scholarly ingestion fallback.")
+            query = self.search_strategy.build_query("generic")
+            fallback_papers = self._search_via_restart_ingestion(query=query, max_results=max_results)
+            if fallback_papers:
+                logger.info(
+                    "Restart ingestion fallback returned %d papers from API-first sources",
+                    len(fallback_papers),
+                )
+                self.topic_context.enrich(
+                    [f"Found {len(fallback_papers)} papers via restart ingestion fallback"]
+                )
+                return fallback_papers
+            logger.error("No connectors were added and restart ingestion fallback returned no papers.")
             raise RuntimeError("No database connectors available")
 
         # Build query
@@ -1839,7 +2244,34 @@ class WorkflowManager:
 
         return papers
 
-    def _get_database_breakdown(self) -> Dict[str, int]:
+    def _search_via_restart_ingestion(self, query: str, max_results: int) -> list[Paper]:
+        """Fallback search path using restart scholarly ingestion hub."""
+        ingestion_hub = self.restart_ingestion_hub
+        if ingestion_hub is None:
+            return []
+
+        per_source_limit = max(1, min(max_results, 100))
+        source_results = ingestion_hub.search_core_sources(query, per_source_limit=per_source_limit)
+        papers: list[Paper] = []
+        for source_name, items in source_results.items():
+            for item in items:
+                title = item.get("title", "")
+                abstract = item.get("abstract", "")
+                if not title or not abstract:
+                    continue
+                papers.append(
+                    Paper(
+                        title=title,
+                        abstract=abstract,
+                        authors=[],
+                        doi=item.get("doi"),
+                        database=source_name,
+                        url=item.get("url"),
+                    )
+                )
+        return papers
+
+    def _get_database_breakdown(self) -> dict[str, int]:
         """Get breakdown of papers by database."""
         breakdown = {}
         for paper in self.all_papers:
@@ -1861,8 +2293,8 @@ class WorkflowManager:
             return f"author_year:{author.lower().strip()}_{year}"
 
     def _find_existing_screening_result(
-        self, paper: Paper, existing_results: List
-    ) -> Optional[Any]:
+        self, paper: Paper, existing_results: list
+    ) -> Any | None:
         """Find existing screening result for a paper."""
         self._get_paper_key(paper)
 
@@ -1874,6 +2306,46 @@ class WorkflowManager:
             pass
 
         return None
+
+    def _export_adjudication_queue(self) -> str | None:
+        """
+        Export uncertain papers requiring manual adjudication to JSON file.
+
+        Returns:
+            Path to adjudication file or None if no uncertain papers
+        """
+        if not self.uncertain_title_abstract and not self.uncertain_fulltext:
+            logger.info("No uncertain papers requiring adjudication")
+            return None
+
+        adjudication_data = {
+            "export_timestamp": datetime.now().isoformat(),
+            "summary": {
+                "total_uncertain": len(self.uncertain_title_abstract) + len(self.uncertain_fulltext),
+                "title_abstract_uncertain": len(self.uncertain_title_abstract),
+                "fulltext_uncertain": len(self.uncertain_fulltext),
+            },
+            "title_abstract_adjudication": self.uncertain_title_abstract,
+            "fulltext_adjudication": self.uncertain_fulltext,
+            "instructions": (
+                "Papers marked UNCERTAIN require manual dual-reviewer adjudication. "
+                "Review each paper and update 'decision' field to 'include' or 'exclude' with "
+                "updated 'reasoning'. Do not leave papers as 'uncertain' after manual review."
+            )
+        }
+
+        adjudication_path = self.output_dir / "adjudication_queue.json"
+        with open(adjudication_path, 'w', encoding='utf-8') as f:
+            json.dump(adjudication_data, f, indent=2, ensure_ascii=False)
+
+        logger.info(f"Adjudication queue exported to {adjudication_path}")
+        logger.info(
+            f"Total papers requiring adjudication: {adjudication_data['summary']['total_uncertain']} "
+            f"(TA: {adjudication_data['summary']['title_abstract_uncertain']}, "
+            f"FT: {adjudication_data['summary']['fulltext_uncertain']})"
+        )
+
+        return str(adjudication_path)
 
     def _screen_title_abstract(self):
         """Screen papers based on title and abstract using two-stage approach."""
@@ -1942,10 +2414,10 @@ class WorkflowManager:
         keyword_excluded = 0
         keyword_included = 0
 
-        # Threshold configuration (can be made configurable in workflow.yaml)
-        # More permissive thresholds: err on inclusion at screening stages
-        exclude_threshold = 0.8  # Higher threshold for exclusion (more strict)
-        include_threshold = 0.6  # Lower threshold for inclusion (more permissive)
+        # Threshold configuration (configurable in workflow.yaml via screening_safeguards).
+        # Keep auto-include stricter than auto-exclude to reduce off-domain false positives.
+        exclude_threshold = float(self.safeguard_config.get("stage1_exclude_threshold", 0.8))
+        include_threshold = float(self.safeguard_config.get("stage1_include_threshold", 0.85))
 
         # Check if verbose mode is enabled
         is_verbose = self.debug_config.enabled and self.debug_config.level in [
@@ -2000,6 +2472,7 @@ class WorkflowManager:
             ):
                 self.screened_papers.append(paper)
                 keyword_included += 1
+                self.screening_outcome_counts["title_abstract"]["include"] += 1
                 self.title_abstract_results.append(keyword_result)  # Store result
             # Tier 2: High confidence exclusions are excluded immediately
             elif (
@@ -2007,6 +2480,7 @@ class WorkflowManager:
                 and keyword_result.confidence >= exclude_threshold
             ):
                 keyword_excluded += 1
+                self.screening_outcome_counts["title_abstract"]["exclude"] += 1
                 self.title_abstract_results.append(keyword_result)  # Store result
             # Tier 3: Borderline cases (uncertain or low confidence) need LLM review
             else:
@@ -2136,10 +2610,28 @@ class WorkflowManager:
 
                         if result.decision.value == "include":
                             self.screened_papers.append(paper)
+                            self.screening_outcome_counts["title_abstract"]["include"] += 1
                             if is_verbose:
                                 progress.log("  [green]Paper included via LLM[/green]")
                             logger.debug(f"Paper included via LLM: {paper_title}")
-                        else:
+                        elif result.decision.value == "uncertain":
+                            # Route to adjudication queue - never auto-exclude
+                            self.screening_outcome_counts["title_abstract"]["uncertain"] += 1
+                            self.uncertain_title_abstract.append({
+                                "paper_id": paper.id if hasattr(paper, 'id') else None,
+                                "title": paper.title,
+                                "abstract": paper.abstract,
+                                "stage": "title_abstract",
+                                "decision": result.decision.value,
+                                "confidence": result.confidence,
+                                "reasoning": result.reasoning,
+                                "exclusion_reason": result.exclusion_reason,
+                            })
+                            if is_verbose:
+                                progress.log("  [yellow]Paper marked UNCERTAIN - routed to adjudication[/yellow]")
+                            logger.info(f"Paper routed to adjudication (title/abstract): {paper_title}")
+                        else:  # exclude
+                            self.screening_outcome_counts["title_abstract"]["exclude"] += 1
                             if is_verbose:
                                 progress.log("  [red]Paper excluded via LLM[/red]")
                             logger.debug(f"Paper excluded via LLM: {paper_title}")
@@ -2152,7 +2644,12 @@ class WorkflowManager:
                         self.title_abstract_results.append(keyword_result)  # Store fallback result
                         if keyword_result.decision.value == "include":
                             self.screened_papers.append(paper)
+                            self.screening_outcome_counts["title_abstract"]["include"] += 1
                             logger.warning("Using keyword result due to LLM error: included")
+                        elif keyword_result.decision.value == "exclude":
+                            self.screening_outcome_counts["title_abstract"]["exclude"] += 1
+                        else:
+                            self.screening_outcome_counts["title_abstract"]["uncertain"] += 1
 
                     progress.advance(task)
 
@@ -2168,6 +2665,11 @@ class WorkflowManager:
                 self.title_abstract_results.append(keyword_result)  # Store result
                 if keyword_result.decision.value == "include":
                     self.screened_papers.append(paper)
+                    self.screening_outcome_counts["title_abstract"]["include"] += 1
+                elif keyword_result.decision.value == "exclude":
+                    self.screening_outcome_counts["title_abstract"]["exclude"] += 1
+                else:
+                    self.screening_outcome_counts["title_abstract"]["uncertain"] += 1
 
                 # Update description with current status
                 if i % 5 == 0 or i == len(self.unique_papers):
@@ -2177,7 +2679,16 @@ class WorkflowManager:
                     )
 
         logger.info(
-            f"Title/abstract screening complete: {len(self.screened_papers)}/{len(self.unique_papers)} papers included"
+            f"Title/abstract screening complete: {len(self.screened_papers)} included, "
+            f"{len(self.uncertain_title_abstract)} uncertain (adjudication required), "
+            f"{len(self.unique_papers) - len(self.screened_papers) - len(self.uncertain_title_abstract)} excluded"
+        )
+        logger.info(
+            "Title/abstract outcomes: "
+            f"include={self.screening_outcome_counts['title_abstract']['include']}, "
+            f"exclude={self.screening_outcome_counts['title_abstract']['exclude']}, "
+            f"uncertain={self.screening_outcome_counts['title_abstract']['uncertain']}, "
+            f"missing_fulltext={self.screening_outcome_counts['title_abstract']['missing_fulltext']}"
         )
 
         # Check minimum paper safeguard
@@ -2216,6 +2727,9 @@ class WorkflowManager:
         self.topic_context.enrich(
             [f"Screened {len(self.unique_papers)} papers, {len(self.screened_papers)} included"]
         )
+
+        # Export adjudication queue after title/abstract screening
+        self._export_adjudication_queue()
 
     def _screen_fulltext(self):
         """Screen papers based on full-text (if available)."""
@@ -2385,14 +2899,28 @@ class WorkflowManager:
                         f"[cyan]{paper_title}...[/cyan]"
                     )
 
-                # Retrieve full-text PDF
-                full_text = self.pdf_retriever.retrieve_full_text(paper)
+                # Retrieve full-text with restart pipeline first, then legacy retriever
+                full_text = None
+                if self.restart_fulltext_pipeline is not None:
+                    try:
+                        parsed_fulltext = self.restart_fulltext_pipeline.fetch_and_parse(paper)
+                        if parsed_fulltext is not None:
+                            full_text = parsed_fulltext.text
+                    except Exception as fulltext_error:
+                        logger.debug(
+                            "Restart fulltext pipeline failed for '%s': %s",
+                            paper_title,
+                            fulltext_error,
+                        )
+                if not full_text:
+                    full_text = self.pdf_retriever.retrieve_full_text(paper)
 
                 # Track full-text availability
                 if full_text:
                     self.fulltext_available_count += 1
                 else:
                     self.fulltext_unavailable_count += 1
+                    self.screening_outcome_counts["fulltext"]["missing_fulltext"] += 1
 
                 # Verbose output about content being analyzed
                 if is_verbose:
@@ -2450,9 +2978,28 @@ class WorkflowManager:
 
                 if result.decision.value == "include":
                     self.eligible_papers.append(paper)
+                    self.screening_outcome_counts["fulltext"]["include"] += 1
                     if is_verbose:
                         progress.log("  [green]Paper eligible[/green]")
-                else:
+                elif result.decision.value == "uncertain":
+                    # Route to adjudication queue - never auto-exclude
+                    self.screening_outcome_counts["fulltext"]["uncertain"] += 1
+                    self.uncertain_fulltext.append({
+                        "paper_id": paper.id if hasattr(paper, 'id') else None,
+                        "title": paper.title,
+                        "abstract": paper.abstract,
+                        "stage": "fulltext",
+                        "decision": result.decision.value,
+                        "confidence": result.confidence,
+                        "reasoning": result.reasoning,
+                        "exclusion_reason": result.exclusion_reason,
+                        "fulltext_available": full_text is not None and len(full_text.strip()) > 0,
+                    })
+                    if is_verbose:
+                        progress.log("  [yellow]Paper marked UNCERTAIN - routed to adjudication[/yellow]")
+                    logger.info(f"Paper routed to adjudication (fulltext): {paper_title}")
+                else:  # exclude
+                    self.screening_outcome_counts["fulltext"]["exclude"] += 1
                     if is_verbose:
                         progress.log("  [red]Paper excluded[/red]")
 
@@ -2466,7 +3013,16 @@ class WorkflowManager:
                     )
 
         logger.info(
-            f"Full-text screening complete: {len(self.eligible_papers)}/{len(self.screened_papers)} papers eligible"
+            f"Full-text screening complete: {len(self.eligible_papers)} eligible, "
+            f"{len(self.uncertain_fulltext)} uncertain (adjudication required), "
+            f"{len(self.screened_papers) - len(self.eligible_papers) - len(self.uncertain_fulltext)} excluded"
+        )
+        logger.info(
+            "Full-text outcomes: "
+            f"include={self.screening_outcome_counts['fulltext']['include']}, "
+            f"exclude={self.screening_outcome_counts['fulltext']['exclude']}, "
+            f"uncertain={self.screening_outcome_counts['fulltext']['uncertain']}, "
+            f"missing_fulltext={self.screening_outcome_counts['fulltext']['missing_fulltext']}"
         )
         logger.info(
             f"Full-text availability: {self.fulltext_available_count} available, "
@@ -2550,9 +3106,12 @@ class WorkflowManager:
             ]
         )
 
+        # Export adjudication queue after fulltext screening (will update file with both stages)
+        self._export_adjudication_queue()
+
     def _check_minimum_papers_safeguard(
-        self, stage: str, included_count: int, total_count: int, min_papers: Optional[int] = None
-    ) -> Dict[str, Any]:
+        self, stage: str, included_count: int, total_count: int, min_papers: int | None = None
+    ) -> dict[str, Any]:
         """
         Check if minimum paper threshold is met and provide recommendations.
 
@@ -2622,7 +3181,7 @@ class WorkflowManager:
             else [],
         }
 
-    def _export_borderline_papers(self, borderline_papers: List[Dict], output_path: Path):
+    def _export_borderline_papers(self, borderline_papers: list[dict], output_path: Path):
         """Export borderline papers to a JSON file for manual review."""
         import json
 
@@ -2661,6 +3220,238 @@ class WorkflowManager:
             self.final_papers = self.bibliometric_enricher.enrich_papers(self.final_papers)
 
         logger.info("Paper enrichment complete")
+
+    def _is_core_extraction_empty(self, extracted: ExtractedData) -> bool:
+        """Return True when core synthesis fields are all missing."""
+        objectives_empty = not extracted.study_objectives
+        outcomes_empty = not extracted.outcomes
+        findings_empty = not extracted.key_findings
+        return objectives_empty and outcomes_empty and findings_empty
+
+    def _merge_extraction_data(
+        self, core_data: ExtractedData, enrichment_data: ExtractedData | None
+    ) -> ExtractedData:
+        """
+        Merge optional enrichment fields into core extraction output.
+
+        Core synthesis fields are always taken from core_data to keep
+        extraction behavior deterministic and robust.
+        """
+        if enrichment_data is None:
+            return core_data
+
+        optional_list_fields = [
+            "detailed_outcomes",
+            "ux_strategies",
+            "adaptivity_frameworks",
+            "patient_populations",
+            "accessibility_features",
+        ]
+        optional_scalar_fields = [
+            "country",
+            "setting",
+            "sample_size",
+            "quantitative_results",
+        ]
+
+        for field in optional_list_fields:
+            if getattr(core_data, field, None):
+                continue
+            enrichment_value = getattr(enrichment_data, field, None)
+            if enrichment_value:
+                setattr(core_data, field, enrichment_value)
+
+        for field in optional_scalar_fields:
+            if getattr(core_data, field, None) not in (None, ""):
+                continue
+            enrichment_value = getattr(enrichment_data, field, None)
+            if enrichment_value not in (None, ""):
+                setattr(core_data, field, enrichment_value)
+
+        return core_data
+
+    def _extract_with_recovery(
+        self, paper: Paper, extraction_context: dict[str, Any], full_text: str | None = None
+    ) -> ExtractedData:
+        """
+        Two-step extraction strategy:
+        1) core fields for synthesis quality
+        2) optional enrichment fields for reporting/detail
+        """
+        core_fields = [
+            "study_objectives",
+            "methodology",
+            "study_design",
+            "participants",
+            "interventions",
+            "outcomes",
+            "key_findings",
+            "limitations",
+        ]
+        enrichment_fields = [
+            "country",
+            "setting",
+            "sample_size",
+            "detailed_outcomes",
+            "quantitative_results",
+            "ux_strategies",
+            "adaptivity_frameworks",
+            "patient_populations",
+            "accessibility_features",
+        ]
+
+        core_data = self.extractor.extract(
+            paper.title or "",
+            paper.abstract or "",
+            full_text,
+            extraction_fields=core_fields,
+            topic_context=extraction_context,
+        )
+
+        # Controlled one-time retry for empty core extraction
+        if self._is_core_extraction_empty(core_data):
+            logger.warning(
+                f"Empty core extraction detected for '{(paper.title or 'Untitled')[:80]}'. "
+                "Retrying core-field extraction once before gating."
+            )
+            retry_data = self.extractor.extract(
+                paper.title or "",
+                paper.abstract or "",
+                full_text,
+                extraction_fields=core_fields,
+                topic_context=extraction_context,
+            )
+            if not self._is_core_extraction_empty(retry_data):
+                core_data = retry_data
+
+        # Optional enrichment pass (non-blocking if it fails)
+        try:
+            enrichment_data = self.extractor.extract(
+                paper.title or "",
+                paper.abstract or "",
+                full_text,
+                extraction_fields=enrichment_fields,
+                topic_context=extraction_context,
+            )
+        except Exception as exc:
+            logger.warning(
+                f"Optional enrichment extraction failed for '{(paper.title or 'Untitled')[:80]}': {exc}"
+            )
+            enrichment_data = None
+
+        return self._merge_extraction_data(core_data, enrichment_data)
+
+    def _export_empty_extractions_for_review(self, output_path: Path) -> int:
+        """Export papers with empty core extraction for manual review."""
+        export_data: list[dict[str, Any]] = []
+        for idx, extracted in enumerate(self.extracted_data):
+            if not self._is_core_extraction_empty(extracted):
+                continue
+
+            source_paper = self.final_papers[idx] if idx < len(self.final_papers) else None
+            export_data.append(
+                {
+                    "title": extracted.title or (source_paper.title if source_paper else None),
+                    "authors": extracted.authors or (source_paper.authors if source_paper else []),
+                    "year": extracted.year if extracted.year else (source_paper.year if source_paper else None),
+                    "doi": extracted.doi if extracted.doi else (source_paper.doi if source_paper else None),
+                    "journal": extracted.journal
+                    if extracted.journal
+                    else (source_paper.journal if source_paper else None),
+                    "study_objectives": extracted.study_objectives,
+                    "outcomes": extracted.outcomes,
+                    "key_findings": extracted.key_findings,
+                }
+            )
+
+        with open(output_path, "w", encoding="utf-8") as handle:
+            json.dump(export_data, handle, indent=2, ensure_ascii=False)
+
+        logger.warning(f"Exported {len(export_data)} empty extractions for review: {output_path}")
+        return len(export_data)
+
+    def _apply_extraction_quality_gate(self, empty_extraction_count: int) -> None:
+        """Apply configurable quality gate on empty core extraction rate."""
+        if not self.extracted_data:
+            return
+
+        extraction_quality_cfg = self.config.get("extraction_quality", {})
+        max_empty_rate = float(extraction_quality_cfg.get("max_empty_rate", 0.35))
+        enforce_gate = bool(extraction_quality_cfg.get("enforce_gate", True))
+        percentage = empty_extraction_count / len(self.extracted_data)
+
+        if percentage <= max_empty_rate:
+            return
+
+        logger.error(
+            f"Extraction quality gate triggered: {empty_extraction_count}/{len(self.extracted_data)} "
+            f"papers ({percentage * 100:.1f}%) have empty core extraction fields. "
+            f"Configured max_empty_rate={max_empty_rate * 100:.1f}%."
+        )
+
+        review_path = self.output_dir / "empty_extractions_for_review.json"
+        self._export_empty_extractions_for_review(review_path)
+
+        if enforce_gate:
+            raise RuntimeError(
+                "Extraction quality gate failed due to high empty extraction rate. "
+                f"Review {review_path} and refine extraction settings."
+            )
+
+    def _backfill_metadata_for_citations(self) -> list[Paper]:
+        """
+        Backfill citation-critical metadata and return papers eligible for citekeys.
+
+        Minimum citation metadata is first author plus year.
+        """
+        extracted_lookup: dict[str, ExtractedData] = {
+            (item.title or "").strip().lower(): item for item in self.extracted_data if item.title
+        }
+        self.citation_incomplete_papers = []
+        eligible: list[Paper] = []
+
+        for idx, paper in enumerate(self.final_papers):
+            extracted = extracted_lookup.get((paper.title or "").strip().lower())
+            if extracted:
+                if (not paper.authors) and extracted.authors:
+                    paper.authors = extracted.authors
+                if (not paper.year) and extracted.year:
+                    paper.year = extracted.year
+                if (not paper.doi) and extracted.doi:
+                    paper.doi = extracted.doi
+                if (not paper.journal) and extracted.journal:
+                    paper.journal = extracted.journal
+
+            if paper.authors and paper.year:
+                eligible.append(paper)
+            else:
+                self.citation_incomplete_papers.append(
+                    {
+                        "index": idx,
+                        "title": paper.title,
+                        "authors": paper.authors,
+                        "year": paper.year,
+                        "doi": paper.doi,
+                        "journal": paper.journal,
+                        "reason": "missing author/year",
+                        "status": "citation_incomplete",
+                    }
+                )
+
+        if self.citation_incomplete_papers:
+            incomplete_path = self.output_dir / "citation_incomplete_papers.json"
+            with open(incomplete_path, "w", encoding="utf-8") as handle:
+                json.dump(self.citation_incomplete_papers, handle, indent=2, ensure_ascii=False)
+            logger.warning(
+                f"Citation metadata incomplete for {len(self.citation_incomplete_papers)} paper(s). "
+                f"Excluded from citekey registry. See {incomplete_path}"
+            )
+
+        logger.info(
+            f"Citation metadata check: {len(eligible)} eligible, "
+            f"{len(self.citation_incomplete_papers)} citation_incomplete"
+        )
+        return eligible
 
     def _extract_data(self):
         """Extract structured data from included papers."""
@@ -2721,14 +3512,13 @@ class WorkflowManager:
                         f"  [dim]-> Calling LLM ({self.extractor.llm_model}) for structured extraction...[/dim]"
                     )
 
-                # In production, would fetch full-text
+                # In production, this can be replaced by full-text retrieval.
                 full_text = None
 
-                extracted = self.extractor.extract(
-                    paper.title or "",
-                    paper.abstract or "",
-                    full_text,
-                    topic_context=extraction_context,
+                extracted = self._extract_with_recovery(
+                    paper=paper,
+                    extraction_context=extraction_context,
+                    full_text=full_text,
                 )
 
                 # Update with paper metadata
@@ -2774,12 +3564,7 @@ class WorkflowManager:
         # Log extraction statistics
         empty_extraction_count = 0
         for extracted in self.extracted_data:
-            objectives_empty = (
-                not extracted.study_objectives or len(extracted.study_objectives) == 0
-            )
-            outcomes_empty = not extracted.outcomes or len(extracted.outcomes) == 0
-            findings_empty = not extracted.key_findings or len(extracted.key_findings) == 0
-            if objectives_empty and outcomes_empty and findings_empty:
+            if self._is_core_extraction_empty(extracted):
                 empty_extraction_count += 1
 
         if empty_extraction_count > 0:
@@ -2806,7 +3591,10 @@ class WorkflowManager:
                     f"({percentage:.1f}%) papers had empty extractions (may be expected for some papers)."
                 )
 
-    def _quality_assessment(self) -> Dict[str, Any]:
+        # Enforce configurable extraction quality gate and export manual-review list on failure.
+        self._apply_extraction_quality_gate(empty_extraction_count)
+
+    def _quality_assessment(self) -> dict[str, Any]:
         """
         Quality assessment phase using CASP framework: Generate template or load assessments.
 
@@ -3043,7 +3831,7 @@ class WorkflowManager:
 
         return self.quality_assessment_data
 
-    def _generate_casp_summary_table(self, casp_assessments: List[Dict[str, Any]]) -> str:
+    def _generate_casp_summary_table(self, casp_assessments: list[dict[str, Any]]) -> str:
         """Generate markdown table summarizing CASP quality assessments."""
         if not casp_assessments:
             return ""
@@ -3070,7 +3858,7 @@ class WorkflowManager:
 
         return "\n".join(lines)
 
-    def _generate_casp_narrative_summary(self, casp_assessments: List[Dict[str, Any]]) -> str:
+    def _generate_casp_narrative_summary(self, casp_assessments: list[dict[str, Any]]) -> str:
         """Generate narrative summary of CASP quality assessments."""
         if not casp_assessments:
             return "No quality assessments available."
@@ -3145,7 +3933,7 @@ class WorkflowManager:
         path = generator.generate(str(output_path), format="png")
         return path
 
-    def _generate_visualizations(self) -> Dict[str, str]:
+    def _generate_visualizations(self) -> dict[str, str]:
         """Generate bibliometric visualizations."""
         paths = {}
 
@@ -3234,66 +4022,67 @@ class WorkflowManager:
     ) -> bool:
         """
         Validate citations in a section.
-        
+
         Args:
             section_name: Name of the section
             section_text: Section text to validate
-            
+
         Returns:
             True if all citations are valid, False otherwise
         """
         if not hasattr(self, 'citation_registry') or not self.citation_registry:
             logger.warning(f"Citation registry not available for validation of {section_name}")
             return True  # Skip validation if registry not built
-        
+
         # Extract all citekeys from section
         citekeys = self.citation_registry.extract_citekeys_from_text(section_text)
-        
+
         if not citekeys:
             logger.info(f"No citations found in {section_name} section")
             return True
-        
+
         # Validate citekeys
         valid, invalid = self.citation_registry.validate_citekeys(citekeys)
-        
+
         if invalid:
             logger.warning(f"Found {len(invalid)} invalid citations in {section_name}: {invalid[:5]}")
             logger.warning("These citations do not match any paper in final_papers")
             if fail_on_invalid:
                 return False
-        
+
         unique_valid = len(set(valid))
         logger.info(f"Validated {section_name}: {unique_valid} unique valid citations, {len(invalid)} invalid")
-        
+
         return True
 
-    def _ensure_citation_registry(self) -> None:
+    def _ensure_citation_registry(self, papers: list[Paper] | None = None) -> None:
         """Build citation registry if not already initialized."""
         if hasattr(self, "citation_registry") and self.citation_registry is not None:
             return
         from .citation_registry import CitationRegistry
 
-        self.citation_registry = CitationRegistry(self.final_papers)
+        registry_papers = papers if papers is not None else self.final_papers
+        self.citation_registry = CitationRegistry(registry_papers)
         logger.info(
             f"Initialized citation registry with {len(self.citation_registry.citekey_to_paper)} papers"
         )
-    
+
     def _extract_and_map_citations(self, text: str, citation_map: dict) -> str:
         """
         Extract author-year citations and replace with numbered citations.
-        
+
         Args:
             text: Text containing citations like [Kaufman2020]
             citation_map: Dict mapping citekeys to paper indices
-            
+
         Returns:
             Text with citations replaced with [1], [2], etc.
         """
         import re
-        
+
         # Pattern to match author-year citations: [Author2020], [AuthorName2020a]
         pattern = r'\[([A-Z][a-zA-Z]+\d{4}[a-z]?)\]'
-        
+
         def replace_citation(match):
             citekey = match.group(1)
             if citekey in citation_map:
@@ -3302,44 +4091,44 @@ class WorkflowManager:
                 # Citation not found in papers - keep original
                 logger.warning(f"Citation {citekey} not found in final papers")
                 return match.group(0)
-        
+
         return re.sub(pattern, replace_citation, text)
-    
+
     def _build_citation_map(self, all_text: str) -> dict:
         """
         Build a mapping from citekeys to paper indices.
-        
+
         Args:
             all_text: Combined text from all sections
-            
+
         Returns:
             Dict mapping citekeys like 'Kaufman2020' to citation numbers like 1, 2, 3
         """
         import re
-        
+
         # Extract all citekeys from text
         pattern = r'\[([A-Z][a-zA-Z]+\d{4}[a-z]?)\]'
         citekeys = re.findall(pattern, all_text)
         unique_citekeys = list(dict.fromkeys(citekeys))  # Preserve order, remove dupes
-        
+
         # Map each citekey to a paper
         citation_map = {}
         citation_number = 1
-        
+
         for citekey in unique_citekeys:
             # Extract author surname and year from citekey
             match = re.match(r'([A-Z][a-zA-Z]+)(\d{4})([a-z]?)', citekey)
             if not match:
                 continue
-                
+
             author_surname = match.group(1).lower()
             year_str = match.group(2)
-            
+
             # Find matching paper in final_papers
             for paper in self.final_papers:
                 if not paper.authors or not paper.year:
                     continue
-                    
+
                 # Check if first author surname matches (case-insensitive)
                 first_author = paper.authors[0].lower()
                 # Extract surname from "Firstname Surname" or "Surname, Firstname"
@@ -3348,7 +4137,7 @@ class WorkflowManager:
                 else:
                     # Take last word as surname
                     paper_surname = first_author.split()[-1]
-                
+
                 # Check year match
                 if paper_surname == author_surname.lower() and str(paper.year) == year_str:
                     citation_map[citekey] = citation_number
@@ -3359,39 +4148,39 @@ class WorkflowManager:
                 logger.warning(f"No paper found for citation {citekey}")
                 citation_map[citekey] = citation_number
                 citation_number += 1
-        
+
         return citation_map
-    
+
     def _generate_references_from_citations(self, citation_map: dict) -> str:
         """
         Generate references section for cited papers only.
-        
+
         Args:
             citation_map: Dict mapping citekeys to citation numbers
-            
+
         Returns:
             Formatted references section
         """
         if not citation_map:
             return "## References\n\nNo citations found in the document.\n\n"
-        
+
         # Create reverse map: citation_number -> citekey
         reverse_map = {num: key for key, num in citation_map.items()}
-        
+
         # Generate references in numerical order
         refs = ["## References\n\n"]
         for num in sorted(reverse_map.keys()):
             citekey = reverse_map[num]
-            
+
             # Find the paper for this citekey
             match = re.match(r'([A-Z][a-zA-Z]+)(\d{4})([a-z]?)', citekey)
             if not match:
                 refs.append(f"[{num}] {citekey} (citation not found)\n\n")
                 continue
-                
+
             author_surname = match.group(1).lower()
             year_str = match.group(2)
-            
+
             # Find paper
             paper = None
             for p in self.final_papers:
@@ -3402,38 +4191,38 @@ class WorkflowManager:
                     paper_surname = first_author.split(',')[0].strip()
                 else:
                     paper_surname = first_author.split()[-1]
-                
+
                 if paper_surname == author_surname.lower() and str(p.year) == year_str:
                     paper = p
                     break
-            
+
             if not paper:
                 refs.append(f"[{num}] {citekey} (paper not found)\n\n")
                 continue
-            
+
             # Format reference in IEEE/Vancouver style
             authors = paper.authors[:3] if paper.authors else ["Unknown"]
             authors_str = ", ".join(authors)
             if len(paper.authors) > 3:
                 authors_str += " et al."
-            
+
             title = paper.title or "Untitled"
             journal = paper.journal or ""
             year = paper.year or "n.d."
             doi = paper.doi or ""
-            
+
             ref = f"[{num}] {authors_str}. {title}."
             if journal:
                 ref += f" {journal},"
             ref += f" {year}."
             if doi:
                 ref += f" DOI: {doi}"
-            
+
             refs.append(ref + "\n\n")
-        
+
         return "".join(refs)
 
-    def _collect_mermaid_diagrams(self) -> Dict[str, str]:
+    def _collect_mermaid_diagrams(self) -> dict[str, str]:
         """
         Scan output directory for mermaid diagram SVG files (fallback method).
 
@@ -3497,7 +4286,7 @@ class WorkflowManager:
         logger.warning("Style pattern extraction is no longer available")
         self.style_patterns = {}
 
-    def _save_section_checkpoint(self, section_name: str, sections: Dict[str, str]) -> bool:
+    def _save_section_checkpoint(self, section_name: str, sections: dict[str, str]) -> bool:
         """
         Save checkpoint after a section completes.
 
@@ -3546,7 +4335,7 @@ class WorkflowManager:
             logger.warning(f"Failed to save section checkpoint for {section_name}: {e}")
             return False
 
-    def _load_existing_sections(self) -> Dict[str, str]:
+    def _load_existing_sections(self) -> dict[str, str]:
         """
         Load existing sections from checkpoint if available.
         Scans for all article_writing_*_state.json files and loads each section individually.
@@ -3696,7 +4485,7 @@ class WorkflowManager:
             f"Failed to write {section_name} section after {max_attempts} attempts: {last_error_reason}"
         )
 
-    def _write_article(self) -> Dict[str, str]:
+    def _write_article(self) -> dict[str, str]:
         """Write all article sections with checkpointing and retry support."""
         # Load existing sections from checkpoint if resuming
         sections = self._load_existing_sections()
@@ -3715,8 +4504,12 @@ class WorkflowManager:
             logger.info("Each section requires an LLM call and may take some time.")
         console.print()
 
-        # Build citation registry from final papers
-        self._ensure_citation_registry()
+        # Backfill metadata and exclude citation-incomplete papers from citekey generation.
+        citation_eligible_papers = self._backfill_metadata_for_citations()
+        self.citation_registry = None
+
+        # Build citation registry from citation-eligible papers only.
+        self._ensure_citation_registry(citation_eligible_papers)
         citation_catalog = self.citation_registry.catalog_for_prompt()
         logger.info(f"Built citation registry with {len(self.citation_registry.citekey_to_paper)} papers")
 
@@ -3799,13 +4592,13 @@ class WorkflowManager:
                 humanized = True
 
             sections["introduction"] = intro
-            
+
             # Validate citations in introduction
             if not self._validate_section_citations(
                 "introduction", intro, fail_on_invalid=True
             ):
                 raise RuntimeError("Generated introduction contains invalid citations")
-            
+
             checkpoint_saved = self._save_section_checkpoint("introduction", sections)
 
             # Show COMPLETE panel
@@ -3934,13 +4727,13 @@ class WorkflowManager:
                 humanized = True
 
             sections["methods"] = methods
-            
+
             # Validate citations in methods
             if not self._validate_section_citations(
                 "methods", methods, fail_on_invalid=True
             ):
                 raise RuntimeError("Generated methods contains invalid citations")
-            
+
             checkpoint_saved = self._save_section_checkpoint("methods", sections)
 
             # Show COMPLETE panel
@@ -4059,13 +4852,13 @@ class WorkflowManager:
                 humanized = True
 
             sections["results"] = results
-            
+
             # Validate citations in results
             if not self._validate_section_citations(
                 "results", results, fail_on_invalid=True
             ):
                 raise RuntimeError("Generated results contains invalid citations")
-            
+
             checkpoint_saved = self._save_section_checkpoint("results", sections)
 
             # Show COMPLETE panel
@@ -4166,13 +4959,13 @@ class WorkflowManager:
                 humanized = True
 
             sections["discussion"] = discussion
-            
+
             # Validate citations in discussion
             if not self._validate_section_citations(
                 "discussion", discussion, fail_on_invalid=True
             ):
                 raise RuntimeError("Generated discussion contains invalid citations")
-            
+
             checkpoint_saved = self._save_section_checkpoint("discussion", sections)
 
             # Show COMPLETE panel
@@ -4265,7 +5058,7 @@ class WorkflowManager:
 
         return sections
 
-    def _prepare_figure_paths(self, prisma_path: str, viz_paths: Dict[str, str]) -> Dict[str, str]:
+    def _prepare_figure_paths(self, prisma_path: str, viz_paths: dict[str, str]) -> dict[str, str]:
         """
         Organize figures into figures/ directory and return path mapping.
 
@@ -4319,12 +5112,11 @@ class WorkflowManager:
 
     def _generate_final_report(
         self,
-        article_sections: Dict[str, str],
+        article_sections: dict[str, str],
         prisma_path: str,
-        viz_paths: Dict[str, str],
+        viz_paths: dict[str, str],
     ) -> str:
         """Generate final markdown report."""
-        import re
         self._ensure_citation_registry()
 
         # Prepare figures and get path mapping
@@ -4338,7 +5130,7 @@ class WorkflowManager:
             article_sections.get("results", ""),
             article_sections.get("discussion", "")
         ])
-        
+
         # Get transformed text and used citekeys from registry
         _, used_citekeys = self.citation_registry.replace_citekeys_with_numbers(all_text)
         logger.info(f"Found {len(used_citekeys)} unique citations in article")
@@ -4618,21 +5410,21 @@ class WorkflowManager:
 
     def _export_report(
         self,
-        article_sections: Dict[str, str],
+        article_sections: dict[str, str],
         prisma_path: str,
-        viz_paths: Dict[str, str],
-    ) -> Dict[str, str]:
+        viz_paths: dict[str, str],
+    ) -> dict[str, str]:
         """Export report to BibTeX and RIS formats using citation registry."""
         self._ensure_citation_registry()
         export_paths = {}
-        
+
         # Get export configuration
         export_config = self.config.get("output", {}).get("formats", [])
-        
+
         if not export_config:
             logger.info("No export formats configured")
             return export_paths
-        
+
         # Get used citations from all sections
         all_text = "\n\n".join([
             article_sections.get("abstract", ""),
@@ -4641,9 +5433,9 @@ class WorkflowManager:
             article_sections.get("results", ""),
             article_sections.get("discussion", "")
         ])
-        
+
         _, used_citekeys = self.citation_registry.replace_citekeys_with_numbers(all_text)
-        
+
         # Export to BibTeX if requested
         if "bibtex" in export_config or "bib" in export_config:
             bibtex_path = self.output_dir / "references.bib"
@@ -4652,7 +5444,7 @@ class WorkflowManager:
                 f.write(bibtex_content)
             export_paths["bibtex"] = str(bibtex_path)
             logger.info(f"BibTeX file generated: {bibtex_path}")
-        
+
         # Export to RIS if requested
         if "ris" in export_config:
             ris_path = self.output_dir / "references.ris"
@@ -4661,16 +5453,16 @@ class WorkflowManager:
                 f.write(ris_content)
             export_paths["ris"] = str(ris_path)
             logger.info(f"RIS file generated: {ris_path}")
-        
+
         # LaTeX and Word export not currently supported
         if "latex" in export_config:
             logger.warning("LaTeX export not currently supported (export modules removed)")
         if "word" in export_config or "docx" in export_config:
             logger.warning("Word export not currently supported (export modules removed)")
-        
+
         return export_paths
 
-    def _export_search_strategies(self) -> Optional[str]:
+    def _export_search_strategies(self) -> str | None:
         """Export search strategies to markdown file."""
         try:
             # Get search strategies from search_strategy builder
@@ -4704,17 +5496,17 @@ class WorkflowManager:
             logger.warning(f"Could not export search strategies: {e}")
             return None
 
-    def _generate_extraction_forms(self) -> Optional[str]:
+    def _generate_extraction_forms(self) -> str | None:
         """Generate data extraction form templates - export modules removed."""
         logger.warning("Extraction form generation is no longer available")
         return None
 
-    def _generate_prisma_checklist(self, report_path: str) -> Optional[str]:
+    def _generate_prisma_checklist(self, report_path: str) -> str | None:
         """Generate PRISMA 2020 checklist file - PRISMA modules removed."""
         logger.warning("PRISMA checklist generation is no longer available")
         return None
 
-    def _export_manubot_structure(self, article_sections: Dict[str, str]) -> Optional[str]:
+    def _export_manubot_structure(self, article_sections: dict[str, str]) -> str | None:
         """
         Export article sections to Manubot structure.
 
@@ -4729,10 +5521,10 @@ class WorkflowManager:
 
     def _generate_submission_package(
         self,
-        workflow_outputs: Dict[str, Any],
-        article_sections: Dict[str, str],
+        workflow_outputs: dict[str, Any],
+        article_sections: dict[str, str],
         report_path: str,
-    ) -> Optional[str]:
+    ) -> str | None:
         """
         Generate submission package for journal.
 
@@ -4836,7 +5628,7 @@ class WorkflowManager:
         topic_slug = self.topic_context.topic.lower().replace(" ", "_")[:30]
         return f"{timestamp}_workflow_{topic_slug}"
 
-    def _serialize_phase_data(self, phase_name: str) -> Dict[str, Any]:
+    def _serialize_phase_data(self, phase_name: str) -> dict[str, Any]:
         """Serialize data for a specific phase."""
         serializer = StateSerializer()
         data = {}
@@ -4919,13 +5711,13 @@ class WorkflowManager:
 
         return data
 
-    def _get_article_sections_dict(self) -> Dict[str, str]:
+    def _get_article_sections_dict(self) -> dict[str, str]:
         """Get article sections as dictionary."""
         # This will be populated after writing, stored in results
         # For now, return empty dict - will be set by _write_article
         return getattr(self, "_article_sections", {})
 
-    def load_state_from_dict(self, state: Dict[str, Any]) -> None:
+    def load_state_from_dict(self, state: dict[str, Any]) -> None:
         """Load workflow state from dictionary (works with checkpoints or fixtures)."""
         serializer = StateSerializer()
 
@@ -5030,7 +5822,7 @@ class WorkflowManager:
         cls,
         phase_name: str,
         checkpoint_path: str,
-        config_path: Optional[str] = None,
+        config_path: str | None = None,
     ) -> "WorkflowManager":
         """
         Load checkpoint and resume workflow from specified phase.
@@ -5074,7 +5866,7 @@ class WorkflowManager:
     def run_from_stage(
         self,
         start_stage: str,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """
         Execute workflow from specific stage.
 
@@ -5090,30 +5882,18 @@ class WorkflowManager:
             "deduplication": "deduplication",
             "title_screening": "title_abstract_screening",
             "fulltext_screening": "fulltext_screening",
+            "enrichment": "paper_enrichment",
             "extraction": "data_extraction",
+            "quality": "quality_assessment",
             "prisma": "prisma_generation",
             "visualizations": "visualization_generation",
             "writing": "article_writing",
             "report": "report_generation",
         }
 
-        # Map phase names to phase numbers (1-based)
-        phase_to_number = {
-            "build_search_strategy": 1,
-            "search_databases": 2,
-            "deduplication": 3,
-            "title_abstract_screening": 4,
-            "fulltext_screening": 5,
-            "data_extraction": 7,
-            "prisma_generation": 8,
-            "visualization_generation": 9,
-            "article_writing": 10,
-            "report_generation": 11,
-        }
-
         # Normalize stage name
         start_phase = stage_to_phase.get(start_stage, start_stage)
-        start_phase_num = phase_to_number.get(start_phase)
+        start_phase_num = self._get_phase_number(start_phase)
 
         if start_phase_num is None:
             raise ValueError(f"Unknown stage: {start_stage}")

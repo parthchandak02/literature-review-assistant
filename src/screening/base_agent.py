@@ -326,6 +326,16 @@ class BaseScreeningAgent(ABC):
             duration = time.time() - call_start_time
             content = response.text if hasattr(response, "text") else str(response)
             model_name = getattr(self, "llm_model_name", self.llm_model)
+            
+            # Enhanced diagnostics for empty responses
+            if not content or not content.strip():
+                logger.warning(
+                    f"Empty LLM response detected. Response object details: "
+                    f"has_text={hasattr(response, 'text')}, "
+                    f"candidates={len(response.candidates) if hasattr(response, 'candidates') else 'N/A'}, "
+                    f"prompt_feedback={response.prompt_feedback if hasattr(response, 'prompt_feedback') else 'N/A'}, "
+                    f"finish_reason={response.candidates[0].finish_reason if hasattr(response, 'candidates') and len(response.candidates) > 0 else 'N/A'}"
+                )
 
             # Track cost if available
             if hasattr(response, "usage_metadata") and response.usage_metadata:
@@ -572,6 +582,16 @@ Output must be suitable for direct insertion into an academic publication withou
                     duration = time.time() - call_start_time
                     content = response.text if hasattr(response, "text") else str(response)
                     model_name = getattr(self, "llm_model_name", self.llm_model)
+                    
+                    # Enhanced diagnostics for empty responses (fallback path)
+                    if not content or not content.strip():
+                        logger.warning(
+                            f"Empty LLM response in fallback path. Response object details: "
+                            f"has_text={hasattr(response, 'text')}, "
+                            f"candidates={len(response.candidates) if hasattr(response, 'candidates') else 'N/A'}, "
+                            f"prompt_feedback={response.prompt_feedback if hasattr(response, 'prompt_feedback') else 'N/A'}, "
+                            f"finish_reason={response.candidates[0].finish_reason if hasattr(response, 'candidates') and len(response.candidates) > 0 else 'N/A'}"
+                        )
 
                     # Extract usage_metadata and track cost (always, not conditional on debug config)
                     cost = 0.0

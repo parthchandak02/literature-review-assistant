@@ -32,10 +32,10 @@ except ImportError:
 from src.deduplication import Deduplicator
 from src.extraction.data_extractor_agent import DataExtractorAgent
 from src.prisma.prisma_generator import PRISMACounter
+from src.restart.workflow_bootstrap import build_restart_services
 from src.screening.fulltext_agent import FullTextScreener
 from src.screening.title_abstract_agent import TitleAbstractScreener
 from src.search.multi_database_searcher import MultiDatabaseSearcher
-from src.utils.pdf_retriever import PDFRetriever
 from src.visualization.charts import ChartGenerator
 from src.writing.abstract_agent import AbstractGenerator
 from src.writing.discussion_agent import DiscussionWriter
@@ -105,10 +105,18 @@ class WorkflowInitializer:
         title_abstract_config = agents_config.get("title_abstract_screener", {})
         fulltext_config = agents_config.get("fulltext_screener", {})
         extraction_config = agents_config.get("extraction_agent", {})
-        intro_config = agents_config.get("introduction_writer", {})
-        methods_config = agents_config.get("methods_writer", {})
-        results_config = agents_config.get("results_writer", {})
-        discussion_config = agents_config.get("discussion_writer", {})
+
+        # Merge writing-level config (timeout, retry) into each writer agent config
+        writing_config = self.config.get("writing", {})
+        base_timeout = writing_config.get("llm_timeout", 120)
+
+        # Use shorter timeout for intro/methods (simpler sections)
+        intro_config = {**agents_config.get("introduction_writer", {}), "llm_timeout": base_timeout, "retry_count": writing_config.get("retry_count", 2)}
+        methods_config = {**agents_config.get("methods_writer", {}), "llm_timeout": base_timeout, "retry_count": writing_config.get("retry_count", 2)}
+
+        # Use extended 300s timeout for results/discussion (complex sections with most data)
+        results_config = {**agents_config.get("results_writer", {}), "llm_timeout": 300, "retry_count": writing_config.get("retry_count", 2)}
+        discussion_config = {**agents_config.get("discussion_writer", {}), "llm_timeout": 300, "retry_count": writing_config.get("retry_count", 2)}
 
         self.title_screener = TitleAbstractScreener(
             llm_provider, llm_api_key, agent_topic_context, title_abstract_config
@@ -253,4 +261,12 @@ class WorkflowInitializer:
                 f"Error registering writing tools: {e}. Tool calling may be disabled.",
                 exc_info=True,
             )
+
+    def get_restart_services(self) -> dict[str, object]:
+        """Build restart architecture services with current workflow settings."""
+        contact_email = os.getenv("OPENALEX_CONTACT_EMAIL") or os.getenv("CROSSREF_EMAIL")
+        return build_restart_services(
+            output_dir=str(self.output_dir),
+            contact_email=contact_email,
+        )
 

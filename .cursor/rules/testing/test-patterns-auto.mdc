@@ -1,0 +1,28 @@
+---
+description:
+globs: tests/**/*.py
+alwaysApply: false
+---
+
+# Testing Standards
+
+- Use pytest with async support (pytest-asyncio)
+- Unit tests: mock LLM calls, use in-memory SQLite
+- Integration tests: may use real LLM calls with small inputs
+- E2E tests: full pipeline run
+- Each module in src/ has a corresponding test file
+- Test Pydantic model validation (both valid and invalid inputs)
+- Test quality gates in both strict and warning modes
+- Test citation ledger integrity (no orphan claims, no unresolved citations)
+
+## Naming Convention
+- `test_<module>.py` for unit tests
+- `test_<pipeline>_pipeline.py` for integration tests
+- `test_full_review.py` for e2e
+
+## Running
+```bash
+uv run pytest tests/unit -q          # fast, no LLM
+uv run pytest tests/integration -q   # slower, may use LLM
+uv run pytest tests/e2e -q           # full run
+```

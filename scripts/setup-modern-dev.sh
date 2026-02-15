@@ -26,14 +26,12 @@ fi
 echo ""
 
 echo "[2/5] Installing dependencies with uv..."
-# Install project dependencies
-if [ -f "requirements.txt" ]; then
-    uv pip install -r requirements.txt
-fi
+# Install project in editable mode with all dependencies from pyproject.toml
+uv pip install -e .
 
-# Install dev dependencies from pyproject.toml
-uv pip install pytest pytest-xdist pytest-watch pytest-cov ruff mypy pre-commit
-echo "SUCCESS: Dependencies installed"
+# Sync dev dependency group
+uv sync --group dev
+echo "SUCCESS: Dependencies installed from pyproject.toml"
 echo ""
 
 echo "[3/5] Setting up pre-commit hooks..."

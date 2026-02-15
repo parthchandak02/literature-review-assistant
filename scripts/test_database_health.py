@@ -6,6 +6,8 @@ Tests all configured database connectors and reports their status.
 Used by: python main.py --test-databases
 """
 
+import argparse
+import logging
 import os
 import sys
 import time
@@ -49,8 +51,21 @@ TEST_QUERY = "health literacy"
 class DatabaseHealthChecker:
     """Check health of database connectors."""
 
-    def __init__(self):
+    def __init__(self, verbose: bool = False):
         self.results: Dict[str, Dict] = {}
+        self.verbose = verbose
+        
+        # Configure logging based on verbose flag
+        if verbose:
+            logging.basicConfig(
+                level=logging.DEBUG,
+                format='%(asctime)s | %(levelname)s | %(name)s | %(message)s'
+            )
+        else:
+            logging.basicConfig(
+                level=logging.WARNING,
+                format='%(levelname)s | %(message)s'
+            )
 
     def _extract_error_message(self, e: Exception) -> str:
         """Extract a clean, user-friendly error message from an exception."""
@@ -181,12 +196,24 @@ class DatabaseHealthChecker:
 
     def test_semantic_scholar(self) -> Tuple[bool, str, List[Paper], Optional[str]]:
         """Test Semantic Scholar connector."""
+        api_key = os.getenv("SEMANTIC_SCHOLAR_API_KEY")
+        if self.verbose:
+            print(f"\n[Semantic Scholar] Testing with API key: {'SET' if api_key else 'NOT SET'}")
+            
         try:
-            api_key = os.getenv("SEMANTIC_SCHOLAR_API_KEY")
             connector = SemanticScholarConnector(api_key=api_key)
+            
+            if self.verbose:
+                print(f"[Semantic Scholar] Query: {TEST_QUERY}")
+                print(f"[Semantic Scholar] Max results: 10")
+                
             start_time = time.time()
             results = connector.search(TEST_QUERY, max_results=10)
-            time.time() - start_time
+            elapsed = time.time() - start_time
+            
+            if self.verbose:
+                print(f"[Semantic Scholar] Search completed in {elapsed:.2f}s")
+                print(f"[Semantic Scholar] Results: {len(results)} papers")
 
             if len(results) > 0:
                 sample = (
@@ -204,6 +231,9 @@ class DatabaseHealthChecker:
                 return False, "NOT WORKING (No results returned)", [], None
         except Exception as e:
             error_msg = self._extract_error_message(e)
+            if self.verbose:
+                import traceback
+                print(f"[Semantic Scholar] Error traceback:\n{traceback.format_exc()}")
             return False, f"ERROR: {error_msg}", [], None
 
     def test_crossref(self) -> Tuple[bool, str, List[Paper], Optional[str]]:
@@ -260,11 +290,23 @@ class DatabaseHealthChecker:
 
     def test_acm(self) -> Tuple[bool, str, List[Paper], Optional[str]]:
         """Test ACM connector."""
+        if self.verbose:
+            print(f"\n[ACM] Testing web scraping connector...")
+            
         try:
             connector = ACMConnector()
+            
+            if self.verbose:
+                print(f"[ACM] Query: {TEST_QUERY}")
+                print(f"[ACM] Max results: 10")
+                
             start_time = time.time()
             results = connector.search(TEST_QUERY, max_results=10)
-            time.time() - start_time
+            elapsed = time.time() - start_time
+            
+            if self.verbose:
+                print(f"[ACM] Search completed in {elapsed:.2f}s")
+                print(f"[ACM] Results: {len(results)} papers")
 
             if len(results) > 0:
                 sample = (
@@ -277,15 +319,30 @@ class DatabaseHealthChecker:
                 return False, "NOT WORKING (No results returned)", [], None
         except Exception as e:
             error_msg = self._extract_error_message(e)
+            if self.verbose:
+                import traceback
+                print(f"[ACM] Error traceback:\n{traceback.format_exc()}")
             return False, f"ERROR: {error_msg}", [], None
 
     def test_springer(self) -> Tuple[bool, str, List[Paper], Optional[str]]:
         """Test Springer connector."""
+        if self.verbose:
+            print(f"\n[Springer] Testing web scraping connector...")
+            
         try:
             connector = SpringerConnector()
+            
+            if self.verbose:
+                print(f"[Springer] Query: {TEST_QUERY}")
+                print(f"[Springer] Max results: 10")
+                
             start_time = time.time()
             results = connector.search(TEST_QUERY, max_results=10)
-            time.time() - start_time
+            elapsed = time.time() - start_time
+            
+            if self.verbose:
+                print(f"[Springer] Search completed in {elapsed:.2f}s")
+                print(f"[Springer] Results: {len(results)} papers")
 
             if len(results) > 0:
                 sample = (
@@ -298,15 +355,31 @@ class DatabaseHealthChecker:
                 return False, "NOT WORKING (No results returned)", [], None
         except Exception as e:
             error_msg = self._extract_error_message(e)
+            if self.verbose:
+                import traceback
+                print(f"[Springer] Error traceback:\n{traceback.format_exc()}")
             return False, f"ERROR: {error_msg}", [], None
 
     def test_ieee_xplore(self) -> Tuple[bool, str, List[Paper], Optional[str]]:
         """Test IEEE Xplore connector."""
+        api_key = os.getenv("IEEE_API_KEY")
+        if self.verbose:
+            print(f"\n[IEEE Xplore] Testing with API key: {'SET' if api_key else 'NOT SET'}")
+            
         try:
             connector = IEEEXploreConnector()
+            
+            if self.verbose:
+                print(f"[IEEE Xplore] Query: {TEST_QUERY}")
+                print(f"[IEEE Xplore] Max results: 10")
+                
             start_time = time.time()
             results = connector.search(TEST_QUERY, max_results=10)
-            time.time() - start_time
+            elapsed = time.time() - start_time
+            
+            if self.verbose:
+                print(f"[IEEE Xplore] Search completed in {elapsed:.2f}s")
+                print(f"[IEEE Xplore] Results: {len(results)} papers")
 
             if len(results) > 0:
                 sample = (
@@ -314,24 +387,44 @@ class DatabaseHealthChecker:
                     if len(results[0].title) > 60
                     else results[0].title
                 )
-                return True, "WORKING (Web scraping, no API key needed)", results, sample
+                status = "WORKING"
+                if api_key:
+                    status += " (API key: SET)"
+                else:
+                    status += " (Web scraping, no API key)"
+                return True, status, results, sample
             else:
                 return False, "NOT WORKING (No results returned)", [], None
         except Exception as e:
             error_msg = self._extract_error_message(e)
+            if self.verbose:
+                import traceback
+                print(f"[IEEE Xplore] Error traceback:\n{traceback.format_exc()}")
             return False, f"ERROR: {error_msg}", [], None
 
     def test_perplexity(self) -> Tuple[bool, str, List[Paper], Optional[str]]:
         """Test Perplexity connector."""
         api_key = os.getenv("PERPLEXITY_SEARCH_API_KEY") or os.getenv("PERPLEXITY_API_KEY")
+        if self.verbose:
+            print(f"\n[Perplexity] Testing with API key: {'SET' if api_key else 'NOT SET'}")
+            
         if not api_key:
             return False, "SKIPPED (API key: NOT SET)", [], None
 
         try:
             connector = PerplexityConnector(api_key=api_key)
+            
+            if self.verbose:
+                print(f"[Perplexity] Query: {TEST_QUERY}")
+                print(f"[Perplexity] Max results: 10")
+                
             start_time = time.time()
             results = connector.search(TEST_QUERY, max_results=10)
-            time.time() - start_time
+            elapsed = time.time() - start_time
+            
+            if self.verbose:
+                print(f"[Perplexity] Search completed in {elapsed:.2f}s")
+                print(f"[Perplexity] Results: {len(results)} papers")
 
             if len(results) > 0:
                 sample = (
@@ -344,6 +437,9 @@ class DatabaseHealthChecker:
                 return False, "NOT WORKING (No results returned)", [], None
         except Exception as e:
             error_msg = self._extract_error_message(e)
+            if self.verbose:
+                import traceback
+                print(f"[Perplexity] Error traceback:\n{traceback.format_exc()}")
             return False, f"ERROR: {error_msg}", [], None
 
     def test_google_scholar(self) -> Tuple[bool, str, List[Paper], Optional[str]]:
@@ -370,8 +466,12 @@ class DatabaseHealthChecker:
             error_msg = self._extract_error_message(e)
             return False, f"ERROR: {error_msg}", [], None
 
-    def run_all_checks(self):
-        """Run health checks for all databases."""
+    def run_all_checks(self, single_db: Optional[str] = None):
+        """Run health checks for all databases or a single database.
+        
+        Args:
+            single_db: Optional database name to test. If None, tests all databases.
+        """
         print("Database Health Check Report")
         print("=" * 60)
         print()
@@ -400,6 +500,23 @@ class DatabaseHealthChecker:
             ("Perplexity", self.test_perplexity),
             ("Google Scholar", self.test_google_scholar),
         ]
+        
+        # Filter to single database if specified
+        if single_db:
+            databases = [(name, func) for name, func in databases if name.lower() == single_db.lower()]
+            if not databases:
+                print(f"ERROR: Database '{single_db}' not found.")
+                print("Available databases:")
+                for name, _ in [
+                    ("PubMed", None), ("arXiv", None), ("Semantic Scholar", None),
+                    ("Crossref", None), ("Scopus", None), ("ACM", None),
+                    ("Springer", None), ("IEEE Xplore", None), ("Perplexity", None),
+                    ("Google Scholar", None)
+                ]:
+                    print(f"  - {name}")
+                return False
+            print(f"Testing single database: {databases[0][0]}")
+            print()
 
         working_count = 0
         skipped_count = 0
@@ -505,8 +622,36 @@ class DatabaseHealthChecker:
 
 def main():
     """Main entry point."""
-    checker = DatabaseHealthChecker()
-    all_working = checker.run_all_checks()
+    parser = argparse.ArgumentParser(
+        description="Test database connector health",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  # Test all databases
+  python scripts/test_database_health.py
+  
+  # Test specific database with verbose logging
+  python scripts/test_database_health.py --db "IEEE Xplore" --verbose
+  
+  # Test with API key set
+  IEEE_API_KEY=your_key python scripts/test_database_health.py --db "IEEE Xplore" -v
+"""
+    )
+    parser.add_argument(
+        "--verbose", "-v",
+        action="store_true",
+        help="Enable verbose logging (shows HTTP requests/responses)"
+    )
+    parser.add_argument(
+        "--db", "--database",
+        type=str,
+        help="Test only a specific database (e.g., 'IEEE Xplore', 'ACM', 'PubMed')"
+    )
+    
+    args = parser.parse_args()
+    
+    checker = DatabaseHealthChecker(verbose=args.verbose)
+    all_working = checker.run_all_checks(single_db=args.db)
 
     # Exit with appropriate code
     sys.exit(0 if all_working else 1)

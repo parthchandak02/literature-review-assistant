@@ -279,7 +279,7 @@ REASONING: Unclear if meets criteria"""
     def test_screen_with_structured_output_failure_fallback(
         self, sample_topic_context, sample_agent_config
     ):
-        """Test screen falls back to text parsing when structured output fails (NEW)."""
+        """Test schema failure routes to UNCERTAIN manual review (NEW behavior)."""
         screener = FullTextScreener(
             llm_provider="gemini",
             api_key="test-key",
@@ -291,27 +291,23 @@ REASONING: Unclear if meets criteria"""
         with patch.object(screener, "_call_llm_with_schema") as mock_schema:
             mock_schema.side_effect = ValidationError("Schema validation failed", [])
 
-            # Mock text-based call to succeed
-            with patch.object(screener, "_call_llm") as mock_text:
-                mock_text.return_value = PLAIN_TEXT_RESPONSE_PAPER4
+            result = screener.screen(
+                title="Test Paper",
+                abstract="Test abstract",
+                full_text="Test full text",
+                inclusion_criteria=["health science"],
+                exclusion_criteria=["general education"],
+            )
 
-                result = screener.screen(
-                    title="Test Paper",
-                    abstract="Test abstract",
-                    full_text="Test full text",
-                    inclusion_criteria=["health science"],
-                    exclusion_criteria=["general education"],
-                )
-
-                # Verify fallback was used
-                assert result is not None
-                assert mock_text.called
-                assert result.decision == InclusionDecision.EXCLUDE
+            assert result is not None
+            assert result.decision == InclusionDecision.UNCERTAIN
+            assert result.confidence == 0.0
+            assert "manual" in result.reasoning.lower()
 
     @pytest.mark.fast
     @pytest.mark.regression
     def test_screen_handles_plain_text_response(self, sample_topic_context, sample_agent_config):
-        """Test screen handles plain text response from LLM (NEW - Paper 4 scenario)."""
+        """Test schema failure never crashes and returns UNCERTAIN."""
         screener = FullTextScreener(
             llm_provider="gemini",
             api_key="test-key",
@@ -324,18 +320,16 @@ REASONING: Unclear if meets criteria"""
             # Structured output fails completely
             mock_schema.side_effect = Exception("response.parsed is None")
 
-            with patch.object(screener, "_call_llm") as mock_text:
-                mock_text.return_value = PLAIN_TEXT_RESPONSE_PAPER4
+            # This MUST NOT crash
+            result = screener.screen(
+                title="Conversational AI as an Intelligent Tutor",
+                abstract="A review of dialogue-based learning systems",
+                full_text="Full text content...",
+                inclusion_criteria=["health science education"],
+                exclusion_criteria=["general education"],
+            )
 
-                # This MUST NOT crash
-                result = screener.screen(
-                    title="Conversational AI as an Intelligent Tutor",
-                    abstract="A review of dialogue-based learning systems",
-                    full_text="Full text content...",
-                    inclusion_criteria=["health science education"],
-                    exclusion_criteria=["general education"],
-                )
-
-                assert result is not None
-                assert result.decision is not None
-                assert isinstance(result.confidence, float)
+            assert result is not None
+            assert result.decision == InclusionDecision.UNCERTAIN
+            assert result.confidence == 0.0
+            assert isinstance(result.reasoning, str)

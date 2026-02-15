@@ -287,11 +287,22 @@ workflow:
     generate_prisma_report: true
     generate_csv_summary: true
   
+  # Parallel execution controls for late workflow phases
+  parallel_execution:
+    deconflict_llm_heavy_phases: true  # run quality_assessment and article_writing separately
+  
 # Screening Safeguards
 screening_safeguards:
   minimum_papers: 5  # Minimum papers required to pass full-text screening (lowered to allow workflow to proceed)
   enable_manual_review: true  # Pause workflow for manual review if threshold not met
   show_borderline_papers: true  # Show borderline papers for review
+  stage1_include_threshold: 0.85  # stricter auto-include threshold for keyword prefilter
+  stage1_exclude_threshold: 0.8
+
+# Extraction quality controls
+extraction_quality:
+  max_empty_rate: 0.35  # gate if >35% papers have empty core extraction fields
+  enforce_gate: true
 
 # Supplementary Materials (study-specific, but kept separate as it's more of a workflow setting)
 supplementary_materials:

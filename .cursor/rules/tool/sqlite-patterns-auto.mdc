@@ -1,0 +1,47 @@
+---
+description:
+globs: src/db/**/*.py, src/orchestration/**/*.py
+alwaysApply: false
+---
+
+# SQLite Patterns
+
+Use aiosqlite for async. Verify current API: https://github.com/omnilib/aiosqlite
+Note: src/db/ is Holy Grail target; orchestration uses SQLite for checkpoints.
+
+## Connection Setup (every new connection)
+```python
+await db.execute("PRAGMA journal_mode = WAL")
+await db.execute("PRAGMA synchronous = NORMAL")
+await db.execute("PRAGMA foreign_keys = ON")
+await db.execute("PRAGMA cache_size = 10000")
+await db.execute("PRAGMA temp_store = MEMORY")
+```
+
+## Repository Pattern
+- Every method in repositories.py accepts and returns Pydantic models
+- Store JSON arrays as TEXT columns (json.dumps/loads)
+- Use parameterized queries (?) -- never f-strings for SQL
+- All writes commit explicitly
+- decision_log table is append-only -- never UPDATE or DELETE
+
+## Checkpoint Pattern (UPDATED)
+- `workflows` table: one row per review run, keyed by topic + config_hash
+- `checkpoints` table: lightweight phase-completion markers (NOT full state serialization)
+- Actual data lives in per-paper tables (screening_decisions, extraction_records, rob_assessments)
+- Resume pattern: query for already-processed paper_ids, skip them in the loop
+
+```python
+# Resume pattern -- used in screening, extraction, quality assessment
+already_done = await repo.get_processed_paper_ids(workflow_id, stage)
+for paper in papers:
+    if paper.paper_id in already_done:
+        continue  # skip -- already persisted
+    result = await process_paper(paper)
+    await repo.save_screening_decision(result)  # durable immediately
+```
+
+## Topic-Based Auto-Resume
+- `run` checks `workflows` table for matching topic (by config_hash)
+- If match found: prompt user "Found existing run... Resume? (Y/n)"
+- `resume --topic` queries workflows table for matching topic (case-insensitive)

@@ -174,21 +174,13 @@ class CheckpointManager:
         logger.debug(f"Found {len(workflow_dirs)} workflow directories to check")
 
         # Phase priority order (higher index = more progress)
-        phase_order = [
-            "search_databases",
-            "deduplication",
-            "title_abstract_screening",
-            "fulltext_screening",
-            "paper_enrichment",
-            "data_extraction",
-            "quality_assessment",
-            "prisma_generation",
-            "visualization_generation",
-            "article_writing",
-            "report_generation",
-            "manubot_export",
-            "submission_package",
-        ]
+        # Build from registry to stay aligned with WorkflowManager.
+        execution_order = self.workflow_manager.phase_registry.get_execution_order()
+        phase_order = []
+        for phase_name in execution_order:
+            phase = self.workflow_manager.phase_registry.get_phase(phase_name)
+            if phase and phase.checkpoint:
+                phase_order.append(phase_name)
 
         # Collect all matching directories
         matches = []
@@ -283,20 +275,24 @@ class CheckpointManager:
                 logger.debug(f"Error checking checkpoint {latest_checkpoint}: {e}")
                 continue
 
-        # Select the best match: completeness first (prefer complete chains),
-        # then highest phase_index, then most article sections, then most recent time
+        # Select the best match: most recent time first (prefer latest attempt),
+        # then completeness, phase_index, and article sections as tie-breakers
         if matches:
             best_match = max(
                 matches,
                 key=lambda m: (
+                    m["latest_phase_time"],
                     m["completeness"],
                     m["phase_index"],
                     m["article_sections_count"],
-                    m["latest_phase_time"],
                 ),
             )
             logger.info(
-                f"Selected best checkpoint: {best_match['workflow_id']} (phase: {best_match['latest_phase']}, completeness: {best_match['completeness']}, article sections: {best_match['article_sections_count']})"
+                f"Selected best checkpoint: {best_match['workflow_id']} "
+                f"(phase: {best_match['latest_phase']}, "
+                f"time: {datetime.fromtimestamp(best_match['latest_phase_time']).strftime('%Y-%m-%d %H:%M:%S')}, "
+                f"completeness: {best_match['completeness']}, "
+                f"article sections: {best_match['article_sections_count']})"
             )
             return {
                 "checkpoint_dir": best_match["checkpoint_dir"],

@@ -2050,18 +2050,17 @@ class IEEEXploreConnector(DatabaseConnector):
 
     @retry_with_backoff(max_attempts=3)
     def search(self, query: str, max_results: int = 100) -> List[Paper]:
-        """Search IEEE Xplore using official API."""
+        """Search IEEE Xplore using official API or web scraping fallback."""
         # Check cache first
         if self.cache:
             cached = self.cache.get(query, "IEEE Xplore")
             if cached:
                 return cached[:max_results]
 
-        # Require API key
+        # Use web scraping fallback if no API key
         if not self.use_api or not self.api_key:
-            raise APIKeyError(
-                "IEEE Xplore requires an API key. Set IEEE_API_KEY in environment variables."
-            )
+            logger.info("IEEE Xplore: No API key set, using web scraping fallback")
+            return self._search_via_scraping(query, max_results)
 
         return self._search_via_api(query, max_results)
 
@@ -2084,18 +2083,30 @@ class IEEEXploreConnector(DatabaseConnector):
                 "sort_field": "article_title",
             }
 
+            logger.debug(f"IEEE Xplore API request: {self.api_base_url} with params: {params}")
             response = session.get(self.api_base_url, params=params, **request_kwargs)
 
+            # Enhanced error handling with response logging
             if response.status_code == 401:
+                logger.error(f"IEEE Xplore API 401 Unauthorized. Response: {response.text[:500]}")
                 raise APIKeyError("Invalid IEEE Xplore API key")
             elif response.status_code == 429:
+                logger.error(f"IEEE Xplore API 429 Rate Limited. Response: {response.text[:500]}")
                 raise RateLimitError("IEEE Xplore API rate limit exceeded")
+            elif response.status_code >= 400:
+                logger.error(
+                    f"IEEE Xplore API error {response.status_code}. Response: {response.text[:500]}"
+                )
+                response.raise_for_status()
 
             response.raise_for_status()
             data = response.json()
 
             if "articles" not in data:
-                logger.warning("IEEE Xplore API returned unexpected response format")
+                logger.warning(
+                    f"IEEE Xplore API returned unexpected response format. "
+                    f"Keys present: {list(data.keys())}. Response: {str(data)[:500]}"
+                )
                 return []
 
             for article in data["articles"]:

@@ -1,0 +1,40 @@
+---
+description: Meta-analysis implementation patterns using statsmodels. Apply when working on src/synthesis/ files, implementing effect size calculations, forest plots, or funnel plots. Critical rule: LLMs must NEVER compute statistics.
+globs: src/quality/**/*.py, src/visualization/**/*.py
+alwaysApply: false
+---
+
+# Meta-Analysis Patterns (statsmodels)
+
+## CRITICAL: No LLM Statistics
+LLMs must NEVER compute effect sizes, p-values, confidence intervals, or any statistical measures.
+Extract raw data from ExtractionRecord -> pass to deterministic scipy/statsmodels functions.
+
+## Effect Sizes
+See https://www.statsmodels.org/dev/generated/statsmodels.stats.meta_analysis.effectsize_smd.html
+```python
+from statsmodels.stats.meta_analysis import effectsize_smd, effectsize_2proportions
+# Continuous: effectsize_smd(mean1, sd1, nobs1, mean2, sd2, nobs2)
+# Dichotomous: effectsize_2proportions(count1, nobs1, count2, nobs2, statistic="rd"|"rr"|"or"|"as")
+# statistic: "diff"/"rd", "risk-ratio"/"rr", "odds-ratio"/"or", "arcsine"/"as"
+```
+
+## Pooling
+See https://www.statsmodels.org/dev/generated/statsmodels.stats.meta_analysis.combine_effects.html
+```python
+from statsmodels.stats.meta_analysis import combine_effects
+# Fixed: combine_effects(effect, variance, method_re="iterated", use_t=False)
+# Random (DL): combine_effects(effect, variance, method_re="chi2"|"dl", use_t=True)
+# method_re: "iterated"/"pm" (Paule-Mandel) or "chi2"/"dl" (DerSimonian-Laird)
+# Choose based on I^2: fixed if < 40%, random if >= 40%
+```
+
+## Note: Mantel-Haenszel is NOT available in statsmodels
+Use DerSimonian-Laird for binary outcome pooling.
+
+## Forest Plot
+```python
+result = combine_effects(effect, variance, method_re="iterated")
+fig = result.plot_forest()
+fig.savefig("forest_plot.png", dpi=300, bbox_inches="tight")
+```

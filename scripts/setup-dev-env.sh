@@ -15,12 +15,16 @@ if ! command -v python3 &> /dev/null; then
     exit 1
 fi
 
-echo "[1/4] Installing development dependencies..."
-if [ -f "requirements-dev.txt" ]; then
-    pip install -r requirements-dev.txt
-    echo "SUCCESS: Development dependencies installed"
+echo "[1/4] Installing dependencies from pyproject.toml..."
+if command -v uv &> /dev/null; then
+    # Prefer uv if available (much faster)
+    uv pip install -e .
+    uv sync --group dev
+    echo "SUCCESS: Dependencies installed with uv"
 else
-    echo "WARNING: requirements-dev.txt not found, skipping dependency installation"
+    # Fallback to pip
+    pip install -e .
+    echo "SUCCESS: Dependencies installed with pip"
 fi
 echo ""
 

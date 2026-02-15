@@ -312,8 +312,12 @@ pre-commit run --all-files
 Make sure you're in the project root and have installed dependencies:
 
 ```bash
-pip install -r requirements.txt
-pip install -r requirements-dev.txt
+# Using uv (recommended)
+uv pip install -e .
+uv sync --group dev
+
+# Or using pip
+pip install -e .
 ```
 
 ### Fixture Not Found

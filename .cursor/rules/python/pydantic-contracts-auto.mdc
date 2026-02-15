@@ -1,0 +1,17 @@
+---
+description:
+globs: src/models/**/*.py
+alwaysApply: false
+---
+
+# Pydantic Model Standards
+
+See https://docs.pydantic.dev/ for current API. Use Pydantic v2.
+
+- All models inherit from `pydantic.BaseModel`
+- Use `Field()` with constraints (ge, le, min_length) where applicable
+- Use `str` enums (`class X(str, Enum)`) for all categorical fields
+- Use `datetime` with timezone-aware defaults: `Field(default_factory=lambda: datetime.now(timezone.utc))`
+- Use `Optional[X] = None` for nullable fields, never bare `Optional[X]`
+- Add docstrings explaining the model's role in the pipeline
+- Never use `Any` type -- find or create the correct type

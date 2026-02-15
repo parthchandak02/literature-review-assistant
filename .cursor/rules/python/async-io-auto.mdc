@@ -1,0 +1,26 @@
+---
+description:
+globs: src/search/**/*.py, src/screening/**/*.py, src/extraction/**/*.py, src/orchestration/**/*.py
+alwaysApply: false
+---
+
+# Async I/O Standards
+
+- All database calls use `aiosqlite` async context manager
+- All HTTP calls use `aiohttp.ClientSession` (not `requests`)
+- All LLM calls use PydanticAI async agent.run()
+- Use `asyncio.gather()` for independent concurrent operations (e.g., multi-database search)
+- Rate limiting: use token bucket pattern in `src/search/rate_limiter.py`
+- Every LLM call must be wrapped to log a `CostRecord` to the database
+
+<example>
+async with aiosqlite.connect(db_path) as db:
+    await db.execute("INSERT INTO papers ...", params)
+    await db.commit()
+</example>
+
+<example type="invalid">
+import sqlite3
+conn = sqlite3.connect(db_path)  # Wrong: synchronous
+conn.execute("INSERT INTO papers ...", params)
+</example>

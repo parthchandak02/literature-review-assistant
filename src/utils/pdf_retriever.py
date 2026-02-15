@@ -29,6 +29,7 @@ class PDFRetriever:
         self.cache_dir = Path(cache_dir) if cache_dir else None
         if self.cache_dir:
             self.cache_dir.mkdir(parents=True, exist_ok=True)
+        self.grobid_url = os.getenv("GROBID_URL")
 
     def retrieve_full_text(self, paper: Any, max_length: int = 50000) -> Optional[str]:
         """
@@ -245,8 +246,18 @@ class PDFRetriever:
         Returns:
             Extracted text or None
         """
-        # Try multiple PDF extraction libraries
+        # Try parser chain: GROBID -> pypdf -> pdfplumber -> unstructured
         text = None
+
+        # Method 0: Try GROBID when configured
+        if self.grobid_url:
+            try:
+                text = self._extract_with_grobid(pdf_path)
+                if text and len(text.strip()) > 100:
+                    logger.debug(f"Extracted {len(text)} chars using grobid")
+                    return text
+            except Exception as e:
+                logger.debug(f"grobid extraction failed: {e}")
 
         # Method 1: Try pypdf (lightweight)
         try:
@@ -301,8 +312,40 @@ class PDFRetriever:
 
         return None
 
+    def _extract_with_grobid(self, pdf_path: str) -> Optional[str]:
+        """Extract text from PDF using GROBID full-text service."""
+        if not self.grobid_url:
+            return None
+
+        endpoint = self.grobid_url.rstrip("/") + "/api/processFulltextDocument"
+        with open(pdf_path, "rb") as pdf_file:
+            files = {"input": ("paper.pdf", pdf_file, "application/pdf")}
+            response = requests.post(endpoint, files=files, timeout=45, verify=certifi.where())
+            if response.status_code >= 400:
+                return None
+            tei_xml = response.text
+            if not tei_xml.strip():
+                return None
+            return self._strip_xml_tags(tei_xml)
+
+    @staticmethod
+    def _strip_xml_tags(xml_text: str) -> str:
+        """Remove XML tags without adding external parser dependency."""
+        output: list[str] = []
+        inside_tag = False
+        for char in xml_text:
+            if char == "<":
+                inside_tag = True
+                continue
+            if char == ">":
+                inside_tag = False
+                continue
+            if not inside_tag:
+                output.append(char)
+        return "".join(output).strip()
+
     def _get_cache_key(self, url: str) -> str:
         """Generate cache key from URL."""
         import hashlib
 
-        return hashlib.md5(url.encode()).hexdigest()
+        return hashlib.sha256(url.encode()).hexdigest()

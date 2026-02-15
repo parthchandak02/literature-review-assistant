@@ -89,13 +89,26 @@ class FullTextScreener(BaseScreeningAgent):
             )
 
         if not full_text:
-            # Fall back to title/abstract screening
+            # Fall back to title/abstract screening with degraded-mode metadata
+            logger.warning(
+                f"[{self.role}] Full-text not available for paper: {title[:60]}..."
+            )
             if is_verbose:
                 logger.debug(
-                    f"[{self.role}] Full-text not available, falling back to title/abstract screening"
+                    f"[{self.role}] Falling back to title/abstract screening (degraded mode)"
                 )
             result = self._screen_title_abstract(
                 title, abstract, inclusion_criteria, exclusion_criteria
+            )
+            # Mark as degraded mode and reduce confidence
+            result = ScreeningResult(
+                decision=result.decision if result.confidence >= 0.7 else InclusionDecision.UNCERTAIN,
+                confidence=result.confidence * 0.8,  # Reduce confidence due to missing full text
+                reasoning=(
+                    f"[DEGRADED MODE: full-text unavailable] "
+                    f"Screened using title/abstract only. {result.reasoning}"
+                ),
+                exclusion_reason=result.exclusion_reason,
             )
         else:
             if is_verbose:
@@ -132,18 +145,20 @@ class FullTextScreener(BaseScreeningAgent):
                     )
                     result = self._convert_schema_to_result(schema_result)
                 except (ValidationError, json.JSONDecodeError, Exception) as e:
-                    # If schema-based parsing fails after retries, fall back to text parsing
-                    logger.warning(
-                        f"[{self.role}] Schema-based LLM call failed after retries: {e}. "
-                        f"Falling back to text-based parsing..."
+                    # Keep schema path authoritative. Route to manual adjudication on parse failure.
+                    logger.error(
+                        f"[{self.role}] Schema-based LLM call failed after retries. "
+                        f"Returning UNCERTAIN for manual review. Error: {type(e).__name__}: {e}"
                     )
-                    # Make a regular LLM call without schema and parse manually
-                    response_text = self._call_llm(prompt)
-                    result = self._parse_llm_response(response_text)
-                    
-                    # Record fallback usage
-                    fallback_success = result is not None and result.decision is not None
-                    # llm_metrics.record_fallback(success=fallback_success)
+                    result = ScreeningResult(
+                        decision=InclusionDecision.UNCERTAIN,
+                        confidence=0.0,
+                        reasoning=(
+                            "Automated screening failed due to structured-output parsing errors. "
+                            "Manual adjudication required."
+                        ),
+                        exclusion_reason=None,
+                    )
 
                 if is_verbose:
                     logger.debug(

@@ -1,0 +1,50 @@
+---
+description:
+globs:
+alwaysApply: true
+---
+
+# Systematic Review Automation Tool
+
+## Project Identity
+- **Purpose:** Automate systematic literature reviews to produce IEEE-submission-ready manuscripts
+- **Stack:** Python 3.11+, LangGraph (current) / PydanticAI Graph (Holy Grail target), SQLite, Google Gemini 2.5, statsmodels, matplotlib
+- **Package manager:** uv
+- **Architecture:** Typed state, SQLite persistence, 3-tier LLM model selection
+
+## Key Directories (current + Holy Grail target)
+- `src/schemas/` -- Pydantic data contracts (screening, extraction, quality); target: `src/models/`
+- `src/orchestration/` -- Workflow manager, phases, checkpoint, state
+- `src/search/` -- Connectors, rate_limiter, multi-database search
+- `src/screening/` -- Title/abstract and full-text agents
+- `src/quality/` -- RoB assessors, GRADE, CASP, study type detector
+- `src/writing/` -- Section agents, humanizer, style_pattern_extractor, naturalness_scorer
+- `src/extraction/` -- Data extractor agent
+- `src/prisma/` -- PRISMA diagram, checklist generator
+- Target (Holy Grail): `src/db/`, `src/synthesis/`, `src/citation/`, `src/export/`
+- `config/` -- review.yaml (per-review research config) + settings.yaml (system behavior)
+
+## Key Tables
+- `workflows` -- topic, config_hash, status for topic-based auto-resume
+
+## Critical Constraints
+- **Use `rich`** for CLI output (progress bars, tables, status)
+- **Verify APIs** before embedding: use @Ref or Exa to check current docs for statsmodels, pydantic_graph, aiosqlite, etc. Do not embed outdated code patterns.
+- **NO untyped dictionaries** at phase boundaries -- only Pydantic models
+- **NO LLM-computed statistics** -- meta-analysis uses scipy/statsmodels only
+- **ALL I/O is async** (aiosqlite, aiohttp)
+- **ALL LLM calls logged** with model, tokens, cost, latency to cost_records table
+- **Citation lineage enforced** -- every claim must trace to evidence to citation
+- See `config/review.yaml` for per-review topic config, `config/settings.yaml` for agent models + thresholds
+
+<example>
+# Good: Typed phase boundary
+async def screen_paper(paper: CandidatePaper) -> DualScreeningResult:
+    ...
+</example>
+
+<example type="invalid">
+# Bad: Untyped dictionary crossing phase boundary
+async def screen_paper(paper: dict) -> dict:
+    ...
+</example>

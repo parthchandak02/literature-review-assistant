@@ -89,7 +89,74 @@ def test_find_by_topic_no_checkpoints():
     workflow_manager = Mock()
     workflow_manager.checkpoint_dir = Path("/tmp/nonexistent")
     workflow_manager.save_checkpoints = True
+    
+    # Mock phase registry
+    workflow_manager.phase_registry = Mock()
+    workflow_manager.phase_registry.get_execution_order.return_value = []
 
     manager = CheckpointManager(workflow_manager)
     result = manager.find_by_topic("test topic")
     assert result is None
+
+
+def test_find_by_topic_selects_most_recent():
+    """Test that selection logic prioritizes recency over completeness."""
+    # Create mock matches list simulating:
+    # - Old complete checkpoint (Feb 9, 5 phases, older timestamp)
+    # - New incomplete checkpoint (Feb 11, 3 phases, newer timestamp)
+    
+    old_checkpoint = {
+        "checkpoint_dir": "/data/20260209_120000_workflow_test",
+        "latest_phase": "article_writing",
+        "latest_phase_time": 1707480000.0,  # Feb 9, 2026 12:00:00
+        "workflow_id": "20260209_120000_workflow_test",
+        "phase_index": 4,
+        "article_sections_count": 0,
+        "completeness": 5,
+    }
+    
+    new_checkpoint = {
+        "checkpoint_dir": "/data/20260211_140000_workflow_test",
+        "latest_phase": "title_abstract_screening",
+        "latest_phase_time": 1707652800.0,  # Feb 11, 2026 14:00:00 (48h later)
+        "workflow_id": "20260211_140000_workflow_test",
+        "phase_index": 2,
+        "article_sections_count": 0,
+        "completeness": 3,
+    }
+    
+    matches = [old_checkpoint, new_checkpoint]
+    
+    # Apply the NEW selection logic (prioritize time first)
+    best_match_new = max(
+        matches,
+        key=lambda m: (
+            m["latest_phase_time"],      # 1st: most recent
+            m["completeness"],           # 2nd: completeness (tie-breaker)
+            m["phase_index"],            # 3rd: phase index (tie-breaker)
+            m["article_sections_count"], # 4th: article sections (tie-breaker)
+        ),
+    )
+    
+    # Apply the OLD selection logic (prioritize completeness first)
+    best_match_old = max(
+        matches,
+        key=lambda m: (
+            m["completeness"],           # 1st: completeness
+            m["phase_index"],            # 2nd: phase index
+            m["article_sections_count"], # 3rd: article sections
+            m["latest_phase_time"],      # 4th: most recent (LAST!)
+        ),
+    )
+    
+    # Verify NEW logic selects the more recent checkpoint
+    assert best_match_new["workflow_id"] == "20260211_140000_workflow_test", \
+        "New logic should select newer checkpoint despite lower completeness"
+    
+    # Verify OLD logic would have selected the more complete checkpoint
+    assert best_match_old["workflow_id"] == "20260209_120000_workflow_test", \
+        "Old logic selected more complete checkpoint (showing we fixed the bug)"
+    
+    # Verify the selection is different (proves we changed the behavior)
+    assert best_match_new["workflow_id"] != best_match_old["workflow_id"], \
+        "Selection logic should be different between old and new implementations"

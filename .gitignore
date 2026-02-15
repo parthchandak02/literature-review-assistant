@@ -11,7 +11,6 @@ env/
 test_venv/
 
 # IDE
-.cursor/
 .vscode/
 .idea/
 *.swp

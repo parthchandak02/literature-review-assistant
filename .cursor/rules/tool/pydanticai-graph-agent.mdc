@@ -1,0 +1,46 @@
+---
+description: PydanticAI Graph API patterns (Holy Grail target). Apply when implementing workflow nodes or migrating from LangGraph. Uses the stable BaseNode API, not the beta GraphBuilder API.
+globs:
+alwaysApply: false
+---
+
+# PydanticAI Graph Patterns
+
+## Use the stable BaseNode API (NOT beta GraphBuilder)
+Import from pydantic_graph (see https://ai.pydantic.dev/graph/):
+```python
+from pydantic_graph import BaseNode, End, Graph, GraphRunContext
+
+class SearchNode(BaseNode[ReviewState]):
+    async def run(self, ctx: GraphRunContext[ReviewState]) -> SearchCompleteNode:
+        # do work, mutate ctx.state
+        return SearchCompleteNode()
+
+class SearchCompleteNode(BaseNode[ReviewState]):
+    async def run(self, ctx: GraphRunContext[ReviewState]) -> ScreeningNode | End[ReviewState]:
+        if gate_passed:
+            return ScreeningNode()
+        return End(ctx.state)
+```
+
+## State Management
+- `ReviewState` is the typed state object passed through all nodes
+- Mutate state within nodes, not between them
+- After each node completes, persist state to SQLite checkpoints table
+- Quality gates run at node boundaries, not within nodes
+
+## HITL (Human-in-the-Loop)
+- Implement as checkpoint + CLI prompt at specific nodes
+- Borderline screening review: after screening node
+- Pre-export citation review: before export node
+
+## Resume Logic (paper-level)
+1. `resume --topic` queries `workflows` table (case-insensitive match)
+2. For matching workflow, query `checkpoints` for last completed phase
+3. Determine next phase; within that phase, query per-paper tables for already-processed paper_ids
+4. Skip processed papers, continue from where it left off
+5. Crash mid-screening (50/200 done) -> resume at paper 51
+
+## Auto-Resume on `run`
+If `run` is called and workflow exists for same topic (by config_hash):
+-> Prompt: "Found existing run for this topic (phase 4/8 complete). Resume? (Y/n)"

@@ -1,0 +1,33 @@
+---
+description: Core systematic review methodology rules. Apply when implementing any phase of the systematic review pipeline, writing screening logic, implementing quality assessment, or generating manuscript sections. Contains PRISMA 2020, GRADE, and Cochrane methodology requirements.
+globs:
+alwaysApply: false
+---
+
+# Systematic Review Methodology
+
+## Seven Core Steps (must execute in order)
+1. Define research question (PICO/PICo/PICOT)
+2. Develop and register protocol (PROSPERO format)
+3. Conduct search (>=3 databases + grey literature, full Boolean strings documented)
+4. Screen studies (dual independent review, two-stage: title/abstract -> full-text)
+5. Assess quality (domain-based RoB tools, NEVER summary quality scores)
+6. Extract and synthesize (dual extraction, meta-analysis when feasible)
+7. Present findings (GRADE SoF table, PRISMA diagram, structured manuscript)
+
+## Risk of Bias Tool Routing
+- RCTs -> RoB 2 (5 domains: randomization, deviations, missing data, measurement, selection)
+- Non-randomized -> ROBINS-I (7 domains, different judgment scale: Low/Moderate/Serious/Critical/No Info)
+- Qualitative -> CASP
+- NEVER use summary quality scores -- always domain-based assessment
+
+## Meta-Analysis Thresholds
+- I^2 < 40%: fixed-effect model
+- I^2 >= 40%: random-effects (DerSimonian-Laird)
+- Funnel plot: only when >= 10 studies
+- Statistics computed by scipy/statsmodels ONLY, never by LLM
+
+## GRADE: 8 Factors
+- 5 downgrade: risk of bias, inconsistency, indirectness, imprecision, publication bias
+- 3 upgrade: large effect, dose-response, residual confounding
+- Starting: High for RCTs, Low for observational

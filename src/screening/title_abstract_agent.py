@@ -115,18 +115,20 @@ class TitleAbstractScreener(BaseScreeningAgent):
                     )
                     result = self._convert_schema_to_result(schema_result)
                 except (ValidationError, json.JSONDecodeError, Exception) as e:
-                    # If schema-based parsing fails after retries, fall back to text parsing
-                    logger.warning(
-                        f"[{self.role}] Schema-based LLM call failed after retries: {e}. "
-                        f"Falling back to text-based parsing..."
+                    # Keep schema path authoritative. Route to manual adjudication on parse failure.
+                    logger.error(
+                        f"[{self.role}] Schema-based LLM call failed after retries. "
+                        f"Returning UNCERTAIN for manual review. Error: {type(e).__name__}: {e}"
                     )
-                    # Make a regular LLM call without schema and parse manually
-                    response_text = self._call_llm(prompt)
-                    result = self._parse_llm_response(response_text)
-                    
-                    # Record fallback usage
-                    fallback_success = result is not None and result.decision is not None
-                    # llm_metrics.record_fallback(success=fallback_success)
+                    result = ScreeningResult(
+                        decision=InclusionDecision.UNCERTAIN,
+                        confidence=0.0,
+                        reasoning=(
+                            "Automated screening failed due to structured-output parsing errors. "
+                            "Manual adjudication required."
+                        ),
+                        exclusion_reason=None,
+                    )
 
                 logger.info(
                     f"[{self.role}] Screening decision: {result.decision.value} "
@@ -585,10 +587,10 @@ Return ONLY valid JSON."""
             )
 
         # High confidence include: matched keywords from multiple concept groups
-        # Require at least 2 groups OR 40% of groups (more permissive than before)
-        min_groups_required = max(2, int(total_groups * 0.4))
+        # Tightened: Require at least 3 groups OR 60% of groups (more conservative to reduce off-topic auto-inclusion)
+        min_groups_required = max(3, int(total_groups * 0.6))
         if matched_groups >= min_groups_required:
-            confidence = min(0.8, 0.7 + (group_match_ratio * 0.1))
+            confidence = min(0.75, 0.65 + (group_match_ratio * 0.1))  # Reduced max confidence
             matched_keywords = [kw for kw, _ in total_group_matches[:5]]  # Top 5
             if is_verbose:
                 logger.debug(
