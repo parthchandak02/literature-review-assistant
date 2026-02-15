@@ -6,9 +6,7 @@ __pycache__/
 .Python
 .venv/
 venv/
-ENV/
-env/
-test_venv/
+*.egg-info/
 
 # IDE
 .vscode/
@@ -17,34 +15,17 @@ test_venv/
 *.swo
 *~
 
-# Data
-data/raw/
-data/processed/
+# Data (runtime output -- gitignored, regenerated per run)
 data/outputs/
-data/test_outputs/
 data/cache/
 data/checkpoints/
-data/cookies
-data/cookies/
-data/quality_assessments/
-*.csv
-*.xlsx
 *.db
-
-# JSON files (but allow config files)
-*.json
-!package.json
-!tsconfig.json
-!jsconfig.json
 
 # API Keys and Environment
 .env
 .env.local
 *.key
 *.pem
-
-# Keep .env.example
-!.env.example
 
 # OS
 .DS_Store
@@ -53,24 +34,6 @@ Thumbs.db
 # Logs
 *.log
 logs/
-
-# Status and report files (generated)
-*_STATUS.md
-*_REPORT.md
-*_VERIFICATION.md
-*_READINESS_REPORT.md
-WORKFLOW_*.md
-PRISMA_*.md
-IEEE_*.md
-
-# Temporary/remediation scripts (one-off fixes)
-scripts/remediate_current_paper.py
-scripts/auto_fill_quality_assessments.py
-scripts/migrate_tests.py  # One-time migration tool, can be archived after migration complete
-
-# Reference documentation (not used in codebase)
-reference-docs/
-references/
 
 # Test coverage
 .coverage
@@ -83,19 +46,8 @@ htmlcov/
 .ruff_cache/
 .mypy_cache/
 
-# Generated analysis files
-docs/dependency_analysis/
-docs/*/dependency_*.json
-docs/*/import_analysis.json
-
-# Generated visualization files (pydeps, graphviz, etc.)
+# Generated files
 *.svg
-!lib/**/*.svg
 !templates/**/*.svg
-
-# Temporary diagram files (auto-generated for exploration)
 diagrams/
-
-# User-specific utility scripts and backups
-resume_*.sh
 *.backup

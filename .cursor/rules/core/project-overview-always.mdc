@@ -8,21 +8,26 @@ alwaysApply: true
 
 ## Project Identity
 - **Purpose:** Automate systematic literature reviews to produce IEEE-submission-ready manuscripts
-- **Stack:** Python 3.11+, LangGraph (current) / PydanticAI Graph (Holy Grail target), SQLite, Google Gemini 2.5, statsmodels, matplotlib
+- **Stack:** Python 3.11+, PydanticAI Graph, SQLite, Google Gemini 2.5, statsmodels, matplotlib
 - **Package manager:** uv
 - **Architecture:** Typed state, SQLite persistence, 3-tier LLM model selection
 
-## Key Directories (current + Holy Grail target)
-- `src/schemas/` -- Pydantic data contracts (screening, extraction, quality); target: `src/models/`
-- `src/orchestration/` -- Workflow manager, phases, checkpoint, state
-- `src/search/` -- Connectors, rate_limiter, multi-database search
-- `src/screening/` -- Title/abstract and full-text agents
-- `src/quality/` -- RoB assessors, GRADE, CASP, study type detector
-- `src/writing/` -- Section agents, humanizer, style_pattern_extractor, naturalness_scorer
-- `src/extraction/` -- Data extractor agent
-- `src/prisma/` -- PRISMA diagram, checklist generator
-- Target (Holy Grail): `src/db/`, `src/synthesis/`, `src/citation/`, `src/export/`
-- `config/` -- review.yaml (per-review research config) + settings.yaml (system behavior)
+## Key Directories
+- `src/models/` -- Pydantic data contracts (enums, config, papers, screening, extraction, quality, writing, workflow)
+- `src/db/` -- SQLite schema, connection manager, typed repositories
+- `src/orchestration/` -- PydanticAI Graph nodes, state, quality gates
+- `src/search/` -- OpenAlex, PubMed, arXiv, IEEE connectors + dedup + strategy
+- `src/screening/` -- Dual-reviewer screener, prompts, reliability (Cohen's kappa)
+- `src/extraction/` -- LLM-powered structured extraction, study classifier
+- `src/quality/` -- RoB 2, ROBINS-I, CASP, GRADE, study router
+- `src/synthesis/` -- Meta-analysis (statsmodels), effect sizes, narrative fallback
+- `src/writing/` -- Section writer, prompts, humanizer, style extractor, naturalness scorer
+- `src/citation/` -- Citation ledger, BibTeX generation
+- `src/prisma/` -- PRISMA 2020 flow diagram
+- `src/visualization/` -- Forest plot, funnel plot, RoB figure, timeline, geographic
+- `src/export/` -- IEEE LaTeX, submission packager, PRISMA checklist validator
+- `src/llm/` -- PydanticAI agent factory, rate limiter, cost tracking
+- `config/` -- review.yaml (per-review) + settings.yaml (system behavior)
 
 ## Key Tables
 - `workflows` -- topic, config_hash, status for topic-based auto-resume

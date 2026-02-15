@@ -1,4 +1,4 @@
-# Systematic Review Automation Tool -- Holy Grail Build Specification v1.0
+# Systematic Review Automation Tool -- Build Specification v2.0
 
 **Document Type:** Single Source of Truth for Ground-Up Build
 **Date:** February 14, 2026

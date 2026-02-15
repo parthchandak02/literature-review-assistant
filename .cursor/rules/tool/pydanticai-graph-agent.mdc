@@ -1,5 +1,5 @@
 ---
-description: PydanticAI Graph API patterns (Holy Grail target). Apply when implementing workflow nodes or migrating from LangGraph. Uses the stable BaseNode API, not the beta GraphBuilder API.
+description: PydanticAI Graph API patterns (v2). Apply when implementing workflow nodes or migrating from LangGraph. Uses the stable BaseNode API, not the beta GraphBuilder API.
 globs:
 alwaysApply: false
 ---

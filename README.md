@@ -4,12 +4,12 @@ Automates systematic literature reviews from research question to IEEE-submissio
 
 ## Quick Start
 
-See `docs/Holy Grail Build Specification.md` -- Part 4B for bootstrap instructions.
+See `docs/research-agent-v2-spec.md` -- Part 4B for bootstrap instructions.
 
 ## What's Here
 
-- `docs/Holy Grail Build Specification.md` -- Complete build specification (single source of truth)
-- `config/workflow.yaml` -- Reference config from prototype (model assignments, prompts, thresholds)
+- `docs/research-agent-v2-spec.md` -- Complete build specification (single source of truth)
+- `config/workflow-reference.yaml` -- Reference config from prototype (model assignments, prompts, thresholds)
 - `.cursor/rules/` -- 11 Cursor rules for development guardrails
 - `.cursor/skills/` -- 11 Cursor skills for subsystem implementation
 - `.env` -- API keys (not committed, create from Part 6.3 of the spec)

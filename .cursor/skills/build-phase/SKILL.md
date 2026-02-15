@@ -11,7 +11,7 @@ Procedural guide for implementing each build phase of the systematic review tool
 
 When the user asks to implement a build phase, follow these steps:
 
-1. **Identify the phase** from the Holy Grail spec (Part 5)
+1. **Identify the phase** from the v2 spec (Part 5)
 2. **Check prerequisites** -- verify all dependency phases are complete
 3. **Read the spec** for that phase's "What to Build" section
 4. **Create files** in the exact directory structure from Part 4
@@ -39,4 +39,4 @@ When the user asks to implement a build phase, follow these steps:
 - Naturalness score >= 0.75 for all sections after humanization
 
 ## References
-@file:docs/Holy Grail Build Specification.md
+@file:docs/research-agent-v2-spec.md

@@ -7,7 +7,7 @@ alwaysApply: false
 # SQLite Patterns
 
 Use aiosqlite for async. Verify current API: https://github.com/omnilib/aiosqlite
-Note: src/db/ is Holy Grail target; orchestration uses SQLite for checkpoints.
+Note: src/db/ is v2; orchestration uses SQLite for checkpoints.
 
 ## Connection Setup (every new connection)
 ```python

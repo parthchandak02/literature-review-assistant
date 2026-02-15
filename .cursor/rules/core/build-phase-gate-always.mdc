@@ -12,7 +12,7 @@ Phase 1: Foundation -> Phase 2: Search -> Phase 3: Screening -> Phase 4: Extract
 ## Rules
 - Build in exact phase order. Do not implement Phase N+1 code before Phase N is approved.
 - After completing a phase, run acceptance criteria tests before proceeding.
-- Each build phase has specific test files listed in the Holy Grail spec Part 8.
+- Each build phase has specific test files listed in the v2 spec Part 8.
 - When in doubt about which phase we're in, ask the user.
 
 ## Verification After Each Phase
