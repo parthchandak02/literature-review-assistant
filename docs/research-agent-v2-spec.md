@@ -1012,7 +1012,7 @@ touch tests/__init__.py
 
 # Create .env from the template (fill in your API keys)
 cat > .env << 'EOF'
-GOOGLE_API_KEY=your-gemini-key
+GEMINI_API_KEY=your-gemini-key
 OPENALEX_API_KEY=your-openalex-key
 IEEE_API_KEY=your-ieee-key
 NCBI_EMAIL=your-email@example.com
@@ -1208,7 +1208,7 @@ While building, use these parts of the document as reference:
 
 11. **Protocol generator** (`src/protocol/generator.py`):
    - Generates PROSPERO-format protocol from `ReviewConfig`
-   - 22 PROSPERO fields, LLM-drafted for narrative sections
+   - 22 PROSPERO fields (current baseline: template-based deterministic rendering; hardening target: optional LLM-drafted narrative sections)
 
 ### Acceptance Criteria
 - [ ] Each connector returns valid `SearchResult` with `CandidatePaper` list
@@ -1370,7 +1370,8 @@ While building, use these parts of the document as reference:
 ### What to Build
 
 1. **Feasibility checker** (`src/synthesis/feasibility.py`):
-   - LLM-assisted: Are included studies sufficiently similar to pool?
+   - Current baseline: deterministic similarity and grouping checks from structured extraction outputs
+   - Hardening target: LLM-assisted assessment of clinical/methodological similarity
    - Output: `feasible: bool, rationale: str, groupings: List`
 
 2. **Effect size calculator** (`src/synthesis/effect_size.py`):
@@ -1397,7 +1398,8 @@ While building, use these parts of the document as reference:
 6. **Narrative synthesis fallback** (`src/synthesis/narrative.py`):
    - When meta-analysis infeasible
    - Structured tables + effect direction summary
-   - LLM synthesizes themes/patterns
+   - Current baseline: deterministic theme extraction and summary
+   - Hardening target: LLM synthesis of cross-study themes/patterns
 
 ### Acceptance Criteria
 - [ ] Effect sizes computed using scipy/statsmodels (NOT LLM)
@@ -1817,7 +1819,7 @@ Never committed to git. Loaded via `python-dotenv` in `src/main.py` entry point 
 
 ```bash
 # .env -- Secrets only
-GOOGLE_API_KEY=your-gemini-key
+GEMINI_API_KEY=your-gemini-key
 OPENALEX_API_KEY=your-openalex-key   # Required since Feb 2026; free at openalex.org
 IEEE_API_KEY=your-ieee-key           # Optional, for IEEE Xplore
 NCBI_EMAIL=your-email@example.com    # Required for PubMed Entrez
@@ -2048,5 +2050,5 @@ MIT](https://www.perplexity.ai/search/08ea55bf-d48b-463e-9cfa-1616aec76e32) - Pe
 
 24. [python 3.x - How can I create a forest plot? - Stack Overflow](https://stackoverflow.com/questions/65197025/how-can-i-create-a-forest-plot) - The statsmodels library has an API for doing simple meta-analysis and plotting forest plots. It supp...
 
-25. [paste.txt](https://ppl-ai-file-upload.s3.amazonaws.com/web/direct-files/attachments/4385264/34b186b5-62a4-4e03-be26-1cc2b787a386/paste.txt) - The following seven steps have been identified for conducting and writing a systematic review 1. Def...
+25. [paste.txt](https://ppl-ai-file-upload.s3.amazonaws.com/web/direct-files/attachments/REDACTED/paste.txt) - Redacted leaked signed URL containing temporary credentials.
 
