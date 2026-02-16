@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import time
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Protocol, Sequence
 
 from pydantic import BaseModel, Field, ValidationError
@@ -22,6 +23,7 @@ from src.models import (
     SettingsConfig,
 )
 from src.screening.prompts import adjudicator_prompt, reviewer_a_prompt, reviewer_b_prompt
+from src.search.pdf_retrieval import FullTextCoverageSummary, PDFRetriever
 
 
 class ScreeningResponse(BaseModel):
@@ -129,7 +131,27 @@ class DualReviewerScreener:
         stage: str,
         papers: Sequence[CandidatePaper],
         full_text_by_paper: dict[str, str] | None = None,
+        retriever: PDFRetriever | None = None,
+        coverage_report_path: str | None = None,
     ) -> list[ScreeningDecision]:
+        if stage == "fulltext":
+            if full_text_by_paper is None:
+                active_retriever = retriever or PDFRetriever()
+                retrieval_results, coverage = await active_retriever.retrieve_batch(papers)
+                full_text_by_paper = {
+                    paper_id: result.full_text
+                    for paper_id, result in retrieval_results.items()
+                    if result.success
+                }
+            else:
+                coverage = self._coverage_from_map(papers, full_text_by_paper)
+            await self._persist_fulltext_coverage(
+                workflow_id=workflow_id,
+                stage=stage,
+                coverage=coverage,
+                coverage_report_path=coverage_report_path,
+            )
+
         processed = await self.repository.get_processed_paper_ids(workflow_id, stage)
         outputs: list[ScreeningDecision] = []
         for paper in papers:
@@ -141,6 +163,73 @@ class DualReviewerScreener:
             else:
                 outputs.append(await self.screen_title_abstract(workflow_id, paper))
         return outputs
+
+    @staticmethod
+    def _coverage_from_map(
+        papers: Sequence[CandidatePaper],
+        full_text_by_paper: dict[str, str],
+    ) -> FullTextCoverageSummary:
+        attempted = len(papers)
+        succeeded_ids = [
+            paper.paper_id
+            for paper in papers
+            if (full_text_by_paper.get(paper.paper_id, "").strip() != "")
+        ]
+        succeeded = len(succeeded_ids)
+        failed_ids = [paper.paper_id for paper in papers if paper.paper_id not in set(succeeded_ids)]
+        failed = len(failed_ids)
+        success_rate = float(succeeded) / float(attempted) if attempted else 0.0
+        return FullTextCoverageSummary(
+            attempted=attempted,
+            succeeded=succeeded,
+            failed=failed,
+            success_rate=success_rate,
+            failed_paper_ids=failed_ids,
+        )
+
+    async def _persist_fulltext_coverage(
+        self,
+        workflow_id: str,
+        stage: str,
+        coverage: FullTextCoverageSummary,
+        coverage_report_path: str | None,
+    ) -> None:
+        decision = "passed" if coverage.failed == 0 else "partial"
+        summary = (
+            f"attempted={coverage.attempted}, succeeded={coverage.succeeded}, "
+            f"failed={coverage.failed}, success_rate={coverage.success_rate:.2f}"
+        )
+        await self.repository.append_decision_log(
+            DecisionLogEntry(
+                decision_type="fulltext_retrieval_coverage",
+                paper_id=None,
+                decision=decision,
+                rationale=summary,
+                actor="pdf_retriever",
+                phase="phase_3_screening",
+            )
+        )
+        if coverage_report_path is None:
+            return
+        report = Path(coverage_report_path)
+        report.parent.mkdir(parents=True, exist_ok=True)
+        failed = ", ".join(coverage.failed_paper_ids) if coverage.failed_paper_ids else "none"
+        report.write_text(
+            "\n".join(
+                [
+                    "# Full-Text Retrieval Coverage Report",
+                    "",
+                    f"- Stage: {stage}",
+                    f"- Attempted: {coverage.attempted}",
+                    f"- Succeeded: {coverage.succeeded}",
+                    f"- Failed: {coverage.failed}",
+                    f"- Success rate: {coverage.success_rate:.2f}",
+                    f"- Failed paper IDs: {failed}",
+                    "",
+                ]
+            ),
+            encoding="utf-8",
+        )
 
     async def _screen_one(
         self,

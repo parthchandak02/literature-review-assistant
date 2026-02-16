@@ -6,6 +6,7 @@ from pydantic import BaseModel
 
 import os
 from urllib.parse import quote
+from collections.abc import Sequence
 
 import aiohttp
 
@@ -18,6 +19,14 @@ class PDFRetrievalResult(BaseModel):
     full_text: str = ""
     success: bool = False
     error: str | None = None
+
+
+class FullTextCoverageSummary(BaseModel):
+    attempted: int
+    succeeded: int
+    failed: int
+    success_rate: float
+    failed_paper_ids: list[str]
 
 
 class PDFRetriever:
@@ -64,6 +73,29 @@ class PDFRetriever:
             success=False,
             error="Unable to resolve downloadable full text.",
         )
+
+    async def retrieve_batch(
+        self, papers: Sequence[CandidatePaper]
+    ) -> tuple[dict[str, PDFRetrievalResult], FullTextCoverageSummary]:
+        results: dict[str, PDFRetrievalResult] = {}
+        failed_ids: list[str] = []
+        for paper in papers:
+            outcome = await self.retrieve(paper)
+            results[paper.paper_id] = outcome
+            if not outcome.success:
+                failed_ids.append(paper.paper_id)
+        attempted = len(papers)
+        succeeded = attempted - len(failed_ids)
+        failed = len(failed_ids)
+        success_rate = float(succeeded) / float(attempted) if attempted else 0.0
+        summary = FullTextCoverageSummary(
+            attempted=attempted,
+            succeeded=succeeded,
+            failed=failed,
+            success_rate=success_rate,
+            failed_paper_ids=failed_ids,
+        )
+        return results, summary
 
     async def _candidate_urls(self, paper: CandidatePaper) -> list[str]:
         urls: list[str] = []
