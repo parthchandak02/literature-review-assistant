@@ -1,0 +1,83 @@
+agents:
+  screening_reviewer_a:
+    model: "google-gla:gemini-2.5-flash-lite"
+    temperature: 0.1
+  screening_reviewer_b:
+    model: "google-gla:gemini-2.5-flash-lite"
+    temperature: 0.3
+  screening_adjudicator:
+    model: "google-gla:gemini-2.5-pro"
+    temperature: 0.2
+  search:
+    model: "google-gla:gemini-2.5-flash"
+    temperature: 0.1
+  extraction:
+    model: "google-gla:gemini-2.5-pro"
+    temperature: 0.1
+  quality_assessment:
+    model: "google-gla:gemini-2.5-pro"
+    temperature: 0.2
+  study_type_detection:
+    model: "google-gla:gemini-2.5-flash"
+    temperature: 0.2
+  writing:
+    model: "google-gla:gemini-2.5-pro"
+    temperature: 0.2
+  abstract_generation:
+    model: "google-gla:gemini-2.5-flash"
+    temperature: 0.2
+  humanizer:
+    model: "google-gla:gemini-2.5-pro"
+    temperature: 0.3
+  style_extraction:
+    model: "google-gla:gemini-2.5-pro"
+    temperature: 0.2
+
+screening:
+  stage1_include_threshold: 0.85
+  stage1_exclude_threshold: 0.8
+
+dual_review:
+  enabled: true
+  kappa_warning_threshold: 0.4
+
+gates:
+  profile: "strict"
+  search_volume_minimum: 50
+  screening_minimum: 5
+  extraction_completeness_threshold: 0.8
+  extraction_max_empty_rate: 0.35
+  cost_budget_max: 20.0
+
+writing:
+  style_extraction: true
+  humanization: true
+  humanization_iterations: 2
+  naturalness_threshold: 0.75
+  checkpoint_per_section: true
+  llm_timeout: 120
+
+risk_of_bias:
+  rct_tool: "rob2"
+  non_randomized_tool: "robins_i"
+  qualitative_tool: "casp"
+
+meta_analysis:
+  enabled: true
+  heterogeneity_threshold: 40
+  funnel_plot_minimum_studies: 10
+  effect_measure_dichotomous: "risk_ratio"
+  effect_measure_continuous: "mean_difference"
+
+ieee_export:
+  enabled: true
+  template: "IEEEtran"
+  bibliography_style: "IEEEtran"
+  max_abstract_words: 250
+  target_page_range:
+    - 7
+    - 10
+
+citation_lineage:
+  block_export_on_unresolved: true
+  minimum_evidence_score: 0.5

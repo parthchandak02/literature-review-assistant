@@ -75,16 +75,17 @@ A prior prototype exists at `github.com/parthchandak02/literature-review-assista
 - Paid tier: Flash gets 2,000 RPM, 4M TPM -- more than enough[^17]
 - Per-agent model assignments are configured in `config/settings.yaml` (see Part 6) to allow tuning without code changes
 
-### Search: OpenAlex (primary) + direct database APIs
+### Search: OpenAlex (primary) + direct database APIs + auxiliary discovery
 
-**Decision:** Use **OpenAlex via pyalex** as the primary academic search engine, supplemented by direct PubMed/arXiv/IEEE Xplore APIs.
+**Decision:** Use **OpenAlex via pyalex** as the primary academic search engine, supplemented by direct PubMed/arXiv/IEEE Xplore APIs, plus Semantic Scholar and Crossref connectors for recall expansion. Perplexity search may be used as an auxiliary discovery source (other_source only), not as a replacement for academic database evidence.
 
 **Reasoning:**
 - OpenAlex indexes 250M+ scholarly works, is CC0 licensed, and requires a free API key (mandatory since Feb 2026; credit-based rate limiting)[^19][^20]
 - `pyalex` is a lightweight, well-maintained Python client with pipe operations, plaintext abstract conversion, filtering, and pagination[^19]
-- OpenAlex covers what Semantic Scholar, Crossref, and many others cover -- but unified into one API. OpenAlex subsumes Crossref and Semantic Scholar coverage. Scopus is omitted because it requires institutional API access (Elsevier subscription).
-- Supplement with PubMed (for biomedical, via Entrez), arXiv (via arXiv API), and IEEE Xplore (via IEEE API) for domain-specific coverage
-- **NOT Exa/Tavily** -- these are general web search APIs, not academic databases; they're great for RAG but not for systematic review search completeness[^21]
+- OpenAlex provides broad baseline scholarly coverage, but connector-level retrieval can still vary by topic, indexing lag, and query shape; adding Semantic Scholar and Crossref improves recall for practical runs.
+- Supplement with PubMed (for biomedical, via Entrez), arXiv (via arXiv API), IEEE Xplore (via IEEE API), Semantic Scholar (Academic Graph API), and Crossref (Works API).
+- Perplexity search can be used as an auxiliary "other sources" connector for discovery and citation leads; items from auxiliary sources require verification against academic records before evidence use.
+- Exa/Tavily/Perplexity web-style APIs are discovery tools, not primary systematic review databases; use them only in auxiliary mode.
 
 ### Meta-Analysis: statsmodels -- NOT custom implementation
 
@@ -1182,18 +1183,30 @@ While building, use these parts of the document as reference:
    - Direct REST API with API key
    - Document search with metadata parsing
 
-6. **Search coordinator** (`src/search/strategy.py`):
+6. **Semantic Scholar connector** (`src/search/semantic_scholar.py`):
+   - Uses Semantic Scholar Academic Graph API paper search
+   - Maps `openAccessPdf`/external IDs into `CandidatePaper` metadata
+
+7. **Crossref connector** (`src/search/crossref.py`):
+   - Uses Crossref Works API for journal-article metadata expansion
+   - Uses polite contact email and bounded result windows
+
+8. **Perplexity auxiliary connector** (`src/search/perplexity_search.py`):
+   - Uses Perplexity Search API as `SourceCategory.OTHER_SOURCE`
+   - Auxiliary discovery only; not a primary evidence database
+
+9. **Search coordinator** (`src/search/strategy.py`):
    - Takes `ReviewConfig` -> generates Boolean queries per database
    - Runs all connectors concurrently (asyncio)
    - Collects per-database counts for PRISMA diagram
    - Generates `search_strategies_appendix.md` with full query strings, dates, limits
 
-7. **Deduplication** (`src/search/deduplication.py`):
+10. **Deduplication** (`src/search/deduplication.py`):
    - Stage 1: Exact DOI match
    - Stage 2: Fuzzy title match (thefuzz, threshold >= 90%)
    - Records dedup count for PRISMA diagram
 
-8. **Protocol generator** (`src/protocol/generator.py`):
+11. **Protocol generator** (`src/protocol/generator.py`):
    - Generates PROSPERO-format protocol from `ReviewConfig`
    - 22 PROSPERO fields, LLM-drafted for narrative sections
 
@@ -1204,6 +1217,7 @@ While building, use these parts of the document as reference:
 - [ ] `search_strategies_appendix.md` contains full Boolean strings per database
 - [ ] Protocol document generates with all 22 fields
 - [ ] `search_volume` gate runs after search
+- [ ] Connector execution matrix is recorded (success/failure and explicit failure reason per connector)
 - [ ] `uv run pytest tests/unit/test_protocol.py -q` passes
 
 ***
@@ -1266,7 +1280,7 @@ While building, use these parts of the document as reference:
 
 3. **Two-stage screening:**
    - Stage 1 (title/abstract): Processes all papers from search
-   - Stage 2 (full-text): Processes papers passing Stage 1. Requires **PDF retrieval** (`src/search/pdf_retrieval.py`) to fetch full texts via Unpaywall/open-access URLs before screening. For every EXCLUDED paper, reviewer must return `ExclusionReason` enum value (including `NO_FULL_TEXT` when PDF is unavailable).
+   - Stage 2 (full-text): Processes papers passing Stage 1. Requires **PDF retrieval** (`src/search/pdf_retrieval.py`) to fetch full texts via DOI/open-access resolution (Unpaywall + Semantic Scholar OA URLs + source URL fallback) before screening. For every EXCLUDED paper, reviewer must return `ExclusionReason` enum value (including `NO_FULL_TEXT` when PDF is unavailable).
 
 4. **Inter-rater reliability** (`src/screening/reliability.py`):
    - `compute_cohens_kappa()` using `sklearn.metrics.cohen_kappa_score`
@@ -1283,6 +1297,7 @@ While building, use these parts of the document as reference:
 - [ ] Cohen's kappa computed and logged
 - [ ] Full-text exclusion reasons use `ExclusionReason` enum
 - [ ] `disagreements_report.md` generated
+- [ ] Full-text retrieval coverage report is generated (attempted/succeeded/failed counts and reasons)
 - [ ] `uv run pytest tests/unit/test_screening.py tests/unit/test_reliability.py -q` passes
 - [ ] `uv run pytest tests/integration/test_dual_screening.py -q` passes
 
@@ -1295,25 +1310,34 @@ While building, use these parts of the document as reference:
 ### What to Build
 
 1. **Study classifier** (`src/extraction/study_classifier.py`):
-   - LLM classifies each paper into `StudyDesign` enum
+   - Single Pro-tier agent classifies each paper into `StudyDesign` enum with typed JSON output
+   - Required output fields: `study_design`, `confidence`, `reasoning`
+   - Confidence fallback rule: if `confidence < 0.70`, force route to `StudyDesign.NON_RANDOMIZED`
+   - Log every classification decision with predicted label, confidence, threshold, and rationale in `decision_log`
    - Routes to correct RoB tool
 
 2. **Structured extractor** (`src/extraction/extractor.py`):
-   - LLM extracts into `ExtractionRecord` per paper
+   - Baseline implementation currently uses deterministic extraction scaffolding into `ExtractionRecord` per paper
+   - Target hardening path: migrate to Pro-tier LLM extraction with strict typed JSON output
    - Source spans preserved for citation lineage
    - Extraction completeness gate runs after
 
 3. **RoB 2 assessor** (`src/quality/rob2.py`):
    - 5 Cochrane domains for RCTs[^25]
+   - Baseline implementation currently uses deterministic domain heuristics
+   - Target hardening path: migrate to agentic signalling-question evaluation per domain
    - Each domain: Low / Some concerns / High + rationale
    - Overall judgment algorithm: All Low -> Low; Any High -> High; Otherwise -> Some Concerns
 
 4. **ROBINS-I assessor** (`src/quality/robins_i.py`):
    - 7 domains for non-randomized studies
+   - Baseline implementation currently uses deterministic domain heuristics
+   - Target hardening path: migrate to agentic domain evaluation with typed outputs
    - Uses `RobinsIJudgment` scale: Low / Moderate / Serious / Critical / No Information (different from RoB 2)
 
 5. **CASP assessor** (`src/quality/casp.py`):
-   - Port prompt templates from old repo for qualitative studies
+   - Baseline implementation currently uses deterministic checklist heuristics
+   - Target hardening path: migrate to prompt-based qualitative appraisal
 
 6. **Study router** (`src/quality/study_router.py`):
    - RCT -> RoB 2; Non-randomized -> ROBINS-I; Qualitative -> CASP
@@ -1327,6 +1351,8 @@ While building, use these parts of the document as reference:
 
 ### Acceptance Criteria
 - [ ] Study classifier routes papers to correct tool
+- [ ] Classifier emits confidence and applies `< 0.70 -> non_randomized` fallback
+- [ ] Classification decisions are written to `decision_log` with confidence metadata
 - [ ] RoB 2 produces 5-domain assessment for RCTs
 - [ ] ROBINS-I produces 7-domain assessment for non-randomized studies
 - [ ] GRADE produces per-outcome certainty assessment
@@ -1656,6 +1682,9 @@ target_databases:
   - pubmed
   - arxiv
   - ieee_xplore
+  - semantic_scholar
+  - crossref
+  - perplexity_search   # auxiliary other-source discovery only
 
 target_sections:
   - abstract

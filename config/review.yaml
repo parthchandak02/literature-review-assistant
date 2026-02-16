@@ -1,0 +1,70 @@
+research_question: "How do conversational AI tutors impact learning outcomes, engagement, and knowledge retention in health science education, and what are the key design factors and implementation challenges?"
+review_type: "systematic"
+
+pico:
+  population: "Health science students"
+  intervention: "Conversational AI tutors"
+  comparison: "Traditional instruction"
+  outcome: "Learning outcomes, engagement, retention"
+
+keywords:
+  - "conversational AI tutor"
+  - "AI chatbot education"
+  - "virtual teaching assistant"
+  - "dialogue-based tutoring"
+  - "conversational agent health education"
+  - "AI medical education"
+  - "chatbot nursing education"
+  - "intelligent tutoring system health"
+  - "conversational learning health sciences"
+  - "AI-powered tutor healthcare"
+
+domain: "AI-powered educational technology in health sciences"
+scope: "Focus on conversational AI tutors used in health science education."
+
+inclusion_criteria:
+  - "Studies on conversational AI tutors or chatbots for health science education"
+  - "Implementation in medical, nursing, pharmacy, or allied health programs"
+  - "Learning outcomes, knowledge retention, or skill development measures"
+  - "Student engagement, satisfaction, or user experience evaluations"
+  - "Published in English and peer-reviewed"
+
+exclusion_criteria:
+  - "Non-conversational educational technology"
+  - "Non-health science domains"
+  - "Studies without empirical evaluation or outcomes data"
+  - "Opinion pieces or non-peer-reviewed sources"
+  - "Conference abstracts without full papers"
+
+date_range_start: 2015
+date_range_end: 2026
+
+target_databases:
+  - openalex
+  - pubmed
+  - arxiv
+  - ieee_xplore
+  - semantic_scholar
+  - crossref
+  - perplexity_search
+
+target_sections:
+  - abstract
+  - introduction
+  - methods
+  - results
+  - discussion
+  - conclusion
+
+protocol:
+  registered: false
+  registry: "PROSPERO"
+  registration_number: ""
+  url: ""
+
+funding:
+  source: "No funding received"
+  grant_number: ""
+  funder: ""
+
+conflicts_of_interest: "The authors declare no conflicts of interest."
