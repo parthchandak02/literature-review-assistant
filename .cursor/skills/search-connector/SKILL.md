@@ -10,7 +10,7 @@ Guide for implementing database connectors that conform to the SearchConnector p
 ## Instructions
 
 Every connector must:
-1. Implement the connector interface from `src/search/connectors/base.py`
+1. Implement the connector interface from `src/search/base.py`
 2. Return results containing `List[CandidatePaper]` (or equivalent paper model)
 3. Set `source_category` (DATABASE or OTHER_SOURCE) for PRISMA diagram
 4. Handle rate limiting internally (constants in the connector file, not YAML)
@@ -28,8 +28,9 @@ class SearchConnector(Protocol):
 ```
 
 ## Reference Implementations
-- `src/search/connectors/` -- connector implementations
-- `src/search/database_connectors.py` -- database connector factory
+- `src/search/openalex.py`, `pubmed.py`, `arxiv.py`, `ieee_xplore.py`
+- `src/search/semantic_scholar.py`, `crossref.py`, `perplexity_search.py` (auxiliary)
+- `src/search/live_validation.py` -- connector construction/factory-style wiring
 
 ## Testing
 - Mock API responses for unit tests

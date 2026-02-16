@@ -41,5 +41,6 @@ If disagree -> Adjudicator (Pro, temp=0.2) sees both decisions -> final
 - **Confidence thresholds**: Auto-include >= 0.85, auto-exclude >= 0.80, between -> adjudicator
 
 ## References
-- Screening agents: `src/screening/base_agent.py`, `title_abstract_agent.py`, `fulltext_agent.py`
-- Reliability gates: `src/restart/reliability_gates.py`
+- Screening workflow: `src/screening/dual_screener.py`
+- Prompt templates: `src/screening/prompts.py`
+- Reliability utilities: `src/screening/reliability.py`

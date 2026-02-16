@@ -34,6 +34,6 @@ Build from `PRISMACounts` model:
 
 ## Additional Visualizations
 
-- **Charts** (`src/visualization/charts.py`): Existing visualization utilities
+- **RoB figure** (`src/visualization/rob_figure.py`): current traffic-light visualization utility
 - **Timeline** (target): Publication timeline of included studies
 - **Geographic** (target): Geographic distribution of studies

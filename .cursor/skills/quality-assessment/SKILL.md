@@ -7,6 +7,11 @@ description: Implements risk of bias assessment (RoB 2, ROBINS-I, CASP), GRADE, 
 
 Guide for implementing Phase 4 extraction and quality assessment.
 
+## Current Maturity Note
+
+- Current implementation uses an agentic study classifier and deterministic baseline assessors for RoB2/ROBINS-I/CASP/GRADE.
+- When hardening, prefer migrating domain judgments to agentic signalling-question prompts with typed JSON outputs while preserving deterministic fallback behavior.
+
 ## Study Router
 
 Route each paper to the correct RoB tool based on `StudyDesign`:
@@ -48,7 +53,7 @@ Output: `GRADEOutcomeAssessment` with `final_certainty`.
 
 ## Traffic-Light Figure
 
-`src/visualization/charts.py` (or new rob_figure.py): rows=studies, cols=domains, cells=colored circles (matplotlib).
+`src/visualization/rob_figure.py`: rows=studies, cols=domains, cells=colored circles (matplotlib).
 
 ## Extraction Completeness Gate
 

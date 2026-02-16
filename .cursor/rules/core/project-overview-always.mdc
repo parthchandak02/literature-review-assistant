@@ -15,11 +15,11 @@ alwaysApply: true
 ## Key Directories
 - `src/models/` -- Pydantic data contracts (enums, config, papers, screening, extraction, quality, writing, workflow)
 - `src/db/` -- SQLite schema, connection manager, typed repositories
-- `src/orchestration/` -- PydanticAI Graph nodes, state, quality gates
-- `src/search/` -- OpenAlex, PubMed, arXiv, IEEE connectors + dedup + strategy
+- `src/orchestration/` -- quality gates (graph/state modules are later-phase targets)
+- `src/search/` -- OpenAlex, PubMed, arXiv, IEEE, Semantic Scholar, Crossref, Perplexity auxiliary + dedup + strategy
 - `src/screening/` -- Dual-reviewer screener, prompts, reliability (Cohen's kappa)
-- `src/extraction/` -- LLM-powered structured extraction, study classifier
-- `src/quality/` -- RoB 2, ROBINS-I, CASP, GRADE, study router
+- `src/extraction/` -- agentic study classifier + baseline structured extraction scaffolding
+- `src/quality/` -- baseline RoB 2, ROBINS-I, CASP, GRADE, study router
 - `src/synthesis/` -- Meta-analysis (statsmodels), effect sizes, narrative fallback
 - `src/writing/` -- Section writer, prompts, humanizer, style extractor, naturalness scorer
 - `src/citation/` -- Citation ledger, BibTeX generation
@@ -41,6 +41,10 @@ alwaysApply: true
 - **ALL LLM calls logged** with model, tokens, cost, latency to cost_records table
 - **Citation lineage enforced** -- every claim must trace to evidence to citation
 - See `config/review.yaml` for per-review topic config, `config/settings.yaml` for agent models + thresholds
+
+## Strict Commit Safety
+- NEVER stage or commit `.env`, `logs/**`, `data/outputs/**`, or topic/run-specific generated artifacts unless user explicitly asks.
+- Before any commit operation, verify staged files do not include secrets/runtime outputs and abort if they do.
 
 <example>
 # Good: Typed phase boundary
