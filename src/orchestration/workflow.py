@@ -21,6 +21,7 @@ from src.db.repositories import WorkflowRepository
 from src.db.workflow_registry import (
     find_by_topic,
     find_by_workflow_id,
+    find_by_workflow_id_fallback,
     register as register_workflow,
     update_status as update_registry_status,
 )
@@ -569,6 +570,18 @@ async def run_workflow_resume(
     entry = None
     if workflow_id:
         entry = await find_by_workflow_id(log_root, workflow_id)
+        if entry is None:
+            entry = await find_by_workflow_id_fallback(log_root, workflow_id)
+            if entry is not None:
+                config_hash = _hash_config(review_path) if os.path.isfile(review_path) else ""
+                await register_workflow(
+                    log_root=log_root,
+                    workflow_id=entry.workflow_id,
+                    topic=entry.topic or "unknown",
+                    config_hash=config_hash,
+                    db_path=entry.db_path,
+                    status=entry.status,
+                )
     else:
         review, _ = load_configs(review_path, settings_path)
         config_hash = _hash_config(review_path)

@@ -6,7 +6,7 @@ alwaysApply: true
 
 # No Untyped Dictionaries at Phase Boundaries
 
-Every function crossing a phase boundary MUST accept and return Pydantic models from `src/schemas/` or `src/restart/` (target: `src/models/`).
+Every function crossing a phase boundary MUST accept and return Pydantic models from `src/models/`.
 
 - Use `CandidatePaper`, not `dict` for paper data
 - Use `ScreeningDecision`, not `dict` for decisions
@@ -20,7 +20,7 @@ Internal helper functions within a single module may use dicts, but any function
 
 <example>
 # Correct: typed boundary
-from src.restart.mvp_pipeline import ScreeningDecision
+from src.models.screening import ScreeningDecision
 async def adjudicate(paper_id: str, a: ScreeningDecision, b: ScreeningDecision) -> ScreeningDecision:
     ...
 </example>

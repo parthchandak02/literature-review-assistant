@@ -6,6 +6,7 @@ which runtime.db to open without scanning the filesystem.
 
 from __future__ import annotations
 
+import json
 import os
 from dataclasses import dataclass
 from pathlib import Path
@@ -110,6 +111,39 @@ async def find_by_workflow_id(log_root: str, workflow_id: str) -> RegistryEntry 
     if not os.path.isfile(entry.db_path):
         return None
     return entry
+
+
+async def find_by_workflow_id_fallback(
+    log_root: str, workflow_id: str
+) -> RegistryEntry | None:
+    """Fallback: scan run_summary.json files under log_root for workflow_id.
+    Used when the central registry is missing (e.g. runs from before registry existed).
+    """
+    root = Path(log_root).resolve()
+    if not root.is_dir():
+        return None
+    for run_summary_path in root.rglob("run_summary.json"):
+        try:
+            data = json.loads(run_summary_path.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError):
+            continue
+        if data.get("workflow_id") != workflow_id:
+            continue
+        db_path = str(run_summary_path.parent / "runtime.db")
+        if not os.path.isfile(db_path):
+            continue
+        log_dir = data.get("log_dir") or ""
+        topic_slug = log_dir.split("/")[-2] if "/" in log_dir else "unknown"
+        return RegistryEntry(
+            workflow_id=workflow_id,
+            topic=topic_slug,
+            config_hash="",
+            db_path=str(Path(db_path).resolve()),
+            status="completed" if data.get("included_papers") is not None else "running",
+            created_at="",
+            updated_at="",
+        )
+    return None
 
 
 async def find_by_topic(

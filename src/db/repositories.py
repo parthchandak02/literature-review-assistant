@@ -47,6 +47,7 @@ from src.models import (
     SearchResult,
     ScreeningDecision,
     ScreeningDecisionType,
+    SectionDraft,
 )
 from src.models.enums import SourceCategory
 
@@ -269,6 +270,25 @@ class WorkflowRepository:
         )
         rows = await cursor.fetchall()
         return {str(row[0]) for row in rows}
+
+    async def save_section_draft(self, draft: SectionDraft) -> None:
+        """Persist a section draft for checkpoint/resume."""
+        await self.db.execute(
+            """
+            INSERT INTO section_drafts (workflow_id, section, version, content, claims_used, citations_used, word_count)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                draft.workflow_id,
+                draft.section,
+                draft.version,
+                draft.content,
+                json.dumps(draft.claims_used),
+                json.dumps(draft.citations_used),
+                draft.word_count,
+            ),
+        )
+        await self.db.commit()
 
     async def save_gate_result(self, result: GateResult) -> None:
         await self.db.execute(

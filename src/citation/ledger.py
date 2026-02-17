@@ -43,6 +43,11 @@ class CitationLedger:
             unresolved_citations=unresolved_citations,
         )
 
+    async def validate_section(self, section: str, text: str) -> ManuscriptValidationResult:
+        """Validate a single section. Same logic as validate_manuscript, section-scoped."""
+        _ = section
+        return await self.validate_manuscript(text)
+
     async def block_export_if_invalid(self, text: str) -> bool:
         result = await self.validate_manuscript(text)
         return bool(result.unresolved_claims or result.unresolved_citations)

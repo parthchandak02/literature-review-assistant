@@ -13,10 +13,10 @@ Before any git push or commit, check that no secrets, API keys, or env vars are 
 
 - Use tools like `git diff --staged` to review changes
 - Scan for patterns like `API_KEY=`, `SECRET=`, `PASSWORD=`
-- Generate conventional commit messages based on all file changes (e.g., `feat:`, `fix:`, `refactor:`)
+- Generate conventional commit messages based on all file changes (e.g., `feat:`, `fix:`, `refactor:`). Prefer `feat:` for new features, `fix:` for bug fixes.
 - If major deletions or risky changes detected, pause and confirm with user before committing
 - If everything looks safe (no secrets, no major deletions), proceed with commit and push
-- Always use `.gitignore` to exclude `.env` and sensitive config files
+- Always use `.gitignore` to exclude `.env`, `logs/**`, `data/outputs/**`, `*.db` (runtime and registry dbs), and sensitive config files
 
 ## Documentation Standards
 
@@ -52,7 +52,7 @@ Use `uv` and `.venv` to run Python scripts and install dependencies.
 
 ## Code Quality and Linting
 
-Use `ruff` to maintain code quality and catch errors before they cause issues.
+If the project uses ruff (check `pyproject.toml` for `[tool.ruff]`), use it to maintain code quality:
 
 - **Before making code changes**: Run `ruff check .` to identify existing issues
 - **After making code changes**: Always run `ruff check --fix .` to automatically fix fixable issues
@@ -73,3 +73,5 @@ Use `ruff` to maintain code quality and catch errors before they cause issues.
 - Before committing code changes
 - When encountering import or code quality errors
 - Periodically during development to catch issues early
+
+If ruff is not configured in the project, skip ruff-related steps.

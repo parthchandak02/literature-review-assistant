@@ -16,8 +16,9 @@ alwaysApply: false
 - Test citation ledger integrity (no orphan claims, no unresolved citations)
 
 ## Naming Convention
-- `test_<module>.py` for unit tests
+- `test_<module>.py` for unit tests (e.g., test_workflow_registry.py, test_resume_state.py)
 - `test_<pipeline>_pipeline.py` for integration tests
+- `test_checkpoint_resume.py` for resume/resume-flow integration
 - `test_full_review.py` for e2e
 
 ## Running

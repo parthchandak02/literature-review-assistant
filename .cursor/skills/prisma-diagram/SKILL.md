@@ -30,7 +30,7 @@ Build from `PRISMACounts` model:
 
 ## Implementation
 
-`src/prisma/prisma_generator.py` -- PRISMA diagram generation. Use matplotlib for custom diagrams. Verify arithmetic at each stage.
+`src/prisma/diagram.py` (per spec Part 4) -- PRISMA diagram generation. Use matplotlib for custom diagrams. Verify arithmetic at each stage.
 
 ## Additional Visualizations
 

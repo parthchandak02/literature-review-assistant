@@ -33,6 +33,7 @@ If disagree -> Adjudicator (Pro, temp=0.2) sees both decisions -> final
 - Full-text stage requires PDF retrieval first (Unpaywall / open access)
 - Every EXCLUDED paper at full-text stage must have `ExclusionReason` enum value
 - Paper-level checkpoint: save each decision to SQLite immediately (not batch)
+- **Ctrl+C proceed-with-partial:** First Ctrl+C during screening exits with already-screened papers; checkpoint saved with status=partial. Second Ctrl+C aborts. DualReviewerScreener accepts `should_proceed_with_partial` callback.
 
 ## Prompt Engineering Patterns
 - **Topic context injection**: Every prompt starts with Role/Goal/Backstory/Topic/Research Question/Domain/Keywords header block

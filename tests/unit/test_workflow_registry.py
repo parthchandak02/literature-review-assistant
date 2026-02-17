@@ -7,6 +7,7 @@ import pytest
 from src.db.workflow_registry import (
     find_by_topic,
     find_by_workflow_id,
+    find_by_workflow_id_fallback,
     register,
 )
 
@@ -90,6 +91,26 @@ async def test_find_by_topic_case_insensitive(tmp_path) -> None:
     )
     matches = await find_by_topic(log_root, "conversational ai tutors", "hash2")
     assert len(matches) == 1
+
+
+@pytest.mark.asyncio
+async def test_find_by_workflow_id_fallback(tmp_path) -> None:
+    """Fallback finds workflow by scanning run_summary.json when registry is missing."""
+    log_root = str(tmp_path)
+    run_dir = tmp_path / "2026-02-16" / "some-topic-slug" / "run_08-37-54PM"
+    run_dir.mkdir(parents=True)
+    runtime_db = run_dir / "runtime.db"
+    runtime_db.write_bytes(b"")
+    run_summary = run_dir / "run_summary.json"
+    run_summary.write_text(
+        '{"workflow_id":"wf-fallback123","log_dir":"logs/2026-02-16/some-topic-slug/run_08-37-54PM","included_papers":5}',
+        encoding="utf-8",
+    )
+    entry = await find_by_workflow_id_fallback(log_root, "wf-fallback123")
+    assert entry is not None
+    assert entry.workflow_id == "wf-fallback123"
+    assert str(runtime_db) in entry.db_path or entry.db_path.endswith("runtime.db")
+    assert entry.status == "completed"
 
 
 @pytest.mark.asyncio

@@ -57,7 +57,7 @@ Auxiliary connector:
 - `uv run python -m src.main run --config config/review.yaml --settings config/settings.yaml --log-root logs --output-root data/outputs`
 - `uv run python -m src.main resume --topic "your research question"` (or `--workflow-id wf-xxx`)
 
-Resume uses a central workflow registry (`logs/workflows_registry.db`) to find which run db to open by topic or workflow-id.
+Resume uses a central workflow registry (`logs/workflows_registry.db`) to find which run db to open by topic or workflow-id. If the registry is missing, resume scans `run_summary.json` files under the log root.
 
 ## Tests
 

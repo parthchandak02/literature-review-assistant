@@ -31,7 +31,7 @@ When the user asks to implement a build phase, follow these steps:
 | 5: Synthesis | Effect sizes, Meta-analysis, Forest/Funnel | test_effect_size, test_meta_analysis, test_synthesis_pipeline |
 | 6: Writing | Section writer, Prompts, SoF, Humanizer, style_pattern_extractor, naturalness_scorer; per-section checkpoint; naturalness >= 0.75 | test_writing_pipeline |
 | 7: PRISMA/Viz | PRISMA diagram, Timeline, Geographic | test_prisma_diagram |
-| 8: Export | Graph wiring, IEEE LaTeX, CLI | test_ieee_export, test_ieee_validator, test_full_review |
+| 8: Export | Graph wiring, IEEE LaTeX, CLI, resume, workflow_registry | test_ieee_export, test_ieee_validator, test_workflow_registry, test_resume_state, test_checkpoint_resume, test_full_review |
 
 ## Phase 6 Acceptance Criteria (updated)
 - Style patterns extracted from included papers (when enabled)

@@ -15,7 +15,7 @@ alwaysApply: true
 ## Key Directories
 - `src/models/` -- Pydantic data contracts (enums, config, papers, screening, extraction, quality, writing, workflow)
 - `src/db/` -- SQLite schema, connection manager, typed repositories
-- `src/orchestration/` -- quality gates (graph/state modules are later-phase targets)
+- `src/orchestration/` -- quality gates, workflow graph (workflow.py, context.py, resume.py, state.py)
 - `src/search/` -- OpenAlex, PubMed, arXiv, IEEE, Semantic Scholar, Crossref, Perplexity auxiliary + dedup + strategy
 - `src/screening/` -- Dual-reviewer screener, prompts, reliability (Cohen's kappa)
 - `src/extraction/` -- agentic study classifier + baseline structured extraction scaffolding
@@ -30,7 +30,8 @@ alwaysApply: true
 - `config/` -- review.yaml (per-review) + settings.yaml (system behavior)
 
 ## Key Tables
-- `workflows` -- topic, config_hash, status for topic-based auto-resume
+- `workflows` (per-run runtime.db) -- topic, config_hash, status
+- `workflows_registry` (central `{log_root}/workflows_registry.db`) -- workflow_id, topic, config_hash, db_path for resume discovery
 
 ## Critical Constraints
 - **Use `rich`** for CLI output (progress bars, tables, status)

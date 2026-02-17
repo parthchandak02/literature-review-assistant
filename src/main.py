@@ -10,6 +10,7 @@ os.environ.setdefault("REQUESTS_CA_BUNDLE", certifi.where())
 
 import argparse
 import asyncio
+import sys
 from typing import Sequence
 
 from rich.console import Console
@@ -39,8 +40,22 @@ def _print_run_summary(console: Console, summary: dict) -> None:
     console.print(table)
 
 
+class _HelpfulParser(argparse.ArgumentParser):
+    """Parser that suggests correct resume usage when user passes resume args to run."""
+
+    def error(self, message: str) -> None:
+        if "unrecognized arguments" in message and ("resume" in message or "workflow-id" in message):
+            sys.stderr.write(f"research-agent-v2: {message}\n")
+            sys.stderr.write(
+                "\nHint: 'resume' and '--workflow-id' belong to the resume subcommand, not run.\n"
+                "Use: uv run python -m src.main resume --workflow-id <id>\n"
+            )
+            sys.exit(2)
+        super().error(message)
+
+
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="research-agent-v2")
+    parser = _HelpfulParser(prog="research-agent-v2")
     sub = parser.add_subparsers(dest="command")
 
     run = sub.add_parser("run")
