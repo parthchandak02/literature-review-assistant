@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import json
+import re
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol, Sequence
@@ -29,6 +31,7 @@ from src.search.pdf_retrieval import FullTextCoverageSummary, PDFRetriever
 class ScreeningResponse(BaseModel):
     decision: ScreeningDecisionType
     confidence: float = Field(ge=0.0, le=1.0)
+    short_reason: str | None = Field(default=None, description="One-line summary, max 80 chars")
     reasoning: str
     exclusion_reason: ExclusionReason | None = None
 
@@ -46,7 +49,7 @@ class ScreeningLLMClient(Protocol):
 
 
 class HeuristicScreeningClient:
-    """Fallback client used in tests and offline runs."""
+    """Test-only stub. Returns deterministic fake decisions. Use GeminiScreeningClient for real runs."""
 
     async def complete_json(
         self,
@@ -61,6 +64,7 @@ class HeuristicScreeningClient:
             payload = ScreeningResponse(
                 decision=ScreeningDecisionType.EXCLUDE,
                 confidence=0.95,
+                short_reason="No full text available",
                 reasoning="Full text is unavailable for full-text screening.",
                 exclusion_reason=ExclusionReason.NO_FULL_TEXT,
             )
@@ -68,6 +72,7 @@ class HeuristicScreeningClient:
             payload = ScreeningResponse(
                 decision=ScreeningDecisionType.EXCLUDE,
                 confidence=0.9,
+                short_reason="Conference abstract, not peer-reviewed",
                 reasoning="Exclusion criterion applies.",
                 exclusion_reason=ExclusionReason.NOT_PEER_REVIEWED,
             )
@@ -75,12 +80,14 @@ class HeuristicScreeningClient:
             payload = ScreeningResponse(
                 decision=ScreeningDecisionType.UNCERTAIN,
                 confidence=0.6,
+                short_reason="Borderline, needs adjudication",
                 reasoning="Borderline evidence requires adjudication.",
             )
         else:
             payload = ScreeningResponse(
                 decision=ScreeningDecisionType.INCLUDE,
                 confidence=0.9,
+                short_reason="Inclusion criteria met",
                 reasoning="Inclusion criteria are plausibly met.",
             )
         return payload.model_dump_json()
@@ -100,12 +107,18 @@ class DualReviewerScreener:
         review: ReviewConfig,
         settings: SettingsConfig,
         llm_client: ScreeningLLMClient | None = None,
+        on_llm_call: Callable[..., None] | None = None,
+        on_progress: Callable[[str, int, int], None] | None = None,
+        on_prompt: Callable[[str, str, str | None], None] | None = None,
     ):
         self.repository = repository
         self.provider = provider
         self.review = review
         self.settings = settings
         self.llm_client = llm_client or HeuristicScreeningClient()
+        self.on_llm_call = on_llm_call
+        self.on_progress = on_progress
+        self.on_prompt = on_prompt
 
     async def screen_title_abstract(self, workflow_id: str, paper: CandidatePaper) -> ScreeningDecision:
         result = await self._screen_one(
@@ -153,15 +166,17 @@ class DualReviewerScreener:
             )
 
         processed = await self.repository.get_processed_paper_ids(workflow_id, stage)
+        to_process = [p for p in papers if p.paper_id not in processed]
+        total = len(to_process)
         outputs: list[ScreeningDecision] = []
-        for paper in papers:
-            if paper.paper_id in processed:
-                continue
+        for i, paper in enumerate(to_process):
             if stage == "fulltext":
                 text = (full_text_by_paper or {}).get(paper.paper_id, "")
                 outputs.append(await self.screen_full_text(workflow_id, paper, text))
             else:
                 outputs.append(await self.screen_title_abstract(workflow_id, paper))
+            if self.on_progress:
+                self.on_progress("phase_3_screening", i + 1, total)
         return outputs
 
     @staticmethod
@@ -259,6 +274,7 @@ class DualReviewerScreener:
                 agent_name="screening_reviewer_b",
                 reviewer_type=ReviewerType.REVIEWER_B,
             ),
+            other_reviewer_decision=reviewer_a.decision,
         )
 
         if reviewer_a.decision == reviewer_b.decision:
@@ -307,12 +323,18 @@ class DualReviewerScreener:
         stage: str,
         full_text: str | None,
         spec: ReviewerSpec,
+        other_reviewer_decision: ScreeningDecisionType | None = None,
     ) -> ScreeningDecision:
         if spec.reviewer_type == ReviewerType.REVIEWER_A:
             prompt = reviewer_a_prompt(self.review, paper, stage, full_text)
         else:
             prompt = reviewer_b_prompt(self.review, paper, stage, full_text)
-        decision = await self._request_decision(prompt=prompt, spec=spec, paper_id=paper.paper_id)
+        decision = await self._request_decision(
+            prompt=prompt,
+            spec=spec,
+            paper_id=paper.paper_id,
+            other_reviewer_decision=other_reviewer_decision,
+        )
         if stage == "fulltext" and decision.decision == ScreeningDecisionType.EXCLUDE:
             decision = self._enforce_fulltext_exclusion_reason(decision)
         await self.repository.save_screening_decision(workflow_id=workflow_id, stage=stage, decision=decision)
@@ -359,7 +381,15 @@ class DualReviewerScreener:
         )
         return decision
 
-    async def _request_decision(self, prompt: str, spec: ReviewerSpec, paper_id: str) -> ScreeningDecision:
+    async def _request_decision(
+        self,
+        prompt: str,
+        spec: ReviewerSpec,
+        paper_id: str,
+        other_reviewer_decision: ScreeningDecisionType | None = None,
+    ) -> ScreeningDecision:
+        if self.on_prompt:
+            self.on_prompt(spec.agent_name, prompt, paper_id)
         runtime = await self.provider.reserve_call_slot(spec.agent_name)
         started = time.perf_counter()
         raw = await self.llm_client.complete_json(
@@ -369,15 +399,34 @@ class DualReviewerScreener:
             temperature=runtime.temperature,
         )
         elapsed_ms = int((time.perf_counter() - started) * 1000)
+        tokens_in = max(1, len(prompt.split()))
+        tokens_out = max(1, len(raw.split()))
+        cost_usd = self.provider.estimate_cost(runtime.model, tokens_in, tokens_out)
+        parsed = self._parse_response(raw)
+        if self.on_llm_call:
+            self.on_llm_call(
+                spec.agent_name,
+                "success",
+                f"{paper_id[:12]} {parsed.decision.value}",
+                None,
+                raw_response=raw,
+                latency_ms=elapsed_ms,
+                model=runtime.model,
+                paper_id=paper_id,
+                phase="phase_3_screening",
+                tokens_in=tokens_in,
+                tokens_out=tokens_out,
+                cost_usd=cost_usd,
+                other_reviewer_decision=other_reviewer_decision,
+            )
         await self.provider.log_cost(
             model=runtime.model,
-            tokens_in=max(1, len(prompt.split())),
-            tokens_out=max(1, len(raw.split())),
-            cost_usd=0.0,
+            tokens_in=tokens_in,
+            tokens_out=tokens_out,
+            cost_usd=cost_usd,
             latency_ms=elapsed_ms,
             phase="phase_3_screening",
         )
-        parsed = self._parse_response(raw)
         return ScreeningDecision(
             paper_id=paper_id,
             decision=parsed.decision,
@@ -389,12 +438,21 @@ class DualReviewerScreener:
 
     @staticmethod
     def _parse_response(raw: str) -> ScreeningResponse:
+        s = raw.strip()
+        s = re.sub(r"^```(?:json)?\s*", "", s)
+        s = re.sub(r"\s*```\s*$", "", s)
+        s = s.strip()
+        first = s.find("{")
+        last = s.rfind("}")
+        if first >= 0 and last > first:
+            s = s[first : last + 1]
         try:
-            payload = json.loads(raw)
+            payload = json.loads(s)
         except json.JSONDecodeError:
             return ScreeningResponse(
                 decision=ScreeningDecisionType.UNCERTAIN,
                 confidence=0.0,
+                short_reason="Invalid JSON",
                 reasoning="Model output was not valid JSON.",
             )
         try:
@@ -403,6 +461,7 @@ class DualReviewerScreener:
             return ScreeningResponse(
                 decision=ScreeningDecisionType.UNCERTAIN,
                 confidence=0.0,
+                short_reason="Invalid schema",
                 reasoning="Model output did not match expected schema.",
             )
 

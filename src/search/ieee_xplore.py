@@ -8,6 +8,7 @@ from datetime import date
 import aiohttp
 
 from src.models import CandidatePaper, SearchResult, SourceCategory
+from src.utils.ssl_context import tcp_connector_with_certifi
 
 
 class IEEEXploreConnector:
@@ -71,7 +72,7 @@ class IEEEXploreConnector:
             params["end_year"] = str(date_end)
 
         papers: list[CandidatePaper] = []
-        async with aiohttp.ClientSession() as session:
+        async with aiohttp.ClientSession(connector=tcp_connector_with_certifi()) as session:
             async with session.get(self.base_url, params=params, timeout=30) as response:
                 if response.status == 200:
                     payload = await response.json()

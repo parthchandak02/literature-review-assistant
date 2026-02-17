@@ -24,8 +24,9 @@ def _topic_header(review: ReviewConfig, role: str, goal: str, backstory: str) ->
 def _output_schema_block() -> str:
     return "\n".join(
         [
-            'Return ONLY valid JSON matching this exact schema:',
-            '{"decision": "include|exclude|uncertain", "confidence": 0.0, "reasoning": "...", "exclusion_reason": "wrong_population|wrong_intervention|wrong_comparator|wrong_outcome|wrong_study_design|not_peer_reviewed|duplicate|insufficient_data|wrong_language|no_full_text|other|null"}',
+            "Return ONLY valid JSON matching this exact schema:",
+            '{"decision": "include|exclude|uncertain", "confidence": 0.0, "short_reason": "one-line summary max 80 chars", "reasoning": "full explanation", "exclusion_reason": "wrong_population|wrong_intervention|wrong_comparator|wrong_outcome|wrong_study_design|not_peer_reviewed|duplicate|insufficient_data|wrong_language|no_full_text|other|null"}',
+            "Provide short_reason (one line, max 80 chars) for quick scanning; reasoning for full justification.",
         ]
     )
 
@@ -69,7 +70,7 @@ def reviewer_b_prompt(review: ReviewConfig, paper: CandidatePaper, stage: str, f
                 backstory="You prioritize precision and strict exclusion decisions.",
             ),
             _paper_block(paper, stage, full_text),
-            "Screening policy: Exclusion-emphasis reviewer.",
+            "Screening policy: Exclusion-emphasis reviewer. When evidence is ambiguous, prefer uncertain over exclude.",
             _output_schema_block(),
         ]
     )
@@ -95,7 +96,7 @@ def adjudicator_prompt(
                 review=review,
                 role="Adjudicator",
                 goal="Resolve disagreement between reviewer decisions.",
-                backstory="You are the tie-breaker for systematic review decisions.",
+                backstory="You are the tie-breaker for systematic review decisions. When reviewers disagree and evidence is equivocal, lean toward include to preserve recall for full-text screening.",
             ),
             _paper_block(paper, stage, full_text),
             decision_context,

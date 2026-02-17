@@ -1,3 +1,8 @@
+llm:
+  flash_rpm: 10
+  flash_lite_rpm: 15
+  pro_rpm: 5
+
 agents:
   screening_reviewer_a:
     model: "google-gla:gemini-2.5-flash-lite"

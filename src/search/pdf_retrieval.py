@@ -11,6 +11,7 @@ from collections.abc import Sequence
 import aiohttp
 
 from src.models import CandidatePaper
+from src.utils.ssl_context import tcp_connector_with_certifi
 
 
 class PDFRetrievalResult(BaseModel):
@@ -44,7 +45,9 @@ class PDFRetriever:
         for url in candidate_urls:
             try:
                 timeout = aiohttp.ClientTimeout(total=self.timeout_seconds)
-                async with aiohttp.ClientSession(timeout=timeout) as session:
+                async with aiohttp.ClientSession(
+                    timeout=timeout, connector=tcp_connector_with_certifi()
+                ) as session:
                     async with session.get(url) as response:
                         if response.status != 200:
                             continue
@@ -122,7 +125,10 @@ class PDFRetriever:
         email = os.getenv("CROSSREF_EMAIL") or os.getenv("PUBMED_EMAIL") or "unknown@example.com"
         url = f"https://api.unpaywall.org/v2/{quote(doi)}"
         try:
-            async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=15)) as session:
+            async with aiohttp.ClientSession(
+                timeout=aiohttp.ClientTimeout(total=15),
+                connector=tcp_connector_with_certifi(),
+            ) as session:
                 async with session.get(url, params={"email": email}) as response:
                     if response.status != 200:
                         return None
@@ -139,7 +145,11 @@ class PDFRetriever:
             headers["x-api-key"] = s2_key
         url = f"https://api.semanticscholar.org/graph/v1/paper/DOI:{quote(doi)}"
         try:
-            async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=15), headers=headers) as session:
+            async with aiohttp.ClientSession(
+                timeout=aiohttp.ClientTimeout(total=15),
+                headers=headers,
+                connector=tcp_connector_with_certifi(),
+            ) as session:
                 async with session.get(url, params={"fields": "openAccessPdf,url"}) as response:
                     if response.status != 200:
                         return None

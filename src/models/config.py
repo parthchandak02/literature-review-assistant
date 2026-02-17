@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import uuid
-from typing import Dict, List
+from typing import Dict, List, Optional
 
 from pydantic import BaseModel, Field
 
@@ -56,6 +56,10 @@ class ReviewConfig(BaseModel):
     protocol: ProtocolRegistration = Field(default_factory=ProtocolRegistration)
     funding: FundingInfo = Field(default_factory=FundingInfo)
     conflicts_of_interest: str = "The authors declare no conflicts of interest."
+    search_overrides: Optional[Dict[str, str]] = Field(
+        default=None,
+        description="Optional per-database query overrides. Keys: openalex, pubmed, arxiv, ieee_xplore, semantic_scholar, crossref, perplexity_search. Omit a database to use auto-generated query.",
+    )
 
 
 class AgentConfig(BaseModel):
@@ -118,6 +122,12 @@ class CitationLineageConfig(BaseModel):
     minimum_evidence_score: float = 0.5
 
 
+class LLMRateLimitConfig(BaseModel):
+    flash_rpm: int = Field(ge=1, le=1000, default=10)
+    flash_lite_rpm: int = Field(ge=1, le=1000, default=15)
+    pro_rpm: int = Field(ge=1, le=500, default=5)
+
+
 class SettingsConfig(BaseModel):
     agents: Dict[str, AgentConfig]
     screening: ScreeningConfig = Field(default_factory=ScreeningConfig)
@@ -128,3 +138,4 @@ class SettingsConfig(BaseModel):
     meta_analysis: MetaAnalysisConfig = Field(default_factory=MetaAnalysisConfig)
     ieee_export: IEEEExportConfig = Field(default_factory=IEEEExportConfig)
     citation_lineage: CitationLineageConfig = Field(default_factory=CitationLineageConfig)
+    llm: LLMRateLimitConfig | None = None

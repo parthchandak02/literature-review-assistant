@@ -25,6 +25,7 @@ class LogRunPaths:
     revalidation_log: Path
     phase_readiness: Path
     runtime_db: Path
+    app_log: Path
 
 
 @dataclass(frozen=True)
@@ -47,6 +48,7 @@ def create_run_paths(log_root: str, workflow_description: str) -> LogRunPaths:
         revalidation_log=run_dir / "revalidation.log",
         phase_readiness=run_dir / "phase_readiness.md",
         runtime_db=run_dir / "runtime.db",
+        app_log=run_dir / "app.jsonl",
     )
 
 

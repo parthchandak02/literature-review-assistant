@@ -1,27 +1,39 @@
-"""OpenAlex connector."""
+"""OpenAlex connector using direct HTTP (api_key in URL per OpenAlex Feb 2026 requirement)."""
 
 from __future__ import annotations
 
-import asyncio
 import os
 from datetime import date
 from typing import Any, List
-
-from pyalex import Works, config as pyalex_config
+import aiohttp
 
 from src.models import CandidatePaper, SearchResult, SourceCategory
+from src.utils.ssl_context import tcp_connector_with_certifi
+
+
+def _inverted_index_to_text(idx: dict[str, list[int]] | None) -> str | None:
+    """Convert OpenAlex abstract_inverted_index to plaintext."""
+    if not idx:
+        return None
+    pairs: list[tuple[int, str]] = []
+    for word, positions in idx.items():
+        for pos in positions:
+            pairs.append((pos, word))
+    pairs.sort(key=lambda x: x[0])
+    return " ".join(p[1] for p in pairs)
 
 
 class OpenAlexConnector:
     name = "openalex"
     source_category = SourceCategory.DATABASE
+    base_url = "https://api.openalex.org/works"
 
     def __init__(self, workflow_id: str):
         self.workflow_id = workflow_id
         api_key = os.getenv("OPENALEX_API_KEY")
         if not api_key:
             raise ValueError("OPENALEX_API_KEY is required for OpenAlex connector")
-        pyalex_config.api_key = api_key
+        self._api_key = api_key.strip()
 
     @staticmethod
     def _to_candidate(work: dict[str, Any]) -> CandidatePaper:
@@ -33,36 +45,20 @@ class OpenAlexConnector:
             if name:
                 authors.append(str(name))
         year = work.get("publication_year")
+        abstract = work.get("abstract")
+        if abstract is None:
+            abstract = _inverted_index_to_text(work.get("abstract_inverted_index"))
         return CandidatePaper(
             title=str(work.get("display_name") or "Untitled"),
             authors=authors or ["Unknown"],
             year=int(year) if year is not None else None,
             source_database="openalex",
             doi=work.get("doi"),
-            abstract=work.get("abstract"),
+            abstract=abstract,
             url=work.get("primary_location", {}).get("landing_page_url"),
             source_category=SourceCategory.DATABASE,
             openalex_id=work.get("id"),
         )
-
-    def _sync_search(
-        self,
-        query: str,
-        max_results: int,
-        date_start: int | None,
-        date_end: int | None,
-    ) -> list[CandidatePaper]:
-        works = Works().search(query)
-        if date_start:
-            works = works.filter(from_publication_date=f"{date_start}-01-01")
-        if date_end:
-            works = works.filter(to_publication_date=f"{date_end}-12-31")
-        works = works.filter(type="article")
-        results = works.get(per_page=max_results)
-        papers: list[CandidatePaper] = []
-        for work in results:
-            papers.append(self._to_candidate(work))
-        return papers
 
     async def search(
         self,
@@ -71,7 +67,34 @@ class OpenAlexConnector:
         date_start: int | None = None,
         date_end: int | None = None,
     ) -> SearchResult:
-        papers = await asyncio.to_thread(self._sync_search, query, max_results, date_start, date_end)
+        params: dict[str, str] = {
+            "search": query,
+            "per_page": str(min(max_results, 200)),
+            "api_key": self._api_key,
+        }
+        filter_parts: list[str] = ["type:article"]
+        if date_start:
+            filter_parts.append(f"from_publication_date:{date_start}-01-01")
+        if date_end:
+            filter_parts.append(f"to_publication_date:{date_end}-12-31")
+        params["filter"] = ",".join(filter_parts)
+
+        papers: list[CandidatePaper] = []
+        async with aiohttp.ClientSession(
+            connector=tcp_connector_with_certifi()
+        ) as session:
+            async with session.get(
+                self.base_url, params=params, timeout=30
+            ) as response:
+                if response.status != 200:
+                    body = await response.text()
+                    raise RuntimeError(
+                        f"OpenAlex API error {response.status}: {body[:500]}"
+                    )
+                payload = await response.json()
+                for work in payload.get("results", []):
+                    papers.append(self._to_candidate(work))
+
         return SearchResult(
             workflow_id=self.workflow_id,
             database_name=self.name,

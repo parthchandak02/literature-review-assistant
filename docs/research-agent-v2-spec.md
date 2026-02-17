@@ -1,7 +1,7 @@
 # Systematic Review Automation Tool -- Build Specification v2.0
 
 **Document Type:** Single Source of Truth for Ground-Up Build
-**Date:** February 14, 2026
+**Date:** February 16, 2026
 **Owner:** Parth Chandak
 **Purpose:** Produce IEEE-submission-ready systematic review manuscripts meeting PRISMA 2020, Cochrane, and GRADE standards -- fully automated from research question to submission package.
 
@@ -71,17 +71,17 @@ A prior prototype exists at `github.com/parthchandak02/literature-review-assista
 - Flash handles moderate-complexity tasks at good cost/quality ratio
 - Pro is reserved for tasks requiring complex reasoning, structured extraction, or polished writing
 - All Gemini 2.5 models share a 1M token context window -- can fit entire papers for full-text screening[^17]
-- Free tier allows 10 RPM for Flash/Flash-Lite and 5 RPM for Pro -- sufficient for a single review run with rate limiting[^18]
+- Free tier allows 10 RPM for Flash, 15 RPM for Flash-Lite, and 5 RPM for Pro -- sufficient for a single review run with rate limiting[^18]
 - Paid tier: Flash gets 2,000 RPM, 4M TPM -- more than enough[^17]
 - Per-agent model assignments are configured in `config/settings.yaml` (see Part 6) to allow tuning without code changes
 
 ### Search: OpenAlex (primary) + direct database APIs + auxiliary discovery
 
-**Decision:** Use **OpenAlex via pyalex** as the primary academic search engine, supplemented by direct PubMed/arXiv/IEEE Xplore APIs, plus Semantic Scholar and Crossref connectors for recall expansion. Perplexity search may be used as an auxiliary discovery source (other_source only), not as a replacement for academic database evidence.
+**Decision:** Use **OpenAlex** as the primary academic search engine (via direct REST API with `api_key` in URL), supplemented by direct PubMed/arXiv/IEEE Xplore APIs, plus Semantic Scholar and Crossref connectors for recall expansion. Perplexity search may be used as an auxiliary discovery source (other_source only), not as a replacement for academic database evidence.
 
 **Reasoning:**
 - OpenAlex indexes 250M+ scholarly works, is CC0 licensed, and requires a free API key (mandatory since Feb 2026; credit-based rate limiting)[^19][^20]
-- `pyalex` is a lightweight, well-maintained Python client with pipe operations, plaintext abstract conversion, filtering, and pagination[^19]
+- OpenAlex connector uses direct aiohttp calls with `api_key` as URL parameter (per OpenAlex Feb 2026 requirement); plaintext abstracts derived from `abstract_inverted_index` in code[^19]
 - OpenAlex provides broad baseline scholarly coverage, but connector-level retrieval can still vary by topic, indexing lag, and query shape; adding Semantic Scholar and Crossref improves recall for practical runs.
 - Supplement with PubMed (for biomedical, via Entrez), arXiv (via arXiv API), IEEE Xplore (via IEEE API), Semantic Scholar (Academic Graph API), and Crossref (Works API).
 - Perplexity search can be used as an auxiliary "other sources" connector for discovery and citation leads; items from auxiliary sources require verification against academic records before evidence use.
@@ -309,6 +309,7 @@ class ReviewConfig(BaseModel):
     protocol: ProtocolRegistration = Field(default_factory=ProtocolRegistration)
     funding: FundingInfo = Field(default_factory=FundingInfo)
     conflicts_of_interest: str = "The authors declare no conflicts of interest."
+    search_overrides: Optional[Dict[str, str]] = None  # Per-database query overrides; omit key to use auto-generated query
 
 # ============================================================
 # SETTINGS CONFIGURATION (from config/settings.yaml)
@@ -845,11 +846,14 @@ systematic-review-tool/
 |-- pyproject.toml
 |-- README.md
 |-- config/
-|   |-- review.yaml                  # Per-review research config (changes every review)
-|   `-- settings.yaml                # System behavior config (changes rarely)
+|   |-- review.yaml               # Per-review research config (changes every review)
+|   `-- settings.yaml             # System behavior config (changes rarely)
 |-- src/
 |   |-- __init__.py
 |   |-- main.py                       # CLI entry point
+|   |-- config/
+|   |   |-- __init__.py
+|   |   `-- loader.py                 # YAML loader for review.yaml + settings.yaml
 |   |-- models/
 |   |   |-- __init__.py
 |   |   |-- enums.py                  # All enums from Part 2
@@ -868,16 +872,19 @@ systematic-review-tool/
 |   |   `-- repositories.py           # CRUD operations for each table (typed)
 |   |-- orchestration/
 |   |   |-- __init__.py
-|   |   |-- graph.py                  # PydanticAI Graph definition (all nodes + edges)
-|   |   |-- state.py                  # ReviewState (typed state passed between nodes)
+|   |   |-- workflow.py               # PydanticAI Graph + ReviewState + all phase nodes
+|   |   |-- context.py                # RunContext (CLI progress, verbose/debug logging)
 |   |   `-- gates.py                  # Quality gate runner + 6 gate implementations
 |   |-- search/
 |   |   |-- __init__.py
 |   |   |-- base.py                   # Abstract SearchConnector protocol
-|   |   |-- openalex.py               # OpenAlex via pyalex
+|   |   |-- openalex.py               # OpenAlex via direct REST (api_key in URL)
 |   |   |-- pubmed.py                 # PubMed via Entrez
 |   |   |-- arxiv.py                  # arXiv API
 |   |   |-- ieee_xplore.py            # IEEE Xplore API
+|   |   |-- semantic_scholar.py        # Semantic Scholar Academic Graph API
+|   |   |-- crossref.py               # Crossref Works API
+|   |   |-- perplexity_search.py       # Auxiliary other-source discovery
 |   |   |-- strategy.py               # Boolean query builder + search coordinator
 |   |   |-- deduplication.py          # Fuzzy dedup (DOI match + title similarity)
 |   |   `-- pdf_retrieval.py          # PDF retrieval (Unpaywall, open access URLs)
@@ -885,7 +892,8 @@ systematic-review-tool/
 |   |   |-- __init__.py
 |   |   |-- dual_screener.py          # Dual-reviewer screening (both stages)
 |   |   |-- prompts.py                # Reviewer A + B + Adjudicator prompt templates
-|   |   `-- reliability.py            # Cohen's kappa computation
+|   |   |-- reliability.py            # Cohen's kappa computation
+|   |   `-- gemini_client.py          # Gemini API client (ScreeningLLMClient impl)
 |   |-- extraction/
 |   |   |-- __init__.py
 |   |   |-- extractor.py              # LLM-powered structured extraction
@@ -945,8 +953,11 @@ systematic-review-tool/
 |   |   `-- rate_limiter.py           # Token bucket rate limiter
 |   `-- utils/
 |       |-- __init__.py
-|       |-- text.py                   # Text cleaning, normalization
-|       `-- retry.py                  # Async retry with exponential backoff
+|       |-- structured_log.py         # Structured logging (JSONL, decision log)
+|       |-- logging_paths.py          # Per-run log directory resolution
+|       |-- ssl_context.py            # SSL/certifi setup for HTTP clients
+|       |-- text.py                   # Text cleaning (optional, not yet implemented)
+|       `-- retry.py                  # Async retry (optional, not yet implemented)
 |-- templates/
 |   |-- IEEEtran.cls                  # IEEE LaTeX class file
 |   |-- IEEEtran.bst                  # IEEE BibTeX style
@@ -967,9 +978,14 @@ systematic-review-tool/
 |   |   |-- test_prisma_diagram.py
 |   |   |-- test_protocol.py
 |   |   |-- test_ieee_export.py
-|   |   `-- test_ieee_validator.py
+|   |   |-- test_ieee_validator.py
+|   |   |-- test_main_cli.py
+|   |   |-- test_logging_paths.py
+|   |   `-- test_study_classifier.py
 |   |-- integration/
 |   |   |-- test_dual_screening.py
+|   |   |-- test_run_command.py
+|   |   |-- test_phase1_smoke.py
 |   |   |-- test_extraction_pipeline.py
 |   |   |-- test_quality_pipeline.py
 |   |   |-- test_synthesis_pipeline.py
@@ -1061,7 +1077,6 @@ While building, use these parts of the document as reference:
    ```
    pydantic >= 2.0
    pydantic-ai >= 0.0.29
-   pyalex >= 0.5
    statsmodels >= 0.14
    scipy >= 1.11
    matplotlib >= 3.8
@@ -1131,7 +1146,7 @@ While building, use these parts of the document as reference:
 
 7. **LLM provider** (`src/llm/provider.py`):
    - PydanticAI agent factory with 3-tier model selection: Flash-Lite (bulk screening), Flash (search, abstract), Pro (extraction, writing, adjudication). Model assignments read from `config/settings.yaml`.
-   - Rate limiter (`src/llm/rate_limiter.py`) respecting Gemini free-tier limits (10 RPM flash/flash-lite, 5 RPM pro)
+   - Rate limiter (`src/llm/rate_limiter.py`) respecting Gemini free-tier limits (10 RPM flash, 15 RPM flash-lite, 5 RPM pro)
    - **Cost tracking:** Every LLM call logs a `CostRecord` (model, tokens in/out, cost, latency, phase). Cumulative cost stored in DB for `cost_budget` gate.
 
 8. **Review config loader** -- reads `config/review.yaml` into `ReviewConfig` and `config/settings.yaml` into `SettingsConfig`. Both validated via Pydantic at startup; invalid config = fail fast with clear error. Loads `.env` via `python-dotenv` before any config access.
@@ -1165,11 +1180,11 @@ While building, use these parts of the document as reference:
    ```
 
 2. **OpenAlex connector** (`src/search/openalex.py`):
-   - Uses `pyalex` library for search, filtering, pagination[^19]
-   - **Must set API key:** `pyalex.config.api_key = os.environ["OPENALEX_API_KEY"]` (required since Feb 2026)
+   - Uses direct aiohttp REST calls to `api.openalex.org/works` with `api_key` in URL (required since Feb 2026)[^19]
+   - **Must set:** `OPENALEX_API_KEY` in `.env`
    - Maps OpenAlex `Work` objects to `CandidatePaper`
-   - Extracts plaintext abstracts using pyalex's built-in conversion
-   - Supports `filter()` by year range, type, and open access status
+   - Converts `abstract_inverted_index` to plaintext in code
+   - Filters by year range (`from_publication_date`, `to_publication_date`) and `type:article`
 
 3. **PubMed connector** (`src/search/pubmed.py`):
    - Uses `Bio.Entrez` from Biopython
@@ -1196,7 +1211,7 @@ While building, use these parts of the document as reference:
    - Auxiliary discovery only; not a primary evidence database
 
 9. **Search coordinator** (`src/search/strategy.py`):
-   - Takes `ReviewConfig` -> generates Boolean queries per database
+   - Takes `ReviewConfig` -> generates Boolean queries per database; if `search_overrides` is set for a database, uses that query instead of auto-generated
    - Runs all connectors concurrently (asyncio)
    - Collects per-database counts for PRISMA diagram
    - Generates `search_strategies_appendix.md` with full query strings, dates, limits
@@ -1241,6 +1256,7 @@ While building, use these parts of the document as reference:
    Log all decisions to decision_log
    Output: DualScreeningResult
    ```
+   Uses `GeminiScreeningClient` (gemini_client.py) when API key is set; `HeuristicScreeningClient` when offline or no key.
 
 2. **Prompt templates** (`src/screening/prompts.py`):
    - Reviewer A: "Include this paper if ANY inclusion criterion is plausibly met based on the title/abstract"
@@ -1572,7 +1588,7 @@ While building, use these parts of the document as reference:
 
 ### What to Build
 
-1. **PydanticAI Graph wiring** (`src/orchestration/graph.py`):
+1. **PydanticAI Graph wiring** (`src/orchestration/workflow.py`):
    - Define all workflow nodes (one per phase)
    - Define edges (phase dependencies)
    - Wire HITL interrupts at: borderline screening, pre-export citation review
@@ -1610,13 +1626,18 @@ While building, use these parts of the document as reference:
 
 6. **CLI** (`src/main.py`):
    ```
-   python -m src.main run --config config/review.yaml
+   python -m src.main run --config config/review.yaml --settings config/settings.yaml
+   python -m src.main run --config config/review.yaml --verbose   # Per-phase status, API logs
+   python -m src.main run --config config/review.yaml --debug    # Verbose + model dumps
+   python -m src.main run --config config/review.yaml --offline  # Heuristic screening only
    python -m src.main resume --topic "conversational AI tutors"
    python -m src.main resume --workflow-id abc123
    python -m src.main validate --workflow-id abc123
    python -m src.main export --workflow-id abc123
    python -m src.main status --workflow-id abc123
    ```
+   - Optional: `--log-root`, `--output-root` for paths; `-v`/`--verbose`, `-d`/`--debug`, `--offline` for output and behavior.
+   - Single-path milestone behavior: `run` is the only enabled execution command; `resume/validate/export/status` are intentionally blocked until full implementations are completed.
 
    **Resume logic (paper-level):**
    1. `resume --topic` queries `workflows` table for matching topic (case-insensitive)
@@ -1709,6 +1730,11 @@ funding:
   grant_number: ""
   funder: ""
 conflicts_of_interest: "The authors declare no conflicts of interest."
+
+# Optional: override auto-generated queries per database. Omit a database to use default.
+# Keys: openalex, pubmed, arxiv, ieee_xplore, semantic_scholar, crossref, perplexity_search
+search_overrides:
+  crossref: '("conversational AI" OR "chatbot" OR "intelligent tutoring system") AND ("health science" OR "medical education" OR "health education")'
 ```
 
 ## 6.2 System Config: `config/settings.yaml`
@@ -1834,7 +1860,7 @@ These are constants of the APIs themselves and do not change per review:
 RATE_LIMIT_RPS = 3     # PubMed: 3 requests/second with API key
 
 # In src/search/openalex.py:
-RATE_LIMIT_RPS = 10    # OpenAlex: 10 requests/second with API key
+# Direct aiohttp; no pyalex. api_key passed as URL param per OpenAlex Feb 2026 requirement
 
 # In src/search/arxiv.py:
 RATE_LIMIT_RPS = 3     # arXiv: 3 requests/second
@@ -1855,6 +1881,7 @@ class ReviewConfig(BaseModel):
     review_type: ReviewType
     pico: PICOConfig
     keywords: List[str] = Field(min_length=1)
+    search_overrides: Optional[Dict[str, str]] = None  # Per-database query overrides
     # ... all fields with validation
 
 class SettingsConfig(BaseModel):
@@ -1877,7 +1904,7 @@ class SettingsConfig(BaseModel):
 5. **Do NOT hardcode any review topic.** Everything comes from `config.yaml`.
 6. **Write tests for every new module.** Each build phase has specified test files.
 7. **Use `async/await`** for all I/O operations (database search, LLM calls). **Write each individual decision/extraction/assessment to SQLite immediately** (paper-level persistence). Do NOT batch writes at phase end. Every processing loop must check for already-processed paper_ids before starting, enabling mid-phase resume after crash.
-8. **Use `rich`** for CLI output (progress bars, tables, status).
+8. **Use `rich`** for CLI output (progress bars, tables, status). Screening and other long-running phases must show a progress bar with completed/total count (e.g. X/Y papers) using Rich BarColumn and MofNCompleteColumn.
 9. **Every LLM call must be logged** with: model, tokens in/out, cost, latency. Cumulative cost tracked for budget gate.
 10. **After each build phase, the user will review and approve before proceeding to the next phase.** Do not proceed without approval.
 

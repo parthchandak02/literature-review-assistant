@@ -8,6 +8,7 @@ from datetime import date
 import aiohttp
 
 from src.models import CandidatePaper, SearchResult, SourceCategory
+from src.utils.ssl_context import tcp_connector_with_certifi
 
 
 class PerplexitySearchConnector:
@@ -62,7 +63,9 @@ class PerplexitySearchConnector:
             "Content-Type": "application/json",
         }
         papers: list[CandidatePaper] = []
-        async with aiohttp.ClientSession(headers=headers) as session:
+        async with aiohttp.ClientSession(
+            headers=headers, connector=tcp_connector_with_certifi()
+        ) as session:
             async with session.post(self.base_url, json=payload, timeout=30) as response:
                 if response.status != 200:
                     body = await response.text()

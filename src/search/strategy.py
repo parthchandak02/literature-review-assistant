@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -27,8 +28,10 @@ def build_boolean_query(config: ReviewConfig) -> str:
     return f"({keyword_part})"
 
 def build_database_query(config: ReviewConfig, database_name: str) -> str:
-    base = build_boolean_query(config)
     name = database_name.lower()
+    if config.search_overrides and name in config.search_overrides:
+        return config.search_overrides[name]
+    base = build_boolean_query(config)
     short_query = (
         f"{config.pico.intervention} {config.pico.population} {config.pico.outcome}"
     )
@@ -59,6 +62,7 @@ class SearchStrategyCoordinator:
         repository: WorkflowRepository,
         gate_runner: GateRunner,
         output_dir: str = "data/outputs",
+        on_connector_done: Callable[[str, str, str | None, int | None], None] | None = None,
     ):
         self.workflow_id = workflow_id
         self.config = config
@@ -66,6 +70,7 @@ class SearchStrategyCoordinator:
         self.repository = repository
         self.gate_runner = gate_runner
         self.output_dir = Path(output_dir)
+        self.on_connector_done = on_connector_done
 
     async def run(self, max_results: int = 100) -> tuple[list[SearchResult], int]:
         tasks: list[tuple[SearchConnector, str, Any]] = []
@@ -84,7 +89,10 @@ class SearchStrategyCoordinator:
         errors: dict[str, str] = {}
         for (connector, query, _), outcome in zip(tasks, gathered):
             if isinstance(outcome, Exception):
-                errors[connector.name] = f"{type(outcome).__name__}: {outcome}"
+                err_msg = f"{type(outcome).__name__}: {outcome}"
+                errors[connector.name] = err_msg
+                if self.on_connector_done:
+                    self.on_connector_done(connector.name, "failed", err_msg, None)
                 await self.repository.append_decision_log(
                     DecisionLogEntry(
                         decision_type="search_connector_error",
@@ -96,6 +104,10 @@ class SearchStrategyCoordinator:
                 )
                 continue
             result = outcome
+            if self.on_connector_done:
+                self.on_connector_done(
+                    connector.name, "success", None, result.records_retrieved
+                )
             await self.repository.save_search_result(result)
             results.append(result)
 

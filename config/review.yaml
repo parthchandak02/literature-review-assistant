@@ -68,3 +68,7 @@ funding:
   funder: ""
 
 conflicts_of_interest: "The authors declare no conflicts of interest."
+
+# Optional: override auto-generated queries per database. Omit a database to use default.
+search_overrides:
+  crossref: '("conversational AI" OR "chatbot" OR "intelligent tutoring system") AND ("health science" OR "medical education" OR "nursing education" OR "health education")'

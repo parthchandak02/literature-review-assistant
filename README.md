@@ -2,7 +2,7 @@
 
 Typed, async, SQLite-backed workflow for systematic review automation.
 
-Current implementation is through Phase 4 foundations (with baseline extraction/quality logic), not full end-to-end manuscript export yet.
+Current implementation is through Phase 5 baseline synthesis foundations. Full end-to-end manuscript export is not complete yet.
 
 ## Current Status
 
@@ -10,18 +10,21 @@ Current implementation is through Phase 4 foundations (with baseline extraction/
 - Phase 2 search infrastructure: implemented
 - Phase 3 screening foundations: implemented
 - Phase 4 extraction and quality foundations: implemented
-- Phases 5-8: not implemented yet
+- Phase 5 synthesis foundations: implemented
+- Phases 6-8: pending
 
 ## Implemented Modules
 
 - `src/models/` typed Pydantic contracts for config, papers, screening, extraction, quality, workflow
 - `src/db/` SQLite schema, async DB manager, typed repositories
 - `src/orchestration/gates.py` six quality gates with persistence
-- `src/search/` connectors + strategy + dedup + live validation
+- `src/search/` connectors + strategy + dedup
 - `src/screening/` dual reviewer, adjudication flow, reliability metrics
 - `src/extraction/` study classifier + extraction service
 - `src/quality/` RoB2, ROBINS-I, CASP, GRADE, study router
+- `src/synthesis/` feasibility, effect sizes, meta-analysis wrapper, narrative fallback
 - `src/visualization/rob_figure.py` RoB traffic-light rendering
+- `src/visualization/forest_plot.py` + `funnel_plot.py` synthesis figures
 - `src/llm/provider.py` model profile selection, rate limiting, cost logging hook
 
 ## Search Sources (Current)
@@ -37,13 +40,20 @@ Primary/academic connectors:
 Auxiliary connector:
 - `perplexity_search` (other-source discovery only)
 
+## Command Maturity
+
+| Command   | Status   | Notes                                      |
+|-----------|----------|--------------------------------------------|
+| `run`     | Available| Full pipeline: search -> screening -> extraction/quality -> synthesis |
+| `resume`  | Blocked  | Not yet implemented; checkpoints ready     |
+| `validate`| Blocked  | Not yet implemented                        |
+| `export`  | Blocked  | Not yet implemented                        |
+| `status`  | Blocked  | Not yet implemented                        |
+
 ## Runtime Commands
 
 - `uv run python -m src.main --help`
-- `uv run python -m src.main run --config config/review.yaml --settings config/settings.yaml`
-- `uv run python -m src.main phase2-live --config config/review.yaml --settings config/settings.yaml --log-root logs`
-
-Note: `resume`, `validate`, `export`, and `status` CLI commands are scaffolded and not fully implemented yet.
+- `uv run python -m src.main run --config config/review.yaml --settings config/settings.yaml --log-root logs --output-root data/outputs`
 
 ## Tests
 
@@ -68,6 +78,14 @@ flowchart TD
     qualityPhase --> qualityDb[(ExtractionAndQualityTables)]
     qualityPhase --> robFigure[RoBFigure]
 ```
+
+## SSL / Certificate Issues
+
+If connectors fail with `CERTIFICATE_VERIFY_FAILED` (e.g. behind corporate proxy):
+
+- **macOS (python.org)**: Run `Install Certificates.command` from your Python.app
+- **Corporate proxy**: Add your org CA to trust store, or set `SSL_CERT_FILE` to a bundle that includes it
+- **Dev only**: `RESEARCH_AGENT_SSL_SKIP_VERIFY=1` disables verification (insecure; use only for local debugging)
 
 ## Configuration
 

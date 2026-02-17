@@ -174,6 +174,31 @@ class WorkflowRepository:
         )
         await self.db.commit()
 
+    async def get_screening_summary(
+        self, workflow_id: str
+    ) -> List[Tuple[str, str, str, str]]:
+        """Return (paper_id, stage, final_decision, rationale) for screening summary table."""
+        cursor = await self.db.execute(
+            """
+            SELECT dsr.paper_id, dsr.stage, dsr.final_decision,
+                   (SELECT sd.reason FROM screening_decisions sd
+                    WHERE sd.workflow_id = dsr.workflow_id
+                      AND sd.paper_id = dsr.paper_id
+                      AND sd.stage = dsr.stage
+                      AND sd.decision = dsr.final_decision
+                    LIMIT 1) as rationale
+            FROM dual_screening_results dsr
+            WHERE dsr.workflow_id = ?
+            ORDER BY dsr.stage, dsr.paper_id
+            """,
+            (workflow_id,),
+        )
+        rows = await cursor.fetchall()
+        return [
+            (str(r[0]), str(r[1]), str(r[2]), (r[3] or "")[:80])
+            for r in rows
+        ]
+
     async def append_decision_log(self, entry: DecisionLogEntry) -> None:
         await self.db.execute(
             """

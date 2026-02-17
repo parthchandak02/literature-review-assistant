@@ -96,11 +96,29 @@ async def test_strategy_runs_and_gate_executes(tmp_path) -> None:
 
 @pytest.mark.asyncio
 async def test_connectors_return_typed_search_results(monkeypatch) -> None:
+    from datetime import date
+    from unittest.mock import AsyncMock, MagicMock
+
     workflow_id = "wf-connectors"
 
+    # OpenAlex: mock aiohttp to avoid real API call
+    mock_response = MagicMock()
+    mock_response.status = 200
+    mock_response.json = AsyncMock(return_value={"results": []})
+    mock_response.text = AsyncMock(return_value="{}")
+    mock_response.__aenter__ = AsyncMock(return_value=mock_response)
+    mock_response.__aexit__ = AsyncMock(return_value=None)
+
+    mock_session = MagicMock()
+    mock_session.get = MagicMock(return_value=mock_response)
+
+    mock_client = MagicMock()
+    mock_client.__aenter__ = AsyncMock(return_value=mock_session)
+    mock_client.__aexit__ = AsyncMock(return_value=None)
+
     monkeypatch.setenv("OPENALEX_API_KEY", "dummy")
+    monkeypatch.setattr("src.search.openalex.aiohttp.ClientSession", lambda **kw: mock_client)
     openalex = OpenAlexConnector(workflow_id)
-    monkeypatch.setattr(openalex, "_sync_search", lambda *args, **kwargs: [])
     openalex_result = await openalex.search("query", max_results=5)
     assert isinstance(openalex_result, SearchResult)
 
@@ -115,6 +133,17 @@ async def test_connectors_return_typed_search_results(monkeypatch) -> None:
     assert isinstance(arxiv_result, SearchResult)
 
     ieee = IEEEXploreConnector(workflow_id)
+    ieee_stub = SearchResult(
+        workflow_id=workflow_id,
+        database_name="ieee_xplore",
+        source_category=SourceCategory.DATABASE,
+        search_date=date.today().isoformat(),
+        search_query="query",
+        limits_applied="max_results=5",
+        records_retrieved=0,
+        papers=[],
+    )
+    monkeypatch.setattr(ieee, "search", AsyncMock(return_value=ieee_stub))
     ieee_result = await ieee.search("query", max_results=5)
     assert isinstance(ieee_result, SearchResult)
 
