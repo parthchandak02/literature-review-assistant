@@ -11,13 +11,14 @@ Current implementation is through Phase 5 baseline synthesis foundations. Full e
 - Phase 3 screening foundations: implemented
 - Phase 4 extraction and quality foundations: implemented
 - Phase 5 synthesis foundations: implemented
+- Resume: implemented (topic-based and workflow-id lookup, mid-phase resume, topic-based auto-resume on run)
 - Phases 6-8: pending
 
 ## Implemented Modules
 
 - `src/models/` typed Pydantic contracts for config, papers, screening, extraction, quality, workflow
-- `src/db/` SQLite schema, async DB manager, typed repositories
-- `src/orchestration/gates.py` six quality gates with persistence
+- `src/db/` SQLite schema, async DB manager, typed repositories, workflow_registry (central registry for resume discovery)
+- `src/orchestration/` gates, resume (state loading, next-phase logic), state (ReviewState dataclass)
 - `src/search/` connectors + strategy + dedup
 - `src/screening/` dual reviewer, adjudication flow, reliability metrics
 - `src/extraction/` study classifier + extraction service
@@ -45,7 +46,7 @@ Auxiliary connector:
 | Command   | Status   | Notes                                      |
 |-----------|----------|--------------------------------------------|
 | `run`     | Available| Full pipeline: search -> screening -> extraction/quality -> synthesis |
-| `resume`  | Blocked  | Not yet implemented; checkpoints ready     |
+| `resume`  | Available| Resume by --topic or --workflow-id; topic-based auto-resume on run |
 | `validate`| Blocked  | Not yet implemented                        |
 | `export`  | Blocked  | Not yet implemented                        |
 | `status`  | Blocked  | Not yet implemented                        |
@@ -54,6 +55,9 @@ Auxiliary connector:
 
 - `uv run python -m src.main --help`
 - `uv run python -m src.main run --config config/review.yaml --settings config/settings.yaml --log-root logs --output-root data/outputs`
+- `uv run python -m src.main resume --topic "your research question"` (or `--workflow-id wf-xxx`)
+
+Resume uses a central workflow registry (`logs/workflows_registry.db`) to find which run db to open by topic or workflow-id.
 
 ## Tests
 

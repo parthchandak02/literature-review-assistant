@@ -823,6 +823,7 @@ CREATE TABLE IF NOT EXISTS checkpoints (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY (workflow_id, phase)
 );
+-- status: 'completed' = phase finished normally; 'partial' = user proceeded with partial results (e.g. Ctrl+C during screening)
 
 -- Indexes
 CREATE UNIQUE INDEX IF NOT EXISTS idx_papers_doi_unique ON papers(doi) WHERE doi IS NOT NULL;
@@ -834,6 +835,15 @@ CREATE INDEX IF NOT EXISTS idx_evidence_citation ON evidence_links(citation_id);
 CREATE INDEX IF NOT EXISTS idx_decision_log_phase ON decision_log(phase);
 CREATE INDEX IF NOT EXISTS idx_gate_results_phase ON gate_results(phase);
 ```
+
+**Central workflow registry** (separate from per-run schema):
+
+Each run creates a new `runtime.db` in `logs/{date}/{topic-slug}/run_HH-MM-SS/`. To find which db to open for resume without scanning the filesystem, a central registry is used:
+
+- **File:** `{log_root}/workflows_registry.db`
+- **Table:** `workflows_registry(workflow_id, topic, config_hash, db_path, status, created_at, updated_at)`
+- **Purpose:** Maps (topic, config_hash) to absolute `db_path` so resume can open the correct runtime.db
+- The per-run `workflows` table in runtime.db remains for workflow metadata; the registry is the cross-run index
 
 ***
 
@@ -869,11 +879,14 @@ systematic-review-tool/
 |   |   |-- __init__.py
 |   |   |-- schema.sql                # Full schema from Part 3
 |   |   |-- database.py               # SQLite connection manager + migration runner
-|   |   `-- repositories.py           # CRUD operations for each table (typed)
+|   |   |-- repositories.py           # CRUD operations for each table (typed)
+|   |   `-- workflow_registry.py      # Central registry (register, find_by_topic, find_by_workflow_id, update_status)
 |   |-- orchestration/
 |   |   |-- __init__.py
 |   |   |-- workflow.py               # PydanticAI Graph + ReviewState + all phase nodes
-|   |   |-- context.py                # RunContext (CLI progress, verbose/debug logging)
+|   |   |-- context.py                # RunContext (console, verbose/debug/offline, progress; proceed_with_partial_requested + should_proceed_with_partial for Ctrl+C early-exit during screening)
+|   |   |-- resume.py                # load_resume_state, next_phase logic
+|   |   |-- state.py                 # ReviewState dataclass
 |   |   `-- gates.py                  # Quality gate runner + 6 gate implementations
 |   |-- search/
 |   |   |-- __init__.py
@@ -981,7 +994,9 @@ systematic-review-tool/
 |   |   |-- test_ieee_validator.py
 |   |   |-- test_main_cli.py
 |   |   |-- test_logging_paths.py
-|   |   `-- test_study_classifier.py
+|   |   |-- test_study_classifier.py
+|   |   |-- test_workflow_registry.py
+|   |   `-- test_resume_state.py
 |   |-- integration/
 |   |   |-- test_dual_screening.py
 |   |   |-- test_run_command.py
@@ -1298,12 +1313,20 @@ While building, use these parts of the document as reference:
    - Stage 1 (title/abstract): Processes all papers from search
    - Stage 2 (full-text): Processes papers passing Stage 1. Requires **PDF retrieval** (`src/search/pdf_retrieval.py`) to fetch full texts via DOI/open-access resolution (Unpaywall + Semantic Scholar OA URLs + source URL fallback) before screening. For every EXCLUDED paper, reviewer must return `ExclusionReason` enum value (including `NO_FULL_TEXT` when PDF is unavailable).
 
-4. **Inter-rater reliability** (`src/screening/reliability.py`):
+4. **Proceed with partial screening (Ctrl+C):**
+   - During screening, user may press Ctrl+C once to request early exit with already-screened papers
+   - First Ctrl+C: sets proceed-with-partial flag; screening loop exits after current paper; checkpoint saved with status=partial
+   - Second Ctrl+C: raises KeyboardInterrupt (abort)
+   - DualReviewerScreener accepts optional `should_proceed_with_partial: Callable[[], bool]` callback; checks it before each paper and breaks when True
+   - At screening phase start, emit hint: "Press Ctrl+C once to proceed with partial results, twice to abort."
+   - Platform: SIGINT handler registered via `asyncio.add_signal_handler`; on Windows (NotImplementedError), handler is skipped
+
+5. **Inter-rater reliability** (`src/screening/reliability.py`):
    - `compute_cohens_kappa()` using `sklearn.metrics.cohen_kappa_score`
    - Logs kappa to decision log
    - Generates `disagreements_report.md`
 
-5. **Screening safeguard gate** runs after full-text screening
+6. **Screening safeguard gate** runs after full-text screening
 
 ### Acceptance Criteria
 - [ ] Two independent LLM calls per paper at each stage
@@ -1592,6 +1615,8 @@ While building, use these parts of the document as reference:
    - Define all workflow nodes (one per phase)
    - Define edges (phase dependencies)
    - Wire HITL interrupts at: borderline screening, pre-export citation review
+   - Register SIGINT handler at run start: first Ctrl+C sets proceed-with-partial, second aborts; pass callback into ScreeningNode
+   - When screening exits via proceed-with-partial, save checkpoint with status='partial'
    - Enable durable execution for crash recovery
 
 2. **IEEE LaTeX exporter** (`src/export/ieee_latex.py`):
@@ -1637,10 +1662,10 @@ While building, use these parts of the document as reference:
    python -m src.main status --workflow-id abc123
    ```
    - Optional: `--log-root`, `--output-root` for paths; `-v`/`--verbose`, `-d`/`--debug`, `--offline` for output and behavior.
-   - Single-path milestone behavior: `run` is the only enabled execution command; `resume/validate/export/status` are intentionally blocked until full implementations are completed.
+   - Resume is implemented; validate/export/status are blocked.
 
    **Resume logic (paper-level):**
-   1. `resume --topic` queries `workflows` table for matching topic (case-insensitive)
+   1. `resume --topic` / `resume --workflow-id` queries **workflows_registry** (central db at `{log_root}/workflows_registry.db`) for matching entry; entry provides `db_path` to the run's `runtime.db`
    2. For matching workflow, query `checkpoints` table for last completed phase
    3. Determine next phase to run; within that phase, query per-paper tables (e.g. `screening_decisions`) for already-processed paper_ids
    4. Skip processed papers, continue from where it left off -- even mid-phase
@@ -1921,7 +1946,7 @@ class SettingsConfig(BaseModel):
 | 5: Synthesis | `test_effect_size.py`, `test_meta_analysis.py` | `test_synthesis_pipeline.py` | -- |
 | 6: Writing | -- | `test_writing_pipeline.py` | -- |
 | 7: PRISMA/Viz | `test_prisma_diagram.py` | -- | -- |
-| 8: Export/Integration | `test_ieee_export.py`, `test_ieee_validator.py` | `test_checkpoint_resume.py` | `test_full_review.py` |
+| 8: Export/Integration | `test_ieee_export.py`, `test_ieee_validator.py`, `test_workflow_registry.py`, `test_resume_state.py` | `test_checkpoint_resume.py` | `test_full_review.py` |
 
 **Verification commands after each phase:**
 ```bash

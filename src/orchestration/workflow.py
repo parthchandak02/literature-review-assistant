@@ -6,6 +6,7 @@ import asyncio
 import hashlib
 import json
 import os
+import signal
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -17,6 +18,12 @@ from rich.table import Table
 from src.config.loader import load_configs
 from src.db.database import get_db
 from src.db.repositories import WorkflowRepository
+from src.db.workflow_registry import (
+    find_by_topic,
+    find_by_workflow_id,
+    register as register_workflow,
+    update_status as update_registry_status,
+)
 from src.extraction import ExtractionService, StudyClassifier
 from src.llm.provider import LLMProvider
 from src.models import CandidatePaper, DecisionLogEntry, ExtractionRecord, ReviewConfig, SettingsConfig, StudyDesign
@@ -37,6 +44,8 @@ from src.search.semantic_scholar import SemanticScholarConnector
 from src.search.strategy import SearchStrategyCoordinator
 from src.synthesis import assess_meta_analysis_feasibility, build_narrative_synthesis
 from src.orchestration.context import RunContext
+from src.orchestration.resume import load_resume_state
+from src.orchestration.state import ReviewState
 from src.utils.logging_paths import OutputRunPaths, create_output_paths, create_run_paths
 from src.utils import structured_log
 from src.visualization import render_rob_traffic_light
@@ -77,31 +86,35 @@ def _build_connectors(workflow_id: str, target_databases: list[str]) -> tuple[li
     return connectors, failures
 
 
-@dataclass
-class ReviewState:
-    review_path: str
-    settings_path: str
-    log_root: str
-    output_root: str
-    run_context: RunContext | None = None
-    run_id: str = ""
-    workflow_id: str = ""
-    review: ReviewConfig | None = None
-    settings: SettingsConfig | None = None
-    db_path: str = ""
-    log_dir: str = ""
-    output_dir: str = ""
-    connector_init_failures: dict[str, str] = field(default_factory=dict)
-    search_counts: dict[str, int] = field(default_factory=dict)
-    dedup_count: int = 0
-    deduped_papers: list[CandidatePaper] = field(default_factory=list)
-    included_papers: list[CandidatePaper] = field(default_factory=list)
-    extraction_records: list[ExtractionRecord] = field(default_factory=list)
-    artifacts: dict[str, str] = field(default_factory=dict)
-
-
 def _rc(state: ReviewState) -> RunContext | None:
     return state.run_context
+
+
+class ResumeStartNode(BaseNode[ReviewState]):
+    """Entry node for resume: loads state, configures logging, routes to next phase."""
+
+    async def run(
+        self,
+        ctx: GraphRunContext[ReviewState],
+    ) -> SearchNode | ScreeningNode | ExtractionQualityNode | SynthesisNode | FinalizeNode:
+        state = ctx.state
+        rc = _rc(state)
+        if rc:
+            rc.emit_phase_start("resume", f"Resuming from {state.next_phase}...")
+        structured_log.configure_run_logging(state.log_dir)
+        structured_log.bind_run(state.workflow_id, state.run_id or "resume")
+        phase = state.next_phase
+        if phase == "phase_2_search":
+            return SearchNode()
+        if phase == "phase_3_screening":
+            return ScreeningNode()
+        if phase == "phase_4_extraction_quality":
+            return ExtractionQualityNode()
+        if phase == "phase_5_synthesis":
+            return SynthesisNode()
+        if phase == "finalize":
+            return FinalizeNode()
+        return SearchNode()
 
 
 class StartNode(BaseNode[ReviewState]):
@@ -157,7 +170,15 @@ class SearchNode(BaseNode[ReviewState]):
 
         async with get_db(state.db_path) as db:
             repository = WorkflowRepository(db)
-            await repository.create_workflow(state.workflow_id, state.review.research_question, _hash_config(state.review_path))
+            config_hash = _hash_config(state.review_path)
+            await repository.create_workflow(state.workflow_id, state.review.research_question, config_hash)
+            await register_workflow(
+                log_root=state.log_root,
+                workflow_id=state.workflow_id,
+                topic=state.review.research_question,
+                config_hash=config_hash,
+                db_path=state.db_path,
+            )
             gate_runner = GateRunner(repository, state.settings)
             def _on_connector_done(s: str, st: str, d: str | None, r: int | None) -> None:
                 if rc and rc.verbose:
@@ -212,6 +233,10 @@ class ScreeningNode(BaseNode[ReviewState]):
         rc = _rc(state)
         if rc:
             rc.emit_phase_start("phase_3_screening", f"Screening {len(state.deduped_papers)} papers...")
+            if rc.verbose:
+                rc.console.print(
+                    "[dim]Press Ctrl+C once to proceed with partial results, twice to abort.[/]"
+                )
         assert state.review is not None
         assert state.settings is not None
 
@@ -236,6 +261,11 @@ class ScreeningNode(BaseNode[ReviewState]):
             on_prompt = None
             if rc and rc.debug:
                 on_prompt = lambda a, p, pid: rc.log_prompt(a, p, pid)
+            should_proceed = (
+                (lambda: rc.should_proceed_with_partial())
+                if rc and hasattr(rc, "should_proceed_with_partial")
+                else None
+            )
             screener = DualReviewerScreener(
                 repository=repository,
                 provider=provider,
@@ -245,6 +275,7 @@ class ScreeningNode(BaseNode[ReviewState]):
                 on_llm_call=on_llm_call,
                 on_progress=on_progress,
                 on_prompt=on_prompt,
+                should_proceed_with_partial=should_proceed,
             )
             stage1 = await screener.screen_batch(
                 workflow_id=state.workflow_id,
@@ -283,7 +314,17 @@ class ScreeningNode(BaseNode[ReviewState]):
                     phase="phase_3_screening",
                 )
             )
-            await repository.save_checkpoint(state.workflow_id, "phase_3_screening", papers_processed=len(state.included_papers))
+            checkpoint_status = (
+                "partial"
+                if (rc and rc.should_proceed_with_partial())
+                else "completed"
+            )
+            await repository.save_checkpoint(
+                state.workflow_id,
+                "phase_3_screening",
+                papers_processed=len(state.included_papers),
+                status=checkpoint_status,
+            )
             if rc and rc.verbose:
                 summary_rows = await repository.get_screening_summary(state.workflow_id)
                 if summary_rows:
@@ -323,16 +364,18 @@ class ExtractionQualityNode(BaseNode[ReviewState]):
         casp = CaspAssessor()
         grade = GradeAssessor()
 
-        rob2_rows = []
-        records: list[ExtractionRecord] = []
+        rob2_rows: list = []
+        records: list[ExtractionRecord] = list(state.extraction_records)
         async with get_db(state.db_path) as db:
             repository = WorkflowRepository(db)
+            already_extracted = await repository.get_extraction_record_ids(state.workflow_id)
+            to_process = [p for p in state.included_papers if p.paper_id not in already_extracted]
             gate_runner = GateRunner(repository, state.settings)
             provider = LLMProvider(state.settings, repository)
             classifier = StudyClassifier(provider=provider, repository=repository, review=state.review)
             extractor = ExtractionService(repository=repository)
 
-            for paper in state.included_papers:
+            for paper in to_process:
                 full_text = (paper.abstract or paper.title or "").strip()
                 try:
                     design = await classifier.classify(state.workflow_id, paper)
@@ -359,7 +402,6 @@ class ExtractionQualityNode(BaseNode[ReviewState]):
                 tool = router.route_tool(record)
                 if tool == "rob2":
                     assessment = rob2.assess(record)
-                    rob2_rows.append(assessment)
                     await repository.save_rob2_assessment(state.workflow_id, assessment)
                 elif tool == "robins_i":
                     assessment = robins_i.assess(record)
@@ -384,6 +426,7 @@ class ExtractionQualityNode(BaseNode[ReviewState]):
                 )
                 await repository.save_grade_assessment(state.workflow_id, grade_assessment)
 
+            rob2_rows = [rob2.assess(r) for r in records if router.route_tool(r) == "rob2"]
             completeness_ratio = 1.0 if not records else (
                 sum(1 for record in records if (record.results_summary.get("summary") or "").strip() != "")
                 / len(records)
@@ -477,16 +520,84 @@ class FinalizeNode(BaseNode[ReviewState]):
             "artifacts": state.artifacts,
         }
         Path(state.artifacts["run_summary"]).write_text(json.dumps(summary, indent=2), encoding="utf-8")
+        await update_registry_status(state.log_root, state.workflow_id, "completed")
         if rc:
             rc.emit_phase_done("finalize")
         return End(summary)
 
 
 RUN_GRAPH = Graph(
-    nodes=[StartNode, SearchNode, ScreeningNode, ExtractionQualityNode, SynthesisNode, FinalizeNode],
+    nodes=[
+        StartNode,
+        ResumeStartNode,
+        SearchNode,
+        ScreeningNode,
+        ExtractionQualityNode,
+        SynthesisNode,
+        FinalizeNode,
+    ],
     state_type=ReviewState,
     run_end_type=dict,
 )
+
+
+def _make_sigint_handler(rc: RunContext):
+    """Return a SIGINT handler that sets proceed_with_partial on first Ctrl+C, aborts on second."""
+
+    def handler() -> None:
+        if rc.should_proceed_with_partial():
+            raise KeyboardInterrupt
+        rc.proceed_with_partial_requested[0] = True
+        if rc.verbose:
+            rc.console.print("[yellow]Proceeding with partial screening results...[/]")
+
+    return handler
+
+
+async def run_workflow_resume(
+    workflow_id: str | None = None,
+    topic: str | None = None,
+    review_path: str = "config/review.yaml",
+    settings_path: str = "config/settings.yaml",
+    log_root: str = "logs",
+    output_root: str = "data/outputs",
+    run_context: RunContext | None = None,
+) -> dict[str, str | int | dict[str, int] | dict[str, str]]:
+    """Resume a workflow from its last checkpoint."""
+    if workflow_id is None and topic is None:
+        raise ValueError("Either workflow_id or topic must be provided for resume")
+    entry = None
+    if workflow_id:
+        entry = await find_by_workflow_id(log_root, workflow_id)
+    else:
+        review, _ = load_configs(review_path, settings_path)
+        config_hash = _hash_config(review_path)
+        search_topic = topic if topic is not None else review.research_question
+        matches = await find_by_topic(log_root, search_topic, config_hash)
+        entry = matches[0] if matches else None
+    if entry is None:
+        raise FileNotFoundError(
+            "Workflow not found or db file missing. It may have been deleted."
+        )
+    state, next_phase = await load_resume_state(
+        db_path=entry.db_path,
+        workflow_id=entry.workflow_id,
+        review_path=review_path,
+        settings_path=settings_path,
+        log_root=log_root,
+        output_root=output_root,
+    )
+    state.run_context = run_context
+    state.run_id = _now_utc()
+    if run_context is not None:
+        try:
+            loop = asyncio.get_running_loop()
+            loop.add_signal_handler(signal.SIGINT, _make_sigint_handler(run_context))
+        except NotImplementedError:
+            pass
+    start = ResumeStartNode()
+    result = await RUN_GRAPH.run(start, state=state)
+    return result.output
 
 
 async def run_workflow(
@@ -496,6 +607,54 @@ async def run_workflow(
     output_root: str = "data/outputs",
     run_context: RunContext | None = None,
 ) -> dict[str, str | int | dict[str, int] | dict[str, str]]:
+    review, settings = load_configs(review_path, settings_path)
+    config_hash = _hash_config(review_path)
+    matches = await find_by_topic(log_root, review.research_question, config_hash)
+    resumable = [m for m in matches if m.status != "completed"]
+    if resumable:
+        entry = resumable[0]
+        async with get_db(entry.db_path) as db:
+            repo = WorkflowRepository(db)
+            checkpoints = await repo.get_checkpoints(entry.workflow_id)
+        phase_count = len(checkpoints)
+        phase_label = f"phase {phase_count}/5" if phase_count < 5 else "finalize"
+        if run_context and run_context.console:
+            from rich.prompt import Confirm
+            if Confirm.ask(
+                f"Found existing run for this topic ({phase_label} complete). Resume?",
+                default=True,
+                console=run_context.console,
+            ):
+                return await run_workflow_resume(
+                    workflow_id=entry.workflow_id,
+                    review_path=review_path,
+                    settings_path=settings_path,
+                    log_root=log_root,
+                    output_root=output_root,
+                    run_context=run_context,
+                )
+        else:
+            try:
+                resp = input(f"Found existing run for this topic ({phase_label} complete). Resume? [Y/n]: ").strip().lower()
+                if resp in ("", "y", "yes"):
+                    return await run_workflow_resume(
+                        workflow_id=entry.workflow_id,
+                        review_path=review_path,
+                        settings_path=settings_path,
+                        log_root=log_root,
+                        output_root=output_root,
+                        run_context=run_context,
+                    )
+            except EOFError:
+                pass
+
+    if run_context is not None:
+        try:
+            loop = asyncio.get_running_loop()
+            loop.add_signal_handler(signal.SIGINT, _make_sigint_handler(run_context))
+        except NotImplementedError:
+            pass  # Windows: add_signal_handler not available
+
     start = StartNode()
     initial = ReviewState(
         review_path=review_path,

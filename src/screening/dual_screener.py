@@ -110,6 +110,7 @@ class DualReviewerScreener:
         on_llm_call: Callable[..., None] | None = None,
         on_progress: Callable[[str, int, int], None] | None = None,
         on_prompt: Callable[[str, str, str | None], None] | None = None,
+        should_proceed_with_partial: Callable[[], bool] | None = None,
     ):
         self.repository = repository
         self.provider = provider
@@ -119,6 +120,7 @@ class DualReviewerScreener:
         self.on_llm_call = on_llm_call
         self.on_progress = on_progress
         self.on_prompt = on_prompt
+        self.should_proceed_with_partial = should_proceed_with_partial
 
     async def screen_title_abstract(self, workflow_id: str, paper: CandidatePaper) -> ScreeningDecision:
         result = await self._screen_one(
@@ -170,6 +172,8 @@ class DualReviewerScreener:
         total = len(to_process)
         outputs: list[ScreeningDecision] = []
         for i, paper in enumerate(to_process):
+            if self.should_proceed_with_partial and self.should_proceed_with_partial():
+                break
             if stage == "fulltext":
                 text = (full_text_by_paper or {}).get(paper.paper_id, "")
                 outputs.append(await self.screen_full_text(workflow_id, paper, text))

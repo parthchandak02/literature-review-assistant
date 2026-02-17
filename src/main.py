@@ -9,12 +9,13 @@ os.environ.setdefault("SSL_CERT_FILE", certifi.where())
 os.environ.setdefault("REQUESTS_CA_BUNDLE", certifi.where())
 
 import argparse
+import asyncio
 from typing import Sequence
 
 from rich.console import Console
 from rich.table import Table
 
-from src.orchestration import run_workflow_sync
+from src.orchestration import run_workflow_resume, run_workflow_sync
 from src.orchestration.context import RunContext, create_progress
 
 
@@ -52,8 +53,14 @@ def build_parser() -> argparse.ArgumentParser:
     run.add_argument("--offline", action="store_true", help="Force heuristic screening (no Gemini API) even when GEMINI_API_KEY is set")
 
     resume = sub.add_parser("resume")
-    resume.add_argument("--topic")
-    resume.add_argument("--workflow-id")
+    resume.add_argument("--topic", help="Resume by topic (research question, case-insensitive)")
+    resume.add_argument("--workflow-id", help="Resume by workflow ID (e.g. wf-abc123)")
+    resume.add_argument("--config", default="config/review.yaml")
+    resume.add_argument("--settings", default="config/settings.yaml")
+    resume.add_argument("--log-root", default="logs")
+    resume.add_argument("--output-root", default="data/outputs")
+    resume.add_argument("--verbose", "-v", action="store_true")
+    resume.add_argument("--debug", "-d", action="store_true")
 
     validate = sub.add_parser("validate")
     validate.add_argument("--workflow-id", required=True)
@@ -98,6 +105,51 @@ def main(argv: Sequence[str] | None = None) -> int:
             )
         _print_run_summary(console, summary)
         return 0
+
+    if args.command == "resume":
+        if not getattr(args, "topic", None) and not getattr(args, "workflow_id", None):
+            console.print("[red]Error:[/] Either --topic or --workflow-id is required for resume.")
+            return 1
+        verbose = getattr(args, "verbose", False)
+        debug = getattr(args, "debug", False)
+        if debug:
+            verbose = True
+        try:
+            with create_progress(console) as progress:
+                run_context = RunContext(
+                    console=console,
+                    verbose=verbose,
+                    debug=debug,
+                    offline=False,
+                    progress=progress,
+                )
+                summary = asyncio.run(
+                    run_workflow_resume(
+                        workflow_id=getattr(args, "workflow_id", None),
+                        topic=getattr(args, "topic", None),
+                        review_path=args.config,
+                        settings_path=args.settings,
+                        log_root=args.log_root,
+                        output_root=args.output_root,
+                        run_context=run_context,
+                    )
+                )
+            _print_run_summary(console, summary)
+            return 0
+        except FileNotFoundError as e:
+            console.print(f"[red]Error:[/] {e}")
+            return 1
+        except ValueError as e:
+            console.print(f"[red]Error:[/] {e}")
+            return 1
+
+    if args.command in ("validate", "export", "status"):
+        console.print(
+            f"Command '{args.command}' is not yet available. "
+            "Use `run` or `resume` for workflow execution."
+        )
+        return 0
+
     console.print(
         f"Command '{args.command}' is not yet available in the single-path milestone. "
         "Use `run` for workflow execution."

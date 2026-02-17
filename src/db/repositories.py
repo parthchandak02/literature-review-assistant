@@ -3,9 +3,34 @@
 from __future__ import annotations
 
 import json
-from typing import List, Optional, Set, Tuple
+from typing import Any, List, Optional, Set, Tuple
 
 import aiosqlite
+
+
+def _row_to_candidate_paper(row: Tuple[Any, ...]) -> CandidatePaper:
+    """Convert a papers table row to CandidatePaper."""
+    authors_raw = row[2]
+    authors = json.loads(authors_raw) if isinstance(authors_raw, str) else (authors_raw or [])
+    keywords_raw = row[8]
+    keywords = json.loads(keywords_raw) if isinstance(keywords_raw, str) else (keywords_raw or [])
+    try:
+        source_cat = SourceCategory(str(row[9]))
+    except ValueError:
+        source_cat = SourceCategory.DATABASE
+    return CandidatePaper(
+        paper_id=str(row[0]),
+        title=str(row[1]),
+        authors=authors,
+        year=int(row[3]) if row[3] is not None else None,
+        source_database=str(row[4]),
+        doi=str(row[5]) if row[5] else None,
+        abstract=str(row[6]) if row[6] else None,
+        url=str(row[7]) if row[7] else None,
+        keywords=keywords if keywords else None,
+        source_category=source_cat,
+        openalex_id=str(row[10]) if row[10] else None,
+    )
 
 from src.models import (
     CandidatePaper,
@@ -23,6 +48,7 @@ from src.models import (
     ScreeningDecision,
     ScreeningDecisionType,
 )
+from src.models.enums import SourceCategory
 
 
 class WorkflowRepository:
@@ -151,6 +177,95 @@ class WorkflowRepository:
             WHERE workflow_id = ? AND stage = ?
             """,
             (workflow_id, stage),
+        )
+        rows = await cursor.fetchall()
+        return {str(row[0]) for row in rows}
+
+    async def get_all_papers(self) -> List[CandidatePaper]:
+        """Load all papers from the papers table (for resume state reconstruction)."""
+        cursor = await self.db.execute(
+            """
+            SELECT paper_id, title, authors, year, source_database, doi, abstract, url,
+                   keywords, source_category, openalex_id
+            FROM papers
+            """
+        )
+        rows = await cursor.fetchall()
+        return [_row_to_candidate_paper(row) for row in rows]
+
+    async def load_papers_by_ids(self, paper_ids: Set[str]) -> List[CandidatePaper]:
+        """Load papers by paper_id set."""
+        if not paper_ids:
+            return []
+        placeholders = ",".join("?" * len(paper_ids))
+        cursor = await self.db.execute(
+            f"""
+            SELECT paper_id, title, authors, year, source_database, doi, abstract, url,
+                   keywords, source_category, openalex_id
+            FROM papers
+            WHERE paper_id IN ({placeholders})
+            """,
+            list(paper_ids),
+        )
+        rows = await cursor.fetchall()
+        return [_row_to_candidate_paper(row) for row in rows]
+
+    async def get_checkpoints(self, workflow_id: str) -> dict[str, str]:
+        """Return phase -> status for all checkpoints of this workflow."""
+        cursor = await self.db.execute(
+            """
+            SELECT phase, status FROM checkpoints WHERE workflow_id = ?
+            """,
+            (workflow_id,),
+        )
+        rows = await cursor.fetchall()
+        return {str(row[0]): str(row[1]) for row in rows}
+
+    async def get_included_paper_ids(self, workflow_id: str) -> Set[str]:
+        """Paper IDs that passed fulltext screening with include decision."""
+        cursor = await self.db.execute(
+            """
+            SELECT paper_id FROM dual_screening_results
+            WHERE workflow_id = ? AND stage = 'fulltext' AND final_decision = 'include'
+            """,
+            (workflow_id,),
+        )
+        rows = await cursor.fetchall()
+        return {str(row[0]) for row in rows}
+
+    async def get_extraction_record_ids(self, workflow_id: str) -> Set[str]:
+        """Paper IDs already in extraction_records."""
+        cursor = await self.db.execute(
+            """
+            SELECT paper_id FROM extraction_records WHERE workflow_id = ?
+            """,
+            (workflow_id,),
+        )
+        rows = await cursor.fetchall()
+        return {str(row[0]) for row in rows}
+
+    async def load_extraction_records(self, workflow_id: str) -> List[ExtractionRecord]:
+        """Load all extraction records for a workflow."""
+        cursor = await self.db.execute(
+            """
+            SELECT data FROM extraction_records WHERE workflow_id = ?
+            """,
+            (workflow_id,),
+        )
+        rows = await cursor.fetchall()
+        records: List[ExtractionRecord] = []
+        for row in rows:
+            data_json = str(row[0])
+            records.append(ExtractionRecord.model_validate_json(data_json))
+        return records
+
+    async def get_completed_sections(self, workflow_id: str) -> Set[str]:
+        """Section names that have at least one draft (for writing phase resume)."""
+        cursor = await self.db.execute(
+            """
+            SELECT DISTINCT section FROM section_drafts WHERE workflow_id = ?
+            """,
+            (workflow_id,),
         )
         rows = await cursor.fetchall()
         return {str(row[0]) for row in rows}
@@ -298,16 +413,22 @@ class WorkflowRepository:
         )
         await self.db.commit()
 
-    async def save_checkpoint(self, workflow_id: str, phase: str, papers_processed: int = 0) -> None:
+    async def save_checkpoint(
+        self,
+        workflow_id: str,
+        phase: str,
+        papers_processed: int = 0,
+        status: str = "completed",
+    ) -> None:
         await self.db.execute(
             """
             INSERT INTO checkpoints (workflow_id, phase, status, papers_processed)
-            VALUES (?, ?, 'completed', ?)
+            VALUES (?, ?, ?, ?)
             ON CONFLICT(workflow_id, phase) DO UPDATE SET
                 status=excluded.status,
                 papers_processed=excluded.papers_processed
             """,
-            (workflow_id, phase, papers_processed),
+            (workflow_id, phase, status, papers_processed),
         )
         await self.db.commit()
 

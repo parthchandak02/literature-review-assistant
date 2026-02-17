@@ -40,6 +40,11 @@ class RunContext:
     offline: bool = False
     progress: Progress | None = None
     _phase_task_ids: dict[str, TaskID] = field(default_factory=dict, repr=False)
+    proceed_with_partial_requested: list[bool] = field(default_factory=lambda: [False], repr=False)
+
+    def should_proceed_with_partial(self) -> bool:
+        """Return True if user requested to proceed with partial screening results (e.g. via Ctrl+C)."""
+        return bool(self.proceed_with_partial_requested and self.proceed_with_partial_requested[0])
 
     def emit_phase_start(self, phase_name: str, description: str = "") -> None:
         """Emit phase start status."""
