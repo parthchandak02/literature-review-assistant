@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 import time
+from collections.abc import Callable
 from typing import Protocol
 
 import aiohttp
@@ -93,12 +94,14 @@ class StudyClassifier:
         review: ReviewConfig,
         llm_client: StudyClassificationLLMClient | None = None,
         low_confidence_threshold: float = 0.70,
+        on_llm_call: Callable[..., None] | None = None,
     ):
         self.provider = provider
         self.repository = repository
         self.review = review
         self.llm_client = llm_client or GeminiStudyClassificationClient()
         self.low_confidence_threshold = low_confidence_threshold
+        self.on_llm_call = on_llm_call
         # Use quality_assessment profile for single Pro-tier behavior.
         self.agent_name = "quality_assessment"
 
@@ -144,16 +147,35 @@ class StudyClassifier:
             temperature=runtime.temperature,
         )
         elapsed_ms = int((time.perf_counter() - started) * 1000)
+        tokens_in = max(1, len(prompt.split()))
+        tokens_out = max(1, len(raw.split()))
+        cost_usd = self.provider.estimate_cost(runtime.model, tokens_in, tokens_out)
+        parsed = self._parse_response(raw)
         await self.provider.log_cost(
             model=runtime.model,
-            tokens_in=max(1, len(prompt.split())),
-            tokens_out=max(1, len(raw.split())),
-            cost_usd=0.0,
+            tokens_in=tokens_in,
+            tokens_out=tokens_out,
+            cost_usd=cost_usd,
             latency_ms=elapsed_ms,
             phase="phase_4_extraction_quality",
         )
-
-        parsed = self._parse_response(raw)
+        if self.on_llm_call:
+            details = f"{paper.paper_id[:12]} {parsed.study_design.value}" if parsed else f"{paper.paper_id[:12]} parse_error"
+            self.on_llm_call(
+                source="study_type_detection",
+                status="success",
+                details=details,
+                records=None,
+                call_type="llm_classification",
+                raw_response=raw,
+                latency_ms=elapsed_ms,
+                model=runtime.model,
+                paper_id=paper.paper_id,
+                phase="phase_4_extraction_quality",
+                tokens_in=tokens_in,
+                tokens_out=tokens_out,
+                cost_usd=cost_usd,
+            )
         if parsed is None:
             final_design = StudyDesign.NON_RANDOMIZED
             rationale = "Malformed classifier output. Applied non_randomized fallback."

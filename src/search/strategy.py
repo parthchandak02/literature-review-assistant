@@ -62,7 +62,9 @@ class SearchStrategyCoordinator:
         repository: WorkflowRepository,
         gate_runner: GateRunner,
         output_dir: str = "data/outputs",
-        on_connector_done: Callable[[str, str, str | None, int | None], None] | None = None,
+        on_connector_done: Callable[
+            [str, str, int, str, int | None, int | None, str | None], None
+        ] | None = None,
     ):
         self.workflow_id = workflow_id
         self.config = config
@@ -86,13 +88,23 @@ class SearchStrategyCoordinator:
 
         gathered = await asyncio.gather(*(t[2] for t in tasks), return_exceptions=True)
         results: list[SearchResult] = []
+        connector_results: dict[str, list[SearchResult]] = {}
         errors: dict[str, str] = {}
         for (connector, query, _), outcome in zip(tasks, gathered):
             if isinstance(outcome, Exception):
                 err_msg = f"{type(outcome).__name__}: {outcome}"
                 errors[connector.name] = err_msg
+                connector_results[connector.name] = []
                 if self.on_connector_done:
-                    self.on_connector_done(connector.name, "failed", err_msg, None)
+                    self.on_connector_done(
+                        connector.name,
+                        "failed",
+                        0,
+                        query,
+                        self.config.date_range_start,
+                        self.config.date_range_end,
+                        err_msg,
+                    )
                 await self.repository.append_decision_log(
                     DecisionLogEntry(
                         decision_type="search_connector_error",
@@ -103,18 +115,31 @@ class SearchStrategyCoordinator:
                     )
                 )
                 continue
-            result = outcome
+            result_list: list[SearchResult] = (
+                outcome if isinstance(outcome, list) else [outcome]
+            )
+            connector_results[connector.name] = result_list
             if self.on_connector_done:
+                total = sum(r.records_retrieved for r in result_list)
                 self.on_connector_done(
-                    connector.name, "success", None, result.records_retrieved
+                    connector.name,
+                    "success",
+                    total,
+                    query,
+                    self.config.date_range_start,
+                    self.config.date_range_end,
+                    None,
                 )
-            await self.repository.save_search_result(result)
-            results.append(result)
+            for r in result_list:
+                await self.repository.save_search_result(r)
+                results.append(r)
 
         all_papers = [paper for result in results for paper in result.papers]
         _, dedup_count = deduplicate_papers(all_papers)
         query_map = {connector.name: query for connector, query, _ in tasks}
-        await self._write_search_appendix(query_map, results, errors, dedup_count)
+        await self._write_search_appendix(
+            query_map, connector_results, errors, dedup_count
+        )
         await self.gate_runner.run_search_volume_gate(
             workflow_id=self.workflow_id,
             phase="phase_2_search",
@@ -125,27 +150,36 @@ class SearchStrategyCoordinator:
     async def _write_search_appendix(
         self,
         query_map: dict[str, str],
-        results: list[SearchResult],
+        connector_results: dict[str, list[SearchResult]],
         errors: dict[str, str],
         dedup_count: int,
     ) -> Path:
         output_dir = self.output_dir
         output_dir.mkdir(parents=True, exist_ok=True)
-        path = output_dir / "search_strategies_appendix.md"
+        path = output_dir / "doc_search_strategies_appendix.md"
         lines = ["# Search Strategies Appendix", ""]
-        results_by_db = {r.database_name: r for r in results}
-        for database_name, query in query_map.items():
-            lines.append(f"## {database_name}")
+        for connector_name, query in query_map.items():
+            lines.append(f"## {connector_name}")
             lines.append(f"- Query: `{query}`")
-            if database_name in results_by_db:
-                result = results_by_db[database_name]
-                lines.append(f"- Search date: {result.search_date}")
-                lines.append(f"- Retrieved: {result.records_retrieved}")
+            result_list = connector_results.get(connector_name, [])
+            if connector_name in errors:
+                lines.append("- Retrieved: 0")
+                lines.append("- Status: failed")
+                lines.append(f"- Error: {errors.get(connector_name, 'unknown_error')}")
+            elif result_list:
+                if len(result_list) == 1:
+                    r = result_list[0]
+                    lines.append(f"- Search date: {r.search_date}")
+                    lines.append(f"- Retrieved: {r.records_retrieved}")
+                else:
+                    # Perplexity attribution: multiple sources
+                    lines.append(f"- Search date: {result_list[0].search_date}")
+                    parts = [f"{r.database_name}: {r.records_retrieved}" for r in result_list]
+                    lines.append(f"- Retrieved (via attribution): {', '.join(parts)}")
                 lines.append("- Status: success")
             else:
                 lines.append("- Retrieved: 0")
-                lines.append("- Status: failed")
-                lines.append(f"- Error: {errors.get(database_name, 'unknown_error')}")
+                lines.append("- Status: success")
             lines.append("")
         lines.append(f"Deduplicated records removed: {dedup_count}")
         lines.append("")

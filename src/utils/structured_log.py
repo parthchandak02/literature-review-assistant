@@ -63,9 +63,12 @@ def log_api_call(
     tokens_in: int | None = None,
     tokens_out: int | None = None,
     cost_usd: float | None = None,
+    call_type: str | None = None,
 ) -> None:
     """Log an API call event."""
     payload: dict[str, Any] = {"source": source, "status": status, "phase": phase}
+    if call_type is not None:
+        payload["call_type"] = call_type
     if paper_id is not None:
         payload["paper_id"] = paper_id
     if model is not None:

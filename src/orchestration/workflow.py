@@ -44,12 +44,25 @@ from src.search.pubmed import PubMedConnector
 from src.search.semantic_scholar import SemanticScholarConnector
 from src.search.strategy import SearchStrategyCoordinator
 from src.synthesis import assess_meta_analysis_feasibility, build_narrative_synthesis
+from src.writing.orchestration import (
+    prepare_writing_context,
+    register_citations_from_papers,
+    write_section_with_validation,
+)
+from src.writing.prompts.sections import (
+    SECTIONS,
+    get_section_context,
+    get_section_word_limit,
+)
+from src.db.repositories import CitationRepository
+from src.models import SectionDraft
 from src.orchestration.context import RunContext
 from src.orchestration.resume import load_resume_state
 from src.orchestration.state import ReviewState
 from src.utils.logging_paths import OutputRunPaths, create_output_paths, create_run_paths
 from src.utils import structured_log
-from src.visualization import render_rob_traffic_light
+from src.prisma import build_prisma_counts, render_prisma_diagram
+from src.visualization import render_geographic, render_rob_traffic_light, render_timeline
 
 
 def _now_utc() -> str:
@@ -113,6 +126,8 @@ class ResumeStartNode(BaseNode[ReviewState]):
             return ExtractionQualityNode()
         if phase == "phase_5_synthesis":
             return SynthesisNode()
+        if phase == "phase_6_writing":
+            return WritingNode()
         if phase == "finalize":
             return FinalizeNode()
         return SearchNode()
@@ -145,10 +160,14 @@ class StartNode(BaseNode[ReviewState]):
         state.artifacts["run_summary"] = str(log_paths.run_summary)
         state.artifacts["search_appendix"] = str(output_paths.search_appendix)
         state.artifacts["protocol"] = str(output_paths.protocol_markdown)
-        state.artifacts["coverage_report"] = str(output_paths.run_dir / "fulltext_retrieval_coverage.md")
-        state.artifacts["disagreements_report"] = str(output_paths.run_dir / "disagreements_report.md")
-        state.artifacts["rob_traffic_light"] = str(output_paths.run_dir / "rob_traffic_light.png")
-        state.artifacts["narrative_synthesis"] = str(output_paths.run_dir / "narrative_synthesis.json")
+        state.artifacts["coverage_report"] = str(output_paths.run_dir / "doc_fulltext_retrieval_coverage.md")
+        state.artifacts["disagreements_report"] = str(output_paths.run_dir / "doc_disagreements_report.md")
+        state.artifacts["rob_traffic_light"] = str(output_paths.run_dir / "fig_rob_traffic_light.png")
+        state.artifacts["narrative_synthesis"] = str(output_paths.run_dir / "data_narrative_synthesis.json")
+        state.artifacts["manuscript_md"] = str(output_paths.run_dir / "doc_manuscript.md")
+        state.artifacts["prisma_diagram"] = str(output_paths.run_dir / "fig_prisma_flow.png")
+        state.artifacts["timeline"] = str(output_paths.run_dir / "fig_publication_timeline.png")
+        state.artifacts["geographic"] = str(output_paths.run_dir / "fig_geographic_distribution.png")
         if rc:
             rc.emit_phase_done("start", {"workflow_id": state.workflow_id})
         return SearchNode()
@@ -158,16 +177,25 @@ class SearchNode(BaseNode[ReviewState]):
     async def run(self, ctx: GraphRunContext[ReviewState]) -> ScreeningNode:
         state = ctx.state
         rc = _rc(state)
-        if rc:
-            rc.emit_phase_start("phase_2_search", "Running connectors...")
         assert state.review is not None
         assert state.settings is not None
 
         connectors, connector_init_failures = _build_connectors(state.workflow_id, state.review.target_databases)
         state.connector_init_failures = connector_init_failures
         if rc:
+            rc.emit_phase_start("phase_2_search", "Running connectors...", total=len(connectors))
             for name, err in connector_init_failures.items():
-                rc.log_api_call(name, "failed", err, None, phase="phase_2_search")
+                rc.log_connector_result(
+                    name=name,
+                    status="failed",
+                    records=0,
+                    query="",
+                    date_start=state.review.date_range_start,
+                    date_end=state.review.date_range_end,
+                    error=err,
+                )
+
+        connector_done_count: list[int] = [0]
 
         async with get_db(state.db_path) as db:
             repository = WorkflowRepository(db)
@@ -181,12 +209,31 @@ class SearchNode(BaseNode[ReviewState]):
                 db_path=state.db_path,
             )
             gate_runner = GateRunner(repository, state.settings)
-            def _on_connector_done(s: str, st: str, d: str | None, r: int | None) -> None:
+            def _on_connector_done(
+                name: str,
+                status: str,
+                records: int,
+                query: str,
+                date_start: int | None,
+                date_end: int | None,
+                error: str | None,
+            ) -> None:
                 if rc and rc.verbose:
-                    rc.log_api_call(s, st, d, r, phase="phase_2_search")
+                    rc.log_connector_result(
+                        name=name,
+                        status=status,
+                        records=records,
+                        query=query,
+                        date_start=date_start,
+                        date_end=date_end,
+                        error=error,
+                    )
                 structured_log.log_connector_result(
-                    connector=s, status=st, records=r, error=d if st != "success" else None
+                    connector=name, status=status, records=records, error=error
                 )
+                connector_done_count[0] += 1
+                if rc:
+                    rc.advance_screening("phase_2_search", connector_done_count[0], len(connectors))
 
             on_connector_done = _on_connector_done
             coordinator = SearchStrategyCoordinator(
@@ -233,7 +280,11 @@ class ScreeningNode(BaseNode[ReviewState]):
         state = ctx.state
         rc = _rc(state)
         if rc:
-            rc.emit_phase_start("phase_3_screening", f"Screening {len(state.deduped_papers)} papers...")
+            rc.emit_phase_start(
+                "phase_3_screening",
+                f"Screening {len(state.deduped_papers)} papers...",
+                total=len(state.deduped_papers),
+            )
             if rc.verbose:
                 rc.console.print(
                     "[dim]Press Ctrl+C once to proceed with partial results, twice to abort.[/]"
@@ -250,7 +301,9 @@ class ScreeningNode(BaseNode[ReviewState]):
             provider = LLMProvider(state.settings, repository, on_waiting=on_waiting)
             on_llm_call = None
             if rc and rc.verbose:
-                on_llm_call = lambda s, st, d, r, **kw: rc.log_api_call(s, st, d, r, **kw)
+                on_llm_call = lambda s, st, d, r, **kw: rc.log_api_call(
+                    s, st, d, r, call_type="llm_screening", **kw
+                )
             use_real_client = (
                 os.getenv("GEMINI_API_KEY")
                 and (rc is None or not rc.offline)
@@ -354,8 +407,6 @@ class ExtractionQualityNode(BaseNode[ReviewState]):
     async def run(self, ctx: GraphRunContext[ReviewState]) -> SynthesisNode:
         state = ctx.state
         rc = _rc(state)
-        if rc:
-            rc.emit_phase_start("phase_4_extraction_quality", f"Extracting {len(state.included_papers)} papers...")
         assert state.review is not None
         assert state.settings is not None
 
@@ -371,12 +422,32 @@ class ExtractionQualityNode(BaseNode[ReviewState]):
             repository = WorkflowRepository(db)
             already_extracted = await repository.get_extraction_record_ids(state.workflow_id)
             to_process = [p for p in state.included_papers if p.paper_id not in already_extracted]
+            if rc:
+                rc.emit_phase_start(
+                    "phase_4_extraction_quality",
+                    f"Extracting {len(to_process)} papers...",
+                    total=len(to_process),
+                )
             gate_runner = GateRunner(repository, state.settings)
             provider = LLMProvider(state.settings, repository)
-            classifier = StudyClassifier(provider=provider, repository=repository, review=state.review)
+            on_classify = None
+            if rc and rc.verbose:
+                def _on_classify(**kw):
+                    rc.log_api_call(call_type="llm_classification", **kw)
+                on_classify = _on_classify
+            classifier = StudyClassifier(
+                provider=provider,
+                repository=repository,
+                review=state.review,
+                on_llm_call=on_classify,
+            )
             extractor = ExtractionService(repository=repository)
 
-            for paper in to_process:
+            for i, paper in enumerate(to_process):
+                if rc and rc.verbose:
+                    rc.console.print(
+                        f"  Extracting {paper.paper_id[:12]}... ({i + 1}/{len(to_process)})"
+                    )
                 full_text = (paper.abstract or paper.title or "").strip()
                 try:
                     design = await classifier.classify(state.workflow_id, paper)
@@ -399,6 +470,8 @@ class ExtractionQualityNode(BaseNode[ReviewState]):
                     full_text=full_text,
                 )
                 records.append(record)
+                if rc:
+                    rc.advance_screening("phase_4_extraction_quality", i + 1, len(to_process))
 
                 tool = router.route_tool(record)
                 if tool == "rob2":
@@ -427,7 +500,23 @@ class ExtractionQualityNode(BaseNode[ReviewState]):
                 )
                 await repository.save_grade_assessment(state.workflow_id, grade_assessment)
 
-            rob2_rows = [rob2.assess(r) for r in records if router.route_tool(r) == "rob2"]
+                if rc and rc.verbose:
+                    rob_judgment = (
+                        assessment.overall_judgment.value
+                        if hasattr(assessment, "overall_judgment")
+                        else getattr(assessment, "overall_summary", "unknown")
+                    )
+                    extraction_summary = (
+                        record.results_summary.get("summary") or ""
+                    )[:300]
+                    rc.log_extraction_paper(
+                        paper_id=paper.paper_id,
+                        design=design.value,
+                        extraction_summary=extraction_summary,
+                        rob_judgment=rob_judgment,
+                    )
+
+            rob2_rows, robins_i_rows = await repository.load_rob_assessments(state.workflow_id)
             completeness_ratio = 1.0 if not records else (
                 sum(1 for record in records if (record.results_summary.get("summary") or "").strip() != "")
                 / len(records)
@@ -442,7 +531,7 @@ class ExtractionQualityNode(BaseNode[ReviewState]):
                 phase="phase_4_extraction_quality",
                 unresolved_items=0,
             )
-            render_rob_traffic_light(rob2_rows, state.artifacts["rob_traffic_light"])
+            render_rob_traffic_light(rob2_rows, robins_i_rows, state.artifacts["rob_traffic_light"])
             await repository.save_checkpoint(
                 state.workflow_id,
                 "phase_4_extraction_quality",
@@ -464,9 +553,17 @@ class SynthesisNode(BaseNode[ReviewState]):
         state = ctx.state
         rc = _rc(state)
         if rc:
-            rc.emit_phase_start("phase_5_synthesis", "Building narrative synthesis...")
+            rc.emit_phase_start("phase_5_synthesis", "Building narrative synthesis...", total=1)
         feasibility = assess_meta_analysis_feasibility(state.extraction_records)
         narrative = build_narrative_synthesis("primary_outcome", state.extraction_records)
+        if rc and rc.verbose:
+            rc.log_synthesis(
+                feasible=feasibility.feasible,
+                groups=feasibility.groupings,
+                rationale=feasibility.rationale,
+                n_studies=narrative.n_studies,
+                direction=narrative.effect_direction_summary,
+            )
         Path(state.artifacts["narrative_synthesis"]).write_text(
             json.dumps(
                 {
@@ -499,6 +596,133 @@ class SynthesisNode(BaseNode[ReviewState]):
                     "phase_5_synthesis",
                     {"feasible": feasibility.feasible, "n_studies": len(state.extraction_records)},
                 )
+        return WritingNode()
+
+
+class WritingNode(BaseNode[ReviewState]):
+    """Write manuscript sections, validate citations, save drafts."""
+
+    async def run(self, ctx: GraphRunContext[ReviewState]) -> FinalizeNode:
+        state = ctx.state
+        rc = _rc(state)
+        if rc:
+            rc.emit_phase_start(
+                "phase_6_writing",
+                f"Writing manuscript ({len(state.included_papers)} papers)...",
+                total=len(SECTIONS),
+            )
+        assert state.review is not None
+        assert state.settings is not None
+
+        narrative_path = Path(state.artifacts["narrative_synthesis"])
+        narrative: dict | None = None
+        if narrative_path.exists():
+            try:
+                narrative = json.loads(narrative_path.read_text(encoding="utf-8"))
+            except Exception:
+                narrative = None
+
+        style_patterns, citation_catalog = prepare_writing_context(
+            state.included_papers, narrative, state.settings
+        )
+
+        sections_written: list[str] = []
+        async with get_db(state.db_path) as db:
+            repository = WorkflowRepository(db)
+
+            prisma_counts = await build_prisma_counts(
+                repository,
+                state.workflow_id,
+                state.dedup_count,
+                included_qualitative=0,
+                included_quantitative=len(state.included_papers),
+            )
+            render_prisma_diagram(prisma_counts, state.artifacts["prisma_diagram"])
+            render_timeline(state.included_papers, state.artifacts["timeline"])
+            render_geographic(state.included_papers, state.artifacts["geographic"])
+            if rc and rc.verbose:
+                rc.console.print(
+                    f"  PRISMA: {prisma_counts} -> {Path(state.artifacts['prisma_diagram']).name}"
+                )
+                rc.console.print(
+                    f"  Timeline: {Path(state.artifacts['timeline']).name}"
+                )
+                rc.console.print(
+                    f"  Geographic: {Path(state.artifacts['geographic']).name}"
+                )
+            citation_repo = CitationRepository(db)
+            completed = await repository.get_completed_sections(state.workflow_id)
+            provider = LLMProvider(state.settings, repository)
+
+            await register_citations_from_papers(citation_repo, state.included_papers)
+
+            def _on_write(**kw):
+                if rc:
+                    rc.log_api_call(call_type="llm_writing", **kw)
+
+            for i, section in enumerate(SECTIONS):
+                if section in completed:
+                    if rc and rc.verbose:
+                        rc.console.print(f"  Skipping {section} (already done)")
+                    cursor = await db.execute(
+                        """
+                        SELECT content FROM section_drafts
+                        WHERE workflow_id = ? AND section = ?
+                        ORDER BY version DESC LIMIT 1
+                        """,
+                        (state.workflow_id, section),
+                    )
+                    row = await cursor.fetchone()
+                    if row:
+                        sections_written.append(row[0])
+                    if rc:
+                        rc.advance_screening("phase_6_writing", i + 1, len(SECTIONS))
+                    continue
+
+                if rc and rc.verbose:
+                    rc.console.print(f"  Writing section: {section}...")
+                context = get_section_context(section)
+                word_limit = get_section_word_limit(section)
+                content = await write_section_with_validation(
+                    section=section,
+                    context=context,
+                    workflow_id=state.workflow_id,
+                    review=state.review,
+                    settings=state.settings,
+                    citation_repo=citation_repo,
+                    citation_catalog=citation_catalog,
+                    style_patterns=style_patterns,
+                    word_limit=word_limit,
+                    on_llm_call=_on_write if rc and rc.verbose else None,
+                    provider=provider if rc and rc.verbose else None,
+                )
+                word_count = len(content.split())
+                draft = SectionDraft(
+                    workflow_id=state.workflow_id,
+                    section=section,
+                    version=1,
+                    content=content,
+                    claims_used=[],
+                    citations_used=[],
+                    word_count=word_count,
+                )
+                await repository.save_section_draft(draft)
+                sections_written.append(content)
+                if rc:
+                    rc.advance_screening("phase_6_writing", i + 1, len(SECTIONS))
+
+            await repository.save_checkpoint(
+                state.workflow_id, "phase_6_writing", papers_processed=len(SECTIONS)
+            )
+
+        manuscript_path = Path(state.artifacts["manuscript_md"])
+        manuscript_path.write_text(
+            "\n\n".join(sections_written),
+            encoding="utf-8",
+        )
+
+        if rc:
+            rc.emit_phase_done("phase_6_writing", {"sections": len(sections_written)})
         return FinalizeNode()
 
 
@@ -522,6 +746,9 @@ class FinalizeNode(BaseNode[ReviewState]):
         }
         Path(state.artifacts["run_summary"]).write_text(json.dumps(summary, indent=2), encoding="utf-8")
         await update_registry_status(state.log_root, state.workflow_id, "completed")
+        if rc and rc.verbose:
+            rc.console.print(f"  Run summary: {state.artifacts['run_summary']}")
+            rc.console.print(f"  Output dir: {state.output_dir}")
         if rc:
             rc.emit_phase_done("finalize")
         return End(summary)
@@ -535,6 +762,7 @@ RUN_GRAPH = Graph(
         ScreeningNode,
         ExtractionQualityNode,
         SynthesisNode,
+        WritingNode,
         FinalizeNode,
     ],
     state_type=ReviewState,
@@ -619,18 +847,19 @@ async def run_workflow(
     log_root: str = "logs",
     output_root: str = "data/outputs",
     run_context: RunContext | None = None,
+    fresh: bool = False,
 ) -> dict[str, str | int | dict[str, int] | dict[str, str]]:
     review, settings = load_configs(review_path, settings_path)
     config_hash = _hash_config(review_path)
     matches = await find_by_topic(log_root, review.research_question, config_hash)
     resumable = [m for m in matches if m.status != "completed"]
-    if resumable:
+    if resumable and not fresh:
         entry = resumable[0]
         async with get_db(entry.db_path) as db:
             repo = WorkflowRepository(db)
             checkpoints = await repo.get_checkpoints(entry.workflow_id)
         phase_count = len(checkpoints)
-        phase_label = f"phase {phase_count}/5" if phase_count < 5 else "finalize"
+        phase_label = f"phase {phase_count}/6" if phase_count < 6 else "finalize"
         if run_context and run_context.console:
             from rich.prompt import Confirm
             if Confirm.ask(
@@ -686,6 +915,7 @@ def run_workflow_sync(
     log_root: str = "logs",
     output_root: str = "data/outputs",
     run_context: RunContext | None = None,
+    fresh: bool = False,
 ) -> dict[str, str | int | dict[str, int] | dict[str, str]]:
     return asyncio.run(
         run_workflow(
@@ -694,5 +924,6 @@ def run_workflow_sync(
             log_root=log_root,
             output_root=output_root,
             run_context=run_context,
+            fresh=fresh,
         )
     )
