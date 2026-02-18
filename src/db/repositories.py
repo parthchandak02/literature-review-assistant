@@ -18,6 +18,7 @@ def _row_to_candidate_paper(row: Tuple[Any, ...]) -> CandidatePaper:
         source_cat = SourceCategory(str(row[9]))
     except ValueError:
         source_cat = SourceCategory.DATABASE
+    country = str(row[11]) if len(row) > 11 and row[11] else None
     return CandidatePaper(
         paper_id=str(row[0]),
         title=str(row[1]),
@@ -30,6 +31,7 @@ def _row_to_candidate_paper(row: Tuple[Any, ...]) -> CandidatePaper:
         keywords=keywords if keywords else None,
         source_category=source_cat,
         openalex_id=str(row[10]) if row[10] else None,
+        country=country,
     )
 
 from src.models import (
@@ -139,8 +141,8 @@ class WorkflowRepository:
             """
             INSERT OR REPLACE INTO papers (
                 paper_id, title, authors, year, source_database, doi, abstract, url,
-                keywords, source_category, openalex_id
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                keywords, source_category, openalex_id, country
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 paper.paper_id,
@@ -154,6 +156,7 @@ class WorkflowRepository:
                 json.dumps(paper.keywords or []),
                 paper.source_category.value,
                 paper.openalex_id,
+                paper.country,
             ),
         )
 
@@ -169,6 +172,85 @@ class WorkflowRepository:
         )
         rows = await cursor.fetchall()
         return {str(row[0]): int(row[1]) for row in rows}
+
+    async def get_search_counts_by_category(
+        self, workflow_id: str
+    ) -> tuple[dict[str, int], dict[str, int]]:
+        """Return (databases_records, other_sources_records) for PRISMA two-column."""
+        cursor = await self.db.execute(
+            """
+            SELECT database_name, source_category, COALESCE(SUM(records_retrieved), 0)
+            FROM search_results
+            WHERE workflow_id = ?
+            GROUP BY database_name, source_category
+            """,
+            (workflow_id,),
+        )
+        rows = await cursor.fetchall()
+        databases: dict[str, int] = {}
+        other: dict[str, int] = {}
+        for db_name, cat, count in rows:
+            name = str(db_name)
+            cnt = int(count)
+            if str(cat).lower() == "other_source":
+                other[name] = cnt
+            else:
+                databases[name] = cnt
+        return databases, other
+
+    async def get_prisma_screening_counts(
+        self, workflow_id: str
+    ) -> tuple[int, int, int, int, int, dict[str, int]]:
+        """Return (records_screened, records_excluded_screening, reports_sought,
+        reports_not_retrieved, reports_assessed, reports_excluded_with_reasons)."""
+        ta_screened = 0
+        ta_excluded = 0
+        ft_sought = 0
+        ft_assessed = 0
+        ft_excluded = 0
+        exclusion_reasons: dict[str, int] = {}
+
+        cursor = await self.db.execute(
+            """
+            SELECT stage, final_decision, COUNT(*)
+            FROM dual_screening_results
+            WHERE workflow_id = ?
+            GROUP BY stage, final_decision
+            """,
+            (workflow_id,),
+        )
+        for stage, decision, cnt in await cursor.fetchall():
+            c = int(cnt)
+            if stage == "title_abstract":
+                ta_screened += c
+                if decision == "exclude":
+                    ta_excluded += c
+                elif decision == "include":
+                    ft_sought += c
+            elif stage == "fulltext":
+                ft_assessed += c
+                if decision == "exclude":
+                    ft_excluded += c
+
+        cursor = await self.db.execute(
+            """
+            SELECT exclusion_reason, COUNT(DISTINCT paper_id)
+            FROM screening_decisions
+            WHERE workflow_id = ? AND stage = 'fulltext' AND decision = 'exclude'
+                AND exclusion_reason IS NOT NULL
+            GROUP BY exclusion_reason
+            """,
+            (workflow_id,),
+        )
+        for reason, cnt in await cursor.fetchall():
+            exclusion_reasons[str(reason or "other")] = int(cnt)
+        if ft_excluded > sum(exclusion_reasons.values()):
+            exclusion_reasons["other"] = (
+                exclusion_reasons.get("other", 0) + ft_excluded - sum(exclusion_reasons.values())
+            )
+
+        reports_not_retrieved = max(0, ft_sought - ft_assessed)
+        return ta_screened, ta_excluded, ft_sought, reports_not_retrieved, ft_assessed, exclusion_reasons
 
     async def get_processed_paper_ids(self, workflow_id: str, stage: str) -> Set[str]:
         cursor = await self.db.execute(
@@ -187,7 +269,7 @@ class WorkflowRepository:
         cursor = await self.db.execute(
             """
             SELECT paper_id, title, authors, year, source_database, doi, abstract, url,
-                   keywords, source_category, openalex_id
+                   keywords, source_category, openalex_id, country
             FROM papers
             """
         )
@@ -202,7 +284,7 @@ class WorkflowRepository:
         cursor = await self.db.execute(
             f"""
             SELECT paper_id, title, authors, year, source_database, doi, abstract, url,
-                   keywords, source_category, openalex_id
+                   keywords, source_category, openalex_id, country
             FROM papers
             WHERE paper_id IN ({placeholders})
             """,
@@ -418,6 +500,33 @@ class WorkflowRepository:
         )
         await self.db.commit()
 
+    async def load_rob_assessments(
+        self, workflow_id: str
+    ) -> tuple[list[RoB2Assessment], list[RobinsIAssessment]]:
+        """Load RoB2 and ROBINS-I assessments from rob_assessments table."""
+        rob2_list: list[RoB2Assessment] = []
+        robins_i_list: list[RobinsIAssessment] = []
+        cursor = await self.db.execute(
+            """
+            SELECT tool_used, assessment_data
+            FROM rob_assessments
+            WHERE workflow_id = ?
+            """,
+            (workflow_id,),
+        )
+        for tool, data in await cursor.fetchall():
+            if not data:
+                continue
+            try:
+                parsed = json.loads(data)
+                if tool == "rob2":
+                    rob2_list.append(RoB2Assessment.model_validate(parsed))
+                elif tool == "robins_i":
+                    robins_i_list.append(RobinsIAssessment.model_validate(parsed))
+            except (json.JSONDecodeError, Exception):
+                continue
+        return rob2_list, robins_i_list
+
     async def save_grade_assessment(self, workflow_id: str, assessment: GRADEOutcomeAssessment) -> None:
         await self.db.execute(
             """
@@ -559,3 +668,27 @@ class CitationRepository:
         )
         rows = await cursor.fetchall()
         return [(str(row[0]), str(row[1])) for row in rows]
+
+    async def get_all_citations_for_export(self) -> List[Tuple[str, str, str | None, str, str, int | None, str | None, str | None]]:
+        """Return (citation_id, citekey, doi, title, authors_json, year, journal, bibtex) for BibTeX export."""
+        cursor = await self.db.execute(
+            """
+            SELECT citation_id, citekey, doi, title, authors, year, journal, bibtex
+            FROM citations
+            ORDER BY citekey
+            """
+        )
+        rows = await cursor.fetchall()
+        return [
+            (
+                str(row[0]),
+                str(row[1]),
+                str(row[2]) if row[2] else None,
+                str(row[3]),
+                str(row[4]) if row[4] else "{}",
+                int(row[5]) if row[5] is not None else None,
+                str(row[6]) if row[6] else None,
+                str(row[7]) if row[7] else None,
+            )
+            for row in rows
+        ]

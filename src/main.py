@@ -16,8 +16,110 @@ from typing import Sequence
 from rich.console import Console
 from rich.table import Table
 
+from src.db.workflow_registry import find_by_workflow_id, find_by_workflow_id_fallback
+from src.export import package_submission, validate_ieee, validate_prisma
 from src.orchestration import run_workflow_resume, run_workflow_sync
 from src.orchestration.context import RunContext, create_progress
+
+
+async def _run_export(workflow_id: str, log_root: str) -> str | None:
+    """Run export for workflow. Returns submission dir path or None."""
+    result = await package_submission(workflow_id=workflow_id, log_root=log_root)
+    return str(result) if result else None
+
+
+async def _run_validate(workflow_id: str, log_root: str, console: Console) -> bool:
+    """Run validators. Returns True if all pass."""
+    from pathlib import Path
+
+    import json
+
+    entry = await find_by_workflow_id(log_root, workflow_id)
+    if entry is None:
+        entry = await find_by_workflow_id_fallback(log_root, workflow_id)
+    if entry is None:
+        console.print(f"[red]Error:[/] Workflow '{workflow_id}' not found.")
+        return False
+
+    log_dir = str(Path(entry.db_path).parent)
+    run_summary_path = Path(log_dir) / "run_summary.json"
+    if not run_summary_path.exists():
+        console.print("[red]Error:[/] run_summary.json not found.")
+        return False
+
+    data = json.loads(run_summary_path.read_text(encoding="utf-8"))
+    output_dir = data.get("output_dir")
+    artifacts = data.get("artifacts", {})
+    submission_dir = Path(output_dir) / "submission" if output_dir else None
+
+    tex_content = None
+    bib_content = ""
+    md_content = ""
+    md_path = Path(artifacts.get("manuscript_md", ""))
+    if not md_path.exists() and output_dir:
+        md_path = Path(output_dir) / "doc_manuscript.md"
+    if md_path.exists():
+        md_content = md_path.read_text(encoding="utf-8")
+
+    if submission_dir and submission_dir.exists():
+        tex_path = submission_dir / "manuscript.tex"
+        bib_path = submission_dir / "references.bib"
+        tex_content = tex_path.read_text(encoding="utf-8") if tex_path.exists() else None
+        bib_content = bib_path.read_text(encoding="utf-8") if bib_path.exists() else ""
+    else:
+        console.print("[yellow]Note:[/] submission/ not found. IEEE validation requires `export` first.")
+
+    ieee_result = validate_ieee(tex_content or "", bib_content) if tex_content or bib_content else None
+    prisma_result = validate_prisma(tex_content, md_content)
+
+    all_pass = (ieee_result.passed if ieee_result else True) and prisma_result.passed
+    if ieee_result:
+        if ieee_result.errors:
+            for e in ieee_result.errors:
+                console.print(f"[red]IEEE:[/] {e}")
+        if ieee_result.warnings:
+            for w in ieee_result.warnings:
+                console.print(f"[yellow]IEEE:[/] {w}")
+        if ieee_result.passed and not ieee_result.errors:
+            console.print("[green]IEEE validation:[/] PASSED")
+
+    console.print(
+        f"[green]PRISMA:[/] {prisma_result.reported_count}/27 reported "
+        f"({'PASSED' if prisma_result.passed else 'FAILED'})"
+    )
+    return all_pass
+
+
+async def _run_status(workflow_id: str, log_root: str, console: Console) -> bool:
+    """Print workflow status. Returns True if found."""
+    import json
+    from pathlib import Path
+
+    entry = await find_by_workflow_id(log_root, workflow_id)
+    if entry is None:
+        entry = await find_by_workflow_id_fallback(log_root, workflow_id)
+    if entry is None:
+        console.print(f"[red]Error:[/] Workflow '{workflow_id}' not found.")
+        return False
+
+    log_dir = str(Path(entry.db_path).parent)
+    run_summary_path = Path(log_dir) / "run_summary.json"
+    if run_summary_path.exists():
+        data = json.loads(run_summary_path.read_text(encoding="utf-8"))
+        table = Table(title=f"Workflow {workflow_id}")
+        table.add_column("Field", style="cyan", no_wrap=True)
+        table.add_column("Value", style="white")
+        for k in ["workflow_id", "run_id", "log_dir", "output_dir"]:
+            table.add_row(k, str(data.get(k, "")))
+        table.add_row("registry_status", entry.status)
+        table.add_row("included_papers", str(data.get("included_papers", "")))
+        table.add_row("extraction_records", str(data.get("extraction_records", "")))
+        artifacts = data.get("artifacts", {})
+        table.add_row("artifacts", ", ".join(Path(p).name for p in artifacts.values()) if artifacts else "")
+        console.print(table)
+    else:
+        console.print(f"[dim]Status:[/] {entry.status} (db: {entry.db_path})")
+    return True
 
 
 def _print_run_summary(console: Console, summary: dict) -> None:
@@ -63,6 +165,7 @@ def build_parser() -> argparse.ArgumentParser:
     run.add_argument("--settings", default="config/settings.yaml")
     run.add_argument("--log-root", default="logs")
     run.add_argument("--output-root", default="data/outputs")
+    run.add_argument("--fresh", action="store_true", help="Always start new run; skip resume prompt (needed when running in Progress context)")
     run.add_argument("--verbose", "-v", action="store_true", help="Per-phase status, API call logging, screening summaries")
     run.add_argument("--debug", "-d", action="store_true", help="Verbose plus Pydantic model dumps at phase boundaries")
     run.add_argument("--offline", action="store_true", help="Force heuristic screening (no Gemini API) even when GEMINI_API_KEY is set")
@@ -79,12 +182,15 @@ def build_parser() -> argparse.ArgumentParser:
 
     validate = sub.add_parser("validate")
     validate.add_argument("--workflow-id", required=True)
+    validate.add_argument("--log-root", default="logs")
 
     export = sub.add_parser("export")
     export.add_argument("--workflow-id", required=True)
+    export.add_argument("--log-root", default="logs")
 
     status = sub.add_parser("status")
     status.add_argument("--workflow-id", required=True)
+    status.add_argument("--log-root", default="logs")
 
     return parser
 
@@ -117,6 +223,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 log_root=args.log_root,
                 output_root=args.output_root,
                 run_context=run_context,
+                fresh=getattr(args, "fresh", False),
             )
         _print_run_summary(console, summary)
         return 0
@@ -158,12 +265,50 @@ def main(argv: Sequence[str] | None = None) -> int:
             console.print(f"[red]Error:[/] {e}")
             return 1
 
-    if args.command in ("validate", "export", "status"):
-        console.print(
-            f"Command '{args.command}' is not yet available. "
-            "Use `run` or `resume` for workflow execution."
-        )
-        return 0
+    if args.command == "export":
+        try:
+            result = asyncio.run(
+                _run_export(
+                    workflow_id=args.workflow_id,
+                    log_root=args.log_root,
+                )
+            )
+            if result is None:
+                console.print(f"[red]Error:[/] Workflow '{args.workflow_id}' not found.")
+                return 1
+            console.print(f"[green]Export complete:[/] {result}")
+            return 0
+        except Exception as e:
+            console.print(f"[red]Error:[/] {e}")
+            return 1
+
+    if args.command == "validate":
+        try:
+            ok = asyncio.run(
+                _run_validate(
+                    workflow_id=args.workflow_id,
+                    log_root=args.log_root,
+                    console=console,
+                )
+            )
+            return 0 if ok else 1
+        except Exception as e:
+            console.print(f"[red]Error:[/] {e}")
+            return 1
+
+    if args.command == "status":
+        try:
+            ok = asyncio.run(
+                _run_status(
+                    workflow_id=args.workflow_id,
+                    log_root=args.log_root,
+                    console=console,
+                )
+            )
+            return 0 if ok else 1
+        except Exception as e:
+            console.print(f"[red]Error:[/] {e}")
+            return 1
 
     console.print(
         f"Command '{args.command}' is not yet available in the single-path milestone. "
