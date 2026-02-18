@@ -21,6 +21,8 @@ dependencies = [
   "aiosqlite>=0.21",
   "python-dotenv>=1.0",
   "structlog>=24.0",
+  "prisma-flow-diagram>=0.1.0",
+  "colrev>=0.16.0",
 ]
 
 [dependency-groups]

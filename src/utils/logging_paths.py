@@ -57,6 +57,6 @@ def create_output_paths(output_root: str, workflow_description: str, run_dir_nam
     run_dir.mkdir(parents=True, exist_ok=True)
     return OutputRunPaths(
         run_dir=run_dir,
-        search_appendix=run_dir / "search_strategies_appendix.md",
-        protocol_markdown=run_dir / "protocol.md",
+        search_appendix=run_dir / "doc_search_strategies_appendix.md",
+        protocol_markdown=run_dir / "doc_protocol.md",
     )

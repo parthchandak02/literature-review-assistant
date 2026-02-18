@@ -4,6 +4,9 @@ from __future__ import annotations
 
 import pytest
 
+from src.citation.ledger import CitationLedger
+from src.db.database import get_db
+from src.db.repositories import CitationRepository
 from src.models import (
     CandidatePaper,
     FundingInfo,
@@ -14,7 +17,11 @@ from src.models import (
 )
 from src.models.enums import ReviewType
 from src.writing import SectionWriter, StylePatterns, extract_style_patterns
-from src.writing.orchestration import build_citation_catalog_from_papers, prepare_writing_context
+from src.writing.orchestration import (
+    build_citation_catalog_from_papers,
+    prepare_writing_context,
+    register_citations_from_papers,
+)
 from src.writing.prompts.sections import SECTIONS, get_section_context, get_section_word_limit
 
 
@@ -110,3 +117,41 @@ def test_section_prompts_exist() -> None:
         assert len(ctx) > 0
     assert get_section_word_limit("abstract") == 250
     assert get_section_word_limit("introduction") is None
+
+
+@pytest.mark.asyncio
+async def test_register_citations_from_papers() -> None:
+    """Citation pre-registration populates citekeys so validate_section passes."""
+    import tempfile
+    from pathlib import Path
+
+    papers = [
+        CandidatePaper(
+            paper_id="p1",
+            title="AI Tutors in Education",
+            authors=["Smith J", "Doe A"],
+            year=2023,
+            source_database="pubmed",
+            source_category="database",
+        ),
+        CandidatePaper(
+            paper_id="p2",
+            title="Another Study",
+            authors=["Jones M"],
+            year=2024,
+            source_database="arxiv",
+            source_category="database",
+        ),
+    ]
+    with tempfile.TemporaryDirectory() as tmp:
+        db_path = Path(tmp) / "test.db"
+        async with get_db(str(db_path)) as db:
+            repo = CitationRepository(db)
+            await register_citations_from_papers(repo, papers)
+            citekeys = await repo.get_citekeys()
+            assert len(citekeys) >= 2
+            assert any("Smith" in k or "2023" in k or "Jones" in k or "2024" in k for k in citekeys)
+            ledger = CitationLedger(repo)
+            text_with_citekey = f"See [{citekeys[0]}] for details."
+            result = await ledger.validate_section("test", text_with_citekey)
+            assert citekeys[0] not in result.unresolved_citations

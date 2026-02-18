@@ -42,7 +42,7 @@ class ProtocolGenerator:
             ("13. Conflicts of interest", config.conflicts_of_interest),
             ("14. Review question", protocol.research_question),
             ("15. Searches", ", ".join(protocol.planned_databases)),
-            ("16. URL to search strategy", "search_strategies_appendix.md"),
+            ("16. URL to search strategy", "doc_search_strategies_appendix.md"),
             ("17. Condition/domain being studied", config.domain),
             ("18. Participants/population", config.pico.population),
             ("19. Intervention(s), exposure(s)", config.pico.intervention),
@@ -61,6 +61,6 @@ class ProtocolGenerator:
         _ = workflow_id  # Reserved for backward-compatible method signature.
         out_dir = self.output_dir
         out_dir.mkdir(parents=True, exist_ok=True)
-        output_path = out_dir / "protocol.md"
+        output_path = out_dir / "doc_protocol.md"
         output_path.write_text(markdown_text, encoding="utf-8")
         return output_path

@@ -31,5 +31,5 @@ def test_create_output_paths_matches_date_workflow_run(tmp_path) -> None:
     assert output.run_dir.parts[-3] == "2026-02-15"
     assert output.run_dir.parts[-2] == "conversational-ai-tutors"
     assert output.run_dir.parts[-1] == "run_03-53-10PM"
-    assert output.search_appendix.name == "search_strategies_appendix.md"
-    assert output.protocol_markdown.name == "protocol.md"
+    assert output.search_appendix.name == "doc_search_strategies_appendix.md"
+    assert output.protocol_markdown.name == "doc_protocol.md"

@@ -17,6 +17,7 @@ PHASE_ORDER = [
     "phase_3_screening",
     "phase_4_extraction_quality",
     "phase_5_synthesis",
+    "phase_6_writing",
     "finalize",
 ]
 
@@ -69,12 +70,16 @@ async def load_resume_state(
 
     artifacts = {
         "run_summary": str(Path(log_dir) / "run_summary.json"),
-        "search_appendix": str(Path(output_dir) / "search_strategies_appendix.md"),
-        "protocol": str(Path(output_dir) / "protocol.md"),
-        "coverage_report": str(Path(log_dir) / "fulltext_retrieval_coverage.md"),
-        "disagreements_report": str(Path(log_dir) / "disagreements_report.md"),
-        "rob_traffic_light": str(Path(log_dir) / "rob_traffic_light.png"),
-        "narrative_synthesis": str(Path(log_dir) / "narrative_synthesis.json"),
+        "search_appendix": str(Path(output_dir) / "doc_search_strategies_appendix.md"),
+        "protocol": str(Path(output_dir) / "doc_protocol.md"),
+        "coverage_report": str(Path(output_dir) / "doc_fulltext_retrieval_coverage.md"),
+        "disagreements_report": str(Path(output_dir) / "doc_disagreements_report.md"),
+        "rob_traffic_light": str(Path(output_dir) / "fig_rob_traffic_light.png"),
+        "narrative_synthesis": str(Path(output_dir) / "data_narrative_synthesis.json"),
+        "manuscript_md": str(Path(output_dir) / "doc_manuscript.md"),
+        "prisma_diagram": str(Path(output_dir) / "fig_prisma_flow.png"),
+        "timeline": str(Path(output_dir) / "fig_publication_timeline.png"),
+        "geographic": str(Path(output_dir) / "fig_geographic_distribution.png"),
     }
 
     state = ReviewState(

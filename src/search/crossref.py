@@ -28,12 +28,18 @@ class CrossrefConnector:
         if titles:
             title = str(titles[0])
         authors = []
+        country: str | None = None
         for author in item.get("author", []):
             given = str(author.get("given") or "").strip()
             family = str(author.get("family") or "").strip()
             full = " ".join(part for part in [given, family] if part)
             if full:
                 authors.append(full)
+            if country is None:
+                for aff in author.get("affiliation", []) or []:
+                    if isinstance(aff, dict) and aff.get("country"):
+                        country = str(aff["country"])
+                        break
         year = None
         issued = item.get("issued", {}).get("date-parts", [])
         if issued and issued[0]:
@@ -49,6 +55,7 @@ class CrossrefConnector:
             abstract=item.get("abstract"),
             url=item.get("URL"),
             source_category=SourceCategory.DATABASE,
+            country=country,
         )
 
     async def search(

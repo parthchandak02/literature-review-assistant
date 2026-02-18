@@ -40,6 +40,7 @@ def _write_settings_yaml(path: Path) -> None:
             "quality_assessment": {"model": "google-gla:gemini-2.5-pro", "temperature": 0.1},
             "search": {"model": "google-gla:gemini-2.5-flash", "temperature": 0.1},
             "extraction": {"model": "google-gla:gemini-2.5-pro", "temperature": 0.1},
+            "writing": {"model": "google-gla:gemini-2.5-pro", "temperature": 0.2},
         }
     }
     path.write_text(yaml.safe_dump(payload, sort_keys=False), encoding="utf-8")
@@ -81,4 +82,4 @@ def test_run_executes_single_path_orchestrator(tmp_path) -> None:
         phases = {str(row[0]) for row in cursor.fetchall()}
     finally:
         conn.close()
-    assert {"phase_2_search", "phase_3_screening", "phase_4_extraction_quality", "phase_5_synthesis"}.issubset(phases)
+    assert {"phase_2_search", "phase_3_screening", "phase_4_extraction_quality", "phase_5_synthesis", "phase_6_writing"}.issubset(phases)

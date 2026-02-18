@@ -24,6 +24,12 @@ async def run_migrations(db: aiosqlite.Connection) -> None:
     schema_sql = SCHEMA_PATH.read_text(encoding="utf-8")
     await db.executescript(schema_sql)
     await db.commit()
+    # Migration: add country column to papers if missing (existing databases)
+    try:
+        await db.execute("ALTER TABLE papers ADD COLUMN country TEXT")
+        await db.commit()
+    except Exception:
+        pass
 
 
 @asynccontextmanager

@@ -22,6 +22,7 @@ class CandidatePaper(BaseModel):
     keywords: Optional[List[str]] = None
     source_category: SourceCategory = SourceCategory.DATABASE
     openalex_id: Optional[str] = None
+    country: Optional[str] = None
 
 
 class SearchResult(BaseModel):

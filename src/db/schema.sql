@@ -10,6 +10,7 @@ CREATE TABLE IF NOT EXISTS papers (
     keywords TEXT,
     source_category TEXT NOT NULL DEFAULT 'database',
     openalex_id TEXT,
+    country TEXT,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 

@@ -39,11 +39,22 @@ class OpenAlexConnector:
     def _to_candidate(work: dict[str, Any]) -> CandidatePaper:
         authorships = work.get("authorships") or []
         authors: List[str] = []
+        country: str | None = None
         for item in authorships:
             author = item.get("author") or {}
             name = author.get("display_name")
             if name:
                 authors.append(str(name))
+            if country is None:
+                countries = item.get("countries") or []
+                if countries:
+                    country = str(countries[0])
+                else:
+                    insts = item.get("institutions") or []
+                    for inst in insts:
+                        if isinstance(inst, dict) and inst.get("country_code"):
+                            country = str(inst["country_code"])
+                            break
         year = work.get("publication_year")
         abstract = work.get("abstract")
         if abstract is None:
@@ -58,6 +69,7 @@ class OpenAlexConnector:
             url=work.get("primary_location", {}).get("landing_page_url"),
             source_category=SourceCategory.DATABASE,
             openalex_id=work.get("id"),
+            country=country,
         )
 
     async def search(
