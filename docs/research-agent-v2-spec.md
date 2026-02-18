@@ -106,6 +106,41 @@ A prior prototype exists at `github.com/parthchandak02/literature-review-assista
 
 ***
 
+# PART 0B: IMPLEMENTATION STATUS
+
+*Living section: update as phases complete.*
+
+| Area | Status | Notes |
+|:---|:---|:---|
+| Phase 1: Foundation | Implemented | Models, SQLite, gates, citation ledger, LLM provider |
+| Phase 2: Search | Implemented | OpenAlex, PubMed, arXiv, IEEE, Semantic Scholar, Crossref, Perplexity, dedup, protocol |
+| Phase 3: Screening | Implemented | Dual reviewer, adjudication, kappa, Ctrl+C proceed-with-partial |
+| Phase 4: Extraction & Quality | Implemented | Study classifier, extractor, RoB 2, ROBINS-I, CASP, GRADE, study router, RoB figure |
+| Phase 5: Synthesis | Implemented | Feasibility, effect sizes, meta-analysis, narrative, forest/funnel plots |
+| Phase 6: Writing | Implemented | Section writer, humanizer, style extractor wired into pipeline |
+| Phase 7: PRISMA & Viz | Implemented | PRISMA diagram (prisma-flow-diagram + fallback), timeline, geographic, uniform naming, ROBINS-I in RoB figure |
+| Phase 8: Export & Orchestration | Partial | Run/resume orchestration done; validate/export/status blocked; IEEE LaTeX export pending; src/export/ not yet created |
+| Resume | Implemented | Registry, topic-based auto-resume on run, workflow-id lookup, mid-phase resume, fallback scan of run_summary.json |
+
+***
+
+# PART 0C: NEXT STEPS
+
+*Living section: remaining work to reach first IEEE submission.*
+
+**Phase 8 remaining work:**
+
+1. Create `src/export/` with `ieee_latex.py`, `submission_packager.py`, `prisma_checklist.py`, `ieee_validator.py`
+2. Implement IEEE LaTeX exporter (Markdown -> LaTeX, IEEEtran.cls)
+3. Implement submission packager (manuscript.tex, references.bib, figures/, supplementary/)
+4. Implement PRISMA checklist validator (27 items)
+5. Implement IEEE validator (abstract word count, reference count, cite resolution)
+6. Wire `validate`, `export`, `status` CLI commands (currently stubbed in main.py)
+
+**Verification:** `uv run pytest tests/ -q`, `python -m src.main run` -> `submission/` with manuscript.tex
+
+***
+
 # PART 1: SYSTEMATIC REVIEW METHODOLOGY REFERENCE
 
 This section encodes the validated research methodology the tool must implement. Every requirement has been verified against the Cochrane Handbook, PRISMA 2020, and GRADE guidelines.[^25]
@@ -395,6 +430,7 @@ class CandidatePaper(BaseModel):
     keywords: Optional[List[str]] = None
     source_category: SourceCategory = SourceCategory.DATABASE
     openalex_id: Optional[str] = None
+    country: Optional[str] = None  # First/corresponding author country for geographic viz
 
 class SearchResult(BaseModel):
     workflow_id: str
@@ -644,6 +680,7 @@ CREATE TABLE IF NOT EXISTS papers (
     keywords TEXT,  -- JSON array
     source_category TEXT NOT NULL DEFAULT 'database',
     openalex_id TEXT,
+    country TEXT,  -- First/corresponding author country for geographic viz
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -849,7 +886,7 @@ Each run creates a new `runtime.db` in `logs/{date}/{topic-slug}/run_HH-MM-SS/`.
 
 # PART 4: PROJECT FILE STRUCTURE
 
-Build this exact directory tree. Every file listed below must be created.
+Build this exact directory tree. Every file listed below must be created. Project name in `pyproject.toml` is `research-article-writer`; the root directory may be named `systematic-review-tool` or `research-article-writer`.
 
 ```
 systematic-review-tool/
@@ -944,9 +981,9 @@ systematic-review-tool/
 |   |-- protocol/
 |   |   |-- __init__.py
 |   |   `-- generator.py              # PROSPERO-format protocol generator
-|   |-- prisma/
+|   |-- prisma/                       # (Phase 7 - implemented)
 |   |   |-- __init__.py
-|   |   `-- diagram.py                # PRISMA 2020 flow diagram (matplotlib)
+|   |   `-- diagram.py                # PRISMA 2020 flow diagram (prisma-flow-diagram + matplotlib fallback)
 |   |-- visualization/
 |   |   |-- __init__.py
 |   |   |-- forest_plot.py            # Forest plot (statsmodels + matplotlib)
@@ -954,7 +991,7 @@ systematic-review-tool/
 |   |   |-- rob_figure.py             # Risk of bias traffic-light summary
 |   |   |-- timeline.py               # Publication timeline
 |   |   `-- geographic.py             # Geographic distribution
-|   |-- export/
+|   |-- export/                       # (Phase 8 - not yet)
 |   |   |-- __init__.py
 |   |   |-- ieee_latex.py             # IEEE LaTeX exporter (IEEEtran.cls)
 |   |   |-- submission_packager.py    # Full submission directory assembler
@@ -990,6 +1027,7 @@ systematic-review-tool/
 |   |   |-- test_meta_analysis.py
 |   |   |-- test_prisma_diagram.py
 |   |   |-- test_protocol.py
+|   |   |-- test_perplexity_source_inference.py
 |   |   |-- test_ieee_export.py
 |   |   |-- test_ieee_validator.py
 |   |   |-- test_main_cli.py
@@ -1011,6 +1049,14 @@ systematic-review-tool/
 `-- data/
     `-- outputs/                      # Runtime output directory (gitignored)
 ```
+
+## Part 4A: Output Artifact Naming
+
+All runtime artifacts use type-based prefixes for clarity:
+
+- **fig_** (figures): `fig_prisma_flow.png`, `fig_publication_timeline.png`, `fig_geographic_distribution.png`, `fig_rob_traffic_light.png`, `fig_forest_plot.png`, `fig_funnel_plot.png`
+- **doc_** (markdown): `doc_manuscript.md`, `doc_protocol.md`, `doc_search_strategies_appendix.md`, `doc_fulltext_retrieval_coverage.md`, `doc_disagreements_report.md`
+- **data_** (JSON): `data_narrative_synthesis.json`; `run_summary.json` in log dir
 
 ***
 
@@ -1224,6 +1270,7 @@ While building, use these parts of the document as reference:
 8. **Perplexity auxiliary connector** (`src/search/perplexity_search.py`):
    - Uses Perplexity Search API as `SourceCategory.OTHER_SOURCE`
    - Auxiliary discovery only; not a primary evidence database
+   - Perplexity items from `OTHER_SOURCE` may have URLs that map to academic databases (PubMed, arXiv, IEEE, etc.). Use `_infer_source_from_url()` to attribute correctly for PRISMA diagram when a Perplexity-discovered paper is verified against an academic record.
 
 9. **Search coordinator** (`src/search/strategy.py`):
    - Takes `ReviewConfig` -> generates Boolean queries per database; if `search_overrides` is set for a database, uses that query instead of auto-generated
@@ -1586,6 +1633,7 @@ While building, use these parts of the document as reference:
 ### What to Build
 
 1. **PRISMA 2020 diagram** (`src/prisma/diagram.py`):
+   - Use `prisma-flow-diagram` library (`plot_prisma2020_new`) when available; fallback to custom matplotlib renderer on ImportError. Map `PRISMACounts` to library format.
    - Two-column structure (databases vs other sources)[^25]
    - Per-database counts in identification box
    - Exclusion reasons categorized from `ExclusionReason` enum
@@ -1594,7 +1642,12 @@ While building, use these parts of the document as reference:
 
 2. **Publication timeline** (`src/visualization/timeline.py`)
 
-3. **Geographic distribution** (`src/visualization/geographic.py`)
+3. **Geographic distribution** (`src/visualization/geographic.py`):
+   - Requires `CandidatePaper.country`; enrich from OpenAlex `authorships[].countries` or `institutions[].country_code`, Crossref `author.affiliation[].country`.
+
+4. **ROB traffic light** (`src/visualization/rob_figure.py`): Accept both `list[RoB2Assessment]` and `list[RobinsIAssessment]`; render combined figure with RoB 2 (5 domains) and ROBINS-I (7 domains) blocks.
+
+5. **Uniform naming**: All artifacts use `fig_`, `doc_`, `data_` prefixes per Part 4A.
 
 ### Acceptance Criteria
 - [ ] PRISMA diagram uses two-column structure
@@ -1665,7 +1718,7 @@ While building, use these parts of the document as reference:
    - Resume is implemented; validate/export/status are blocked.
 
    **Resume logic (paper-level):**
-   1. `resume --topic` / `resume --workflow-id` queries **workflows_registry** (central db at `{log_root}/workflows_registry.db`) for matching entry; entry provides `db_path` to the run's `runtime.db`
+   1. `resume --topic` / `resume --workflow-id` queries **workflows_registry** (central db at `{log_root}/workflows_registry.db`) for matching entry; entry provides `db_path` to the run's `runtime.db`. **Fallback:** If the registry is missing (e.g. runs from before registry existed), `resume --workflow-id` scans `run_summary.json` files under the log root to locate the runtime.db.
    2. For matching workflow, query `checkpoints` table for last completed phase
    3. Determine next phase to run; within that phase, query per-paper tables (e.g. `screening_decisions`) for already-processed paper_ids
    4. Skip processed papers, continue from where it left off -- even mid-phase
@@ -1678,9 +1731,9 @@ While building, use these parts of the document as reference:
 - [ ] IEEE LaTeX compiles without errors
 - [ ] All 6 quality gates pass in strict mode
 - [ ] PRISMA checklist shows >= 24/27 items
-- [ ] Resume from any phase preserves state (paper-level granularity)
-- [ ] Resume mid-phase: kill during screening, restart, picks up at next unprocessed paper
-- [ ] Topic-based auto-resume finds and offers to continue existing workflows
+- [x] Resume from any phase preserves state (paper-level granularity)
+- [x] Resume mid-phase: kill during screening, restart, picks up at next unprocessed paper
+- [x] Topic-based auto-resume finds and offers to continue existing workflows
 - [ ] `uv run pytest tests/ -q` -- ALL tests pass
 - [ ] `uv run pytest tests/e2e/test_full_review.py -q` -- end-to-end passes
 
@@ -1940,7 +1993,7 @@ class SettingsConfig(BaseModel):
 | Phase | Unit Tests | Integration Tests | E2E |
 |:---|:---|:---|:---|
 | 1: Foundation | `test_models.py`, `test_database.py`, `test_gates.py`, `test_citation_ledger.py` | -- | -- |
-| 2: Search | `test_protocol.py` | -- | -- |
+| 2: Search | `test_protocol.py`, `test_perplexity_source_inference.py` | -- | -- |
 | 3: Screening | `test_screening.py`, `test_reliability.py` | `test_dual_screening.py` | -- |
 | 4: Extraction/Quality | `test_rob2.py`, `test_robins_i.py` | `test_quality_pipeline.py` | -- |
 | 5: Synthesis | `test_effect_size.py`, `test_meta_analysis.py` | `test_synthesis_pipeline.py` | -- |
