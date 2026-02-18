@@ -119,7 +119,7 @@ A prior prototype exists at `github.com/parthchandak02/literature-review-assista
 | Phase 5: Synthesis | Implemented | Feasibility, effect sizes, meta-analysis, narrative, forest/funnel plots |
 | Phase 6: Writing | Implemented | Section writer, humanizer, style extractor wired into pipeline |
 | Phase 7: PRISMA & Viz | Implemented | PRISMA diagram (prisma-flow-diagram + fallback), timeline, geographic, uniform naming, ROBINS-I in RoB figure |
-| Phase 8: Export & Orchestration | Partial | Run/resume orchestration done; validate/export/status blocked; IEEE LaTeX export pending; src/export/ not yet created |
+| Phase 8: Export & Orchestration | Implemented | Run/resume done; export/validate/status wired; src/export/ (ieee_latex, submission_packager, ieee_validator, prisma_checklist, bibtex_builder); pdflatex |
 | Resume | Implemented | Registry, topic-based auto-resume on run, workflow-id lookup, mid-phase resume, fallback scan of run_summary.json |
 
 ***
@@ -128,16 +128,7 @@ A prior prototype exists at `github.com/parthchandak02/literature-review-assista
 
 *Living section: remaining work to reach first IEEE submission.*
 
-**Phase 8 remaining work:**
-
-1. Create `src/export/` with `ieee_latex.py`, `submission_packager.py`, `prisma_checklist.py`, `ieee_validator.py`
-2. Implement IEEE LaTeX exporter (Markdown -> LaTeX, IEEEtran.cls)
-3. Implement submission packager (manuscript.tex, references.bib, figures/, supplementary/)
-4. Implement PRISMA checklist validator (27 items)
-5. Implement IEEE validator (abstract word count, reference count, cite resolution)
-6. Wire `validate`, `export`, `status` CLI commands (currently stubbed in main.py)
-
-**Verification:** `uv run pytest tests/ -q`, `python -m src.main run` -> `submission/` with manuscript.tex
+**Phase 8 complete.** All items implemented. Verification: `uv run pytest tests/ -q`, `python -m src.main export --workflow-id <id>` produces submission/ with manuscript.tex, manuscript.pdf.
 
 ***
 

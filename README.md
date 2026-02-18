@@ -1,6 +1,6 @@
 # Systematic Review Automation Tool (v2 Build)
 
-Typed, async, SQLite-backed workflow for systematic review automation. Produces PRISMA 2020-compliant pipelines from research question through synthesis. Phases 1-7 implemented; Phase 8 (IEEE export, validate/export/status) pending.
+Typed, async, SQLite-backed workflow for systematic review automation. Produces PRISMA 2020-compliant pipelines from research question through synthesis. Phases 1-8 implemented.
 
 ---
 
@@ -30,6 +30,16 @@ uv run python -m src.main resume --workflow-id wf-xxx
 
 Press Ctrl+C once during screening to proceed with already-screened papers; press twice to abort. When you run again with the same topic, you will be prompted to resume the existing workflow.
 
+### Export (after run completes)
+
+```bash
+uv run python -m src.main export --workflow-id wf-xxx
+uv run python -m src.main validate --workflow-id wf-xxx
+uv run python -m src.main status --workflow-id wf-xxx
+```
+
+Produces `submission/` with manuscript.tex, manuscript.pdf, references.bib, figures/, supplementary/.
+
 ---
 
 ## For Developers
@@ -53,6 +63,7 @@ Press Ctrl+C once during screening to proceed with already-screened papers; pres
 | `src/quality/` | RoB 2, ROBINS-I, CASP, GRADE, study router |
 | `src/synthesis/` | Feasibility, effect sizes, meta-analysis, narrative |
 | `src/writing/` | Section writer, humanizer, style extractor |
+| `src/export/` | IEEE LaTeX, submission packager, validators |
 | `src/visualization/` | Forest plot, funnel plot, RoB traffic-light, timeline, geographic |
 
 ### Pipeline Flow
