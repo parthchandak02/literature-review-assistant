@@ -1,3 +1,5 @@
+import pytest
+
 from src.models import ExtractionRecord, RiskOfBiasJudgment, StudyDesign
 from src.quality.rob2 import Rob2Assessor
 
@@ -12,20 +14,23 @@ def _record(summary: str) -> ExtractionRecord:
     )
 
 
-def test_rob2_all_low_when_positive_signals_present() -> None:
+@pytest.mark.asyncio
+async def test_rob2_all_low_when_positive_signals_present() -> None:
     assessor = Rob2Assessor()
-    assessment = assessor.assess(_record("random protocol validated outcome reporting complete"))
+    assessment = await assessor.assess(_record("random protocol validated outcome reporting complete"))
     assert assessment.overall_judgment == RiskOfBiasJudgment.LOW
 
 
-def test_rob2_high_when_missing_data_signal_present() -> None:
+@pytest.mark.asyncio
+async def test_rob2_high_when_missing_data_signal_present() -> None:
     assessor = Rob2Assessor()
-    assessment = assessor.assess(_record("random protocol validated missing data concerns"))
+    assessment = await assessor.assess(_record("random protocol validated missing data concerns"))
     assert assessment.domain_3_missing_data == RiskOfBiasJudgment.HIGH
     assert assessment.overall_judgment == RiskOfBiasJudgment.HIGH
 
 
-def test_rob2_some_concerns_when_no_high_and_not_all_low() -> None:
+@pytest.mark.asyncio
+async def test_rob2_some_concerns_when_no_high_and_not_all_low() -> None:
     assessor = Rob2Assessor()
-    assessment = assessor.assess(_record("randomized trial"))
+    assessment = await assessor.assess(_record("randomized trial"))
     assert assessment.overall_judgment == RiskOfBiasJudgment.SOME_CONCERNS

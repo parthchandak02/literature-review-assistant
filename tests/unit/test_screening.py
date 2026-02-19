@@ -69,8 +69,10 @@ def _settings() -> SettingsConfig:
 @pytest.mark.asyncio
 async def test_dual_screener_adjudicates_disagreement(tmp_path) -> None:
     paper = CandidatePaper(title="A", authors=["X"], source_database="openalex", abstract="text")
+    # Reviewer A confidence must be below both thresholds (include=0.85, exclude=0.80)
+    # so the fast-path does not trigger and adjudication is exercised.
     responses = [
-        {"decision": "include", "confidence": 0.9, "reasoning": "A includes"},
+        {"decision": "include", "confidence": 0.7, "reasoning": "A includes"},
         {"decision": "exclude", "confidence": 0.8, "reasoning": "B excludes", "exclusion_reason": "wrong_population"},
         {"decision": "include", "confidence": 0.7, "reasoning": "adjudicator include"},
     ]
