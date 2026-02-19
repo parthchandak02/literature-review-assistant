@@ -1,5 +1,5 @@
 import { useEffect, useState, useMemo, Suspense, lazy } from "react"
-import { AlertTriangle } from "lucide-react"
+import { AlertTriangle, X } from "lucide-react"
 import { Sidebar, type NavTab } from "@/components/Sidebar"
 import { useSSEStream } from "@/hooks/useSSEStream"
 import { useCostStats } from "@/hooks/useCostStats"
@@ -154,6 +154,16 @@ export default function App() {
     setActiveTab("database")
   }
 
+  // Dismiss a historically-attached run without resetting live SSE state.
+  function handleDetach() {
+    setDbRunId(null)
+    setDbIsDone(false)
+    setDbTopic(null)
+    setDbWorkflowId(null)
+    setHistoryOutputs({})
+    setActiveTab("history")
+  }
+
   function renderView() {
     switch (activeTab) {
       case "setup":
@@ -247,11 +257,21 @@ export default function App() {
             <span className="text-zinc-300 font-medium truncate">{TAB_LABELS[activeTab]}</span>
           </div>
 
-          {/* Workflow ID chip -- shows which run is active */}
-          {activeWorkflowId && (
+          {/* Workflow ID chip -- plain for live runs, closeable for historical */}
+          {activeWorkflowId && !dbIsDone && (
             <span className="font-mono text-[11px] text-zinc-600 hidden sm:block shrink-0">
               {activeWorkflowId.slice(0, 12)}
             </span>
+          )}
+          {dbIsDone && dbRunId !== null && (
+            <button
+              onClick={handleDetach}
+              className="font-mono text-[11px] text-zinc-600 hidden sm:flex items-center gap-1 hover:text-zinc-400 transition-colors shrink-0"
+              title="Close this run and return to History"
+            >
+              {activeWorkflowId?.slice(0, 12)}
+              <X className="h-3 w-3" />
+            </button>
           )}
 
           {/* Live cost pill */}
