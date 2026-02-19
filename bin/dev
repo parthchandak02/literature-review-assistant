@@ -1,0 +1,21 @@
+#!/usr/bin/env bash
+# Start the FastAPI backend and Vite frontend together via Overmind.
+# Both processes auto-restart on crash. Hot-reload is built into each server.
+#
+# One-time setup:
+#   brew install overmind    (tmux is pulled in automatically)
+#
+# Usage:
+#   ./bin/dev                 -- foreground, merged log output
+#   ./bin/dev -D              -- daemon mode (survives terminal close)
+#   overmind connect api      -- attach to backend terminal
+#   overmind connect ui       -- attach to frontend terminal
+#   overmind restart api      -- restart backend only
+#   overmind stop             -- stop all processes
+#   overmind quit             -- quit daemon (when started with -D)
+set -e
+if ! command -v overmind > /dev/null 2>&1; then
+  echo "overmind not found. Install with: brew install overmind"
+  exit 1
+fi
+exec overmind start "$@"

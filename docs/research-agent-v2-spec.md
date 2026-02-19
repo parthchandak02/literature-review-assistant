@@ -2090,13 +2090,23 @@ The web UI is a local single-user dashboard. No authentication. The user supplie
 
 ## FastAPI Server (`src/web/app.py`)
 
-Start the server:
+Start both servers together with Overmind (recommended):
+
+```bash
+./bin/dev          # foreground
+./bin/dev -D       # daemon mode -- survives terminal close
+```
+
+Or start only the backend:
 
 ```bash
 uv run uvicorn src.web.app:app --reload --port 8000
 ```
 
-The server also serves the built React frontend from `frontend/dist/` when present (root `/` route).
+See `Procfile.dev` and `docs/frontend-spec.md` Section 9 for full dev workflow details.
+
+The server also serves the built React frontend from `frontend/dist/` when present (root `/` route),
+and serves run output files from `data/outputs/` at the `/outputs` static mount.
 
 ### API Endpoints
 
@@ -2114,6 +2124,8 @@ The server also serves the built React frontend from `frontend/dist/` when prese
 | `GET` | `/api/db/{run_id}/papers` | query: `offset, limit, search` | `{total, offset, limit, papers[]}` | Paginated + searchable papers from run DB |
 | `GET` | `/api/db/{run_id}/screening` | query: `stage, decision, offset, limit` | `{total, offset, limit, decisions[]}` | Screening decisions with filters |
 | `GET` | `/api/db/{run_id}/costs` | -- | `{total_cost, records[]}` | Cost records grouped by model and phase |
+| `GET` | `/api/run/{run_id}/artifacts` | -- | `{run_id, workflow_id, output_dir, artifacts{}}` | Full `run_summary.json` for any run (live or historical) |
+| `POST` | `/api/run/{run_id}/export` | query: `log_root` | `{submission_dir, files[]}` | Package IEEE LaTeX submission; calls `package_submission()` |
 | `GET` | `/api/health` | -- | `{"status": "ok"}` | Health check for `useBackendHealth` polling |
 
 ### Request/Response Types

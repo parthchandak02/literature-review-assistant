@@ -51,3 +51,7 @@ htmlcov/
 !templates/**/*.svg
 diagrams/
 *.backup
+
+# Overmind runtime socket (created in project root when running)
+.overmind.sock
+.overmind.sock.lock

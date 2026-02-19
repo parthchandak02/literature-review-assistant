@@ -232,17 +232,52 @@ The backend sends a `heartbeat` event every 15 seconds of inactivity to keep the
 
 ### Start both processes
 
-Terminal 1 -- backend (auto-reloads on Python changes):
+The recommended approach is [Overmind](https://github.com/DarthSim/overmind) (MIT, macOS/Linux).
+It reads `Procfile.dev` at the project root and manages both processes under a shared tmux session.
+
+One-time setup:
 ```bash
-uv run uvicorn src.web.app:app --reload --port 8000
+brew install overmind    # tmux is pulled in automatically
 ```
 
-Terminal 2 -- frontend (HMR on TypeScript/CSS changes):
+Start everything:
 ```bash
-cd frontend && pnpm run dev
+./bin/dev
+# or equivalently: overmind start
+```
+
+`Procfile.dev` defines the two processes:
+```
+api: uv run uvicorn src.web.app:app --port 8000 --reload
+ui:  cd frontend && pnpm run dev -- --port 5173
+```
+
+`.overmind.env` (committed) sets defaults:
+```
+OVERMIND_PROCFILE=Procfile.dev
+OVERMIND_AUTO_RESTART=api,ui
+OVERMIND_NO_PORT=1
+```
+
+Key Overmind commands:
+```bash
+overmind connect api      # drop into the backend tmux pane (Ctrl-b d to detach)
+overmind connect ui       # drop into the frontend tmux pane
+overmind restart api      # hot-restart backend without touching frontend
+overmind start -D         # run as a daemon (survives terminal close)
+overmind echo             # tail daemon logs
+overmind quit             # stop the daemon
 ```
 
 Open `http://localhost:5173`. The Vite dev server proxies `/api/*` to `:8000`.
+
+Alternatively, run each in a separate terminal (no Overmind needed):
+```bash
+# Terminal 1
+uv run uvicorn src.web.app:app --reload --port 8000
+# Terminal 2
+cd frontend && pnpm run dev
+```
 
 ### Build for production
 

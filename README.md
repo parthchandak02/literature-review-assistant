@@ -230,15 +230,41 @@ Every factual claim in the manuscript is traced back to a citation via the citat
 
 **Dev servers (hot-reload):**
 
-Run both processes in separate terminals:
+Install [Overmind](https://github.com/DarthSim/overmind) once (tmux is a dependency, already bundled):
 
 ```bash
-# Terminal 1: backend with auto-reload
+brew install overmind
+```
+
+Then start both servers with a single command from the project root:
+
+```bash
+./bin/dev
+```
+
+This launches the FastAPI backend (port 8000, `--reload`) and the Vite frontend (port 5173, HMR)
+together under Overmind. Both auto-restart if they crash. Open `http://localhost:5173`.
+
+Useful Overmind commands:
+
+```bash
+overmind connect api      # attach to backend terminal (Ctrl-b d to detach)
+overmind connect ui       # attach to frontend terminal
+overmind restart api      # restart backend only (e.g. after adding a dependency)
+overmind stop             # stop all processes
+overmind start -D         # run as background daemon (survives terminal close)
+overmind echo             # tail logs from daemon
+overmind quit             # stop daemon
+```
+
+Alternatively, run each process in its own terminal (no Overmind needed):
+
+```bash
+# Terminal 1 -- backend with auto-reload
 uv run uvicorn src.web.app:app --reload --port 8000
 
-# Terminal 2: frontend dev server (proxies /api to :8000)
-cd frontend
-pnpm dev
+# Terminal 2 -- frontend dev server (proxies /api to :8000)
+cd frontend && pnpm dev
 ```
 
 Then open `http://localhost:5173`. Changes to Python or TypeScript files reload instantly.
