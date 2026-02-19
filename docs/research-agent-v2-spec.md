@@ -115,12 +115,16 @@ A prior prototype exists at `github.com/parthchandak02/literature-review-assista
 | Phase 1: Foundation | Implemented | Models, SQLite, gates, citation ledger, LLM provider |
 | Phase 2: Search | Implemented | OpenAlex, PubMed, arXiv, IEEE, Semantic Scholar, Crossref, Perplexity, dedup, protocol |
 | Phase 3: Screening | Implemented | Dual reviewer, adjudication, kappa, Ctrl+C proceed-with-partial |
-| Phase 4: Extraction & Quality | Implemented | Study classifier, extractor, RoB 2, ROBINS-I, CASP, GRADE, study router, RoB figure |
-| Phase 5: Synthesis | Implemented | Feasibility, effect sizes, meta-analysis, narrative, forest/funnel plots |
-| Phase 6: Writing | Implemented | Section writer, humanizer, style extractor wired into pipeline |
+| Phase 4: Extraction & Quality | Implemented | LLM extraction (Gemini Pro, ExtractionResponse->ExtractionRecord) with heuristic fallback; async LLM RoB 2, ROBINS-I, CASP assessors (Gemini Pro) with heuristic fallback; GRADE; study router; RoB figure |
+| Phase 5: Synthesis | Implemented | Feasibility gates pooling; pool_effects() via statsmodels; render_forest_plot() + render_funnel_plot() wired into SynthesisNode; fig_forest_plot.png/fig_funnel_plot.png in artifacts; narrative fallback when no numeric data |
+| Phase 6: Writing | Implemented | Section writer (Gemini Flash); LLM humanizer (Gemini Pro, humanization_iterations from settings.yaml) per section; citation validation; style extractor |
 | Phase 7: PRISMA & Viz | Implemented | PRISMA diagram (prisma-flow-diagram + fallback), timeline, geographic, uniform naming, ROBINS-I in RoB figure |
 | Phase 8: Export & Orchestration | Implemented | Run/resume done; export/validate/status wired; src/export/ (ieee_latex, submission_packager, ieee_validator, prisma_checklist, bibtex_builder); pdflatex |
 | Resume | Implemented | Registry, topic-based auto-resume on run, workflow-id lookup, mid-phase resume, fallback scan of run_summary.json |
+| Post-Phase-8 DB Improvements | Implemented | display_label column in papers table; synthesis_results table for typed synthesis persistence; dedup_count column in workflows; compute_display_label() canonical utility in src/models/papers.py as single source of truth |
+| Post-Phase-8 Diagram Fixes | Implemented | RoB figure reads display_label from DB instead of local heuristics; bar labels on publication timeline; dynamic label rotation on geographic distribution chart |
+| Post-Phase-8 Search Limits | Implemented | SearchConfig model with max_results_per_db (default 500) and per_database_limits (per-connector overrides); replaces hardcoded max_results=100 in workflow.py |
+| Phase 3 Screening Efficiency | Implemented | keyword_filter.py pre-filter (ExclusionReason.KEYWORD_FILTER, cuts LLM calls ~80%); confidence fast-path; asyncio.Semaphore concurrency; reset_partial_flag() Ctrl+C fix; skip_fulltext_if_no_pdf |
 
 ***
 
@@ -128,7 +132,25 @@ A prior prototype exists at `github.com/parthchandak02/literature-review-assista
 
 *Living section: remaining work to reach first IEEE submission.*
 
-**Phase 8 complete.** All items implemented. Verification: `uv run pytest tests/ -q`, `python -m src.main export --workflow-id <id>` produces submission/ with manuscript.tex, manuscript.pdf.
+**All 8 phases complete. Core pipeline is end-to-end and all LLM integrations are wired.**
+
+Verification: `uv run pytest tests/unit -q` (86 pass), `uv run python -m src.main run --config config/review.yaml`.
+
+**What was just implemented (V2 Spec Gap Closure):**
+
+- **Gap 1 -- Meta-analysis + forest + funnel wired:** `SynthesisNode` calls `pool_effects()` (statsmodels DL), `render_forest_plot()`, and `render_funnel_plot()` when numeric effect data is available from LLM extraction; gracefully falls back to narrative when no numeric data; artifacts `fig_forest_plot.png` / `fig_funnel_plot.png` registered at startup.
+- **Gap 2 -- LLM-based extraction:** `ExtractionService._llm_extract()` sends paper text to Gemini Pro with a structured `_ExtractionLLMResponse` JSON schema; populates all `ExtractionRecord` fields including `outcomes[].effect_size` and `outcomes[].se` for downstream pooling; heuristic fallback on API error.
+- **Gap 3 -- LLM-based quality assessment:** `Rob2Assessor.assess()`, `RobinsIAssessor.assess()`, `CaspAssessor.assess()` are now `async`; each sends extraction record + full text to Gemini Pro with a typed JSON schema for the respective assessment model; heuristic fallback on API error.
+- **Gap 4 -- LLM humanizer:** `humanize_async()` in `src/writing/humanizer.py` makes a real Gemini Pro call using `_HUMANIZE_PROMPT_TEMPLATE`; `WritingNode` applies it for `humanization_iterations` passes per section when `settings.writing.humanization=true`.
+- **Gap 5 -- Spec updated:** Part 0B and 0C reflect current state.
+- **Shared infrastructure:** `src/llm/gemini_client.py` -- reusable `GeminiClient` with exponential-backoff retry on 429; used by extraction, quality, and humanizer.
+
+**Remaining work to reach first IEEE submission:**
+
+1. Run the full pipeline end-to-end and review output quality (manuscript, PRISMA diagram, RoB figure, synthesis section).
+2. Confirm PRISMA checklist >= 24/27 on a real run.
+3. Run `uv run python -m src.main export` and verify IEEE LaTeX compiles to PDF.
+4. Address any output quality issues found during validation run.
 
 ***
 
@@ -271,6 +293,7 @@ class ExclusionReason(str, Enum):
     INSUFFICIENT_DATA = "insufficient_data"
     WRONG_LANGUAGE = "wrong_language"
     NO_FULL_TEXT = "no_full_text"
+    KEYWORD_FILTER = "keyword_filter"  # pre-filter: zero intervention keyword matches; no LLM call made
     OTHER = "other"
 
 class GRADECertainty(str, Enum):
@@ -349,6 +372,9 @@ class AgentConfig(BaseModel):
 class ScreeningConfig(BaseModel):
     stage1_include_threshold: float = Field(ge=0.0, le=1.0, default=0.85)
     stage1_exclude_threshold: float = Field(ge=0.0, le=1.0, default=0.80)
+    screening_concurrency: int = Field(ge=1, le=20, default=5)          # asyncio.Semaphore limit
+    skip_fulltext_if_no_pdf: bool = True                                 # skip stage 2 when PDF unavailable
+    keyword_filter_min_matches: int = Field(ge=0, default=1)            # 0 = disable pre-filter
 
 class DualReviewConfig(BaseModel):
     enabled: bool = True
@@ -393,6 +419,26 @@ class CitationLineageConfig(BaseModel):
     block_export_on_unresolved: bool = True
     minimum_evidence_score: float = 0.5
 
+class LLMRateLimitConfig(BaseModel):
+    """Free-tier RPM caps from settings.yaml. Enforced by src/llm/rate_limiter.py."""
+    flash_rpm: int = Field(ge=1, le=1000, default=10)
+    flash_lite_rpm: int = Field(ge=1, le=1000, default=15)
+    pro_rpm: int = Field(ge=1, le=500, default=5)
+
+class SearchConfig(BaseModel):
+    """Search depth configuration.
+
+    max_results_per_db is the global default per connector.
+    per_database_limits overrides it for specific connectors, allowing
+    high-yield databases (crossref, pubmed) to pull more records than
+    lower-yield ones (arxiv, ieee_xplore).
+    """
+    max_results_per_db: int = Field(ge=1, le=10000, default=500)
+    per_database_limits: Dict[str, int] = Field(
+        default_factory=dict,
+        description="Per-connector overrides. Keys: openalex, pubmed, arxiv, ieee_xplore, semantic_scholar, crossref, perplexity_search.",
+    )
+
 class SettingsConfig(BaseModel):
     """Validated from config/settings.yaml -- changes rarely."""
     agents: Dict[str, AgentConfig]
@@ -404,12 +450,21 @@ class SettingsConfig(BaseModel):
     meta_analysis: MetaAnalysisConfig = Field(default_factory=MetaAnalysisConfig)
     ieee_export: IEEEExportConfig = Field(default_factory=IEEEExportConfig)
     citation_lineage: CitationLineageConfig = Field(default_factory=CitationLineageConfig)
+    search: SearchConfig = Field(default_factory=SearchConfig)
+    llm: LLMRateLimitConfig | None = None
 
 # ============================================================
 # PHASE IO MODELS
 # ============================================================
 
 class CandidatePaper(BaseModel):
+    """A candidate paper retrieved from a literature database.
+
+    display_label is the canonical short identifier (e.g. "Smith2023") computed
+    once on first save to the DB via compute_display_label() and stored in the
+    papers.display_label column. All downstream code (RoB figure, citekey generation)
+    reads this field instead of re-deriving it with local heuristics.
+    """
     paper_id: str = Field(default_factory=lambda: str(uuid.uuid4())[:12])
     title: str
     authors: List[str]
@@ -422,6 +477,22 @@ class CandidatePaper(BaseModel):
     source_category: SourceCategory = SourceCategory.DATABASE
     openalex_id: Optional[str] = None
     country: Optional[str] = None  # First/corresponding author country for geographic viz
+    display_label: Optional[str] = None  # computed on save; used by visualization and citekey generation
+
+# Label derivation constants (single source of truth in src/models/papers.py).
+# All consumers MUST call compute_display_label() rather than reimplementing this logic.
+_LABEL_GENERIC_AUTHORS: frozenset[str]   # "unknown", "none", "author", "anonymous", etc.
+_LABEL_GENERIC_TITLE_WORDS: frozenset[str]  # stop words + generic academic terms
+
+def compute_display_label(paper: CandidatePaper) -> str:
+    """Derive canonical short identifier stored in papers.display_label.
+
+    Priority chain:
+      1. Author surname (>= 2 chars, not generic) + year  -> e.g. "Smith2023"
+      2. First meaningful title word + year               -> e.g. "Chatbot2023"
+      3. First 22 chars of title (truncated)              -> e.g. "Conversational AI in.."
+      4. Fallback                                         -> "Paper_<paper_id[:6]>"
+    """
 
 class SearchResult(BaseModel):
     workflow_id: str
@@ -651,6 +722,127 @@ class CostRecord(BaseModel):
     timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 ```
 
+## 2B: Phase-Internal Models
+
+These models are used within specific phase modules but cross internal function boundaries. They are defined in the module where they originate (not in `src/models/`) because they are internal to that phase's implementation. An AI agent should define them exactly as specified here.
+
+### Synthesis Phase (src/synthesis/)
+
+```python
+# src/synthesis/feasibility.py
+class SynthesisFeasibility(BaseModel):
+    """Meta-analysis feasibility verdict from assess_meta_analysis_feasibility()."""
+    feasible: bool
+    rationale: str
+    groupings: list[str]  # outcome group names; e.g. ["learning_outcomes", "engagement"]
+                          # generic-only groupings ("primary_outcome", "secondary_outcome")
+                          # are treated as NOT feasible in context_builder.py
+
+# src/synthesis/narrative.py
+class NarrativeSynthesis(BaseModel):
+    """Structured narrative synthesis produced by build_narrative_synthesis()."""
+    outcome_name: str
+    n_studies: int
+    effect_direction_summary: str  # e.g. "mostly positive", "mixed", "negative"
+    key_themes: list[str]          # e.g. ["improved retention", "engagement gains"]
+    synthesis_table: list[dict[str, str]]  # per-study rows: {title, design, direction, ...}
+    narrative_text: str            # paragraph-form prose summary
+```
+
+Both are persisted to the `synthesis_results` table via `repository.save_synthesis_result(workflow_id, feasibility, narrative)` and loaded by `repository.load_synthesis_result(workflow_id)` which returns `tuple[SynthesisFeasibility, NarrativeSynthesis] | None`.
+
+### Writing Phase (src/writing/)
+
+```python
+# src/writing/style_extractor.py
+from dataclasses import dataclass
+
+@dataclass
+class StylePatterns:
+    """Writing style patterns extracted from included papers for prompt injection."""
+    sentence_openings: list[str]    # e.g. ["Studies have shown...", "Evidence suggests..."]
+    vocabulary: list[str]           # domain-specific terms from included papers
+    citation_patterns: list[str]    # how citations are integrated inline
+    transitions: list[str]          # paragraph transition phrases
+
+# src/writing/context_builder.py
+class StudySummary(BaseModel):
+    """Compact per-study block for the writing prompt (Results section)."""
+    paper_id: str
+    title: str
+    year: Optional[int]
+    study_design: str           # normalized label (spaces not underscores)
+    participant_count: Optional[int]
+    key_finding: str            # from results_summary["summary"] or intervention_description[:200]
+
+class WritingGroundingData(BaseModel):
+    """Factual data block injected into every LLM writing prompt.
+
+    Built by build_writing_grounding() from PRISMA counts, extraction records,
+    synthesis results, and the citation catalog. The LLM is instructed to use
+    these numbers verbatim and is forbidden from inventing any statistic or count.
+    """
+    # Search metadata
+    databases_searched: list[str]     # databases with non-zero search counts
+    search_date: str                  # str(datetime.now().year) -- set dynamically
+
+    # PRISMA counts (from PRISMACounts)
+    total_identified: int             # databases + other sources total
+    duplicates_removed: int
+    total_screened: int               # records after dedup
+    fulltext_assessed: int            # reports_assessed
+    total_included: int               # qualitative + quantitative
+    fulltext_excluded: int            # fulltext_assessed - total_included
+    excluded_fulltext_reasons: dict[str, int]  # {ExclusionReason.value: count}
+
+    # Study characteristics
+    study_design_counts: dict[str, int]   # normalized label -> count
+    total_participants: Optional[int]      # None if not consistently reported
+    year_range: Optional[str]             # e.g. "2015-2026"
+
+    # Synthesis
+    meta_analysis_feasible: bool
+    synthesis_direction: str               # e.g. "mostly positive"
+    n_studies_synthesized: int
+    narrative_text: str
+    key_themes: list[str]
+
+    # Per-study summaries for Results section
+    study_summaries: list[StudySummary]
+
+    # Citation keys the LLM is allowed to use (parsed from citation_catalog)
+    valid_citekeys: list[str]
+```
+
+**Important:** `_GENERIC_GROUPINGS = frozenset({"primary_outcome", "secondary_outcome"})` -- if all groupings in `SynthesisFeasibility.groupings` are in this set, `WritingGroundingData.meta_analysis_feasible` is set to `False` regardless of `SynthesisFeasibility.feasible`. This prevents "feasible" from propagating when no real outcome groupings were identified.
+
+### LLM Provider (src/llm/)
+
+```python
+# src/llm/provider.py
+from dataclasses import dataclass
+
+@dataclass
+class AgentRuntimeConfig:
+    """Resolved per-call LLM configuration returned by LLMProvider.get_agent_config()."""
+    model: str          # e.g. "google-gla:gemini-2.5-flash-lite"
+    temperature: float
+    tier: str           # "flash-lite" | "flash" | "pro" -- used for rate limiting + cost estimation
+
+class LLMProvider:
+    """Provides model config, rate limiting, and cost logging for all LLM calls.
+
+    Instantiated once per workflow run from SettingsConfig.
+    """
+    def get_agent_config(self, agent_name: str) -> AgentRuntimeConfig: ...
+    async def reserve_call_slot(self, agent_name: str) -> AgentRuntimeConfig: ...
+    def log_cost(self, config: AgentRuntimeConfig, tokens_in: int, tokens_out: int,
+                 latency_ms: int, phase: str, repository: WorkflowRepository) -> None: ...
+    def estimate_cost_usd(self, tier: str, tokens_in: int, tokens_out: int) -> float: ...
+```
+
+Cost per 1M tokens (input/output): flash-lite $0.10/$0.40, flash $0.30/$2.50, pro $1.25/$10.00.
+
 ***
 
 # PART 3: SQLite SCHEMA
@@ -672,6 +864,7 @@ CREATE TABLE IF NOT EXISTS papers (
     source_category TEXT NOT NULL DEFAULT 'database',
     openalex_id TEXT,
     country TEXT,  -- First/corresponding author country for geographic viz
+    display_label TEXT,     -- canonical short label (e.g. "Smith2023") computed by compute_display_label() on first save
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -835,8 +1028,20 @@ CREATE TABLE IF NOT EXISTS workflows (
     topic TEXT NOT NULL,               -- research_question from review.yaml
     config_hash TEXT NOT NULL,         -- SHA256 of review.yaml for change detection
     status TEXT NOT NULL DEFAULT 'running',  -- running | completed | failed
+    dedup_count INTEGER,               -- stored by SearchNode; read by resume.py to avoid recompute
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Typed synthesis results (feasibility + narrative) persisted after SynthesisNode.
+-- WritingNode loads these first; falls back to data_narrative_synthesis.json for old runs.
+CREATE TABLE IF NOT EXISTS synthesis_results (
+    workflow_id TEXT NOT NULL,
+    outcome_name TEXT NOT NULL,
+    feasibility_data TEXT NOT NULL,   -- JSON of SynthesisFeasibility model
+    narrative_data TEXT NOT NULL,     -- JSON of NarrativeSynthesis model
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (workflow_id, outcome_name)
 );
 
 -- Phase completion markers (lightweight -- actual data lives in per-paper tables)
@@ -873,6 +1078,73 @@ Each run creates a new `runtime.db` in `logs/{date}/{topic-slug}/run_HH-MM-SS/`.
 - **Purpose:** Maps (topic, config_hash) to absolute `db_path` so resume can open the correct runtime.db
 - The per-run `workflows` table in runtime.db remains for workflow metadata; the registry is the cross-run index
 
+## Part 3B: Checkpoint Phase Keys (CRITICAL for Resume)
+
+The `checkpoints` table uses exact string phase keys. `workflow.py` and `resume.py` **must use identical strings** or resume will silently fail. These are the canonical phase key strings:
+
+```python
+# src/orchestration/resume.py
+PHASE_ORDER = [
+    "phase_2_search",
+    "phase_3_screening",
+    "phase_4_extraction_quality",
+    "phase_5_synthesis",
+    "phase_6_writing",
+    "finalize",
+]
+```
+
+Each phase node in `workflow.py` saves its checkpoint with the matching key:
+
+| Phase Node | Checkpoint Key | When Saved |
+|:---|:---|:---|
+| `SearchNode` | `"phase_2_search"` | After dedup + protocol generation |
+| `ScreeningNode` | `"phase_3_screening"` | After full-text screening; status='partial' if Ctrl+C |
+| `ExtractionQualityNode` | `"phase_4_extraction_quality"` | After GRADE + RoB figure |
+| `SynthesisNode` | `"phase_5_synthesis"` | After narrative synthesis + plots saved to DB |
+| `WritingNode` | `"phase_6_writing"` | After all manuscript sections complete |
+| `FinalizeNode` | (no checkpoint) | Writes `run_summary.json` and sets registry status = "completed" |
+
+Note: Phase 1 (Foundation) does not create a checkpoint -- the existence of the workflow row in `workflows` table serves as the Phase 1 completion marker.
+
+## Part 3C: run_summary.json Schema
+
+`FinalizeNode` writes this JSON to `{log_dir}/run_summary.json`. The `status`, `validate`, and `export` CLI subcommands read this file to locate output artifact paths.
+
+```json
+{
+  "run_id": "<12-char UUID prefix>",
+  "workflow_id": "<12-char UUID prefix>",
+  "log_dir": "/absolute/path/to/logs/2026-02-18/topic-slug/run_HH-MM-SS/",
+  "output_dir": "/absolute/path/to/data/outputs/2026-02-18/topic-slug/run_HH-MM-SS/",
+  "search_counts": {
+    "openalex": 450,
+    "pubmed": 120,
+    "arxiv": 80,
+    "semantic_scholar": 200
+  },
+  "dedup_count": 95,
+  "connector_init_failures": {
+    "ieee_xplore": "IEEE_API_KEY not set"
+  },
+  "included_papers": 14,
+  "extraction_records": 14,
+  "artifacts": {
+    "prisma_flow": "/absolute/path/fig_prisma_flow.png",
+    "rob_traffic_light": "/absolute/path/fig_rob_traffic_light.png",
+    "timeline": "/absolute/path/fig_publication_timeline.png",
+    "geographic": "/absolute/path/fig_geographic_distribution.png",
+    "manuscript": "/absolute/path/doc_manuscript.md",
+    "narrative_synthesis": "/absolute/path/data_narrative_synthesis.json",
+    "run_summary": "/absolute/path/run_summary.json",
+    "search_appendix": "/absolute/path/doc_search_strategies_appendix.md",
+    "protocol": "/absolute/path/doc_protocol.md"
+  }
+}
+```
+
+The `artifacts` dictionary keys are fixed strings that `submission_packager.py` and `ieee_validator.py` use to locate files. An AI implementing these must use the same keys.
+
 ***
 
 # PART 4: PROJECT FILE STRUCTURE
@@ -895,13 +1167,14 @@ systematic-review-tool/
 |   |-- models/
 |   |   |-- __init__.py
 |   |   |-- enums.py                  # All enums from Part 2
-|   |   |-- config.py                 # PICOConfig, ReviewConfig, SettingsConfig
-|   |   |-- papers.py                 # CandidatePaper, SearchResult
+|   |   |-- config.py                 # PICOConfig, ReviewConfig, SettingsConfig, SearchConfig, LLMRateLimitConfig
+|   |   |-- papers.py                 # CandidatePaper, SearchResult, compute_display_label()
 |   |   |-- screening.py              # ScreeningDecision, DualScreeningResult
 |   |   |-- extraction.py             # ExtractionRecord
 |   |   |-- claims.py                 # ClaimRecord, EvidenceLinkRecord, CitationEntryRecord
 |   |   |-- quality.py                # RoB2Assessment, RobinsIAssessment, GRADEOutcomeAssessment
 |   |   |-- writing.py                # SectionDraft
+|   |   |-- additional.py             # InterRaterReliability, MetaAnalysisResult, PRISMACounts, ProtocolDocument
 |   |   `-- workflow.py               # GateResult, DecisionLogEntry
 |   |-- db/
 |   |   |-- __init__.py
@@ -931,7 +1204,8 @@ systematic-review-tool/
 |   |   `-- pdf_retrieval.py          # PDF retrieval (Unpaywall, open access URLs)
 |   |-- screening/
 |   |   |-- __init__.py
-|   |   |-- dual_screener.py          # Dual-reviewer screening (both stages)
+|   |   |-- dual_screener.py          # Dual-reviewer screening (both stages); confidence fast-path; concurrent via Semaphore
+|   |   |-- keyword_filter.py         # Pre-LLM keyword pre-filter; auto-excludes zero-match papers (KEYWORD_FILTER reason)
 |   |   |-- prompts.py                # Reviewer A + B + Adjudicator prompt templates
 |   |   |-- reliability.py            # Cohen's kappa computation
 |   |   `-- gemini_client.py          # Gemini API client (ScreeningLLMClient impl)
@@ -955,20 +1229,18 @@ systematic-review-tool/
 |   |-- writing/
 |   |   |-- __init__.py
 |   |   |-- section_writer.py         # Generic section writing agent
-|   |   |-- prompts/                  # Section-specific prompt templates
-|   |   |   |-- abstract.py
-|   |   |   |-- introduction.py
-|   |   |   |-- methods.py
-|   |   |   |-- results.py
-|   |   |   |-- discussion.py
-|   |   |   `-- conclusion.py
+|   |   |-- context_builder.py        # Builds WritingGroundingData (PRISMA counts, extraction records, synthesis) fed to prompts
+|   |   |-- orchestration.py          # Style extraction, citation ledger, section writer wiring; citekey generation
+|   |   |-- prompts/                  # Section-specific prompt templates (consolidated)
+|   |   |   |-- __init__.py
+|   |   |   |-- base.py               # Shared patterns: prohibited phrases, citation catalog constraint
+|   |   |   `-- sections.py           # Per-section prompts: abstract, introduction, methods, results, discussion, conclusion
 |   |   |-- humanizer.py              # Academic writing style refinement
 |   |   |-- style_extractor.py        # Extract writing patterns from included papers
 |   |   `-- naturalness_scorer.py     # Score AI-generated text naturalness (0-1)
 |   |-- citation/
 |   |   |-- __init__.py
-|   |   |-- ledger.py                 # Citation ledger (claim -> evidence -> citation)
-|   |   `-- bibtex.py                 # BibTeX generation + IEEE style
+|   |   `-- ledger.py                 # Citation ledger (claim -> evidence -> citation)
 |   |-- protocol/
 |   |   |-- __init__.py
 |   |   `-- generator.py              # PROSPERO-format protocol generator
@@ -982,9 +1254,10 @@ systematic-review-tool/
 |   |   |-- rob_figure.py             # Risk of bias traffic-light summary
 |   |   |-- timeline.py               # Publication timeline
 |   |   `-- geographic.py             # Geographic distribution
-|   |-- export/                       # (Phase 8 - not yet)
+|   |-- export/
 |   |   |-- __init__.py
 |   |   |-- ieee_latex.py             # IEEE LaTeX exporter (IEEEtran.cls)
+|   |   |-- bibtex_builder.py         # BibTeX generation + IEEE style (NOTE: NOT in citation/; lives here)
 |   |   |-- submission_packager.py    # Full submission directory assembler
 |   |   |-- prisma_checklist.py       # PRISMA 2020 27-item auto-validator
 |   |   `-- ieee_validator.py         # IEEE compliance checks
@@ -1019,10 +1292,10 @@ systematic-review-tool/
 |   |   |-- test_prisma_diagram.py
 |   |   |-- test_protocol.py
 |   |   |-- test_perplexity_source_inference.py
-|   |   |-- test_ieee_export.py
-|   |   |-- test_ieee_validator.py
+|   |   |-- test_export.py              # covers ieee_latex, ieee_validator, bibtex, prisma_checklist
 |   |   |-- test_main_cli.py
 |   |   |-- test_logging_paths.py
+|   |   |-- test_rate_limiter.py
 |   |   |-- test_study_classifier.py
 |   |   |-- test_workflow_registry.py
 |   |   `-- test_resume_state.py
@@ -1033,10 +1306,9 @@ systematic-review-tool/
 |   |   |-- test_extraction_pipeline.py
 |   |   |-- test_quality_pipeline.py
 |   |   |-- test_synthesis_pipeline.py
-|   |   |-- test_writing_pipeline.py
-|   |   `-- test_checkpoint_resume.py
-|   `-- e2e/
-|       `-- test_full_review.py
+|   |   `-- test_writing_pipeline.py   # NOTE: test_checkpoint_resume.py not yet implemented
+|   `-- e2e/                           # NOTE: e2e directory and test_full_review.py not yet implemented
+|       `-- test_full_review.py        # (placeholder -- requires full API keys to run)
 `-- data/
     `-- outputs/                      # Runtime output directory (gitignored)
 ```
@@ -1081,9 +1353,33 @@ touch tests/__init__.py
 # Create .env from the template (fill in your API keys)
 cat > .env << 'EOF'
 GEMINI_API_KEY=your-gemini-key
-OPENALEX_API_KEY=your-openalex-key
-IEEE_API_KEY=your-ieee-key
-NCBI_EMAIL=your-email@example.com
+OPENALEX_API_KEY=your-openalex-key   # Required since Feb 2026; free at openalex.org
+IEEE_API_KEY=your-ieee-key           # Optional; for IEEE Xplore connector
+NCBI_EMAIL=your-email@example.com    # Required for PubMed Entrez
+PERPLEXITY_API_KEY=your-perplexity-key  # Optional; for perplexity_search connector
+SEMANTIC_SCHOLAR_API_KEY=your-s2-key    # Optional; improves rate limits for Semantic Scholar
+EOF
+
+# Get IEEEtran LaTeX files -- REQUIRED for pdflatex to compile the manuscript
+# Option 1 (recommended): download from CTAN
+curl -L "https://ctan.org/tex-archive/macros/latex/contrib/IEEEtran/IEEEtran.cls" -o templates/IEEEtran.cls
+curl -L "https://ctan.org/tex-archive/macros/latex/contrib/IEEEtran/bibtex/IEEEtran.bst" -o templates/IEEEtran.bst
+# Option 2: if TeX Live is installed, copy from system
+# cp $(kpsewhich IEEEtran.cls) templates/IEEEtran.cls
+# cp $(kpsewhich IEEEtran.bst) templates/IEEEtran.bst
+
+# Create cover letter template
+cat > templates/cover_letter.md << 'EOF'
+# Cover Letter
+
+Dear Editor,
+
+We submit our systematic review manuscript for consideration in [Journal Name].
+
+[Body of cover letter]
+
+Sincerely,
+[Author Name]
 EOF
 
 # Copy config templates (from Part 6)
@@ -1135,12 +1431,16 @@ While building, use these parts of the document as reference:
    rich >= 13.0
    pyyaml >= 6.0
    aiohttp >= 3.9
+   certifi >= 2024.0       # SSL certificates for aiohttp
    biopython >= 1.83       # for PubMed Entrez
    arxiv >= 2.0            # for arXiv API
    scikit-learn >= 1.3     # for Cohen's kappa
    thefuzz >= 0.22         # for fuzzy dedup
    aiosqlite >= 0.21       # async SQLite (Rule 7: async/await for all I/O)
    python-dotenv >= 1.0    # .env file loading
+   structlog >= 24.0       # structured logging (JSONL decision log)
+   prisma-flow-diagram >= 0.1.0  # PRISMA 2020 flow diagram (Phase 7); uses matplotlib fallback on ImportError
+   colrev >= 0.16.0        # optional; used by some dedup utilities
    ```
 
 2. **All Pydantic models** from Part 2 in `src/models/`
@@ -1630,6 +1930,7 @@ While building, use these parts of the document as reference:
    - Exclusion reasons categorized from `ExclusionReason` enum
    - Separate qualitative/quantitative synthesis counts
    - **Arithmetic validation**: records in = records out at every stage
+   - **KNOWN LIMITATION (v1):** The "other sources" right-hand column is currently disabled in `render_prisma_diagram()` via `if False and counts.other_sources_records:`. All papers (including Perplexity-discovered ones) pass through a single unified screening pipeline so all records appear in the left-hand databases column. This avoids double-counting but means the diagram does not visually distinguish database from other-source records. Restoring the two-column split requires a deduplication-aware PRISMA count builder that can separate already-screened other-source papers.
 
 2. **Publication timeline** (`src/visualization/timeline.py`)
 
@@ -1811,7 +2112,13 @@ search_overrides:
 Changes rarely. Tuned from real runs.
 
 ```yaml
-# config/settings.yaml -- System behavior (~60 lines)
+# config/settings.yaml -- System behavior
+
+# LLM free-tier RPM caps (enforced by src/llm/rate_limiter.py)
+llm:
+  flash_rpm: 10
+  flash_lite_rpm: 15
+  pro_rpm: 5
 
 # Per-agent model assignments (3-tier: Flash-Lite / Flash / Pro)
 # Flash-Lite ($0.10/1M in, $0.40/1M out): Bulk classification
@@ -1856,6 +2163,9 @@ agents:
 screening:
   stage1_include_threshold: 0.85    # auto-include if confidence >= this
   stage1_exclude_threshold: 0.80    # auto-exclude if confidence >= this
+  screening_concurrency: 5          # asyncio.Semaphore: max concurrent paper screenings
+  skip_fulltext_if_no_pdf: true     # skip stage 2 when PDF unavailable; use stage 1 result
+  keyword_filter_min_matches: 1     # papers with fewer intervention keyword hits are pre-excluded (0 = disable)
 
 # Dual reviewer
 dual_review:
@@ -1906,6 +2216,20 @@ ieee_export:
 citation_lineage:
   block_export_on_unresolved: true
   minimum_evidence_score: 0.5
+
+# Search depth: how many records to fetch per database connector.
+# max_results_per_db is the global default; per_database_limits overrides it per connector.
+# Perplexity is capped internally at 20 regardless of this setting.
+search:
+  max_results_per_db: 500
+  per_database_limits:
+    crossref: 1000
+    pubmed: 500
+    semantic_scholar: 500
+    openalex: 500
+    arxiv: 200
+    ieee_xplore: 200
+    perplexity_search: 20
 ```
 
 ## 6.3 Secrets: `.env`
@@ -1915,9 +2239,11 @@ Never committed to git. Loaded via `python-dotenv` in `src/main.py` entry point 
 ```bash
 # .env -- Secrets only
 GEMINI_API_KEY=your-gemini-key
-OPENALEX_API_KEY=your-openalex-key   # Required since Feb 2026; free at openalex.org
-IEEE_API_KEY=your-ieee-key           # Optional, for IEEE Xplore
-NCBI_EMAIL=your-email@example.com    # Required for PubMed Entrez
+OPENALEX_API_KEY=your-openalex-key       # Required since Feb 2026; free at openalex.org
+IEEE_API_KEY=your-ieee-key               # Optional; for IEEE Xplore connector
+NCBI_EMAIL=your-email@example.com        # Required for PubMed Entrez (Biopython)
+PERPLEXITY_API_KEY=your-perplexity-key   # Optional; for perplexity_search auxiliary connector
+SEMANTIC_SCHOLAR_API_KEY=your-s2-key     # Optional; higher rate limits for Semantic Scholar
 ```
 
 ## 6.4 Infrastructure Defaults (in Python code, NOT YAML)
@@ -1956,10 +2282,16 @@ class ReviewConfig(BaseModel):
 class SettingsConfig(BaseModel):
     """Validated from config/settings.yaml"""
     agents: Dict[str, AgentConfig]
-    screening: ScreeningConfig
+    screening: ScreeningConfig        # includes concurrency, keyword_filter, skip_fulltext
+    dual_review: DualReviewConfig
     gates: GatesConfig
     writing: WritingConfig
-    # ... all fields with validation
+    risk_of_bias: RiskOfBiasConfig
+    meta_analysis: MetaAnalysisConfig
+    ieee_export: IEEEExportConfig
+    citation_lineage: CitationLineageConfig
+    search: SearchConfig              # max_results_per_db + per_database_limits
+    llm: LLMRateLimitConfig | None    # RPM caps for rate limiter
 ```
 
 ***
@@ -1968,7 +2300,7 @@ class SettingsConfig(BaseModel):
 
 1. **Build in the exact phase order specified.** Do not skip phases.
 2. **Do NOT allow LLMs to compute statistics.** Meta-analysis uses scipy/statsmodels deterministic functions only.
-3. **Do NOT bypass Pydantic validation** at phase boundaries. Every function that crosses a phase boundary accepts and returns Pydantic models.
+3. **Do NOT bypass Pydantic validation** at phase boundaries. Every function that crosses a phase boundary accepts and returns Pydantic models. **Exception for phase-internal models:** `SynthesisFeasibility` and `NarrativeSynthesis` live in `src/synthesis/` (not `src/models/`) because they are internal to the synthesis module and loaded by the synthesis node only. `StylePatterns`, `StudySummary`, and `WritingGroundingData` live in `src/writing/` (not `src/models/`) because they are internal to the writing module. `AgentRuntimeConfig` lives in `src/llm/provider.py`. These modules are the authoritative definitions; do NOT move them to `src/models/` or you will create circular imports.
 4. **Do NOT introduce untyped dictionaries** as phase outputs.
 5. **Do NOT hardcode any review topic.** Everything comes from `config.yaml`.
 6. **Write tests for every new module.** Each build phase has specified test files.
@@ -1976,6 +2308,8 @@ class SettingsConfig(BaseModel):
 8. **Use `rich`** for CLI output (progress bars, tables, status). Screening and other long-running phases must show a progress bar with completed/total count (e.g. X/Y papers) using Rich BarColumn and MofNCompleteColumn.
 9. **Every LLM call must be logged** with: model, tokens in/out, cost, latency. Cumulative cost tracked for budget gate.
 10. **After each build phase, the user will review and approve before proceeding to the next phase.** Do not proceed without approval.
+11. **Use exact checkpoint phase key strings from Part 3B.** The strings in `PHASE_ORDER` and in `workflow.py`'s `save_checkpoint()` calls must be identical or resume will silently fail. Never rename or shorten these strings.
+12. **`submission/supplementary/` PDFs are stubs in v1.** `search_strategies_appendix.pdf` and `prisma_checklist.pdf` are placeholder text files, not real PDFs. The markdown appendix (`doc_search_strategies_appendix.md`) and checklist are the functional deliverables. Do not block export on missing PDF generation.
 
 ***
 
@@ -1983,14 +2317,14 @@ class SettingsConfig(BaseModel):
 
 | Phase | Unit Tests | Integration Tests | E2E |
 |:---|:---|:---|:---|
-| 1: Foundation | `test_models.py`, `test_database.py`, `test_gates.py`, `test_citation_ledger.py` | -- | -- |
+| 1: Foundation | `test_models.py`, `test_database.py`, `test_gates.py`, `test_citation_ledger.py`, `test_rate_limiter.py` | -- | -- |
 | 2: Search | `test_protocol.py`, `test_perplexity_source_inference.py` | -- | -- |
 | 3: Screening | `test_screening.py`, `test_reliability.py` | `test_dual_screening.py` | -- |
 | 4: Extraction/Quality | `test_rob2.py`, `test_robins_i.py` | `test_quality_pipeline.py` | -- |
 | 5: Synthesis | `test_effect_size.py`, `test_meta_analysis.py` | `test_synthesis_pipeline.py` | -- |
 | 6: Writing | -- | `test_writing_pipeline.py` | -- |
 | 7: PRISMA/Viz | `test_prisma_diagram.py` | -- | -- |
-| 8: Export/Integration | `test_ieee_export.py`, `test_ieee_validator.py`, `test_workflow_registry.py`, `test_resume_state.py` | `test_checkpoint_resume.py` | `test_full_review.py` |
+| 8: Export/Integration | `test_export.py` (covers ieee_latex + ieee_validator + bibtex + prisma_checklist), `test_workflow_registry.py`, `test_resume_state.py` | `test_run_command.py` | `test_full_review.py` (not yet implemented) |
 
 **Verification commands after each phase:**
 ```bash

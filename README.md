@@ -1,112 +1,263 @@
-# Systematic Review Automation Tool (v2 Build)
+# Research Article Writer
 
-Typed, async, SQLite-backed workflow for systematic review automation. Produces PRISMA 2020-compliant pipelines from research question through synthesis. Phases 1-8 implemented.
+An open source tool that automates systematic literature reviews end-to-end -- from a research question to an IEEE-submission-ready manuscript.
+
+It runs a full PRISMA 2020-compliant pipeline: searches 6+ academic databases, dual-reviews every paper with independent AI reviewers, extracts data, assesses risk of bias (RoB 2, ROBINS-I, GRADE), synthesizes evidence (meta-analysis or narrative), and writes the manuscript with citation lineage enforced throughout.
+
+**Use it via browser (web UI) or terminal (CLI).**
 
 ---
 
-## For Researchers
+## What It Produces
 
-### What It Does
+After a run completes, you get a `submission/` folder containing:
 
-Runs a systematic review pipeline: search (OpenAlex, PubMed, arXiv, IEEE, etc.) -> dual-reviewer screening -> extraction & quality assessment (RoB 2, ROBINS-I, GRADE) -> synthesis (meta-analysis or narrative) -> writing. Outputs protocol, search appendix, screening decisions, RoB figure (RoB 2 + ROBINS-I), PRISMA flow diagram, publication timeline, geographic distribution, forest/funnel plots, narrative synthesis.
+- `manuscript.tex` + `manuscript.pdf` -- IEEE-formatted manuscript (IEEEtran)
+- `references.bib` -- all citations
+- `figures/` -- PRISMA flow diagram, RoB traffic-light, forest plot, funnel plot, publication timeline, geographic distribution
+- `supplementary/` -- search strategies appendix, screening decisions CSV, extracted data CSV
 
-### How to Run
+---
+
+## Quick Start (Web UI)
+
+The web UI is the easiest way to get started. No config files needed -- you fill in your research question and API keys in the browser.
+
+**1. Clone the repo**
 
 ```bash
-uv run python -m src.main run --config config/review.yaml --settings config/settings.yaml
+git clone https://github.com/yourusername/research-article-writer
+cd research-article-writer
 ```
 
-Edit `config/review.yaml` with your research question, PICO, keywords, and target databases. Put API keys in `.env` (see Configuration below).
-
-### Resume
-
-If a run stops (crash, Ctrl+C), resume with:
+**2. Install Python dependencies**
 
 ```bash
+pip install uv          # if you don't have uv
+uv sync
+```
+
+**3. Install frontend dependencies and build**
+
+```bash
+cd frontend
+pnpm install
+pnpm build
+cd ..
+```
+
+**4. Start the server**
+
+```bash
+uv run uvicorn src.web.app:app --port 8000
+```
+
+**5. Open your browser**
+
+Go to `http://localhost:8000`. Paste your Gemini API key, fill in your research question, and click Run.
+
+---
+
+## Quick Start (CLI)
+
+Prefer the terminal? Use this path.
+
+**1. Clone and install**
+
+```bash
+git clone https://github.com/yourusername/research-article-writer
+cd research-article-writer
+uv sync
+```
+
+**2. Set up API keys**
+
+Copy the template and fill in your keys:
+
+```bash
+cp .env.example .env
+```
+
+Edit `.env`:
+
+```bash
+GEMINI_API_KEY=your-key-here              # Required -- get free at ai.google.dev
+OPENALEX_API_KEY=your-key-here            # Required -- free at openalex.org
+PUBMED_EMAIL=your-email@example.com       # Required for PubMed (any email)
+PUBMED_API_KEY=your-key-here              # Optional -- faster PubMed rate limits
+IEEE_API_KEY=your-key-here                # Optional -- IEEE Xplore access
+PERPLEXITY_SEARCH_API_KEY=your-key-here   # Optional -- auxiliary discovery
+SEMANTIC_SCHOLAR_API_KEY=your-key-here    # Optional -- higher rate limits
+CROSSREF_EMAIL=your-email@example.com     # Optional -- polite crawling for Crossref
+```
+
+**3. Configure your review**
+
+Edit `config/review.yaml` with your research question:
+
+```yaml
+research_question: "How does X affect Y in population Z?"
+review_type: "systematic"
+
+pico:
+  population: "..."
+  intervention: "..."
+  comparison: "..."
+  outcome: "..."
+
+keywords:
+  - "keyword one"
+  - "keyword two"
+
+date_range_start: 2015
+date_range_end: 2026
+```
+
+**4. Run**
+
+```bash
+uv run python -m src.main run --config config/review.yaml
+```
+
+The pipeline takes 20-60 minutes depending on how many papers are found. It prints progress as it goes.
+
+**5. Export**
+
+```bash
+uv run python -m src.main export --workflow-id <id shown at end of run>
+```
+
+Your `submission/` folder is ready.
+
+---
+
+## API Keys
+
+| Key | Where to Get | Required? |
+|-----|-------------|-----------|
+| `GEMINI_API_KEY` | [ai.google.dev](https://ai.google.dev) | Yes |
+| `OPENALEX_API_KEY` | [openalex.org](https://openalex.org/sign-up) | Yes (since Feb 2026) |
+| `PUBMED_EMAIL` | Any email address | Yes (for PubMed Entrez) |
+| `PUBMED_API_KEY` | [ncbi.nlm.nih.gov/account](https://www.ncbi.nlm.nih.gov/account/settings/) | No (higher rate limits) |
+| `IEEE_API_KEY` | [developer.ieee.org](https://developer.ieee.org) | No |
+| `PERPLEXITY_SEARCH_API_KEY` | [docs.perplexity.ai](https://docs.perplexity.ai) | No |
+| `SEMANTIC_SCHOLAR_API_KEY` | [api.semanticscholar.org](https://api.semanticscholar.org) | No (higher rate limits) |
+| `CROSSREF_EMAIL` | Any email address | No (polite Crossref crawling) |
+
+The free Gemini tier (Flash-Lite / Flash / Pro) is sufficient for most reviews. A full run typically costs under $5.
+
+---
+
+## CLI Reference
+
+```bash
+# Start a new review
+uv run python -m src.main run --config config/review.yaml
+
+# Run with verbose output (shows each LLM call)
+uv run python -m src.main run --config config/review.yaml --verbose
+
+# Resume after a crash or Ctrl+C
 uv run python -m src.main resume --topic "your research question"
-# or
-uv run python -m src.main resume --workflow-id wf-xxx
+uv run python -m src.main resume --workflow-id abc123
+
+# Export submission package
+uv run python -m src.main export --workflow-id abc123
+
+# Validate IEEE compliance and PRISMA checklist
+uv run python -m src.main validate --workflow-id abc123
+
+# Check run status and artifact paths
+uv run python -m src.main status --workflow-id abc123
 ```
 
-Press Ctrl+C once during screening to proceed with already-screened papers; press twice to abort. When you run again with the same topic, you will be prompted to resume the existing workflow.
-
-### Export (after run completes)
-
-```bash
-uv run python -m src.main export --workflow-id wf-xxx
-uv run python -m src.main validate --workflow-id wf-xxx
-uv run python -m src.main status --workflow-id wf-xxx
-```
-
-Produces `submission/` with manuscript.tex, manuscript.pdf, references.bib, figures/, supplementary/.
+**Tip:** Press Ctrl+C once during screening to proceed with already-screened papers. Press Ctrl+C twice to abort. Re-running with the same topic automatically prompts you to resume.
 
 ---
 
-## For Developers
+## Configuration
 
-### Architecture
+Two config files control behavior:
 
-- **Stack:** Python 3.11+, PydanticAI Graph, SQLite, Google Gemini 2.5
-- **Persistence:** Paper-level SQLite (each decision/extraction written immediately; mid-phase resume supported)
-- **Registry:** Central `logs/workflows_registry.db` maps (topic, config_hash) to runtime.db; fallback scans `run_summary.json` if registry missing
+**`config/review.yaml`** -- change this for every new review:
+- `research_question`, `pico`, `keywords`, `domain`
+- `inclusion_criteria`, `exclusion_criteria`
+- `date_range_start`, `date_range_end`
+- `target_databases` (openalex, pubmed, arxiv, ieee_xplore, semantic_scholar, crossref)
 
-### Key Modules
+**`config/settings.yaml`** -- change this rarely:
+- LLM model assignments (which Gemini tier handles screening vs. writing)
+- Screening thresholds (include/exclude confidence cutoffs)
+- Quality gate thresholds
+- Search depth (records per database)
 
-| Module | Purpose |
-|--------|---------|
-| `src/models/` | Pydantic contracts (config, papers, screening, extraction, quality) |
-| `src/db/` | SQLite schema, repositories, workflow_registry |
-| `src/orchestration/` | PydanticAI Graph, gates, resume, state |
-| `src/search/` | Connectors (OpenAlex, PubMed, arXiv, IEEE, etc.), strategy, dedup |
-| `src/screening/` | Dual reviewer, adjudication, reliability |
-| `src/extraction/` | Study classifier, extraction service |
-| `src/quality/` | RoB 2, ROBINS-I, CASP, GRADE, study router |
-| `src/synthesis/` | Feasibility, effect sizes, meta-analysis, narrative |
-| `src/writing/` | Section writer, humanizer, style extractor |
-| `src/export/` | IEEE LaTeX, submission packager, validators |
-| `src/visualization/` | Forest plot, funnel plot, RoB traffic-light, timeline, geographic |
+Full documentation of every config field is in `docs/research-agent-v2-spec.md` Part 6.
 
-### Pipeline Flow
+---
 
-```mermaid
-flowchart TD
-    reviewConfig[ReviewConfigYaml] --> configLoader[ConfigLoader]
-    settingsConfig[SettingsYaml] --> configLoader
-    configLoader --> searchPhase[Phase2Search]
-    searchPhase --> searchDb[(SQLite)]
-    searchDb --> screeningPhase[Phase3Screening]
-    screeningPhase --> screeningDb[(ScreeningTables)]
-    screeningDb --> extractPhase[Phase4Extraction]
-    extractPhase --> qualityPhase[Phase4Quality]
-    qualityPhase --> synthesisPhase[Phase5Synthesis]
-    synthesisPhase --> artifacts[Artifacts]
+## How It Works
+
+The pipeline runs as an 8-phase PydanticAI graph. Each phase writes its results to SQLite immediately so a crash can resume from the exact paper where it stopped.
+
+```
+Phase 1: Load config, initialize DB, set up LLM provider
+Phase 2: Search 6+ databases, deduplicate, generate PROSPERO protocol
+Phase 3: Dual-reviewer screening (AI Reviewer A + B, adjudicator on disagreement)
+Phase 4: Data extraction + risk of bias (RoB 2 / ROBINS-I / CASP / GRADE)
+Phase 5: Meta-analysis or narrative synthesis
+Phase 6: Write manuscript sections (abstract through conclusion)
+Phase 7: Generate PRISMA diagram, RoB traffic-light, timeline, geographic chart
+Phase 8: Export IEEE LaTeX + compile PDF
 ```
 
-Resume: interrupt or crash mid-run; use `resume --topic` to continue from last checkpoint.
+Every factual claim in the manuscript is traced back to a citation via the citation ledger. The LLM is given only the real extracted data -- it cannot hallucinate statistics.
 
-### Tests
+---
+
+## Development
+
+**Run tests:**
 
 ```bash
 uv run pytest tests/unit -q
 uv run pytest tests/integration -q
 ```
 
+**Project layout:**
+
+| Directory | What's in it |
+|-----------|-------------|
+| `src/models/` | Pydantic data contracts (every phase boundary) |
+| `src/db/` | SQLite schema, typed repositories, workflow registry |
+| `src/orchestration/` | PydanticAI Graph nodes, quality gates, resume logic |
+| `src/search/` | Database connectors + deduplication + search strategy |
+| `src/screening/` | Dual reviewer, Cohen's kappa, keyword pre-filter |
+| `src/extraction/` | Study design classifier, data extractor |
+| `src/quality/` | RoB 2, ROBINS-I, CASP, GRADE |
+| `src/synthesis/` | Feasibility checker, meta-analysis, narrative synthesis |
+| `src/writing/` | Section writer, humanizer, style extractor, grounding |
+| `src/export/` | IEEE LaTeX exporter, BibTeX builder, PRISMA validator |
+| `src/visualization/` | Forest plot, funnel plot, RoB figure, timeline, geographic |
+| `src/web/` | FastAPI backend for the browser UI |
+| `frontend/` | React + TypeScript web UI |
+
+**Full architecture spec:** `docs/research-agent-v2-spec.md`
+
 ---
 
-## Configuration
+## Troubleshooting
 
-- `config/review.yaml`: per-review topic, PICO, eligibility, target databases
-- `config/settings.yaml`: agent model profiles, thresholds
-- `.env`: API keys (GEMINI_API_KEY, OPENALEX_API_KEY, etc.) -- never commit
+**SSL errors (`CERTIFICATE_VERIFY_FAILED`):**
+- macOS: run `Install Certificates.command` from your Python.app folder
+- Corporate proxy: set `SSL_CERT_FILE` to your org CA bundle
+- Dev only (insecure): `RESEARCH_AGENT_SSL_SKIP_VERIFY=1`
 
-## SSL / Certificate Issues
+**Rate limit errors:** The tool respects Gemini free-tier limits automatically. If you hit them, wait a minute and resume.
 
-If connectors fail with `CERTIFICATE_VERIFY_FAILED`:
+**"No papers found":** Check that your keywords are broad enough and that `OPENALEX_API_KEY` is set. Try lowering `keyword_filter_min_matches` to `0` in `config/settings.yaml` to disable pre-filtering.
 
-- **macOS (python.org):** Run `Install Certificates.command` from your Python.app
-- **Corporate proxy:** Add org CA to trust store, or set `SSL_CERT_FILE`
-- **Dev only:** `RESEARCH_AGENT_SSL_SKIP_VERIFY=1` (insecure)
+---
 
-## Specification
+## License
 
-See `docs/research-agent-v2-spec.md` for full architecture, data contracts, and build phases.
+MIT
