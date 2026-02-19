@@ -211,9 +211,11 @@ export function DatabaseView({ runId, isDone, dbAvailable, isLive }: DatabaseVie
                 className="pl-8 bg-zinc-900 border-zinc-800 text-zinc-200 placeholder:text-zinc-600 h-8 text-sm"
               />
             </div>
-            <span className="text-xs text-zinc-500 tabular-nums">
-              {papersTotal.toLocaleString()} papers
-            </span>
+            {!papersError && (
+              <span className="text-xs text-zinc-500 tabular-nums">
+                {papersTotal.toLocaleString()} papers
+              </span>
+            )}
           </div>
 
           <div className="bg-zinc-900 border border-zinc-800 rounded-xl overflow-hidden">
@@ -290,9 +292,11 @@ export function DatabaseView({ runId, isDone, dbAvailable, isLive }: DatabaseVie
                 </button>
               ))}
             </div>
-            <span className="text-xs text-zinc-500 tabular-nums">
-              {decisionsTotal.toLocaleString()} decisions
-            </span>
+            {!decisionsError && (
+              <span className="text-xs text-zinc-500 tabular-nums">
+                {decisionsTotal.toLocaleString()} decisions
+              </span>
+            )}
           </div>
 
           <div className="bg-zinc-900 border border-zinc-800 rounded-xl overflow-hidden">

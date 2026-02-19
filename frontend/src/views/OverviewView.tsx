@@ -48,20 +48,22 @@ const TERMINAL_STATUSES = new Set(["done", "error", "cancelled"])
 /**
  * Live elapsed timer. Stops ticking when the run reaches a terminal status
  * so the displayed value freezes at the actual run duration.
+ * The formatted string is computed only inside the interval callback to avoid
+ * calling Date.now() during render (ESLint: no-date-now-during-render).
  */
 function useElapsed(startedAt: Date | null, status: string): string {
-  const [, setTick] = useState(0)
+  const [elapsed, setElapsed] = useState("--")
   const stopped = TERMINAL_STATUSES.has(status)
   useEffect(() => {
     if (!startedAt || stopped) return
-    const id = setInterval(() => setTick((t) => t + 1), 1000)
+    const compute = () => {
+      const secs = Math.floor((Date.now() - startedAt.getTime()) / 1000)
+      setElapsed(`${Math.floor(secs / 60)}m ${secs % 60}s`)
+    }
+    const id = setInterval(compute, 1000)
     return () => clearInterval(id)
   }, [startedAt, stopped])
-  if (!startedAt) return "--"
-  const secs = Math.floor((Date.now() - startedAt.getTime()) / 1000)
-  const m = Math.floor(secs / 60)
-  const s = secs % 60
-  return `${m}m ${s}s`
+  return elapsed
 }
 
 interface StatCardProps {

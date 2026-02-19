@@ -10,7 +10,6 @@ import {
 import { DollarSign, Zap, ArrowUpDown, Activity } from "lucide-react"
 import { cn } from "@/lib/utils"
 import type { CostStats } from "@/hooks/useCostStats"
-import type { ReviewEvent } from "@/lib/api"
 
 interface MetricTileProps {
   icon: React.ElementType
@@ -62,10 +61,9 @@ function phaseColor(phase: string): string {
 
 interface CostViewProps {
   costStats: CostStats
-  events: ReviewEvent[]
 }
 
-export function CostView({ costStats, events: _events }: CostViewProps) {
+export function CostView({ costStats }: CostViewProps) {
   const { total_cost, total_tokens_in, total_tokens_out, total_calls, by_model, by_phase } = costStats
 
   const chartData = by_phase.map((p) => ({

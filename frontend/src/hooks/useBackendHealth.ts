@@ -20,8 +20,10 @@ export function useBackendHealth(intervalMs = 6000): BackendHealth {
     const controller = new AbortController()
     const timer = setTimeout(() => controller.abort(), 3000)
     try {
-      const res = await fetch("/api/health", { signal: controller.signal })
-      if (mountedRef.current) setIsOnline(res.ok)
+      // Any HTTP response (200, 404, 500) means the server socket is reachable.
+      // Only a thrown TypeError (connection refused, DNS, abort timeout) means offline.
+      await fetch("/api/health", { signal: controller.signal })
+      if (mountedRef.current) setIsOnline(true)
     } catch {
       // Network failure or timeout -- backend is offline
       if (mountedRef.current) setIsOnline(false)

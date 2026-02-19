@@ -1,4 +1,4 @@
-import { useEffect, useState, Suspense, lazy } from "react"
+import { useEffect, useState, useMemo, Suspense, lazy } from "react"
 import { AlertTriangle } from "lucide-react"
 import { Sidebar, type NavTab } from "@/components/Sidebar"
 import { useSSEStream } from "@/hooks/useSSEStream"
@@ -40,7 +40,6 @@ export default function App() {
   // --- Live SSE run (never touched when opening historical runs) ---
   const [runId, setRunId] = useState<string | null>(null)
   const [topic, setTopic] = useState<string | null>(null)
-  const [outputs, setOutputs] = useState<Record<string, unknown>>({})
   const [startedAt, setStartedAt] = useState<Date | null>(null)
 
   // --- DB Explorer target (independent of the SSE connection) ---
@@ -48,9 +47,6 @@ export default function App() {
   // killing the live stream when browsing historical runs.
   const [dbRunId, setDbRunId] = useState<string | null>(null)
   const [dbIsDone, setDbIsDone] = useState(false)
-  // dbAvailable becomes true as soon as the backend emits db_ready (before done).
-  // This allows the Database Explorer to show live data while the run is in progress.
-  const [dbAvailable, setDbAvailable] = useState(false)
 
   const [defaultYaml, setDefaultYaml] = useState("")
 
@@ -63,31 +59,26 @@ export default function App() {
   // hasRun controls whether sidebar run-specific tabs are enabled.
   const hasRun = runId !== null || dbRunId !== null
 
+  // Derive outputs from events -- no separate state needed.
+  const outputs = useMemo<Record<string, unknown>>(() => {
+    if (status !== "done") return {}
+    const ev = [...events].reverse().find((e) => e.type === "done")
+    return ev?.type === "done" ? ev.outputs : {}
+  }, [status, events])
+
+  // dbUnlocked: true once the backend emits db_ready, the run finishes, or we
+  // are browsing a historical run (dbIsDone). Derived from existing state.
+  const dbUnlocked = useMemo(
+    () => dbIsDone || status === "done" || events.some((e) => e.type === "db_ready"),
+    [dbIsDone, status, events],
+  )
+
   // Load default YAML config (silently ignored if backend is offline)
   useEffect(() => {
     getDefaultReviewConfig()
       .then((yaml) => setDefaultYaml(yaml))
       .catch(() => {})
   }, [isOnline]) // re-fetch when backend comes back online
-
-  // Capture outputs when the live run completes
-  useEffect(() => {
-    if (status === "done") {
-      const doneEvent = [...events].reverse().find((e) => e.type === "done")
-      if (doneEvent && doneEvent.type === "done") {
-        setOutputs(doneEvent.outputs)
-      }
-    }
-  }, [status, events])
-
-  // Unlock the Database Explorer as soon as the backend signals the DB is ready.
-  // The db_ready event fires before the run completes so users can watch data
-  // populate in real time.
-  useEffect(() => {
-    if (dbAvailable) return
-    const found = events.some((e) => e.type === "db_ready")
-    if (found) setDbAvailable(true)
-  }, [events, dbAvailable])
 
   // Keyboard shortcut: Cmd+B / Ctrl+B to toggle sidebar
   useEffect(() => {
@@ -103,9 +94,7 @@ export default function App() {
 
   async function handleStart(req: RunRequest) {
     reset()
-    setOutputs({})
     setStartedAt(new Date())
-    setDbAvailable(false)
     const res = await startRun(req)
     setRunId(res.run_id)
     setDbRunId(res.run_id)
@@ -122,11 +111,9 @@ export default function App() {
   function handleNewReview() {
     setRunId(null)
     setTopic(null)
-    setOutputs({})
     setStartedAt(null)
     setDbRunId(null)
     setDbIsDone(false)
-    setDbAvailable(false)
     reset()
     setActiveTab("setup")
   }
@@ -137,7 +124,6 @@ export default function App() {
     const res = await attachHistory(entry)
     setDbRunId(res.run_id)
     setDbIsDone(true)
-    setDbAvailable(true)
     setActiveTab("database")
   }
 
@@ -165,14 +151,14 @@ export default function App() {
           />
         )
       case "cost":
-        return <CostView costStats={costStats} events={events} />
+        return <CostView costStats={costStats} />
       case "database":
         return (
           <DatabaseView
             runId={dbRunId ?? ""}
             isDone={dbIsDone || status === "done"}
-            dbAvailable={dbAvailable || dbIsDone || status === "done"}
-            isLive={dbAvailable && !dbIsDone && status !== "done" && status !== "error" && status !== "cancelled"}
+            dbAvailable={dbUnlocked}
+            isLive={dbUnlocked && !dbIsDone && status !== "done" && status !== "error" && status !== "cancelled"}
           />
         )
       case "log":
@@ -239,7 +225,7 @@ export default function App() {
               Running
             </div>
           )}
-          {status === "done" && (
+          {runId !== null && status === "done" && (
             <span className="text-xs text-emerald-400 font-medium">Complete</span>
           )}
           {status === "error" && (

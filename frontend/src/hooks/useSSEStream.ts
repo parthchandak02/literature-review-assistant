@@ -45,6 +45,7 @@ export function useSSEStream(runId: string | null) {
     const ctrl = new AbortController()
     abortRef.current = ctrl
 
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- initializes connecting status on run start
     setState((s) => ({ ...s, status: "connecting", error: null }))
 
     fetchEventSource(`/api/stream/${runId}`, {

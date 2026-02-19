@@ -123,6 +123,18 @@ export function downloadUrl(path: string): string {
 
 // Database explorer fetchers
 
+/** Extract a human-readable message from a non-OK response. */
+async function _apiError(res: Response, label: string): Promise<Error> {
+  let detail = `HTTP ${res.status}`
+  try {
+    const body = await res.json() as { detail?: string }
+    if (body.detail) detail = body.detail
+  } catch {
+    // ignore parse error; use status code
+  }
+  return new Error(`${label}: ${detail}`)
+}
+
 export async function fetchPapers(
   runId: string,
   offset = 0,
@@ -135,7 +147,7 @@ export async function fetchPapers(
     search,
   })
   const res = await fetch(`${BASE}/db/${runId}/papers?${params}`)
-  if (!res.ok) throw new Error(`Papers fetch failed: ${res.status}`)
+  if (!res.ok) throw await _apiError(res, "Papers fetch failed")
   return res.json() as Promise<{ total: number; offset: number; limit: number; papers: PaperRow[] }>
 }
 
@@ -153,7 +165,7 @@ export async function fetchScreening(
     limit: String(limit),
   })
   const res = await fetch(`${BASE}/db/${runId}/screening?${params}`)
-  if (!res.ok) throw new Error(`Screening fetch failed: ${res.status}`)
+  if (!res.ok) throw await _apiError(res, "Screening fetch failed")
   return res.json() as Promise<{ total: number; offset: number; limit: number; decisions: ScreeningRow[] }>
 }
 
@@ -161,7 +173,7 @@ export async function fetchDbCosts(
   runId: string,
 ): Promise<{ total_cost: number; records: DbCostRow[] }> {
   const res = await fetch(`${BASE}/db/${runId}/costs`)
-  if (!res.ok) throw new Error(`Costs fetch failed: ${res.status}`)
+  if (!res.ok) throw await _apiError(res, "Costs fetch failed")
   return res.json() as Promise<{ total_cost: number; records: DbCostRow[] }>
 }
 
