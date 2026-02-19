@@ -31,10 +31,18 @@ def render_timeline(papers: list[CandidatePaper], output_path: str) -> Path:
     vals = [counts[y] for y in sorted_years]
 
     fig, ax = plt.subplots(figsize=(8, 4))
-    ax.bar(sorted_years, vals, color="steelblue", edgecolor="black")
-    ax.set_xlabel("Publication Year")
-    ax.set_ylabel("Number of Studies")
-    ax.set_title("Publication Timeline of Included Studies")
+    bars = ax.bar(sorted_years, vals, color="steelblue", edgecolor="black", linewidth=0.6)
+    ax.bar_label(bars, padding=4, fontsize=9, fontweight="bold")
+    # Show ticks only at years that actually have data
+    ax.set_xticks(sorted_years)
+    ax.set_xticklabels([str(y) for y in sorted_years], fontsize=9)
+    ax.set_xlabel("Publication Year", fontsize=9)
+    ax.set_ylabel("Number of Studies", fontsize=9)
+    ax.set_title("Publication Timeline of Included Studies", fontsize=11, pad=8)
+    ax.set_ylim(0, max(vals) * 1.2)
+    ax.yaxis.get_major_locator().set_params(integer=True)
+    ax.spines["top"].set_visible(False)
+    ax.spines["right"].set_visible(False)
     fig.tight_layout()
     fig.savefig(path, dpi=150, bbox_inches="tight")
     plt.close(fig)
