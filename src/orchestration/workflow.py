@@ -179,6 +179,8 @@ class StartNode(BaseNode[ReviewState]):
         state.artifacts["fig_funnel_plot"] = str(output_paths.run_dir / "fig_funnel_plot.png")
         if rc:
             rc.emit_phase_done("start", {"workflow_id": state.workflow_id})
+            if hasattr(rc, "set_db_path"):
+                rc.set_db_path(state.db_path)
         return SearchNode()
 
 

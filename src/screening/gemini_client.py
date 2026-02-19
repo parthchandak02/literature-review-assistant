@@ -12,12 +12,15 @@ import aiohttp
 from src.screening.dual_screener import ScreeningResponse
 
 
+_RETRYABLE_STATUS = frozenset({429, 502, 503, 504})
+
+
 class GeminiScreeningClient:
-    """Real Gemini API client for screening. Uses generateContent with retry on 429."""
+    """Real Gemini API client for screening. Uses generateContent with retry on transient errors."""
 
     base_url = "https://generativelanguage.googleapis.com/v1beta/models"
     timeout_seconds = 45
-    max_retries = 3
+    max_retries = 5
 
     async def complete_json(
         self,
@@ -48,9 +51,9 @@ class GeminiScreeningClient:
                     timeout=aiohttp.ClientTimeout(total=self.timeout_seconds)
                 ) as session:
                     async with session.post(url, params=params, json=payload) as response:
-                        if response.status == 429:
+                        if response.status in _RETRYABLE_STATUS:
                             await response.read()
-                            delay = 2**attempt + random.uniform(0, 1)
+                            delay = 2 ** (attempt + 1) + random.uniform(0, 2)
                             await asyncio.sleep(delay)
                             continue
                         if response.status != 200:
@@ -71,8 +74,9 @@ class GeminiScreeningClient:
                 raise
             except Exception as e:
                 last_error = e
-                if "429" in str(e) or "RESOURCE_EXHAUSTED" in str(e):
-                    delay = 2**attempt + random.uniform(0, 1)
+                retryable_keywords = ("429", "502", "503", "504", "RESOURCE_EXHAUSTED", "UNAVAILABLE")
+                if any(kw in str(e) for kw in retryable_keywords):
+                    delay = 2 ** (attempt + 1) + random.uniform(0, 2)
                     await asyncio.sleep(delay)
                     continue
                 raise

@@ -7,14 +7,18 @@ Run with:
 from __future__ import annotations
 
 import asyncio
+import json as _json
 import os
 import pathlib
 import tempfile
+import time
 import uuid
+from contextlib import asynccontextmanager
 from typing import Any, AsyncGenerator
 
+import aiosqlite
 import yaml
-from fastapi import FastAPI, HTTPException, Header
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
@@ -38,15 +42,36 @@ class _RunRecord:
         self.done = False
         self.error: str | None = None
         self.outputs: dict[str, Any] = {}
+        self.db_path: str | None = None      # set once workflow completes
+        self.workflow_id: str | None = None  # set once workflow completes
+        self.log_root: str = "logs"
+        self.created_at: float = time.monotonic()  # for TTL eviction
 
 _active_runs: dict[str, _RunRecord] = {}
+
+# Evict completed run records older than 2 hours to prevent unbounded memory growth.
+_RUN_TTL_SECONDS = 7200
+
+async def _eviction_loop() -> None:
+    while True:
+        await asyncio.sleep(1800)  # check every 30 minutes
+        cutoff = time.monotonic() - _RUN_TTL_SECONDS
+        stale = [k for k, v in list(_active_runs.items()) if v.done and v.created_at < cutoff]
+        for k in stale:
+            _active_runs.pop(k, None)
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI) -> AsyncGenerator[None, None]:
+    task = asyncio.create_task(_eviction_loop())
+    yield
+    task.cancel()
 
 
 # ---------------------------------------------------------------------------
 # FastAPI app
 # ---------------------------------------------------------------------------
 
-app = FastAPI(title="Research Review API", version="1.0.0")
+app = FastAPI(title="LitReview API", version="1.0.0", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
@@ -81,17 +106,25 @@ class RunInfo(BaseModel):
     error: str | None
 
 
+class HistoryEntry(BaseModel):
+    workflow_id: str
+    topic: str
+    status: str
+    db_path: str
+    created_at: str
+
+
+class AttachRequest(BaseModel):
+    workflow_id: str
+    topic: str
+    db_path: str
+
+
 # ---------------------------------------------------------------------------
-# Helper: inject API keys into environment for the duration of the task
+# Helper: inject API keys
 # ---------------------------------------------------------------------------
 
 def _inject_env(req: RunRequest) -> None:
-    """Mutate os.environ with keys from the request.
-
-    Safe for single-user local deployment because each run is sequential per
-    process. Multi-user deployments would require per-task isolation via
-    subprocesses.
-    """
     os.environ["GEMINI_API_KEY"] = req.gemini_api_key
     if req.openalex_api_key:
         os.environ["OPENALEX_API_KEY"] = req.openalex_api_key
@@ -100,7 +133,6 @@ def _inject_env(req: RunRequest) -> None:
 
 
 def _extract_topic(review_yaml: str) -> str:
-    """Pull research_question from YAML text, with a safe fallback."""
     try:
         data = yaml.safe_load(review_yaml)
         return str(data.get("research_question", "Untitled review"))
@@ -108,9 +140,28 @@ def _extract_topic(review_yaml: str) -> str:
         return "Untitled review"
 
 
+async def _resolve_db_path(log_root: str, workflow_id: str) -> str | None:
+    """Look up db_path in the central workflows_registry.db."""
+    registry = pathlib.Path(log_root) / "workflows_registry.db"
+    if not registry.exists():
+        return None
+    try:
+        async with aiosqlite.connect(str(registry)) as db:
+            async with db.execute(
+                "SELECT db_path FROM workflows_registry WHERE workflow_id = ?",
+                (workflow_id,),
+            ) as cursor:
+                row = await cursor.fetchone()
+                return str(row[0]) if row else None
+    except Exception:
+        return None
+
+
 async def _run_wrapper(record: _RunRecord, review_path: str, req: RunRequest) -> None:
-    """Wrap run_workflow to handle completion / error and emit terminal events."""
-    ctx = WebRunContext(queue=record.queue)
+    def _on_db_ready(path: str) -> None:
+        record.db_path = path
+
+    ctx = WebRunContext(queue=record.queue, on_db_ready=_on_db_ready)
     try:
         outputs = await run_workflow(
             review_path=review_path,
@@ -122,6 +173,13 @@ async def _run_wrapper(record: _RunRecord, review_path: str, req: RunRequest) ->
         )
         record.outputs = outputs if isinstance(outputs, dict) else {}
         record.done = True
+
+        # Resolve db_path for database explorer
+        wf_id = str(record.outputs.get("workflow_id", ""))
+        if wf_id:
+            record.workflow_id = wf_id
+            record.db_path = await _resolve_db_path(req.log_root, wf_id)
+
         await record.queue.put({
             "type": "done",
             "outputs": record.outputs,
@@ -135,7 +193,6 @@ async def _run_wrapper(record: _RunRecord, review_path: str, req: RunRequest) ->
         record.error = str(exc)
         await record.queue.put({"type": "error", "msg": str(exc)})
     finally:
-        # Clean up temp review file
         try:
             pathlib.Path(review_path).unlink(missing_ok=True)
         except Exception:
@@ -143,29 +200,24 @@ async def _run_wrapper(record: _RunRecord, review_path: str, req: RunRequest) ->
 
 
 # ---------------------------------------------------------------------------
-# Endpoints
+# Core endpoints
 # ---------------------------------------------------------------------------
 
 @app.post("/api/run", response_model=RunResponse)
 async def start_run(req: RunRequest) -> RunResponse:
-    """Start a new systematic review run."""
     _inject_env(req)
-
     topic = _extract_topic(req.review_yaml)
     run_id = str(uuid.uuid4())[:8]
 
-    # Write the review YAML to a temp file so run_workflow can load it
     tmp = tempfile.NamedTemporaryFile(
-        mode="w",
-        suffix=".yaml",
-        prefix=f"review_{run_id}_",
-        delete=False,
+        mode="w", suffix=".yaml", prefix=f"review_{run_id}_", delete=False,
     )
     tmp.write(req.review_yaml)
     tmp.flush()
     tmp.close()
 
     record = _RunRecord(run_id=run_id, topic=topic)
+    record.log_root = req.log_root
     _active_runs[run_id] = record
 
     task = asyncio.create_task(_run_wrapper(record, tmp.name, req))
@@ -176,12 +228,17 @@ async def start_run(req: RunRequest) -> RunResponse:
 
 @app.get("/api/stream/{run_id}")
 async def stream_run(run_id: str) -> EventSourceResponse:
-    """SSE stream of events for a running review."""
     record = _active_runs.get(run_id)
     if record is None:
         raise HTTPException(status_code=404, detail="Run not found")
 
     async def _generator() -> AsyncGenerator[dict[str, Any], None]:
+        # Fast-path: already completed with nothing queued (e.g. historical run attached
+        # via /api/history/attach). Immediately signal done so the frontend does not
+        # wait 15 seconds for a heartbeat timeout.
+        if record.done and record.queue.empty():
+            yield {"data": _json_safe({"type": "done", "outputs": record.outputs})}
+            return
         while True:
             try:
                 event = await asyncio.wait_for(record.queue.get(), timeout=15.0)
@@ -189,7 +246,6 @@ async def stream_run(run_id: str) -> EventSourceResponse:
                 if event.get("type") in ("done", "error", "cancelled"):
                     break
             except asyncio.TimeoutError:
-                # Heartbeat keeps the SSE connection alive through long phases
                 yield {"event": "heartbeat", "data": "{}"}
                 if record.done:
                     break
@@ -199,7 +255,6 @@ async def stream_run(run_id: str) -> EventSourceResponse:
 
 @app.post("/api/cancel/{run_id}")
 async def cancel_run(run_id: str) -> dict[str, str]:
-    """Cancel an in-progress review run."""
     record = _active_runs.get(run_id)
     if record is None:
         raise HTTPException(status_code=404, detail="Run not found")
@@ -210,21 +265,14 @@ async def cancel_run(run_id: str) -> dict[str, str]:
 
 @app.get("/api/runs")
 async def list_runs() -> list[RunInfo]:
-    """List all runs from the current server session."""
     return [
-        RunInfo(
-            run_id=r.run_id,
-            topic=r.topic,
-            done=r.done,
-            error=r.error,
-        )
+        RunInfo(run_id=r.run_id, topic=r.topic, done=r.done, error=r.error)
         for r in _active_runs.values()
     ]
 
 
 @app.get("/api/results/{run_id}")
 async def get_results(run_id: str) -> dict[str, Any]:
-    """Return output file paths for a completed run."""
     record = _active_runs.get(run_id)
     if record is None:
         raise HTTPException(status_code=404, detail="Run not found")
@@ -235,7 +283,6 @@ async def get_results(run_id: str) -> dict[str, Any]:
 
 @app.get("/api/download")
 async def download_file(path: str) -> FileResponse:
-    """Serve an output file for download. Only paths inside data/outputs/ are allowed."""
     resolved = pathlib.Path(path).resolve()
     allowed_root = pathlib.Path("data/outputs").resolve()
     if not str(resolved).startswith(str(allowed_root)):
@@ -247,7 +294,6 @@ async def download_file(path: str) -> FileResponse:
 
 @app.get("/api/config/review")
 async def get_review_config() -> dict[str, str]:
-    """Return the default review.yaml content for the frontend editor."""
     try:
         content = pathlib.Path("config/review.yaml").read_text()
     except Exception:
@@ -256,7 +302,199 @@ async def get_review_config() -> dict[str, str]:
 
 
 # ---------------------------------------------------------------------------
-# Serve React frontend static build (production mode)
+# Run history endpoints (reads workflows_registry.db from log_root)
+# ---------------------------------------------------------------------------
+
+@app.get("/api/history")
+async def list_history(log_root: str = "logs") -> list[HistoryEntry]:
+    """Return all past runs from the central workflows_registry.db."""
+    registry = pathlib.Path(log_root) / "workflows_registry.db"
+    if not registry.exists():
+        return []
+    try:
+        async with aiosqlite.connect(str(registry)) as db:
+            db.row_factory = aiosqlite.Row
+            async with db.execute(
+                """SELECT workflow_id, topic, status, db_path,
+                          COALESCE(created_at, updated_at, '') AS created_at
+                   FROM workflows_registry
+                   ORDER BY created_at DESC"""
+            ) as cur:
+                rows = await cur.fetchall()
+        return [HistoryEntry(**dict(r)) for r in rows]
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@app.post("/api/history/attach", response_model=RunResponse)
+async def attach_history(req: AttachRequest) -> RunResponse:
+    """Create a read-only completed _RunRecord from a historical workflow so
+    all /api/db/{run_id}/... endpoints work for that past run."""
+    run_id = str(uuid.uuid4())[:8]
+    record = _RunRecord(run_id=run_id, topic=req.topic)
+    record.done = True
+    record.db_path = req.db_path
+    record.workflow_id = req.workflow_id
+    _active_runs[run_id] = record
+    return RunResponse(run_id=run_id, topic=req.topic)
+
+
+# ---------------------------------------------------------------------------
+# Database explorer endpoints
+# ---------------------------------------------------------------------------
+
+def _get_db_path(run_id: str) -> str:
+    record = _active_runs.get(run_id)
+    if record is None:
+        raise HTTPException(status_code=404, detail="Run not found")
+    if not record.db_path:
+        raise HTTPException(
+            status_code=503,
+            detail="Database initializing -- retry in a moment",
+            headers={"Retry-After": "2"},
+        )
+    return record.db_path
+
+
+@app.get("/api/db/{run_id}/papers")
+async def get_papers(
+    run_id: str,
+    offset: int = 0,
+    limit: int = 50,
+    search: str = "",
+) -> dict[str, Any]:
+    """Paginated papers table from the run's SQLite database."""
+    db_path = _get_db_path(run_id)
+    try:
+        async with aiosqlite.connect(db_path) as db:
+            db.row_factory = aiosqlite.Row
+            if search:
+                like = f"%{search}%"
+                async with db.execute(
+                    """SELECT paper_id, title, authors, year, source_database, doi, abstract, country
+                       FROM papers WHERE title LIKE ? OR abstract LIKE ?
+                       ORDER BY year DESC LIMIT ? OFFSET ?""",
+                    (like, like, limit, offset),
+                ) as cur:
+                    rows = await cur.fetchall()
+                async with db.execute(
+                    "SELECT COUNT(*) FROM papers WHERE title LIKE ? OR abstract LIKE ?",
+                    (like, like),
+                ) as cur:
+                    total = (await cur.fetchone())[0]  # type: ignore[index]
+            else:
+                async with db.execute(
+                    """SELECT paper_id, title, authors, year, source_database, doi, abstract, country
+                       FROM papers ORDER BY year DESC LIMIT ? OFFSET ?""",
+                    (limit, offset),
+                ) as cur:
+                    rows = await cur.fetchall()
+                async with db.execute("SELECT COUNT(*) FROM papers") as cur:
+                    total = (await cur.fetchone())[0]  # type: ignore[index]
+
+            papers = []
+            for row in rows:
+                authors_raw = row["authors"]
+                try:
+                    authors = _json.loads(authors_raw) if authors_raw else []
+                    if isinstance(authors, list):
+                        authors = ", ".join(str(a) for a in authors[:3])
+                        if len(_json.loads(row["authors"])) > 3:
+                            authors += " et al."
+                except Exception:
+                    authors = str(authors_raw or "")
+                papers.append({
+                    "paper_id": row["paper_id"],
+                    "title": row["title"],
+                    "authors": authors,
+                    "year": row["year"],
+                    "source_database": row["source_database"],
+                    "doi": row["doi"],
+                    "country": row["country"],
+                })
+            return {"total": total, "offset": offset, "limit": limit, "papers": papers}
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@app.get("/api/db/{run_id}/screening")
+async def get_screening(
+    run_id: str,
+    stage: str = "",
+    decision: str = "",
+    offset: int = 0,
+    limit: int = 100,
+) -> dict[str, Any]:
+    """Screening decisions table."""
+    db_path = _get_db_path(run_id)
+    try:
+        async with aiosqlite.connect(db_path) as db:
+            db.row_factory = aiosqlite.Row
+            conditions = []
+            params: list[Any] = []
+            if stage:
+                conditions.append("stage = ?")
+                params.append(stage)
+            if decision:
+                conditions.append("decision = ?")
+                params.append(decision)
+            where = f"WHERE {' AND '.join(conditions)}" if conditions else ""
+            async with db.execute(
+                f"""SELECT paper_id, stage, decision, rationale, created_at
+                    FROM screening_decisions {where}
+                    ORDER BY created_at DESC LIMIT ? OFFSET ?""",
+                (*params, limit, offset),
+            ) as cur:
+                rows = await cur.fetchall()
+            async with db.execute(
+                f"SELECT COUNT(*) FROM screening_decisions {where}", params
+            ) as cur:
+                total = (await cur.fetchone())[0]  # type: ignore[index]
+
+            decisions = [dict(row) for row in rows]
+            return {"total": total, "offset": offset, "limit": limit, "decisions": decisions}
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@app.get("/api/db/{run_id}/costs")
+async def get_db_costs(run_id: str) -> dict[str, Any]:
+    """Aggregated cost_records from the run's SQLite database."""
+    db_path = _get_db_path(run_id)
+    try:
+        async with aiosqlite.connect(db_path) as db:
+            db.row_factory = aiosqlite.Row
+            async with db.execute(
+                """SELECT model, phase,
+                          COUNT(*) as calls,
+                          SUM(tokens_in) as tokens_in,
+                          SUM(tokens_out) as tokens_out,
+                          SUM(cost_usd) as cost_usd,
+                          AVG(latency_ms) as avg_latency_ms
+                   FROM cost_records
+                   GROUP BY model, phase
+                   ORDER BY cost_usd DESC"""
+            ) as cur:
+                rows = await cur.fetchall()
+            async with db.execute(
+                "SELECT COALESCE(SUM(cost_usd), 0) FROM cost_records"
+            ) as cur:
+                total_cost = float((await cur.fetchone())[0])  # type: ignore[index]
+
+            records = [dict(row) for row in rows]
+            return {"total_cost": total_cost, "records": records}
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+# ---------------------------------------------------------------------------
+# Serve React frontend (production)
 # ---------------------------------------------------------------------------
 
 _static_dir = pathlib.Path(__file__).parent.parent.parent / "frontend" / "dist"
@@ -268,11 +506,7 @@ if _static_dir.exists():
 # Utilities
 # ---------------------------------------------------------------------------
 
-import json as _json
-
-
 def _json_safe(obj: Any) -> str:
-    """Serialize event dict to JSON string, skipping non-serializable values."""
     def _default(o: Any) -> Any:
         try:
             return str(o)

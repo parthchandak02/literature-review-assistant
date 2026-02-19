@@ -464,6 +464,21 @@ class WebRunContext:
     offline: bool = False
     progress: None = None
     proceed_with_partial_requested: list[bool] = field(default_factory=lambda: [False], repr=False)
+    on_db_ready: Any = None  # Callable[[str], None] | None -- called when db_path is known
+
+    def set_db_path(self, path: str) -> None:
+        """Signal that the run database is now available at the given path.
+
+        Fires the on_db_ready callback (used by the web server to expose the path
+        via API endpoints) and emits a db_ready SSE event so the frontend can
+        unlock the Database Explorer without waiting for the run to finish.
+        """
+        if self.on_db_ready is not None:
+            try:
+                self.on_db_ready(path)
+            except Exception:
+                pass
+        self._emit({"type": "db_ready"})
 
     def _emit(self, event: dict[str, Any]) -> None:
         import datetime

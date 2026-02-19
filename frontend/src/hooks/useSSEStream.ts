@@ -8,6 +8,24 @@ export interface SSEState {
   error: string | null
 }
 
+/** Converts raw fetch/network errors to a user-friendly message. */
+function friendlyError(err: unknown): string {
+  const msg = err instanceof Error ? err.message : String(err)
+  // Network-level failure (backend down, refused, DNS, timeout)
+  if (
+    err instanceof TypeError ||
+    msg.toLowerCase().includes("failed to fetch") ||
+    msg.toLowerCase().includes("networkerror") ||
+    msg.toLowerCase().includes("load failed")
+  ) {
+    return "Backend is offline or unreachable"
+  }
+  if (msg.includes("Stream open failed: 404")) {
+    return "Run not found on backend (server may have restarted)"
+  }
+  return msg
+}
+
 export function useSSEStream(runId: string | null) {
   const [state, setState] = useState<SSEState>({
     events: [],
@@ -47,19 +65,32 @@ export function useSSEStream(runId: string | null) {
             if (data.type === "done") status = "done"
             else if (data.type === "error") status = "error"
             else if (data.type === "cancelled") status = "cancelled"
-            return { events: next, status, error: data.type === "error" ? data.msg : s.error }
+            return {
+              events: next,
+              status,
+              error: data.type === "error" ? data.msg : s.error,
+            }
           })
         } catch {
           // ignore parse errors
         }
       },
       onerror: (err) => {
-        setState((s) => ({ ...s, status: "error", error: String(err) }))
-        throw err // stops retry
+        // Don't surface AbortError from intentional ctrl.abort() calls
+        const msg = err instanceof Error ? err.message : String(err)
+        if (msg === "AbortError" || msg.includes("aborted")) {
+          throw err // stop retrying, onerror already handled
+        }
+        setState((s) => ({
+          ...s,
+          status: "error",
+          error: friendlyError(err),
+        }))
+        throw err // stop automatic retry
       },
       openWhenHidden: true,
     }).catch(() => {
-      // absorb the thrown error from onerror to stop retrying
+      // Absorb the re-thrown error from onerror to prevent unhandled rejection
     })
 
     return () => {

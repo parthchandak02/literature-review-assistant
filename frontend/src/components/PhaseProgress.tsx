@@ -1,7 +1,7 @@
 import { Badge } from "@/components/ui/badge"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { Progress } from "@/components/ui/progress"
 import { CheckCircle, Circle, Loader } from "lucide-react"
+import { cn } from "@/lib/utils"
 import type { ReviewEvent } from "@/lib/api"
 
 const PHASE_ORDER = [
@@ -32,7 +32,6 @@ interface PhaseState {
 
 function buildPhaseStates(events: ReviewEvent[]): Record<string, PhaseState> {
   const states: Record<string, PhaseState> = {}
-
   for (const ev of events) {
     if (ev.type === "phase_start") {
       states[ev.phase] = { status: "running" }
@@ -50,7 +49,6 @@ function buildPhaseStates(events: ReviewEvent[]): Record<string, PhaseState> {
       }
     }
   }
-
   return states
 }
 
@@ -62,46 +60,40 @@ interface PhaseProgressProps {
 export function PhaseProgress({ events, status }: PhaseProgressProps) {
   const phaseStates = buildPhaseStates(events)
 
-  // Count total papers screened for a summary stat
   const screeningDecisions = events.filter((e) => e.type === "screening_decision")
   const included = screeningDecisions.filter(
-    (e) => e.type === "screening_decision" && e.decision === "include"
+    (e) => e.type === "screening_decision" && e.decision === "include",
   ).length
 
-  // Connector results for search
   const connectorResults = events.filter((e) => e.type === "connector_result" && e.status === "success")
   const totalFound = connectorResults.reduce(
     (acc, e) => acc + (e.type === "connector_result" ? (e.records ?? 0) : 0),
-    0
+    0,
   )
 
   return (
     <div className="flex flex-col gap-3">
-      {/* Summary stats strip */}
+      {/* Summary strip */}
       {(totalFound > 0 || included > 0) && (
-        <Card className="bg-muted/40">
-          <CardContent className="pt-4 pb-3 flex gap-6 flex-wrap text-sm">
+        <Card className="bg-zinc-900 border-zinc-800">
+          <CardContent className="pt-3 pb-3 flex gap-6 flex-wrap text-sm">
             {totalFound > 0 && (
               <div>
-                <span className="font-semibold text-foreground">{totalFound.toLocaleString()}</span>
-                <span className="text-muted-foreground ml-1">papers found</span>
+                <span className="font-semibold text-white tabular-nums">{totalFound.toLocaleString()}</span>
+                <span className="text-zinc-500 ml-1">papers found</span>
               </div>
             )}
             {included > 0 && (
               <div>
-                <span className="font-semibold text-foreground">{included}</span>
-                <span className="text-muted-foreground ml-1">included</span>
+                <span className="font-semibold text-white tabular-nums">{included}</span>
+                <span className="text-zinc-500 ml-1">included</span>
               </div>
             )}
             {status === "done" && (
-              <div>
-                <Badge variant="default" className="bg-green-600 text-white">Complete</Badge>
-              </div>
+              <Badge className="bg-emerald-500/20 text-emerald-400 border-emerald-500/30 border">Complete</Badge>
             )}
             {status === "error" && (
-              <div>
-                <Badge variant="destructive">Error</Badge>
-              </div>
+              <Badge variant="destructive">Error</Badge>
             )}
           </CardContent>
         </Card>
@@ -123,51 +115,62 @@ export function PhaseProgress({ events, status }: PhaseProgressProps) {
         return (
           <Card
             key={phase}
-            className={
+            className={cn(
+              "border transition-colors",
               state.status === "running"
-                ? "border-primary/50 bg-primary/5"
+                ? "border-violet-500/40 bg-violet-500/5"
                 : state.status === "done"
-                ? "border-green-500/30 bg-green-500/5"
-                : "opacity-50"
-            }
+                ? "border-emerald-500/30 bg-zinc-900"
+                : "border-zinc-800 bg-zinc-900 opacity-50",
+            )}
           >
             <CardHeader className="py-3 px-4">
-              <CardTitle className="text-sm font-medium flex items-center gap-2">
+              <CardTitle className="text-sm font-medium flex items-center gap-2 text-zinc-200">
                 {state.status === "done" ? (
-                  <CheckCircle className="h-4 w-4 text-green-500 shrink-0" />
+                  <CheckCircle className="h-4 w-4 text-emerald-500 shrink-0" />
                 ) : state.status === "running" ? (
-                  <Loader className="h-4 w-4 text-primary animate-spin shrink-0" />
+                  <Loader className="h-4 w-4 text-violet-400 animate-spin shrink-0" />
                 ) : (
-                  <Circle className="h-4 w-4 text-muted-foreground shrink-0" />
+                  <Circle className="h-4 w-4 text-zinc-700 shrink-0" />
                 )}
                 {label}
                 {state.status === "running" && (
-                  <Badge variant="outline" className="ml-auto text-xs">Running</Badge>
+                  <Badge className="ml-auto text-xs border border-violet-500/40 text-violet-400 bg-transparent">
+                    Running
+                  </Badge>
                 )}
                 {state.status === "done" && (
-                  <Badge variant="outline" className="ml-auto text-xs border-green-500/40 text-green-600">Done</Badge>
+                  <Badge className="ml-auto text-xs border border-emerald-500/30 text-emerald-400 bg-transparent">
+                    Done
+                  </Badge>
                 )}
               </CardTitle>
             </CardHeader>
             {state.status !== "pending" && (
               <CardContent className="pb-3 px-4 flex flex-col gap-2">
-                {progressVal !== undefined ? (
-                  <Progress value={progressVal} className="h-1.5" />
-                ) : (
-                  <Progress value={undefined} className="h-1.5" />
-                )}
+                <div className="h-1 bg-zinc-800 rounded-full overflow-hidden">
+                  <div
+                    className={cn(
+                      "h-full rounded-full transition-all duration-300",
+                      state.status === "done" ? "bg-emerald-500" : "bg-violet-500",
+                    )}
+                    style={{
+                      width: progressVal !== undefined ? `${progressVal}%` : "40%",
+                    }}
+                  />
+                </div>
                 {state.status === "done" && state.summary && Object.keys(state.summary).length > 0 && (
-                  <div className="flex flex-wrap gap-x-4 gap-y-0.5 text-xs text-muted-foreground">
+                  <div className="flex flex-wrap gap-x-4 gap-y-0.5 text-xs text-zinc-500">
                     {Object.entries(state.summary).slice(0, 6).map(([k, v]) => (
                       <span key={k}>
-                        <span className="font-medium text-foreground">{String(v)}</span>{" "}
+                        <span className="font-medium text-zinc-300">{String(v)}</span>{" "}
                         {k.replace(/_/g, " ")}
                       </span>
                     ))}
                   </div>
                 )}
                 {state.status === "running" && state.progress && (
-                  <p className="text-xs text-muted-foreground">
+                  <p className="text-xs text-zinc-500 tabular-nums">
                     {state.progress.current} / {state.progress.total}
                   </p>
                 )}

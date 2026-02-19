@@ -44,6 +44,7 @@ screening:
   keyword_filter_min_matches: 1
   skip_fulltext_if_no_pdf: true
   screening_concurrency: 5
+  max_llm_screen: 100  # Set to cap LLM dual-review calls for cost control.
 
 dual_review:
   enabled: true

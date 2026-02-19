@@ -124,7 +124,8 @@ A prior prototype exists at `github.com/parthchandak02/literature-review-assista
 | Post-Phase-8 DB Improvements | Implemented | display_label column in papers table; synthesis_results table for typed synthesis persistence; dedup_count column in workflows; compute_display_label() canonical utility in src/models/papers.py as single source of truth |
 | Post-Phase-8 Diagram Fixes | Implemented | RoB figure reads display_label from DB instead of local heuristics; bar labels on publication timeline; dynamic label rotation on geographic distribution chart |
 | Post-Phase-8 Search Limits | Implemented | SearchConfig model with max_results_per_db (default 500) and per_database_limits (per-connector overrides); replaces hardcoded max_results=100 in workflow.py |
-| Phase 3 Screening Efficiency | Implemented | keyword_filter.py pre-filter (ExclusionReason.KEYWORD_FILTER, cuts LLM calls ~80%); confidence fast-path; asyncio.Semaphore concurrency; reset_partial_flag() Ctrl+C fix; skip_fulltext_if_no_pdf |
+| Phase 3 Screening Efficiency | Implemented | keyword_filter.py pre-filter (ExclusionReason.KEYWORD_FILTER, cuts LLM calls ~80%); confidence fast-path; asyncio.Semaphore concurrency; reset_partial_flag() Ctrl+C fix; skip_fulltext_if_no_pdf; max_llm_screen hard cap for cost control |
+| Web UI | Implemented | FastAPI SSE backend (14 endpoints: run, stream, cancel, history, attach, DB explorer); React/Vite/TypeScript frontend (7 views: Setup, Overview, Cost, Database, Log, Results, History); client-side cost tracking from api_call events; run history via workflows_registry; DB explorer for papers/screening/costs; static frontend served from frontend/dist/ |
 
 ***
 
@@ -136,21 +137,24 @@ A prior prototype exists at `github.com/parthchandak02/literature-review-assista
 
 Verification: `uv run pytest tests/unit -q` (86 pass), `uv run python -m src.main run --config config/review.yaml`.
 
-**What was just implemented (V2 Spec Gap Closure):**
+**What was just implemented (latest wave):**
 
 - **Gap 1 -- Meta-analysis + forest + funnel wired:** `SynthesisNode` calls `pool_effects()` (statsmodels DL), `render_forest_plot()`, and `render_funnel_plot()` when numeric effect data is available from LLM extraction; gracefully falls back to narrative when no numeric data; artifacts `fig_forest_plot.png` / `fig_funnel_plot.png` registered at startup.
 - **Gap 2 -- LLM-based extraction:** `ExtractionService._llm_extract()` sends paper text to Gemini Pro with a structured `_ExtractionLLMResponse` JSON schema; populates all `ExtractionRecord` fields including `outcomes[].effect_size` and `outcomes[].se` for downstream pooling; heuristic fallback on API error.
 - **Gap 3 -- LLM-based quality assessment:** `Rob2Assessor.assess()`, `RobinsIAssessor.assess()`, `CaspAssessor.assess()` are now `async`; each sends extraction record + full text to Gemini Pro with a typed JSON schema for the respective assessment model; heuristic fallback on API error.
 - **Gap 4 -- LLM humanizer:** `humanize_async()` in `src/writing/humanizer.py` makes a real Gemini Pro call using `_HUMANIZE_PROMPT_TEMPLATE`; `WritingNode` applies it for `humanization_iterations` passes per section when `settings.writing.humanization=true`.
-- **Gap 5 -- Spec updated:** Part 0B and 0C reflect current state.
-- **Shared infrastructure:** `src/llm/gemini_client.py` -- reusable `GeminiClient` with exponential-backoff retry on 429; used by extraction, quality, and humanizer.
+- **Gap 5 -- Shared Gemini client:** `src/llm/gemini_client.py` -- reusable `GeminiClient` with exponential-backoff retry on 429/502/503/504 (max 5 retries); used by extraction, quality, and humanizer; separate from screening's `GeminiScreeningClient`.
+- **Gap 6 -- Web UI:** Full FastAPI SSE backend (`src/web/app.py`, 14 endpoints) + React/Vite/TypeScript frontend (`frontend/`) with 7 views (Setup, Overview, Cost, Database, Log, Results, History); DB explorer for papers/screening/costs; run history via `workflows_registry`; client-side cost aggregation from `api_call` SSE events; see `docs/frontend-spec.md` for full frontend architecture.
+- **Gap 7 -- Screening cost cap:** `max_llm_screen` field in `ScreeningConfig` (default 100 in settings.yaml); `DualReviewerScreener.screen_batch()` skips papers over the cap with `UNCERTAIN` decision to bound cost on large result sets.
+- **Gap 8 -- Spec updated:** Part 0B, 0C, and file structure reflect current state.
 
 **Remaining work to reach first IEEE submission:**
 
 1. Run the full pipeline end-to-end and review output quality (manuscript, PRISMA diagram, RoB figure, synthesis section).
 2. Confirm PRISMA checklist >= 24/27 on a real run.
 3. Run `uv run python -m src.main export` and verify IEEE LaTeX compiles to PDF.
-4. Address any output quality issues found during validation run.
+4. Build the React frontend production bundle (`pnpm run build` in `frontend/`) and verify static serving from FastAPI.
+5. Address any output quality issues found during validation run.
 
 ***
 
@@ -375,6 +379,7 @@ class ScreeningConfig(BaseModel):
     screening_concurrency: int = Field(ge=1, le=20, default=5)          # asyncio.Semaphore limit
     skip_fulltext_if_no_pdf: bool = True                                 # skip stage 2 when PDF unavailable
     keyword_filter_min_matches: int = Field(ge=0, default=1)            # 0 = disable pre-filter
+    max_llm_screen: Optional[int] = Field(default=None, ge=1)           # hard cap on LLM dual-review calls; None = no cap
 
 class DualReviewConfig(BaseModel):
     enabled: bool = True
@@ -1155,9 +1160,44 @@ Build this exact directory tree. Every file listed below must be created. Projec
 systematic-review-tool/
 |-- pyproject.toml
 |-- README.md
+|-- .env.example                      # API key template (copy to .env)
 |-- config/
 |   |-- review.yaml               # Per-review research config (changes every review)
 |   `-- settings.yaml             # System behavior config (changes rarely)
+|-- docs/
+|   |-- research-agent-v2-spec.md # Master specification (this file)
+|   `-- frontend-spec.md          # Web UI frontend architecture spec (stack, layout, SSE events, API contract)
+|-- frontend/                         # React/Vite/TypeScript web UI (single-user local dashboard)
+|   |-- index.html
+|   |-- vite.config.ts
+|   |-- tsconfig.json
+|   |-- package.json
+|   |-- pnpm-lock.yaml
+|   `-- src/
+|       |-- main.tsx
+|       |-- App.tsx                   # Root layout: navigation, run state, view routing
+|       |-- lib/
+|       |   `-- api.ts                # Typed fetch wrappers for all 14 backend endpoints
+|       |-- hooks/
+|       |   |-- useSSEStream.ts       # SSE client (@microsoft/fetch-event-source); events -> ReviewEvent[]
+|       |   |-- useCostStats.ts       # Aggregates api_call events into cost breakdown by model/phase
+|       |   `-- useBackendHealth.ts   # Polls /api/health every 6s; detects backend offline
+|       |-- components/
+|       |   |-- Sidebar.tsx           # Fixed left nav with tab items, run status pill, cost footer
+|       |   |-- RunForm.tsx           # Review YAML + API key inputs; fires handleStart
+|       |   |-- PhaseProgress.tsx     # Phase cards with progress bars (search->finalize)
+|       |   |-- LogStream.tsx         # Scrollable event log; maps ReviewEvent -> log line
+|       |   |-- ResultsPanel.tsx      # Download links for output artifacts
+|       |   `-- ui/
+|       |       `-- tooltip.tsx       # shadcn/ui tooltip (collapsed sidebar tooltips)
+|       `-- views/
+|           |-- SetupView.tsx         # New review form (wraps RunForm)
+|           |-- OverviewView.tsx      # Live run dashboard: stats cards + phase timeline
+|           |-- CostView.tsx          # Cost breakdown: Recharts bar chart + model/phase tables
+|           |-- LogView.tsx           # Filterable event log (All / Phases / LLM / Search / Screening)
+|           |-- ResultsView.tsx       # Output artifacts list (shown when run is done)
+|           |-- DatabaseView.tsx      # DB explorer: paginated papers/screening/costs tabs (available post-run)
+|           `-- HistoryView.tsx       # Past runs table; Open button attaches DB explorer to historical run
 |-- src/
 |   |-- __init__.py
 |   |-- main.py                       # CLI entry point
@@ -1264,7 +1304,11 @@ systematic-review-tool/
 |   |-- llm/
 |   |   |-- __init__.py
 |   |   |-- provider.py               # PydanticAI agent factory (Gemini config) + cost logging
+|   |   |-- gemini_client.py          # Shared GeminiClient (generateContent, JSON schema mode, retry); used by extraction, quality, writing
 |   |   `-- rate_limiter.py           # Token bucket rate limiter
+|   |-- web/
+|   |   |-- __init__.py
+|   |   `-- app.py                    # FastAPI server: 14 endpoints (run, stream, cancel, history, attach, DB explorer); SSE via asyncio.Queue; static frontend serving
 |   `-- utils/
 |       |-- __init__.py
 |       |-- structured_log.py         # Structured logging (JSONL, decision log)
@@ -1312,6 +1356,11 @@ systematic-review-tool/
 `-- data/
     `-- outputs/                      # Runtime output directory (gitignored)
 ```
+
+**Notes on the frontend build:**
+- Dev mode: `cd frontend && pnpm run dev` starts Vite on port 5173 with `/api` proxied to FastAPI on port 8000.
+- Production: `cd frontend && pnpm run build` emits `frontend/dist/`; FastAPI serves it as static files at `/`.
+- The `frontend/dist/` directory is gitignored (generated artifact).
 
 ## Part 4A: Output Artifact Naming
 
@@ -2031,6 +2080,145 @@ While building, use these parts of the document as reference:
 
 ***
 
+# PART 5B: WEB UI & API REFERENCE
+
+The web UI is a local single-user dashboard. No authentication. The user supplies API keys at runtime via the Setup form; they are injected into the subprocess environment and never persisted server-side.
+
+**Full frontend architecture spec:** `docs/frontend-spec.md`
+
+---
+
+## FastAPI Server (`src/web/app.py`)
+
+Start the server:
+
+```bash
+uv run uvicorn src.web.app:app --reload --port 8000
+```
+
+The server also serves the built React frontend from `frontend/dist/` when present (root `/` route).
+
+### API Endpoints
+
+| Method | Path | Request | Response | Description |
+|:---|:---|:---|:---|:---|
+| `POST` | `/api/run` | `RunRequest` | `RunResponse` | Start a new review run in a background asyncio Task |
+| `GET` | `/api/stream/{run_id}` | -- | SSE stream | Stream `ReviewEvent` JSON objects; ends with `done`/`error`/`cancelled`; heartbeat every 15s |
+| `POST` | `/api/cancel/{run_id}` | -- | `{"status": "cancelled"}` | Cancel an active run (sets cancellation event) |
+| `GET` | `/api/runs` | -- | `list[RunInfo]` | List all in-memory active runs |
+| `GET` | `/api/results/{run_id}` | -- | `{run_id, outputs}` | Output artifact paths for a completed run |
+| `GET` | `/api/download` | query: `path` | `FileResponse` | Download an artifact file (restricted to `data/outputs/`) |
+| `GET` | `/api/config/review` | -- | `{content: str}` | Default `config/review.yaml` content (pre-fills Setup form) |
+| `GET` | `/api/history` | query: `log_root` | `list[HistoryEntry]` | All past runs from `workflows_registry.db` |
+| `POST` | `/api/history/attach` | `AttachRequest` | `RunResponse` | Attach a historical run for DB explorer without starting SSE |
+| `GET` | `/api/db/{run_id}/papers` | query: `offset, limit, search` | `{total, offset, limit, papers[]}` | Paginated + searchable papers from run DB |
+| `GET` | `/api/db/{run_id}/screening` | query: `stage, decision, offset, limit` | `{total, offset, limit, decisions[]}` | Screening decisions with filters |
+| `GET` | `/api/db/{run_id}/costs` | -- | `{total_cost, records[]}` | Cost records grouped by model and phase |
+| `GET` | `/api/health` | -- | `{"status": "ok"}` | Health check for `useBackendHealth` polling |
+
+### Request/Response Types
+
+```python
+class RunRequest(BaseModel):
+    review_yaml: str              # Full YAML content of review config
+    gemini_api_key: str           # Required; injected as GEMINI_API_KEY
+    openalex_api_key: str = ""    # Optional; injected as OPENALEX_API_KEY
+    ieee_api_key: str = ""        # Optional; injected as IEEE_API_KEY
+    log_root: str = "logs"
+    output_root: str = "data/outputs"
+
+class RunResponse(BaseModel):
+    run_id: str
+    topic: str
+
+class RunInfo(BaseModel):
+    run_id: str
+    topic: str
+    done: bool
+    error: Optional[str]
+
+class HistoryEntry(BaseModel):
+    workflow_id: str
+    topic: str
+    status: str
+    db_path: Optional[str]
+    created_at: Optional[str]
+
+class AttachRequest(BaseModel):
+    workflow_id: str
+    topic: str
+    db_path: str
+```
+
+### In-Memory Run State
+
+Each active run is tracked in `_active_runs: dict[str, _RunRecord]`:
+
+```python
+@dataclass
+class _RunRecord:
+    run_id: str
+    topic: str
+    queue: asyncio.Queue       # ReviewEvent JSON strings flow through here
+    task: asyncio.Task         # Background task running run_workflow()
+    done: bool
+    error: Optional[str]
+    outputs: list[str]         # Artifact paths registered on done
+    db_path: Optional[str]     # Path to runtime.db for DB explorer
+    workflow_id: Optional[str]
+    log_root: str
+```
+
+---
+
+## SSE Event Types
+
+The `/api/stream/{run_id}` endpoint emits newline-delimited JSON events. Each event has a `type` field. The frontend `useSSEStream` hook ignores `heartbeat` and appends all others to the `events` array.
+
+| Event type | Key fields | Description |
+|:---|:---|:---|
+| `phase_start` | `phase: str` | A pipeline phase began |
+| `phase_done` | `phase: str, summary: str` | A phase completed |
+| `progress` | `phase: str, current: int, total: int, message: str` | Progress update within a phase |
+| `api_call` | `model: str, phase: str, tokens_in: int, tokens_out: int, cost_usd: float, latency_ms: float` | LLM call completed; used for client-side cost aggregation |
+| `connector_result` | `connector: str, count: int` | Search connector returned results |
+| `screening_decision` | `paper_id: str, decision: str, stage: str` | Single paper screening result |
+| `extraction_paper` | `paper_id: str` | Paper extracted |
+| `synthesis` | `message: str` | Synthesis milestone |
+| `rate_limit_wait` | `wait_seconds: float, model: str` | Rate limiter sleeping |
+| `done` | `outputs: list[str], run_id: str` | Run completed successfully |
+| `error` | `message: str` | Run failed |
+| `cancelled` | -- | Run was cancelled by user |
+| `db_ready` | -- | Run DB is open and ready; frontend DB explorer can unlock before the run finishes |
+| `heartbeat` | -- | Keep-alive (every 15s); ignored by frontend |
+
+---
+
+## Frontend Views
+
+| View | File | Description |
+|:---|:---|:---|
+| Setup | `views/SetupView.tsx` | YAML editor + API key form; starts a new run |
+| Overview | `views/OverviewView.tsx` | Live dashboard: stat cards (papers found, included, cost, elapsed) + phase timeline |
+| Cost & Usage | `views/CostView.tsx` | Cost by model/phase: Recharts bar chart + sortable tables |
+| Event Log | `views/LogView.tsx` | Filterable event log (All / Phases / LLM / Search / Screening) |
+| Results | `views/ResultsView.tsx` | Download links for all output artifacts (available when run is done) |
+| Database | `views/DatabaseView.tsx` | DB explorer: papers (paginated + search), screening decisions (filterable), cost records |
+| History | `views/HistoryView.tsx` | Past runs from registry; Open button attaches any run to DB explorer |
+
+---
+
+## Frontend Architecture Summary
+
+- **Two-process:** Browser -> FastAPI :8000 -> `run_workflow()` -> SQLite
+- **SSE flow:** `WebRunContext.emit()` -> `asyncio.Queue` -> `/api/stream/{run_id}` -> `useSSEStream` -> `events[]` -> all views
+- **Cost tracking:** Client-side only; `useCostStats(events)` aggregates `api_call` events by model and phase
+- **DB explorer:** Available for any run that has a `db_path` (live or historical); queries `papers`, `screening_decisions`, `cost_records` tables via DB endpoints
+- **History:** `GET /api/history` reads `workflows_registry.db`; `POST /api/history/attach` registers the historical run as an in-memory record so DB endpoints can serve it
+- **Key separation:** `runId` (live SSE target) is distinct from `dbRunId` (DB explorer target); attaching a historical run does not affect live stream
+
+***
+
 # PART 6: CONFIGURATION
 
 Configuration is split into three layers following the twelve-factor app principle: **secrets in `.env`**, **per-review research config in `review.yaml`**, and **system behavior in `settings.yaml`**. Infrastructure constants (rate limits, cache TTL, proxy defaults) live in Python code, not YAML.
@@ -2166,6 +2354,7 @@ screening:
   screening_concurrency: 5          # asyncio.Semaphore: max concurrent paper screenings
   skip_fulltext_if_no_pdf: true     # skip stage 2 when PDF unavailable; use stage 1 result
   keyword_filter_min_matches: 1     # papers with fewer intervention keyword hits are pre-excluded (0 = disable)
+  # max_llm_screen: 200             # optional hard cap on LLM dual-review volume; omit to screen all candidates
 
 # Dual reviewer
 dual_review:

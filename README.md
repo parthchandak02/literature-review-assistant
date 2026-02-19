@@ -146,6 +146,15 @@ Your `submission/` folder is ready.
 
 The free Gemini tier (Flash-Lite / Flash / Pro) is sufficient for most reviews. A full run typically costs under $5.
 
+**Cost control tip:** Screening is the biggest cost driver (it calls the LLM once per paper). To cap costs on exploratory runs, set `max_llm_screen` in `config/settings.yaml`:
+
+```yaml
+screening:
+  max_llm_screen: 200  # screen at most 200 papers via LLM; papers beyond this are excluded
+```
+
+Remove the line (or set it to `null`) to screen all candidate papers. Papers that exceed the cap are excluded at the title/abstract stage and counted correctly in the PRISMA flow diagram.
+
 ---
 
 ## CLI Reference
@@ -188,6 +197,7 @@ Two config files control behavior:
 **`config/settings.yaml`** -- change this rarely:
 - LLM model assignments (which Gemini tier handles screening vs. writing)
 - Screening thresholds (include/exclude confidence cutoffs)
+- `max_llm_screen` -- hard cap on LLM screening volume (cost control)
 - Quality gate thresholds
 - Search depth (records per database)
 

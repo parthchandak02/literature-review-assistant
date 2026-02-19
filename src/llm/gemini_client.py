@@ -10,8 +10,11 @@ from typing import Any
 import aiohttp
 
 
+_RETRYABLE_STATUS = frozenset({429, 502, 503, 504})
+
+
 class GeminiClient:
-    """Calls Gemini generateContent with exponential-backoff retry on 429.
+    """Calls Gemini generateContent with exponential-backoff retry on transient errors.
 
     Supports structured JSON output via json_schema parameter.
     Callers should catch exceptions and apply heuristic fallbacks as needed.
@@ -19,7 +22,7 @@ class GeminiClient:
 
     _BASE_URL = "https://generativelanguage.googleapis.com/v1beta/models"
     _TIMEOUT = 120
-    _MAX_RETRIES = 3
+    _MAX_RETRIES = 5
 
     async def complete(
         self,
@@ -51,9 +54,9 @@ class GeminiClient:
                     timeout=aiohttp.ClientTimeout(total=self._TIMEOUT)
                 ) as session:
                     async with session.post(url, params=params, json=payload) as resp:
-                        if resp.status == 429:
+                        if resp.status in _RETRYABLE_STATUS:
                             await resp.read()
-                            await asyncio.sleep(2**attempt + random.uniform(0, 1))
+                            await asyncio.sleep(2 ** (attempt + 1) + random.uniform(0, 2))
                             continue
                         if resp.status != 200:
                             body = await resp.text()
@@ -73,8 +76,9 @@ class GeminiClient:
                 raise
             except Exception as exc:
                 last_error = exc
-                if "429" in str(exc) or "RESOURCE_EXHAUSTED" in str(exc):
-                    await asyncio.sleep(2**attempt + random.uniform(0, 1))
+                retryable_keywords = ("429", "502", "503", "504", "RESOURCE_EXHAUSTED", "UNAVAILABLE")
+                if any(kw in str(exc) for kw in retryable_keywords):
+                    await asyncio.sleep(2 ** (attempt + 1) + random.uniform(0, 2))
                     continue
                 raise
         if last_error:

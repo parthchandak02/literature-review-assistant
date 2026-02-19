@@ -2,9 +2,7 @@ import { useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { Separator } from "@/components/ui/separator"
-import { Eye, EyeOff, Play, RefreshCw } from "lucide-react"
+import { Eye, EyeOff, Loader, Play } from "lucide-react"
 import type { RunRequest } from "@/lib/api"
 
 interface RunFormProps {
@@ -12,6 +10,9 @@ interface RunFormProps {
   onSubmit: (req: RunRequest) => Promise<void>
   disabled: boolean
 }
+
+const LABEL = "block text-xs font-medium text-zinc-400 mb-1.5"
+const SECTION = "bg-zinc-900 border border-zinc-800 rounded-xl p-5"
 
 export function RunForm({ defaultReviewYaml, onSubmit, disabled }: RunFormProps) {
   const [reviewYaml, setReviewYaml] = useState(defaultReviewYaml)
@@ -45,48 +46,46 @@ export function RunForm({ defaultReviewYaml, onSubmit, disabled }: RunFormProps)
   }
 
   return (
-    <form onSubmit={handleSubmit} className="flex flex-col gap-6">
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Review Configuration</CardTitle>
-          <CardDescription>
-            Paste or edit your review.yaml below. The research_question field defines the topic.
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <Textarea
-            className="font-mono text-xs min-h-[280px] resize-y"
-            value={reviewYaml}
-            onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => setReviewYaml(e.target.value)}
-            disabled={disabled || loading}
-            placeholder="Paste review.yaml content here..."
-            spellCheck={false}
-          />
-        </CardContent>
-      </Card>
+    <form onSubmit={handleSubmit} className="flex flex-col gap-4">
+      {/* Review config */}
+      <div className={SECTION}>
+        <div className="flex items-center justify-between mb-3">
+          <h2 className="text-sm font-semibold text-zinc-200">Review Configuration</h2>
+          <span className="text-xs text-zinc-600">review.yaml</span>
+        </div>
+        <p className="text-xs text-zinc-500 mb-3 leading-relaxed">
+          Edit the YAML below to configure your review topic, inclusion criteria, and database settings.
+        </p>
+        <Textarea
+          className="font-mono text-xs min-h-[260px] resize-y bg-zinc-950 border-zinc-800 text-zinc-300 placeholder:text-zinc-700 focus-visible:ring-violet-500/50"
+          value={reviewYaml}
+          onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => setReviewYaml(e.target.value)}
+          disabled={disabled || loading}
+          placeholder="Paste your review.yaml content here..."
+          spellCheck={false}
+        />
+      </div>
 
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base flex items-center justify-between">
-            API Keys
-            <button
-              type="button"
-              onClick={() => setShowKeys((v) => !v)}
-              className="text-muted-foreground hover:text-foreground transition-colors"
-              title={showKeys ? "Hide keys" : "Show keys"}
-            >
-              {showKeys ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-            </button>
-          </CardTitle>
-          <CardDescription>
-            Keys are sent directly to the local backend. They are never stored or transmitted
-            externally.
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="flex flex-col gap-3">
+      {/* API keys */}
+      <div className={SECTION}>
+        <div className="flex items-center justify-between mb-3">
+          <h2 className="text-sm font-semibold text-zinc-200">API Keys</h2>
+          <button
+            type="button"
+            onClick={() => setShowKeys((v) => !v)}
+            className="flex items-center gap-1.5 text-xs text-zinc-500 hover:text-zinc-300 transition-colors"
+          >
+            {showKeys ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+            {showKeys ? "Hide" : "Show"}
+          </button>
+        </div>
+        <p className="text-xs text-zinc-600 mb-4 leading-relaxed">
+          Keys are sent only to your local backend and never stored externally.
+        </p>
+        <div className="flex flex-col gap-3">
           <div>
-            <label className="text-sm font-medium mb-1 block">
-              Gemini API Key <span className="text-destructive">*</span>
+            <label className={LABEL}>
+              Gemini API Key <span className="text-red-500">*</span>
             </label>
             <Input
               type={showKeys ? "text" : "password"}
@@ -95,10 +94,11 @@ export function RunForm({ defaultReviewYaml, onSubmit, disabled }: RunFormProps)
               onChange={(e: React.ChangeEvent<HTMLInputElement>) => setGeminiKey(e.target.value)}
               disabled={disabled || loading}
               autoComplete="off"
+              className="bg-zinc-950 border-zinc-800 text-zinc-200 placeholder:text-zinc-700 focus-visible:ring-violet-500/50 h-9"
             />
           </div>
           <div>
-            <label className="text-sm font-medium mb-1 block">OpenAlex API Key</label>
+            <label className={LABEL}>OpenAlex API Key <span className="text-zinc-600">(optional)</span></label>
             <Input
               type={showKeys ? "text" : "password"}
               placeholder="optional"
@@ -106,10 +106,11 @@ export function RunForm({ defaultReviewYaml, onSubmit, disabled }: RunFormProps)
               onChange={(e: React.ChangeEvent<HTMLInputElement>) => setOpenalexKey(e.target.value)}
               disabled={disabled || loading}
               autoComplete="off"
+              className="bg-zinc-950 border-zinc-800 text-zinc-200 placeholder:text-zinc-700 focus-visible:ring-violet-500/50 h-9"
             />
           </div>
           <div>
-            <label className="text-sm font-medium mb-1 block">IEEE Xplore API Key</label>
+            <label className={LABEL}>IEEE Xplore API Key <span className="text-zinc-600">(optional)</span></label>
             <Input
               type={showKeys ? "text" : "password"}
               placeholder="optional"
@@ -117,21 +118,26 @@ export function RunForm({ defaultReviewYaml, onSubmit, disabled }: RunFormProps)
               onChange={(e: React.ChangeEvent<HTMLInputElement>) => setIeeeKey(e.target.value)}
               disabled={disabled || loading}
               autoComplete="off"
+              className="bg-zinc-950 border-zinc-800 text-zinc-200 placeholder:text-zinc-700 focus-visible:ring-violet-500/50 h-9"
             />
           </div>
-        </CardContent>
-      </Card>
+        </div>
+      </div>
 
       {error && (
-        <p className="text-sm text-destructive px-1">{error}</p>
+        <p className="text-xs text-red-400 bg-red-500/10 border border-red-500/20 rounded-lg px-3 py-2">
+          {error}
+        </p>
       )}
 
-      <Separator />
-
-      <Button type="submit" disabled={disabled || loading} className="w-full gap-2">
+      <Button
+        type="submit"
+        disabled={disabled || loading}
+        className="w-full h-10 bg-violet-600 hover:bg-violet-500 text-white font-medium gap-2 transition-colors"
+      >
         {loading ? (
           <>
-            <RefreshCw className="h-4 w-4 animate-spin" />
+            <Loader className="h-4 w-4 animate-spin" />
             Starting review...
           </>
         ) : (

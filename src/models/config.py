@@ -73,6 +73,16 @@ class ScreeningConfig(BaseModel):
     keyword_filter_min_matches: int = Field(ge=0, default=1, description="Minimum keyword hits required to send a paper to LLM screening; 0 disables pre-filter.")
     skip_fulltext_if_no_pdf: bool = Field(default=True, description="Skip stage 2 when no real PDFs are retrieved; treats stage-1 survivors as included.")
     screening_concurrency: int = Field(ge=1, le=20, default=5, description="Number of papers screened concurrently by the LLM dual-reviewer.")
+    max_llm_screen: Optional[int] = Field(
+        default=None,
+        ge=1,
+        description=(
+            "Hard cap on the total number of papers sent to LLM dual-review. "
+            "Papers beyond this count are skipped and treated as excluded at the "
+            "title/abstract stage, controlling API cost for exploratory runs. "
+            "Set to null (or omit) to screen all candidate papers."
+        ),
+    )
 
 
 class DualReviewConfig(BaseModel):
