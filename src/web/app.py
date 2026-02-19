@@ -25,6 +25,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from sse_starlette.sse import EventSourceResponse
 
+from src.export.submission_packager import package_submission
 from src.orchestration.context import WebRunContext
 from src.orchestration.workflow import run_workflow
 
@@ -442,7 +443,7 @@ async def get_screening(
                 params.append(decision)
             where = f"WHERE {' AND '.join(conditions)}" if conditions else ""
             async with db.execute(
-                f"""SELECT paper_id, stage, decision, rationale, created_at
+                f"""SELECT paper_id, stage, decision, reason AS rationale, created_at
                     FROM screening_decisions {where}
                     ORDER BY created_at DESC LIMIT ? OFFSET ?""",
                 (*params, limit, offset),
@@ -494,8 +495,51 @@ async def get_db_costs(run_id: str) -> dict[str, Any]:
 
 
 # ---------------------------------------------------------------------------
+# Run artifacts + export endpoints
+# ---------------------------------------------------------------------------
+
+@app.get("/api/run/{run_id}/artifacts")
+async def get_run_artifacts(run_id: str) -> dict[str, Any]:
+    """Return the run_summary.json for any run (live or historically attached)."""
+    db_path = _get_db_path(run_id)
+    summary = pathlib.Path(db_path).parent / "run_summary.json"
+    if not summary.exists():
+        raise HTTPException(status_code=404, detail="run_summary.json not found")
+    return _json.loads(summary.read_text(encoding="utf-8"))
+
+
+@app.post("/api/run/{run_id}/export")
+async def trigger_export(run_id: str, log_root: str = "logs") -> dict[str, Any]:
+    """Package the IEEE LaTeX submission for a completed run.
+
+    Reads workflow_id from run_summary.json, calls package_submission(),
+    and returns the submission directory path plus a list of output files.
+    """
+    db_path = _get_db_path(run_id)
+    summary_path = pathlib.Path(db_path).parent / "run_summary.json"
+    if not summary_path.exists():
+        raise HTTPException(status_code=404, detail="run_summary.json not found")
+    summary = _json.loads(summary_path.read_text(encoding="utf-8"))
+    workflow_id: str | None = summary.get("workflow_id")
+    if not workflow_id:
+        raise HTTPException(status_code=422, detail="workflow_id not found in run_summary")
+    try:
+        submission_dir = await package_submission(workflow_id, log_root)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Export failed: {exc}") from exc
+    if submission_dir is None:
+        raise HTTPException(status_code=500, detail="Export failed: manuscript not found")
+    files = sorted(str(f) for f in submission_dir.rglob("*") if f.is_file())
+    return {"submission_dir": str(submission_dir), "files": files}
+
+
+# ---------------------------------------------------------------------------
 # Serve React frontend (production)
 # ---------------------------------------------------------------------------
+
+_outputs_dir = pathlib.Path("data/outputs")
+_outputs_dir.mkdir(parents=True, exist_ok=True)
+app.mount("/outputs", StaticFiles(directory=str(_outputs_dir)), name="outputs")
 
 _static_dir = pathlib.Path(__file__).parent.parent.parent / "frontend" / "dist"
 if _static_dir.exists():

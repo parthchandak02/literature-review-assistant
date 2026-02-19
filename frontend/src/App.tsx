@@ -4,7 +4,7 @@ import { Sidebar, type NavTab } from "@/components/Sidebar"
 import { useSSEStream } from "@/hooks/useSSEStream"
 import { useCostStats } from "@/hooks/useCostStats"
 import { useBackendHealth } from "@/hooks/useBackendHealth"
-import { attachHistory, cancelRun, getDefaultReviewConfig, startRun } from "@/lib/api"
+import { attachHistory, cancelRun, fetchArtifacts, getDefaultReviewConfig, startRun } from "@/lib/api"
 import type { HistoryEntry, RunRequest } from "@/lib/api"
 
 const SetupView = lazy(() => import("@/views/SetupView").then((m) => ({ default: m.SetupView })))
@@ -50,6 +50,9 @@ export default function App() {
   const [dbTopic, setDbTopic] = useState<string | null>(null)
   const [dbWorkflowId, setDbWorkflowId] = useState<string | null>(null)
 
+  // Artifacts fetched from run_summary.json for historically-attached runs.
+  const [historyOutputs, setHistoryOutputs] = useState<Record<string, string>>({})
+
   const [defaultYaml, setDefaultYaml] = useState("")
 
   const { events, status, error, abort, reset } = useSSEStream(runId)
@@ -85,6 +88,17 @@ export default function App() {
       .then((yaml) => setDefaultYaml(yaml))
       .catch(() => {})
   }, [isOnline]) // re-fetch when backend comes back online
+
+  // Fetch run artifacts for historically-attached runs so ResultsView can show files.
+  useEffect(() => {
+    if (!dbRunId || !dbIsDone) {
+      setHistoryOutputs({})
+      return
+    }
+    fetchArtifacts(dbRunId)
+      .then((artifacts) => setHistoryOutputs(artifacts))
+      .catch(() => setHistoryOutputs({}))
+  }, [dbRunId, dbIsDone])
 
   // Keyboard shortcut: Cmd+B / Ctrl+B to toggle sidebar
   useEffect(() => {
@@ -124,6 +138,7 @@ export default function App() {
     setDbIsDone(false)
     setDbTopic(null)
     setDbWorkflowId(null)
+    setHistoryOutputs({})
     reset()
     setActiveTab("setup")
   }
@@ -176,7 +191,14 @@ export default function App() {
       case "log":
         return <LogView events={events} />
       case "results":
-        return <ResultsView outputs={outputs} isDone={status === "done"} />
+        return (
+          <ResultsView
+            outputs={outputs}
+            isDone={status === "done"}
+            historyOutputs={historyOutputs}
+            exportRunId={status === "done" ? runId : dbIsDone ? dbRunId : null}
+          />
+        )
       case "history":
         return <HistoryView onAttach={handleAttach} />
       default:

@@ -177,6 +177,34 @@ export async function fetchDbCosts(
   return res.json() as Promise<{ total_cost: number; records: DbCostRow[] }>
 }
 
+// Run artifacts + export
+
+export interface ExportResult {
+  submission_dir: string
+  files: string[]
+}
+
+/**
+ * Fetch run_summary.json artifacts for any run (live or historically attached).
+ * Returns the `artifacts` map of label -> absolute file path.
+ */
+export async function fetchArtifacts(runId: string): Promise<Record<string, string>> {
+  const res = await fetch(`${BASE}/run/${runId}/artifacts`)
+  if (!res.ok) throw await _apiError(res, "Artifacts fetch failed")
+  const data = await res.json() as { artifacts?: Record<string, string>; outputs?: Record<string, string> }
+  return (data.artifacts ?? data.outputs ?? {}) as Record<string, string>
+}
+
+/**
+ * Trigger IEEE LaTeX export for a completed run.
+ * Returns the submission directory path and a sorted list of generated file paths.
+ */
+export async function triggerExport(runId: string): Promise<ExportResult> {
+  const res = await fetch(`${BASE}/run/${runId}/export`, { method: "POST" })
+  if (!res.ok) throw await _apiError(res, "Export failed")
+  return res.json() as Promise<ExportResult>
+}
+
 // History endpoints
 
 export async function fetchHistory(logRoot = "logs"): Promise<HistoryEntry[]> {

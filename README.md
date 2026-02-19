@@ -33,7 +33,9 @@ cd research-article-writer
 **2. Install Python dependencies**
 
 ```bash
-pip install uv          # if you don't have uv
+# Install uv (if you don't have it)
+curl -LsSf https://astral.sh/uv/install.sh | sh
+
 uv sync
 ```
 
@@ -225,6 +227,21 @@ Every factual claim in the manuscript is traced back to a citation via the citat
 ---
 
 ## Development
+
+**Dev servers (hot-reload):**
+
+Run both processes in separate terminals:
+
+```bash
+# Terminal 1: backend with auto-reload
+uv run uvicorn src.web.app:app --reload --port 8000
+
+# Terminal 2: frontend dev server (proxies /api to :8000)
+cd frontend
+pnpm dev
+```
+
+Then open `http://localhost:5173`. Changes to Python or TypeScript files reload instantly.
 
 **Run tests:**
 
