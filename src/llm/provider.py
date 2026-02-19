@@ -37,26 +37,64 @@ class LLMProvider:
             on_waiting=on_waiting,
         )
 
+    # Gemini tiers (input/output per 1M tokens in USD)
+    # Anthropic Claude prices (approx Feb 2026)
+    # OpenAI prices (approx Feb 2026)
+    # Groq prices (approx Feb 2026)
     _PRICE_PER_1M: dict[str, tuple[float, float]] = {
+        # Gemini tiers
         "flash-lite": (0.10, 0.40),
         "flash": (0.30, 2.50),
         "pro": (1.25, 10.00),
+        # Anthropic Claude
+        "claude-opus": (15.00, 75.00),
+        "claude-sonnet": (3.00, 15.00),
+        "claude-haiku": (0.80, 4.00),
+        # OpenAI
+        "gpt-4o": (2.50, 10.00),
+        "gpt-4o-mini": (0.15, 0.60),
+        "o3": (10.00, 40.00),
+        "o3-mini": (1.10, 4.40),
+        # Groq (estimates -- varies by model)
+        "groq": (0.05, 0.08),
     }
 
     @classmethod
     def estimate_cost_usd(cls, model: str, tokens_in: int, tokens_out: int) -> float:
-        """Estimate cost from token counts. Uses word count as rough token proxy."""
+        """Estimate cost from token counts for any supported provider."""
         tier = cls._tier_from_model(model)
         prices = cls._PRICE_PER_1M.get(tier, (0.30, 2.50))
         return (tokens_in / 1e6) * prices[0] + (tokens_out / 1e6) * prices[1]
 
     @staticmethod
     def _tier_from_model(model: str) -> str:
+        """Map a model string to a pricing tier key."""
         lowered = model.lower()
+        # Gemini tiers
         if "flash-lite" in lowered:
             return "flash-lite"
         if "flash" in lowered:
             return "flash"
+        # Anthropic Claude
+        if "claude-opus" in lowered or "claude-3-opus" in lowered:
+            return "claude-opus"
+        if "claude-sonnet" in lowered or "claude-3-5-sonnet" in lowered:
+            return "claude-sonnet"
+        if "claude-haiku" in lowered:
+            return "claude-haiku"
+        # OpenAI
+        if "gpt-4o-mini" in lowered:
+            return "gpt-4o-mini"
+        if "gpt-4o" in lowered:
+            return "gpt-4o"
+        if "o3-mini" in lowered:
+            return "o3-mini"
+        if "o3" in lowered:
+            return "o3"
+        # Groq
+        if "groq:" in lowered or model.startswith("groq:"):
+            return "groq"
+        # Default to Gemini Pro pricing for unknown models
         return "pro"
 
     def get_agent_config(self, agent_name: str) -> AgentRuntimeConfig:
