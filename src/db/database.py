@@ -30,6 +30,18 @@ async def run_migrations(db: aiosqlite.Connection) -> None:
         await db.commit()
     except Exception:
         pass
+    # Migration: add display_label column to papers (canonical human-readable label)
+    try:
+        await db.execute("ALTER TABLE papers ADD COLUMN display_label TEXT")
+        await db.commit()
+    except Exception:
+        pass
+    # Migration: add dedup_count column to workflows
+    try:
+        await db.execute("ALTER TABLE workflows ADD COLUMN dedup_count INTEGER")
+        await db.commit()
+    except Exception:
+        pass
 
 
 @asynccontextmanager

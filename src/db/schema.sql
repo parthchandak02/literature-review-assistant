@@ -11,6 +11,7 @@ CREATE TABLE IF NOT EXISTS papers (
     source_category TEXT NOT NULL DEFAULT 'database',
     openalex_id TEXT,
     country TEXT,
+    display_label TEXT,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -157,8 +158,18 @@ CREATE TABLE IF NOT EXISTS workflows (
     topic TEXT NOT NULL,
     config_hash TEXT NOT NULL,
     status TEXT NOT NULL DEFAULT 'running',
+    dedup_count INTEGER,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS synthesis_results (
+    workflow_id TEXT NOT NULL,
+    outcome_name TEXT NOT NULL,
+    feasibility_data TEXT NOT NULL,
+    narrative_data TEXT NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (workflow_id, outcome_name)
 );
 
 CREATE TABLE IF NOT EXISTS checkpoints (

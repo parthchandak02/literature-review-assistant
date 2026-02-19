@@ -9,7 +9,13 @@ import aiosqlite
 
 
 def _row_to_candidate_paper(row: Tuple[Any, ...]) -> CandidatePaper:
-    """Convert a papers table row to CandidatePaper."""
+    """Convert a papers table row to CandidatePaper.
+
+    Expected column order (matches all SELECT queries in this module):
+      0 paper_id, 1 title, 2 authors, 3 year, 4 source_database, 5 doi,
+      6 abstract, 7 url, 8 keywords, 9 source_category, 10 openalex_id,
+      11 country, 12 display_label
+    """
     authors_raw = row[2]
     authors = json.loads(authors_raw) if isinstance(authors_raw, str) else (authors_raw or [])
     keywords_raw = row[8]
@@ -19,6 +25,7 @@ def _row_to_candidate_paper(row: Tuple[Any, ...]) -> CandidatePaper:
     except ValueError:
         source_cat = SourceCategory.DATABASE
     country = str(row[11]) if len(row) > 11 and row[11] else None
+    display_label = str(row[12]) if len(row) > 12 and row[12] else None
     return CandidatePaper(
         paper_id=str(row[0]),
         title=str(row[1]),
@@ -32,6 +39,7 @@ def _row_to_candidate_paper(row: Tuple[Any, ...]) -> CandidatePaper:
         source_category=source_cat,
         openalex_id=str(row[10]) if row[10] else None,
         country=country,
+        display_label=display_label,
     )
 
 from src.models import (
@@ -52,6 +60,9 @@ from src.models import (
     SectionDraft,
 )
 from src.models.enums import SourceCategory
+from src.models.papers import compute_display_label
+from src.synthesis.feasibility import SynthesisFeasibility
+from src.synthesis.narrative import NarrativeSynthesis
 
 
 class WorkflowRepository:
@@ -81,6 +92,59 @@ class WorkflowRepository:
                 decision.reviewer_type.value,
                 decision.confidence,
             ),
+        )
+        await self.db.commit()
+
+    async def bulk_save_screening_decisions(
+        self,
+        workflow_id: str,
+        stage: str,
+        papers: list[CandidatePaper],
+        decisions: list[ScreeningDecision],
+    ) -> None:
+        """Batch-insert keyword pre-filter decisions into both screening tables.
+
+        Writes one row per paper to screening_decisions (individual reviewer
+        record) and one row to dual_screening_results (PRISMA aggregate), all
+        in a single commit. Saves each paper to the papers table first to
+        satisfy the foreign-key constraint.
+        """
+        paper_by_id = {p.paper_id: p for p in papers}
+        for decision in decisions:
+            paper = paper_by_id.get(decision.paper_id)
+            if paper is not None:
+                await self.save_paper(paper)
+        await self.db.executemany(
+            """
+            INSERT OR IGNORE INTO screening_decisions (
+                workflow_id, paper_id, stage, decision, reason, exclusion_reason,
+                reviewer_type, confidence
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            [
+                (
+                    workflow_id,
+                    d.paper_id,
+                    stage,
+                    d.decision.value,
+                    d.reason,
+                    d.exclusion_reason.value if d.exclusion_reason else None,
+                    d.reviewer_type.value,
+                    d.confidence,
+                )
+                for d in decisions
+            ],
+        )
+        await self.db.executemany(
+            """
+            INSERT OR IGNORE INTO dual_screening_results (
+                workflow_id, paper_id, stage, agreement, final_decision, adjudication_needed
+            ) VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            [
+                (workflow_id, d.paper_id, stage, 1, d.decision.value, 0)
+                for d in decisions
+            ],
         )
         await self.db.commit()
 
@@ -137,12 +201,13 @@ class WorkflowRepository:
         await self.db.commit()
 
     async def save_paper(self, paper: CandidatePaper) -> None:
+        label = paper.display_label or compute_display_label(paper)
         await self.db.execute(
             """
             INSERT OR REPLACE INTO papers (
                 paper_id, title, authors, year, source_database, doi, abstract, url,
-                keywords, source_category, openalex_id, country
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                keywords, source_category, openalex_id, country, display_label
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 paper.paper_id,
@@ -157,6 +222,7 @@ class WorkflowRepository:
                 paper.source_category.value,
                 paper.openalex_id,
                 paper.country,
+                label,
             ),
         )
 
@@ -269,7 +335,7 @@ class WorkflowRepository:
         cursor = await self.db.execute(
             """
             SELECT paper_id, title, authors, year, source_database, doi, abstract, url,
-                   keywords, source_category, openalex_id, country
+                   keywords, source_category, openalex_id, country, display_label
             FROM papers
             """
         )
@@ -284,7 +350,7 @@ class WorkflowRepository:
         cursor = await self.db.execute(
             f"""
             SELECT paper_id, title, authors, year, source_database, doi, abstract, url,
-                   keywords, source_category, openalex_id, country
+                   keywords, source_category, openalex_id, country, display_label
             FROM papers
             WHERE paper_id IN ({placeholders})
             """,
@@ -305,11 +371,11 @@ class WorkflowRepository:
         return {str(row[0]): str(row[1]) for row in rows}
 
     async def get_included_paper_ids(self, workflow_id: str) -> Set[str]:
-        """Paper IDs that passed fulltext screening with include decision."""
+        """Paper IDs that passed fulltext screening with include or uncertain decision."""
         cursor = await self.db.execute(
             """
             SELECT paper_id FROM dual_screening_results
-            WHERE workflow_id = ? AND stage = 'fulltext' AND final_decision = 'include'
+            WHERE workflow_id = ? AND stage = 'fulltext' AND final_decision IN ('include', 'uncertain')
             """,
             (workflow_id,),
         )
@@ -570,6 +636,78 @@ class WorkflowRepository:
         if workflow_row is None or int(workflow_row[0]) == 0:
             return False
         return True
+
+    async def save_synthesis_result(
+        self,
+        workflow_id: str,
+        feasibility: SynthesisFeasibility,
+        narrative: NarrativeSynthesis,
+    ) -> None:
+        """Persist synthesis results to DB as the canonical typed source of truth."""
+        await self.db.execute(
+            """
+            INSERT OR REPLACE INTO synthesis_results (
+                workflow_id, outcome_name, feasibility_data, narrative_data
+            ) VALUES (?, ?, ?, ?)
+            """,
+            (
+                workflow_id,
+                narrative.outcome_name,
+                json.dumps(feasibility.model_dump()),
+                json.dumps(narrative.model_dump()),
+            ),
+        )
+        await self.db.commit()
+
+    async def load_synthesis_result(
+        self, workflow_id: str
+    ) -> Optional[Tuple[SynthesisFeasibility, NarrativeSynthesis]]:
+        """Load the most recent synthesis result for a workflow.
+
+        Returns a typed (SynthesisFeasibility, NarrativeSynthesis) pair, or None
+        if no result has been saved (e.g. older DB without synthesis_results table).
+        """
+        try:
+            cursor = await self.db.execute(
+                """
+                SELECT feasibility_data, narrative_data
+                FROM synthesis_results
+                WHERE workflow_id = ?
+                ORDER BY created_at DESC
+                LIMIT 1
+                """,
+                (workflow_id,),
+            )
+            row = await cursor.fetchone()
+        except Exception:
+            return None
+        if row is None:
+            return None
+        try:
+            feasibility = SynthesisFeasibility.model_validate(json.loads(str(row[0])))
+            narrative = NarrativeSynthesis.model_validate(json.loads(str(row[1])))
+            return feasibility, narrative
+        except Exception:
+            return None
+
+    async def save_dedup_count(self, workflow_id: str, count: int) -> None:
+        """Persist the post-deduplication paper count so resume does not recompute it."""
+        await self.db.execute(
+            "UPDATE workflows SET dedup_count = ? WHERE workflow_id = ?",
+            (count, workflow_id),
+        )
+        await self.db.commit()
+
+    async def get_dedup_count(self, workflow_id: str) -> Optional[int]:
+        """Return stored dedup count, or None if not yet persisted."""
+        cursor = await self.db.execute(
+            "SELECT dedup_count FROM workflows WHERE workflow_id = ?",
+            (workflow_id,),
+        )
+        row = await cursor.fetchone()
+        if row is None or row[0] is None:
+            return None
+        return int(row[0])
 
     async def create_workflow(self, workflow_id: str, topic: str, config_hash: str) -> None:
         await self.db.execute(

@@ -70,6 +70,9 @@ class AgentConfig(BaseModel):
 class ScreeningConfig(BaseModel):
     stage1_include_threshold: float = Field(ge=0.0, le=1.0, default=0.85)
     stage1_exclude_threshold: float = Field(ge=0.0, le=1.0, default=0.80)
+    keyword_filter_min_matches: int = Field(ge=0, default=1, description="Minimum keyword hits required to send a paper to LLM screening; 0 disables pre-filter.")
+    skip_fulltext_if_no_pdf: bool = Field(default=True, description="Skip stage 2 when no real PDFs are retrieved; treats stage-1 survivors as included.")
+    screening_concurrency: int = Field(ge=1, le=20, default=5, description="Number of papers screened concurrently by the LLM dual-reviewer.")
 
 
 class DualReviewConfig(BaseModel):
@@ -128,6 +131,25 @@ class LLMRateLimitConfig(BaseModel):
     pro_rpm: int = Field(ge=1, le=500, default=5)
 
 
+class SearchConfig(BaseModel):
+    """Search depth configuration.
+
+    max_results_per_db is the global default per connector.
+    per_database_limits overrides it for specific connectors, allowing
+    high-yield databases (crossref, pubmed) to pull more records than
+    lower-yield ones (arxiv, ieee_xplore).
+    """
+
+    max_results_per_db: int = Field(ge=1, le=10000, default=500)
+    per_database_limits: Dict[str, int] = Field(
+        default_factory=dict,
+        description=(
+            "Per-connector record limits. Keys must match connector names: "
+            "openalex, pubmed, arxiv, ieee_xplore, semantic_scholar, crossref, perplexity_search."
+        ),
+    )
+
+
 class SettingsConfig(BaseModel):
     agents: Dict[str, AgentConfig]
     screening: ScreeningConfig = Field(default_factory=ScreeningConfig)
@@ -138,4 +160,5 @@ class SettingsConfig(BaseModel):
     meta_analysis: MetaAnalysisConfig = Field(default_factory=MetaAnalysisConfig)
     ieee_export: IEEEExportConfig = Field(default_factory=IEEEExportConfig)
     citation_lineage: CitationLineageConfig = Field(default_factory=CitationLineageConfig)
+    search: SearchConfig = Field(default_factory=SearchConfig)
     llm: LLMRateLimitConfig | None = None

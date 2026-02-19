@@ -20,6 +20,7 @@ class ReviewerType(str, Enum):
     REVIEWER_B = "reviewer_b"
     ADJUDICATOR = "adjudicator"
     HUMAN = "human"
+    KEYWORD_FILTER = "keyword_filter"
 
 
 class RiskOfBiasJudgment(str, Enum):
@@ -53,6 +54,7 @@ class ExclusionReason(str, Enum):
     INSUFFICIENT_DATA = "insufficient_data"
     WRONG_LANGUAGE = "wrong_language"
     NO_FULL_TEXT = "no_full_text"
+    KEYWORD_FILTER = "keyword_filter"  # pre-filter: zero intervention keyword matches; no LLM call made
     OTHER = "other"
 
 
