@@ -12,7 +12,16 @@ from dotenv import load_dotenv
 from src.models import ReviewConfig, SettingsConfig
 
 
-REQUIRED_ENV_KEYS = ("GEMINI_API_KEY",)
+# Map model string prefixes to the env var that must be set for that provider.
+_PREFIX_TO_ENV: dict[str, str] = {
+    "google-gla:": "GEMINI_API_KEY",
+    "google-vertex:": "GEMINI_API_KEY",
+    "anthropic:": "ANTHROPIC_API_KEY",
+    "openai:": "OPENAI_API_KEY",
+    "groq:": "GROQ_API_KEY",
+    "mistral:": "MISTRAL_API_KEY",
+    "cohere:": "CO_API_KEY",
+}
 
 
 def _read_yaml(path: str) -> dict:
@@ -26,6 +35,24 @@ def _read_yaml(path: str) -> dict:
     return loaded
 
 
+def get_required_env_keys(settings: SettingsConfig) -> list[str]:
+    """Derive which API key env vars are required based on configured model prefixes.
+
+    Returns a list of env var names that must be set. If all agents use
+    google-gla: prefix (the default), only GEMINI_API_KEY is required.
+    Switching any agent to anthropic: adds ANTHROPIC_API_KEY to the list.
+    """
+    required: set[str] = set()
+    for agent_cfg in settings.agents.values():
+        for prefix, env_key in _PREFIX_TO_ENV.items():
+            if agent_cfg.model.startswith(prefix):
+                required.add(env_key)
+    # Fallback: if no prefix matched, require GEMINI_API_KEY (safe default).
+    if not required:
+        required.add("GEMINI_API_KEY")
+    return sorted(required)
+
+
 def load_configs(
     review_path: str = "config/review.yaml",
     settings_path: str = "config/settings.yaml",
@@ -36,10 +63,15 @@ def load_configs(
     return review, settings
 
 
-def validate_secret_env() -> list[str]:
+def validate_secret_env(settings: SettingsConfig | None = None) -> list[str]:
+    """Return list of missing required env var names.
+
+    If settings is provided, derives required keys dynamically from model
+    prefixes. Otherwise falls back to requiring GEMINI_API_KEY only.
+    """
     load_dotenv()
-    missing: list[str] = []
-    for key in REQUIRED_ENV_KEYS:
-        if not os.getenv(key):
-            missing.append(key)
-    return missing
+    if settings is not None:
+        required = get_required_env_keys(settings)
+    else:
+        required = ["GEMINI_API_KEY"]
+    return [key for key in required if not os.getenv(key)]
