@@ -47,6 +47,8 @@ export default function App() {
   // killing the live stream when browsing historical runs.
   const [dbRunId, setDbRunId] = useState<string | null>(null)
   const [dbIsDone, setDbIsDone] = useState(false)
+  const [dbTopic, setDbTopic] = useState<string | null>(null)
+  const [dbWorkflowId, setDbWorkflowId] = useState<string | null>(null)
 
   const [defaultYaml, setDefaultYaml] = useState("")
 
@@ -72,6 +74,10 @@ export default function App() {
     () => dbIsDone || status === "done" || events.some((e) => e.type === "db_ready"),
     [dbIsDone, status, events],
   )
+
+  // Active context for the breadcrumb: live run takes priority over historical.
+  const activeTopic = topic ?? dbTopic
+  const activeWorkflowId = runId ?? dbWorkflowId
 
   // Load default YAML config (silently ignored if backend is offline)
   useEffect(() => {
@@ -99,6 +105,8 @@ export default function App() {
     setRunId(res.run_id)
     setDbRunId(res.run_id)
     setDbIsDone(false)
+    setDbTopic(null)
+    setDbWorkflowId(null)
     setTopic(res.topic)
     setActiveTab("overview")
   }
@@ -114,6 +122,8 @@ export default function App() {
     setStartedAt(null)
     setDbRunId(null)
     setDbIsDone(false)
+    setDbTopic(null)
+    setDbWorkflowId(null)
     reset()
     setActiveTab("setup")
   }
@@ -124,6 +134,8 @@ export default function App() {
     const res = await attachHistory(entry)
     setDbRunId(res.run_id)
     setDbIsDone(true)
+    setDbTopic(entry.topic)
+    setDbWorkflowId(entry.workflow_id)
     setActiveTab("database")
   }
 
@@ -195,12 +207,30 @@ export default function App() {
       >
         {/* Top bar */}
         <header className="sticky top-0 z-10 bg-[#09090b]/80 backdrop-blur-sm border-b border-zinc-800 h-14 flex items-center px-6 gap-4">
-          {/* Breadcrumb */}
+          {/* Breadcrumb: LitReview / {topic} / {tab} */}
           <div className="flex items-center gap-1.5 text-sm flex-1 min-w-0">
-            <span className="text-zinc-600 font-medium">LitReview</span>
-            <span className="text-zinc-700">/</span>
+            <span className="text-zinc-600 font-medium shrink-0">LitReview</span>
+            {activeTopic && (
+              <>
+                <span className="text-zinc-700 shrink-0">/</span>
+                <span
+                  className="text-zinc-500 font-medium truncate max-w-[200px] shrink-0"
+                  title={activeTopic}
+                >
+                  {activeTopic.length > 40 ? activeTopic.slice(0, 40) + "..." : activeTopic}
+                </span>
+              </>
+            )}
+            <span className="text-zinc-700 shrink-0">/</span>
             <span className="text-zinc-300 font-medium truncate">{TAB_LABELS[activeTab]}</span>
           </div>
+
+          {/* Workflow ID chip -- shows which run is active */}
+          {activeWorkflowId && (
+            <span className="font-mono text-[11px] text-zinc-600 hidden sm:block shrink-0">
+              {activeWorkflowId.slice(0, 12)}
+            </span>
+          )}
 
           {/* Live cost pill */}
           {runId !== null && costStats.total_cost > 0 && (
