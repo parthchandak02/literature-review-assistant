@@ -33,6 +33,7 @@ from src.protocol.generator import ProtocolGenerator
 from src.quality import CaspAssessor, GradeAssessor, Rob2Assessor, RobinsIAssessor, StudyRouter
 from src.screening.dual_screener import DualReviewerScreener
 from src.screening.gemini_client import GeminiScreeningClient
+from src.screening.keyword_filter import keyword_prefilter
 from src.search.arxiv import ArxivConnector
 from src.search.base import SearchConnector
 from src.search.crossref import CrossrefConnector
@@ -43,7 +44,13 @@ from src.search.perplexity_search import PerplexitySearchConnector
 from src.search.pubmed import PubMedConnector
 from src.search.semantic_scholar import SemanticScholarConnector
 from src.search.strategy import SearchStrategyCoordinator
+from src.llm.gemini_client import GeminiClient
 from src.synthesis import assess_meta_analysis_feasibility, build_narrative_synthesis
+from src.synthesis.meta_analysis import pool_effects
+from src.visualization.forest_plot import render_forest_plot
+from src.visualization.funnel_plot import render_funnel_plot
+from src.writing.humanizer import humanize_async
+from src.writing.context_builder import build_writing_grounding
 from src.writing.orchestration import (
     prepare_writing_context,
     register_citations_from_papers,
@@ -168,6 +175,8 @@ class StartNode(BaseNode[ReviewState]):
         state.artifacts["prisma_diagram"] = str(output_paths.run_dir / "fig_prisma_flow.png")
         state.artifacts["timeline"] = str(output_paths.run_dir / "fig_publication_timeline.png")
         state.artifacts["geographic"] = str(output_paths.run_dir / "fig_geographic_distribution.png")
+        state.artifacts["fig_forest_plot"] = str(output_paths.run_dir / "fig_forest_plot.png")
+        state.artifacts["fig_funnel_plot"] = str(output_paths.run_dir / "fig_funnel_plot.png")
         if rc:
             rc.emit_phase_done("start", {"workflow_id": state.workflow_id})
         return SearchNode()
@@ -245,12 +254,17 @@ class SearchNode(BaseNode[ReviewState]):
                 output_dir=state.output_dir,
                 on_connector_done=on_connector_done,
             )
-            results, dedup_count = await coordinator.run(max_results=100)
+            search_cfg = state.settings.search
+            results, dedup_count = await coordinator.run(
+                max_results=search_cfg.max_results_per_db,
+                per_database_limits=search_cfg.per_database_limits or None,
+            )
             all_papers = [paper for result in results for paper in result.papers]
             deduped, _ = deduplicate_papers(all_papers)
             state.deduped_papers = deduped
             state.dedup_count = dedup_count
             state.search_counts = await repository.get_search_counts(state.workflow_id)
+            await repository.save_dedup_count(state.workflow_id, dedup_count)
 
             protocol_generator = ProtocolGenerator(output_dir=state.output_dir)
             protocol = protocol_generator.generate(state.workflow_id, state.review)
@@ -331,26 +345,82 @@ class ScreeningNode(BaseNode[ReviewState]):
                 on_prompt=on_prompt,
                 should_proceed_with_partial=should_proceed,
             )
-            stage1 = await screener.screen_batch(
+
+            # --- Keyword pre-filter (no LLM calls) ---
+            pre_excluded, papers_for_llm = keyword_prefilter(
+                state.deduped_papers, state.review, state.settings.screening
+            )
+            if pre_excluded:
+                paper_by_id = {p.paper_id: p for p in state.deduped_papers}
+                pre_excluded_papers = [paper_by_id[d.paper_id] for d in pre_excluded if d.paper_id in paper_by_id]
+                await repository.bulk_save_screening_decisions(
+                    workflow_id=state.workflow_id,
+                    stage="title_abstract",
+                    papers=pre_excluded_papers,
+                    decisions=pre_excluded,
+                )
+                if rc and rc.verbose:
+                    rc.console.print(
+                        f"[dim]Keyword pre-filter: {len(pre_excluded)} auto-excluded, "
+                        f"{len(papers_for_llm)} forwarded to LLM screening.[/]"
+                    )
+
+            # --- Stage 1: title/abstract LLM dual-review ---
+            stage1_llm = await screener.screen_batch(
                 workflow_id=state.workflow_id,
                 stage="title_abstract",
-                papers=state.deduped_papers,
+                papers=papers_for_llm,
             )
-            include_ids = {decision.paper_id for decision in stage1 if decision.decision.value == "include"}
-            stage1_survivors = [paper for paper in state.deduped_papers if paper.paper_id in include_ids]
-            full_text_by_paper = {
-                paper.paper_id: (paper.abstract or paper.title or "").strip()
-                for paper in stage1_survivors
-            }
-            stage2 = await screener.screen_batch(
-                workflow_id=state.workflow_id,
-                stage="fulltext",
-                papers=stage1_survivors,
-                full_text_by_paper=full_text_by_paper,
-                coverage_report_path=state.artifacts["coverage_report"],
-            )
-            include_ids = {decision.paper_id for decision in stage2 if decision.decision.value == "include"}
-            state.included_papers = [paper for paper in stage1_survivors if paper.paper_id in include_ids]
+            # Merge pre-filter exclusions with LLM decisions for include_ids
+            all_stage1 = list(pre_excluded) + list(stage1_llm)
+            include_ids = {d.paper_id for d in all_stage1 if d.decision.value in ("include", "uncertain")}
+            stage1_survivors = [p for p in state.deduped_papers if p.paper_id in include_ids]
+
+            # --- Reset interrupt flag so stage 2 always runs to completion ---
+            screener.reset_partial_flag()
+
+            # --- Stage 2: full-text screening (skip if no real PDFs available) ---
+            skip_fulltext = state.settings.screening.skip_fulltext_if_no_pdf
+            if skip_fulltext and stage1_survivors:
+                if rc and rc.verbose:
+                    rc.console.print(
+                        f"[dim]skip_fulltext_if_no_pdf=True: skipping full-text stage, "
+                        f"treating {len(stage1_survivors)} stage-1 survivors as included.[/]"
+                    )
+                stage2: list = []
+                state.included_papers = list(stage1_survivors)
+            else:
+                full_text_by_paper = {
+                    paper.paper_id: (paper.abstract or paper.title or "").strip()
+                    for paper in stage1_survivors
+                }
+                stage2 = await screener.screen_batch(
+                    workflow_id=state.workflow_id,
+                    stage="fulltext",
+                    papers=stage1_survivors,
+                    full_text_by_paper=full_text_by_paper,
+                    coverage_report_path=state.artifacts["coverage_report"],
+                )
+                # Fallback guard: if stage 2 returned nothing for a non-empty input,
+                # the interrupt flag was consumed -- fall back to stage-1 survivors.
+                if stage1_survivors and not stage2:
+                    await repository.append_decision_log(
+                        DecisionLogEntry(
+                            decision_type="screening_stage2_fallback",
+                            decision="warning",
+                            rationale=(
+                                f"Stage 2 returned 0 decisions for {len(stage1_survivors)} "
+                                f"stage-1 survivors; treating stage-1 include decisions as final."
+                            ),
+                            actor="workflow_run",
+                            phase="phase_3_screening",
+                        )
+                    )
+                    state.included_papers = list(stage1_survivors)
+                else:
+                    include_ids = {d.paper_id for d in stage2 if d.decision.value in ("include", "uncertain")}
+                    state.included_papers = [p for p in stage1_survivors if p.paper_id in include_ids]
+
             await gate_runner.run_screening_safeguard_gate(
                 workflow_id=state.workflow_id,
                 phase="phase_3_screening",
@@ -361,7 +431,9 @@ class ScreeningNode(BaseNode[ReviewState]):
                     decision_type="screening_summary",
                     decision="completed",
                     rationale=(
-                        f"title_abstract_total={len(stage1)}, fulltext_total={len(stage2)}, "
+                        f"pre_filtered={len(pre_excluded)}, "
+                        f"title_abstract_llm={len(stage1_llm)}, "
+                        f"fulltext_total={len(stage2)}, "
                         f"included={len(state.included_papers)}"
                     ),
                     actor="workflow_run",
@@ -411,9 +483,6 @@ class ExtractionQualityNode(BaseNode[ReviewState]):
         assert state.settings is not None
 
         router = StudyRouter()
-        rob2 = Rob2Assessor()
-        robins_i = RobinsIAssessor()
-        casp = CaspAssessor()
         grade = GradeAssessor()
 
         rob2_rows: list = []
@@ -433,7 +502,7 @@ class ExtractionQualityNode(BaseNode[ReviewState]):
             on_classify = None
             if rc and rc.verbose:
                 def _on_classify(**kw):
-                    rc.log_api_call(call_type="llm_classification", **kw)
+                    rc.log_api_call(**kw)
                 on_classify = _on_classify
             classifier = StudyClassifier(
                 provider=provider,
@@ -441,7 +510,17 @@ class ExtractionQualityNode(BaseNode[ReviewState]):
                 review=state.review,
                 on_llm_call=on_classify,
             )
-            extractor = ExtractionService(repository=repository)
+            use_llm = bool(os.getenv("GEMINI_API_KEY")) and (rc is None or not rc.offline)
+            llm_gemini = GeminiClient() if use_llm else None
+            extractor = ExtractionService(
+                repository=repository,
+                llm_client=llm_gemini,
+                settings=state.settings,
+                review=state.review,
+            )
+            rob2 = Rob2Assessor(llm_client=llm_gemini, settings=state.settings)
+            robins_i = RobinsIAssessor(llm_client=llm_gemini, settings=state.settings)
+            casp = CaspAssessor(llm_client=llm_gemini, settings=state.settings)
 
             for i, paper in enumerate(to_process):
                 if rc and rc.verbose:
@@ -475,13 +554,13 @@ class ExtractionQualityNode(BaseNode[ReviewState]):
 
                 tool = router.route_tool(record)
                 if tool == "rob2":
-                    assessment = rob2.assess(record)
+                    assessment = await rob2.assess(record, full_text=full_text)
                     await repository.save_rob2_assessment(state.workflow_id, assessment)
                 elif tool == "robins_i":
-                    assessment = robins_i.assess(record)
+                    assessment = await robins_i.assess(record, full_text=full_text)
                     await repository.save_robins_i_assessment(state.workflow_id, assessment)
                 else:
-                    assessment = casp.assess(record)
+                    assessment = await casp.assess(record, full_text=full_text)
                     await repository.append_decision_log(
                         DecisionLogEntry(
                             decision_type="casp_assessment",
@@ -531,7 +610,13 @@ class ExtractionQualityNode(BaseNode[ReviewState]):
                 phase="phase_4_extraction_quality",
                 unresolved_items=0,
             )
-            render_rob_traffic_light(rob2_rows, robins_i_rows, state.artifacts["rob_traffic_light"])
+            _rob_paper_lookup = {p.paper_id: p for p in state.included_papers}
+            render_rob_traffic_light(
+                rob2_rows,
+                robins_i_rows,
+                state.artifacts["rob_traffic_light"],
+                paper_lookup=_rob_paper_lookup,
+            )
             await repository.save_checkpoint(
                 state.workflow_id,
                 "phase_4_extraction_quality",
@@ -548,14 +633,145 @@ class ExtractionQualityNode(BaseNode[ReviewState]):
         return SynthesisNode()
 
 
+def _try_meta_analysis(
+    records: list,
+    outcome_name: str,
+    het_threshold: float,
+    effect_measure: str,
+    forest_path: str,
+    funnel_path: str,
+    funnel_min_studies: int = 10,
+) -> tuple:
+    """Attempt to pool effect sizes from ExtractionRecord.outcomes.
+
+    Returns (MetaAnalysisResult | None, forest_path | None, funnel_path | None).
+    Effect sizes are extracted from outcomes[*].effect_size and outcomes[*].se keys
+    (populated by LLM extraction; absent in heuristic extraction).
+    No LLM statistics -- all pooling done via statsmodels pool_effects().
+    """
+    import math
+    effects: list[float] = []
+    variances: list[float] = []
+    labels: list[str] = []
+
+    for record in records:
+        for outcome in (record.outcomes or []):
+            name = outcome.get("name", "").lower().replace(" ", "_")
+            if outcome_name not in name:
+                continue
+            effect_str = outcome.get("effect_size") or outcome.get("effect")
+            se_str = outcome.get("se") or outcome.get("standard_error")
+            var_str = outcome.get("variance")
+            try:
+                # Attempt to parse the numeric part (e.g. "SMD=0.45" -> 0.45)
+                if effect_str:
+                    for tok in str(effect_str).replace("=", " ").split():
+                        try:
+                            effect_val = float(tok)
+                            break
+                        except ValueError:
+                            continue
+                    else:
+                        effect_val = None
+                else:
+                    effect_val = None
+
+                if var_str:
+                    variance_val = float(str(var_str).split()[-1])
+                elif se_str:
+                    se_val = float(str(se_str).split()[-1])
+                    variance_val = se_val ** 2
+                else:
+                    variance_val = None
+            except (ValueError, TypeError):
+                effect_val = None
+                variance_val = None
+
+            if effect_val is not None and variance_val is not None and variance_val > 0:
+                effects.append(effect_val)
+                variances.append(variance_val)
+                labels.append(record.paper_id[:12])
+                break
+
+    if len(effects) < 2:
+        return None, None, None
+
+    try:
+        meta_result = pool_effects(
+            outcome_name=outcome_name,
+            effect_measure=effect_measure,
+            effects=effects,
+            variances=variances,
+            heterogeneity_threshold=het_threshold,
+        )
+    except Exception:
+        return None, None, None
+
+    rendered_forest: str | None = None
+    rendered_funnel: str | None = None
+
+    try:
+        rendered_forest = render_forest_plot(
+            effects=effects,
+            variances=variances,
+            labels=labels,
+            output_path=forest_path,
+            title=f"Forest plot: {outcome_name} ({effect_measure})",
+        )
+        meta_result = meta_result.model_copy(update={"forest_plot_path": rendered_forest})
+    except Exception:
+        pass
+
+    if len(effects) >= funnel_min_studies:
+        try:
+            ses = [math.sqrt(v) for v in variances]
+            rendered_funnel = render_funnel_plot(
+                effect_sizes=effects,
+                standard_errors=ses,
+                pooled_effect=meta_result.pooled_effect,
+                output_path=funnel_path,
+                title=f"Funnel plot: {outcome_name}",
+                minimum_studies=funnel_min_studies,
+            )
+            if rendered_funnel:
+                meta_result = meta_result.model_copy(update={"funnel_plot_path": rendered_funnel})
+        except Exception:
+            pass
+
+    return meta_result, rendered_forest, rendered_funnel
+
+
 class SynthesisNode(BaseNode[ReviewState]):
     async def run(self, ctx: GraphRunContext[ReviewState]) -> FinalizeNode:
         state = ctx.state
         rc = _rc(state)
+        assert state.settings is not None
         if rc:
-            rc.emit_phase_start("phase_5_synthesis", "Building narrative synthesis...", total=1)
+            rc.emit_phase_start("phase_5_synthesis", "Building synthesis...", total=1)
         feasibility = assess_meta_analysis_feasibility(state.extraction_records)
         narrative = build_narrative_synthesis("primary_outcome", state.extraction_records)
+
+        # Attempt quantitative meta-analysis for each feasible outcome group
+        meta_result = None
+        rendered_forest = None
+        rendered_funnel = None
+        if feasibility.feasible and state.settings.meta_analysis.enabled:
+            het_threshold = float(state.settings.meta_analysis.heterogeneity_threshold)
+            effect_measure = state.settings.meta_analysis.effect_measure_continuous
+            funnel_min = state.settings.meta_analysis.funnel_plot_minimum_studies
+            for group in feasibility.groupings:
+                meta_result, rendered_forest, rendered_funnel = _try_meta_analysis(
+                    records=state.extraction_records,
+                    outcome_name=group,
+                    het_threshold=het_threshold,
+                    effect_measure=effect_measure,
+                    forest_path=state.artifacts["fig_forest_plot"],
+                    funnel_path=state.artifacts["fig_funnel_plot"],
+                    funnel_min_studies=funnel_min,
+                )
+                if meta_result is not None:
+                    break
+
         if rc and rc.verbose:
             rc.log_synthesis(
                 feasible=feasibility.feasible,
@@ -564,33 +780,61 @@ class SynthesisNode(BaseNode[ReviewState]):
                 n_studies=narrative.n_studies,
                 direction=narrative.effect_direction_summary,
             )
+            if meta_result is not None:
+                rc.console.print(
+                    f"  Meta-analysis: {meta_result.model}={meta_result.model}, "
+                    f"I2={meta_result.i_squared:.1f}%, forest={rendered_forest is not None}, "
+                    f"funnel={rendered_funnel is not None}"
+                )
+            else:
+                rc.console.print(
+                    "  Meta-analysis: insufficient numeric effect data; using narrative synthesis."
+                )
+
+        synthesis_payload: dict = {
+            "feasibility": feasibility.model_dump(),
+            "narrative": narrative.model_dump(),
+        }
+        if meta_result is not None:
+            synthesis_payload["meta_analysis"] = meta_result.model_dump()
+
         Path(state.artifacts["narrative_synthesis"]).write_text(
-            json.dumps(
-                {
-                    "feasibility": feasibility.model_dump(),
-                    "narrative": narrative.model_dump(),
-                },
-                indent=2,
-            ),
+            json.dumps(synthesis_payload, indent=2),
             encoding="utf-8",
         )
         async with get_db(state.db_path) as db:
             repository = WorkflowRepository(db)
+            await repository.save_synthesis_result(state.workflow_id, feasibility, narrative)
             await repository.append_decision_log(
                 DecisionLogEntry(
                     decision_type="synthesis_summary",
                     decision="completed",
                     rationale=(
                         f"feasible={feasibility.feasible}, groups={len(feasibility.groupings)}, "
-                        f"narrative_studies={narrative.n_studies}"
+                        f"narrative_studies={narrative.n_studies}, "
+                        f"meta_analysis={'yes' if meta_result else 'no'}, "
+                        f"forest={'yes' if rendered_forest else 'no'}, "
+                        f"funnel={'yes' if rendered_funnel else 'no'}"
                     ),
                     actor="workflow_run",
                     phase="phase_5_synthesis",
                 )
             )
-            await repository.save_checkpoint(state.workflow_id, "phase_5_synthesis", papers_processed=len(state.extraction_records))
+            await repository.save_checkpoint(
+                state.workflow_id, "phase_5_synthesis",
+                papers_processed=len(state.extraction_records),
+            )
         if rc:
-            rc.emit_phase_done("phase_5_synthesis", {"feasible": feasibility.feasible, "n_studies": len(state.extraction_records)})
+            rc.emit_phase_done(
+                "phase_5_synthesis",
+                {
+                    "feasible": feasibility.feasible,
+                    "n_studies": len(state.extraction_records),
+                    "meta_analysis": meta_result is not None,
+                    "forest_plot": rendered_forest is not None,
+                    "funnel_plot": rendered_funnel is not None,
+                },
+            )
             if rc.debug:
                 rc.emit_debug_state(
                     "phase_5_synthesis",
@@ -614,13 +858,21 @@ class WritingNode(BaseNode[ReviewState]):
         assert state.review is not None
         assert state.settings is not None
 
-        narrative_path = Path(state.artifacts["narrative_synthesis"])
+        # Load narrative synthesis: DB is the canonical source; JSON file is the fallback
+        # for runs that predate the synthesis_results table.
         narrative: dict | None = None
-        if narrative_path.exists():
-            try:
-                narrative = json.loads(narrative_path.read_text(encoding="utf-8"))
-            except Exception:
-                narrative = None
+        async with get_db(state.db_path) as _nav_db:
+            _synthesis = await WorkflowRepository(_nav_db).load_synthesis_result(state.workflow_id)
+            if _synthesis is not None:
+                _feas, _narr = _synthesis
+                narrative = {"feasibility": _feas.model_dump(), "narrative": _narr.model_dump()}
+        if narrative is None:
+            narrative_path = Path(state.artifacts["narrative_synthesis"])
+            if narrative_path.exists():
+                try:
+                    narrative = json.loads(narrative_path.read_text(encoding="utf-8"))
+                except Exception:
+                    narrative = None
 
         style_patterns, citation_catalog = prepare_writing_context(
             state.included_papers, narrative, state.settings
@@ -656,9 +908,19 @@ class WritingNode(BaseNode[ReviewState]):
 
             await register_citations_from_papers(citation_repo, state.included_papers)
 
+            # Build grounding data from real pipeline outputs so the writing LLM
+            # cannot hallucinate counts, statistics, or citation keys.
+            grounding = build_writing_grounding(
+                prisma_counts=prisma_counts,
+                extraction_records=state.extraction_records,
+                included_papers=state.included_papers,
+                narrative=narrative,
+                citation_catalog=citation_catalog,
+            )
+
             def _on_write(**kw):
                 if rc:
-                    rc.log_api_call(call_type="llm_writing", **kw)
+                    rc.log_api_call(**kw)
 
             for i, section in enumerate(SECTIONS):
                 if section in completed:
@@ -695,7 +957,27 @@ class WritingNode(BaseNode[ReviewState]):
                     word_limit=word_limit,
                     on_llm_call=_on_write if rc and rc.verbose else None,
                     provider=provider if rc and rc.verbose else None,
+                    grounding=grounding,
                 )
+
+                # Humanization pass: apply configured number of iterations
+                writing_cfg = getattr(state.settings, "writing", None)
+                do_humanize = getattr(writing_cfg, "humanization", False)
+                humanize_iters = getattr(writing_cfg, "humanization_iterations", 1)
+                use_llm_write = bool(os.getenv("GEMINI_API_KEY")) and (rc is None or not rc.offline)
+                if do_humanize and use_llm_write:
+                    humanizer_agent = state.settings.agents.get("humanizer")
+                    h_model = humanizer_agent.model if humanizer_agent else "google-gla:gemini-2.5-pro"
+                    h_temp = humanizer_agent.temperature if humanizer_agent else 0.3
+                    if rc and rc.verbose:
+                        rc.console.print(
+                            f"    Humanizing {section} ({humanize_iters} pass(es))..."
+                        )
+                    for _ in range(humanize_iters):
+                        content = await humanize_async(
+                            content, model=h_model, temperature=h_temp, max_chars=4000
+                        )
+
                 word_count = len(content.split())
                 draft = SectionDraft(
                     workflow_id=state.workflow_id,
@@ -830,7 +1112,7 @@ async def run_workflow_resume(
     )
     state.run_context = run_context
     state.run_id = _now_utc()
-    if run_context is not None:
+    if run_context is not None and not getattr(run_context, "web_mode", False):
         try:
             loop = asyncio.get_running_loop()
             loop.add_signal_handler(signal.SIGINT, _make_sigint_handler(run_context))
@@ -890,7 +1172,7 @@ async def run_workflow(
             except EOFError:
                 pass
 
-    if run_context is not None:
+    if run_context is not None and not getattr(run_context, "web_mode", False):
         try:
             loop = asyncio.get_running_loop()
             loop.add_signal_handler(signal.SIGINT, _make_sigint_handler(run_context))

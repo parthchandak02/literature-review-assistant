@@ -286,9 +286,16 @@ class RunContext:
         body_lines = []
         if tokens_in is not None or tokens_out is not None:
             body_lines.append(f"tokens: {tokens_in or 0}in/{tokens_out or 0}out")
-        preview = (content or "").strip()[:200]
+        preview_raw = (content or "").strip()
+        preview = preview_raw[:600]
+        if len(preview_raw) > 600:
+            # Break at the last sentence boundary before the 600-char limit.
+            last_period = max(preview.rfind(". "), preview.rfind(".\n"))
+            if last_period > 200:
+                preview = preview[: last_period + 1]
+            preview += "..."
         if preview:
-            body_lines.append(f"preview: {preview}{'...' if len(content) > 200 else ''}")
+            body_lines.append(f"preview: {preview}")
         body = "\n".join(body_lines) if body_lines else "(no content)"
         self.console.print(Panel(body, title=title, border_style="dim"))
 
@@ -444,3 +451,200 @@ def create_progress(console: Console) -> Progress:
         MofNCompleteColumn(),
         console=console,
     )
+
+
+@dataclass
+class WebRunContext:
+    """RunContext replacement for web mode: emits structured JSON events to an asyncio.Queue."""
+
+    queue: Any  # asyncio.Queue[dict] -- typed as Any to avoid asyncio import at module level
+    web_mode: bool = True
+    verbose: bool = False
+    debug: bool = False
+    offline: bool = False
+    progress: None = None
+    proceed_with_partial_requested: list[bool] = field(default_factory=lambda: [False], repr=False)
+
+    def _emit(self, event: dict[str, Any]) -> None:
+        import datetime
+        event.setdefault("ts", datetime.datetime.utcnow().isoformat() + "Z")
+        try:
+            self.queue.put_nowait(event)
+        except Exception:
+            pass
+
+    def should_proceed_with_partial(self) -> bool:
+        return bool(self.proceed_with_partial_requested and self.proceed_with_partial_requested[0])
+
+    def emit_phase_start(
+        self, phase_name: str, description: str = "", total: int | None = None
+    ) -> None:
+        structured_log.log_phase(phase=phase_name, action="start", description=description)
+        self._emit({
+            "type": "phase_start",
+            "phase": phase_name,
+            "description": description,
+            "total": total,
+        })
+
+    def emit_phase_done(
+        self,
+        phase_name: str,
+        summary: dict[str, Any] | None = None,
+        total: int | None = None,
+        completed: int | None = None,
+    ) -> None:
+        structured_log.log_phase(phase=phase_name, action="done", summary=summary, total=total, completed=completed)
+        self._emit({
+            "type": "phase_done",
+            "phase": phase_name,
+            "summary": summary or {},
+            "total": total,
+            "completed": completed,
+        })
+
+    def log_api_call(
+        self,
+        source: str,
+        status: str,
+        details: str | None = None,
+        records: int | None = None,
+        *,
+        call_type: str = "llm_screening",
+        raw_response: str | None = None,
+        latency_ms: int | None = None,
+        model: str | None = None,
+        paper_id: str | None = None,
+        phase: str = "phase_unknown",
+        tokens_in: int | None = None,
+        tokens_out: int | None = None,
+        cost_usd: float | None = None,
+        other_reviewer_decision: Any = None,
+        section_name: str | None = None,
+        word_count: int | None = None,
+        **kwargs: Any,
+    ) -> None:
+        structured_log.log_api_call(
+            source=source,
+            status=status,
+            phase=phase,
+            paper_id=paper_id,
+            model=model,
+            latency_ms=latency_ms,
+            records=records,
+            error=details if status != "success" else None,
+            raw_response=raw_response if status == "success" else None,
+            tokens_in=tokens_in,
+            tokens_out=tokens_out,
+            cost_usd=cost_usd,
+            call_type=call_type,
+        )
+        self._emit({
+            "type": "api_call",
+            "source": source,
+            "status": status,
+            "phase": phase,
+            "call_type": call_type,
+            "model": model,
+            "paper_id": paper_id,
+            "latency_ms": latency_ms,
+            "tokens_in": tokens_in,
+            "tokens_out": tokens_out,
+            "cost_usd": cost_usd,
+            "records": records,
+            "details": details,
+            "section_name": section_name,
+            "word_count": word_count,
+        })
+
+    def log_connector_result(
+        self,
+        name: str,
+        status: str,
+        records: int,
+        query: str = "",
+        date_start: int | None = None,
+        date_end: int | None = None,
+        error: str | None = None,
+    ) -> None:
+        structured_log.log_connector_result(
+            connector=name,
+            status=status,
+            records=records if status == "success" else None,
+            error=error if status != "success" else None,
+        )
+        self._emit({
+            "type": "connector_result",
+            "name": name,
+            "status": status,
+            "records": records,
+            "error": error,
+        })
+
+    def log_extraction_paper(
+        self,
+        paper_id: str,
+        design: str,
+        extraction_summary: str,
+        rob_judgment: str,
+    ) -> None:
+        self._emit({
+            "type": "extraction_paper",
+            "paper_id": paper_id,
+            "design": design,
+            "rob_judgment": rob_judgment,
+        })
+
+    def log_synthesis(
+        self,
+        feasible: bool,
+        groups: list[Any],
+        rationale: str,
+        n_studies: int,
+        direction: str,
+    ) -> None:
+        self._emit({
+            "type": "synthesis",
+            "feasible": feasible,
+            "groups": len(groups),
+            "n_studies": n_studies,
+            "direction": direction,
+        })
+
+    def log_prompt(self, agent_name: str, prompt: str, paper_id: str | None) -> None:
+        pass
+
+    def log_rate_limit_wait(self, tier: str, slots_used: int, limit: int) -> None:
+        structured_log.log_rate_limit_wait(tier=tier, slots_used=slots_used, limit=limit)
+        self._emit({
+            "type": "rate_limit_wait",
+            "tier": tier,
+            "slots_used": slots_used,
+            "limit": limit,
+        })
+
+    def log_screening_decision(
+        self,
+        paper_id: str,
+        stage: str,
+        decision: str,
+        reason: str | None = None,
+    ) -> None:
+        structured_log.log_screening_decision(paper_id=paper_id, stage=stage, decision=decision, rationale=reason)
+        self._emit({
+            "type": "screening_decision",
+            "paper_id": paper_id,
+            "stage": stage,
+            "decision": decision,
+        })
+
+    def advance_screening(self, phase_name: str, current: int, total: int) -> None:
+        self._emit({
+            "type": "progress",
+            "phase": phase_name,
+            "current": current,
+            "total": total,
+        })
+
+    def emit_debug_state(self, phase_name: str, summary: dict[str, Any]) -> None:
+        pass

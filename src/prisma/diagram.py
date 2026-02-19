@@ -31,15 +31,26 @@ _EXCLUSION_REASON_LABELS: dict[str, str] = {
 def _map_counts_to_library_format(
     counts: PRISMACounts,
 ) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any] | None]:
-    """Map PRISMACounts to prisma-flow-diagram library format."""
+    """Map PRISMACounts to prisma-flow-diagram library format.
+
+    When other-source records (e.g. Perplexity/grey literature) are screened
+    in the same pass as database records, the PRISMA library arithmetic fails
+    because it computes availability as databases - duplicates, which excludes
+    the other-source pool. To keep the math consistent we fold other-source
+    records into the databases identification total and suppress the separate
+    other_methods column. The search appendix still documents all sources.
+    """
     excluded_reasons: dict[str, int] = {}
     for k, v in counts.reports_excluded_with_reasons.items():
         label = _EXCLUSION_REASON_LABELS.get(k, k.replace("_", " ").title())
         excluded_reasons[label] = v
 
+    # Use combined total so library math: (db+other) - duplicates = screened
+    combined_identified = counts.total_identified_databases + counts.total_identified_other
+
     db_registers: dict[str, Any] = {
         "identification": {
-            "databases": counts.databases_records or counts.total_identified_databases,
+            "databases": combined_identified,
             "registers": 0,
         },
         "removed_before_screening": {
@@ -60,8 +71,10 @@ def _map_counts_to_library_format(
     }
     total_studies = counts.studies_included_qualitative + counts.studies_included_quantitative
     included: dict[str, Any] = {"studies": total_studies, "reports": total_studies}
+    # Suppress other_methods column: all sources were screened together, so
+    # splitting them into a separate column would double-count the screened pool.
     other_methods: dict[str, Any] | None = None
-    if counts.other_sources_records:
+    if False and counts.other_sources_records:
         other_methods = {
             "identification": counts.other_sources_records,
             "removed_before_screening": {"duplicates": 0, "automation": 0, "other": 0},

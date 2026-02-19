@@ -57,7 +57,12 @@ async def load_resume_state(
         search_counts = await repo.get_search_counts(workflow_id)
 
         all_papers = await repo.get_all_papers()
-        deduped, dedup_count = deduplicate_papers(all_papers)
+        deduped, recomputed_dedup_count = deduplicate_papers(all_papers)
+
+        # Use stored dedup_count when available; fall back to recomputed value for
+        # older runs that predate the dedup_count column.
+        stored_dedup_count = await repo.get_dedup_count(workflow_id)
+        dedup_count = stored_dedup_count if stored_dedup_count is not None else recomputed_dedup_count
 
         included_ids = await repo.get_included_paper_ids(workflow_id)
         included_papers_sorted = [p for p in deduped if p.paper_id in included_ids]
