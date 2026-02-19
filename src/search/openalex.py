@@ -72,6 +72,9 @@ class OpenAlexConnector:
             country=country,
         )
 
+    # OpenAlex caps per_page at 200; cursor pagination is used for deep paging.
+    _PAGE_SIZE = 200
+
     async def search(
         self,
         query: str,
@@ -79,33 +82,45 @@ class OpenAlexConnector:
         date_start: int | None = None,
         date_end: int | None = None,
     ) -> SearchResult:
-        params: dict[str, str] = {
-            "search": query,
-            "per_page": str(min(max_results, 200)),
-            "api_key": self._api_key,
-        }
         filter_parts: list[str] = ["type:article"]
         if date_start:
             filter_parts.append(f"from_publication_date:{date_start}-01-01")
         if date_end:
             filter_parts.append(f"to_publication_date:{date_end}-12-31")
-        params["filter"] = ",".join(filter_parts)
+        filter_str = ",".join(filter_parts)
 
         papers: list[CandidatePaper] = []
+        cursor = "*"
         async with aiohttp.ClientSession(
             connector=tcp_connector_with_certifi()
         ) as session:
-            async with session.get(
-                self.base_url, params=params, timeout=30
-            ) as response:
-                if response.status != 200:
-                    body = await response.text()
-                    raise RuntimeError(
-                        f"OpenAlex API error {response.status}: {body[:500]}"
-                    )
-                payload = await response.json()
-                for work in payload.get("results", []):
-                    papers.append(self._to_candidate(work))
+            while len(papers) < max_results:
+                page_limit = min(self._PAGE_SIZE, max_results - len(papers))
+                params: dict[str, str] = {
+                    "search": query,
+                    "per_page": str(page_limit),
+                    "filter": filter_str,
+                    "cursor": cursor,
+                    "api_key": self._api_key,
+                }
+                async with session.get(
+                    self.base_url, params=params, timeout=aiohttp.ClientTimeout(total=30)
+                ) as response:
+                    if response.status != 200:
+                        body = await response.text()
+                        raise RuntimeError(
+                            f"OpenAlex API error {response.status}: {body[:500]}"
+                        )
+                    payload = await response.json()
+                    page_works = payload.get("results", [])
+                    if not page_works:
+                        break
+                    for work in page_works:
+                        papers.append(self._to_candidate(work))
+                    next_cursor = (payload.get("meta") or {}).get("next_cursor")
+                    if not next_cursor:
+                        break
+                    cursor = next_cursor
 
         return SearchResult(
             workflow_id=self.workflow_id,

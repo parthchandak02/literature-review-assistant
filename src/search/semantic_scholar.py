@@ -38,6 +38,9 @@ class SemanticScholarConnector:
             source_category=SourceCategory.DATABASE,
         )
 
+    # Semantic Scholar graph API caps a single page at 100 records.
+    _PAGE_SIZE = 100
+
     async def search(
         self,
         query: str,
@@ -45,21 +48,31 @@ class SemanticScholarConnector:
         date_start: int | None = None,
         date_end: int | None = None,
     ) -> SearchResult:
-        params = {
-            "query": query,
-            "limit": str(max_results),
-            "fields": "title,authors,year,abstract,url,externalIds,openAccessPdf",
-        }
         headers: dict[str, str] = {}
         if self.api_key:
             headers["x-api-key"] = self.api_key
 
         papers: list[CandidatePaper] = []
+        offset = 0
         async with aiohttp.ClientSession(connector=tcp_connector_with_certifi()) as session:
-            async with session.get(self.base_url, params=params, headers=headers, timeout=30) as response:
-                if response.status == 200:
+            while len(papers) < max_results:
+                page_limit = min(self._PAGE_SIZE, max_results - len(papers))
+                params = {
+                    "query": query,
+                    "limit": str(page_limit),
+                    "offset": str(offset),
+                    "fields": "title,authors,year,abstract,url,externalIds,openAccessPdf",
+                }
+                async with session.get(
+                    self.base_url, params=params, headers=headers, timeout=aiohttp.ClientTimeout(total=30)
+                ) as response:
+                    if response.status != 200:
+                        break
                     payload = await response.json()
-                    for item in payload.get("data", []):
+                    page_data = payload.get("data", [])
+                    if not page_data:
+                        break
+                    for item in page_data:
                         year = item.get("year")
                         if isinstance(year, int):
                             if date_start and year < date_start:
@@ -67,6 +80,11 @@ class SemanticScholarConnector:
                             if date_end and year > date_end:
                                 continue
                         papers.append(self._to_candidate(item))
+                    # Stop if the API signals no more results or we got a short page
+                    total_available = payload.get("total", 0)
+                    offset += len(page_data)
+                    if offset >= total_available or len(page_data) < page_limit:
+                        break
 
         return SearchResult(
             workflow_id=self.workflow_id,

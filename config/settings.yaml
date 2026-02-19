@@ -41,6 +41,9 @@ agents:
 screening:
   stage1_include_threshold: 0.85
   stage1_exclude_threshold: 0.8
+  keyword_filter_min_matches: 1
+  skip_fulltext_if_no_pdf: true
+  screening_concurrency: 5
 
 dual_review:
   enabled: true
@@ -86,3 +89,17 @@ ieee_export:
 citation_lineage:
   block_export_on_unresolved: true
   minimum_evidence_score: 0.5
+
+# Search depth: how many records to fetch per database connector.
+# max_results_per_db is the global default; per_database_limits overrides
+# it for individual connectors. Perplexity is capped internally at 20.
+search:
+  max_results_per_db: 500
+  per_database_limits:
+    crossref: 1000
+    pubmed: 500
+    semantic_scholar: 500
+    openalex: 500
+    arxiv: 200
+    ieee_xplore: 200
+    perplexity_search: 20

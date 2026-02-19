@@ -74,13 +74,18 @@ class SearchStrategyCoordinator:
         self.output_dir = Path(output_dir)
         self.on_connector_done = on_connector_done
 
-    async def run(self, max_results: int = 100) -> tuple[list[SearchResult], int]:
+    async def run(
+        self,
+        max_results: int = 500,
+        per_database_limits: dict[str, int] | None = None,
+    ) -> tuple[list[SearchResult], int]:
         tasks: list[tuple[SearchConnector, str, Any]] = []
         for connector in self.connectors:
             query = build_database_query(self.config, connector.name)
+            limit = (per_database_limits or {}).get(connector.name, max_results)
             task = connector.search(
                 query=query,
-                max_results=max_results,
+                max_results=limit,
                 date_start=self.config.date_range_start,
                 date_end=self.config.date_range_end,
             )

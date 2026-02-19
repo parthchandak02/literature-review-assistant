@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import re
 import time
@@ -140,6 +141,22 @@ class DualReviewerScreener:
         )
         return result
 
+    def reset_partial_flag(self) -> None:
+        """Consume any prior partial-proceed signal so the next screen_batch runs to completion.
+
+        Call this between stage 1 and stage 2 so that a Ctrl+C during stage 1
+        does not immediately abort stage 2.  A fresh Ctrl+C during stage 2 will
+        still be honoured because the callback itself is not altered -- only the
+        one-shot 'ignore' gate is cleared on the next reset.
+        """
+        self._partial_flag_consumed = True
+
+    def _check_partial(self) -> bool:
+        """Return True only when the partial-proceed signal is live and unconsumed."""
+        if getattr(self, "_partial_flag_consumed", False):
+            return False
+        return bool(self.should_proceed_with_partial and self.should_proceed_with_partial())
+
     async def screen_batch(
         self,
         workflow_id: str,
@@ -149,6 +166,10 @@ class DualReviewerScreener:
         retriever: PDFRetriever | None = None,
         coverage_report_path: str | None = None,
     ) -> list[ScreeningDecision]:
+        # Clear consumed flag at the start of every new batch so subsequent
+        # Ctrl+C events (after a reset) are still honoured.
+        self._partial_flag_consumed = False
+
         if stage == "fulltext":
             if full_text_by_paper is None:
                 active_retriever = retriever or PDFRetriever()
@@ -170,18 +191,27 @@ class DualReviewerScreener:
         processed = await self.repository.get_processed_paper_ids(workflow_id, stage)
         to_process = [p for p in papers if p.paper_id not in processed]
         total = len(to_process)
-        outputs: list[ScreeningDecision] = []
-        for i, paper in enumerate(to_process):
-            if self.should_proceed_with_partial and self.should_proceed_with_partial():
-                break
-            if stage == "fulltext":
-                text = (full_text_by_paper or {}).get(paper.paper_id, "")
-                outputs.append(await self.screen_full_text(workflow_id, paper, text))
-            else:
-                outputs.append(await self.screen_title_abstract(workflow_id, paper))
-            if self.on_progress:
-                self.on_progress("phase_3_screening", i + 1, total)
-        return outputs
+        concurrency = self.settings.screening.screening_concurrency
+        sem = asyncio.Semaphore(concurrency)
+        completed_count = 0
+
+        async def _process_one(paper: CandidatePaper) -> ScreeningDecision | None:
+            nonlocal completed_count
+            async with sem:
+                if self._check_partial():
+                    return None
+                if stage == "fulltext":
+                    text = (full_text_by_paper or {}).get(paper.paper_id, "")
+                    result = await self.screen_full_text(workflow_id, paper, text)
+                else:
+                    result = await self.screen_title_abstract(workflow_id, paper)
+                completed_count += 1
+                if self.on_progress:
+                    self.on_progress("phase_3_screening", completed_count, total)
+                return result
+
+        raw_results = await asyncio.gather(*[_process_one(p) for p in to_process])
+        return [r for r in raw_results if r is not None]
 
     @staticmethod
     def _coverage_from_map(
@@ -259,6 +289,9 @@ class DualReviewerScreener:
     ) -> ScreeningDecision:
         # Ensure FK integrity before writing screening decisions.
         await self.repository.save_paper(paper)
+        include_thresh = self.settings.screening.stage1_include_threshold
+        exclude_thresh = self.settings.screening.stage1_exclude_threshold
+
         reviewer_a = await self._run_reviewer(
             workflow_id=workflow_id,
             paper=paper,
@@ -269,33 +302,46 @@ class DualReviewerScreener:
                 reviewer_type=ReviewerType.REVIEWER_A,
             ),
         )
-        reviewer_b = await self._run_reviewer(
-            workflow_id=workflow_id,
-            paper=paper,
-            stage=stage,
-            full_text=full_text,
-            spec=ReviewerSpec(
-                agent_name="screening_reviewer_b",
-                reviewer_type=ReviewerType.REVIEWER_B,
-            ),
-            other_reviewer_decision=reviewer_a.decision,
+
+        # Confidence fast-path: skip reviewer B when reviewer A is sufficiently certain.
+        # This saves ~40-50% of LLM calls on high-confidence decisions.
+        fast_path = (
+            reviewer_a.confidence >= include_thresh and reviewer_a.decision == ScreeningDecisionType.INCLUDE
+        ) or (
+            reviewer_a.confidence >= exclude_thresh and reviewer_a.decision == ScreeningDecisionType.EXCLUDE
         )
 
-        if reviewer_a.decision == reviewer_b.decision:
+        if fast_path:
             final_decision = reviewer_a
             adjudication_needed = False
-            adjudication = None
+            agreement = True
         else:
-            adjudication = await self._run_adjudicator(
+            reviewer_b = await self._run_reviewer(
                 workflow_id=workflow_id,
                 paper=paper,
                 stage=stage,
                 full_text=full_text,
-                reviewer_a=reviewer_a,
-                reviewer_b=reviewer_b,
+                spec=ReviewerSpec(
+                    agent_name="screening_reviewer_b",
+                    reviewer_type=ReviewerType.REVIEWER_B,
+                ),
+                other_reviewer_decision=reviewer_a.decision,
             )
-            final_decision = adjudication
-            adjudication_needed = True
+            agreement = reviewer_a.decision == reviewer_b.decision
+            if agreement:
+                final_decision = reviewer_a
+                adjudication_needed = False
+            else:
+                adjudication = await self._run_adjudicator(
+                    workflow_id=workflow_id,
+                    paper=paper,
+                    stage=stage,
+                    full_text=full_text,
+                    reviewer_a=reviewer_a,
+                    reviewer_b=reviewer_b,
+                )
+                final_decision = adjudication
+                adjudication_needed = True
 
         if stage == "fulltext" and final_decision.decision == ScreeningDecisionType.EXCLUDE:
             final_decision = self._enforce_fulltext_exclusion_reason(final_decision)
@@ -304,7 +350,7 @@ class DualReviewerScreener:
             workflow_id=workflow_id,
             paper_id=paper.paper_id,
             stage=stage,
-            agreement=reviewer_a.decision == reviewer_b.decision,
+            agreement=agreement,
             final_decision=final_decision.decision,
             adjudication_needed=adjudication_needed,
         )

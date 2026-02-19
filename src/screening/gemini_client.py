@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+import random
 from typing import Any
 
 import aiohttp
@@ -49,7 +50,7 @@ class GeminiScreeningClient:
                     async with session.post(url, params=params, json=payload) as response:
                         if response.status == 429:
                             await response.read()
-                            delay = 2**attempt
+                            delay = 2**attempt + random.uniform(0, 1)
                             await asyncio.sleep(delay)
                             continue
                         if response.status != 200:
@@ -71,7 +72,7 @@ class GeminiScreeningClient:
             except Exception as e:
                 last_error = e
                 if "429" in str(e) or "RESOURCE_EXHAUSTED" in str(e):
-                    delay = 2**attempt
+                    delay = 2**attempt + random.uniform(0, 1)
                     await asyncio.sleep(delay)
                     continue
                 raise
