@@ -31,7 +31,7 @@ from src.orchestration.gates import GateRunner
 from src.protocol.generator import ProtocolGenerator
 from src.quality import CaspAssessor, GradeAssessor, Rob2Assessor, RobinsIAssessor, StudyRouter
 from src.screening.dual_screener import DualReviewerScreener
-from src.screening.gemini_client import GeminiScreeningClient
+from src.screening.gemini_client import PydanticAIScreeningClient
 from src.screening.keyword_filter import keyword_prefilter
 from src.search.arxiv import ArxivConnector
 from src.search.base import SearchConnector
@@ -43,7 +43,7 @@ from src.search.perplexity_search import PerplexitySearchConnector
 from src.search.pubmed import PubMedConnector
 from src.search.semantic_scholar import SemanticScholarConnector
 from src.search.strategy import SearchStrategyCoordinator
-from src.llm.gemini_client import GeminiClient
+from src.llm.pydantic_client import PydanticAIClient
 from src.synthesis import assess_meta_analysis_feasibility, build_narrative_synthesis
 from src.synthesis.meta_analysis import pool_effects
 from src.visualization.forest_plot import render_forest_plot
@@ -77,6 +77,39 @@ def _now_utc() -> str:
 
 def _hash_config(path: str) -> str:
     return hashlib.sha256(Path(path).read_bytes()).hexdigest()[:16]
+
+
+_PREFIX_TO_ENV: dict[str, str] = {
+    "google-gla:": "GEMINI_API_KEY",
+    "google-vertex:": "GEMINI_API_KEY",
+    "anthropic:": "ANTHROPIC_API_KEY",
+    "openai:": "OPENAI_API_KEY",
+    "groq:": "GROQ_API_KEY",
+    "mistral:": "MISTRAL_API_KEY",
+    "cohere:": "CO_API_KEY",
+}
+
+
+def _llm_available(settings: "ReviewState | None" = None, settings_cfg: "SettingsConfig | None" = None) -> bool:
+    """Return True if at least one LLM API key is set for the configured model prefixes.
+
+    Accepts either a ReviewState (for workflow nodes that have state) or a
+    SettingsConfig directly. Falls back to checking GEMINI_API_KEY for backward
+    compatibility when no settings are provided.
+    """
+    from src.models import SettingsConfig as SC
+    cfg: SC | None = None
+    if settings_cfg is not None:
+        cfg = settings_cfg
+    elif settings is not None and hasattr(settings, "settings"):
+        cfg = settings.settings  # type: ignore[union-attr]
+    if cfg is None:
+        return bool(os.getenv("GEMINI_API_KEY"))
+    for agent_cfg in cfg.agents.values():
+        for prefix, env_key in _PREFIX_TO_ENV.items():
+            if agent_cfg.model.startswith(prefix) and os.getenv(env_key):
+                return True
+    return False
 
 
 def _build_connectors(workflow_id: str, target_databases: list[str]) -> tuple[list[SearchConnector], dict[str, str]]:
@@ -322,10 +355,10 @@ class ScreeningNode(BaseNode[ReviewState]):
                     rc.log_api_call(s, st, d, r, call_type="llm_screening", **kw)  # type: ignore[union-attr]
                 on_llm_call = _on_llm_call
             use_real_client = (
-                os.getenv("GEMINI_API_KEY")
+                _llm_available(settings_cfg=state.settings)
                 and (rc is None or not rc.offline)
             )
-            llm_client = GeminiScreeningClient() if use_real_client else None
+            llm_client = PydanticAIScreeningClient() if use_real_client else None
             on_progress = None
             if rc:
                 def _on_progress(p: object, c: object, t: object) -> None:
@@ -517,8 +550,8 @@ class ExtractionQualityNode(BaseNode[ReviewState]):
                 review=state.review,
                 on_llm_call=on_classify,
             )
-            use_llm = bool(os.getenv("GEMINI_API_KEY")) and (rc is None or not rc.offline)
-            llm_gemini = GeminiClient() if use_llm else None
+            use_llm = _llm_available(settings_cfg=state.settings) and (rc is None or not rc.offline)
+            llm_gemini = PydanticAIClient() if use_llm else None
             extractor = ExtractionService(
                 repository=repository,
                 llm_client=llm_gemini,
@@ -971,7 +1004,7 @@ class WritingNode(BaseNode[ReviewState]):
                 writing_cfg = getattr(state.settings, "writing", None)
                 do_humanize = getattr(writing_cfg, "humanization", False)
                 humanize_iters = getattr(writing_cfg, "humanization_iterations", 1)
-                use_llm_write = bool(os.getenv("GEMINI_API_KEY")) and (rc is None or not rc.offline)
+                use_llm_write = _llm_available(settings_cfg=state.settings) and (rc is None or not rc.offline)
                 if do_humanize and use_llm_write:
                     humanizer_agent = state.settings.agents.get("humanizer")
                     h_model = humanizer_agent.model if humanizer_agent else "google-gla:gemini-2.5-pro"

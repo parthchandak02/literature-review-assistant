@@ -6,7 +6,7 @@ import logging
 
 from pydantic import BaseModel
 
-from src.llm.gemini_client import GeminiClient
+from src.llm.base_client import LLMBackend
 from src.models import ExtractionRecord
 from src.models.config import SettingsConfig
 
@@ -71,7 +71,7 @@ class CaspAssessor:
 
     def __init__(
         self,
-        llm_client: GeminiClient | None = None,
+        llm_client: LLMBackend | None = None,
         settings: SettingsConfig | None = None,
     ):
         self.llm_client = llm_client

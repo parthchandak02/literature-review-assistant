@@ -8,7 +8,7 @@ from typing import List
 from pydantic import BaseModel, Field
 
 from src.db.repositories import WorkflowRepository
-from src.llm.gemini_client import GeminiClient
+from src.llm.base_client import LLMBackend
 from src.models import CandidatePaper, ExtractionRecord, StudyDesign
 from src.models.config import ReviewConfig, SettingsConfig
 
@@ -81,7 +81,7 @@ class ExtractionService:
     def __init__(
         self,
         repository: WorkflowRepository,
-        llm_client: GeminiClient | None = None,
+        llm_client: LLMBackend | None = None,
         settings: SettingsConfig | None = None,
         review: ReviewConfig | None = None,
     ):

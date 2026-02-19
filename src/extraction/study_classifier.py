@@ -3,16 +3,15 @@
 from __future__ import annotations
 
 import json
-import os
 import time
 from collections.abc import Callable
 from typing import Protocol
 
-import aiohttp
 from pydantic import BaseModel, Field, ValidationError
 
 from src.db.repositories import WorkflowRepository
 from src.llm.provider import LLMProvider
+from src.llm.pydantic_client import PydanticAIClient
 from src.models import CandidatePaper, DecisionLogEntry, ReviewConfig, StudyDesign
 
 
@@ -34,10 +33,12 @@ class StudyClassificationLLMClient(Protocol):
         """Return a JSON string matching StudyClassificationResult."""
 
 
-class GeminiStudyClassificationClient:
-    """Default runtime client backed by Gemini generateContent API."""
+class PydanticAIStudyClassificationClient:
+    """Study classification client backed by PydanticAI Agent.
 
-    base_url = "https://generativelanguage.googleapis.com/v1beta/models"
+    Satisfies StudyClassificationLLMClient Protocol. Supports all PydanticAI
+    providers -- switch the model string in settings.yaml to change provider.
+    """
 
     async def complete_json(
         self,
@@ -48,40 +49,18 @@ class GeminiStudyClassificationClient:
         temperature: float,
     ) -> str:
         _ = agent_name
-        api_key = os.getenv("GEMINI_API_KEY")
-        if not api_key:
-            raise RuntimeError("GEMINI_API_KEY is required for study classification client.")
-        model_name = model.split(":", 1)[-1]
-        url = f"{self.base_url}/{model_name}:generateContent"
-        payload = {
-            "contents": [
-                {
-                    "parts": [
-                        {"text": prompt},
-                    ]
-                }
-            ],
-            "generationConfig": {
-                "temperature": temperature,
-            },
-        }
-        params = {"key": api_key}
-        async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=45)) as session:
-            async with session.post(url, params=params, json=payload) as response:
-                if response.status != 200:
-                    body = await response.text()
-                    raise RuntimeError(
-                        f"Gemini classification request failed: status={response.status}, body={body[:250]}"
-                    )
-                data = await response.json()
-        candidates = data.get("candidates") or []
-        if not candidates:
-            raise RuntimeError("Gemini classification response had no candidates.")
-        parts = candidates[0].get("content", {}).get("parts", [])
-        text = "".join(str(part.get("text") or "") for part in parts).strip()
-        if not text:
-            raise RuntimeError("Gemini classification response had no text payload.")
-        return text
+        schema = StudyClassificationResult.model_json_schema()
+        client = PydanticAIClient()
+        return await client.complete(
+            prompt,
+            model=model,
+            temperature=temperature,
+            json_schema=schema,
+        )
+
+
+# Backward-compatibility alias.
+GeminiStudyClassificationClient = PydanticAIStudyClassificationClient
 
 
 class StudyClassifier:
@@ -99,7 +78,7 @@ class StudyClassifier:
         self.provider = provider
         self.repository = repository
         self.review = review
-        self.llm_client = llm_client or GeminiStudyClassificationClient()
+        self.llm_client = llm_client or PydanticAIStudyClassificationClient()
         self.low_confidence_threshold = low_confidence_threshold
         self.on_llm_call = on_llm_call
         # Use quality_assessment profile for single Pro-tier behavior.

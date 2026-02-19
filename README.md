@@ -19,6 +19,17 @@ After a run completes, you get a `submission/` folder containing:
 
 ---
 
+## Prerequisites
+
+| Tool | Version | Install |
+|------|---------|---------|
+| Python | 3.11+ | [python.org](https://www.python.org/downloads/) or `brew install python` |
+| uv | latest | `curl -LsSf https://astral.sh/uv/install.sh \| sh` |
+| Node.js | 18+ | [nodejs.org](https://nodejs.org/) or `brew install node` |
+| pnpm | latest | `npm install -g pnpm` or `brew install pnpm` |
+
+---
+
 ## Quick Start (Web UI)
 
 The web UI is the easiest way to get started. No config files needed -- you fill in your research question and API keys in the browser.
@@ -230,44 +241,47 @@ Every factual claim in the manuscript is traced back to a citation via the citat
 
 **Dev servers (hot-reload):**
 
-Install [Overmind](https://github.com/DarthSim/overmind) once (tmux is a dependency, already bundled):
+Install [Overmind](https://github.com/DarthSim/overmind) and tmux once:
 
 ```bash
+# macOS
 brew install overmind
+
+# Linux (requires Go and tmux)
+go install github.com/DarthSim/overmind/v2@latest
+sudo apt-get install tmux   # or your distro's equivalent
 ```
 
-Then start both servers with a single command from the project root:
+Then from anywhere in the repo, start both servers with a single command:
 
 ```bash
 ./bin/dev
 ```
 
-This launches the FastAPI backend (port 8000, `--reload`) and the Vite frontend (port 5173, HMR)
-together under Overmind. Both auto-restart if they crash. Open `http://localhost:5173`.
+This starts the FastAPI backend (port 8000, `--reload`) and Vite frontend (port 5173, HMR)
+together. Both auto-restart on crash. Open `http://localhost:5173`.
 
-Useful Overmind commands:
+Useful Overmind commands (run from any directory):
 
 ```bash
 overmind connect api      # attach to backend terminal (Ctrl-b d to detach)
 overmind connect ui       # attach to frontend terminal
 overmind restart api      # restart backend only (e.g. after adding a dependency)
 overmind stop             # stop all processes
-overmind start -D         # run as background daemon (survives terminal close)
+./bin/dev -D              # run as background daemon (survives terminal close)
 overmind echo             # tail logs from daemon
 overmind quit             # stop daemon
 ```
 
-Alternatively, run each process in its own terminal (no Overmind needed):
+No Overmind? Run each process in its own terminal instead:
 
 ```bash
-# Terminal 1 -- backend with auto-reload
+# Terminal 1
 uv run uvicorn src.web.app:app --reload --port 8000
 
-# Terminal 2 -- frontend dev server (proxies /api to :8000)
+# Terminal 2
 cd frontend && pnpm dev
 ```
-
-Then open `http://localhost:5173`. Changes to Python or TypeScript files reload instantly.
 
 **Run tests:**
 

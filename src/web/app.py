@@ -293,6 +293,11 @@ async def download_file(path: str) -> FileResponse:
     return FileResponse(path=str(resolved), filename=resolved.name)
 
 
+@app.get("/api/health")
+async def health_check() -> dict[str, str]:
+    return {"status": "ok"}
+
+
 @app.get("/api/config/review")
 async def get_review_config() -> dict[str, str]:
     try:

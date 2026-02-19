@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 
-from src.llm.gemini_client import GeminiClient
+from src.llm.pydantic_client import PydanticAIClient
 
 logger = logging.getLogger(__name__)
 
@@ -52,7 +52,7 @@ async def humanize_async(
     """
     truncated = text[:max_chars]
     prompt = _HUMANIZE_PROMPT_TEMPLATE.format(text=truncated)
-    client = GeminiClient()
+    client = PydanticAIClient()
     try:
         refined = await client.complete(prompt, model=model, temperature=temperature)
         # Preserve any text beyond max_chars that was truncated

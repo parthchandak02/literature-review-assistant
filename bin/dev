@@ -2,20 +2,37 @@
 # Start the FastAPI backend and Vite frontend together via Overmind.
 # Both processes auto-restart on crash. Hot-reload is built into each server.
 #
-# One-time setup:
-#   brew install overmind    (tmux is pulled in automatically)
+# One-time setup (macOS):
+#   brew install overmind
+# One-time setup (Linux):
+#   go install github.com/DarthSim/overmind/v2@latest
+#   sudo apt-get install tmux  (or equivalent)
 #
 # Usage:
 #   ./bin/dev                 -- foreground, merged log output
 #   ./bin/dev -D              -- daemon mode (survives terminal close)
-#   overmind connect api      -- attach to backend terminal
+#   overmind connect api      -- attach to backend terminal (Ctrl-b d to detach)
 #   overmind connect ui       -- attach to frontend terminal
 #   overmind restart api      -- restart backend only
 #   overmind stop             -- stop all processes
 #   overmind quit             -- quit daemon (when started with -D)
 set -e
+
+# Always run from the project root regardless of where this script is invoked.
+cd "$(dirname "$0")/.."
+
 if ! command -v overmind > /dev/null 2>&1; then
-  echo "overmind not found. Install with: brew install overmind"
+  echo "overmind not found."
+  echo "  macOS:  brew install overmind"
+  echo "  Linux:  go install github.com/DarthSim/overmind/v2@latest  (requires tmux)"
   exit 1
 fi
+
+if ! command -v tmux > /dev/null 2>&1; then
+  echo "tmux not found. Install it first:"
+  echo "  macOS:  brew install tmux"
+  echo "  Linux:  sudo apt-get install tmux"
+  exit 1
+fi
+
 exec overmind start "$@"

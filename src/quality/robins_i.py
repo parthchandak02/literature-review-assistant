@@ -7,7 +7,7 @@ from typing import Literal
 
 from pydantic import BaseModel
 
-from src.llm.gemini_client import GeminiClient
+from src.llm.base_client import LLMBackend
 from src.models import ExtractionRecord, RobinsIAssessment, RobinsIJudgment
 from src.models.config import SettingsConfig
 
@@ -92,7 +92,7 @@ class RobinsIAssessor:
 
     def __init__(
         self,
-        llm_client: GeminiClient | None = None,
+        llm_client: LLMBackend | None = None,
         settings: SettingsConfig | None = None,
     ):
         self.llm_client = llm_client

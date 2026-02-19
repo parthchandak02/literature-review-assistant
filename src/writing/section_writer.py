@@ -2,15 +2,13 @@
 
 from __future__ import annotations
 
-import os
 import re
 import time
 from dataclasses import dataclass
 from typing import Optional, Tuple
 
-import aiohttp
-
 from src.llm.provider import LLMProvider
+from src.llm.pydantic_client import PydanticAIClient
 from src.models import ReviewConfig, SectionDraft, SettingsConfig
 
 
@@ -30,9 +28,6 @@ from src.writing.prompts.base import PROHIBITED_PHRASES, get_citation_catalog_co
 class SectionWriter:
     """Writes manuscript sections using LLM with citation catalog and style constraints."""
 
-    base_url = "https://generativelanguage.googleapis.com/v1beta/models"
-    timeout_seconds = 120
-
     def __init__(
         self,
         review: ReviewConfig,
@@ -51,7 +46,7 @@ class SectionWriter:
         context: str,
         word_limit: Optional[int] = None,
     ) -> str:
-        """Build prompt for a section. Override per section type."""
+        """Build prompt for a section."""
         parts = [
             "Role: Academic writer for a systematic review.",
             f"Topic: {self.review.research_question}",
@@ -76,7 +71,7 @@ class SectionWriter:
         word_limit: Optional[int] = None,
         agent_name: str = "writing",
     ) -> Tuple[str, SectionWriteMetadata]:
-        """Generate section content via Gemini. Returns (content, metadata) for logging."""
+        """Generate section content via LLM. Returns (content, metadata) for logging."""
         prompt = self._build_section_prompt(section, context, word_limit)
         agent_cfg = (
             self.settings.agents.get(agent_name)
@@ -85,54 +80,17 @@ class SectionWriter:
         )
         if not agent_cfg:
             agent_cfg = next(iter(self.settings.agents.values()))
-        model_name = agent_cfg.model.split(":", 1)[-1]
         full_model = agent_cfg.model
-        url = f"{self.base_url}/{model_name}:generateContent"
-        payload = {
-            "contents": [{"parts": [{"text": prompt}]}],
-            "generationConfig": {
-                "temperature": agent_cfg.temperature,
-            },
-        }
-        api_key = os.getenv("GEMINI_API_KEY")
-        if not api_key:
-            return (
-                f"[{section} placeholder - GEMINI_API_KEY not set]",
-                SectionWriteMetadata(
-                    model=full_model,
-                    tokens_in=0,
-                    tokens_out=0,
-                    cost_usd=0.0,
-                    latency_ms=0,
-                ),
-            )
-        params = {"key": api_key}
-        timeout = getattr(
-            getattr(self.settings, "writing", None),
-            "llm_timeout",
-            self.timeout_seconds,
-        )
-        start = time.perf_counter()
-        async with aiohttp.ClientSession(
-            timeout=aiohttp.ClientTimeout(total=timeout)
-        ) as session:
-            async with session.post(url, params=params, json=payload) as response:
-                if response.status != 200:
-                    body = await response.text()
-                    raise RuntimeError(
-                        f"Gemini section write failed: status={response.status}, body={body[:250]}"
-                    )
-                data = await response.json()
-        elapsed_ms = int((time.perf_counter() - start) * 1000)
-        candidates = data.get("candidates") or []
-        if not candidates:
-            raise RuntimeError("Gemini section write response had no candidates.")
-        parts = candidates[0].get("content", {}).get("parts", [])
-        content = "".join(str(part.get("text") or "") for part in parts).strip()
 
-        usage = data.get("usageMetadata") or {}
-        tokens_in = usage.get("promptTokenCount") or max(1, len(prompt.split()))
-        tokens_out = usage.get("candidatesTokenCount") or max(1, len(content.split()))
+        start = time.perf_counter()
+        client = PydanticAIClient()
+        content, tokens_in, tokens_out = await client.complete_with_usage(
+            prompt,
+            model=full_model,
+            temperature=agent_cfg.temperature,
+        )
+        elapsed_ms = int((time.perf_counter() - start) * 1000)
+
         cost_usd = LLMProvider.estimate_cost_usd(full_model, tokens_in, tokens_out)
 
         metadata = SectionWriteMetadata(

@@ -1,26 +1,22 @@
-"""Gemini-backed screening client with retry for rate limits."""
+"""Screening LLM client backed by PydanticAI -- satisfies ScreeningLLMClient protocol.
+
+GeminiScreeningClient is retained as an alias for backward compatibility with any
+code that imports it by name (primarily workflow.py and __init__.py).
+"""
 
 from __future__ import annotations
 
-import asyncio
-import os
-import random
-from typing import Any
-
-import aiohttp
-
+from src.llm.pydantic_client import PydanticAIClient
 from src.screening.dual_screener import ScreeningResponse
 
 
-_RETRYABLE_STATUS = frozenset({429, 502, 503, 504})
+class PydanticAIScreeningClient:
+    """Screening client backed by PydanticAI Agent.
 
-
-class GeminiScreeningClient:
-    """Real Gemini API client for screening. Uses generateContent with retry on transient errors."""
-
-    base_url = "https://generativelanguage.googleapis.com/v1beta/models"
-    timeout_seconds = 45
-    max_retries = 5
+    Satisfies the ScreeningLLMClient Protocol defined in dual_screener.py.
+    Uses NativeOutput for Gemini models (native responseSchema enforcement),
+    ToolOutput for all other providers.
+    """
 
     async def complete_json(
         self,
@@ -30,56 +26,19 @@ class GeminiScreeningClient:
         model: str,
         temperature: float,
     ) -> str:
-        api_key = os.getenv("GEMINI_API_KEY")
-        if not api_key:
-            raise RuntimeError("GEMINI_API_KEY is required for Gemini screening client.")
-        model_name = model.split(":", 1)[-1]
-        url = f"{self.base_url}/{model_name}:generateContent"
-        payload: dict[str, Any] = {
-            "contents": [{"parts": [{"text": prompt}]}],
-            "generationConfig": {
-                "temperature": temperature,
-                "responseMimeType": "application/json",
-                "responseJsonSchema": ScreeningResponse.model_json_schema(),
-            },
-        }
-        params = {"key": api_key}
-        last_error: Exception | None = None
-        for attempt in range(self.max_retries):
-            try:
-                async with aiohttp.ClientSession(
-                    timeout=aiohttp.ClientTimeout(total=self.timeout_seconds)
-                ) as session:
-                    async with session.post(url, params=params, json=payload) as response:
-                        if response.status in _RETRYABLE_STATUS:
-                            await response.read()
-                            delay = 2 ** (attempt + 1) + random.uniform(0, 2)
-                            await asyncio.sleep(delay)
-                            continue
-                        if response.status != 200:
-                            body = await response.text()
-                            raise RuntimeError(
-                                f"Gemini screening request failed: status={response.status}, body={body[:250]}"
-                            )
-                        data = await response.json()
-                candidates = data.get("candidates") or []
-                if not candidates:
-                    raise RuntimeError("Gemini screening response had no candidates.")
-                parts = candidates[0].get("content", {}).get("parts", [])
-                text = "".join(str(part.get("text") or "") for part in parts).strip()
-                if not text:
-                    raise RuntimeError("Gemini screening response had no text payload.")
-                return text
-            except asyncio.CancelledError:
-                raise
-            except Exception as e:
-                last_error = e
-                retryable_keywords = ("429", "502", "503", "504", "RESOURCE_EXHAUSTED", "UNAVAILABLE")
-                if any(kw in str(e) for kw in retryable_keywords):
-                    delay = 2 ** (attempt + 1) + random.uniform(0, 2)
-                    await asyncio.sleep(delay)
-                    continue
-                raise
-        if last_error:
-            raise last_error
-        raise RuntimeError("Gemini screening request failed after retries.")
+        """Return a JSON string matching ScreeningResponse schema."""
+        _ = agent_name
+        schema = ScreeningResponse.model_json_schema()
+        client = PydanticAIClient()
+        return await client.complete(
+            prompt,
+            model=model,
+            temperature=temperature,
+            json_schema=schema,
+        )
+
+
+# Backward-compatibility alias -- workflow.py and __init__.py import this name.
+GeminiScreeningClient = PydanticAIScreeningClient
+
+__all__ = ["PydanticAIScreeningClient", "GeminiScreeningClient"]
