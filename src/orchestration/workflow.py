@@ -7,7 +7,6 @@ import hashlib
 import json
 import os
 import signal
-from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 from uuid import uuid4
@@ -27,7 +26,7 @@ from src.db.workflow_registry import (
 )
 from src.extraction import ExtractionService, StudyClassifier
 from src.llm.provider import LLMProvider
-from src.models import CandidatePaper, DecisionLogEntry, ExtractionRecord, ReviewConfig, SettingsConfig, StudyDesign
+from src.models import DecisionLogEntry, ExtractionRecord, StudyDesign
 from src.orchestration.gates import GateRunner
 from src.protocol.generator import ProtocolGenerator
 from src.quality import CaspAssessor, GradeAssessor, Rob2Assessor, RobinsIAssessor, StudyRouter
@@ -313,13 +312,15 @@ class ScreeningNode(BaseNode[ReviewState]):
             gate_runner = GateRunner(repository, state.settings)
             on_waiting = None
             if rc and rc.verbose:
-                on_waiting = lambda t, u, l: rc.log_rate_limit_wait(t, u, l)
+                def _on_waiting(t: object, u: object, limit: object) -> None:
+                    rc.log_rate_limit_wait(t, u, limit)  # type: ignore[union-attr]
+                on_waiting = _on_waiting
             provider = LLMProvider(state.settings, repository, on_waiting=on_waiting)
             on_llm_call = None
             if rc and rc.verbose:
-                on_llm_call = lambda s, st, d, r, **kw: rc.log_api_call(
-                    s, st, d, r, call_type="llm_screening", **kw
-                )
+                def _on_llm_call(s: object, st: object, d: object, r: object, **kw: object) -> None:
+                    rc.log_api_call(s, st, d, r, call_type="llm_screening", **kw)  # type: ignore[union-attr]
+                on_llm_call = _on_llm_call
             use_real_client = (
                 os.getenv("GEMINI_API_KEY")
                 and (rc is None or not rc.offline)
@@ -327,10 +328,14 @@ class ScreeningNode(BaseNode[ReviewState]):
             llm_client = GeminiScreeningClient() if use_real_client else None
             on_progress = None
             if rc:
-                on_progress = lambda p, c, t: rc.advance_screening(p, c, t)
+                def _on_progress(p: object, c: object, t: object) -> None:
+                    rc.advance_screening(p, c, t)  # type: ignore[union-attr]
+                on_progress = _on_progress
             on_prompt = None
             if rc and rc.debug:
-                on_prompt = lambda a, p, pid: rc.log_prompt(a, p, pid)
+                def _on_prompt(a: object, p: object, pid: object) -> None:
+                    rc.log_prompt(a, p, pid)  # type: ignore[union-attr]
+                on_prompt = _on_prompt
             should_proceed = (
                 (lambda: rc.should_proceed_with_partial())
                 if rc and hasattr(rc, "should_proceed_with_partial")

@@ -7,10 +7,10 @@ from pathlib import Path
 from src.config.loader import load_configs
 from src.db.database import get_db
 from src.db.repositories import WorkflowRepository
-from src.models import CandidatePaper, ExtractionRecord, ReviewConfig, SettingsConfig
+from src.models import ExtractionRecord
 from src.orchestration.state import ReviewState
 from src.search.deduplication import deduplicate_papers
-from src.utils.logging_paths import OutputRunPaths, workflow_slug
+from src.utils.logging_paths import workflow_slug
 
 PHASE_ORDER = [
     "phase_2_search",
@@ -85,6 +85,8 @@ async def load_resume_state(
         "prisma_diagram": str(Path(output_dir) / "fig_prisma_flow.png"),
         "timeline": str(Path(output_dir) / "fig_publication_timeline.png"),
         "geographic": str(Path(output_dir) / "fig_geographic_distribution.png"),
+        "fig_forest_plot": str(Path(output_dir) / "fig_forest_plot.png"),
+        "fig_funnel_plot": str(Path(output_dir) / "fig_funnel_plot.png"),
     }
 
     state = ReviewState(

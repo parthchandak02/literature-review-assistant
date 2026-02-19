@@ -6,7 +6,7 @@ import os
 import re
 import time
 from dataclasses import dataclass
-from typing import List, Optional, Tuple
+from typing import Optional, Tuple
 
 import aiohttp
 
@@ -53,7 +53,7 @@ class SectionWriter:
     ) -> str:
         """Build prompt for a section. Override per section type."""
         parts = [
-            f"Role: Academic writer for a systematic review.",
+            "Role: Academic writer for a systematic review.",
             f"Topic: {self.review.research_question}",
             f"Section: {section}",
             "",

@@ -294,7 +294,7 @@ def render_rob_traffic_light(
             col = domain_colors_per_col[col_idx]
             pct = (col.count(bucket) / len(col) * 100) if col else 0.0
             proportions.append(pct)
-        bars = ax_summary.bar(
+        ax_summary.bar(
             x_pos, proportions, bottom=left,
             color=bucket_colors[bucket],
             edgecolor="white", linewidth=0.4,
@@ -310,7 +310,7 @@ def render_rob_traffic_light(
                     ha="center", va="center",
                     fontsize=7, fontweight="bold", color="white",
                 )
-        left = [l + p for l, p in zip(left, proportions)]
+        left = [lv + p for lv, p in zip(left, proportions)]
 
     ax_summary.set_xticks(x_pos)
     ax_summary.set_xticklabels([d[0] for d in domains], fontsize=9, fontweight="bold")

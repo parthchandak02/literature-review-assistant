@@ -2,9 +2,8 @@
 
 from __future__ import annotations
 
-import json
 import logging
-from typing import List, Optional
+from typing import List
 
 from pydantic import BaseModel, Field
 

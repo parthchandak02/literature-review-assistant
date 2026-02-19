@@ -87,7 +87,6 @@ def _md_section_to_latex(rest: str, citekeys: set[str]) -> str:
     parts: list[str] = []
     lines = rest.split("\n")
     i = 0
-    in_list = False
     list_items: list[str] = []
 
     def flush_list() -> None:
@@ -108,38 +107,31 @@ def _md_section_to_latex(rest: str, citekeys: set[str]) -> str:
 
         if stripped.startswith("### "):
             flush_list()
-            in_list = False
             title = stripped[4:].strip()
             parts.append(f"\\subsubsection{{{_escape_latex(title)}}}")
             parts.append("")
         elif stripped.startswith("## "):
             flush_list()
-            in_list = False
             title = stripped[3:].strip()
             parts.append(f"\\subsection{{{_escape_latex(title)}}}")
             parts.append("")
         elif stripped.startswith("# "):
             flush_list()
-            in_list = False
             title = stripped[2:].strip()
             parts.append(f"\\section{{{_escape_latex(title)}}}")
             parts.append("")
         elif stripped.startswith("*   ") or stripped.startswith("-   "):
-            in_list = True
             content = stripped[4:].strip()
             list_items.append(content)
         elif stripped.startswith("* ") or stripped.startswith("- "):
-            in_list = True
             content = stripped[2:].strip()
             list_items.append(content)
         elif stripped == "":
             flush_list()
-            in_list = False
             if parts and parts[-1] != "":
                 parts.append("")
         else:
             flush_list()
-            in_list = False
             conv = _convert_inline_formatting(
                 _convert_citations(stripped, citekeys), citekeys
             )
@@ -194,11 +186,11 @@ def markdown_to_latex(
         for i, path in enumerate(figure_paths, 1):
             name = Path(path).stem
             inc_path = f"figures/{name}" if "/" not in path else path
-            fig_section += f"\\begin{{figure}}[htbp]\n"
-            fig_section += f"  \\centering\n"
+            fig_section += "\\begin{figure}[htbp]\n"
+            fig_section += "  \\centering\n"
             fig_section += f"  \\includegraphics[width=0.9\\columnwidth]{{{inc_path}}}\n"
             fig_section += f"  \\caption{{Figure {i}.}}\n"
-            fig_section += f"\\end{{figure}}\n\n"
+            fig_section += "\\end{figure}\n\n"
 
     bib_section = "\n\\bibliographystyle{IEEEtran}\n\\bibliography{references}\n"
     return preamble + body + fig_section + bib_section + "\n\\end{document}\n"
