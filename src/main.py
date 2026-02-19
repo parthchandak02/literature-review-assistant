@@ -168,7 +168,7 @@ def build_parser() -> argparse.ArgumentParser:
     run.add_argument("--fresh", action="store_true", help="Always start new run; skip resume prompt (needed when running in Progress context)")
     run.add_argument("--verbose", "-v", action="store_true", help="Per-phase status, API call logging, screening summaries")
     run.add_argument("--debug", "-d", action="store_true", help="Verbose plus Pydantic model dumps at phase boundaries")
-    run.add_argument("--offline", action="store_true", help="Force heuristic screening (no Gemini API) even when GEMINI_API_KEY is set")
+    run.add_argument("--offline", action="store_true", help="Force heuristic screening (no LLM API calls) even when API keys are set")
 
     resume = sub.add_parser("resume")
     resume.add_argument("--topic", help="Resume by topic (research question, case-insensitive)")
