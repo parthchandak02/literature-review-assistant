@@ -23,6 +23,9 @@ dependencies = [
   "structlog>=24.0",
   "prisma-flow-diagram>=0.1.0",
   "colrev>=0.16.0",
+  "fastapi>=0.129.0",
+  "uvicorn[standard]>=0.40.0",
+  "sse-starlette>=3.2.0",
 ]
 
 [dependency-groups]
