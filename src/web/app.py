@@ -336,6 +336,14 @@ async def attach_history(req: AttachRequest) -> RunResponse:
     record.done = True
     record.db_path = req.db_path
     record.workflow_id = req.workflow_id
+    # FinalizeNode writes run_summary.json in the same directory as runtime.db.
+    # It contains output_dir and the full artifacts dict (all output file paths).
+    summary_path = pathlib.Path(req.db_path).parent / "run_summary.json"
+    if summary_path.exists():
+        try:
+            record.outputs = _json.loads(summary_path.read_text(encoding="utf-8"))
+        except Exception:
+            pass  # graceful -- outputs stays {}
     _active_runs[run_id] = record
     return RunResponse(run_id=run_id, topic=req.topic)
 

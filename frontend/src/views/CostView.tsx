@@ -1,3 +1,4 @@
+import { useState, useEffect, useMemo } from "react"
 import {
   BarChart,
   Bar,
@@ -9,7 +10,9 @@ import {
 } from "recharts"
 import { DollarSign, Zap, ArrowUpDown, Activity } from "lucide-react"
 import { cn } from "@/lib/utils"
-import type { CostStats } from "@/hooks/useCostStats"
+import { fetchDbCosts } from "@/lib/api"
+import type { DbCostRow } from "@/lib/api"
+import type { CostStats, ModelStat, PhaseStat } from "@/hooks/useCostStats"
 
 interface MetricTileProps {
   icon: React.ElementType
@@ -61,10 +64,61 @@ function phaseColor(phase: string): string {
 
 interface CostViewProps {
   costStats: CostStats
+  dbRunId?: string | null
+  dbIsDone?: boolean
 }
 
-export function CostView({ costStats }: CostViewProps) {
-  const { total_cost, total_tokens_in, total_tokens_out, total_calls, by_model, by_phase } = costStats
+export function CostView({ costStats, dbRunId, dbIsDone = false }: CostViewProps) {
+  const [dbRows, setDbRows] = useState<DbCostRow[]>([])
+  const [dbTotalCost, setDbTotalCost] = useState(0)
+
+  // When browsing a completed historical run with no live SSE costs, load from DB.
+  useEffect(() => {
+    if (!dbIsDone || !dbRunId || costStats.total_calls > 0) return
+    fetchDbCosts(dbRunId)
+      .then((d) => { setDbRows(d.records); setDbTotalCost(d.total_cost) })
+      .catch(() => {})
+  }, [dbIsDone, dbRunId, costStats.total_calls])
+
+  // Aggregate DbCostRow[] into the same CostStats shape the rendering already uses.
+  const dbCostStats = useMemo<CostStats | null>(() => {
+    if (!dbRows.length) return null
+    const modelMap: Record<string, ModelStat> = {}
+    const phaseMap: Record<string, PhaseStat> = {}
+    let total_tokens_in = 0
+    let total_tokens_out = 0
+    let total_calls = 0
+    for (const r of dbRows) {
+      total_tokens_in += Number(r.tokens_in)
+      total_tokens_out += Number(r.tokens_out)
+      total_calls += Number(r.calls)
+      if (!modelMap[r.model]) {
+        modelMap[r.model] = { model: r.model, calls: 0, tokens_in: 0, tokens_out: 0, cost_usd: 0 }
+      }
+      modelMap[r.model].calls += Number(r.calls)
+      modelMap[r.model].tokens_in += Number(r.tokens_in)
+      modelMap[r.model].tokens_out += Number(r.tokens_out)
+      modelMap[r.model].cost_usd += Number(r.cost_usd)
+      if (!phaseMap[r.phase]) {
+        phaseMap[r.phase] = { phase: r.phase, cost_usd: 0, calls: 0 }
+      }
+      phaseMap[r.phase].cost_usd += Number(r.cost_usd)
+      phaseMap[r.phase].calls += Number(r.calls)
+    }
+    return {
+      total_cost: dbTotalCost,
+      total_tokens_in,
+      total_tokens_out,
+      total_calls,
+      by_model: Object.values(modelMap).sort((a, b) => b.cost_usd - a.cost_usd),
+      by_phase: Object.values(phaseMap).sort((a, b) => b.cost_usd - a.cost_usd),
+    }
+  }, [dbRows, dbTotalCost])
+
+  // Live SSE data takes priority; fall back to DB aggregation for historical runs.
+  const activeCostStats = costStats.total_calls > 0 ? costStats : (dbCostStats ?? costStats)
+
+  const { total_cost, total_tokens_in, total_tokens_out, total_calls, by_model, by_phase } = activeCostStats
 
   const chartData = by_phase.map((p) => ({
     name: p.phase.replace("phase_", "").replace(/_/g, " "),

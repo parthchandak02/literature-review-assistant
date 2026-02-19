@@ -183,12 +183,13 @@ export default function App() {
             runId={runId ?? ""}
             costStats={costStats}
             startedAt={startedAt}
+            isHistorical={dbIsDone && runId === null}
             onCancel={handleCancel}
             onTabChange={setActiveTab}
           />
         )
       case "cost":
-        return <CostView costStats={costStats} />
+        return <CostView costStats={costStats} dbRunId={dbRunId} dbIsDone={dbIsDone} />
       case "database":
         return (
           <DatabaseView

@@ -101,6 +101,7 @@ interface OverviewViewProps {
   runId: string
   costStats: CostStats
   startedAt: Date | null
+  isHistorical?: boolean
   onCancel: () => void
   onTabChange: (tab: NavTab) => void
 }
@@ -112,9 +113,31 @@ export function OverviewView({
   runId,
   costStats,
   startedAt,
+  isHistorical = false,
   onCancel,
   onTabChange,
 }: OverviewViewProps) {
+  if (isHistorical) {
+    return (
+      <div className="flex flex-col items-center justify-center h-64 gap-4 text-center">
+        <p className="text-zinc-500 text-sm">
+          Overview shows live run progress only.
+          This is a completed historical review.
+        </p>
+        <div className="flex gap-2">
+          <Button variant="outline" size="sm" onClick={() => onTabChange("database")}>
+            Database Explorer
+          </Button>
+          <Button variant="outline" size="sm" onClick={() => onTabChange("results")}>
+            Results
+          </Button>
+          <Button variant="outline" size="sm" onClick={() => onTabChange("cost")}>
+            Cost and Usage
+          </Button>
+        </div>
+      </div>
+    )
+  }
   const phaseStates = buildPhaseStates(events)
   const elapsed = useElapsed(startedAt, status)
   const isRunning = status === "streaming" || status === "connecting"
