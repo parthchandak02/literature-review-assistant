@@ -67,7 +67,9 @@ uv run uvicorn src.web.app:app --port 8000
 
 **5. Open your browser**
 
-Go to `http://localhost:8000`. Paste your Gemini API key, fill in your research question, and click Run.
+Go to `http://localhost:8000`. Click "+" in the sidebar to start a new review. Paste your Gemini API key, fill in your research question, and click Run.
+
+The sidebar shows all your runs (live and historical) with status colors and a stats strip (papers found, papers included, artifacts, cost). Selecting a run opens its 4-tab dashboard: Activity (phase timeline + event log), Results, Database, Cost. The selected tab persists when you switch between runs.
 
 ---
 
@@ -163,10 +165,12 @@ The free Gemini tier (Flash-Lite / Flash / Pro) is sufficient for most reviews. 
 
 ```yaml
 screening:
-  max_llm_screen: 200  # screen at most 200 papers via LLM; papers beyond this are excluded
+  max_llm_screen: 200  # BM25-rank all candidates; send top 200 to LLM; exclude the rest
 ```
 
-Remove the line (or set it to `null`) to screen all candidate papers. Papers that exceed the cap are excluded at the title/abstract stage and counted correctly in the PRISMA flow diagram.
+When `max_llm_screen` is set, all candidate papers are BM25-ranked by relevance to your research question. The top N go to LLM dual-review; the remainder are excluded with their BM25 score logged to the database so the PRISMA flow diagram counts are always accurate.
+
+Remove the line (or set it to `null`) to send all candidate papers through LLM screening.
 
 ---
 

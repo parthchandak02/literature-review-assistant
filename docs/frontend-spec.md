@@ -54,18 +54,18 @@ frontend/
       useSSEStream.ts         -- Connects to /api/stream/{run_id}, parses events
       useCostStats.ts         -- Aggregates api_call events into cost/token totals
     components/
-      Sidebar.tsx             -- Collapsible left nav (220px / 56px), tooltips
+      Sidebar.tsx             -- Run list (chat-style): "+" for new review, live run at top, history below; status-colored left borders; stats strip per card
       RunForm.tsx             -- YAML textarea + API key inputs + submit
-      PhaseProgress.tsx       -- Phase cards with progress bars
-      LogStream.tsx           -- Monospace scrollable event log
+      LogStream.tsx           -- Monospace scrollable event log with filter chips
       ResultsPanel.tsx        -- Download links and image previews
       ui/                     -- shadcn copy-owned components (button, input, ...)
+        feedback.tsx          -- Shared EmptyState, FetchError, LoadingPane components
     views/
       SetupView.tsx           -- New Review: minimal heading + RunForm
-      OverviewView.tsx        -- Stat cards + phase timeline (live run)
+      RunView.tsx             -- 4-tab container for a selected run (Activity, Results, Database, Cost)
+      ActivityView.tsx        -- Phase timeline + stats strip + filter chips + event log (live SSE or historical fetch)
       CostView.tsx            -- Recharts bar chart + model/phase cost tables
       DatabaseView.tsx        -- Tabbed DB explorer (Papers / Screening / Costs)
-      LogView.tsx             -- Filtered event log
       ResultsView.tsx         -- Download panel for completed runs
       HistoryView.tsx         -- Past runs table; "Open" attaches historical run
 ```
@@ -99,11 +99,14 @@ In production, Vite's build output (`frontend/dist/`) is served as static files 
 ```
 run_workflow()
   --> WebRunContext.emit(event_dict)
-       --> asyncio.Queue.put(event_dict)
+       --> asyncio.Queue.put(event_dict)       (live queue)
+       --> _RunRecord.event_log.append()       (in-memory replay buffer)
             --> /api/stream/{run_id}  (EventSourceResponse)
-                 --> fetchEventSource() in useSSEStream.ts
-                      --> setState({ events: [...events, parsed] })
-                           --> all views re-render with new data
+            --> /api/run/{run_id}/events  (replay buffer snapshot)
+                 --> fetchRunEvents() prefetch in useSSEStream.ts  (dedup replay buffer)
+                      --> fetchEventSource() live stream (dedup merges new events)
+                           --> setState({ events: dedup([...prior, ...live]) })
+                                --> all views re-render with new data
 ```
 
 Key files:
@@ -120,10 +123,21 @@ Past runs live in `logs/workflows_registry.db`. The frontend cannot open SQLite 
 1. `GET /api/history` -- backend reads the registry and returns `HistoryEntry[]`
 2. User clicks "Open" on a past run
 3. `POST /api/history/attach` -- backend creates a completed `_RunRecord` in `_active_runs` with `db_path` set, returns a short `run_id`
+3b. Backend calls `_load_event_log_from_db(db_path)` and populates `record.event_log` from the persisted `event_log` table so LogView and `useSSEStream` can replay historical events via `GET /api/run/{run_id}/events`.
 4. Frontend sets this `run_id` as the current run; `hasRun` becomes true; all tabs unlock
 5. `GET /api/db/{run_id}/papers|screening|costs` -- existing DB explorer endpoints now serve data from the historical `runtime.db`
 
-### 4.4 Client-Side Cost Tracking
+### 4.4 Additional Run Endpoints
+
+Two endpoints exist beyond the DB explorer that are not part of the attach flow but are used by ResultsView and ActivityView:
+
+| Endpoint | Response | Used by |
+|---|---|---|
+| `GET /api/run/{run_id}/events` | `{ events: ReviewEvent[] }` -- full replay buffer (in-memory for live runs, loaded from DB for historical) | `useSSEStream` prefetch, `ActivityView` historical mode |
+| `GET /api/run/{run_id}/artifacts` | `{ artifacts: Record<str, str> }` -- label to absolute path map from `run_summary.json` | `ResultsView` download panel |
+| `GET /api/workflow/{workflow_id}/events` | `{ events: ReviewEvent[] }` -- events loaded directly from `event_log` table by workflow ID | `ActivityView` when attaching historical runs without a live `run_id` |
+
+### 4.5 Client-Side Cost Tracking
 
 No backend computation needed for cost. The `useCostStats` hook iterates the `events` array in memory, filters for `type === "api_call" && status === "success"`, and accumulates totals by model and phase. This runs on every re-render with no extra network requests.
 
@@ -147,11 +161,11 @@ All colors come from Tailwind utility classes. No custom CSS variables are added
 
 **Typography:** Inter via Google Fonts (loaded in `index.html`). `font-mono` for log output and cost figures.
 
-**Sidebar:** Fixed 220px expanded, 56px icon-only collapsed. `transition-[width] duration-200 ease-in-out`.
+**Sidebar:** Fixed-width run list (~280px). Not collapsible. Each run card has a status-colored left border (2px): emerald = completed, violet = running/connecting, red = error/failed, amber = cancelled, zinc = idle/unknown.
 
-**Active nav item (expanded):** `bg-zinc-800 text-white border-l-2 border-violet-500 pl-[10px]`
+**Active run card:** `bg-zinc-800/60 border-l-2 border-violet-500`
 
-**Active nav item (collapsed):** `bg-zinc-800 text-white ring-1 ring-violet-500/50`
+**Run card stats strip:** `papers_found | papers_included | artifacts_count | $cost` in `text-zinc-400 font-mono text-xs`.
 
 ---
 
@@ -181,9 +195,11 @@ const HistoryView = lazy(() =>
 
 Each view gets its own chunk in the Vite build output.
 
-### 6.3 Disabled tabs pattern
+### 6.3 Run-centric tab model
 
-Nav items with `requiresRun: true` in `NAV_ITEMS` are automatically disabled when `hasRun === false`. The History tab has `requiresRun: false` and is always accessible. When a historical run is attached, `hasRun` becomes true and all other tabs unlock.
+The main content area always renders a `RunView` for the selected run. `RunView` has four fixed tabs: Activity, Results, Database, Cost. The selected tab is persisted in localStorage so switching between runs keeps the tab you were on. Only starting a new run resets the tab to Activity.
+
+The old `NAV_ITEMS` / `requiresRun` pattern no longer exists. The sidebar is a run list: selecting a run sets `selectedRun` in App state; `RunView` renders immediately with that run's data. The "+" button in the sidebar header opens `SetupView` to start a new run.
 
 ### 6.4 SSE heartbeat
 
@@ -191,18 +207,19 @@ The backend sends a `heartbeat` event every 15 seconds of inactivity to keep the
 
 ---
 
-## 7. How to Add a New View
+## 7. How to Add a New Tab to RunView
 
 1. Create `frontend/src/views/MyView.tsx` exporting a named component `MyView`
-2. Add the tab id to the `NavTab` union in `Sidebar.tsx`
-3. Add an entry to `NAV_ITEMS` in `Sidebar.tsx` (choose a Lucide icon, set `requiresRun`)
-4. Add the tab label to `TAB_LABELS` in `App.tsx`
-5. Add a lazy import in `App.tsx`:
+2. Add the tab id to the `RunTab` union type in `RunView.tsx`
+3. Add the tab label to the `TABS` array in `RunView.tsx`
+4. Add a lazy import in `RunView.tsx`:
    ```typescript
    const MyView = lazy(() => import("@/views/MyView").then((m) => ({ default: m.MyView })))
    ```
-6. Add a `case "mytab":` in `renderView()` in `App.tsx`
-7. Run `pnpm run build` to confirm zero TypeScript errors
+5. Add a `case "mytab":` in the tab content renderer inside `RunView.tsx`
+6. Run `pnpm run build` to confirm zero TypeScript errors
+
+Note: the sidebar is a run list and does not need to change when adding new tabs. Tabs are scoped to `RunView`.
 
 ---
 
@@ -299,22 +316,27 @@ There is no separate ESLint step required; TypeScript strict mode catches most i
 
 ## 10. SSE Event Reference
 
-All events emitted by `WebRunContext` and consumed by `useSSEStream`:
+All events emitted by `WebRunContext` (`src/orchestration/context.py`) and consumed by `useSSEStream`.
+Every event includes a `ts` field (UTC ISO-8601 timestamp) injected automatically by `_emit()`.
+The `ReviewEvent` discriminated union in `frontend/src/lib/api.ts` is the canonical TypeScript type.
 
 | type | Key fields | Description |
 |------|-----------|-------------|
 | `phase_start` | `phase`, `description`, `total` | A pipeline phase began |
-| `phase_done` | `phase`, `summary`, `completed`, `total` | A phase finished |
-| `progress` | `phase`, `current`, `total` | Progress within a phase |
-| `api_call` | `source`, `status`, `phase`, `model`, `tokens_in`, `tokens_out`, `cost_usd`, `latency_ms` | One LLM call completed |
+| `phase_done` | `phase`, `summary` (object), `total`, `completed` | A phase finished |
+| `progress` | `phase`, `current`, `total` | Progress within a phase (driven by `advance_screening`) |
+| `api_call` | `source`, `status`, `phase`, `call_type`, `model`, `paper_id`, `latency_ms`, `tokens_in`, `tokens_out`, `cost_usd`, `records`, `details`, `section_name`, `word_count` | One LLM call completed |
 | `connector_result` | `name`, `status`, `records`, `error` | One search database returned results |
 | `screening_decision` | `paper_id`, `stage`, `decision` | One paper screened |
 | `extraction_paper` | `paper_id`, `design`, `rob_judgment` | One paper extracted |
-| `synthesis` | `feasible`, `groups`, `n_studies`, `direction` | Meta-analysis summary |
+| `synthesis` | `feasible`, `groups` (int count), `n_studies`, `direction` | Meta-analysis summary |
 | `rate_limit_wait` | `tier`, `slots_used`, `limit` | Rate limiter pausing |
-| `done` | `outputs` | Workflow finished; `outputs` maps artifact names to paths |
-| `error` | `msg` | Workflow failed with an error message |
-| `cancelled` | (none) | Workflow was cancelled |
+| `db_ready` | (none) | Run database is open; DB Explorer tabs unlock immediately |
+| `done` | `outputs` (object: label -> path), `ts?` | Workflow finished successfully |
+| `error` | `msg`, `ts?` | Workflow failed with an error message |
+| `cancelled` | `ts?` | Workflow was cancelled by the user |
+
+`heartbeat` events are sent by the backend every 15 seconds of inactivity; `useSSEStream` silently ignores them.
 
 Cost tracking uses `api_call` events exclusively. The `useCostStats` hook only reads events where `type === "api_call"` and `status === "success"`.
 

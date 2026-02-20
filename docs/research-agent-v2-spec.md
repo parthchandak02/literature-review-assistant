@@ -124,8 +124,8 @@ A prior prototype exists at `github.com/parthchandak02/literature-review-assista
 | Post-Phase-8 DB Improvements | Implemented | display_label column in papers table; synthesis_results table for typed synthesis persistence; dedup_count column in workflows; compute_display_label() canonical utility in src/models/papers.py as single source of truth |
 | Post-Phase-8 Diagram Fixes | Implemented | RoB figure reads display_label from DB instead of local heuristics; bar labels on publication timeline; dynamic label rotation on geographic distribution chart |
 | Post-Phase-8 Search Limits | Implemented | SearchConfig model with max_results_per_db (default 500) and per_database_limits (per-connector overrides); replaces hardcoded max_results=100 in workflow.py |
-| Phase 3 Screening Efficiency | Implemented | keyword_filter.py pre-filter (ExclusionReason.KEYWORD_FILTER, cuts LLM calls ~80%); confidence fast-path; asyncio.Semaphore concurrency; reset_partial_flag() Ctrl+C fix; skip_fulltext_if_no_pdf; max_llm_screen hard cap for cost control |
-| Web UI | Implemented | FastAPI SSE backend (14 endpoints: run, stream, cancel, history, attach, DB explorer); React/Vite/TypeScript frontend (7 views: Setup, Overview, Cost, Database, Log, Results, History); client-side cost tracking from api_call events; run history via workflows_registry; DB explorer for papers/screening/costs; static frontend served from frontend/dist/ |
+| Phase 3 Screening Efficiency | Implemented | keyword_filter.py pre-filter (ExclusionReason.KEYWORD_FILTER, cuts LLM calls ~80%); BM25 relevance ranking when max_llm_screen is set (bm25s library, top-N by topic score go to LLM, tail papers get LOW_RELEVANCE_SCORE decision written to DB for PRISMA compliance); confidence fast-path; asyncio.Semaphore concurrency; reset_partial_flag() Ctrl+C fix; skip_fulltext_if_no_pdf; max_llm_screen hard cap for cost control |
+| Web UI | Implemented | FastAPI SSE backend (16 endpoints: run, stream, cancel, history, attach, DB explorer, events, artifacts, export); React/Vite/TypeScript frontend (7 views: Setup, Overview, Cost, Database, Log, Results, History); client-side cost tracking from api_call events; run history via workflows_registry; DB explorer for papers/screening/costs; static frontend served from frontend/dist/ |
 
 ***
 
@@ -144,8 +144,8 @@ Verification: `uv run pytest tests/unit -q` (86 pass), `uv run python -m src.mai
 - **Gap 3 -- LLM-based quality assessment:** `Rob2Assessor.assess()`, `RobinsIAssessor.assess()`, `CaspAssessor.assess()` are now `async`; each sends extraction record + full text to Gemini Pro with a typed JSON schema for the respective assessment model; heuristic fallback on API error.
 - **Gap 4 -- LLM humanizer:** `humanize_async()` in `src/writing/humanizer.py` makes a real Gemini Pro call using `_HUMANIZE_PROMPT_TEMPLATE`; `WritingNode` applies it for `humanization_iterations` passes per section when `settings.writing.humanization=true`.
 - **Gap 5 -- Shared Gemini client:** `src/llm/gemini_client.py` -- reusable `GeminiClient` with exponential-backoff retry on 429/502/503/504 (max 5 retries); used by extraction, quality, and humanizer; separate from screening's `GeminiScreeningClient`.
-- **Gap 6 -- Web UI:** Full FastAPI SSE backend (`src/web/app.py`, 14 endpoints) + React/Vite/TypeScript frontend (`frontend/`) with 7 views (Setup, Overview, Cost, Database, Log, Results, History); DB explorer for papers/screening/costs; run history via `workflows_registry`; client-side cost aggregation from `api_call` SSE events; see `docs/frontend-spec.md` for full frontend architecture.
-- **Gap 7 -- Screening cost cap:** `max_llm_screen` field in `ScreeningConfig` (default 100 in settings.yaml); `DualReviewerScreener.screen_batch()` skips papers over the cap with `UNCERTAIN` decision to bound cost on large result sets.
+- **Gap 6 -- Web UI:** Full FastAPI SSE backend (`src/web/app.py`, 16 endpoints) + React/Vite/TypeScript frontend (`frontend/`) with 7 views (Setup, Overview, Cost, Database, Log, Results, History); DB explorer for papers/screening/costs; run history via `workflows_registry`; client-side cost aggregation from `api_call` SSE events; see `docs/frontend-spec.md` for full frontend architecture.
+- **Gap 7 -- Screening cost cap + BM25 ranking:** `max_llm_screen` field in `ScreeningConfig` (default 100 in settings.yaml); when set, `bm25_rank_and_cap()` in `keyword_filter.py` BM25-ranks all candidate papers by topic relevance (using the `bm25s` library); top N papers go to LLM dual-review; papers below the cap receive `ExclusionReason.LOW_RELEVANCE_SCORE` decisions written directly to the DB with their BM25 score and rank so PRISMA flow counts are accurate. The keyword pre-filter is bypassed as a hard gate when a cap is active (it reverts to a soft hint).
 - **Gap 8 -- Spec updated:** Part 0B, 0C, and file structure reflect current state.
 
 **Remaining work to reach first IEEE submission:**
@@ -1308,7 +1308,7 @@ systematic-review-tool/
 |   |   `-- rate_limiter.py           # Token bucket rate limiter
 |   |-- web/
 |   |   |-- __init__.py
-|   |   `-- app.py                    # FastAPI server: 14 endpoints (run, stream, cancel, history, attach, DB explorer); SSE via asyncio.Queue; static frontend serving
+|   |   `-- app.py                    # FastAPI server: 16 endpoints (run, stream, cancel, history, attach, DB explorer, events, artifacts, export); SSE via asyncio.Queue + replay buffer; static frontend serving
 |   `-- utils/
 |       |-- __init__.py
 |       |-- structured_log.py         # Structured logging (JSONL, decision log)
@@ -2185,23 +2185,25 @@ class _RunRecord:
 
 ## SSE Event Types
 
-The `/api/stream/{run_id}` endpoint emits newline-delimited JSON events. Each event has a `type` field. The frontend `useSSEStream` hook ignores `heartbeat` and appends all others to the `events` array.
+The `/api/stream/{run_id}` endpoint emits newline-delimited JSON events. Each event has a `type` field.
+All events include a `ts` field (UTC ISO-8601 timestamp) injected by `WebRunContext._emit()`.
+The frontend `useSSEStream` hook ignores `heartbeat`, prefetches buffered events via `GET /api/run/{run_id}/events`, deduplicates them, then opens the live SSE stream.
 
 | Event type | Key fields | Description |
 |:---|:---|:---|
-| `phase_start` | `phase: str` | A pipeline phase began |
-| `phase_done` | `phase: str, summary: str` | A phase completed |
-| `progress` | `phase: str, current: int, total: int, message: str` | Progress update within a phase |
-| `api_call` | `model: str, phase: str, tokens_in: int, tokens_out: int, cost_usd: float, latency_ms: float` | LLM call completed; used for client-side cost aggregation |
-| `connector_result` | `connector: str, count: int` | Search connector returned results |
-| `screening_decision` | `paper_id: str, decision: str, stage: str` | Single paper screening result |
-| `extraction_paper` | `paper_id: str` | Paper extracted |
-| `synthesis` | `message: str` | Synthesis milestone |
-| `rate_limit_wait` | `wait_seconds: float, model: str` | Rate limiter sleeping |
-| `done` | `outputs: list[str], run_id: str` | Run completed successfully |
-| `error` | `message: str` | Run failed |
-| `cancelled` | -- | Run was cancelled by user |
-| `db_ready` | -- | Run DB is open and ready; frontend DB explorer can unlock before the run finishes |
+| `phase_start` | `phase: str, description: str, total: int \| None` | A pipeline phase began |
+| `phase_done` | `phase: str, summary: dict, total: int \| None, completed: int \| None` | A phase completed |
+| `progress` | `phase: str, current: int, total: int` | Progress update within a phase (driven by `advance_screening`) |
+| `api_call` | `source: str, status: str, phase: str, call_type: str, model: str \| None, paper_id: str \| None, latency_ms: int \| None, tokens_in: int \| None, tokens_out: int \| None, cost_usd: float \| None, records: int \| None, details: str \| None, section_name: str \| None, word_count: int \| None` | LLM call completed; used for client-side cost aggregation |
+| `connector_result` | `name: str, status: str, records: int, error: str \| None` | Search connector returned results |
+| `screening_decision` | `paper_id: str, stage: str, decision: str` | Single paper screening result |
+| `extraction_paper` | `paper_id: str, design: str, rob_judgment: str` | Paper extracted with study design and RoB judgment |
+| `synthesis` | `feasible: bool, groups: int, n_studies: int, direction: str` | Meta-analysis summary |
+| `rate_limit_wait` | `tier: str, slots_used: int, limit: int` | Rate limiter pausing |
+| `db_ready` | -- | Run DB is open and ready; frontend DB Explorer tabs unlock before run finishes |
+| `done` | `outputs: dict[str, Any]` (label -> path), `ts?` | Run completed successfully |
+| `error` | `msg: str`, `ts?` | Run failed |
+| `cancelled` | `ts?` | Run was cancelled by user |
 | `heartbeat` | -- | Keep-alive (every 15s); ignored by frontend |
 
 ---
@@ -2223,10 +2225,10 @@ The `/api/stream/{run_id}` endpoint emits newline-delimited JSON events. Each ev
 ## Frontend Architecture Summary
 
 - **Two-process:** Browser -> FastAPI :8000 -> `run_workflow()` -> SQLite
-- **SSE flow:** `WebRunContext.emit()` -> `asyncio.Queue` -> `/api/stream/{run_id}` -> `useSSEStream` -> `events[]` -> all views
+- **SSE flow:** `WebRunContext._emit()` -> `asyncio.Queue` (live) + `_RunRecord.event_log` (replay buffer) -> `/api/stream/{run_id}` and `/api/run/{run_id}/events` -> `useSSEStream` prefetch + dedup + live stream -> `events[]` -> all views
 - **Cost tracking:** Client-side only; `useCostStats(events)` aggregates `api_call` events by model and phase
 - **DB explorer:** Available for any run that has a `db_path` (live or historical); queries `papers`, `screening_decisions`, `cost_records` tables via DB endpoints
-- **History:** `GET /api/history` reads `workflows_registry.db`; `POST /api/history/attach` registers the historical run as an in-memory record so DB endpoints can serve it
+- **History:** `GET /api/history` reads `workflows_registry.db`; `POST /api/history/attach` registers the historical run as an in-memory record, loads event_log from DB, so DB endpoints and LogView can serve it
 - **Key separation:** `runId` (live SSE target) is distinct from `dbRunId` (DB explorer target); attaching a historical run does not affect live stream
 
 ***
