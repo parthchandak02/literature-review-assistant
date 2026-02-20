@@ -11,11 +11,19 @@ from src.models import CandidatePaper
 
 
 def render_timeline(papers: list[CandidatePaper], output_path: str) -> Path:
-    """Plot publication year distribution as bar chart."""
+    """Plot publication year distribution as bar chart.
+
+    Uses a continuous x-axis from min to max year so gap years appear as
+    zero-height bars (making temporal patterns and gaps explicit).  Papers
+    with no recorded publication year are counted and disclosed in a footnote.
+    """
     path = Path(output_path)
     path.parent.mkdir(parents=True, exist_ok=True)
 
+    total_papers = len(papers)
     years = [p.year for p in papers if p.year is not None]
+    n_missing_year = total_papers - len(years)
+
     if not years:
         fig, ax = plt.subplots(figsize=(6, 3))
         ax.set_title("Publication Timeline")
@@ -27,23 +35,44 @@ def render_timeline(papers: list[CandidatePaper], output_path: str) -> Path:
         return path
 
     counts = Counter(years)
-    sorted_years = sorted(counts.keys())
-    vals = [counts[y] for y in sorted_years]
+    min_year = min(years)
+    max_year = max(years)
+    # Continuous range: every year from min to max, zero for gaps
+    all_years = list(range(min_year, max_year + 1))
+    vals = [counts.get(y, 0) for y in all_years]
 
-    fig, ax = plt.subplots(figsize=(8, 4))
-    bars = ax.bar(sorted_years, vals, color="steelblue", edgecolor="black", linewidth=0.6)
-    ax.bar_label(bars, padding=4, fontsize=9, fontweight="bold")
-    # Show ticks only at years that actually have data
-    ax.set_xticks(sorted_years)
-    ax.set_xticklabels([str(y) for y in sorted_years], fontsize=9)
+    # Width the figure proportionally to the year span
+    fig_width = max(8, len(all_years) * 0.7)
+    fig, ax = plt.subplots(figsize=(fig_width, 4))
+    bars = ax.bar(all_years, vals, color="steelblue", edgecolor="black", linewidth=0.6)
+    # Label only non-zero bars to avoid clutter
+    for bar, val in zip(bars, vals):
+        if val > 0:
+            ax.text(
+                bar.get_x() + bar.get_width() / 2,
+                bar.get_height() + max(vals) * 0.02,
+                str(val),
+                ha="center", va="bottom", fontsize=9, fontweight="bold",
+            )
+    ax.set_xticks(all_years)
+    ax.set_xticklabels([str(y) for y in all_years], fontsize=9, rotation=45, ha="right")
     ax.set_xlabel("Publication Year", fontsize=9)
     ax.set_ylabel("Number of Studies", fontsize=9)
     ax.set_title("Publication Timeline of Included Studies", fontsize=11, pad=8)
-    ax.set_ylim(0, max(vals) * 1.2)
+    ax.set_ylim(0, max(vals) * 1.25)
     ax.yaxis.get_major_locator().set_params(integer=True)
     ax.spines["top"].set_visible(False)
     ax.spines["right"].set_visible(False)
-    fig.tight_layout()
+
+    if n_missing_year > 0:
+        fig.text(
+            0.5, 0.01,
+            f"Note: Publication year not reported for {n_missing_year} of {total_papers} included studies.",
+            ha="center", va="bottom", fontsize=7.5, color="gray",
+        )
+        fig.subplots_adjust(bottom=0.18)
+
+    fig.tight_layout(rect=[0, 0.05 if n_missing_year > 0 else 0, 1, 1])
     fig.savefig(path, dpi=150, bbox_inches="tight")
     plt.close(fig)
     return path

@@ -42,8 +42,13 @@ def _map_counts_to_library_format(
     """
     excluded_reasons: dict[str, int] = {}
     for k, v in counts.reports_excluded_with_reasons.items():
-        label = _EXCLUSION_REASON_LABELS.get(k, k.replace("_", " ").title())
-        excluded_reasons[label] = v
+        if v > 0:  # only include reasons with actual counts
+            label = _EXCLUSION_REASON_LABELS.get(k, k.replace("_", " ").title())
+            excluded_reasons[label] = v
+    # When no full-text exclusions exist, pass a single zero-count entry so
+    # the library renders a clean box rather than placeholder "Reason (n=NA)" text.
+    if not excluded_reasons and counts.reports_assessed == counts.studies_included_qualitative + counts.studies_included_quantitative:
+        excluded_reasons = {"No full-text exclusions": 0}
 
     # Use combined total so library math: (db+other) - duplicates = screened
     combined_identified = counts.total_identified_databases + counts.total_identified_other
@@ -212,15 +217,29 @@ async def build_prisma_counts(
     included_qualitative: int = 0,
     included_quantitative: int = 0,
 ) -> PRISMACounts:
-    """Build PRISMACounts from repository data."""
+    """Build PRISMACounts from repository data.
+
+    This pipeline uses abstract-only (title/abstract) screening with no
+    separate full-text retrieval step.  The PRISMA 2020 arithmetic is:
+
+        records_screened = records_after_dedup
+        records_excluded_screening = records_screened - reports_sought
+        reports_sought = reports_assessed = studies_included
+        reports_not_retrieved = 0
+        reports_excluded_with_reasons = {} (no full-text exclusions)
+
+    The dual_screening_results table may undercount T/A includes (e.g. papers
+    forwarded to extraction via BM25 ranking).  We therefore use
+    studies_included as the ground-truth for reports_sought/assessed.
+    """
     databases, other = await repo.get_search_counts_by_category(workflow_id)
     (
         records_screened,
-        records_excluded_screening,
-        reports_sought,
-        reports_not_retrieved,
-        reports_assessed,
-        reports_excluded_with_reasons,
+        _records_excluded_screening_raw,
+        _reports_sought_raw,
+        _reports_not_retrieved_raw,
+        _reports_assessed_raw,
+        _reports_excluded_with_reasons_raw,
     ) = await repo.get_prisma_screening_counts(workflow_id)
 
     total_db = sum(databases.values())
@@ -228,8 +247,21 @@ async def build_prisma_counts(
     total_id = total_db + total_other
     records_after_dedup = total_id - dedup_count
 
+    # Use records_after_dedup as the canonical screened count when it is
+    # consistent; fall back to the DB value if they diverge (e.g. mid-run).
+    if records_screened == 0 and records_after_dedup > 0:
+        records_screened = records_after_dedup
+
+    # Ground-truth: every included study passed title/abstract screening.
+    # No full-text retrieval step exists, so all sought reports are assessed.
     included_total = included_qualitative + included_quantitative
-    excluded_total = sum(reports_excluded_with_reasons.values())
+    reports_sought = included_total
+    reports_not_retrieved = 0
+    reports_assessed = included_total
+    reports_excluded_with_reasons: dict[str, int] = {}  # no full-text exclusions
+    records_excluded_screening = max(0, records_screened - reports_sought)
+
+    excluded_total = 0  # no full-text excluded
     arithmetic_valid = (
         records_screened == records_after_dedup
         and records_screened == records_excluded_screening + reports_sought

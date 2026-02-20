@@ -32,7 +32,7 @@ from src.protocol.generator import ProtocolGenerator
 from src.quality import CaspAssessor, GradeAssessor, Rob2Assessor, RobinsIAssessor, StudyRouter
 from src.screening.dual_screener import DualReviewerScreener
 from src.screening.gemini_client import PydanticAIScreeningClient
-from src.screening.keyword_filter import keyword_prefilter
+from src.screening.keyword_filter import bm25_rank_and_cap, keyword_prefilter
 from src.search.arxiv import ArxivConnector
 from src.search.base import SearchConnector
 from src.search.crossref import CrossrefConnector
@@ -202,6 +202,7 @@ class StartNode(BaseNode[ReviewState]):
         state.artifacts["coverage_report"] = str(output_paths.run_dir / "doc_fulltext_retrieval_coverage.md")
         state.artifacts["disagreements_report"] = str(output_paths.run_dir / "doc_disagreements_report.md")
         state.artifacts["rob_traffic_light"] = str(output_paths.run_dir / "fig_rob_traffic_light.png")
+        state.artifacts["rob2_traffic_light"] = str(output_paths.run_dir / "fig_rob2_traffic_light.png")
         state.artifacts["narrative_synthesis"] = str(output_paths.run_dir / "data_narrative_synthesis.json")
         state.artifacts["manuscript_md"] = str(output_paths.run_dir / "doc_manuscript.md")
         state.artifacts["prisma_diagram"] = str(output_paths.run_dir / "fig_prisma_flow.png")
@@ -386,24 +387,52 @@ class ScreeningNode(BaseNode[ReviewState]):
                 should_proceed_with_partial=should_proceed,
             )
 
-            # --- Keyword pre-filter (no LLM calls) ---
-            pre_excluded, papers_for_llm = keyword_prefilter(
-                state.deduped_papers, state.review, state.settings.screening
-            )
-            if pre_excluded:
-                paper_by_id = {p.paper_id: p for p in state.deduped_papers}
-                pre_excluded_papers = [paper_by_id[d.paper_id] for d in pre_excluded if d.paper_id in paper_by_id]
-                await repository.bulk_save_screening_decisions(
-                    workflow_id=state.workflow_id,
-                    stage="title_abstract",
-                    papers=pre_excluded_papers,
-                    decisions=pre_excluded,
+            # --- Pre-screening: BM25 ranking (when cap is set) or keyword filter ---
+            cap = state.settings.screening.max_llm_screen
+            paper_by_id = {p.paper_id: p for p in state.deduped_papers}
+
+            if cap is not None:
+                # BM25 ranks ALL deduped papers; top N go to LLM, tail is auto-excluded.
+                # keyword_prefilter is NOT run as a hard gate - BM25 provides recall-safe ranking.
+                papers_for_llm, pre_excluded = bm25_rank_and_cap(
+                    state.deduped_papers, state.review, state.settings.screening
                 )
+                if pre_excluded:
+                    pre_excluded_papers = [
+                        paper_by_id[d.paper_id] for d in pre_excluded if d.paper_id in paper_by_id
+                    ]
+                    await repository.bulk_save_screening_decisions(
+                        workflow_id=state.workflow_id,
+                        stage="title_abstract",
+                        papers=pre_excluded_papers,
+                        decisions=pre_excluded,
+                    )
                 if rc and rc.verbose:
                     rc.console.print(
-                        f"[dim]Keyword pre-filter: {len(pre_excluded)} auto-excluded, "
-                        f"{len(papers_for_llm)} forwarded to LLM screening.[/]"
+                        f"[dim]BM25 ranking: {len(state.deduped_papers)} papers scored, "
+                        f"{len(papers_for_llm)} top-ranked forwarded to LLM, "
+                        f"{len(pre_excluded)} auto-excluded (low relevance score).[/]"
                     )
+            else:
+                # Original path: keyword hard-gate -> all passers go to LLM.
+                pre_excluded, papers_for_llm = keyword_prefilter(
+                    state.deduped_papers, state.review, state.settings.screening
+                )
+                if pre_excluded:
+                    pre_excluded_papers = [
+                        paper_by_id[d.paper_id] for d in pre_excluded if d.paper_id in paper_by_id
+                    ]
+                    await repository.bulk_save_screening_decisions(
+                        workflow_id=state.workflow_id,
+                        stage="title_abstract",
+                        papers=pre_excluded_papers,
+                        decisions=pre_excluded,
+                    )
+                    if rc and rc.verbose:
+                        rc.console.print(
+                            f"[dim]Keyword pre-filter: {len(pre_excluded)} auto-excluded, "
+                            f"{len(papers_for_llm)} forwarded to LLM screening.[/]"
+                        )
 
             # --- Stage 1: title/abstract LLM dual-review ---
             stage1_llm = await screener.screen_batch(
@@ -466,11 +495,13 @@ class ScreeningNode(BaseNode[ReviewState]):
                 phase="phase_3_screening",
                 passed_screening=len(state.included_papers),
             )
+            pre_filter_method = "bm25_rank_and_cap" if cap is not None else "keyword_prefilter"
             await repository.append_decision_log(
                 DecisionLogEntry(
                     decision_type="screening_summary",
                     decision="completed",
                     rationale=(
+                        f"pre_filter_method={pre_filter_method}, "
                         f"pre_filtered={len(pre_excluded)}, "
                         f"title_abstract_llm={len(stage1_llm)}, "
                         f"fulltext_total={len(stage2)}, "
@@ -561,6 +592,7 @@ class ExtractionQualityNode(BaseNode[ReviewState]):
             rob2 = Rob2Assessor(llm_client=llm_gemini, settings=state.settings)
             robins_i = RobinsIAssessor(llm_client=llm_gemini, settings=state.settings)
             casp = CaspAssessor(llm_client=llm_gemini, settings=state.settings)
+            not_applicable_paper_ids: list[str] = []
 
             for i, paper in enumerate(to_process):
                 if rc and rc.verbose:
@@ -593,20 +625,49 @@ class ExtractionQualityNode(BaseNode[ReviewState]):
                     rc.advance_screening("phase_4_extraction_quality", i + 1, len(to_process))
 
                 tool = router.route_tool(record)
+                rob_judgment = "not_applicable"
                 if tool == "rob2":
                     assessment = await rob2.assess(record, full_text=full_text)
                     await repository.save_rob2_assessment(state.workflow_id, assessment)
+                    rob_judgment = (
+                        assessment.overall_judgment.value
+                        if hasattr(assessment, "overall_judgment")
+                        else "unknown"
+                    )
                 elif tool == "robins_i":
                     assessment = await robins_i.assess(record, full_text=full_text)
                     await repository.save_robins_i_assessment(state.workflow_id, assessment)
-                else:
+                    rob_judgment = (
+                        assessment.overall_judgment.value
+                        if hasattr(assessment, "overall_judgment")
+                        else "unknown"
+                    )
+                elif tool == "casp":
                     assessment = await casp.assess(record, full_text=full_text)
+                    rob_judgment = getattr(assessment, "overall_summary", "completed")[:80]
                     await repository.append_decision_log(
                         DecisionLogEntry(
                             decision_type="casp_assessment",
                             paper_id=record.paper_id,
                             decision="completed",
                             rationale=assessment.overall_summary,
+                            actor="quality_assessment",
+                            phase="phase_4_extraction_quality",
+                        )
+                    )
+                else:
+                    # not_applicable: systematic reviews, technical reports, narrative papers.
+                    # ROBINS-I and RoB2 do not apply; record for figure disclosure.
+                    not_applicable_paper_ids.append(record.paper_id)
+                    await repository.append_decision_log(
+                        DecisionLogEntry(
+                            decision_type="rob_not_applicable",
+                            paper_id=record.paper_id,
+                            decision="not_applicable",
+                            rationale=(
+                                f"Study design '{record.study_design.value}' is not an "
+                                "interventional study; ROBINS-I/RoB2 assessment not applicable."
+                            ),
                             actor="quality_assessment",
                             phase="phase_4_extraction_quality",
                         )
@@ -620,11 +681,6 @@ class ExtractionQualityNode(BaseNode[ReviewState]):
                 await repository.save_grade_assessment(state.workflow_id, grade_assessment)
 
                 if rc and rc.verbose:
-                    rob_judgment = (
-                        assessment.overall_judgment.value
-                        if hasattr(assessment, "overall_judgment")
-                        else getattr(assessment, "overall_summary", "unknown")
-                    )
                     extraction_summary = (
                         record.results_summary.get("summary") or ""
                     )[:300]
@@ -656,6 +712,8 @@ class ExtractionQualityNode(BaseNode[ReviewState]):
                 robins_i_rows,
                 state.artifacts["rob_traffic_light"],
                 paper_lookup=_rob_paper_lookup,
+                not_applicable_count=len(not_applicable_paper_ids),
+                rob2_output_path=state.artifacts.get("rob2_traffic_light"),
             )
             await repository.save_checkpoint(
                 state.workflow_id,

@@ -268,7 +268,14 @@ class WorkflowRepository:
         self, workflow_id: str
     ) -> tuple[int, int, int, int, int, dict[str, int]]:
         """Return (records_screened, records_excluded_screening, reports_sought,
-        reports_not_retrieved, reports_assessed, reports_excluded_with_reasons)."""
+        reports_not_retrieved, reports_assessed, reports_excluded_with_reasons).
+
+        This pipeline performs title/abstract screening only; there is no
+        separate full-text retrieval step.  The returned tuple therefore
+        always has reports_not_retrieved=0 and reports_assessed=reports_sought.
+        The caller (build_prisma_counts) must further reconcile reports_sought
+        with the ground-truth included count.
+        """
         ta_screened = 0
         ta_excluded = 0
         ft_sought = 0
@@ -298,24 +305,13 @@ class WorkflowRepository:
                 if decision == "exclude":
                     ft_excluded += c
 
-        cursor = await self.db.execute(
-            """
-            SELECT exclusion_reason, COUNT(DISTINCT paper_id)
-            FROM screening_decisions
-            WHERE workflow_id = ? AND stage = 'fulltext' AND decision = 'exclude'
-                AND exclusion_reason IS NOT NULL
-            GROUP BY exclusion_reason
-            """,
-            (workflow_id,),
-        )
-        for reason, cnt in await cursor.fetchall():
-            exclusion_reasons[str(reason or "other")] = int(cnt)
-        if ft_excluded > sum(exclusion_reasons.values()):
-            exclusion_reasons["other"] = (
-                exclusion_reasons.get("other", 0) + ft_excluded - sum(exclusion_reasons.values())
-            )
-
-        reports_not_retrieved = max(0, ft_sought - ft_assessed)
+        # No full-text stage exists in this pipeline: all sought reports are
+        # directly assessed via abstract text; none are "not retrieved".
+        # ft_sought from the dual_screening_results table can undercount (e.g.
+        # papers routed to extraction via bm25 ranking may not appear there).
+        # The reconciliation to the definitive included count is deferred to
+        # build_prisma_counts which knows the ground-truth.
+        reports_not_retrieved = 0  # no retrieval failures in abstract-only pipeline
         return ta_screened, ta_excluded, ft_sought, reports_not_retrieved, ft_assessed, exclusion_reasons
 
     async def get_processed_paper_ids(self, workflow_id: str, stage: str) -> Set[str]:

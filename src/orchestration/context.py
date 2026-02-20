@@ -465,6 +465,7 @@ class WebRunContext:
     progress: None = None
     proceed_with_partial_requested: list[bool] = field(default_factory=lambda: [False], repr=False)
     on_db_ready: Any = None  # Callable[[str], None] | None -- called when db_path is known
+    on_event: Any = None     # Callable[[dict], None] | None -- called for every emitted event (replay buffer)
 
     def set_db_path(self, path: str) -> None:
         """Signal that the run database is now available at the given path.
@@ -483,6 +484,11 @@ class WebRunContext:
     def _emit(self, event: dict[str, Any]) -> None:
         import datetime
         event.setdefault("ts", datetime.datetime.utcnow().isoformat() + "Z")
+        if self.on_event is not None:
+            try:
+                self.on_event(event)
+            except Exception:
+                pass
         try:
             self.queue.put_nowait(event)
         except Exception:

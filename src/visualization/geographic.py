@@ -54,19 +54,32 @@ def render_geographic(papers: list[CandidatePaper], output_path: str) -> Path:
     path = Path(output_path)
     path.parent.mkdir(parents=True, exist_ok=True)
 
+    total_papers = len(papers)
     countries = [p.country for p in papers if p.country]
+    n_missing = total_papers - len(countries)
 
     if countries:
         counts = Counter(countries)
         labels_raw, values = zip(*sorted(counts.items(), key=lambda x: -x[1]))
         labels = list(labels_raw)
         values = list(values)
-        fig, ax = plt.subplots(figsize=(max(6, len(labels) * 0.8), 4))
-        _render_bar(
-            ax, labels, values,
-            title="Geographic Distribution of Included Studies",
-            ylabel="Number of studies",
-        )
+
+        # Append "Not reported" bar so readers know coverage is partial
+        if n_missing > 0:
+            labels.append("Not reported")
+            values.append(n_missing)
+
+        n_with_data = total_papers - n_missing
+        if n_missing > 0:
+            title = (
+                f"Geographic Distribution of Included Studies "
+                f"(country reported for {n_with_data} of {total_papers} studies)"
+            )
+        else:
+            title = "Geographic Distribution of Included Studies"
+
+        fig, ax = plt.subplots(figsize=(max(6, len(labels) * 0.9), 4))
+        _render_bar(ax, labels, values, title=title, ylabel="Number of studies")
         fig.tight_layout()
         fig.savefig(path, dpi=150, bbox_inches="tight")
         plt.close(fig)
