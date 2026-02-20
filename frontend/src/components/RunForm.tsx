@@ -7,6 +7,7 @@ import {
   Eye,
   EyeOff,
   ExternalLink,
+  FileKey,
   Loader,
   Play,
   Plus,
@@ -608,6 +609,11 @@ export function RunForm({ defaultReviewYaml, onSubmit, disabled, loadYaml }: Run
   const [yamlText, setYamlText] = useState("")
   const [yamlDirty, setYamlDirty] = useState(false)
 
+  // .env paste panel
+  const [envOpen, setEnvOpen] = useState(false)
+  const [envText, setEnvText] = useState("")
+  const [envResult, setEnvResult] = useState<{ applied: string[]; unknown: string[] } | null>(null)
+
   // API keys -- unified state object
   const [keys, setKeys] = useState<ApiKeyState>({
     gemini: "",
@@ -728,6 +734,87 @@ export function RunForm({ defaultReviewYaml, onSubmit, disabled, loadYaml }: Run
       crossrefEmail: "",
     })
     setKeysSaved(false)
+  }
+
+  // Map from .env variable name -> internal ApiKeyState key
+  const ENV_VAR_MAP: Record<string, keyof ApiKeyState> = {
+    GEMINI_API_KEY: "gemini",
+    OPENALEX_API_KEY: "openalex",
+    IEEE_API_KEY: "ieee",
+    PUBMED_EMAIL: "pubmedEmail",
+    NCBI_EMAIL: "pubmedEmail",
+    PUBMED_API_KEY: "pubmedApiKey",
+    PERPLEXITY_SEARCH_API_KEY: "perplexity",
+    SEMANTIC_SCHOLAR_API_KEY: "semanticScholar",
+    CROSSREF_EMAIL: "crossrefEmail",
+  }
+
+  function parseEnvFile(raw: string): Record<keyof ApiKeyState, string> {
+    const parsed: Partial<Record<keyof ApiKeyState, string>> = {}
+    for (const line of raw.split("\n")) {
+      const trimmed = line.trim()
+      if (!trimmed || trimmed.startsWith("#")) continue
+      const eqIdx = trimmed.indexOf("=")
+      if (eqIdx === -1) continue
+      const envKey = trimmed.slice(0, eqIdx).trim()
+      let val = trimmed.slice(eqIdx + 1).trim()
+      // Strip surrounding quotes (single or double)
+      if ((val.startsWith('"') && val.endsWith('"')) || (val.startsWith("'") && val.endsWith("'"))) {
+        val = val.slice(1, -1)
+      }
+      const internalKey = ENV_VAR_MAP[envKey]
+      if (internalKey && val) {
+        parsed[internalKey] = val
+      }
+    }
+    return parsed as Record<keyof ApiKeyState, string>
+  }
+
+  function applyEnvFile() {
+    if (!envText.trim()) return
+
+    const parsed = parseEnvFile(envText)
+    const applied: string[] = []
+    const unknown: string[] = []
+
+    // Count lines that look like env vars but we don't know
+    for (const line of envText.split("\n")) {
+      const trimmed = line.trim()
+      if (!trimmed || trimmed.startsWith("#")) continue
+      const eqIdx = trimmed.indexOf("=")
+      if (eqIdx === -1) continue
+      const envKey = trimmed.slice(0, eqIdx).trim()
+      if (ENV_VAR_MAP[envKey]) {
+        // will be counted in applied below
+      } else {
+        unknown.push(envKey)
+      }
+    }
+
+    if (Object.keys(parsed).length === 0) {
+      setEnvResult({ applied: [], unknown })
+      return
+    }
+
+    setKeys((prev) => {
+      const next = { ...prev }
+      for (const [k, v] of Object.entries(parsed) as [keyof ApiKeyState, string][]) {
+        if (v) {
+          next[k] = v
+          applied.push(k)
+        }
+      }
+      return next
+    })
+    setKeysSaved(false) // mark unsaved so user saves on submit
+    setEnvResult({ applied, unknown })
+    // Open the API keys section so user can see the populated fields
+    setOpenSections((prev) => new Set([...prev, "api-keys"]))
+  }
+
+  function clearEnv() {
+    setEnvText("")
+    setEnvResult(null)
   }
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
@@ -1160,6 +1247,129 @@ export function RunForm({ defaultReviewYaml, onSubmit, disabled, loadYaml }: Run
           spellCheck={false}
           className="font-mono text-xs resize-y bg-zinc-900 border-zinc-800 text-zinc-300 placeholder:text-zinc-700 focus-visible:ring-violet-500/50"
         />
+      </Section>
+
+      {/* ----------------------------------------------------------------- */}
+      {/* Section 8: Advanced -- Paste .env file                             */}
+      {/* ----------------------------------------------------------------- */}
+      <Section
+        id="env-paste"
+        title="Advanced: Paste .env file"
+        open={envOpen}
+        onToggle={() => setEnvOpen((v) => !v)}
+        description="Paste the contents of a .env file and we will auto-detect all recognised API keys."
+      >
+        <div className="flex flex-col gap-3">
+          <Textarea
+            value={envText}
+            onChange={(e) => {
+              setEnvText(e.target.value)
+              setEnvResult(null)
+            }}
+            onPaste={(e) => {
+              // Auto-apply on paste for instant feedback
+              const pasted = e.clipboardData.getData("text")
+              setEnvText(pasted)
+              setEnvResult(null)
+              // Apply after state update settles
+              setTimeout(() => {
+                const parsed = parseEnvFile(pasted)
+                const applied: string[] = []
+                const unknown: string[] = []
+                for (const line of pasted.split("\n")) {
+                  const trimmed = line.trim()
+                  if (!trimmed || trimmed.startsWith("#")) continue
+                  const eqIdx = trimmed.indexOf("=")
+                  if (eqIdx === -1) continue
+                  const envKey = trimmed.slice(0, eqIdx).trim()
+                  if (ENV_VAR_MAP[envKey]) {
+                    // handled
+                  } else {
+                    unknown.push(envKey)
+                  }
+                }
+                if (Object.keys(parsed).length > 0) {
+                  setKeys((prev) => {
+                    const next = { ...prev }
+                    for (const [k, v] of Object.entries(parsed) as [keyof ApiKeyState, string][]) {
+                      if (v) { next[k] = v; applied.push(k) }
+                    }
+                    return next
+                  })
+                  setKeysSaved(false)
+                  setOpenSections((prev) => new Set([...prev, "api-keys"]))
+                }
+                setEnvResult({ applied, unknown })
+              }, 0)
+              e.preventDefault()
+            }}
+            placeholder={"GEMINI_API_KEY=AIza...\nPUBMED_EMAIL=you@example.com\nPERPLEXITY_SEARCH_API_KEY=pplx-...\n# any other vars are ignored"}
+            disabled={disabled || loading}
+            rows={6}
+            spellCheck={false}
+            className="font-mono text-xs resize-y bg-zinc-900 border-zinc-800 text-zinc-300 placeholder:text-zinc-600 focus-visible:ring-violet-500/50"
+          />
+
+          {/* Result feedback */}
+          {envResult && (
+            <div className={`rounded-lg px-3 py-2.5 text-xs border ${
+              envResult.applied.length > 0
+                ? "bg-emerald-500/10 border-emerald-500/20 text-emerald-400"
+                : "bg-amber-500/10 border-amber-500/20 text-amber-400"
+            }`}>
+              {envResult.applied.length > 0 ? (
+                <p className="flex items-start gap-1.5">
+                  <Check className="h-3.5 w-3.5 mt-0.5 flex-shrink-0" />
+                  <span>
+                    Detected and applied{" "}
+                    <strong>{envResult.applied.length}</strong> key
+                    {envResult.applied.length !== 1 ? "s" : ""}
+                    {" "}({envResult.applied.join(", ")}).
+                    {envResult.unknown.length > 0 && (
+                      <span className="text-zinc-500 ml-1">
+                        {envResult.unknown.length} unrecognised var
+                        {envResult.unknown.length !== 1 ? "s" : ""} ignored.
+                      </span>
+                    )}
+                  </span>
+                </p>
+              ) : (
+                <p className="flex items-start gap-1.5">
+                  <AlertCircle className="h-3.5 w-3.5 mt-0.5 flex-shrink-0" />
+                  No recognised API keys found. Expected variables like{" "}
+                  <code className="text-zinc-400">GEMINI_API_KEY</code>,{" "}
+                  <code className="text-zinc-400">PUBMED_EMAIL</code>, etc.
+                </p>
+              )}
+            </div>
+          )}
+
+          <div className="flex items-center gap-3">
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              onClick={applyEnvFile}
+              disabled={!envText.trim() || disabled || loading}
+              className="h-8 text-xs border-zinc-700 text-zinc-300 hover:bg-zinc-800 flex items-center gap-1.5"
+            >
+              <FileKey className="h-3.5 w-3.5" />
+              Apply keys
+            </Button>
+            {envText && (
+              <button
+                type="button"
+                onClick={clearEnv}
+                className="text-xs text-zinc-600 hover:text-zinc-400 transition-colors"
+              >
+                Clear
+              </button>
+            )}
+            <p className="text-xs text-zinc-600 ml-auto leading-relaxed">
+              Paste auto-applies. Only API key variables are read -- all other vars are ignored.
+            </p>
+          </div>
+        </div>
       </Section>
 
       {/* ----------------------------------------------------------------- */}

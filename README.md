@@ -69,7 +69,7 @@ uv run uvicorn src.web.app:app --port 8000
 
 Go to `http://localhost:8000`. Click "+" in the sidebar to start a new review. The form has structured fields: PICO (Population, Intervention, Comparison, Outcome), keywords, inclusion/exclusion criteria, date range, and database checkboxes. It builds the YAML config automatically -- you do not need to write YAML by hand.
 
-Enter your Gemini API key and click Run. Your API keys are saved in your browser (localStorage) and restored on the next visit.
+Enter your API keys and click Run. Your keys are saved in your browser (localStorage) and restored on the next visit. You can also paste your entire `.env` file into the "Paste .env" panel -- the form will detect and fill all recognised keys automatically (GEMINI_API_KEY, OPENALEX_API_KEY, PUBMED_EMAIL, etc.).
 
 The sidebar shows all your runs (live and historical) with status colors (emerald = completed, violet = running, red = error, amber = cancelled) and a stats strip (papers found, papers included, artifacts, cost). Selecting a run opens its 4-tab dashboard: Activity (phase timeline + event log), Results, Database, Cost. The selected tab persists when you switch between runs.
 

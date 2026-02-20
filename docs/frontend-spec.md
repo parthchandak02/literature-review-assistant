@@ -55,7 +55,7 @@ frontend/
       useCostStats.ts         -- Aggregates api_call events into cost/token totals
     components/
       Sidebar.tsx             -- Run list (chat-style): "+" for new review, live run at top, history below; status-colored left borders; stats strip per card
-      RunForm.tsx             -- Structured form: PICO fields, keyword tag input, criteria lists, date range, database checkboxes; YAML builder converts state to valid YAML on submit; supports loadYaml prop to pre-populate from a stored config; API keys persisted to localStorage
+      RunForm.tsx             -- Structured form: PICO fields, keyword tag input, criteria lists, date range, database checkboxes; YAML builder converts state to valid YAML on submit; supports loadYaml prop to pre-populate from a stored config; API keys persisted to localStorage; .env paste panel auto-fills all keys from a pasted .env file
       LogStream.tsx           -- Monospace scrollable event log with filter chips
       ResultsPanel.tsx        -- Download links and image previews
       ui/                     -- shadcn copy-owned components (button, input, ...)
