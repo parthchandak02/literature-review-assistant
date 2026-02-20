@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import Any
 
@@ -133,3 +134,84 @@ def log_connector_result(
         payload["error"] = error
     if _logger is not None:
         _logger.info("connector_result", **payload)
+
+
+# ---------------------------------------------------------------------------
+# JSONL replay helpers
+# ---------------------------------------------------------------------------
+
+_PASSTHROUGH_EVENTS = frozenset({"api_call", "screening_decision", "rate_limit_wait"})
+
+
+def normalize_jsonl_event(entry: dict[str, Any]) -> dict[str, Any] | None:
+    """Convert one app.jsonl line to the ReviewEvent format consumed by the frontend.
+
+    structlog writes the event name into the "event" key and adds "timestamp",
+    "level", "workflow_id", and "run_id". We remap to the frontend's "type" + "ts"
+    convention and drop internal fields.
+    """
+    ev = entry.get("event")
+    ts = entry.get("timestamp", "")
+
+    if ev == "phase":
+        action = entry.get("action")
+        if action == "start":
+            return {
+                "type": "phase_start",
+                "phase": entry.get("phase"),
+                "description": entry.get("description", ""),
+                "total": entry.get("total"),
+                "ts": ts,
+            }
+        if action == "done":
+            return {
+                "type": "phase_done",
+                "phase": entry.get("phase"),
+                "summary": entry.get("summary", {}),
+                "total": entry.get("total"),
+                "completed": entry.get("completed"),
+                "ts": ts,
+            }
+        return None  # "start" workflow marker -- skip
+
+    if ev == "connector_result":
+        return {
+            "type": "connector_result",
+            "name": entry.get("connector"),
+            "status": entry.get("status"),
+            "records": entry.get("records"),
+            "error": entry.get("error"),
+            "ts": ts,
+        }
+
+    if ev in _PASSTHROUGH_EVENTS:
+        out = {k: v for k, v in entry.items() if k not in ("event", "level", "timestamp", "workflow_id", "run_id")}
+        out["type"] = ev
+        out["ts"] = ts
+        return out
+
+    return None
+
+
+def load_events_from_jsonl(path: str) -> list[dict[str, Any]]:
+    """Read an app.jsonl file and return normalized ReviewEvent dicts.
+
+    Skips lines that fail to parse or map to no known event type.
+    """
+    result: list[dict[str, Any]] = []
+    try:
+        with open(path, encoding="utf-8") as fh:
+            for line in fh:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    entry = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                normalized = normalize_jsonl_event(entry)
+                if normalized is not None:
+                    result.append(normalized)
+    except OSError:
+        pass
+    return result

@@ -28,6 +28,7 @@ from sse_starlette.sse import EventSourceResponse
 from src.export.submission_packager import package_submission
 from src.orchestration.context import WebRunContext
 from src.orchestration.workflow import run_workflow
+from src.utils.structured_log import load_events_from_jsonl
 
 
 # ---------------------------------------------------------------------------
@@ -47,6 +48,8 @@ class _RunRecord:
         self.workflow_id: str | None = None  # set once workflow completes
         self.log_root: str = "logs"
         self.created_at: float = time.monotonic()  # for TTL eviction
+        # Append-only log of every emitted event for replay on reconnect.
+        self.event_log: list[dict[str, Any]] = []
 
 _active_runs: dict[str, _RunRecord] = {}
 
@@ -113,6 +116,11 @@ class HistoryEntry(BaseModel):
     status: str
     db_path: str
     created_at: str
+    updated_at: str | None = None
+    papers_found: int | None = None
+    papers_included: int | None = None
+    total_cost: float | None = None
+    artifacts_count: int | None = None
 
 
 class AttachRequest(BaseModel):
@@ -158,11 +166,64 @@ async def _resolve_db_path(log_root: str, workflow_id: str) -> str | None:
         return None
 
 
+async def _persist_event_log(db_path: str, workflow_id: str, events: list[dict[str, Any]]) -> None:
+    """Write buffered SSE events to the run's SQLite database for historical replay."""
+    if not events or not workflow_id:
+        return
+    try:
+        async with aiosqlite.connect(db_path) as db:
+            await db.executemany(
+                "INSERT OR IGNORE INTO event_log (workflow_id, event_type, payload, ts) VALUES (?, ?, ?, ?)",
+                [
+                    (
+                        workflow_id,
+                        e.get("type", "unknown"),
+                        _json.dumps(e, default=str),
+                        str(e.get("ts", "")),
+                    )
+                    for e in events
+                ],
+            )
+            await db.commit()
+    except Exception:
+        pass
+
+
+async def _load_event_log_from_db(db_path: str) -> list[dict[str, Any]]:
+    """Load persisted SSE events from a historical run's SQLite database.
+
+    If the event_log table is empty (e.g. the run was launched via CLI rather
+    than the web server), falls back to reading and normalizing the sibling
+    app.jsonl written by structured_log.
+    """
+    try:
+        async with aiosqlite.connect(db_path) as db:
+            db.row_factory = aiosqlite.Row
+            async with db.execute(
+                "SELECT payload FROM event_log ORDER BY id ASC"
+            ) as cur:
+                rows = await cur.fetchall()
+        events: list[dict[str, Any]] = [_json.loads(row["payload"]) for row in rows]
+    except Exception:
+        events = []
+
+    if not events:
+        jsonl_path = pathlib.Path(db_path).parent / "app.jsonl"
+        if jsonl_path.exists():
+            events = load_events_from_jsonl(str(jsonl_path))
+
+    return events
+
+
 async def _run_wrapper(record: _RunRecord, review_path: str, req: RunRequest) -> None:
     def _on_db_ready(path: str) -> None:
         record.db_path = path
 
-    ctx = WebRunContext(queue=record.queue, on_db_ready=_on_db_ready)
+    ctx = WebRunContext(
+        queue=record.queue,
+        on_db_ready=_on_db_ready,
+        on_event=record.event_log.append,
+    )
     try:
         outputs = await run_workflow(
             review_path=review_path,
@@ -198,6 +259,9 @@ async def _run_wrapper(record: _RunRecord, review_path: str, req: RunRequest) ->
             pathlib.Path(review_path).unlink(missing_ok=True)
         except Exception:
             pass
+        # Persist the full event log to SQLite for historical replay.
+        if record.db_path and record.workflow_id:
+            await _persist_event_log(record.db_path, record.workflow_id, record.event_log)
 
 
 # ---------------------------------------------------------------------------
@@ -234,12 +298,25 @@ async def stream_run(run_id: str) -> EventSourceResponse:
         raise HTTPException(status_code=404, detail="Run not found")
 
     async def _generator() -> AsyncGenerator[dict[str, Any], None]:
-        # Fast-path: already completed with nothing queued (e.g. historical run attached
-        # via /api/history/attach). Immediately signal done so the frontend does not
-        # wait 15 seconds for a heartbeat timeout.
+        # Replay buffered events so the client always gets the full history,
+        # even on page refresh or reconnect after events were already consumed
+        # from the queue.
+        replay_index = 0
+        for event in list(record.event_log):
+            yield {"data": _json_safe(event)}
+            replay_index += 1
+
+        # Fast-path: already completed and queue is empty after replay.
         if record.done and record.queue.empty():
-            yield {"data": _json_safe({"type": "done", "outputs": record.outputs})}
+            # Only emit the terminal done event if it wasn't already replayed.
+            already_has_terminal = any(
+                e.get("type") in ("done", "error", "cancelled")
+                for e in record.event_log
+            )
+            if not already_has_terminal:
+                yield {"data": _json_safe({"type": "done", "outputs": record.outputs})}
             return
+
         while True:
             try:
                 event = await asyncio.wait_for(record.queue.get(), timeout=15.0)
@@ -311,9 +388,49 @@ async def get_review_config() -> dict[str, str]:
 # Run history endpoints (reads workflows_registry.db from log_root)
 # ---------------------------------------------------------------------------
 
+async def _fetch_run_stats(db_path: str) -> dict[str, Any]:
+    """Open a run's runtime.db and return lightweight aggregate stats.
+
+    Uses WAL mode for safe concurrent reads (no exclusive lock needed).
+    Returns {} on any error so a corrupt/missing DB never blocks the endpoint.
+    Also reads the sibling run_summary.json to count generated artifacts.
+    """
+    try:
+        async with aiosqlite.connect(db_path) as db:
+            await db.execute("PRAGMA journal_mode=WAL")
+            papers_found = (await (await db.execute(
+                "SELECT COUNT(*) FROM papers"
+            )).fetchone())[0]
+            papers_included = (await (await db.execute(
+                "SELECT COUNT(*) FROM dual_screening_results WHERE final_decision='include'"
+            )).fetchone())[0]
+            total_cost = (await (await db.execute(
+                "SELECT COALESCE(SUM(cost_usd), 0.0) FROM cost_records"
+            )).fetchone())[0]
+
+        artifacts_count: int | None = None
+        summary_path = pathlib.Path(db_path).parent / "run_summary.json"
+        if summary_path.exists():
+            try:
+                summary = _json.loads(summary_path.read_text(encoding="utf-8"))
+                artifacts_count = len(summary.get("artifacts", {}))
+            except Exception:
+                pass
+
+        return {
+            "papers_found": int(papers_found),
+            "papers_included": int(papers_included),
+            "total_cost": float(total_cost),
+            "artifacts_count": artifacts_count,
+        }
+    except Exception:
+        return {}
+
+
 @app.get("/api/history")
 async def list_history(log_root: str = "logs") -> list[HistoryEntry]:
-    """Return all past runs from the central workflows_registry.db."""
+    """Return all past runs from the central workflows_registry.db, enriched
+    with per-run aggregate stats fetched in parallel from each runtime.db."""
     registry = pathlib.Path(log_root) / "workflows_registry.db"
     if not registry.exists():
         return []
@@ -322,14 +439,41 @@ async def list_history(log_root: str = "logs") -> list[HistoryEntry]:
             db.row_factory = aiosqlite.Row
             async with db.execute(
                 """SELECT workflow_id, topic, status, db_path,
-                          COALESCE(created_at, updated_at, '') AS created_at
+                          COALESCE(created_at, '') AS created_at,
+                          updated_at
                    FROM workflows_registry
                    ORDER BY created_at DESC"""
             ) as cur:
                 rows = await cur.fetchall()
-        return [HistoryEntry(**dict(r)) for r in rows]
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+    if not rows:
+        return []
+
+    # Fetch per-run stats from each runtime.db in parallel.
+    # return_exceptions=True means one corrupt/slow DB never fails the rest.
+    stat_results = await asyncio.gather(
+        *[_fetch_run_stats(str(r["db_path"])) for r in rows],
+        return_exceptions=True,
+    )
+
+    enriched: list[HistoryEntry] = []
+    for row, stats in zip(rows, stat_results):
+        s = stats if isinstance(stats, dict) else {}
+        enriched.append(HistoryEntry(
+            workflow_id=row["workflow_id"],
+            topic=row["topic"],
+            status=row["status"],
+            db_path=row["db_path"],
+            created_at=row["created_at"] or "",
+            updated_at=row["updated_at"],
+            papers_found=s.get("papers_found"),
+            papers_included=s.get("papers_included"),
+            total_cost=s.get("total_cost"),
+            artifacts_count=s.get("artifacts_count"),
+        ))
+    return enriched
 
 
 @app.post("/api/history/attach", response_model=RunResponse)
@@ -349,6 +493,8 @@ async def attach_history(req: AttachRequest) -> RunResponse:
             record.outputs = _json.loads(summary_path.read_text(encoding="utf-8"))
         except Exception:
             pass  # graceful -- outputs stays {}
+    # Load persisted events from SQLite for the historical event log viewer.
+    record.event_log = await _load_event_log_from_db(req.db_path)
     _active_runs[run_id] = record
     return RunResponse(run_id=run_id, topic=req.topic)
 
@@ -519,6 +665,39 @@ async def get_run_artifacts(run_id: str) -> dict[str, Any]:
     if not summary.exists():
         raise HTTPException(status_code=404, detail="run_summary.json not found")
     return _json.loads(summary.read_text(encoding="utf-8"))
+
+
+@app.get("/api/run/{run_id}/events")
+async def get_run_events(run_id: str) -> dict[str, Any]:
+    """Return the full event log for a run.
+
+    For live or recently completed runs this is served from the in-memory
+    replay buffer.  For attached historical runs the buffer is populated from
+    the SQLite event_log table when the run is attached.
+    """
+    record = _active_runs.get(run_id)
+    if record is None:
+        raise HTTPException(status_code=404, detail="Run not found")
+    return {"events": record.event_log}
+
+
+@app.get("/api/workflow/{workflow_id}/events")
+async def get_workflow_events(
+    workflow_id: str,
+    log_root: str = "logs",
+) -> dict[str, Any]:
+    """Return the full event log for a completed workflow by workflow_id.
+
+    Reads directly from the SQLite event_log table via workflows_registry
+    lookup -- no POST /api/history/attach required first.  This lets the
+    frontend reload historical event logs after a page refresh without needing
+    to recreate an ephemeral RunRecord in _active_runs.
+    """
+    db_path = await _resolve_db_path(log_root, workflow_id)
+    if not db_path:
+        raise HTTPException(status_code=404, detail="Workflow not found in registry")
+    events = await _load_event_log_from_db(db_path)
+    return {"events": events}
 
 
 @app.post("/api/run/{run_id}/export")

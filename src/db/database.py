@@ -42,6 +42,24 @@ async def run_migrations(db: aiosqlite.Connection) -> None:
         await db.commit()
     except Exception:
         pass
+    # Migration: add event_log table for SSE event replay on existing databases
+    try:
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS event_log (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                workflow_id TEXT NOT NULL,
+                event_type TEXT NOT NULL,
+                payload TEXT NOT NULL,
+                ts TEXT NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        await db.execute(
+            "CREATE INDEX IF NOT EXISTS idx_event_log_workflow ON event_log(workflow_id)"
+        )
+        await db.commit()
+    except Exception:
+        pass
 
 
 @asynccontextmanager

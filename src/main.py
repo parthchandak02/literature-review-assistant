@@ -16,10 +16,15 @@ from typing import Sequence
 from rich.console import Console
 from rich.table import Table
 
+from pathlib import Path
+
+import aiosqlite
+
 from src.db.workflow_registry import find_by_workflow_id, find_by_workflow_id_fallback
 from src.export import package_submission, validate_ieee, validate_prisma
 from src.orchestration import run_workflow_resume, run_workflow_sync
 from src.orchestration.context import RunContext, create_progress
+from src.utils.structured_log import load_events_from_jsonl
 
 
 async def _run_export(workflow_id: str, log_root: str) -> str | None:
@@ -195,6 +200,37 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+async def _backfill_event_log(log_dir: str, workflow_id: str) -> None:
+    """Populate event_log in the run's SQLite DB from the app.jsonl written by structured_log.
+
+    This makes phase timeline and activity log work in the web UI for CLI runs.
+    Uses INSERT OR IGNORE so it is safe to call multiple times.
+    """
+    db_path = str(Path(log_dir) / "runtime.db")
+    jsonl_path = str(Path(log_dir) / "app.jsonl")
+    events = load_events_from_jsonl(jsonl_path)
+    if not events:
+        return
+    import json as _json
+    try:
+        async with aiosqlite.connect(db_path) as db:
+            await db.executemany(
+                "INSERT OR IGNORE INTO event_log (workflow_id, event_type, payload, ts) VALUES (?, ?, ?, ?)",
+                [
+                    (
+                        workflow_id,
+                        e.get("type", "unknown"),
+                        _json.dumps(e, default=str),
+                        str(e.get("ts", "")),
+                    )
+                    for e in events
+                ],
+            )
+            await db.commit()
+    except Exception:
+        pass
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     console = Console()
     parser = build_parser()
@@ -226,6 +262,10 @@ def main(argv: Sequence[str] | None = None) -> int:
                 fresh=getattr(args, "fresh", False),
             )
         _print_run_summary(console, summary)
+        log_dir = summary.get("log_dir")
+        workflow_id = summary.get("workflow_id")
+        if log_dir and workflow_id:
+            asyncio.run(_backfill_event_log(str(log_dir), str(workflow_id)))
         return 0
 
     if args.command == "resume":

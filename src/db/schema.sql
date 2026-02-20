@@ -181,6 +181,15 @@ CREATE TABLE IF NOT EXISTS checkpoints (
     PRIMARY KEY (workflow_id, phase)
 );
 
+CREATE TABLE IF NOT EXISTS event_log (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    workflow_id TEXT NOT NULL,
+    event_type TEXT NOT NULL,
+    payload TEXT NOT NULL,
+    ts TEXT NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
 CREATE UNIQUE INDEX IF NOT EXISTS idx_papers_doi_unique ON papers(doi) WHERE doi IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_papers_doi ON papers(doi);
 CREATE INDEX IF NOT EXISTS idx_screening_paper ON screening_decisions(workflow_id, paper_id, stage);
@@ -189,3 +198,4 @@ CREATE INDEX IF NOT EXISTS idx_evidence_claim ON evidence_links(claim_id);
 CREATE INDEX IF NOT EXISTS idx_evidence_citation ON evidence_links(citation_id);
 CREATE INDEX IF NOT EXISTS idx_decision_log_phase ON decision_log(phase);
 CREATE INDEX IF NOT EXISTS idx_gate_results_phase ON gate_results(phase);
+CREATE INDEX IF NOT EXISTS idx_event_log_workflow ON event_log(workflow_id);
