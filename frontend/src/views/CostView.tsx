@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from "react"
+import { useState, useEffect, useMemo, useCallback } from "react"
 import {
   BarChart,
   Bar,
@@ -13,6 +13,7 @@ import { cn } from "@/lib/utils"
 import { fetchDbCosts } from "@/lib/api"
 import type { DbCostRow } from "@/lib/api"
 import type { CostStats, ModelStat, PhaseStat } from "@/hooks/useCostStats"
+import { FetchError, LoadingPane } from "@/components/ui/feedback"
 
 interface MetricTileProps {
   icon: React.ElementType
@@ -71,14 +72,30 @@ interface CostViewProps {
 export function CostView({ costStats, dbRunId, dbIsDone = false }: CostViewProps) {
   const [dbRows, setDbRows] = useState<DbCostRow[]>([])
   const [dbTotalCost, setDbTotalCost] = useState(0)
+  const [loadingDb, setLoadingDb] = useState(false)
+  const [dbError, setDbError] = useState<string | null>(null)
+
+  const loadDbCosts = useCallback(() => {
+    if (!dbIsDone || !dbRunId || costStats.total_calls > 0) return
+    setLoadingDb(true)
+    setDbError(null)
+    fetchDbCosts(dbRunId)
+      .then((d) => { setDbRows(d.records); setDbTotalCost(d.total_cost) })
+      .catch((e: unknown) => {
+        const msg = e instanceof Error ? e.message : String(e)
+        setDbError(
+          msg.toLowerCase().includes("failed to fetch")
+            ? "Cannot reach backend."
+            : msg,
+        )
+      })
+      .finally(() => setLoadingDb(false))
+  }, [dbIsDone, dbRunId, costStats.total_calls])
 
   // When browsing a completed historical run with no live SSE costs, load from DB.
   useEffect(() => {
-    if (!dbIsDone || !dbRunId || costStats.total_calls > 0) return
-    fetchDbCosts(dbRunId)
-      .then((d) => { setDbRows(d.records); setDbTotalCost(d.total_cost) })
-      .catch(() => {})
-  }, [dbIsDone, dbRunId, costStats.total_calls])
+    loadDbCosts()
+  }, [loadDbCosts])
 
   // Aggregate DbCostRow[] into the same CostStats shape the rendering already uses.
   const dbCostStats = useMemo<CostStats | null>(() => {
@@ -127,6 +144,20 @@ export function CostView({ costStats, dbRunId, dbIsDone = false }: CostViewProps
   }))
 
   const hasCosts = total_calls > 0
+
+  if (loadingDb) {
+    return <LoadingPane message="Loading cost records..." />
+  }
+
+  if (dbError) {
+    return (
+      <FetchError
+        message={dbError}
+        onRetry={loadDbCosts}
+        className="max-w-md"
+      />
+    )
+  }
 
   if (!hasCosts) {
     return (

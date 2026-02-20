@@ -1,4 +1,4 @@
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
@@ -17,6 +17,14 @@ const SECTION = "bg-zinc-900 border border-zinc-800 rounded-xl p-5"
 export function RunForm({ defaultReviewYaml, onSubmit, disabled }: RunFormProps) {
   const [reviewYaml, setReviewYaml] = useState(defaultReviewYaml)
   const [geminiKey, setGeminiKey] = useState("")
+
+  // Sync textarea with the default YAML once it loads from the backend.
+  // Only applies when the user has not yet typed anything.
+  useEffect(() => {
+    if (defaultReviewYaml && reviewYaml === "") {
+      setReviewYaml(defaultReviewYaml)
+    }
+  }, [defaultReviewYaml]) // reviewYaml intentionally excluded -- we only want to seed, not overwrite
   const [openalexKey, setOpenalexKey] = useState("")
   const [ieeeKey, setIeeeKey] = useState("")
   const [showKeys, setShowKeys] = useState(false)

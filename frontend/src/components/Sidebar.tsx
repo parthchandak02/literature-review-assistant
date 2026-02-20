@@ -1,49 +1,27 @@
+import { useCallback, useEffect, useState } from "react"
+import {
+  BookMarked,
+  ChevronLeft,
+  ChevronRight,
+  Clock,
+  Plus,
+  RefreshCw,
+} from "lucide-react"
 import { cn } from "@/lib/utils"
+import { fetchHistory } from "@/lib/api"
+import type { HistoryEntry } from "@/lib/api"
 import {
   Tooltip,
   TooltipContent,
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip"
-import {
-  BookMarked,
-  BarChart3,
-  ChevronLeft,
-  ChevronRight,
-  Clock,
-  Database,
-  FileText,
-  LayoutDashboard,
-  ListFilter,
-  Plus,
-} from "lucide-react"
 
-export type NavTab =
-  | "setup"
-  | "overview"
-  | "cost"
-  | "database"
-  | "log"
-  | "results"
-  | "history"
+// ---------------------------------------------------------------------------
+// Types
+// ---------------------------------------------------------------------------
 
-type RunStatus = "idle" | "connecting" | "streaming" | "done" | "error" | "cancelled"
-
-interface NavItem {
-  id: NavTab
-  label: string
-  icon: React.ElementType
-  requiresRun?: boolean
-}
-
-const NAV_ITEMS: NavItem[] = [
-  { id: "overview", label: "Overview", icon: LayoutDashboard, requiresRun: true },
-  { id: "cost", label: "Cost & Usage", icon: BarChart3, requiresRun: true },
-  { id: "log", label: "Event Log", icon: ListFilter, requiresRun: true },
-  { id: "database", label: "Database", icon: Database, requiresRun: true },
-  { id: "results", label: "Results", icon: FileText, requiresRun: true },
-  { id: "history", label: "History", icon: Clock, requiresRun: false },
-]
+export type RunStatus = "idle" | "connecting" | "streaming" | "done" | "error" | "cancelled"
 
 const STATUS_LABEL: Record<RunStatus, string> = {
   idle: "Ready",
@@ -54,7 +32,16 @@ const STATUS_LABEL: Record<RunStatus, string> = {
   cancelled: "Cancelled",
 }
 
-const STATUS_COLOR: Record<RunStatus, string> = {
+const STATUS_DOT: Record<RunStatus, string> = {
+  idle: "bg-zinc-600",
+  connecting: "bg-violet-400",
+  streaming: "bg-violet-500",
+  done: "bg-emerald-500",
+  error: "bg-red-500",
+  cancelled: "bg-amber-500",
+}
+
+const STATUS_TEXT: Record<RunStatus, string> = {
   idle: "text-zinc-500",
   connecting: "text-violet-400",
   streaming: "text-violet-400",
@@ -63,148 +50,333 @@ const STATUS_COLOR: Record<RunStatus, string> = {
   cancelled: "text-amber-400",
 }
 
+const STATUS_BORDER: Record<RunStatus, string> = {
+  idle: "border-zinc-700",
+  connecting: "border-violet-500",
+  streaming: "border-violet-500",
+  done: "border-emerald-500",
+  error: "border-red-500",
+  cancelled: "border-amber-500",
+}
+
+function resolveStatus(raw: string): RunStatus {
+  const s = raw.toLowerCase()
+  if (s === "completed" || s === "done") return "done"
+  if (s === "running" || s === "streaming") return "streaming"
+  if (s === "connecting") return "connecting"
+  if (s === "error" || s === "failed") return "error"
+  if (s === "cancelled" || s === "canceled") return "cancelled"
+  return "idle"
+}
+
+function fmtNum(n: number): string {
+  return n.toLocaleString()
+}
+
+export interface LiveRun {
+  runId: string
+  topic: string
+  status: RunStatus
+  cost: number
+}
+
 interface SidebarProps {
-  activeTab: NavTab
-  onTabChange: (tab: NavTab) => void
-  hasRun: boolean
-  isRunning: boolean
-  runStatus: RunStatus
-  totalCost: number
-  topic: string | null
+  liveRun: LiveRun | null
+  /** workflowId of the historical run being viewed (null when viewing live run or setup). */
+  selectedWorkflowId: string | null
+  /** True when the live run is currently being viewed in the main area. */
+  isLiveRunSelected: boolean
+  onSelectLiveRun: () => void
+  onSelectHistory: (entry: HistoryEntry) => void
   onNewReview: () => void
   collapsed: boolean
   onToggle: () => void
 }
 
+// ---------------------------------------------------------------------------
+// Sidebar
+// ---------------------------------------------------------------------------
+
 export function Sidebar({
-  activeTab,
-  onTabChange,
-  hasRun,
-  isRunning,
-  runStatus,
-  totalCost,
-  topic,
+  liveRun,
+  selectedWorkflowId,
+  isLiveRunSelected,
+  onSelectLiveRun,
+  onSelectHistory,
   onNewReview,
   collapsed,
   onToggle,
 }: SidebarProps) {
-  const statusLabel = STATUS_LABEL[runStatus] ?? runStatus
-  const statusColor = STATUS_COLOR[runStatus] ?? "text-zinc-400"
+  const [history, setHistory] = useState<HistoryEntry[]>([])
+  const [loadingHistory, setLoadingHistory] = useState(false)
+  const [openingId, setOpeningId] = useState<string | null>(null)
+
+  const loadHistory = useCallback(async () => {
+    setLoadingHistory(true)
+    try {
+      const data = await fetchHistory()
+      setHistory(data)
+    } catch {
+      // silently ignore -- history is non-critical
+    } finally {
+      setLoadingHistory(false)
+    }
+  }, [])
+
+  // Fetch history on mount and whenever the live run finishes.
+  useEffect(() => {
+    void loadHistory()
+  }, [loadHistory])
+
+  useEffect(() => {
+    if (
+      liveRun?.status === "done" ||
+      liveRun?.status === "error" ||
+      liveRun?.status === "cancelled"
+    ) {
+      void loadHistory()
+    }
+  }, [liveRun?.status, loadHistory])
+
+  const isRunning =
+    liveRun?.status === "streaming" || liveRun?.status === "connecting"
+
+  async function handleSelectHistory(entry: HistoryEntry) {
+    setOpeningId(entry.workflow_id)
+    try {
+      await onSelectHistory(entry)
+    } finally {
+      setOpeningId(null)
+    }
+  }
 
   return (
     <TooltipProvider delayDuration={0}>
       <aside
         className={cn(
-          "fixed left-0 top-0 h-full bg-zinc-900 border-r border-zinc-800 flex flex-col z-20 select-none overflow-hidden",
-          "transition-[width] duration-200 ease-in-out",
-          collapsed ? "w-[56px]" : "w-[220px]",
+          "fixed left-0 top-0 h-full bg-zinc-900 border-r border-zinc-800 flex flex-col z-20 select-none",
+          "transition-[width] duration-200 ease-in-out overflow-hidden",
+          collapsed ? "w-[56px]" : "w-[240px]",
         )}
       >
         {/* Logo row */}
-        <div className="flex items-center h-14 border-b border-zinc-800 shrink-0 px-3.5">
+        <div className="flex items-center h-14 border-b border-zinc-800 shrink-0 px-3.5 gap-2">
           <div className="flex items-center justify-center w-7 h-7 rounded-lg bg-violet-600 shrink-0">
             <BookMarked className="h-3.5 w-3.5 text-white" />
           </div>
           <div
             className={cn(
-              "flex items-center gap-2 ml-2 overflow-hidden transition-all duration-200",
+              "flex items-center gap-2 overflow-hidden transition-all duration-200",
               collapsed ? "w-0 opacity-0" : "w-auto opacity-100",
             )}
           >
-            <span className="font-semibold text-sm text-white tracking-tight whitespace-nowrap">LitReview</span>
+            <span className="font-semibold text-sm text-white tracking-tight whitespace-nowrap">
+              LitReview
+            </span>
             <span className="text-[10px] font-medium text-zinc-500 bg-zinc-800 px-1.5 py-0.5 rounded whitespace-nowrap">
               BETA
             </span>
           </div>
         </div>
 
-        {/* New review button */}
-        <div className="px-2.5 pt-3 pb-2 shrink-0">
-          <NavTooltip label="New Review" collapsed={collapsed} side="right">
+        {/* New Review button */}
+        <div className={cn("px-2.5 pt-3 pb-2 shrink-0", collapsed && "px-2")}>
+          <SidebarTooltip label="New Review" collapsed={collapsed} side="right">
             <button
               onClick={onNewReview}
               className={cn(
-                "w-full flex items-center rounded-md transition-colors text-zinc-300 hover:text-white hover:bg-zinc-800",
-                collapsed ? "justify-center h-9 w-9 mx-auto" : "gap-2 px-3 py-1.5 text-sm",
+                "flex items-center gap-2 rounded-lg transition-colors text-sm font-medium w-full",
+                "bg-violet-600 hover:bg-violet-500 text-white",
+                collapsed
+                  ? "justify-center h-9 w-9 mx-auto"
+                  : "px-3 py-2",
               )}
             >
-              <Plus className="h-3.5 w-3.5 shrink-0" />
+              <Plus className="h-4 w-4 shrink-0" />
               {!collapsed && "New Review"}
             </button>
-          </NavTooltip>
+          </SidebarTooltip>
         </div>
 
-        {/* Active run status pill (expanded only) */}
-        {hasRun && topic && !collapsed && (
-          <div className="mx-2.5 mb-2 px-3 py-2 bg-zinc-800/60 rounded-lg shrink-0">
-            <div className="flex items-center gap-1.5 mb-1">
-              {isRunning && (
-                <span className="relative flex h-2 w-2 shrink-0">
-                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-violet-400 opacity-75" />
-                  <span className="relative inline-flex rounded-full h-2 w-2 bg-violet-500" />
-                </span>
+        {/* Run list */}
+        <nav className="flex-1 overflow-y-auto overflow-x-hidden px-2.5 pb-2 space-y-4">
+          {/* Current / live run */}
+          {liveRun && (
+            <section>
+              {!collapsed && (
+                <div className="px-1 mb-1.5">
+                  <span className="text-[10px] font-semibold text-zinc-600 uppercase tracking-wider">
+                    Current
+                  </span>
+                </div>
               )}
-              <span className={cn("text-[11px] font-medium uppercase tracking-wide", statusColor)}>
-                {statusLabel}
-              </span>
-            </div>
-            <p className="text-xs text-zinc-200 line-clamp-2 leading-snug">{topic}</p>
-          </div>
-        )}
-
-        {/* Collapsed running dot */}
-        {hasRun && isRunning && collapsed && (
-          <div className="flex justify-center pb-1 shrink-0">
-            <span className="relative flex h-2 w-2">
-              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-violet-400 opacity-75" />
-              <span className="relative inline-flex rounded-full h-2 w-2 bg-violet-500" />
-            </span>
-          </div>
-        )}
-
-        {/* Nav items */}
-        <nav className="flex-1 px-2.5 pb-2 overflow-y-auto overflow-x-hidden">
-          {NAV_ITEMS.map((item) => {
-            const disabled = (item.requiresRun ?? false) && !hasRun
-            const active = activeTab === item.id
-            return (
-              <NavTooltip key={item.id} label={item.label} collapsed={collapsed} side="right">
+              <SidebarTooltip label={liveRun.topic} collapsed={collapsed} side="right">
                 <button
-                  onClick={() => !disabled && onTabChange(item.id)}
-                  disabled={disabled}
+                  onClick={onSelectLiveRun}
                   className={cn(
-                    "w-full flex items-center rounded-md transition-colors mb-0.5",
+                    "w-full transition-colors text-left",
                     collapsed
-                      ? "justify-center h-9 w-9 mx-auto"
-                      : "gap-2.5 px-3 py-1.5 text-sm",
-                    active
-                      ? collapsed
-                        ? "bg-zinc-800 text-white ring-1 ring-violet-500/50"
-                        : "bg-zinc-800 text-white border-l-2 border-violet-500 pl-[10px]"
-                      : disabled
-                      ? "text-zinc-600 cursor-not-allowed"
-                      : "text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/60",
+                      ? "flex justify-center items-center h-9 w-9 mx-auto rounded-lg"
+                      : cn(
+                          "border-l-2 pl-2.5 pr-2 py-2 rounded-r-md",
+                          STATUS_BORDER[liveRun.status],
+                        ),
+                    isLiveRunSelected
+                      ? "bg-zinc-800"
+                      : "hover:bg-zinc-800/60",
                   )}
                 >
-                  <item.icon className="h-4 w-4 shrink-0" />
-                  {!collapsed && item.label}
+                  {collapsed ? (
+                    <RunDot status={liveRun.status} animate={isRunning} />
+                  ) : (
+                    <div className="flex flex-col gap-0.5 min-w-0">
+                      <div className="flex items-center gap-1.5 min-w-0">
+                        <RunDot status={liveRun.status} animate={isRunning} />
+                        <span
+                          className={cn(
+                            "text-[10px] font-semibold uppercase tracking-wide shrink-0",
+                            STATUS_TEXT[liveRun.status],
+                          )}
+                        >
+                          {STATUS_LABEL[liveRun.status]}
+                        </span>
+                        <span className="ml-auto text-[10px] text-zinc-500 shrink-0">
+                          Now
+                        </span>
+                      </div>
+                      <span className="text-xs text-zinc-300 line-clamp-2 leading-snug">
+                        {liveRun.topic}
+                      </span>
+                      {liveRun.cost > 0 && (
+                        <span className="text-[10px] font-mono text-zinc-500 mt-0.5">
+                          ${liveRun.cost.toFixed(3)}
+                        </span>
+                      )}
+                    </div>
+                  )}
                 </button>
-              </NavTooltip>
-            )
-          })}
+              </SidebarTooltip>
+            </section>
+          )}
+
+          {/* History */}
+          <section>
+            {!collapsed && (
+              <div className="flex items-center justify-between px-1 mb-1.5">
+                <span className="text-[10px] font-semibold text-zinc-600 uppercase tracking-wider">
+                  History
+                </span>
+                <button
+                  onClick={() => void loadHistory()}
+                  disabled={loadingHistory}
+                  aria-label="Refresh history"
+                  className="text-zinc-600 hover:text-zinc-400 transition-colors"
+                >
+                  <RefreshCw
+                    className={cn("h-3 w-3", loadingHistory && "animate-spin")}
+                  />
+                </button>
+              </div>
+            )}
+
+            <div className="space-y-0.5">
+              {history.map((entry) => {
+                const statusKey = resolveStatus(entry.status)
+                const isSelected = selectedWorkflowId === entry.workflow_id
+                const isOpening = openingId === entry.workflow_id
+                const canOpen = Boolean(entry.db_path)
+                const borderColor = STATUS_BORDER[statusKey]
+
+                // Build compact stats tokens
+                const statsTokens: string[] = []
+                if (entry.papers_found != null && entry.papers_found > 0) {
+                  statsTokens.push(`${fmtNum(entry.papers_found)} found`)
+                }
+                if (entry.papers_included != null) {
+                  statsTokens.push(`${fmtNum(entry.papers_included)} incl.`)
+                }
+                if (entry.artifacts_count != null && entry.artifacts_count > 0) {
+                  statsTokens.push(`${entry.artifacts_count} outputs`)
+                }
+                if (entry.total_cost != null && entry.total_cost > 0) {
+                  statsTokens.push(`$${entry.total_cost.toFixed(2)}`)
+                }
+
+                return (
+                  <SidebarTooltip
+                    key={entry.workflow_id}
+                    label={entry.topic}
+                    collapsed={collapsed}
+                    side="right"
+                  >
+                    <button
+                      onClick={() => canOpen && void handleSelectHistory(entry)}
+                      disabled={!canOpen}
+                      className={cn(
+                        "w-full transition-colors text-left",
+                        collapsed
+                          ? "flex justify-center items-center h-9 w-9 mx-auto rounded-lg"
+                          : cn(
+                              "border-l-2 pl-2.5 pr-2 py-2 rounded-r-md",
+                              borderColor,
+                            ),
+                        isSelected
+                          ? "bg-zinc-800"
+                          : canOpen
+                            ? "hover:bg-zinc-800/50"
+                            : "opacity-40 cursor-not-allowed",
+                      )}
+                    >
+                      {collapsed ? (
+                        <RunDot status={statusKey} />
+                      ) : (
+                        <div className="flex flex-col gap-0.5 min-w-0">
+                          <div className="flex items-center gap-1.5 min-w-0">
+                            {isOpening ? (
+                              <div className="h-1.5 w-1.5 rounded-full border border-zinc-500 animate-spin shrink-0" />
+                            ) : (
+                              <RunDot status={statusKey} />
+                            )}
+                            <span
+                              className={cn(
+                                "text-[10px] font-semibold uppercase tracking-wide shrink-0",
+                                STATUS_TEXT[statusKey],
+                              )}
+                            >
+                              {STATUS_LABEL[statusKey]}
+                            </span>
+                            <span className="ml-auto text-[10px] text-zinc-600 shrink-0 tabular-nums">
+                              {formatShortDate(entry.created_at)}
+                            </span>
+                          </div>
+                          <span className="text-xs text-zinc-400 line-clamp-2 leading-snug">
+                            {entry.topic}
+                          </span>
+                          {statsTokens.length > 0 && (
+                            <p className="text-[10px] text-zinc-600 mt-0.5 leading-none tabular-nums">
+                              {statsTokens.join(" · ")}
+                            </p>
+                          )}
+                        </div>
+                      )}
+                    </button>
+                  </SidebarTooltip>
+                )
+              })}
+            </div>
+
+            {!collapsed && history.length === 0 && !loadingHistory && (
+              <div className="flex flex-col items-center py-6 gap-2">
+                <Clock className="h-6 w-6 text-zinc-700" />
+                <p className="text-[11px] text-zinc-600 text-center">
+                  Past reviews will appear here automatically.
+                </p>
+              </div>
+            )}
+          </section>
         </nav>
 
-        {/* Cost footer (expanded only) */}
-        {hasRun && totalCost > 0 && !collapsed && (
-          <div className="px-4 py-3 border-t border-zinc-800 shrink-0">
-            <div className="text-[11px] text-zinc-500 mb-0.5 uppercase tracking-wide">Total Cost</div>
-            <div className="text-lg font-mono font-semibold text-emerald-400">
-              ${totalCost.toFixed(4)}
-            </div>
-          </div>
-        )}
-
-        {/* Toggle button */}
+        {/* Collapse toggle */}
         <button
           onClick={onToggle}
           aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
@@ -224,8 +396,51 @@ export function Sidebar({
   )
 }
 
-// Internal helper: only shows tooltip when sidebar is collapsed
-function NavTooltip({
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+function RunDot({
+  status,
+  animate = false,
+}: {
+  status: RunStatus | "idle"
+  animate?: boolean
+}) {
+  const color = STATUS_DOT[status] ?? "bg-zinc-600"
+  if (animate) {
+    return (
+      <span className="relative flex h-1.5 w-1.5 shrink-0">
+        <span
+          className={cn(
+            "animate-ping absolute inline-flex h-full w-full rounded-full opacity-75",
+            color,
+          )}
+        />
+        <span className={cn("relative inline-flex rounded-full h-1.5 w-1.5", color)} />
+      </span>
+    )
+  }
+  return <span className={cn("inline-flex rounded-full h-1.5 w-1.5 shrink-0", color)} />
+}
+
+function formatShortDate(raw: string): string {
+  if (!raw) return ""
+  try {
+    const d = new Date(raw.includes("T") ? raw : raw.replace(" ", "T") + "Z")
+    const now = new Date()
+    const diffDays = Math.floor((now.getTime() - d.getTime()) / 86400000)
+    if (diffDays === 0) return "Today"
+    if (diffDays === 1) return "Yesterday"
+    if (diffDays < 7)
+      return d.toLocaleDateString(undefined, { weekday: "short" })
+    return d.toLocaleDateString(undefined, { month: "short", day: "numeric" })
+  } catch {
+    return raw.slice(0, 10)
+  }
+}
+
+function SidebarTooltip({
   label,
   collapsed,
   side,
@@ -240,7 +455,10 @@ function NavTooltip({
   return (
     <Tooltip>
       <TooltipTrigger asChild>{children}</TooltipTrigger>
-      <TooltipContent side={side ?? "right"} className="bg-zinc-800 border-zinc-700 text-zinc-200 text-xs">
+      <TooltipContent
+        side={side ?? "right"}
+        className="bg-zinc-800 border-zinc-700 text-zinc-200 text-xs max-w-[200px]"
+      >
         {label}
       </TooltipContent>
     </Tooltip>

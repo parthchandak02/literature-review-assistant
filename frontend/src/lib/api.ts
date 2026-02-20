@@ -38,9 +38,9 @@ export type ReviewEvent =
   | { type: "synthesis"; feasible: boolean; groups: number; n_studies: number; direction: string; ts: string }
   | { type: "rate_limit_wait"; tier: string; slots_used: number; limit: number; ts: string }
   | { type: "db_ready"; ts: string }
-  | { type: "done"; outputs: Record<string, unknown> }
-  | { type: "error"; msg: string }
-  | { type: "cancelled" }
+  | { type: "done"; outputs: Record<string, unknown>; ts?: string }
+  | { type: "error"; msg: string; ts?: string }
+  | { type: "cancelled"; ts?: string }
 
 // Database explorer types
 export interface PaperRow {
@@ -77,6 +77,11 @@ export interface HistoryEntry {
   status: string
   db_path: string
   created_at: string
+  updated_at?: string | null
+  papers_found?: number | null
+  papers_included?: number | null
+  total_cost?: number | null
+  artifacts_count?: number | null
 }
 
 const BASE = "/api"
@@ -203,6 +208,104 @@ export async function triggerExport(runId: string): Promise<ExportResult> {
   const res = await fetch(`${BASE}/run/${runId}/export`, { method: "POST" })
   if (!res.ok) throw await _apiError(res, "Export failed")
   return res.json() as Promise<ExportResult>
+}
+
+// Run event log (replay buffer for reconnect and historical views)
+
+export async function fetchRunEvents(runId: string): Promise<ReviewEvent[]> {
+  const res = await fetch(`${BASE}/run/${runId}/events`)
+  if (!res.ok) return []
+  const data = await res.json() as { events?: ReviewEvent[] }
+  return data.events ?? []
+}
+
+/**
+ * Fetch the full event log for a completed workflow directly from SQLite,
+ * without needing a prior POST /api/history/attach call.  Use this to load
+ * historical events after a page refresh when the run is no longer in the
+ * in-memory _active_runs registry.
+ */
+export async function fetchWorkflowEvents(workflowId: string): Promise<ReviewEvent[]> {
+  const res = await fetch(`${BASE}/workflow/${workflowId}/events`)
+  if (!res.ok) return []
+  const data = await res.json() as { events?: ReviewEvent[] }
+  return data.events ?? []
+}
+
+// ---------------------------------------------------------------------------
+// localStorage helpers -- persist the live run across page refreshes so SSE
+// can reconnect and the user does not lose progress tracking on reload.
+// ---------------------------------------------------------------------------
+
+export interface StoredLiveRun {
+  runId: string
+  topic: string
+  startedAt: string  // ISO string
+}
+
+const LIVE_RUN_KEY = "litreview_live_run"
+
+export function saveLiveRun(run: StoredLiveRun): void {
+  try {
+    localStorage.setItem(LIVE_RUN_KEY, JSON.stringify(run))
+  } catch {
+    // ignore quota / security errors
+  }
+}
+
+export function loadLiveRun(): StoredLiveRun | null {
+  try {
+    const raw = localStorage.getItem(LIVE_RUN_KEY)
+    return raw ? (JSON.parse(raw) as StoredLiveRun) : null
+  } catch {
+    return null
+  }
+}
+
+export function clearLiveRun(): void {
+  try {
+    localStorage.removeItem(LIVE_RUN_KEY)
+  } catch {
+    // ignore
+  }
+}
+
+// ---------------------------------------------------------------------------
+// localStorage helpers -- persist API keys locally (never sent to any server
+// other than the user's own local backend).
+// ---------------------------------------------------------------------------
+
+export interface StoredApiKeys {
+  gemini: string
+  openalex: string
+  ieee: string
+}
+
+const API_KEYS_KEY = "litreview_api_keys"
+
+export function saveApiKeys(keys: StoredApiKeys): void {
+  try {
+    localStorage.setItem(API_KEYS_KEY, JSON.stringify(keys))
+  } catch {
+    // ignore quota / security errors
+  }
+}
+
+export function loadApiKeys(): StoredApiKeys | null {
+  try {
+    const raw = localStorage.getItem(API_KEYS_KEY)
+    return raw ? (JSON.parse(raw) as StoredApiKeys) : null
+  } catch {
+    return null
+  }
+}
+
+export function clearApiKeys(): void {
+  try {
+    localStorage.removeItem(API_KEYS_KEY)
+  } catch {
+    // ignore
+  }
 }
 
 // History endpoints

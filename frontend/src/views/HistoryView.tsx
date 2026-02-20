@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from "react"
 import { fetchHistory } from "@/lib/api"
 import type { HistoryEntry } from "@/lib/api"
 import { cn } from "@/lib/utils"
-import { AlertTriangle, Clock, Database, Loader, RefreshCw } from "lucide-react"
+import { AlertTriangle, BookOpen, Clock, Loader, RefreshCw } from "lucide-react"
 import { Button } from "@/components/ui/button"
 
 const STATUS_STYLE: Record<string, string> = {
@@ -32,6 +32,23 @@ function formatDate(raw: string): string {
 /** True if a run has a db_path that could be browsed (including partial/stale runs). */
 function canOpen(entry: HistoryEntry): boolean {
   return Boolean(entry.db_path)
+}
+
+/** Compute human-readable duration from two ISO timestamp strings. */
+function formatDuration(start: string, end: string | null | undefined): string | null {
+  if (!end) return null
+  try {
+    const s = new Date(start.includes("T") ? start : start.replace(" ", "T") + "Z")
+    const e = new Date(end.includes("T") ? end : end.replace(" ", "T") + "Z")
+    const secs = Math.max(0, Math.round((e.getTime() - s.getTime()) / 1000))
+    if (secs < 60) return `${secs}s`
+    const m = Math.floor(secs / 60)
+    const h = Math.floor(m / 60)
+    if (h > 0) return `${h}h ${m % 60}m`
+    return `${m}m ${secs % 60}s`
+  } catch {
+    return null
+  }
 }
 
 /** True if a run may be stale (was marked running but backend has likely restarted). */
@@ -158,6 +175,12 @@ export function HistoryView({ onAttach }: HistoryViewProps) {
                 <th className="text-left px-4 py-3 text-xs font-medium text-zinc-500 uppercase tracking-wide">
                   Status
                 </th>
+                <th className="text-right px-4 py-3 text-xs font-medium text-zinc-500 uppercase tracking-wide">
+                  Papers
+                </th>
+                <th className="text-right px-4 py-3 text-xs font-medium text-zinc-500 uppercase tracking-wide">
+                  Cost
+                </th>
                 <th className="text-left px-4 py-3 text-xs font-medium text-zinc-500 uppercase tracking-wide">
                   Date
                 </th>
@@ -175,6 +198,11 @@ export function HistoryView({ onAttach }: HistoryViewProps) {
                 const openError = openErrors[entry.workflow_id]
                 const stale = isLikelyStale(entry)
                 const openable = canOpen(entry)
+                const duration = formatDuration(entry.created_at, entry.updated_at)
+
+                const papersFound = entry.papers_found ?? null
+                const papersIncluded = entry.papers_included ?? null
+                const totalCost = entry.total_cost ?? null
 
                 return (
                   <tr
@@ -214,9 +242,46 @@ export function HistoryView({ onAttach }: HistoryViewProps) {
                       </div>
                     </td>
 
-                    {/* Date */}
+                    {/* Papers found / included */}
+                    <td className="px-4 py-3.5 text-right">
+                      {papersFound !== null ? (
+                        <>
+                          <span className="font-mono text-xs text-zinc-200">
+                            {papersFound.toLocaleString()}
+                            <span className="text-zinc-600"> / </span>
+                            {papersIncluded !== null ? papersIncluded.toLocaleString() : "--"}
+                          </span>
+                          <span className="text-zinc-600 text-[10px] block">
+                            found / incl.
+                          </span>
+                        </>
+                      ) : (
+                        <span className="text-zinc-700 text-xs font-mono">--</span>
+                      )}
+                    </td>
+
+                    {/* Total cost */}
+                    <td className="px-4 py-3.5 text-right">
+                      {totalCost !== null ? (
+                        <span className={cn(
+                          "font-mono text-xs",
+                          totalCost > 0 ? "text-emerald-400" : "text-zinc-500",
+                        )}>
+                          ${totalCost.toFixed(2)}
+                        </span>
+                      ) : (
+                        <span className="text-zinc-700 text-xs font-mono">--</span>
+                      )}
+                    </td>
+
+                    {/* Date + duration */}
                     <td className="px-4 py-3.5 text-xs text-zinc-500 whitespace-nowrap">
                       {formatDate(entry.created_at)}
+                      {duration && (
+                        <span className="text-zinc-600 text-[10px] block mt-0.5">
+                          {duration}
+                        </span>
+                      )}
                     </td>
 
                     {/* Open button */}
@@ -233,7 +298,7 @@ export function HistoryView({ onAttach }: HistoryViewProps) {
                             {isOpening ? (
                               <Loader className="h-3 w-3 animate-spin" />
                             ) : (
-                              <Database className="h-3 w-3" />
+                              <BookOpen className="h-3 w-3" />
                             )}
                             {isOpening ? "Opening..." : "Open"}
                           </Button>

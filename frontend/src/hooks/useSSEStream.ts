@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react"
 import { fetchEventSource } from "@microsoft/fetch-event-source"
+import { fetchRunEvents } from "@/lib/api"
 import type { ReviewEvent } from "@/lib/api"
 
 export interface SSEState {
@@ -11,7 +12,6 @@ export interface SSEState {
 /** Converts raw fetch/network errors to a user-friendly message. */
 function friendlyError(err: unknown): string {
   const msg = err instanceof Error ? err.message : String(err)
-  // Network-level failure (backend down, refused, DNS, timeout)
   if (
     err instanceof TypeError ||
     msg.toLowerCase().includes("failed to fetch") ||
@@ -24,6 +24,71 @@ function friendlyError(err: unknown): string {
     return "Run not found on backend (server may have restarted)"
   }
   return msg
+}
+
+/**
+ * Deduplicate an event list by (type, ts, index). Events without ts use
+ * the positional index so they are never incorrectly dropped.
+ */
+function dedup(events: ReviewEvent[]): ReviewEvent[] {
+  const seen = new Set<string>()
+  const out: ReviewEvent[] = []
+  for (let i = 0; i < events.length; i++) {
+    const ev = events[i]
+    const ts = "ts" in ev ? (ev as { ts?: string }).ts ?? "" : ""
+    const key = `${ev.type}|${ts}|${i}`
+    if (!seen.has(key)) {
+      seen.add(key)
+      out.push(ev)
+    }
+  }
+  return out
+}
+
+type SetState = React.Dispatch<React.SetStateAction<SSEState>>
+
+/**
+ * Open an SSE connection to /api/stream/{runId}.
+ * Incoming events are merged (with deduplication) into existing state.
+ * Returns a cleanup function that aborts the connection.
+ */
+function openStream(runId: string, signal: AbortSignal, setState: SetState): void {
+  fetchEventSource(`/api/stream/${runId}`, {
+    signal,
+    onopen: async (res) => {
+      if (!res.ok) throw new Error(`Stream open failed: ${res.status}`)
+      setState((s) => ({ ...s, status: "streaming" }))
+    },
+    onmessage: (ev) => {
+      if (ev.event === "heartbeat") return
+      try {
+        const data = JSON.parse(ev.data) as ReviewEvent
+        setState((s) => {
+          const merged = dedup([...s.events, data])
+          let status = s.status
+          if (data.type === "done") status = "done"
+          else if (data.type === "error") status = "error"
+          else if (data.type === "cancelled") status = "cancelled"
+          return {
+            events: merged,
+            status,
+            error: data.type === "error" ? data.msg : s.error,
+          }
+        })
+      } catch {
+        // ignore parse errors
+      }
+    },
+    onerror: (err) => {
+      const msg = err instanceof Error ? err.message : String(err)
+      if (msg === "AbortError" || msg.includes("aborted")) throw err
+      setState((s) => ({ ...s, status: "error", error: friendlyError(err) }))
+      throw err // stop automatic retry
+    },
+    openWhenHidden: true,
+  }).catch(() => {
+    // Absorb the re-thrown error from onerror to prevent unhandled rejection
+  })
 }
 
 export function useSSEStream(runId: string | null) {
@@ -48,51 +113,48 @@ export function useSSEStream(runId: string | null) {
     // eslint-disable-next-line react-hooks/set-state-in-effect -- initializes connecting status on run start
     setState((s) => ({ ...s, status: "connecting", error: null }))
 
-    fetchEventSource(`/api/stream/${runId}`, {
-      signal: ctrl.signal,
-      onopen: async (res) => {
-        if (!res.ok) {
-          throw new Error(`Stream open failed: ${res.status}`)
-        }
-        setState((s) => ({ ...s, status: "streaming" }))
-      },
-      onmessage: (ev) => {
-        if (ev.event === "heartbeat") return
-        try {
-          const data = JSON.parse(ev.data) as ReviewEvent
-          setState((s) => {
-            const next = [...s.events, data]
-            let status = s.status
-            if (data.type === "done") status = "done"
-            else if (data.type === "error") status = "error"
-            else if (data.type === "cancelled") status = "cancelled"
-            return {
-              events: next,
+    // Phase 1: prefetch any events already buffered on the backend (handles
+    // page refresh during a live run and reconnect after network glitch).
+    fetchRunEvents(runId)
+      .then((prior) => {
+        if (ctrl.signal.aborted) return
+
+        if (prior.length > 0) {
+          // Check if the run already has a terminal event in the buffer.
+          const terminal = prior.find(
+            (e) => e.type === "done" || e.type === "error" || e.type === "cancelled",
+          )
+          if (terminal) {
+            const status =
+              terminal.type === "done"
+                ? "done"
+                : terminal.type === "error"
+                ? "error"
+                : "cancelled"
+            setState({
+              events: prior,
               status,
-              error: data.type === "error" ? data.msg : s.error,
-            }
-          })
-        } catch {
-          // ignore parse errors
+              error: terminal.type === "error" ? terminal.msg : null,
+            })
+            // Run already finished -- no need to open the SSE stream.
+            return
+          }
+          // Seed state with prior events before streaming begins.
+          setState((s) => ({
+            ...s,
+            events: dedup([...s.events, ...prior]),
+          }))
         }
-      },
-      onerror: (err) => {
-        // Don't surface AbortError from intentional ctrl.abort() calls
-        const msg = err instanceof Error ? err.message : String(err)
-        if (msg === "AbortError" || msg.includes("aborted")) {
-          throw err // stop retrying, onerror already handled
+
+        // Phase 2: open live SSE stream for remaining / future events.
+        openStream(runId, ctrl.signal, setState)
+      })
+      .catch(() => {
+        // fetchRunEvents failed (backend offline) -- still try opening SSE directly.
+        if (!ctrl.signal.aborted) {
+          openStream(runId, ctrl.signal, setState)
         }
-        setState((s) => ({
-          ...s,
-          status: "error",
-          error: friendlyError(err),
-        }))
-        throw err // stop automatic retry
-      },
-      openWhenHidden: true,
-    }).catch(() => {
-      // Absorb the re-thrown error from onerror to prevent unhandled rejection
-    })
+      })
 
     return () => {
       ctrl.abort()

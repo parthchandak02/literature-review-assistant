@@ -168,10 +168,18 @@ export function DatabaseView({ runId, isDone, dbAvailable, isLive }: DatabaseVie
     <div className="flex flex-col gap-4">
       {/* Tab bar + live badge */}
       <div className="flex items-center gap-3">
-        <div className="flex items-center gap-1 bg-zinc-900 border border-zinc-800 rounded-xl p-1 w-fit">
+        <div
+          role="tablist"
+          aria-label="Database explorer tabs"
+          className="flex items-center gap-1 bg-zinc-900 border border-zinc-800 rounded-xl p-1 w-fit"
+        >
           {TABS.map((t) => (
             <button
               key={t.id}
+              role="tab"
+              aria-selected={activeTab === t.id}
+              aria-controls={`panel-${t.id}`}
+              id={`tab-${t.id}`}
               onClick={() => setActiveTab(t.id)}
               className={cn(
                 "px-4 py-1.5 rounded-lg text-sm font-medium transition-colors",
@@ -200,7 +208,12 @@ export function DatabaseView({ runId, isDone, dbAvailable, isLive }: DatabaseVie
 
       {/* Papers tab */}
       {activeTab === "papers" && (
-        <div className="flex flex-col gap-3">
+        <div
+          role="tabpanel"
+          id="panel-papers"
+          aria-labelledby="tab-papers"
+          className="flex flex-col gap-3"
+        >
           <div className="flex items-center gap-3">
             <div className="relative flex-1 max-w-sm">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-zinc-500" />
@@ -274,7 +287,12 @@ export function DatabaseView({ runId, isDone, dbAvailable, isLive }: DatabaseVie
 
       {/* Screening tab */}
       {activeTab === "screening" && (
-        <div className="flex flex-col gap-3">
+        <div
+          role="tabpanel"
+          id="panel-screening"
+          aria-labelledby="tab-screening"
+          className="flex flex-col gap-3"
+        >
           <div className="flex items-center gap-3">
             <div className="flex items-center gap-1 bg-zinc-900 border border-zinc-800 rounded-lg p-0.5">
               {["", "include", "exclude", "uncertain"].map((d) => (
@@ -360,7 +378,12 @@ export function DatabaseView({ runId, isDone, dbAvailable, isLive }: DatabaseVie
 
       {/* Costs tab */}
       {activeTab === "costs" && (
-        <div className="flex flex-col gap-3">
+        <div
+          role="tabpanel"
+          id="panel-costs"
+          aria-labelledby="tab-costs"
+          className="flex flex-col gap-3"
+        >
           <div className="flex items-center gap-3">
             <span className="text-xs text-zinc-500">
               Total from DB:{" "}
