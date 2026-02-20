@@ -55,6 +55,7 @@ class ExclusionReason(str, Enum):
     WRONG_LANGUAGE = "wrong_language"
     NO_FULL_TEXT = "no_full_text"
     KEYWORD_FILTER = "keyword_filter"  # pre-filter: zero intervention keyword matches; no LLM call made
+    LOW_RELEVANCE_SCORE = "low_relevance_score"  # BM25 score below cap cutoff; no LLM call made
     OTHER = "other"
 
 

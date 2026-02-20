@@ -367,6 +367,18 @@ wheels = [
 ]
 
 [[package]]
+name = "bm25s"
+version = "0.3.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "numpy" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/90/30/0a3f0772101750613ad4662ceb599fee007d2027e52ac917b7eedec6649b/bm25s-0.3.0.tar.gz", hash = "sha256:591aa454d03763bdbc89961823f03fde0016467ceb5a1438363ef1ec3f0a09c9", size = 73998, upload-time = "2026-02-17T19:38:57.214Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/0e/90/bc786debc06d7dce2f8385fbe7f8da8c52ca9b7a1f72516a11888c1af150/bm25s-0.3.0-py3-none-any.whl", hash = "sha256:ef515019afafdc5bc181af71097dab78928b76601a1f2745b5761c9bccb6e6dd", size = 69068, upload-time = "2026-02-17T19:38:55.902Z" },
+]
+
+[[package]]
 name = "boltons"
 version = "25.0.0"
 source = { registry = "https://pypi.org/simple" }
@@ -4062,6 +4074,7 @@ dependencies = [
     { name = "aiosqlite" },
     { name = "arxiv" },
     { name = "biopython" },
+    { name = "bm25s" },
     { name = "certifi" },
     { name = "colrev" },
     { name = "fastapi" },
@@ -4093,6 +4106,7 @@ requires-dist = [
     { name = "aiosqlite", specifier = ">=0.21" },
     { name = "arxiv", specifier = ">=2.0" },
     { name = "biopython", specifier = ">=1.83" },
+    { name = "bm25s", specifier = ">=0.2" },
     { name = "certifi", specifier = ">=2024.0" },
     { name = "colrev", specifier = ">=0.16.0" },
     { name = "fastapi", specifier = ">=0.129.0" },

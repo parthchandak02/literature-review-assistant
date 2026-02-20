@@ -194,17 +194,6 @@ class DualReviewerScreener:
         processed = await self.repository.get_processed_paper_ids(workflow_id, stage)
         to_process = [p for p in papers if p.paper_id not in processed]
 
-        cap = self.settings.screening.max_llm_screen
-        if cap is not None and len(to_process) > cap:
-            skipped = len(to_process) - cap
-            _log.warning(
-                "max_llm_screen cap of %d reached; skipping %d papers (they will be "
-                "counted as excluded at the title/abstract stage for cost control).",
-                cap,
-                skipped,
-            )
-            to_process = to_process[:cap]
-
         total = len(to_process)
         concurrency = self.settings.screening.screening_concurrency
         sem = asyncio.Semaphore(concurrency)
