@@ -50,6 +50,8 @@ class _RunRecord:
         self.created_at: float = time.monotonic()  # for TTL eviction
         # Append-only log of every emitted event for replay on reconnect.
         self.event_log: list[dict[str, Any]] = []
+        # Original review YAML submitted by the user -- saved to run dir after completion.
+        self.review_yaml: str = ""
 
 _active_runs: dict[str, _RunRecord] = {}
 
@@ -94,6 +96,11 @@ class RunRequest(BaseModel):
     gemini_api_key: str
     openalex_api_key: str | None = None
     ieee_api_key: str | None = None
+    pubmed_email: str | None = None
+    pubmed_api_key: str | None = None
+    perplexity_api_key: str | None = None
+    semantic_scholar_api_key: str | None = None
+    crossref_email: str | None = None
     log_root: str = "logs"
     output_root: str = "data/outputs"
 
@@ -139,6 +146,17 @@ def _inject_env(req: RunRequest) -> None:
         os.environ["OPENALEX_API_KEY"] = req.openalex_api_key
     if req.ieee_api_key:
         os.environ["IEEE_API_KEY"] = req.ieee_api_key
+    if req.pubmed_email:
+        os.environ["PUBMED_EMAIL"] = req.pubmed_email
+        os.environ["NCBI_EMAIL"] = req.pubmed_email
+    if req.pubmed_api_key:
+        os.environ["PUBMED_API_KEY"] = req.pubmed_api_key
+    if req.perplexity_api_key:
+        os.environ["PERPLEXITY_SEARCH_API_KEY"] = req.perplexity_api_key
+    if req.semantic_scholar_api_key:
+        os.environ["SEMANTIC_SCHOLAR_API_KEY"] = req.semantic_scholar_api_key
+    if req.crossref_email:
+        os.environ["CROSSREF_EMAIL"] = req.crossref_email
 
 
 def _extract_topic(review_yaml: str) -> str:
@@ -241,6 +259,14 @@ async def _run_wrapper(record: _RunRecord, review_path: str, req: RunRequest) ->
         if wf_id:
             record.workflow_id = wf_id
             record.db_path = await _resolve_db_path(req.log_root, wf_id)
+            # Save the original review YAML alongside runtime.db so it can be
+            # retrieved later via GET /api/history/{workflow_id}/config.
+            if record.db_path and record.review_yaml:
+                try:
+                    yaml_dest = pathlib.Path(record.db_path).parent / "review.yaml"
+                    yaml_dest.write_text(record.review_yaml, encoding="utf-8")
+                except Exception:
+                    pass
 
         await record.queue.put({
             "type": "done",
@@ -283,6 +309,7 @@ async def start_run(req: RunRequest) -> RunResponse:
 
     record = _RunRecord(run_id=run_id, topic=topic)
     record.log_root = req.log_root
+    record.review_yaml = req.review_yaml
     _active_runs[run_id] = record
 
     task = asyncio.create_task(_run_wrapper(record, tmp.name, req))
@@ -474,6 +501,52 @@ async def list_history(log_root: str = "logs") -> list[HistoryEntry]:
             artifacts_count=s.get("artifacts_count"),
         ))
     return enriched
+
+
+@app.get("/api/history/{workflow_id}/config")
+async def get_run_config(workflow_id: str, log_root: str = "logs") -> dict[str, str]:
+    """Return the original review.yaml for a past run.
+
+    The file is written to the run's log directory after the workflow completes
+    (for web-started runs) or copied there by the CLI backfill step.
+    Returns 404 if the file does not exist (e.g. old CLI runs before this feature).
+    """
+    # First try to locate via the registry to get the exact db_path
+    registry = pathlib.Path(log_root) / "workflows_registry.db"
+    db_path: str | None = None
+    if registry.exists():
+        try:
+            async with aiosqlite.connect(str(registry)) as db:
+                db.row_factory = aiosqlite.Row
+                async with db.execute(
+                    "SELECT db_path FROM workflows_registry WHERE workflow_id = ?",
+                    (workflow_id,),
+                ) as cur:
+                    row = await cur.fetchone()
+                    if row:
+                        db_path = row["db_path"]
+        except Exception:
+            pass
+
+    if not db_path:
+        # Fallback: check well-known path pattern
+        candidate = pathlib.Path(log_root) / workflow_id / "runtime.db"
+        if candidate.exists():
+            db_path = str(candidate)
+
+    if not db_path:
+        raise HTTPException(status_code=404, detail="Workflow not found")
+
+    yaml_path = pathlib.Path(db_path).parent / "review.yaml"
+    if not yaml_path.exists():
+        raise HTTPException(status_code=404, detail="Config not saved for this run")
+
+    try:
+        content = yaml_path.read_text(encoding="utf-8")
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+    return {"content": content}
 
 
 @app.post("/api/history/attach", response_model=RunResponse)

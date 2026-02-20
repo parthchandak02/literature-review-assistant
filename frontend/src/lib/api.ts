@@ -5,6 +5,11 @@ export interface RunRequest {
   gemini_api_key: string
   openalex_api_key?: string
   ieee_api_key?: string
+  pubmed_email?: string
+  pubmed_api_key?: string
+  perplexity_api_key?: string
+  semantic_scholar_api_key?: string
+  crossref_email?: string
   log_root?: string
   output_root?: string
 }
@@ -120,6 +125,15 @@ export async function getDefaultReviewConfig(): Promise<string> {
   if (!res.ok) return ""
   const data = await res.json() as { content: string }
   return data.content
+}
+
+/** Fetch the review.yaml that was used for a specific past run. Returns null if not available. */
+export async function fetchRunConfig(workflowId: string, logRoot = "logs"): Promise<string | null> {
+  const params = new URLSearchParams({ log_root: logRoot })
+  const res = await fetch(`${BASE}/history/${encodeURIComponent(workflowId)}/config?${params}`)
+  if (!res.ok) return null
+  const data = await res.json() as { content: string }
+  return data.content ?? null
 }
 
 export function downloadUrl(path: string): string {
@@ -279,6 +293,11 @@ export interface StoredApiKeys {
   gemini: string
   openalex: string
   ieee: string
+  pubmedEmail: string
+  pubmedApiKey: string
+  perplexity: string
+  semanticScholar: string
+  crossrefEmail: string
 }
 
 const API_KEYS_KEY = "litreview_api_keys"
