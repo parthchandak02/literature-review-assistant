@@ -55,13 +55,13 @@ frontend/
       useCostStats.ts         -- Aggregates api_call events into cost/token totals
     components/
       Sidebar.tsx             -- Run list (chat-style): "+" for new review, live run at top, history below; status-colored left borders; stats strip per card
-      RunForm.tsx             -- YAML textarea + API key inputs + submit
+      RunForm.tsx             -- Structured form: PICO fields, keyword tag input, criteria lists, date range, database checkboxes; YAML builder converts state to valid YAML on submit; supports loadYaml prop to pre-populate from a stored config; API keys persisted to localStorage
       LogStream.tsx           -- Monospace scrollable event log with filter chips
       ResultsPanel.tsx        -- Download links and image previews
       ui/                     -- shadcn copy-owned components (button, input, ...)
         feedback.tsx          -- Shared EmptyState, FetchError, LoadingPane components
     views/
-      SetupView.tsx           -- New Review: minimal heading + RunForm
+      SetupView.tsx           -- New Review form with "Load from past run" dropdown; fetches history, lets user pick a past run to reuse its config, passes stored YAML to RunForm via loadYaml prop
       RunView.tsx             -- 4-tab container for a selected run (Activity, Results, Database, Cost)
       ActivityView.tsx        -- Phase timeline + stats strip + filter chips + event log (live SSE or historical fetch)
       CostView.tsx            -- Recharts bar chart + model/phase cost tables
@@ -129,13 +129,14 @@ Past runs live in `logs/workflows_registry.db`. The frontend cannot open SQLite 
 
 ### 4.4 Additional Run Endpoints
 
-Two endpoints exist beyond the DB explorer that are not part of the attach flow but are used by ResultsView and ActivityView:
+These endpoints exist beyond the core run/stream/DB explorer flow:
 
 | Endpoint | Response | Used by |
 |---|---|---|
 | `GET /api/run/{run_id}/events` | `{ events: ReviewEvent[] }` -- full replay buffer (in-memory for live runs, loaded from DB for historical) | `useSSEStream` prefetch, `ActivityView` historical mode |
 | `GET /api/run/{run_id}/artifacts` | `{ artifacts: Record<str, str> }` -- label to absolute path map from `run_summary.json` | `ResultsView` download panel |
 | `GET /api/workflow/{workflow_id}/events` | `{ events: ReviewEvent[] }` -- events loaded directly from `event_log` table by workflow ID | `ActivityView` when attaching historical runs without a live `run_id` |
+| `GET /api/history/{workflow_id}/config` | `{ content: str }` -- the original `review.yaml` written to the run directory after completion | `SetupView` "Load from past run" dropdown via `fetchRunConfig()` |
 
 ### 4.5 Client-Side Cost Tracking
 
@@ -201,7 +202,19 @@ The main content area always renders a `RunView` for the selected run. `RunView`
 
 The old `NAV_ITEMS` / `requiresRun` pattern no longer exists. The sidebar is a run list: selecting a run sets `selectedRun` in App state; `RunView` renders immediately with that run's data. The "+" button in the sidebar header opens `SetupView` to start a new run.
 
-### 6.4 SSE heartbeat
+### 6.4 API key localStorage persistence
+
+API keys are stored in the browser's `localStorage` under the key `litreview_api_keys` so they survive page refresh. Three helpers in `api.ts` manage this:
+
+```typescript
+saveApiKeys(keys: StoredApiKeys): void   // called by RunForm on submit
+loadApiKeys(): StoredApiKeys | null       // called by RunForm on mount
+clearApiKeys(): void                      // exposed for future "sign out" flow
+```
+
+`StoredApiKeys` has `gemini_api_key`, `openalex_api_key?`, and `ieee_api_key?`. Keys are never sent to any remote server -- they are posted to the local FastAPI process in the request body only.
+
+### 6.5 SSE heartbeat
 
 The backend sends a `heartbeat` event every 15 seconds of inactivity to keep the connection alive through long phases. The `useSSEStream` hook ignores heartbeat events (`if (ev.event === "heartbeat") return`).
 

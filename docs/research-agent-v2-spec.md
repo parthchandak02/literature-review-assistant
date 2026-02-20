@@ -125,7 +125,7 @@ A prior prototype exists at `github.com/parthchandak02/literature-review-assista
 | Post-Phase-8 Diagram Fixes | Implemented | RoB figure reads display_label from DB instead of local heuristics; bar labels on publication timeline; dynamic label rotation on geographic distribution chart |
 | Post-Phase-8 Search Limits | Implemented | SearchConfig model with max_results_per_db (default 500) and per_database_limits (per-connector overrides); replaces hardcoded max_results=100 in workflow.py |
 | Phase 3 Screening Efficiency | Implemented | keyword_filter.py pre-filter (ExclusionReason.KEYWORD_FILTER, cuts LLM calls ~80%); BM25 relevance ranking when max_llm_screen is set (bm25s library, top-N by topic score go to LLM, tail papers get LOW_RELEVANCE_SCORE decision written to DB for PRISMA compliance); confidence fast-path; asyncio.Semaphore concurrency; reset_partial_flag() Ctrl+C fix; skip_fulltext_if_no_pdf; max_llm_screen hard cap for cost control |
-| Web UI | Implemented | FastAPI SSE backend (16 endpoints: run, stream, cancel, history, attach, DB explorer, events, artifacts, export); React/Vite/TypeScript frontend (7 views: Setup, Overview, Cost, Database, Log, Results, History); client-side cost tracking from api_call events; run history via workflows_registry; DB explorer for papers/screening/costs; static frontend served from frontend/dist/ |
+| Web UI | Implemented | FastAPI SSE backend (17 endpoints: run, stream, cancel, history, attach, DB explorer, events, artifacts, export, config); React/Vite/TypeScript frontend; structured review form (PICO fields, keyword tags, criteria lists, database checkboxes, YAML builder); "Load from past run" config reuse; API key localStorage persistence; run-centric sidebar with status colors and stats strip; client-side cost tracking from api_call events; run history via workflows_registry; DB explorer for papers/screening/costs; static frontend served from frontend/dist/ |
 
 ***
 
@@ -144,7 +144,7 @@ Verification: `uv run pytest tests/unit -q` (86 pass), `uv run python -m src.mai
 - **Gap 3 -- LLM-based quality assessment:** `Rob2Assessor.assess()`, `RobinsIAssessor.assess()`, `CaspAssessor.assess()` are now `async`; each sends extraction record + full text to Gemini Pro with a typed JSON schema for the respective assessment model; heuristic fallback on API error.
 - **Gap 4 -- LLM humanizer:** `humanize_async()` in `src/writing/humanizer.py` makes a real Gemini Pro call using `_HUMANIZE_PROMPT_TEMPLATE`; `WritingNode` applies it for `humanization_iterations` passes per section when `settings.writing.humanization=true`.
 - **Gap 5 -- Shared Gemini client:** `src/llm/gemini_client.py` -- reusable `GeminiClient` with exponential-backoff retry on 429/502/503/504 (max 5 retries); used by extraction, quality, and humanizer; separate from screening's `GeminiScreeningClient`.
-- **Gap 6 -- Web UI:** Full FastAPI SSE backend (`src/web/app.py`, 16 endpoints) + React/Vite/TypeScript frontend (`frontend/`) with 7 views (Setup, Overview, Cost, Database, Log, Results, History); DB explorer for papers/screening/costs; run history via `workflows_registry`; client-side cost aggregation from `api_call` SSE events; see `docs/frontend-spec.md` for full frontend architecture.
+- **Gap 6 -- Web UI:** Full FastAPI SSE backend (`src/web/app.py`, 17 endpoints) + React/Vite/TypeScript frontend (`frontend/`); structured review form (PICO fields, keyword tags, criteria, database checkboxes, YAML builder/parser); "Load from past run" config reuse via `GET /api/history/{workflow_id}/config`; API key localStorage persistence; run-centric sidebar (status colors, stats strip); 4-tab run dashboard (Activity, Results, Database, Cost); DB explorer for papers/screening/costs; run history via `workflows_registry`; client-side cost aggregation from `api_call` SSE events; see `docs/frontend-spec.md` for full frontend architecture.
 - **Gap 7 -- Screening cost cap + BM25 ranking:** `max_llm_screen` field in `ScreeningConfig` (default 100 in settings.yaml); when set, `bm25_rank_and_cap()` in `keyword_filter.py` BM25-ranks all candidate papers by topic relevance (using the `bm25s` library); top N papers go to LLM dual-review; papers below the cap receive `ExclusionReason.LOW_RELEVANCE_SCORE` decisions written directly to the DB with their BM25 score and rank so PRISMA flow counts are accurate. The keyword pre-filter is bypassed as a hard gate when a cap is active (it reverts to a soft hint).
 - **Gap 8 -- Spec updated:** Part 0B, 0C, and file structure reflect current state.
 
@@ -1308,7 +1308,7 @@ systematic-review-tool/
 |   |   `-- rate_limiter.py           # Token bucket rate limiter
 |   |-- web/
 |   |   |-- __init__.py
-|   |   `-- app.py                    # FastAPI server: 16 endpoints (run, stream, cancel, history, attach, DB explorer, events, artifacts, export); SSE via asyncio.Queue + replay buffer; static frontend serving
+|   |   `-- app.py                    # FastAPI server: 17 endpoints (run, stream, cancel, history, attach, DB explorer, events, artifacts, export, config); SSE via asyncio.Queue + replay buffer; static frontend serving
 |   `-- utils/
 |       |-- __init__.py
 |       |-- structured_log.py         # Structured logging (JSONL, decision log)

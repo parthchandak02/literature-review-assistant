@@ -67,9 +67,13 @@ uv run uvicorn src.web.app:app --port 8000
 
 **5. Open your browser**
 
-Go to `http://localhost:8000`. Click "+" in the sidebar to start a new review. Paste your Gemini API key, fill in your research question, and click Run.
+Go to `http://localhost:8000`. Click "+" in the sidebar to start a new review. The form has structured fields: PICO (Population, Intervention, Comparison, Outcome), keywords, inclusion/exclusion criteria, date range, and database checkboxes. It builds the YAML config automatically -- you do not need to write YAML by hand.
+
+Enter your Gemini API key and click Run. Your API keys are saved in your browser (localStorage) and restored on the next visit.
 
 The sidebar shows all your runs (live and historical) with status colors and a stats strip (papers found, papers included, artifacts, cost). Selecting a run opens its 4-tab dashboard: Activity (phase timeline + event log), Results, Database, Cost. The selected tab persists when you switch between runs.
+
+**Tip -- reuse a past config:** Click "+" to open the form, then use the "Load from past run" dropdown to pre-populate the form from any previous run's config. Useful for iterating on the same research question with different parameters.
 
 ---
 
@@ -313,6 +317,12 @@ uv run pytest tests/integration -q
 | `frontend/` | React + TypeScript web UI |
 
 **Full architecture spec:** `docs/research-agent-v2-spec.md`
+
+**Utility scripts:**
+
+| Script | Purpose |
+|--------|---------|
+| `scripts/regenerate_figures.py` | Re-render all figures (PRISMA flow, timeline, geographic, RoB, RoB2) from a completed run's SQLite DB without any LLM calls. Useful after figure code fixes. Edit the `DB_PATH`, `WORKFLOW_ID`, `DEDUP_COUNT`, `OUTPUT_DIR` variables at the top of the file before running. Usage: `uv run python scripts/regenerate_figures.py` |
 
 ---
 
