@@ -48,7 +48,7 @@ def _map_counts_to_library_format(
     # When no full-text exclusions exist, pass a single zero-count entry so
     # the library renders a clean box rather than placeholder "Reason (n=NA)" text.
     if not excluded_reasons and counts.reports_assessed == counts.studies_included_qualitative + counts.studies_included_quantitative:
-        excluded_reasons = {"No full-text exclusions": 0}
+        excluded_reasons = {"None identified": 0}
 
     # Use combined total so library math: (db+other) - duplicates = screened
     combined_identified = counts.total_identified_databases + counts.total_identified_other
