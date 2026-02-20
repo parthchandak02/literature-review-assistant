@@ -24,5 +24,5 @@ uv run python -m src.main --help
 
 ## Strict Commit Safety
 - Before any commit, inspect staged files and abort if secrets or runtime artifacts are staged.
-- Forbidden by default: `.env`, `logs/**`, `data/outputs/**`, and other run-specific generated artifacts.
+- Forbidden by default: `.env`, `runs/**`, and other run-specific generated artifacts.
 - Only proceed if the user explicitly asks to override this block.

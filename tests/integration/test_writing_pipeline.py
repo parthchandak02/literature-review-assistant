@@ -22,7 +22,11 @@ from src.writing.orchestration import (
     prepare_writing_context,
     register_citations_from_papers,
 )
-from src.writing.prompts.sections import SECTIONS, get_section_context, get_section_word_limit
+from src.writing.prompts.sections import (
+    SECTIONS,
+    get_section_context,
+    get_section_word_limit,
+)
 
 
 def _minimal_review() -> ReviewConfig:

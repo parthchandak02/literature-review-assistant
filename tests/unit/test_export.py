@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import pytest
-
 from src.export.bibtex_builder import build_bibtex
 from src.export.ieee_latex import markdown_to_latex
 from src.export.ieee_validator import validate_ieee

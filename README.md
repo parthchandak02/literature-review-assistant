@@ -222,7 +222,7 @@ Two config files control behavior:
 - Quality gate thresholds
 - Search depth (records per database)
 
-Full documentation of every config field is in `docs/research-agent-v2-spec.md` Part 6.
+Full documentation of every config field is in `spec.md` Section 4.
 
 ---
 
@@ -316,7 +316,7 @@ uv run pytest tests/integration -q
 | `src/web/` | FastAPI backend for the browser UI |
 | `frontend/` | React + TypeScript web UI |
 
-**Full architecture spec:** `docs/research-agent-v2-spec.md`
+**Full architecture spec:** `spec.md`
 
 **Utility scripts:**
 

@@ -27,10 +27,10 @@ from src.models.config import (
 )
 from src.models.enums import (
     ExclusionReason,
-    GRADECertainty,
     GateStatus,
-    ReviewType,
+    GRADECertainty,
     ReviewerType,
+    ReviewType,
     RiskOfBiasJudgment,
     RobinsIJudgment,
     ScreeningDecisionType,

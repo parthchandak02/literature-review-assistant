@@ -5,7 +5,6 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from src.models import CandidatePaper, ExtractionRecord, ReviewConfig, SettingsConfig
-
 from src.orchestration.context import RunContext
 
 
@@ -13,8 +12,7 @@ from src.orchestration.context import RunContext
 class ReviewState:
     review_path: str
     settings_path: str
-    log_root: str
-    output_root: str
+    run_root: str
     run_context: RunContext | None = None
     run_id: str = ""
     workflow_id: str = ""

@@ -31,7 +31,7 @@ alwaysApply: true
 
 ## Key Tables
 - `workflows` (per-run runtime.db) -- topic, config_hash, status
-- `workflows_registry` (central `{log_root}/workflows_registry.db`) -- workflow_id, topic, config_hash, db_path for resume discovery
+- `workflows_registry` (central `{run_root}/workflows_registry.db`) -- workflow_id, topic, config_hash, db_path for resume discovery
 
 ## Critical Constraints
 - **Use `rich`** for CLI output (progress bars, tables, status)
@@ -44,7 +44,7 @@ alwaysApply: true
 - See `config/review.yaml` for per-review topic config, `config/settings.yaml` for agent models + thresholds
 
 ## Strict Commit Safety
-- NEVER stage or commit `.env`, `logs/**`, `data/outputs/**`, or topic/run-specific generated artifacts unless user explicitly asks.
+- NEVER stage or commit `.env`, `runs/**`, or topic/run-specific generated artifacts unless user explicitly asks.
 - Before any commit operation, verify staged files do not include secrets/runtime outputs and abort if they do.
 
 <example>

@@ -5,12 +5,12 @@ import pytest
 from src.db.database import get_db
 from src.db.repositories import WorkflowRepository
 from src.models import CandidatePaper, GateStatus, SettingsConfig, StudyDesign
+from src.models.extraction import ExtractionRecord
 from src.orchestration.gates import GateRunner
 from src.quality.grade import GradeAssessor
 from src.quality.rob2 import Rob2Assessor
 from src.quality.robins_i import RobinsIAssessor
 from src.quality.study_router import StudyRouter
-from src.models.extraction import ExtractionRecord
 
 
 def _settings() -> SettingsConfig:

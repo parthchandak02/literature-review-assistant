@@ -7,7 +7,6 @@ from typing import Literal
 from scipy import stats
 from statsmodels.stats.meta_analysis import effectsize_2proportions, effectsize_smd
 
-
 BinaryEffectMeasure = Literal["risk_difference", "risk_ratio", "odds_ratio", "arcsine"]
 
 

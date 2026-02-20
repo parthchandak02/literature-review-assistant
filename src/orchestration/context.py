@@ -8,9 +8,9 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from rich.console import Console
+from rich.panel import Panel
 
 from src.utils import structured_log
-from rich.panel import Panel
 
 
 def _decision_style(decision: str | None, other_reviewer_decision: Any) -> str:
@@ -26,7 +26,14 @@ def _decision_style(decision: str | None, other_reviewer_decision: Any) -> str:
     if decision == "uncertain":
         return "[yellow]"  # uncertain
     return "[bold]"  # fallback
-from rich.progress import BarColumn, MofNCompleteColumn, Progress, SpinnerColumn, TaskID, TextColumn
+from rich.progress import (
+    BarColumn,
+    MofNCompleteColumn,
+    Progress,
+    SpinnerColumn,
+    TaskID,
+    TextColumn,
+)
 from rich.syntax import Syntax
 
 

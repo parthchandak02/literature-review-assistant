@@ -9,7 +9,11 @@ from src.db.repositories import WorkflowRepository
 from src.llm.provider import LLMProvider
 from src.models import CandidatePaper, ReviewConfig, ReviewType, SettingsConfig
 from src.screening.dual_screener import DualReviewerScreener, ScreeningLLMClient
-from src.screening.reliability import compute_cohens_kappa, generate_disagreements_report, log_reliability_to_decision_log
+from src.screening.reliability import (
+    compute_cohens_kappa,
+    generate_disagreements_report,
+    log_reliability_to_decision_log,
+)
 
 
 class _SequenceClient(ScreeningLLMClient):

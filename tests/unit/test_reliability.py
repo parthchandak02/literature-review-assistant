@@ -5,12 +5,12 @@ import pytest
 from src.db.database import get_db
 from src.db.repositories import WorkflowRepository
 from src.models import ReviewerType, ScreeningDecision, ScreeningDecisionType
+from src.models.screening import DualScreeningResult
 from src.screening.reliability import (
     compute_cohens_kappa,
     generate_disagreements_report,
     log_reliability_to_decision_log,
 )
-from src.models.screening import DualScreeningResult
 
 
 def _result(paper_id: str, a: ScreeningDecisionType, b: ScreeningDecisionType, final: ScreeningDecisionType) -> DualScreeningResult:

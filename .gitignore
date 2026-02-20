@@ -16,9 +16,11 @@ venv/
 *~
 
 # Data (runtime output -- gitignored, regenerated per run)
+runs/
 data/outputs/
 data/cache/
 data/checkpoints/
+logs/
 *.db
 
 # API Keys and Environment
@@ -33,7 +35,6 @@ Thumbs.db
 
 # Logs
 *.log
-logs/
 
 # Test coverage
 .coverage

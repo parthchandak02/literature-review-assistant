@@ -61,7 +61,7 @@ class SearchStrategyCoordinator:
         connectors: list[SearchConnector],
         repository: WorkflowRepository,
         gate_runner: GateRunner,
-        output_dir: str = "data/outputs",
+        output_dir: str = "runs",
         on_connector_done: Callable[
             [str, str, int, str, int | None, int | None, str | None], None
         ] | None = None,

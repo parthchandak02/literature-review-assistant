@@ -27,7 +27,7 @@ await db.execute("PRAGMA temp_store = MEMORY")
 
 ## Checkpoint Pattern (UPDATED)
 - Per-run `workflows` table (in runtime.db): one row per review run, keyed by topic + config_hash
-- Central `workflows_registry` (in `{log_root}/workflows_registry.db`): maps topic+config_hash to db_path for resume discovery
+- Central `workflows_registry` (in `{run_root}/workflows_registry.db`): maps topic+config_hash to db_path for resume discovery
 - `checkpoints` table: lightweight phase-completion markers (NOT full state serialization)
 - Actual data lives in per-paper tables (screening_decisions, extraction_records, rob_assessments)
 - Resume pattern: query for already-processed paper_ids, skip them in the loop
@@ -43,6 +43,6 @@ for paper in papers:
 ```
 
 ## Topic-Based Auto-Resume
-- `run` checks `workflows_registry` (central db at `{log_root}/workflows_registry.db`) for matching topic+config_hash
+- `run` checks `workflows_registry` (central db at `{run_root}/workflows_registry.db`) for matching topic+config_hash
 - If match found: prompt user "Found existing run... Resume? (Y/n)"
 - `resume --topic` / `resume --workflow-id` queries workflows_registry; entry provides db_path to runtime.db

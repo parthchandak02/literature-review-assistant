@@ -28,7 +28,11 @@ from src.models import (
     ScreeningDecisionType,
     SettingsConfig,
 )
-from src.screening.prompts import adjudicator_prompt, reviewer_a_prompt, reviewer_b_prompt
+from src.screening.prompts import (
+    adjudicator_prompt,
+    reviewer_a_prompt,
+    reviewer_b_prompt,
+)
 from src.search.pdf_retrieval import FullTextCoverageSummary, PDFRetriever
 
 

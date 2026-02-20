@@ -11,7 +11,6 @@ from dotenv import load_dotenv
 
 from src.models import ReviewConfig, SettingsConfig
 
-
 # Map model string prefixes to the env var that must be set for that provider.
 _PREFIX_TO_ENV: dict[str, str] = {
     "google-gla:": "GEMINI_API_KEY",

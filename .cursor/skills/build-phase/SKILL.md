@@ -39,4 +39,4 @@ When the user asks to implement a build phase, follow these steps:
 - Naturalness score >= 0.75 for all sections after humanization
 
 ## References
-@file:docs/research-agent-v2-spec.md
+@file:spec.md

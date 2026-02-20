@@ -10,8 +10,7 @@ export interface RunRequest {
   perplexity_api_key?: string
   semantic_scholar_api_key?: string
   crossref_email?: string
-  log_root?: string
-  output_root?: string
+  run_root?: string
 }
 
 export interface RunResponse {
@@ -128,8 +127,8 @@ export async function getDefaultReviewConfig(): Promise<string> {
 }
 
 /** Fetch the review.yaml that was used for a specific past run. Returns null if not available. */
-export async function fetchRunConfig(workflowId: string, logRoot = "logs"): Promise<string | null> {
-  const params = new URLSearchParams({ log_root: logRoot })
+export async function fetchRunConfig(workflowId: string, runRoot = "runs"): Promise<string | null> {
+  const params = new URLSearchParams({ run_root: runRoot })
   const res = await fetch(`${BASE}/history/${encodeURIComponent(workflowId)}/config?${params}`)
   if (!res.ok) return null
   const data = await res.json() as { content: string }
@@ -329,8 +328,8 @@ export function clearApiKeys(): void {
 
 // History endpoints
 
-export async function fetchHistory(logRoot = "logs"): Promise<HistoryEntry[]> {
-  const params = new URLSearchParams({ log_root: logRoot })
+export async function fetchHistory(runRoot = "runs"): Promise<HistoryEntry[]> {
+  const params = new URLSearchParams({ run_root: runRoot })
   const res = await fetch(`${BASE}/history?${params}`)
   if (!res.ok) return []
   return res.json() as Promise<HistoryEntry[]>

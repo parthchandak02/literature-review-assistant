@@ -323,7 +323,7 @@ export function HistoryView({ onAttach }: HistoryViewProps) {
       {/* Footer hint */}
       {entries.length > 0 && (
         <p className="text-xs text-zinc-700 text-center">
-          {entries.length} run{entries.length !== 1 ? "s" : ""} found in logs/workflows_registry.db
+          {entries.length} run{entries.length !== 1 ? "s" : ""} found in runs/workflows_registry.db
         </p>
       )}
     </div>

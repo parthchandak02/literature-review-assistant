@@ -15,11 +15,11 @@ from src.export.bibtex_builder import build_bibtex
 from src.export.ieee_latex import markdown_to_latex
 
 
-async def _get_run_info(log_root: str, workflow_id: str) -> tuple[str, str, str] | None:
+async def _get_run_info(run_root: str, workflow_id: str) -> tuple[str, str, str] | None:
     """Resolve workflow_id to (db_path, output_dir, log_dir). Returns None if not found."""
-    entry = await find_by_workflow_id(log_root, workflow_id)
+    entry = await find_by_workflow_id(run_root, workflow_id)
     if entry is None:
-        entry = await find_by_workflow_id_fallback(log_root, workflow_id)
+        entry = await find_by_workflow_id_fallback(run_root, workflow_id)
     if entry is None:
         return None
     db_path = entry.db_path
@@ -127,8 +127,7 @@ def _run_pdflatex(tex_path: Path, cwd: Path) -> bool:
 
 async def package_submission(
     workflow_id: str,
-    log_root: str = "logs",
-    output_root: str | None = None,
+    run_root: str = "runs",
 ) -> Path | None:
     """Package submission directory for a workflow.
 
@@ -137,7 +136,7 @@ async def package_submission(
 
     Returns Path to submission/ directory, or None if workflow not found.
     """
-    info = await _get_run_info(log_root, workflow_id)
+    info = await _get_run_info(run_root, workflow_id)
     if info is None:
         return None
     db_path, output_dir, _log_dir = info

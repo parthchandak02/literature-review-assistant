@@ -18,7 +18,7 @@ from src.search.strategy import SearchStrategyCoordinator
 
 def test_protocol_document_generates_22_sections() -> None:
     review, _ = load_configs("config/review.yaml", "config/settings.yaml")
-    generator = ProtocolGenerator(output_dir="data/outputs")
+    generator = ProtocolGenerator(output_dir="runs")
     protocol = generator.generate("wf-protocol", review)
     markdown = generator.render_markdown(protocol, review)
     assert markdown.count("## ") >= 22

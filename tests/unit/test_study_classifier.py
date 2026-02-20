@@ -4,9 +4,18 @@ import pytest
 
 from src.db.database import get_db
 from src.db.repositories import WorkflowRepository
-from src.extraction.study_classifier import StudyClassificationLLMClient, StudyClassifier
+from src.extraction.study_classifier import (
+    StudyClassificationLLMClient,
+    StudyClassifier,
+)
 from src.llm.provider import LLMProvider
-from src.models import CandidatePaper, ReviewConfig, ReviewType, SettingsConfig, StudyDesign
+from src.models import (
+    CandidatePaper,
+    ReviewConfig,
+    ReviewType,
+    SettingsConfig,
+    StudyDesign,
+)
 
 
 class _StubLLMClient(StudyClassificationLLMClient):

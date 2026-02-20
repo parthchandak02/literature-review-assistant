@@ -35,7 +35,7 @@ class SearchCompleteNode(BaseNode[ReviewState]):
 - Pre-export citation review: before export node
 
 ## Resume Logic (paper-level)
-1. `resume --topic` / `resume --workflow-id` queries `workflows_registry` (central db at `{log_root}/workflows_registry.db`); entry provides db_path to runtime.db
+1. `resume --topic` / `resume --workflow-id` queries `workflows_registry` (central db at `{run_root}/workflows_registry.db`); entry provides db_path to runtime.db
 2. For matching workflow, query `checkpoints` for last completed phase
 3. Determine next phase; within that phase, query per-paper tables for already-processed paper_ids
 4. Skip processed papers, continue from where it left off

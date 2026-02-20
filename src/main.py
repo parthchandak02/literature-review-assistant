@@ -4,21 +4,21 @@ from __future__ import annotations
 
 # Set certifi CA bundle for SSL before any HTTP libs load (fixes macOS/python.org cert issues)
 import os
+
 import certifi
+
 os.environ.setdefault("SSL_CERT_FILE", certifi.where())
 os.environ.setdefault("REQUESTS_CA_BUNDLE", certifi.where())
 
 import argparse
 import asyncio
 import sys
+from pathlib import Path
 from typing import Sequence
 
+import aiosqlite
 from rich.console import Console
 from rich.table import Table
-
-from pathlib import Path
-
-import aiosqlite
 
 from src.db.workflow_registry import find_by_workflow_id, find_by_workflow_id_fallback
 from src.export import package_submission, validate_ieee, validate_prisma
@@ -27,21 +27,20 @@ from src.orchestration.context import RunContext, create_progress
 from src.utils.structured_log import load_events_from_jsonl
 
 
-async def _run_export(workflow_id: str, log_root: str) -> str | None:
+async def _run_export(workflow_id: str, run_root: str) -> str | None:
     """Run export for workflow. Returns submission dir path or None."""
-    result = await package_submission(workflow_id=workflow_id, log_root=log_root)
+    result = await package_submission(workflow_id=workflow_id, run_root=run_root)
     return str(result) if result else None
 
 
-async def _run_validate(workflow_id: str, log_root: str, console: Console) -> bool:
+async def _run_validate(workflow_id: str, run_root: str, console: Console) -> bool:
     """Run validators. Returns True if all pass."""
+    import json
     from pathlib import Path
 
-    import json
-
-    entry = await find_by_workflow_id(log_root, workflow_id)
+    entry = await find_by_workflow_id(run_root, workflow_id)
     if entry is None:
-        entry = await find_by_workflow_id_fallback(log_root, workflow_id)
+        entry = await find_by_workflow_id_fallback(run_root, workflow_id)
     if entry is None:
         console.print(f"[red]Error:[/] Workflow '{workflow_id}' not found.")
         return False
@@ -95,14 +94,14 @@ async def _run_validate(workflow_id: str, log_root: str, console: Console) -> bo
     return all_pass
 
 
-async def _run_status(workflow_id: str, log_root: str, console: Console) -> bool:
+async def _run_status(workflow_id: str, run_root: str, console: Console) -> bool:
     """Print workflow status. Returns True if found."""
     import json
     from pathlib import Path
 
-    entry = await find_by_workflow_id(log_root, workflow_id)
+    entry = await find_by_workflow_id(run_root, workflow_id)
     if entry is None:
-        entry = await find_by_workflow_id_fallback(log_root, workflow_id)
+        entry = await find_by_workflow_id_fallback(run_root, workflow_id)
     if entry is None:
         console.print(f"[red]Error:[/] Workflow '{workflow_id}' not found.")
         return False
@@ -168,8 +167,7 @@ def build_parser() -> argparse.ArgumentParser:
     run = sub.add_parser("run")
     run.add_argument("--config", default="config/review.yaml")
     run.add_argument("--settings", default="config/settings.yaml")
-    run.add_argument("--log-root", default="logs")
-    run.add_argument("--output-root", default="data/outputs")
+    run.add_argument("--run-root", default="runs")
     run.add_argument("--fresh", action="store_true", help="Always start new run; skip resume prompt (needed when running in Progress context)")
     run.add_argument("--verbose", "-v", action="store_true", help="Per-phase status, API call logging, screening summaries")
     run.add_argument("--debug", "-d", action="store_true", help="Verbose plus Pydantic model dumps at phase boundaries")
@@ -180,22 +178,21 @@ def build_parser() -> argparse.ArgumentParser:
     resume.add_argument("--workflow-id", help="Resume by workflow ID (e.g. wf-abc123)")
     resume.add_argument("--config", default="config/review.yaml")
     resume.add_argument("--settings", default="config/settings.yaml")
-    resume.add_argument("--log-root", default="logs")
-    resume.add_argument("--output-root", default="data/outputs")
+    resume.add_argument("--run-root", default="runs")
     resume.add_argument("--verbose", "-v", action="store_true")
     resume.add_argument("--debug", "-d", action="store_true")
 
     validate = sub.add_parser("validate")
     validate.add_argument("--workflow-id", required=True)
-    validate.add_argument("--log-root", default="logs")
+    validate.add_argument("--run-root", default="runs")
 
     export = sub.add_parser("export")
     export.add_argument("--workflow-id", required=True)
-    export.add_argument("--log-root", default="logs")
+    export.add_argument("--run-root", default="runs")
 
     status = sub.add_parser("status")
     status.add_argument("--workflow-id", required=True)
-    status.add_argument("--log-root", default="logs")
+    status.add_argument("--run-root", default="runs")
 
     return parser
 
@@ -256,8 +253,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             summary = run_workflow_sync(
                 review_path=args.config,
                 settings_path=args.settings,
-                log_root=args.log_root,
-                output_root=args.output_root,
+                run_root=args.run_root,
                 run_context=run_context,
                 fresh=getattr(args, "fresh", False),
             )
@@ -291,8 +287,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                         topic=getattr(args, "topic", None),
                         review_path=args.config,
                         settings_path=args.settings,
-                        log_root=args.log_root,
-                        output_root=args.output_root,
+                        run_root=args.run_root,
                         run_context=run_context,
                     )
                 )
@@ -310,7 +305,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             result = asyncio.run(
                 _run_export(
                     workflow_id=args.workflow_id,
-                    log_root=args.log_root,
+                    run_root=args.run_root,
                 )
             )
             if result is None:
@@ -327,7 +322,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             ok = asyncio.run(
                 _run_validate(
                     workflow_id=args.workflow_id,
-                    log_root=args.log_root,
+                    run_root=args.run_root,
                     console=console,
                 )
             )
@@ -341,7 +336,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             ok = asyncio.run(
                 _run_status(
                     workflow_id=args.workflow_id,
-                    log_root=args.log_root,
+                    run_root=args.run_root,
                     console=console,
                 )
             )

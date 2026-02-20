@@ -10,7 +10,6 @@ from src.db.repositories import WorkflowRepository
 from src.models import ExtractionRecord
 from src.orchestration.state import ReviewState
 from src.search.deduplication import deduplicate_papers
-from src.utils.logging_paths import workflow_slug
 
 PHASE_ORDER = [
     "phase_2_search",
@@ -35,21 +34,18 @@ async def load_resume_state(
     workflow_id: str,
     review_path: str,
     settings_path: str,
-    log_root: str,
-    output_root: str,
+    run_root: str,
 ) -> tuple[ReviewState, str]:
     """Load ReviewState from existing db and determine next phase to run.
 
     Returns (state, next_phase). next_phase is one of PHASE_ORDER or 'finalize'.
+    All artifacts (log files and output documents) now live in the same run dir.
     """
     review, settings = load_configs(review_path, settings_path)
-    log_dir = str(Path(db_path).resolve().parent)
-    run_dir_name = Path(db_path).parent.name
-    date_folder = Path(db_path).parent.parent.parent.name
-    topic = review.research_question
-    output_dir_path = Path(output_root) / date_folder / workflow_slug(topic) / run_dir_name
-    output_dir_path.mkdir(parents=True, exist_ok=True)
-    output_dir = str(output_dir_path)
+    run_dir = Path(db_path).resolve().parent
+    run_dir.mkdir(parents=True, exist_ok=True)
+    log_dir = str(run_dir)
+    output_dir = log_dir  # same directory
 
     async with get_db(db_path) as db:
         repo = WorkflowRepository(db)
@@ -78,26 +74,25 @@ async def load_resume_state(
     next_phase = _next_phase(checkpoints)
 
     artifacts = {
-        "run_summary": str(Path(log_dir) / "run_summary.json"),
-        "search_appendix": str(Path(output_dir) / "doc_search_strategies_appendix.md"),
-        "protocol": str(Path(output_dir) / "doc_protocol.md"),
-        "coverage_report": str(Path(output_dir) / "doc_fulltext_retrieval_coverage.md"),
-        "disagreements_report": str(Path(output_dir) / "doc_disagreements_report.md"),
-        "rob_traffic_light": str(Path(output_dir) / "fig_rob_traffic_light.png"),
-        "narrative_synthesis": str(Path(output_dir) / "data_narrative_synthesis.json"),
-        "manuscript_md": str(Path(output_dir) / "doc_manuscript.md"),
-        "prisma_diagram": str(Path(output_dir) / "fig_prisma_flow.png"),
-        "timeline": str(Path(output_dir) / "fig_publication_timeline.png"),
-        "geographic": str(Path(output_dir) / "fig_geographic_distribution.png"),
-        "fig_forest_plot": str(Path(output_dir) / "fig_forest_plot.png"),
-        "fig_funnel_plot": str(Path(output_dir) / "fig_funnel_plot.png"),
+        "run_summary": str(run_dir / "run_summary.json"),
+        "search_appendix": str(run_dir / "doc_search_strategies_appendix.md"),
+        "protocol": str(run_dir / "doc_protocol.md"),
+        "coverage_report": str(run_dir / "doc_fulltext_retrieval_coverage.md"),
+        "disagreements_report": str(run_dir / "doc_disagreements_report.md"),
+        "rob_traffic_light": str(run_dir / "fig_rob_traffic_light.png"),
+        "narrative_synthesis": str(run_dir / "data_narrative_synthesis.json"),
+        "manuscript_md": str(run_dir / "doc_manuscript.md"),
+        "prisma_diagram": str(run_dir / "fig_prisma_flow.png"),
+        "timeline": str(run_dir / "fig_publication_timeline.png"),
+        "geographic": str(run_dir / "fig_geographic_distribution.png"),
+        "fig_forest_plot": str(run_dir / "fig_forest_plot.png"),
+        "fig_funnel_plot": str(run_dir / "fig_funnel_plot.png"),
     }
 
     state = ReviewState(
         review_path=review_path,
         settings_path=settings_path,
-        log_root=log_root,
-        output_root=output_root,
+        run_root=run_root,
         run_context=None,
         run_id="",
         workflow_id=workflow_id,

@@ -55,8 +55,7 @@ async def test_load_resume_state_phase3(tmp_path) -> None:
         workflow_id="wf-resume",
         review_path="config/review.yaml",
         settings_path="config/settings.yaml",
-        log_root=str(tmp_path),
-        output_root=str(tmp_path / "outputs"),
+        run_root=str(tmp_path),
     )
     assert isinstance(state, ReviewState)
     assert state.workflow_id == "wf-resume"

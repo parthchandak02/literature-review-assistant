@@ -16,20 +16,35 @@ from rich.table import Table
 
 from src.config.loader import load_configs
 from src.db.database import get_db
-from src.db.repositories import WorkflowRepository
+from src.db.repositories import CitationRepository, WorkflowRepository
 from src.db.workflow_registry import (
     find_by_topic,
     find_by_workflow_id,
     find_by_workflow_id_fallback,
+)
+from src.db.workflow_registry import (
     register as register_workflow,
+)
+from src.db.workflow_registry import (
     update_status as update_registry_status,
 )
 from src.extraction import ExtractionService, StudyClassifier
 from src.llm.provider import LLMProvider
-from src.models import DecisionLogEntry, ExtractionRecord, StudyDesign
+from src.llm.pydantic_client import PydanticAIClient
+from src.models import DecisionLogEntry, ExtractionRecord, SectionDraft, StudyDesign
+from src.orchestration.context import RunContext
 from src.orchestration.gates import GateRunner
+from src.orchestration.resume import load_resume_state
+from src.orchestration.state import ReviewState
+from src.prisma import build_prisma_counts, render_prisma_diagram
 from src.protocol.generator import ProtocolGenerator
-from src.quality import CaspAssessor, GradeAssessor, Rob2Assessor, RobinsIAssessor, StudyRouter
+from src.quality import (
+    CaspAssessor,
+    GradeAssessor,
+    Rob2Assessor,
+    RobinsIAssessor,
+    StudyRouter,
+)
 from src.screening.dual_screener import DualReviewerScreener
 from src.screening.gemini_client import PydanticAIScreeningClient
 from src.screening.keyword_filter import bm25_rank_and_cap, keyword_prefilter
@@ -43,13 +58,19 @@ from src.search.perplexity_search import PerplexitySearchConnector
 from src.search.pubmed import PubMedConnector
 from src.search.semantic_scholar import SemanticScholarConnector
 from src.search.strategy import SearchStrategyCoordinator
-from src.llm.pydantic_client import PydanticAIClient
 from src.synthesis import assess_meta_analysis_feasibility, build_narrative_synthesis
 from src.synthesis.meta_analysis import pool_effects
+from src.utils import structured_log
+from src.utils.logging_paths import create_run_paths
+from src.visualization import (
+    render_geographic,
+    render_rob_traffic_light,
+    render_timeline,
+)
 from src.visualization.forest_plot import render_forest_plot
 from src.visualization.funnel_plot import render_funnel_plot
-from src.writing.humanizer import humanize_async
 from src.writing.context_builder import build_writing_grounding
+from src.writing.humanizer import humanize_async
 from src.writing.orchestration import (
     prepare_writing_context,
     register_citations_from_papers,
@@ -60,15 +81,6 @@ from src.writing.prompts.sections import (
     get_section_context,
     get_section_word_limit,
 )
-from src.db.repositories import CitationRepository
-from src.models import SectionDraft
-from src.orchestration.context import RunContext
-from src.orchestration.resume import load_resume_state
-from src.orchestration.state import ReviewState
-from src.utils.logging_paths import OutputRunPaths, create_output_paths, create_run_paths
-from src.utils import structured_log
-from src.prisma import build_prisma_counts, render_prisma_diagram
-from src.visualization import render_geographic, render_rob_traffic_light, render_timeline
 
 
 def _now_utc() -> str:
@@ -184,32 +196,26 @@ class StartNode(BaseNode[ReviewState]):
         state.run_id = _now_utc()
         state.workflow_id = f"wf-{uuid4().hex[:8]}"
 
-        log_paths = create_run_paths(log_root=state.log_root, workflow_description=review.research_question)
-        output_paths: OutputRunPaths = create_output_paths(
-            output_root=state.output_root,
-            workflow_description=review.research_question,
-            run_dir_name=log_paths.run_dir.name,
-            date_folder=log_paths.run_dir.parent.parent.name,
-        )
-        state.log_dir = str(log_paths.run_dir)
-        state.output_dir = str(output_paths.run_dir)
-        state.db_path = str(log_paths.runtime_db)
+        run_paths = create_run_paths(run_root=state.run_root, workflow_description=review.research_question)
+        state.log_dir = str(run_paths.run_dir)
+        state.output_dir = str(run_paths.run_dir)
+        state.db_path = str(run_paths.runtime_db)
         structured_log.configure_run_logging(state.log_dir)
         structured_log.bind_run(state.workflow_id, state.run_id)
-        state.artifacts["run_summary"] = str(log_paths.run_summary)
-        state.artifacts["search_appendix"] = str(output_paths.search_appendix)
-        state.artifacts["protocol"] = str(output_paths.protocol_markdown)
-        state.artifacts["coverage_report"] = str(output_paths.run_dir / "doc_fulltext_retrieval_coverage.md")
-        state.artifacts["disagreements_report"] = str(output_paths.run_dir / "doc_disagreements_report.md")
-        state.artifacts["rob_traffic_light"] = str(output_paths.run_dir / "fig_rob_traffic_light.png")
-        state.artifacts["rob2_traffic_light"] = str(output_paths.run_dir / "fig_rob2_traffic_light.png")
-        state.artifacts["narrative_synthesis"] = str(output_paths.run_dir / "data_narrative_synthesis.json")
-        state.artifacts["manuscript_md"] = str(output_paths.run_dir / "doc_manuscript.md")
-        state.artifacts["prisma_diagram"] = str(output_paths.run_dir / "fig_prisma_flow.png")
-        state.artifacts["timeline"] = str(output_paths.run_dir / "fig_publication_timeline.png")
-        state.artifacts["geographic"] = str(output_paths.run_dir / "fig_geographic_distribution.png")
-        state.artifacts["fig_forest_plot"] = str(output_paths.run_dir / "fig_forest_plot.png")
-        state.artifacts["fig_funnel_plot"] = str(output_paths.run_dir / "fig_funnel_plot.png")
+        state.artifacts["run_summary"] = str(run_paths.run_summary)
+        state.artifacts["search_appendix"] = str(run_paths.search_appendix)
+        state.artifacts["protocol"] = str(run_paths.protocol_markdown)
+        state.artifacts["coverage_report"] = str(run_paths.run_dir / "doc_fulltext_retrieval_coverage.md")
+        state.artifacts["disagreements_report"] = str(run_paths.run_dir / "doc_disagreements_report.md")
+        state.artifacts["rob_traffic_light"] = str(run_paths.run_dir / "fig_rob_traffic_light.png")
+        state.artifacts["rob2_traffic_light"] = str(run_paths.run_dir / "fig_rob2_traffic_light.png")
+        state.artifacts["narrative_synthesis"] = str(run_paths.run_dir / "data_narrative_synthesis.json")
+        state.artifacts["manuscript_md"] = str(run_paths.run_dir / "doc_manuscript.md")
+        state.artifacts["prisma_diagram"] = str(run_paths.run_dir / "fig_prisma_flow.png")
+        state.artifacts["timeline"] = str(run_paths.run_dir / "fig_publication_timeline.png")
+        state.artifacts["geographic"] = str(run_paths.run_dir / "fig_geographic_distribution.png")
+        state.artifacts["fig_forest_plot"] = str(run_paths.run_dir / "fig_forest_plot.png")
+        state.artifacts["fig_funnel_plot"] = str(run_paths.run_dir / "fig_funnel_plot.png")
         if rc:
             rc.emit_phase_done("start", {"workflow_id": state.workflow_id})
             if hasattr(rc, "set_db_path"):
@@ -246,7 +252,7 @@ class SearchNode(BaseNode[ReviewState]):
             config_hash = _hash_config(state.review_path)
             await repository.create_workflow(state.workflow_id, state.review.research_question, config_hash)
             await register_workflow(
-                log_root=state.log_root,
+                run_root=state.run_root,
                 workflow_id=state.workflow_id,
                 topic=state.review.research_question,
                 config_hash=config_hash,
@@ -1137,7 +1143,7 @@ class FinalizeNode(BaseNode[ReviewState]):
             "artifacts": state.artifacts,
         }
         Path(state.artifacts["run_summary"]).write_text(json.dumps(summary, indent=2), encoding="utf-8")
-        await update_registry_status(state.log_root, state.workflow_id, "completed")
+        await update_registry_status(state.run_root, state.workflow_id, "completed")
         async with get_db(state.db_path) as db:
             await WorkflowRepository(db).update_workflow_status(state.workflow_id, "completed")
         if rc and rc.verbose:
@@ -1182,8 +1188,7 @@ async def run_workflow_resume(
     topic: str | None = None,
     review_path: str = "config/review.yaml",
     settings_path: str = "config/settings.yaml",
-    log_root: str = "logs",
-    output_root: str = "data/outputs",
+    run_root: str = "runs",
     run_context: RunContext | None = None,
 ) -> dict[str, str | int | dict[str, int] | dict[str, str]]:
     """Resume a workflow from its last checkpoint."""
@@ -1191,13 +1196,13 @@ async def run_workflow_resume(
         raise ValueError("Either workflow_id or topic must be provided for resume")
     entry = None
     if workflow_id:
-        entry = await find_by_workflow_id(log_root, workflow_id)
+        entry = await find_by_workflow_id(run_root, workflow_id)
         if entry is None:
-            entry = await find_by_workflow_id_fallback(log_root, workflow_id)
+            entry = await find_by_workflow_id_fallback(run_root, workflow_id)
             if entry is not None:
                 config_hash = _hash_config(review_path) if os.path.isfile(review_path) else ""
                 await register_workflow(
-                    log_root=log_root,
+                    run_root=run_root,
                     workflow_id=entry.workflow_id,
                     topic=entry.topic or "unknown",
                     config_hash=config_hash,
@@ -1208,7 +1213,7 @@ async def run_workflow_resume(
         review, _ = load_configs(review_path, settings_path)
         config_hash = _hash_config(review_path)
         search_topic = topic if topic is not None else review.research_question
-        matches = await find_by_topic(log_root, search_topic, config_hash)
+        matches = await find_by_topic(run_root, search_topic, config_hash)
         entry = matches[0] if matches else None
     if entry is None:
         raise FileNotFoundError(
@@ -1219,8 +1224,7 @@ async def run_workflow_resume(
         workflow_id=entry.workflow_id,
         review_path=review_path,
         settings_path=settings_path,
-        log_root=log_root,
-        output_root=output_root,
+        run_root=run_root,
     )
     state.run_context = run_context
     state.run_id = _now_utc()
@@ -1238,14 +1242,13 @@ async def run_workflow_resume(
 async def run_workflow(
     review_path: str = "config/review.yaml",
     settings_path: str = "config/settings.yaml",
-    log_root: str = "logs",
-    output_root: str = "data/outputs",
+    run_root: str = "runs",
     run_context: RunContext | None = None,
     fresh: bool = False,
 ) -> dict[str, str | int | dict[str, int] | dict[str, str]]:
     review, settings = load_configs(review_path, settings_path)
     config_hash = _hash_config(review_path)
-    matches = await find_by_topic(log_root, review.research_question, config_hash)
+    matches = await find_by_topic(run_root, review.research_question, config_hash)
     resumable = [m for m in matches if m.status != "completed"]
     if resumable and not fresh:
         entry = resumable[0]
@@ -1265,8 +1268,7 @@ async def run_workflow(
                     workflow_id=entry.workflow_id,
                     review_path=review_path,
                     settings_path=settings_path,
-                    log_root=log_root,
-                    output_root=output_root,
+                    run_root=run_root,
                     run_context=run_context,
                 )
         else:
@@ -1277,8 +1279,7 @@ async def run_workflow(
                         workflow_id=entry.workflow_id,
                         review_path=review_path,
                         settings_path=settings_path,
-                        log_root=log_root,
-                        output_root=output_root,
+                        run_root=run_root,
                         run_context=run_context,
                     )
             except EOFError:
@@ -1295,8 +1296,7 @@ async def run_workflow(
     initial = ReviewState(
         review_path=review_path,
         settings_path=settings_path,
-        log_root=log_root,
-        output_root=output_root,
+        run_root=run_root,
         run_context=run_context,
     )
     result = await RUN_GRAPH.run(start, state=initial)
@@ -1306,8 +1306,7 @@ async def run_workflow(
 def run_workflow_sync(
     review_path: str = "config/review.yaml",
     settings_path: str = "config/settings.yaml",
-    log_root: str = "logs",
-    output_root: str = "data/outputs",
+    run_root: str = "runs",
     run_context: RunContext | None = None,
     fresh: bool = False,
 ) -> dict[str, str | int | dict[str, int] | dict[str, str]]:
@@ -1315,8 +1314,7 @@ def run_workflow_sync(
         run_workflow(
             review_path=review_path,
             settings_path=settings_path,
-            log_root=log_root,
-            output_root=output_root,
+            run_root=run_root,
             run_context=run_context,
             fresh=fresh,
         )

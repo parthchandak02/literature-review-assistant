@@ -9,7 +9,7 @@ from src.models import ProtocolDocument, ReviewConfig
 
 
 class ProtocolGenerator:
-    def __init__(self, output_dir: str = "data/outputs"):
+    def __init__(self, output_dir: str = "runs"):
         self.output_dir = Path(output_dir)
 
     def generate(self, workflow_id: str, config: ReviewConfig) -> ProtocolDocument:

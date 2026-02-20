@@ -8,7 +8,6 @@ from dataclasses import dataclass
 from src.db.repositories import WorkflowRepository
 from src.models import GateResult, GateStatus, SettingsConfig
 
-
 GateCheck = Callable[[], Awaitable[tuple[bool, str, str, str]]]
 
 

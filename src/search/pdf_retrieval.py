@@ -2,13 +2,12 @@
 
 from __future__ import annotations
 
-from pydantic import BaseModel
-
 import os
-from urllib.parse import quote
 from collections.abc import Sequence
+from urllib.parse import quote
 
 import aiohttp
+from pydantic import BaseModel
 
 from src.models import CandidatePaper
 from src.utils.ssl_context import tcp_connector_with_certifi

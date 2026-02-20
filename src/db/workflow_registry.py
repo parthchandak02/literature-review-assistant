@@ -13,7 +13,6 @@ from pathlib import Path
 
 import aiosqlite
 
-
 REGISTRY_SCHEMA = """
 CREATE TABLE IF NOT EXISTS workflows_registry (
     workflow_id TEXT PRIMARY KEY,
@@ -43,14 +42,14 @@ class RegistryEntry:
     updated_at: str
 
 
-def _registry_path(log_root: str) -> str:
+def _registry_path(run_root: str) -> str:
     """Return absolute path to the registry db."""
-    return str(Path(log_root).resolve() / "workflows_registry.db")
+    return str(Path(run_root).resolve() / "workflows_registry.db")
 
 
-async def _ensure_registry(log_root: str) -> str:
+async def _ensure_registry(run_root: str) -> str:
     """Ensure registry db exists with schema. Return absolute path."""
-    path = _registry_path(log_root)
+    path = _registry_path(run_root)
     Path(path).parent.mkdir(parents=True, exist_ok=True)
     async with aiosqlite.connect(path) as db:
         await db.executescript(REGISTRY_SCHEMA)
@@ -59,7 +58,7 @@ async def _ensure_registry(log_root: str) -> str:
 
 
 async def register(
-    log_root: str,
+    run_root: str,
     workflow_id: str,
     topic: str,
     config_hash: str,
@@ -67,7 +66,7 @@ async def register(
     status: str = "running",
 ) -> None:
     """Register a workflow in the central registry."""
-    path = await _ensure_registry(log_root)
+    path = await _ensure_registry(run_root)
     abs_db_path = str(Path(db_path).resolve())
     async with aiosqlite.connect(path) as db:
         await db.execute(
@@ -81,9 +80,9 @@ async def register(
         await db.commit()
 
 
-async def find_by_workflow_id(log_root: str, workflow_id: str) -> RegistryEntry | None:
+async def find_by_workflow_id(run_root: str, workflow_id: str) -> RegistryEntry | None:
     """Find a workflow by ID. Returns None if not found or db_path missing."""
-    path = _registry_path(log_root)
+    path = _registry_path(run_root)
     if not os.path.isfile(path):
         return None
     async with aiosqlite.connect(path) as db:
@@ -114,12 +113,12 @@ async def find_by_workflow_id(log_root: str, workflow_id: str) -> RegistryEntry 
 
 
 async def find_by_workflow_id_fallback(
-    log_root: str, workflow_id: str
+    run_root: str, workflow_id: str
 ) -> RegistryEntry | None:
-    """Fallback: scan run_summary.json files under log_root for workflow_id.
+    """Fallback: scan run_summary.json files under run_root for workflow_id.
     Used when the central registry is missing (e.g. runs from before registry existed).
     """
-    root = Path(log_root).resolve()
+    root = Path(run_root).resolve()
     if not root.is_dir():
         return None
     for run_summary_path in root.rglob("run_summary.json"):
@@ -147,14 +146,14 @@ async def find_by_workflow_id_fallback(
 
 
 async def find_by_topic(
-    log_root: str,
+    run_root: str,
     topic: str,
     config_hash: str | None = None,
 ) -> list[RegistryEntry]:
     """Find workflows by topic (case-insensitive). Optionally filter by config_hash.
     Returns most recent first (by created_at desc). Excludes entries with missing db_path.
     """
-    path = _registry_path(log_root)
+    path = _registry_path(run_root)
     if not os.path.isfile(path):
         return []
     async with aiosqlite.connect(path) as db:
@@ -196,9 +195,9 @@ async def find_by_topic(
     return entries
 
 
-async def update_status(log_root: str, workflow_id: str, status: str) -> None:
+async def update_status(run_root: str, workflow_id: str, status: str) -> None:
     """Update workflow status in registry."""
-    path = _registry_path(log_root)
+    path = _registry_path(run_root)
     if not os.path.isfile(path):
         return
     async with aiosqlite.connect(path) as db:

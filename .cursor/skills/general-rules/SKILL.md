@@ -16,7 +16,7 @@ Before any git push or commit, check that no secrets, API keys, or env vars are 
 - Generate conventional commit messages based on all file changes (e.g., `feat:`, `fix:`, `refactor:`). Prefer `feat:` for new features, `fix:` for bug fixes.
 - If major deletions or risky changes detected, pause and confirm with user before committing
 - If everything looks safe (no secrets, no major deletions), proceed with commit and push
-- Always use `.gitignore` to exclude `.env`, `logs/**`, `data/outputs/**`, `*.db` (runtime and registry dbs), and sensitive config files
+- Always use `.gitignore` to exclude `.env`, `runs/**`, `*.db` (runtime and registry dbs), and sensitive config files
 
 ## Documentation Standards
 

@@ -25,7 +25,13 @@ import matplotlib.gridspec as gridspec
 import matplotlib.patches as mpatches
 import matplotlib.pyplot as plt
 
-from src.models import CandidatePaper, RiskOfBiasJudgment, RobinsIAssessment, RobinsIJudgment, RoB2Assessment
+from src.models import (
+    CandidatePaper,
+    RiskOfBiasJudgment,
+    RoB2Assessment,
+    RobinsIAssessment,
+    RobinsIJudgment,
+)
 
 # ---------------------------------------------------------------------------
 # Domain metadata

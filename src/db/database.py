@@ -8,7 +8,6 @@ from typing import AsyncIterator
 
 import aiosqlite
 
-
 SCHEMA_PATH = Path(__file__).with_name("schema.sql")
 
 

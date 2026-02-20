@@ -29,6 +29,6 @@ uv run pytest tests/e2e -q           # full run
 ```
 
 ## Artifact Hygiene
-- Test runs may produce runtime artifacts under `logs/` and `data/outputs/`.
+- Test runs may produce runtime artifacts under `runs/`.
 - Do not stage or commit runtime artifacts by default.
 - Never stage `.env` or other secret-bearing files.

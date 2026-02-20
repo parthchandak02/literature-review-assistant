@@ -30,7 +30,6 @@ from src.orchestration.context import WebRunContext
 from src.orchestration.workflow import run_workflow
 from src.utils.structured_log import load_events_from_jsonl
 
-
 # ---------------------------------------------------------------------------
 # State: in-process registry of active runs
 # ---------------------------------------------------------------------------
@@ -46,7 +45,7 @@ class _RunRecord:
         self.outputs: dict[str, Any] = {}
         self.db_path: str | None = None      # set once workflow completes
         self.workflow_id: str | None = None  # set once workflow completes
-        self.log_root: str = "logs"
+        self.run_root: str = "runs"
         self.created_at: float = time.monotonic()  # for TTL eviction
         # Append-only log of every emitted event for replay on reconnect.
         self.event_log: list[dict[str, Any]] = []
@@ -101,8 +100,7 @@ class RunRequest(BaseModel):
     perplexity_api_key: str | None = None
     semantic_scholar_api_key: str | None = None
     crossref_email: str | None = None
-    log_root: str = "logs"
-    output_root: str = "data/outputs"
+    run_root: str = "runs"
 
 
 class RunResponse(BaseModel):
@@ -167,9 +165,9 @@ def _extract_topic(review_yaml: str) -> str:
         return "Untitled review"
 
 
-async def _resolve_db_path(log_root: str, workflow_id: str) -> str | None:
+async def _resolve_db_path(run_root: str, workflow_id: str) -> str | None:
     """Look up db_path in the central workflows_registry.db."""
-    registry = pathlib.Path(log_root) / "workflows_registry.db"
+    registry = pathlib.Path(run_root) / "workflows_registry.db"
     if not registry.exists():
         return None
     try:
@@ -246,8 +244,7 @@ async def _run_wrapper(record: _RunRecord, review_path: str, req: RunRequest) ->
         outputs = await run_workflow(
             review_path=review_path,
             settings_path="config/settings.yaml",
-            log_root=req.log_root,
-            output_root=req.output_root,
+            run_root=req.run_root,
             run_context=ctx,
             fresh=True,
         )
@@ -258,7 +255,7 @@ async def _run_wrapper(record: _RunRecord, review_path: str, req: RunRequest) ->
         wf_id = str(record.outputs.get("workflow_id", ""))
         if wf_id:
             record.workflow_id = wf_id
-            record.db_path = await _resolve_db_path(req.log_root, wf_id)
+            record.db_path = await _resolve_db_path(req.run_root, wf_id)
             # Save the original review YAML alongside runtime.db so it can be
             # retrieved later via GET /api/history/{workflow_id}/config.
             if record.db_path and record.review_yaml:
@@ -308,7 +305,6 @@ async def start_run(req: RunRequest) -> RunResponse:
     tmp.close()
 
     record = _RunRecord(run_id=run_id, topic=topic)
-    record.log_root = req.log_root
     record.review_yaml = req.review_yaml
     _active_runs[run_id] = record
 
@@ -389,7 +385,7 @@ async def get_results(run_id: str) -> dict[str, Any]:
 @app.get("/api/download")
 async def download_file(path: str) -> FileResponse:
     resolved = pathlib.Path(path).resolve()
-    allowed_root = pathlib.Path("data/outputs").resolve()
+    allowed_root = pathlib.Path("runs").resolve()
     if not str(resolved).startswith(str(allowed_root)):
         raise HTTPException(status_code=403, detail="Access denied")
     if not resolved.exists():
@@ -412,7 +408,7 @@ async def get_review_config() -> dict[str, str]:
 
 
 # ---------------------------------------------------------------------------
-# Run history endpoints (reads workflows_registry.db from log_root)
+# Run history endpoints (reads workflows_registry.db from run_root)
 # ---------------------------------------------------------------------------
 
 async def _fetch_run_stats(db_path: str) -> dict[str, Any]:
@@ -455,10 +451,10 @@ async def _fetch_run_stats(db_path: str) -> dict[str, Any]:
 
 
 @app.get("/api/history")
-async def list_history(log_root: str = "logs") -> list[HistoryEntry]:
+async def list_history(run_root: str = "runs") -> list[HistoryEntry]:
     """Return all past runs from the central workflows_registry.db, enriched
     with per-run aggregate stats fetched in parallel from each runtime.db."""
-    registry = pathlib.Path(log_root) / "workflows_registry.db"
+    registry = pathlib.Path(run_root) / "workflows_registry.db"
     if not registry.exists():
         return []
     try:
@@ -504,15 +500,15 @@ async def list_history(log_root: str = "logs") -> list[HistoryEntry]:
 
 
 @app.get("/api/history/{workflow_id}/config")
-async def get_run_config(workflow_id: str, log_root: str = "logs") -> dict[str, str]:
+async def get_run_config(workflow_id: str, run_root: str = "runs") -> dict[str, str]:
     """Return the original review.yaml for a past run.
 
-    The file is written to the run's log directory after the workflow completes
+    The file is written to the run directory after the workflow completes
     (for web-started runs) or copied there by the CLI backfill step.
     Returns 404 if the file does not exist (e.g. old CLI runs before this feature).
     """
     # First try to locate via the registry to get the exact db_path
-    registry = pathlib.Path(log_root) / "workflows_registry.db"
+    registry = pathlib.Path(run_root) / "workflows_registry.db"
     db_path: str | None = None
     if registry.exists():
         try:
@@ -530,7 +526,7 @@ async def get_run_config(workflow_id: str, log_root: str = "logs") -> dict[str, 
 
     if not db_path:
         # Fallback: check well-known path pattern
-        candidate = pathlib.Path(log_root) / workflow_id / "runtime.db"
+        candidate = pathlib.Path(run_root) / workflow_id / "runtime.db"
         if candidate.exists():
             db_path = str(candidate)
 
@@ -757,7 +753,7 @@ async def get_run_events(run_id: str) -> dict[str, Any]:
 @app.get("/api/workflow/{workflow_id}/events")
 async def get_workflow_events(
     workflow_id: str,
-    log_root: str = "logs",
+    run_root: str = "runs",
 ) -> dict[str, Any]:
     """Return the full event log for a completed workflow by workflow_id.
 
@@ -766,7 +762,7 @@ async def get_workflow_events(
     frontend reload historical event logs after a page refresh without needing
     to recreate an ephemeral RunRecord in _active_runs.
     """
-    db_path = await _resolve_db_path(log_root, workflow_id)
+    db_path = await _resolve_db_path(run_root, workflow_id)
     if not db_path:
         raise HTTPException(status_code=404, detail="Workflow not found in registry")
     events = await _load_event_log_from_db(db_path)
@@ -774,7 +770,7 @@ async def get_workflow_events(
 
 
 @app.post("/api/run/{run_id}/export")
-async def trigger_export(run_id: str, log_root: str = "logs") -> dict[str, Any]:
+async def trigger_export(run_id: str, run_root: str = "runs") -> dict[str, Any]:
     """Package the IEEE LaTeX submission for a completed run.
 
     Reads workflow_id from run_summary.json, calls package_submission(),
@@ -789,7 +785,7 @@ async def trigger_export(run_id: str, log_root: str = "logs") -> dict[str, Any]:
     if not workflow_id:
         raise HTTPException(status_code=422, detail="workflow_id not found in run_summary")
     try:
-        submission_dir = await package_submission(workflow_id, log_root)
+        submission_dir = await package_submission(workflow_id, run_root)
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"Export failed: {exc}") from exc
     if submission_dir is None:
@@ -802,9 +798,9 @@ async def trigger_export(run_id: str, log_root: str = "logs") -> dict[str, Any]:
 # Serve React frontend (production)
 # ---------------------------------------------------------------------------
 
-_outputs_dir = pathlib.Path("data/outputs")
-_outputs_dir.mkdir(parents=True, exist_ok=True)
-app.mount("/outputs", StaticFiles(directory=str(_outputs_dir)), name="outputs")
+_runs_dir = pathlib.Path("runs")
+_runs_dir.mkdir(parents=True, exist_ok=True)
+app.mount("/runs", StaticFiles(directory=str(_runs_dir)), name="runs")
 
 _static_dir = pathlib.Path(__file__).parent.parent.parent / "frontend" / "dist"
 if _static_dir.exists():

@@ -1,4 +1,11 @@
-from src.models import CandidatePaper, ReviewConfig, ReviewType, ScreeningDecision, ScreeningDecisionType, ReviewerType
+from src.models import (
+    CandidatePaper,
+    ReviewConfig,
+    ReviewerType,
+    ReviewType,
+    ScreeningDecision,
+    ScreeningDecisionType,
+)
 
 
 def test_review_config_validation() -> None:

@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 from datetime import date
 from typing import Any, List
+
 import aiohttp
 
 from src.models import CandidatePaper, SearchResult, SourceCategory

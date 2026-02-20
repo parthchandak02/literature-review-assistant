@@ -4,8 +4,7 @@ from src.export.bibtex_builder import build_bibtex
 from src.export.ieee_latex import markdown_to_latex
 from src.export.ieee_validator import ValidationResult as IEEEValidationResult
 from src.export.ieee_validator import validate_ieee
-from src.export.prisma_checklist import PrismaValidationResult
-from src.export.prisma_checklist import validate_prisma
+from src.export.prisma_checklist import PrismaValidationResult, validate_prisma
 from src.export.submission_packager import package_submission
 
 __all__ = [

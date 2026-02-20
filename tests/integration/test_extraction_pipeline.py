@@ -6,7 +6,13 @@ from src.db.database import get_db
 from src.db.repositories import WorkflowRepository
 from src.extraction.extractor import ExtractionService
 from src.llm.provider import LLMProvider
-from src.models import CandidatePaper, ReviewConfig, ReviewType, SettingsConfig, StudyDesign
+from src.models import (
+    CandidatePaper,
+    ReviewConfig,
+    ReviewType,
+    SettingsConfig,
+    StudyDesign,
+)
 from src.screening.dual_screener import DualReviewerScreener
 
 

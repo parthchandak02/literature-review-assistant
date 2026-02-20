@@ -53,11 +53,11 @@ The system has three runtime layers and two persistent databases.
 [PydanticAI Graph -- src/orchestration/workflow.py]
     |  aiosqlite reads/writes (paper-level persistence at every step)
     v
-[logs/{date}/{topic}/run_*/runtime.db]   <-- per-run SQLite
-[logs/workflows_registry.db]             <-- central resume registry
+[runs/{date}/{topic}/run_*/runtime.db]   <-- per-run SQLite
+[runs/workflows_registry.db]             <-- central resume registry
     |
     v
-[data/outputs/{date}/{topic}/run_*/]     <-- fig_, doc_, data_ artifacts
+[runs/{date}/{topic}/run_*/]             <-- fig_, doc_, data_ artifacts (same dir)
 ```
 
 ### 2.1 Workflow Graph
@@ -130,8 +130,7 @@ research-article-writer/
 |-- tests/
 |   |-- unit/                       # 20 unit test files (86 passing)
 |   `-- integration/                # 7 integration test files
-|-- data/outputs/                   # Runtime output directory (gitignored)
-`-- logs/                           # Per-run runtime.db + central registry (gitignored)
+`-- runs/                           # All per-run artifacts + central registry (gitignored)
 ```
 
 ---
@@ -172,7 +171,7 @@ These rules apply to every line of code in this project. They are not suggestion
 7. **Use `rich`** for all CLI output -- progress bars with completed/total count for long-running phases.
 8. **Use exact checkpoint phase key strings** from Section 8.3. Mismatched strings cause silent resume failures.
 9. **No Unicode characters** in any file. ASCII 32-126 only. Use YES/NO/PASS/FAIL instead of checkmarks, -> instead of arrows.
-10. **Never commit** `.env`, `logs/**`, `data/outputs/**`, or other run-specific generated artifacts.
+10. **Never commit** `.env`, `runs/**`, or other run-specific generated artifacts.
 
 ---
 
@@ -528,7 +527,7 @@ SQLite connection settings: WAL journal mode (concurrent reads + single writer),
 
 ### 8.2 Central Registry
 
-`{log_root}/workflows_registry.db` holds a single `workflows_registry` table:
+`{run_root}/workflows_registry.db` holds a single `workflows_registry` table:
 
 ```
 workflow_id | topic | config_hash | db_path | status | created_at | updated_at
@@ -723,7 +722,7 @@ Run card status border (2px left): emerald = completed, violet = running/connect
 | POST | /api/cancel/{run_id} | Cancel active run; sets cancellation event |
 | GET | /api/runs | List all in-memory active runs |
 | GET | /api/results/{run_id} | Artifact paths for completed run |
-| GET | /api/download | Download artifact file (restricted to data/outputs/) |
+| GET | /api/download | Download artifact file (restricted to runs/) |
 | GET | /api/config/review | Default review.yaml content (pre-fills Setup form) |
 | GET | /api/history | Past runs from workflows_registry.db |
 | POST | /api/history/attach | Attach historical run for DB explorer; loads event_log from DB |

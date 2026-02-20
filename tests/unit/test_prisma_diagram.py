@@ -6,8 +6,6 @@ import tempfile
 from pathlib import Path
 from unittest.mock import patch
 
-import pytest
-
 from src.models import PRISMACounts
 from src.prisma.diagram import render_prisma_diagram
 

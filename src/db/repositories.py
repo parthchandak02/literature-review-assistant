@@ -50,13 +50,13 @@ from src.models import (
     DecisionLogEntry,
     EvidenceLinkRecord,
     ExtractionRecord,
-    GRADEOutcomeAssessment,
     GateResult,
-    RobinsIAssessment,
+    GRADEOutcomeAssessment,
     RoB2Assessment,
-    SearchResult,
+    RobinsIAssessment,
     ScreeningDecision,
     ScreeningDecisionType,
+    SearchResult,
     SectionDraft,
 )
 from src.models.enums import SourceCategory
