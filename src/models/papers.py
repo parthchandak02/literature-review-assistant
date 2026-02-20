@@ -6,7 +6,9 @@ import re
 import uuid
 from typing import List, Optional
 
+from nameparser import HumanName
 from pydantic import BaseModel, Field
+from wordfreq import zipf_frequency
 
 from src.models.enums import SourceCategory
 
@@ -14,57 +16,43 @@ from src.models.enums import SourceCategory
 # Label-derivation constants (single source of truth).
 # All consumers (visualization, citation generation) MUST use
 # compute_display_label() rather than reimplementing this logic.
+#
+# Design principle: ZERO topic-specific knowledge is hardcoded here.
+# Domain-agnostic filtering uses two industry-standard techniques:
+#   1. nameparser.HumanName  -- structured surname extraction (JabRef/Zotero standard)
+#   2. wordfreq.zipf_frequency -- corpus-frequency threshold (no hardcoded word lists)
 # -----------------------------------------------------------------------
 
-_LABEL_GENERIC_AUTHORS: frozenset[str] = frozenset({
-    "unknown", "none", "na", "author", "anonymous", "anon",
-    # Honorific prefixes that appear as first-word tokens
-    "dr", "prof", "mr", "ms", "mrs", "mx", "sir",
+# Zipf scale: log10(occurrences per billion words).
+# Words at or above this threshold are common English and skipped as label candidates.
+# Calibration: "conversational" ~4.5, "education" ~5.1, "integration" ~4.8 are filtered.
+# Rare proper nouns ("Kocaballi", "Rathika") score near 0.0 and pass through.
+_ZIPF_COMMON_THRESHOLD: float = 3.5
+
+# Minimal safety net for rare paper-structure abbreviations that have low Zipf
+# scores yet are meaningless as labels. "fig" scores ~2.8, below the threshold.
+# This list must stay topic-agnostic: only universal bibliographic shorthand.
+_UNIVERSAL_PAPER_STRUCTURE: frozenset[str] = frozenset({
+    "fig", "et", "al", "ibid", "viz", "cf",
 })
 
-_LABEL_GENERIC_TITLE_WORDS: frozenset[str] = frozenset({
-    "a", "an", "the", "of", "in", "on", "at", "to", "for", "and", "or",
-    "is", "are", "was", "were", "be", "been", "being", "with", "this", "that",
-    "fig", "figure", "table", "appendix", "section", "chapter",
-    "methods", "method", "results", "result", "discussion", "conclusion",
-    "conclusions", "introduction", "abstract", "study", "studies",
-    "review", "systematic", "literature", "analysis", "impact",
-    "effect", "effects", "use", "using", "based", "new", "novel",
-    "analysing", "investigating", "usability", "examining", "exploring",
-    "evaluating", "evaluation", "assessment", "towards", "toward",
-    "role", "applying", "application", "understanding", "comparing",
-    "developing", "improving", "educational", "learning", "teaching",
-    # Domain-specific words common as title openers in AI/education research
-    "conversational", "tutor", "tutors", "chatbot", "chatbots",
-    "integration", "pedagogical", "effectiveness", "agent", "agents",
-    "intelligent", "adaptive", "virtual", "digital", "interactive",
-    "personalized", "automated", "generative", "framework", "approach",
-    "survey", "overview", "scoping", "narrative", "mixed",
-    # Additional adjectives/verbs that appear as de-hyphenated artifacts or
-    # generic descriptor words picked up from AI/education titles
-    "human", "humancentered", "centered", "enhanced", "enhance",
-    "enhancing", "different", "simple", "nursing", "academic",
-    "student", "students", "teacher", "teachers", "classroom",
-    "engagement", "performance", "outcomes", "experience", "feedback",
-    # Question/connector words that slip through short-word filters
-    "what", "how", "why", "when", "where", "which", "who", "whom",
-    "actually", "does", "can", "could", "would", "should",
-    # Common education/research domain words
-    "education", "training", "course", "courses", "curriculum",
-    "technology", "system", "systems", "tool", "tools", "platform",
-    "data", "model", "models", "approach", "approaches",
+# Placeholder strings that nameparser parses as a valid surname but carry no
+# information about the actual author. nameparser cannot detect these itself.
+_GENERIC_AUTHOR_PLACEHOLDERS: frozenset[str] = frozenset({
+    "unknown", "none", "na", "author", "anonymous", "anon",
 })
 
 
 def _is_camelcase_compound(token: str) -> bool:
-    """Return True if token looks like a stripped hyphenated compound word.
+    """Return True if token is a stripped hyphenated compound word artifact.
 
-    Examples that should be skipped: AIPowered, LLMbased, AIBased,
-    AIdriven, Humancentered (contains multiple uppercase runs).
-    Simple capitalised words like 'Smith' or 'Ahmed' return False.
+    These arise when re.sub strips hyphens from multi-component words:
+      "AI-Based"  -> "AIBased"  (two uppercase groups: AI + Based)
+      "LLM-based" -> "LLMbased" (LLM + based)
+    Simple capitalised names like "Smith" or "Ahmed" return False.
+    This check is domain-agnostic: it detects the artifact pattern, not the topic.
     """
     uppercase_runs = re.findall(r"[A-Z][a-z]*", token)
-    # Two or more capitalised groups AND at least one uppercase after position 0
     return len(uppercase_runs) >= 2 and any(c.isupper() for c in token[1:])
 
 
@@ -94,63 +82,57 @@ class CandidatePaper(BaseModel):
 def compute_display_label(paper: CandidatePaper) -> str:
     """Derive a concise human-readable token for a paper.
 
+    Domain-agnostic: no topic-specific words are hardcoded.
+    Uses nameparser for structured surname extraction and wordfreq for
+    corpus-frequency-based filtering of common English words.
+
     Priority order:
-      1. First-author surname: try first word then last word of authors[0],
-         filtering generic placeholders, honorifics, and camelCase artifacts.
-      2. First non-generic, non-compound word from the title (>= 4 alphabetic chars).
-      3. Truncated title (first 22 chars) only when it yields enough alpha chars
-         and is not itself a generic word -- otherwise falls to step 4.
+      1. First-author surname via nameparser.HumanName (handles Dr./Prof./van/de/Jr./III).
+      2. First rare word from the title (Zipf < _ZIPF_COMMON_THRESHOLD, >= 4 alpha chars).
+      3. Truncated title (first 22 chars) if it yields rare enough alpha content.
       4. "Paper_<paper_id[:6]>" as last resort.
 
     Returns only the name token (no year). Callers append the year in their
     preferred format, e.g. "Smith (2024)" for figures or "Smith2024" for citekeys.
     """
+    # --- Step 1: Extract surname via nameparser ---
     author_token = ""
     if paper.authors:
-        first_author = str(paper.authors[0])
-        words = first_author.split()
-        # Try first word, then last word (handles "First Last" and "Last, First")
-        candidates = [words[0]] if words else []
-        if len(words) > 1:
-            candidates.append(words[-1])
-        for raw in candidates:
-            token = re.sub(r"[^a-zA-Z]", "", raw)
-            if (
-                len(token) >= 2
-                and token.lower() not in _LABEL_GENERIC_AUTHORS
-                and not _is_camelcase_compound(token)
-            ):
-                author_token = token
-                break
+        parsed = HumanName(str(paper.authors[0]))
+        surname = re.sub(r"[^a-zA-Z]", "", parsed.last or "")
+        if (
+            len(surname) >= 2
+            and surname.lower() not in _GENERIC_AUTHOR_PLACEHOLDERS
+            and not _is_camelcase_compound(surname)
+        ):
+            author_token = surname
 
-    # Strip common non-content prefixes ("[PDF]", "[EPUB]", etc.) before
-    # scanning title words so they do not end up in the fallback label.
+    # --- Step 2: Title word scan via wordfreq (domain-agnostic) ---
+    # Strip non-content prefixes like "[PDF]" or "[EPUB]" before scanning.
     title_for_scan = re.sub(r"^\[([A-Z]+)\]\s*", "", paper.title or "")
 
     if not author_token and title_for_scan:
         for word in title_for_scan.split():
             candidate = re.sub(r"[^a-zA-Z]", "", word)
-            if (
-                len(candidate) >= 4
-                and candidate.lower() not in _LABEL_GENERIC_TITLE_WORDS
-                and not _is_camelcase_compound(candidate)
-            ):
-                author_token = candidate
-                break
+            if len(candidate) < 4:
+                continue
+            if _is_camelcase_compound(candidate):
+                continue
+            low = candidate.lower()
+            if zipf_frequency(low, "en") >= _ZIPF_COMMON_THRESHOLD:
+                continue
+            if low in _UNIVERSAL_PAPER_STRUCTURE:
+                continue
+            author_token = candidate
+            break
 
+    # --- Step 3: Truncated title fallback ---
     if not author_token:
         if title_for_scan:
             truncated = title_for_scan[:22].strip()
-            # Only use the truncated title if it carries enough real alpha content
-            # and is not itself a single generic word.
-            alpha_chars = re.sub(r"[^a-zA-Z]", "", truncated)
-            if (
-                len(alpha_chars) >= 3
-                and alpha_chars.lower() not in _LABEL_GENERIC_TITLE_WORDS
-            ):
-                if len(title_for_scan) > 22:
-                    truncated += ".."
-                return truncated
+            alpha = re.sub(r"[^a-zA-Z]", "", truncated)
+            if len(alpha) >= 3 and zipf_frequency(alpha.lower(), "en") < _ZIPF_COMMON_THRESHOLD:
+                return truncated + (".." if len(title_for_scan) > 22 else "")
         return f"Paper_{paper.paper_id[:6]}"
 
     return author_token
