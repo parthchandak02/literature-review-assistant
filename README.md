@@ -71,7 +71,7 @@ Go to `http://localhost:8000`. Click "+" in the sidebar to start a new review. T
 
 Enter your Gemini API key and click Run. Your API keys are saved in your browser (localStorage) and restored on the next visit.
 
-The sidebar shows all your runs (live and historical) with status colors and a stats strip (papers found, papers included, artifacts, cost). Selecting a run opens its 4-tab dashboard: Activity (phase timeline + event log), Results, Database, Cost. The selected tab persists when you switch between runs.
+The sidebar shows all your runs (live and historical) with status colors (emerald = completed, violet = running, red = error, amber = cancelled) and a stats strip (papers found, papers included, artifacts, cost). Selecting a run opens its 4-tab dashboard: Activity (phase timeline + event log), Results, Database, Cost. The selected tab persists when you switch between runs.
 
 **Tip -- reuse a past config:** Click "+" to open the form, then use the "Load from past run" dropdown to pre-populate the form from any previous run's config. Useful for iterating on the same research question with different parameters.
 
@@ -230,7 +230,7 @@ Full documentation of every config field is in `docs/research-agent-v2-spec.md` 
 
 The pipeline runs as an 8-phase PydanticAI graph. Each phase writes its results to SQLite immediately so a crash can resume from the exact paper where it stopped.
 
-```
+```text
 Phase 1: Load config, initialize DB, set up LLM provider
 Phase 2: Search 6+ databases, deduplicate, generate PROSPERO protocol
 Phase 3: Dual-reviewer screening (AI Reviewer A + B, adjudicator on disagreement)

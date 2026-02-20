@@ -123,7 +123,7 @@ Past runs live in `logs/workflows_registry.db`. The frontend cannot open SQLite 
 1. `GET /api/history` -- backend reads the registry and returns `HistoryEntry[]`
 2. User clicks "Open" on a past run
 3. `POST /api/history/attach` -- backend creates a completed `_RunRecord` in `_active_runs` with `db_path` set, returns a short `run_id`
-3b. Backend calls `_load_event_log_from_db(db_path)` and populates `record.event_log` from the persisted `event_log` table so LogView and `useSSEStream` can replay historical events via `GET /api/run/{run_id}/events`.
+3b. Backend calls `_load_event_log_from_db(db_path)` and populates `record.event_log` from the persisted `event_log` table so ActivityView (via LogStream) and `useSSEStream` can replay historical events via `GET /api/run/{run_id}/events`.
 4. Frontend sets this `run_id` as the current run; `hasRun` becomes true; all tabs unlock
 5. `GET /api/db/{run_id}/papers|screening|costs` -- existing DB explorer endpoints now serve data from the historical `runtime.db`
 
@@ -212,7 +212,7 @@ loadApiKeys(): StoredApiKeys | null       // called by RunForm on mount
 clearApiKeys(): void                      // exposed for future "sign out" flow
 ```
 
-`StoredApiKeys` has `gemini_api_key`, `openalex_api_key?`, and `ieee_api_key?`. Keys are never sent to any remote server -- they are posted to the local FastAPI process in the request body only.
+`StoredApiKeys` has eight fields (all `string`, empty string when not set): `gemini`, `openalex`, `ieee`, `pubmedEmail`, `pubmedApiKey`, `perplexity`, `semanticScholar`, `crossrefEmail`. Keys are never sent to any remote server -- they are posted to the local FastAPI process in the request body only.
 
 ### 6.5 SSE heartbeat
 

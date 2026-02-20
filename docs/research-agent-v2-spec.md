@@ -1177,7 +1177,7 @@ systematic-review-tool/
 |       |-- main.tsx
 |       |-- App.tsx                   # Root layout: navigation, run state, view routing
 |       |-- lib/
-|       |   `-- api.ts                # Typed fetch wrappers for all 14 backend endpoints
+|       |   `-- api.ts                # Typed fetch wrappers for all backend endpoints; StoredApiKeys localStorage helpers
 |       |-- hooks/
 |       |   |-- useSSEStream.ts       # SSE client (@microsoft/fetch-event-source); events -> ReviewEvent[]
 |       |   |-- useCostStats.ts       # Aggregates api_call events into cost breakdown by model/phase
@@ -1191,10 +1191,10 @@ systematic-review-tool/
 |       |   `-- ui/
 |       |       `-- tooltip.tsx       # shadcn/ui tooltip (collapsed sidebar tooltips)
 |       `-- views/
-|           |-- SetupView.tsx         # New review form (wraps RunForm)
-|           |-- OverviewView.tsx      # Live run dashboard: stats cards + phase timeline
+|           |-- SetupView.tsx         # New review: structured PICO form + "Load from past run" dropdown
+|           |-- RunView.tsx           # 4-tab container for a selected run (Activity, Results, Database, Cost)
+|           |-- ActivityView.tsx      # Phase timeline + stats strip + filter chips + event log (live or historical)
 |           |-- CostView.tsx          # Cost breakdown: Recharts bar chart + model/phase tables
-|           |-- LogView.tsx           # Filterable event log (All / Phases / LLM / Search / Screening)
 |           |-- ResultsView.tsx       # Output artifacts list (shown when run is done)
 |           |-- DatabaseView.tsx      # DB explorer: paginated papers/screening/costs tabs (available post-run)
 |           `-- HistoryView.tsx       # Past runs table; Open button attaches DB explorer to historical run
@@ -2212,10 +2212,10 @@ The frontend `useSSEStream` hook ignores `heartbeat`, prefetches buffered events
 
 | View | File | Description |
 |:---|:---|:---|
-| Setup | `views/SetupView.tsx` | YAML editor + API key form; starts a new run |
-| Overview | `views/OverviewView.tsx` | Live dashboard: stat cards (papers found, included, cost, elapsed) + phase timeline |
+| Setup | `views/SetupView.tsx` | Structured PICO form + keyword/criteria tags + database checkboxes; "Load from past run" dropdown to reuse a stored config; starts a new run |
+| Run container | `views/RunView.tsx` | 4-tab shell for a selected run (Activity, Results, Database, Cost) |
+| Activity | `views/ActivityView.tsx` | Phase timeline + stats strip + filter chips + event log; works for live (SSE) and historical (fetched) runs |
 | Cost & Usage | `views/CostView.tsx` | Cost by model/phase: Recharts bar chart + sortable tables |
-| Event Log | `views/LogView.tsx` | Filterable event log (All / Phases / LLM / Search / Screening) |
 | Results | `views/ResultsView.tsx` | Download links for all output artifacts (available when run is done) |
 | Database | `views/DatabaseView.tsx` | DB explorer: papers (paginated + search), screening decisions (filterable), cost records |
 | History | `views/HistoryView.tsx` | Past runs from registry; Open button attaches any run to DB explorer |
@@ -2228,7 +2228,7 @@ The frontend `useSSEStream` hook ignores `heartbeat`, prefetches buffered events
 - **SSE flow:** `WebRunContext._emit()` -> `asyncio.Queue` (live) + `_RunRecord.event_log` (replay buffer) -> `/api/stream/{run_id}` and `/api/run/{run_id}/events` -> `useSSEStream` prefetch + dedup + live stream -> `events[]` -> all views
 - **Cost tracking:** Client-side only; `useCostStats(events)` aggregates `api_call` events by model and phase
 - **DB explorer:** Available for any run that has a `db_path` (live or historical); queries `papers`, `screening_decisions`, `cost_records` tables via DB endpoints
-- **History:** `GET /api/history` reads `workflows_registry.db`; `POST /api/history/attach` registers the historical run as an in-memory record, loads event_log from DB, so DB endpoints and LogView can serve it
+- **History:** `GET /api/history` reads `workflows_registry.db`; `POST /api/history/attach` registers the historical run as an in-memory record, loads event_log from DB, so DB endpoints and ActivityView (via LogStream) can serve it
 - **Key separation:** `runId` (live SSE target) is distinct from `dbRunId` (DB explorer target); attaching a historical run does not affect live stream
 
 ***
