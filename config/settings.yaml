@@ -73,10 +73,10 @@ risk_of_bias:
 
 meta_analysis:
   enabled: true
-  heterogeneity_threshold: 40
+  heterogeneity_threshold: 50
   funnel_plot_minimum_studies: 10
   effect_measure_dichotomous: "risk_ratio"
-  effect_measure_continuous: "mean_difference"
+  effect_measure_continuous: "standardized_mean_difference"
 
 ieee_export:
   enabled: true

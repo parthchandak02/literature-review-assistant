@@ -115,6 +115,7 @@ class DualReviewerScreener:
         on_progress: Callable[[str, int, int], None] | None = None,
         on_prompt: Callable[[str, str, str | None], None] | None = None,
         should_proceed_with_partial: Callable[[], bool] | None = None,
+        on_screening_decision: Callable[[str, str, str], None] | None = None,
     ):
         self.repository = repository
         self.provider = provider
@@ -125,6 +126,7 @@ class DualReviewerScreener:
         self.on_progress = on_progress
         self.on_prompt = on_prompt
         self.should_proceed_with_partial = should_proceed_with_partial
+        self.on_screening_decision = on_screening_decision
 
     async def screen_title_abstract(self, workflow_id: str, paper: CandidatePaper) -> ScreeningDecision:
         result = await self._screen_one(
@@ -368,6 +370,8 @@ class DualReviewerScreener:
                 phase="phase_3_screening",
             )
         )
+        if self.on_screening_decision is not None:
+            self.on_screening_decision(paper.paper_id, stage, final_decision.decision.value)
         return final_decision
 
     async def _run_reviewer(

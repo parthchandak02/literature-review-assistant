@@ -375,6 +375,11 @@ class ScreeningNode(BaseNode[ReviewState]):
                 if rc and hasattr(rc, "should_proceed_with_partial")
                 else None
             )
+            on_screening_decision = None
+            if rc and hasattr(rc, "log_screening_decision"):
+                def _on_screening_decision(pid: object, stg: object, dec: object) -> None:
+                    rc.log_screening_decision(pid, stg, dec)  # type: ignore[union-attr]
+                on_screening_decision = _on_screening_decision
             screener = DualReviewerScreener(
                 repository=repository,
                 provider=provider,
@@ -385,6 +390,7 @@ class ScreeningNode(BaseNode[ReviewState]):
                 on_progress=on_progress,
                 on_prompt=on_prompt,
                 should_proceed_with_partial=should_proceed,
+                on_screening_decision=on_screening_decision,
             )
 
             # --- Pre-screening: BM25 ranking (when cap is set) or keyword filter ---
@@ -440,9 +446,15 @@ class ScreeningNode(BaseNode[ReviewState]):
                 stage="title_abstract",
                 papers=papers_for_llm,
             )
-            # Merge pre-filter exclusions with LLM decisions for include_ids
+            # Merge pre-filter exclusions with LLM decisions for include_ids.
+            # On resume, screen_batch skips already-processed papers and only returns
+            # decisions made in this session.  We must also recover include/uncertain
+            # decisions that were persisted during a previous (crashed) session so that
+            # all survivors are forwarded to downstream phases.
             all_stage1 = list(pre_excluded) + list(stage1_llm)
             include_ids = {d.paper_id for d in all_stage1 if d.decision.value in ("include", "uncertain")}
+            prior_ta_includes = await repository.get_title_abstract_include_ids(state.workflow_id)
+            include_ids.update(prior_ta_includes)
             stage1_survivors = [p for p in state.deduped_papers if p.paper_id in include_ids]
 
             # --- Reset interrupt flag so stage 2 always runs to completion ---
@@ -1126,6 +1138,8 @@ class FinalizeNode(BaseNode[ReviewState]):
         }
         Path(state.artifacts["run_summary"]).write_text(json.dumps(summary, indent=2), encoding="utf-8")
         await update_registry_status(state.log_root, state.workflow_id, "completed")
+        async with get_db(state.db_path) as db:
+            await WorkflowRepository(db).update_workflow_status(state.workflow_id, "completed")
         if rc and rc.verbose:
             rc.console.print(f"  Run summary: {state.artifacts['run_summary']}")
             rc.console.print(f"  Output dir: {state.output_dir}")

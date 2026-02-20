@@ -318,7 +318,7 @@ export function ActivityView({
           icon={FileSearch}
           label="Papers Found"
           value={totalFound.toLocaleString()}
-          sub="across all databases"
+          sub="raw, before deduplication"
           accent="text-blue-400"
         />
         <StatCard

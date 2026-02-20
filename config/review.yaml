@@ -2,10 +2,10 @@ research_question: "How do conversational AI tutors impact learning outcomes, en
 review_type: "systematic"
 
 pico:
-  population: "Health science students"
-  intervention: "Conversational AI tutors"
-  comparison: "Traditional instruction"
-  outcome: "Learning outcomes, engagement, retention"
+  population: "Health science students and health professions learners"
+  intervention: "Conversational AI tutors (including chatbots, intelligent tutoring systems, and LLM-based tutors)"
+  comparison: "Traditional instruction, no intervention, human tutors, or alternative educational technologies"
+  outcome: "Learning outcomes, engagement, knowledge retention, clinical reasoning, and skill development"
 
 keywords:
   - "chatbot"
@@ -18,23 +18,30 @@ keywords:
   - "virtual tutor"
   - "AI assistant"
   - "large language model tutor"
+  - "ChatGPT"
+  - "GPT-4"
+  - "generative AI tutor"
+  - "LLM-based tutoring"
+  - "virtual patient"
+  - "health professions education"
 
 domain: "AI-powered educational technology in health sciences"
-scope: "Focus on conversational AI tutors used in health science education."
+scope: "Focus on conversational AI tutors used in health science education. Includes both legacy chatbot and intelligent tutoring system (ITS) implementations and modern LLM-powered tutors (post-2022, e.g., GPT-4-based, Claude-based systems). Covers medical, nursing, pharmacy, dental, and allied health programs."
 
 inclusion_criteria:
   - "Studies on conversational AI tutors or chatbots for health science education"
-  - "Implementation in medical, nursing, pharmacy, or allied health programs"
-  - "Learning outcomes, knowledge retention, or skill development measures"
+  - "Studies evaluating LLM-based (e.g., GPT, Claude, Gemini) educational chatbots or conversational agents"
+  - "Implementation in medical, nursing, pharmacy, dental, or allied health programs"
+  - "Learning outcomes, knowledge retention, clinical reasoning, or skill development measures"
   - "Student engagement, satisfaction, or user experience evaluations"
   - "Published in English and peer-reviewed"
 
 exclusion_criteria:
-  - "Non-conversational educational technology"
-  - "Non-health science domains"
+  - "Non-conversational educational technology (e.g., passive video, static e-learning modules)"
+  - "Non-health science domains (unless providing direct comparative context for health science findings)"
   - "Studies without empirical evaluation or outcomes data"
-  - "Opinion pieces or non-peer-reviewed sources"
-  - "Conference abstracts without full papers"
+  - "Opinion pieces, editorials, or non-peer-reviewed sources"
+  - "Conference-only abstracts lacking a full-length paper (i.e., abstracts submitted to conferences without an associated peer-reviewed full paper)"
 
 date_range_start: 2015
 date_range_end: 2026
@@ -71,4 +78,29 @@ conflicts_of_interest: "The authors declare no conflicts of interest."
 
 # Optional: override auto-generated queries per database. Omit a database to use default.
 search_overrides:
-  crossref: '("conversational AI" OR "chatbot" OR "intelligent tutoring system") AND ("health science" OR "medical education" OR "nursing education" OR "health education")'
+  crossref: >-
+    ("conversational AI" OR "chatbot" OR "AI tutor" OR "intelligent tutoring system"
+    OR "virtual patient" OR "large language model" OR "ChatGPT" OR "dialogue system")
+    AND
+    ("health science" OR "medical education" OR "nursing education" OR "pharmacy education"
+    OR "dental education" OR "allied health" OR "health professions education"
+    OR "clinical education" OR "health education")
+  pubmed: >-
+    ("Artificial Intelligence"[MeSH Terms] OR chatbot*[Title/Abstract]
+    OR "conversational AI"[Title/Abstract] OR "conversational agent*"[Title/Abstract]
+    OR "virtual patient*"[Title/Abstract] OR "intelligent tutoring system*"[Title/Abstract]
+    OR "large language model*"[Title/Abstract] OR "ChatGPT"[Title/Abstract]
+    OR "GPT-4"[Title/Abstract] OR "dialogue system*"[Title/Abstract]
+    OR "AI tutor*"[Title/Abstract] OR "generative AI"[Title/Abstract])
+    AND
+    ("Education, Medical"[MeSH Terms] OR "Education, Pharmacy"[MeSH Terms]
+    OR "Health Personnel/education"[MeSH Terms] OR "Students, Medical"[MeSH Terms]
+    OR "Nursing Education Research"[MeSH Terms]
+    OR "health science*"[Title/Abstract] OR "medical education"[Title/Abstract]
+    OR "nursing education"[Title/Abstract] OR "health professions education"[Title/Abstract]
+    OR "pharmacy education"[Title/Abstract] OR "dental education"[Title/Abstract]
+    OR "allied health"[Title/Abstract] OR "clinical training"[Title/Abstract])
+  semantic_scholar: >-
+    conversational AI tutor health science education learning outcomes
+    medical nursing pharmacy dental LLM ChatGPT chatbot intelligent tutoring
+    virtual patient clinical reasoning knowledge retention engagement

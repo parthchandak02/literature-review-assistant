@@ -64,7 +64,11 @@ async def load_resume_state(
         stored_dedup_count = await repo.get_dedup_count(workflow_id)
         dedup_count = stored_dedup_count if stored_dedup_count is not None else recomputed_dedup_count
 
+        # Prefer fulltext-stage decisions; fall back to title_abstract when
+        # skip_fulltext_if_no_pdf=True leaves the fulltext table empty.
         included_ids = await repo.get_included_paper_ids(workflow_id)
+        if not included_ids:
+            included_ids = await repo.get_title_abstract_include_ids(workflow_id)
         included_papers_sorted = [p for p in deduped if p.paper_id in included_ids]
 
         extraction_records_list: list[ExtractionRecord] = []

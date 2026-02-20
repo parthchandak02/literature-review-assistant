@@ -378,6 +378,23 @@ class WorkflowRepository:
         rows = await cursor.fetchall()
         return {str(row[0]) for row in rows}
 
+    async def get_title_abstract_include_ids(self, workflow_id: str) -> Set[str]:
+        """Paper IDs that passed title/abstract screening (include or uncertain).
+
+        Used on resume to recover pre-crash screening decisions that were persisted
+        but not returned by screen_batch (which skips already-processed papers).
+        """
+        cursor = await self.db.execute(
+            """
+            SELECT paper_id FROM dual_screening_results
+            WHERE workflow_id = ? AND stage = 'title_abstract'
+              AND final_decision IN ('include', 'uncertain')
+            """,
+            (workflow_id,),
+        )
+        rows = await cursor.fetchall()
+        return {str(row[0]) for row in rows}
+
     async def get_extraction_record_ids(self, workflow_id: str) -> Set[str]:
         """Paper IDs already in extraction_records."""
         cursor = await self.db.execute(
@@ -712,6 +729,14 @@ class WorkflowRepository:
             VALUES (?, ?, ?, 'running')
             """,
             (workflow_id, topic, config_hash),
+        )
+        await self.db.commit()
+
+    async def update_workflow_status(self, workflow_id: str, status: str) -> None:
+        """Update the status column in the local runtime.db workflows table."""
+        await self.db.execute(
+            "UPDATE workflows SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE workflow_id = ?",
+            (status, workflow_id),
         )
         await self.db.commit()
 

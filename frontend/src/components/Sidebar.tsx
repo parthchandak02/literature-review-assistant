@@ -123,9 +123,12 @@ export function Sidebar({
     }
   }, [])
 
-  // Fetch history on mount and whenever the live run finishes.
+  // Fetch history on mount, poll every 15s (picks up in-progress CLI runs),
+  // and whenever the live run finishes.
   useEffect(() => {
     void loadHistory()
+    const id = setInterval(() => void loadHistory(), 15_000)
+    return () => clearInterval(id)
   }, [loadHistory])
 
   useEffect(() => {
@@ -287,19 +290,20 @@ export function Sidebar({
                 const canOpen = Boolean(entry.db_path)
                 const borderColor = STATUS_BORDER[statusKey]
 
-                // Build compact stats tokens
-                const statsTokens: string[] = []
+                // Build stat chips { value, label, color }
+                interface StatChip { value: string; label: string; valColor: string }
+                const statChips: StatChip[] = []
                 if (entry.papers_found != null && entry.papers_found > 0) {
-                  statsTokens.push(`${fmtNum(entry.papers_found)} found`)
+                  statChips.push({ value: fmtNum(entry.papers_found), label: "found", valColor: "text-blue-400" })
                 }
                 if (entry.papers_included != null) {
-                  statsTokens.push(`${fmtNum(entry.papers_included)} incl.`)
+                  statChips.push({ value: fmtNum(entry.papers_included), label: "incl.", valColor: "text-emerald-400" })
                 }
                 if (entry.artifacts_count != null && entry.artifacts_count > 0) {
-                  statsTokens.push(`${entry.artifacts_count} outputs`)
+                  statChips.push({ value: String(entry.artifacts_count), label: "out", valColor: "text-violet-400" })
                 }
                 if (entry.total_cost != null && entry.total_cost > 0) {
-                  statsTokens.push(`$${entry.total_cost.toFixed(2)}`)
+                  statChips.push({ value: `$${entry.total_cost.toFixed(2)}`, label: "", valColor: "text-amber-400" })
                 }
 
                 return (
@@ -352,10 +356,24 @@ export function Sidebar({
                           <span className="text-xs text-zinc-400 line-clamp-2 leading-snug">
                             {entry.topic}
                           </span>
-                          {statsTokens.length > 0 && (
-                            <p className="text-[10px] text-zinc-600 mt-0.5 leading-none tabular-nums">
-                              {statsTokens.join(" · ")}
-                            </p>
+                          {statChips.length > 0 && (
+                            <div className="flex flex-wrap gap-x-2 gap-y-0.5 mt-1">
+                              {statChips.map((chip) => (
+                                <span
+                                  key={chip.label || chip.valColor}
+                                  className="flex items-baseline gap-0.5 tabular-nums leading-none"
+                                >
+                                  <span className={`text-[10px] font-semibold ${chip.valColor}`}>
+                                    {chip.value}
+                                  </span>
+                                  {chip.label && (
+                                    <span className="text-[9px] text-zinc-600 font-normal">
+                                      {chip.label}
+                                    </span>
+                                  )}
+                                </span>
+                              ))}
+                            </div>
                           )}
                         </div>
                       )}
