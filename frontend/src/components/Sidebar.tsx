@@ -109,25 +109,32 @@ export function Sidebar({
 }: SidebarProps) {
   const [history, setHistory] = useState<HistoryEntry[]>([])
   const [loadingHistory, setLoadingHistory] = useState(false)
+  const [historyError, setHistoryError] = useState<string | null>(null)
   const [openingId, setOpeningId] = useState<string | null>(null)
 
   const loadHistory = useCallback(async () => {
     setLoadingHistory(true)
+    setHistoryError(null)
     try {
       const data = await fetchHistory()
       setHistory(data)
-    } catch {
-      // silently ignore -- history is non-critical
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e)
+      setHistoryError(
+        msg.toLowerCase().includes("fetch") ? "Cannot reach backend" : msg,
+      )
     } finally {
       setLoadingHistory(false)
     }
   }, [])
 
   // Fetch history on mount, poll every 15s (picks up in-progress CLI runs),
-  // and whenever the live run finishes.
+  // and whenever the live run finishes. Pause polling when tab is hidden.
   useEffect(() => {
     void loadHistory()
-    const id = setInterval(() => void loadHistory(), 15_000)
+    const id = setInterval(() => {
+      if (document.visibilityState === "visible") void loadHistory()
+    }, 15_000)
     return () => clearInterval(id)
   }, [loadHistory])
 
@@ -282,6 +289,23 @@ export function Sidebar({
               </div>
             )}
 
+            {historyError && !collapsed && (
+              <div className="px-2 py-1.5 mb-2 rounded-md bg-red-500/10 border border-red-500/20 text-[11px] text-red-400">
+                {historyError}
+              </div>
+            )}
+
+            {loadingHistory && history.length === 0 && !collapsed && (
+              <div className="space-y-0.5">
+                {[1, 2, 3].map((i) => (
+                  <div key={i} className="pl-2.5 pr-2 py-2 rounded-r-md border-l-2 border-zinc-700">
+                    <div className="h-2.5 bg-zinc-800 rounded animate-pulse w-3/4 mb-1.5" />
+                    <div className="h-2 bg-zinc-800 rounded animate-pulse w-1/2" />
+                  </div>
+                ))}
+              </div>
+            )}
+
             <div className="space-y-0.5">
               {history.map((entry) => {
                 const statusKey = resolveStatus(entry.status)
@@ -358,9 +382,9 @@ export function Sidebar({
                           </span>
                           {statChips.length > 0 && (
                             <div className="flex flex-wrap gap-x-2 gap-y-0.5 mt-1">
-                              {statChips.map((chip) => (
+                              {statChips.map((chip, idx) => (
                                 <span
-                                  key={chip.label || chip.valColor}
+                                  key={`${chip.label}-${chip.valColor}-${idx}`}
                                   className="flex items-baseline gap-0.5 tabular-nums leading-none"
                                 >
                                   <span className={`text-[10px] font-semibold ${chip.valColor}`}>

@@ -1,13 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from "react"
 import {
   AlertTriangle,
-  ArrowUpRight,
   CheckCircle,
   Circle,
-  Clock,
-  DollarSign,
-  FileSearch,
-  Filter,
   Layers,
   Loader,
   Loader2,
@@ -18,8 +13,6 @@ import { LogStream } from "@/components/LogStream"
 import { FetchError } from "@/components/ui/feedback"
 import { fetchRunEvents } from "@/lib/api"
 import type { ReviewEvent } from "@/lib/api"
-import { useCostStats } from "@/hooks/useCostStats"
-import type { CostStats } from "@/hooks/useCostStats"
 import { cn } from "@/lib/utils"
 
 // ---------------------------------------------------------------------------
@@ -85,35 +78,6 @@ function fmtDuration(ms: number): string {
   return `${Math.floor(secs / 60)}m ${secs % 60}s`
 }
 
-/** Derive total elapsed from first/last event timestamp strings. */
-function derivedElapsedFromEvents(events: ReviewEvent[]): string {
-  if (events.length < 2) return "--"
-  const tsList = events
-    .map((e) => ("ts" in e && e.ts ? new Date(e.ts).getTime() : NaN))
-    .filter((t) => !isNaN(t))
-  if (tsList.length < 2) return "--"
-  const ms = Math.max(...tsList) - Math.min(...tsList)
-  return fmtDuration(ms)
-}
-
-const TERMINAL_STATUSES = new Set(["done", "error", "cancelled"])
-
-function useElapsed(startedAt: Date | null, status: string): string {
-  const [elapsed, setElapsed] = useState("--")
-  const stopped = TERMINAL_STATUSES.has(status)
-  useEffect(() => {
-    if (!startedAt || stopped) return
-    const compute = () => {
-      const secs = Math.floor((Date.now() - startedAt.getTime()) / 1000)
-      setElapsed(`${Math.floor(secs / 60)}m ${secs % 60}s`)
-    }
-    compute()
-    const id = setInterval(compute, 1000)
-    return () => clearInterval(id)
-  }, [startedAt, stopped])
-  return elapsed
-}
-
 // ---------------------------------------------------------------------------
 // Event log filter helpers
 // ---------------------------------------------------------------------------
@@ -139,46 +103,6 @@ function filterEvents(events: ReviewEvent[], filter: EventFilter): ReviewEvent[]
 }
 
 // ---------------------------------------------------------------------------
-// Stat card
-// ---------------------------------------------------------------------------
-
-interface StatCardProps {
-  icon: React.ElementType
-  label: string
-  value: string | number
-  sub?: string
-  accent?: string
-  onClick?: () => void
-}
-
-function StatCard({ icon: Icon, label, value, sub, accent, onClick }: StatCardProps) {
-  const Tag = onClick ? "button" : "div"
-  return (
-    <Tag
-      type={onClick ? "button" : undefined}
-      className={cn(
-        "bg-zinc-900 border border-zinc-800 rounded-xl p-4 flex flex-col gap-3 text-left w-full",
-        onClick
-          ? "cursor-pointer hover:border-violet-500/40 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-500/50"
-          : "transition-colors",
-      )}
-      onClick={onClick}
-      aria-label={onClick ? `${label}: ${value} -- click to view details` : undefined}
-    >
-      <div className="flex items-center justify-between">
-        <span className="text-xs text-zinc-500 font-medium uppercase tracking-wide">{label}</span>
-        <div className="flex items-center gap-1">
-          <Icon className={cn("h-4 w-4", accent ?? "text-zinc-600")} />
-          {onClick && <ArrowUpRight className="h-3 w-3 text-zinc-700" />}
-        </div>
-      </div>
-      <div className="text-2xl font-bold text-white tabular-nums">{value}</div>
-      {sub && <div className="text-xs text-zinc-500">{sub}</div>}
-    </Tag>
-  )
-}
-
-// ---------------------------------------------------------------------------
 // ActivityView
 // ---------------------------------------------------------------------------
 
@@ -191,10 +115,7 @@ export interface ActivityViewProps {
   runId: string
   /** Whether we are showing a historical (completed) run vs a live one. */
   isDone: boolean
-  costStats: CostStats
-  startedAt: Date | null
   onCancel: () => void
-  onCostTabClick: () => void
 }
 
 export function ActivityView({
@@ -202,10 +123,7 @@ export function ActivityView({
   status,
   runId,
   isDone,
-  costStats,
-  startedAt,
   onCancel,
-  onCostTabClick,
 }: ActivityViewProps) {
   const [activeFilter, setActiveFilter] = useState<EventFilter>("all")
 
@@ -250,45 +168,24 @@ export function ActivityView({
 
   const activeEvents = isHistoricalMode ? historicalEvents : events
 
-  // For historical runs, compute cost stats from the loaded historical events
-  // so the stat cards show real data instead of zeros.
-  const historicalCostStats = useCostStats(historicalEvents)
-  const displayCostStats: CostStats =
-    isHistoricalMode && historicalCostStats.total_calls > 0
-      ? historicalCostStats
-      : costStats
-
-  // Phase timeline state
   const phaseStates = useMemo(() => buildPhaseStates(activeEvents), [activeEvents])
-  const liveElapsed = useElapsed(startedAt, status)
   const isRunning = status === "streaming" || status === "connecting"
-
-  // For historical runs with no startedAt, derive elapsed from event timestamps.
-  const elapsed =
-    liveElapsed === "--" && isHistoricalMode
-      ? derivedElapsedFromEvents(activeEvents)
-      : liveElapsed
-
-  const totalFound = activeEvents
-    .filter((e) => e.type === "connector_result" && e.status === "success")
-    .reduce((acc, e) => acc + (e.type === "connector_result" ? (e.records ?? 0) : 0), 0)
-
-  const screened = activeEvents.filter((e) => e.type === "screening_decision").length
-
-  const included = activeEvents.filter(
-    (e) => e.type === "screening_decision" && e.decision === "include",
-  ).length
-
-  const phaseDoneCount = PHASE_ORDER.filter((p) => phaseStates[p]?.status === "done").length
-  const totalPhases = PHASE_ORDER.length
 
   const filtered = filterEvents(activeEvents, activeFilter)
 
   return (
     <div className="flex flex-col gap-5">
-      {/* Cancel / error controls */}
+      {/* Cancel / connecting controls */}
       {isRunning && (
-        <div className="flex justify-end">
+        <div className="flex items-center justify-between">
+          {status === "connecting" ? (
+            <div className="flex items-center gap-1.5 text-xs text-violet-400">
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              Connecting to event stream...
+            </div>
+          ) : (
+            <div />
+          )}
           <Button
             size="sm"
             variant="outline"
@@ -311,46 +208,6 @@ export function ActivityView({
           </div>
         </div>
       )}
-
-      {/* Stat cards -- 2 cols on mobile, 3 on sm, 5 on lg */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
-        <StatCard
-          icon={FileSearch}
-          label="Papers Found"
-          value={totalFound.toLocaleString()}
-          sub="raw, before deduplication"
-          accent="text-blue-400"
-        />
-        <StatCard
-          icon={Filter}
-          label="Screened"
-          value={screened.toLocaleString()}
-          sub="total decisions"
-          accent="text-amber-400"
-        />
-        <StatCard
-          icon={CheckCircle}
-          label="Included"
-          value={included.toLocaleString()}
-          sub="passed screening"
-          accent="text-emerald-400"
-        />
-        <StatCard
-          icon={DollarSign}
-          label="Cost"
-          value={`$${displayCostStats.total_cost.toFixed(4)}`}
-          sub={`${displayCostStats.total_calls} LLM calls`}
-          accent="text-violet-400"
-          onClick={onCostTabClick}
-        />
-        <StatCard
-          icon={Clock}
-          label="Elapsed"
-          value={elapsed}
-          sub={`${phaseDoneCount}/${totalPhases} phases done`}
-          accent="text-zinc-400"
-        />
-      </div>
 
       {/* Phase timeline */}
       <div>
@@ -488,8 +345,10 @@ export function ActivityView({
                 <Loader2 className="h-3 w-3 animate-spin" />
                 Loading event log...
               </span>
-            ) : (
+            ) : activeFilter === "all" ? (
               `${filtered.length} events${isHistoricalMode ? " (historical)" : ""}`
+            ) : (
+              `${filtered.length} of ${activeEvents.length} events`
             )}
           </span>
         </div>
@@ -500,7 +359,7 @@ export function ActivityView({
           </div>
         )}
 
-        {filtered.length > 0 && <LogStream events={filtered} />}
+        {filtered.length > 0 && <LogStream events={filtered} autoScroll={activeFilter === "all"} />}
       </div>
     </div>
   )

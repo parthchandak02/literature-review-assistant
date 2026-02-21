@@ -1,14 +1,15 @@
 import { useCallback, useEffect, useState } from "react"
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
+import { FetchError, EmptyState } from "@/components/ui/feedback"
 import { cn } from "@/lib/utils"
-import { AlertTriangle, ChevronLeft, ChevronRight, Database, Loader2, Search } from "lucide-react"
-import { fetchPapers, fetchScreening, fetchDbCosts } from "@/lib/api"
-import type { PaperRow, ScreeningRow, DbCostRow } from "@/lib/api"
+import { ChevronLeft, ChevronRight, Database, Loader2, Search } from "lucide-react"
+import { fetchPapers, fetchScreening } from "@/lib/api"
+import type { PaperRow, ScreeningRow } from "@/lib/api"
 
 const LIVE_REFRESH_MS = 10_000
 
-type DbTab = "papers" | "screening" | "costs"
+type DbTab = "papers" | "screening"
 
 const DECISION_COLOR: Record<string, string> = {
   include: "text-emerald-400",
@@ -44,12 +45,6 @@ export function DatabaseView({ runId, isDone, dbAvailable, isLive }: DatabaseVie
   const [decisionFilter, setDecisionFilter] = useState("")
   const [decisionsLoading, setDecisionsLoading] = useState(false)
   const [decisionsError, setDecisionsError] = useState<string | null>(null)
-
-  // Costs
-  const [costRows, setCostRows] = useState<DbCostRow[]>([])
-  const [costTotal, setCostTotal] = useState(0)
-  const [costsLoading, setCostsLoading] = useState(false)
-  const [costsError, setCostsError] = useState<string | null>(null)
 
   // Debounce search
   useEffect(() => {
@@ -98,26 +93,6 @@ export function DatabaseView({ runId, isDone, dbAvailable, isLive }: DatabaseVie
     }
   }, [runId, page, decisionFilter, dbAvailable])
 
-  const loadCosts = useCallback(async () => {
-    if (!dbAvailable) return
-    setCostsLoading(true)
-    setCostsError(null)
-    try {
-      const data = await fetchDbCosts(runId)
-      setCostRows(data.records)
-      setCostTotal(data.total_cost)
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e)
-      if (!msg.includes("503")) {
-        setCostsError(
-          msg.toLowerCase().includes("failed to fetch") ? "Cannot reach backend" : msg,
-        )
-      }
-    } finally {
-      setCostsLoading(false)
-    }
-  }, [runId, dbAvailable])
-
   useEffect(() => {
     if (activeTab === "papers") loadPapers()
   }, [activeTab, loadPapers])
@@ -125,10 +100,6 @@ export function DatabaseView({ runId, isDone, dbAvailable, isLive }: DatabaseVie
   useEffect(() => {
     if (activeTab === "screening") loadScreening()
   }, [activeTab, loadScreening])
-
-  useEffect(() => {
-    if (activeTab === "costs") loadCosts()
-  }, [activeTab, loadCosts])
 
   useEffect(() => {
     setPage(0)
@@ -141,11 +112,10 @@ export function DatabaseView({ runId, isDone, dbAvailable, isLive }: DatabaseVie
     const tick = () => {
       if (activeTab === "papers") loadPapers()
       else if (activeTab === "screening") loadScreening()
-      else if (activeTab === "costs") loadCosts()
     }
     const id = setInterval(tick, LIVE_REFRESH_MS)
     return () => clearInterval(id)
-  }, [isLive, activeTab, loadPapers, loadScreening, loadCosts])
+  }, [isLive, activeTab, loadPapers, loadScreening])
 
   // Show an initializing placeholder until the backend signals the DB is ready.
   if (!dbAvailable) {
@@ -161,7 +131,6 @@ export function DatabaseView({ runId, isDone, dbAvailable, isLive }: DatabaseVie
   const TABS: { id: DbTab; label: string }[] = [
     { id: "papers", label: "Papers" },
     { id: "screening", label: "Screening" },
-    { id: "costs", label: "Cost Records" },
   ]
 
   return (
@@ -233,11 +202,13 @@ export function DatabaseView({ runId, isDone, dbAvailable, isLive }: DatabaseVie
 
           <div className="bg-zinc-900 border border-zinc-800 rounded-xl overflow-hidden">
             {papersError ? (
-              <FetchError msg={papersError} onRetry={loadPapers} />
+              <div className="p-4">
+                <FetchError message={papersError} onRetry={loadPapers} />
+              </div>
             ) : papersLoading ? (
               <TableSkeleton cols={5} rows={8} />
             ) : papers.length === 0 ? (
-              <EmptyState icon={Database} msg="No papers found." />
+              <EmptyState icon={Database} heading="No papers found." className="py-12" />
             ) : (
               <div className="overflow-x-auto">
                 <table className="w-full text-xs">
@@ -319,11 +290,13 @@ export function DatabaseView({ runId, isDone, dbAvailable, isLive }: DatabaseVie
 
           <div className="bg-zinc-900 border border-zinc-800 rounded-xl overflow-hidden">
             {decisionsError ? (
-              <FetchError msg={decisionsError} onRetry={loadScreening} />
+              <div className="p-4">
+                <FetchError message={decisionsError} onRetry={loadScreening} />
+              </div>
             ) : decisionsLoading ? (
               <TableSkeleton cols={4} rows={8} />
             ) : decisions.length === 0 ? (
-              <EmptyState icon={Database} msg="No screening decisions found." />
+              <EmptyState icon={Database} heading="No screening decisions found." className="py-12" />
             ) : (
               <div className="overflow-x-auto">
                 <table className="w-full text-xs">
@@ -376,77 +349,6 @@ export function DatabaseView({ runId, isDone, dbAvailable, isLive }: DatabaseVie
         </div>
       )}
 
-      {/* Costs tab */}
-      {activeTab === "costs" && (
-        <div
-          role="tabpanel"
-          id="panel-costs"
-          aria-labelledby="tab-costs"
-          className="flex flex-col gap-3"
-        >
-          <div className="flex items-center gap-3">
-            <span className="text-xs text-zinc-500">
-              Total from DB:{" "}
-              <span className="font-mono text-emerald-400 font-semibold">${costTotal.toFixed(4)}</span>
-            </span>
-          </div>
-
-          <div className="bg-zinc-900 border border-zinc-800 rounded-xl overflow-hidden">
-            {costsError ? (
-              <FetchError msg={costsError} onRetry={loadCosts} />
-            ) : costsLoading ? (
-              <TableSkeleton cols={6} rows={6} />
-            ) : costRows.length === 0 ? (
-              <EmptyState icon={Database} msg="No cost records found." />
-            ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full text-xs">
-                  <thead>
-                    <tr className="border-b border-zinc-800">
-                      <Th>Model</Th>
-                      <Th>Phase</Th>
-                      <Th align="right">Calls</Th>
-                      <Th align="right">Tokens In</Th>
-                      <Th align="right">Tokens Out</Th>
-                      <Th align="right">Avg Latency</Th>
-                      <Th align="right">Cost</Th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {costRows.map((r, i) => (
-                      <tr
-                        key={`${r.model}-${r.phase}-${i}`}
-                        className={cn(
-                          "border-b border-zinc-800/50 hover:bg-zinc-800/40 transition-colors",
-                          i === costRows.length - 1 && "border-0",
-                        )}
-                      >
-                        <Td className="font-mono text-zinc-300">
-                          {String(r.model).split(":").pop()}
-                        </Td>
-                        <Td className="text-zinc-500">{String(r.phase).replace(/_/g, " ")}</Td>
-                        <Td align="right" className="tabular-nums text-zinc-400">{r.calls}</Td>
-                        <Td align="right" className="tabular-nums text-zinc-400">
-                          {Number(r.tokens_in).toLocaleString()}
-                        </Td>
-                        <Td align="right" className="tabular-nums text-zinc-400">
-                          {Number(r.tokens_out).toLocaleString()}
-                        </Td>
-                        <Td align="right" className="tabular-nums text-zinc-500">
-                          {r.avg_latency_ms != null ? `${Math.round(Number(r.avg_latency_ms))}ms` : "--"}
-                        </Td>
-                        <Td align="right" className="tabular-nums font-mono font-semibold text-emerald-400">
-                          ${Number(r.cost_usd).toFixed(4)}
-                        </Td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </div>
-        </div>
-      )}
     </div>
   )
 }
@@ -557,28 +459,3 @@ function TableSkeleton({ cols, rows }: { cols: number; rows: number }) {
   )
 }
 
-function EmptyState({ icon: Icon, msg }: { icon: React.ElementType; msg: string }) {
-  return (
-    <div className="flex flex-col items-center justify-center py-12 gap-2 text-center">
-      <Icon className="h-8 w-8 text-zinc-700" />
-      <p className="text-zinc-600 text-sm">{msg}</p>
-    </div>
-  )
-}
-
-function FetchError({ msg, onRetry }: { msg: string; onRetry: () => void }) {
-  return (
-    <div className="flex flex-col items-center justify-center py-10 gap-3 text-center px-6">
-      <AlertTriangle className="h-8 w-8 text-red-500/60" />
-      <p className="text-red-400 text-sm">{msg}</p>
-      <Button
-        size="sm"
-        variant="outline"
-        onClick={onRetry}
-        className="border-zinc-700 text-zinc-400 hover:text-zinc-200 h-7 text-xs"
-      >
-        Retry
-      </Button>
-    </div>
-  )
-}

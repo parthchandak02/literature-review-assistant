@@ -51,16 +51,19 @@ const PHASE_COLORS: Record<string, string> = {
   phase_2_search: "#3b82f6",
   phase_3_screening: "#8b5cf6",
   phase_4_extraction: "#f59e0b",
+  phase_4_extraction_quality: "#f59e0b",
   phase_5_synthesis: "#10b981",
   phase_6_writing: "#ef4444",
-  phase_unknown: "#6b7280",
+  finalize: "#6b7280",
 }
 
 function phaseColor(phase: string): string {
+  if (phase in PHASE_COLORS) return PHASE_COLORS[phase]
+  // Fallback: match by known prefix segments
   for (const [key, color] of Object.entries(PHASE_COLORS)) {
-    if (phase.includes(key.replace("phase_", "").split("_")[1])) return color
+    if (phase.startsWith(key)) return color
   }
-  return "#8b5cf6"
+  return "#6b7280"
 }
 
 interface CostViewProps {

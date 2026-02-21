@@ -39,7 +39,7 @@ export interface SelectedRun {
 const TAB_ITEMS: { id: RunTab; label: string; icon: React.ElementType }[] = [
   { id: "activity", label: "Activity", icon: Activity },
   { id: "results", label: "Results", icon: FileText },
-  { id: "database", label: "Database", icon: Database },
+  { id: "database", label: "Data", icon: Database },
   { id: "cost", label: "Cost", icon: BarChart3 },
 ]
 
@@ -237,10 +237,7 @@ export function RunView({
               status={status}
               runId={run.runId}
               isDone={isDone}
-              costStats={costStats}
-              startedAt={run.startedAt}
               onCancel={onCancel}
-              onCostTabClick={() => onTabChange("cost")}
             />
           )}
 

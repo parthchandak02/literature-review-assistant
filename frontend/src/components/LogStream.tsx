@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react"
+import { useEffect, useMemo, useRef } from "react"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { cn } from "@/lib/utils"
 import type { ReviewEvent } from "@/lib/api"
@@ -152,14 +152,18 @@ function buildRenderItems(events: ReviewEvent[]): RenderItem[] {
 
 interface LogStreamProps {
   events: ReviewEvent[]
+  /** When false, suppresses auto-scroll to bottom (use when a filter is active). */
+  autoScroll?: boolean
 }
 
-export function LogStream({ events }: LogStreamProps) {
+export function LogStream({ events, autoScroll = true }: LogStreamProps) {
   const bottomRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: "smooth" })
-  }, [events.length])
+    if (autoScroll) {
+      bottomRef.current?.scrollIntoView({ behavior: "smooth" })
+    }
+  }, [events.length, autoScroll])
 
   if (events.length === 0) {
     return (
@@ -169,7 +173,7 @@ export function LogStream({ events }: LogStreamProps) {
     )
   }
 
-  const renderItems = buildRenderItems(events)
+  const renderItems = useMemo(() => buildRenderItems(events), [events])
 
   return (
     <ScrollArea
