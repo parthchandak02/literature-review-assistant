@@ -573,8 +573,8 @@ class ResumeRequest(BaseModel):
 
 async def _resume_wrapper(record: _RunRecord, workflow_id: str, db_path: str) -> None:
     """Async task that resumes an interrupted workflow from its last checkpoint."""
-    review_path = str(pathlib.Path(db_path).parent / "review.yaml")
-    run_root = str(pathlib.Path(db_path).parent.parent.parent)
+    review_path = "config/review.yaml"
+    run_root = str(pathlib.Path(db_path).parent.parent.parent.parent)
 
     def _on_db_ready(path: str) -> None:
         record.db_path = path
