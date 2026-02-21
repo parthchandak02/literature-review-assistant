@@ -1,5 +1,8 @@
+import { useState } from "react"
+import ReactMarkdown from "react-markdown"
+import remarkGfm from "remark-gfm"
 import { Button } from "@/components/ui/button"
-import { Download, FileText, Image, FileCode } from "lucide-react"
+import { Download, FileText, Image, FileCode, ChevronDown, ChevronUp } from "lucide-react"
 import { downloadUrl } from "@/lib/api"
 
 interface ResultsPanelProps {
@@ -23,6 +26,8 @@ interface OutputFile {
   label: string
   isRasterImage: boolean
   isLatex: boolean
+  isMarkdown: boolean
+  isJson: boolean
 }
 
 function latexLabel(name: string): string {
@@ -40,15 +45,18 @@ function collectFiles(outputs: Record<string, unknown>): OutputFile[] {
     if (typeof obj === "string" && isFilePath(obj)) {
       const name = obj.split("/").pop() ?? obj
       const isLatex = /\.(tex|bib)$/i.test(name)
-      // Only PNG/JPG/JPEG/SVG/WebP are safe for inline <img>; PDFs are download-only
       const isRasterImage = /\.(png|jpg|jpeg|svg|webp)$/i.test(name)
       const isFigure = isRasterImage || /\.pdf$/i.test(name)
+      const isMarkdown = /\.md$/i.test(name)
+      const isJson = /\.json$/i.test(name)
       files.push({
         key: prefix,
         path: obj,
         label: isLatex ? latexLabel(name) : name,
         isRasterImage: isFigure && isRasterImage,
         isLatex,
+        isMarkdown,
+        isJson,
       })
     } else if (obj && typeof obj === "object" && !Array.isArray(obj)) {
       for (const [k, v] of Object.entries(obj as Record<string, unknown>)) {
@@ -98,9 +106,114 @@ function FileRow({ label, path, downloadName }: { label: string; path: string; d
   )
 }
 
+/** Expandable document row with inline viewer for .md and .json files. */
+function InlineDocRow({ file }: { file: OutputFile }) {
+  const [open, setOpen] = useState(false)
+  const [content, setContent] = useState<string | null>(null)
+  const [loading, setLoading] = useState(false)
+  const [fetchError, setFetchError] = useState(false)
+
+  async function handleToggle() {
+    if (open) { setOpen(false); return }
+    if (content !== null) { setOpen(true); return }
+    setLoading(true)
+    setFetchError(false)
+    try {
+      const res = await fetch(downloadUrl(file.path))
+      if (!res.ok) throw new Error("fetch failed")
+      setContent(await res.text())
+      setOpen(true)
+    } catch {
+      setFetchError(true)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  return (
+    <div className="flex flex-col gap-2">
+      <div className="flex items-center justify-between gap-2">
+        <span className="text-sm truncate text-zinc-400">{file.label}</span>
+        <div className="flex items-center gap-1.5 shrink-0">
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={handleToggle}
+            disabled={loading}
+            className="h-7 px-2 text-xs text-zinc-500 hover:text-zinc-200 border border-zinc-800 gap-1"
+          >
+            {loading ? "Loading..." : open ? (
+              <><ChevronUp className="h-3 w-3" />Hide</>
+            ) : (
+              <><ChevronDown className="h-3 w-3" />View</>
+            )}
+          </Button>
+          <Button size="sm" variant="outline" asChild className="h-7 px-2 border-zinc-700 text-zinc-400 hover:text-zinc-200">
+            <a href={downloadUrl(file.path)} download={file.label} className="gap-1.5 text-xs">
+              <Download className="h-3 w-3" />
+              Download
+            </a>
+          </Button>
+        </div>
+      </div>
+      {fetchError && (
+        <p className="text-xs text-red-400 px-1">Could not load file content.</p>
+      )}
+      {open && content !== null && (
+        <div className="rounded-lg border border-zinc-800 bg-zinc-950 overflow-auto max-h-[32rem] p-4">
+          {file.isMarkdown ? (
+            <div className="prose prose-invert prose-sm max-w-none text-zinc-300">
+              <ReactMarkdown remarkPlugins={[remarkGfm]}>{content}</ReactMarkdown>
+            </div>
+          ) : (
+            <pre className="text-xs text-zinc-400 whitespace-pre-wrap font-mono">
+              {file.isJson ? (() => { try { return JSON.stringify(JSON.parse(content), null, 2) } catch { return content } })() : content}
+            </pre>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function FigureRow({ file }: { file: OutputFile }) {
+  const [imgError, setImgError] = useState(false)
+  return (
+    <div className="flex flex-col gap-2">
+      <div className="flex items-center justify-between gap-2">
+        <span className="text-sm truncate text-zinc-400">{file.label}</span>
+        {!imgError ? (
+          <Button size="sm" variant="outline" asChild className="shrink-0 border-zinc-700 text-zinc-400 hover:text-zinc-200">
+            <a href={downloadUrl(file.path)} download={file.label} className="gap-1.5">
+              <Download className="h-3.5 w-3.5" />
+              Download
+            </a>
+          </Button>
+        ) : (
+          <span className="shrink-0 text-xs text-zinc-600 border border-zinc-800 rounded px-2 py-1">
+            Not generated
+          </span>
+        )}
+      </div>
+      {file.isRasterImage && !imgError && (
+        <img
+          src={downloadUrl(file.path)}
+          alt={file.label}
+          className="w-full rounded-lg border border-zinc-800 object-contain max-h-72"
+          loading="lazy"
+          onError={() => setImgError(true)}
+        />
+      )}
+    </div>
+  )
+}
+
 export function ResultsPanel({ outputs }: ResultsPanelProps) {
   const files = collectFiles(outputs)
-  const docs = files.filter((f) => !f.isRasterImage && !f.isLatex && !/\.(png|jpg|jpeg|svg|webp|pdf)$/i.test(f.path))
+  // Documents: non-figure, non-latex files. Includes .md and .json which get inline viewer.
+  const docs = files.filter(
+    (f) => !f.isRasterImage && !f.isLatex && !/\.(png|jpg|jpeg|svg|webp|pdf)$/i.test(f.path),
+  )
   const figs = files.filter((f) => /\.(png|jpg|jpeg|svg|webp|pdf)$/i.test(f.path) && !f.isLatex)
   const latex = files.filter((f) => f.isLatex)
 
@@ -117,9 +230,13 @@ export function ResultsPanel({ outputs }: ResultsPanelProps) {
     <div className="flex flex-col gap-4">
       {docs.length > 0 && (
         <SectionBox icon={FileText} title="Documents" sub="Manuscript, protocol, appendices">
-          {docs.map((f) => (
-            <FileRow key={f.key} label={f.label} path={f.path} />
-          ))}
+          {docs.map((f) =>
+            f.isMarkdown || f.isJson ? (
+              <InlineDocRow key={f.key} file={f} />
+            ) : (
+              <FileRow key={f.key} label={f.label} path={f.path} />
+            ),
+          )}
         </SectionBox>
       )}
 
@@ -134,17 +251,7 @@ export function ResultsPanel({ outputs }: ResultsPanelProps) {
       {figs.length > 0 && (
         <SectionBox icon={Image} title="Figures" sub="PRISMA flow, forest plot, RoB, geographic">
           {figs.map((f) => (
-            <div key={f.key} className="flex flex-col gap-2">
-              <FileRow label={f.label} path={f.path} />
-              {f.isRasterImage && (
-                <img
-                  src={downloadUrl(f.path)}
-                  alt={f.label}
-                  className="w-full rounded-lg border border-zinc-800 object-contain max-h-72"
-                  loading="lazy"
-                />
-              )}
-            </div>
+            <FigureRow key={f.key} file={f} />
           ))}
         </SectionBox>
       )}

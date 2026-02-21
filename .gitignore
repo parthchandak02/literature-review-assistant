@@ -48,10 +48,22 @@ htmlcov/
 .mypy_cache/
 
 # Generated files
-*.svg
 diagrams/
 *.backup
 
 # Overmind runtime socket (created in project root when running)
 .overmind.sock
 .overmind.sock.lock
+
+# Node / Frontend build output and dependencies
+node_modules/
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+.pnpm-store/
+
+# uv local cache
+.uv/
+
+# Cursor local plans (machine-specific, not project code)
+.cursor/plans/

@@ -1130,6 +1130,16 @@ class FinalizeNode(BaseNode[ReviewState]):
         rc = _rc(state)
         if rc:
             rc.emit_phase_start("finalize", "Writing run summary...")
+        # Filter artifact paths: only include entries that either are the run_summary
+        # itself (written below) or point to a file that actually exists on disk.
+        # This prevents broken image links in the UI when optional figures (e.g.
+        # forest/funnel plot) were not generated because meta-analysis was infeasible.
+        run_summary_key = "run_summary"
+        filtered_artifacts = {
+            k: v
+            for k, v in state.artifacts.items()
+            if k == run_summary_key or os.path.isfile(v)
+        }
         summary: dict[str, str | int | dict[str, int] | dict[str, str]] = {
             "run_id": state.run_id,
             "workflow_id": state.workflow_id,
@@ -1140,7 +1150,7 @@ class FinalizeNode(BaseNode[ReviewState]):
             "connector_init_failures": state.connector_init_failures,
             "included_papers": len(state.included_papers),
             "extraction_records": len(state.extraction_records),
-            "artifacts": state.artifacts,
+            "artifacts": filtered_artifacts,
         }
         Path(state.artifacts["run_summary"]).write_text(json.dumps(summary, indent=2), encoding="utf-8")
         await update_registry_status(state.run_root, state.workflow_id, "completed")

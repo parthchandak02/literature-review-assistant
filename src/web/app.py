@@ -63,6 +63,38 @@ _active_runs: dict[str, _RunRecord] = {}
 # Evict completed run records older than 2 hours to prevent unbounded memory growth.
 _RUN_TTL_SECONDS = 7200
 
+# ---------------------------------------------------------------------------
+# Download security: set of allowed root directories (str of resolved paths).
+# Populated at startup and refreshed whenever a new run root is discovered
+# (e.g. after attaching a historical run from a different project location).
+# ---------------------------------------------------------------------------
+_allowed_roots: set[str] = set()
+
+
+async def _refresh_allowed_roots() -> None:
+    """Rebuild the set of allowed download root directories.
+
+    Always includes the current project's runs/ directory.
+    Also discovers run_roots recorded in the workflow registry so that runs
+    created from a different on-disk project location remain accessible.
+    """
+    roots: set[str] = {str(pathlib.Path("runs").resolve())}
+    registry = pathlib.Path("runs") / "workflows_registry.db"
+    if registry.exists():
+        try:
+            async with aiosqlite.connect(str(registry)) as db:
+                async with db.execute("SELECT db_path FROM workflows_registry") as cur:
+                    rows = await cur.fetchall()
+            for (db_path,) in rows:
+                # db_path layout: <run_root>/YYYY-MM-DD/<slug>/run_<ts>/runtime.db
+                # run_root is exactly 4 parent levels above runtime.db.
+                run_root = pathlib.Path(db_path).parent.parent.parent.parent.resolve()
+                roots.add(str(run_root))
+        except Exception:
+            pass
+    _allowed_roots.update(roots)
+
+
 async def _eviction_loop() -> None:
     while True:
         await asyncio.sleep(1800)  # check every 30 minutes
@@ -73,6 +105,7 @@ async def _eviction_loop() -> None:
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI) -> AsyncGenerator[None, None]:
+    await _refresh_allowed_roots()
     eviction = asyncio.create_task(_eviction_loop())
     yield
     # Graceful shutdown: cancel active tasks and mark workflows as 'interrupted'.
@@ -405,12 +438,12 @@ async def get_results(run_id: str) -> dict[str, Any]:
 @app.get("/api/download")
 async def download_file(path: str) -> FileResponse:
     resolved = pathlib.Path(path).resolve()
-    allowed_root = pathlib.Path("runs").resolve()
-    if not str(resolved).startswith(str(allowed_root)):
+    resolved_str = str(resolved)
+    if not any(resolved_str.startswith(root) for root in _allowed_roots):
         raise HTTPException(status_code=403, detail="Access denied")
     if not resolved.exists():
         raise HTTPException(status_code=404, detail="File not found")
-    return FileResponse(path=str(resolved), filename=resolved.name)
+    return FileResponse(path=resolved_str, filename=resolved.name)
 
 
 @app.get("/api/health")
@@ -647,6 +680,8 @@ async def attach_history(req: AttachRequest) -> RunResponse:
     # Load persisted events from SQLite for the historical event log viewer.
     record.event_log = await _load_event_log_from_db(req.db_path)
     _active_runs[run_id] = record
+    # Refresh allowed download roots to include the newly attached run's location.
+    await _refresh_allowed_roots()
     return RunResponse(run_id=run_id, topic=req.topic)
 
 
@@ -772,12 +807,36 @@ async def get_screening(
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
+@app.get("/api/db/{run_id}/papers-facets")
+async def get_papers_facets(run_id: str) -> dict[str, Any]:
+    """Return distinct years and source databases for filter dropdowns."""
+    db_path = _get_db_path(run_id)
+    try:
+        async with aiosqlite.connect(db_path) as db:
+            db.row_factory = aiosqlite.Row
+            async with db.execute(
+                "SELECT DISTINCT year FROM papers WHERE year IS NOT NULL ORDER BY year DESC"
+            ) as cur:
+                years = [row[0] for row in await cur.fetchall()]
+            async with db.execute(
+                "SELECT DISTINCT source_database FROM papers WHERE source_database IS NOT NULL ORDER BY source_database"
+            ) as cur:
+                sources = [row[0] for row in await cur.fetchall()]
+        return {"years": years, "sources": sources}
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
 @app.get("/api/db/{run_id}/papers-all")
 async def get_papers_all(
     run_id: str,
     search: str = "",
     ta_decision: str = "",
     ft_decision: str = "",
+    year: str = "",
+    source: str = "",
     offset: int = 0,
     limit: int = 50,
 ) -> dict[str, Any]:
@@ -792,14 +851,20 @@ async def get_papers_all(
 
             if search:
                 like = f"%{search}%"
-                conditions.append("(p.title LIKE ? OR p.abstract LIKE ?)")
-                params.extend([like, like])
+                conditions.append("(p.title LIKE ? OR p.abstract LIKE ? OR p.authors LIKE ?)")
+                params.extend([like, like, like])
             if ta_decision:
-                conditions.append("COALESCE(ta.final_decision, '') = ?")
-                params.append(ta_decision)
+                conditions.append("COALESCE(ta.final_decision, '') LIKE ?")
+                params.append(f"%{ta_decision}%")
             if ft_decision:
-                conditions.append("COALESCE(ft.final_decision, '') = ?")
-                params.append(ft_decision)
+                conditions.append("COALESCE(ft.final_decision, '') LIKE ?")
+                params.append(f"%{ft_decision}%")
+            if year:
+                conditions.append("CAST(p.year AS TEXT) LIKE ?")
+                params.append(f"%{year}%")
+            if source:
+                conditions.append("COALESCE(p.source_database, '') LIKE ?")
+                params.append(f"%{source}%")
 
             where = f"WHERE {' AND '.join(conditions)}" if conditions else ""
 

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import * as Popover from "@radix-ui/react-popover"
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
@@ -9,14 +9,13 @@ import { fetchPapersAll } from "@/lib/api"
 import type { PaperAllRow } from "@/lib/api"
 
 const LIVE_REFRESH_MS = 10_000
+const PAGE_SIZE = 50
 
 const DECISION_COLOR: Record<string, string> = {
   include: "text-emerald-400",
   exclude: "text-red-400",
   uncertain: "text-amber-400",
 }
-
-const DECISION_OPTIONS = ["", "include", "exclude", "uncertain"] as const
 
 interface DatabaseViewProps {
   runId: string
@@ -32,61 +31,99 @@ export function DatabaseView({ runId, isDone, dbAvailable, isLive }: DatabaseVie
   const [debouncedSearch, setDebouncedSearch] = useState("")
   const [taFilter, setTaFilter] = useState("")
   const [ftFilter, setFtFilter] = useState("")
+  const [yearFilter, setYearFilter] = useState("")
+  const [sourceFilter, setSourceFilter] = useState("")
   const [page, setPage] = useState(0)
-  const PAGE_SIZE = 50
 
   const [papers, setPapers] = useState<PaperAllRow[]>([])
   const [total, setTotal] = useState(0)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  // Debounce search
+  // Keep a ref with current filter values so pagination effect can read them
+  // without needing them in its dependency array.
+  const filtersRef = useRef({ runId, debouncedSearch, taFilter, ftFilter, yearFilter, sourceFilter })
+  filtersRef.current = { runId, debouncedSearch, taFilter, ftFilter, yearFilter, sourceFilter }
+
+  // Debounce search input
   useEffect(() => {
     const t = setTimeout(() => setDebouncedSearch(search), 350)
     return () => clearTimeout(t)
   }, [search])
 
-  const loadPapers = useCallback(async () => {
+  function handleFetchError(e: unknown) {
+    const msg = e instanceof Error ? e.message : String(e)
+    if (!msg.includes("503")) {
+      setError(msg.toLowerCase().includes("failed to fetch") ? "Cannot reach backend" : msg)
+    }
+  }
+
+  // Effect 1: any filter or runId change -> reset page to 0 AND fetch with offset=0
+  // This avoids the race where setPage(0) and loadPapers fire in separate effects.
+  useEffect(() => {
     if (!dbAvailable) return
+    setPage(0)
+    let cancelled = false
     setLoading(true)
     setError(null)
-    try {
-      const data = await fetchPapersAll(
-        runId,
-        debouncedSearch,
-        taFilter,
-        ftFilter,
-        page * PAGE_SIZE,
-        PAGE_SIZE,
-      )
-      setPapers(data.papers)
-      setTotal(data.total)
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e)
-      // Suppress 503 "initializing" errors silently -- the auto-refresh will retry.
-      if (!msg.includes("503")) {
-        setError(msg.toLowerCase().includes("failed to fetch") ? "Cannot reach backend" : msg)
-      }
-    } finally {
-      setLoading(false)
-    }
-  }, [runId, page, debouncedSearch, taFilter, ftFilter, dbAvailable])
+    const { runId: rid, debouncedSearch: q, taFilter: ta, ftFilter: ft, yearFilter: yr, sourceFilter: src } =
+      filtersRef.current
+    fetchPapersAll(rid, q, ta, ft, yr, src, 0, PAGE_SIZE)
+      .then((data) => {
+        if (cancelled) return
+        setPapers(data.papers)
+        setTotal(data.total)
+      })
+      .catch((e) => { if (!cancelled) handleFetchError(e) })
+      .finally(() => { if (!cancelled) setLoading(false) })
+    return () => { cancelled = true }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [runId, debouncedSearch, taFilter, ftFilter, yearFilter, sourceFilter, dbAvailable])
 
-  // Reset page when filters change
+  // Effect 2: pagination only (page > 0). Reads latest filters from ref to avoid stale closures.
+  // Page resets to 0 from Effect 1, so this only fires on explicit user page navigation.
   useEffect(() => {
-    setPage(0)
-  }, [debouncedSearch, taFilter, ftFilter])
-
-  useEffect(() => {
-    loadPapers()
-  }, [loadPapers])
+    if (page === 0 || !dbAvailable) return
+    let cancelled = false
+    setLoading(true)
+    setError(null)
+    const { runId: rid, debouncedSearch: q, taFilter: ta, ftFilter: ft, yearFilter: yr, sourceFilter: src } =
+      filtersRef.current
+    fetchPapersAll(rid, q, ta, ft, yr, src, page * PAGE_SIZE, PAGE_SIZE)
+      .then((data) => {
+        if (cancelled) return
+        setPapers(data.papers)
+        setTotal(data.total)
+      })
+      .catch((e) => { if (!cancelled) handleFetchError(e) })
+      .finally(() => { if (!cancelled) setLoading(false) })
+    return () => { cancelled = true }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [page, dbAvailable])
 
   // Auto-refresh every LIVE_REFRESH_MS while run is in progress
   useEffect(() => {
-    if (!isLive) return
-    const id = setInterval(loadPapers, LIVE_REFRESH_MS)
+    if (!isLive || !dbAvailable) return
+    const id = setInterval(() => {
+      const { runId: rid, debouncedSearch: q, taFilter: ta, ftFilter: ft, yearFilter: yr, sourceFilter: src } =
+        filtersRef.current
+      fetchPapersAll(rid, q, ta, ft, yr, src, 0, PAGE_SIZE)
+        .then((data) => { setPapers(data.papers); setTotal(data.total) })
+        .catch(() => {})
+    }, LIVE_REFRESH_MS)
     return () => clearInterval(id)
-  }, [isLive, loadPapers])
+  }, [isLive, dbAvailable])
+
+  const loadPapers = () => {
+    const { runId: rid, debouncedSearch: q, taFilter: ta, ftFilter: ft, yearFilter: yr, sourceFilter: src } =
+      filtersRef.current
+    setLoading(true)
+    setError(null)
+    fetchPapersAll(rid, q, ta, ft, yr, src, page * PAGE_SIZE, PAGE_SIZE)
+      .then((data) => { setPapers(data.papers); setTotal(data.total) })
+      .catch(handleFetchError)
+      .finally(() => setLoading(false))
+  }
 
   if (!dbAvailable) {
     return (
@@ -98,6 +135,8 @@ export function DatabaseView({ runId, isDone, dbAvailable, isLive }: DatabaseVie
     )
   }
 
+  const activeFilters = [taFilter, ftFilter, yearFilter, sourceFilter].filter(Boolean).length
+
   return (
     <div className="flex flex-col gap-4">
       {/* Filter bar */}
@@ -107,10 +146,18 @@ export function DatabaseView({ runId, isDone, dbAvailable, isLive }: DatabaseVie
           <Input
             value={search}
             onChange={(e: React.ChangeEvent<HTMLInputElement>) => setSearch(e.target.value)}
-            placeholder="Search title or abstract..."
+            placeholder="Search title, abstract, or authors..."
             className="pl-8 bg-zinc-900 border-zinc-800 text-zinc-200 placeholder:text-zinc-600 h-8 text-sm"
           />
         </div>
+        {activeFilters > 0 && (
+          <button
+            onClick={() => { setTaFilter(""); setFtFilter(""); setYearFilter(""); setSourceFilter("") }}
+            className="text-xs text-violet-400 hover:text-violet-300 transition-colors whitespace-nowrap"
+          >
+            Clear {activeFilters} filter{activeFilters > 1 ? "s" : ""}
+          </button>
+        )}
         <div className="flex items-center gap-3 ml-auto">
           {!error && (
             <span className="text-xs text-zinc-500 tabular-nums">
@@ -149,13 +196,49 @@ export function DatabaseView({ runId, isDone, dbAvailable, isLive }: DatabaseVie
                 <tr className="border-b border-zinc-800">
                   <Th>Title</Th>
                   <Th>Authors</Th>
-                  <Th>Year</Th>
-                  <Th>Source</Th>
+                  <Th
+                    filter={
+                      <TextFilterPopover
+                        value={yearFilter}
+                        onChange={setYearFilter}
+                        placeholder="e.g. 2024"
+                      />
+                    }
+                  >
+                    Year
+                  </Th>
+                  <Th
+                    filter={
+                      <TextFilterPopover
+                        value={sourceFilter}
+                        onChange={setSourceFilter}
+                        placeholder="e.g. pubmed"
+                      />
+                    }
+                  >
+                    Source
+                  </Th>
                   <Th>Country</Th>
-                  <Th filter={<ColumnFilterPopover value={taFilter} onChange={setTaFilter} />}>
+                  <Th
+                    filter={
+                      <TextFilterPopover
+                        value={taFilter}
+                        onChange={setTaFilter}
+                        placeholder="e.g. include"
+                      />
+                    }
+                  >
                     TA Decision
                   </Th>
-                  <Th filter={<ColumnFilterPopover value={ftFilter} onChange={setFtFilter} />}>
+                  <Th
+                    filter={
+                      <TextFilterPopover
+                        value={ftFilter}
+                        onChange={setFtFilter}
+                        placeholder="e.g. exclude"
+                      />
+                    }
+                  >
                     FT Decision
                   </Th>
                 </tr>
@@ -200,17 +283,34 @@ export function DatabaseView({ runId, isDone, dbAvailable, isLive }: DatabaseVie
 }
 
 // ---------------------------------------------------------------------------
-// Sub-components
+// Filter popovers
 // ---------------------------------------------------------------------------
 
-function ColumnFilterPopover({
+/** Unified text-search filter popover used for all column filters. */
+function TextFilterPopover({
   value,
   onChange,
+  placeholder,
 }: {
   value: string
   onChange: (v: string) => void
+  placeholder: string
 }) {
+  const [local, setLocal] = useState(value)
   const isActive = value !== ""
+
+  // Sync external reset (e.g. "Clear N filters" button) back to local state.
+  useEffect(() => {
+    setLocal(value)
+  }, [value])
+
+  // Debounce: propagate to parent 350 ms after the user stops typing.
+  useEffect(() => {
+    const t = setTimeout(() => onChange(local), 350)
+    return () => clearTimeout(t)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [local])
+
   return (
     <Popover.Root>
       <Popover.Trigger asChild>
@@ -229,20 +329,23 @@ function ColumnFilterPopover({
           side="bottom"
           align="start"
           sideOffset={6}
-          className="z-50 flex items-center gap-0.5 bg-zinc-900 border border-zinc-800 rounded-lg p-1 shadow-xl shadow-black/40"
+          className="z-50 flex flex-col gap-1 bg-zinc-900 border border-zinc-800 rounded-lg p-2 shadow-xl shadow-black/40 w-44"
         >
-          {DECISION_OPTIONS.map((d) => (
+          <Input
+            autoFocus
+            value={local}
+            onChange={(e: React.ChangeEvent<HTMLInputElement>) => setLocal(e.target.value)}
+            placeholder={placeholder}
+            className="h-7 text-xs bg-zinc-800 border-zinc-700 text-zinc-200 placeholder:text-zinc-600"
+          />
+          {local && (
             <button
-              key={d || "all"}
-              onClick={() => onChange(d)}
-              className={cn(
-                "px-2.5 py-1 rounded-md text-xs font-medium transition-colors whitespace-nowrap",
-                value === d ? "bg-zinc-700 text-white" : "text-zinc-500 hover:text-zinc-300",
-              )}
+              onClick={() => { setLocal(""); onChange("") }}
+              className="text-xs text-zinc-500 hover:text-zinc-300 text-left px-1 transition-colors"
             >
-              {d ? d.charAt(0).toUpperCase() + d.slice(1) : "All"}
+              Clear
             </button>
-          ))}
+          )}
           <Popover.Arrow className="fill-zinc-800" />
         </Popover.Content>
       </Popover.Portal>

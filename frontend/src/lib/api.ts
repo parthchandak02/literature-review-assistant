@@ -204,6 +204,8 @@ export async function fetchPapersAll(
   search = "",
   taDecision = "",
   ftDecision = "",
+  year = "",
+  source = "",
   offset = 0,
   limit = 50,
 ): Promise<{ total: number; offset: number; limit: number; papers: PaperAllRow[] }> {
@@ -211,12 +213,22 @@ export async function fetchPapersAll(
     search,
     ta_decision: taDecision,
     ft_decision: ftDecision,
+    year,
+    source,
     offset: String(offset),
     limit: String(limit),
   })
   const res = await fetch(`${BASE}/db/${runId}/papers-all?${params}`)
   if (!res.ok) throw await _apiError(res, "Papers fetch failed")
   return res.json() as Promise<{ total: number; offset: number; limit: number; papers: PaperAllRow[] }>
+}
+
+export async function fetchPapersFacets(
+  runId: string,
+): Promise<{ years: number[]; sources: string[] }> {
+  const res = await fetch(`${BASE}/db/${runId}/papers-facets`)
+  if (!res.ok) throw await _apiError(res, "Facets fetch failed")
+  return res.json() as Promise<{ years: number[]; sources: string[] }>
 }
 
 export async function fetchDbCosts(

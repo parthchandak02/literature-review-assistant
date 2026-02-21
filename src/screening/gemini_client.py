@@ -37,6 +37,29 @@ class PydanticAIScreeningClient:
             json_schema=schema,
         )
 
+    async def complete_json_with_usage(
+        self,
+        prompt: str,
+        *,
+        agent_name: str,
+        model: str,
+        temperature: float,
+    ) -> tuple[str, int, int, int, int]:
+        """Return (json_str, input_tokens, output_tokens, cache_write, cache_read).
+
+        Mirrors complete_json but returns real token counts from the provider
+        so dual_screener.py can record accurate costs instead of heuristics.
+        """
+        _ = agent_name
+        schema = ScreeningResponse.model_json_schema()
+        client = PydanticAIClient()
+        return await client.complete_with_usage(
+            prompt,
+            model=model,
+            temperature=temperature,
+            json_schema=schema,
+        )
+
 
 # Backward-compatibility alias -- workflow.py and __init__.py import this name.
 GeminiScreeningClient = PydanticAIScreeningClient
