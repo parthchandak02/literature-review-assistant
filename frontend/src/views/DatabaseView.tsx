@@ -1,21 +1,22 @@
 import { useCallback, useEffect, useState } from "react"
+import * as Popover from "@radix-ui/react-popover"
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
 import { FetchError, EmptyState } from "@/components/ui/feedback"
 import { cn } from "@/lib/utils"
-import { ChevronLeft, ChevronRight, Database, Loader2, Search } from "lucide-react"
-import { fetchPapers, fetchScreening } from "@/lib/api"
-import type { PaperRow, ScreeningRow } from "@/lib/api"
+import { ChevronLeft, ChevronRight, Database, Filter, Loader2, Search } from "lucide-react"
+import { fetchPapersAll } from "@/lib/api"
+import type { PaperAllRow } from "@/lib/api"
 
 const LIVE_REFRESH_MS = 10_000
-
-type DbTab = "papers" | "screening"
 
 const DECISION_COLOR: Record<string, string> = {
   include: "text-emerald-400",
   exclude: "text-red-400",
   uncertain: "text-amber-400",
 }
+
+const DECISION_OPTIONS = ["", "include", "exclude", "uncertain"] as const
 
 interface DatabaseViewProps {
   runId: string
@@ -27,24 +28,17 @@ interface DatabaseViewProps {
 }
 
 export function DatabaseView({ runId, isDone, dbAvailable, isLive }: DatabaseViewProps) {
-  const [activeTab, setActiveTab] = useState<DbTab>("papers")
   const [search, setSearch] = useState("")
   const [debouncedSearch, setDebouncedSearch] = useState("")
+  const [taFilter, setTaFilter] = useState("")
+  const [ftFilter, setFtFilter] = useState("")
   const [page, setPage] = useState(0)
   const PAGE_SIZE = 50
 
-  // Papers
-  const [papers, setPapers] = useState<PaperRow[]>([])
-  const [papersTotal, setPapersTotal] = useState(0)
-  const [papersLoading, setPapersLoading] = useState(false)
-  const [papersError, setPapersError] = useState<string | null>(null)
-
-  // Screening
-  const [decisions, setDecisions] = useState<ScreeningRow[]>([])
-  const [decisionsTotal, setDecisionsTotal] = useState(0)
-  const [decisionFilter, setDecisionFilter] = useState("")
-  const [decisionsLoading, setDecisionsLoading] = useState(false)
-  const [decisionsError, setDecisionsError] = useState<string | null>(null)
+  const [papers, setPapers] = useState<PaperAllRow[]>([])
+  const [total, setTotal] = useState(0)
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
 
   // Debounce search
   useEffect(() => {
@@ -54,70 +48,46 @@ export function DatabaseView({ runId, isDone, dbAvailable, isLive }: DatabaseVie
 
   const loadPapers = useCallback(async () => {
     if (!dbAvailable) return
-    setPapersLoading(true)
-    setPapersError(null)
+    setLoading(true)
+    setError(null)
     try {
-      const data = await fetchPapers(runId, page * PAGE_SIZE, PAGE_SIZE, debouncedSearch)
+      const data = await fetchPapersAll(
+        runId,
+        debouncedSearch,
+        taFilter,
+        ftFilter,
+        page * PAGE_SIZE,
+        PAGE_SIZE,
+      )
       setPapers(data.papers)
-      setPapersTotal(data.total)
+      setTotal(data.total)
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e)
       // Suppress 503 "initializing" errors silently -- the auto-refresh will retry.
       if (!msg.includes("503")) {
-        setPapersError(
-          msg.toLowerCase().includes("failed to fetch") ? "Cannot reach backend" : msg,
-        )
+        setError(msg.toLowerCase().includes("failed to fetch") ? "Cannot reach backend" : msg)
       }
     } finally {
-      setPapersLoading(false)
+      setLoading(false)
     }
-  }, [runId, page, debouncedSearch, dbAvailable])
+  }, [runId, page, debouncedSearch, taFilter, ftFilter, dbAvailable])
 
-  const loadScreening = useCallback(async () => {
-    if (!dbAvailable) return
-    setDecisionsLoading(true)
-    setDecisionsError(null)
-    try {
-      const data = await fetchScreening(runId, "", decisionFilter, page * PAGE_SIZE, PAGE_SIZE)
-      setDecisions(data.decisions)
-      setDecisionsTotal(data.total)
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e)
-      if (!msg.includes("503")) {
-        setDecisionsError(
-          msg.toLowerCase().includes("failed to fetch") ? "Cannot reach backend" : msg,
-        )
-      }
-    } finally {
-      setDecisionsLoading(false)
-    }
-  }, [runId, page, decisionFilter, dbAvailable])
-
-  useEffect(() => {
-    if (activeTab === "papers") loadPapers()
-  }, [activeTab, loadPapers])
-
-  useEffect(() => {
-    if (activeTab === "screening") loadScreening()
-  }, [activeTab, loadScreening])
-
+  // Reset page when filters change
   useEffect(() => {
     setPage(0)
-  }, [activeTab, debouncedSearch, decisionFilter])
+  }, [debouncedSearch, taFilter, ftFilter])
 
-  // Auto-refresh every LIVE_REFRESH_MS while the run is in progress so data
-  // populates in near-real-time without any user action.
+  useEffect(() => {
+    loadPapers()
+  }, [loadPapers])
+
+  // Auto-refresh every LIVE_REFRESH_MS while run is in progress
   useEffect(() => {
     if (!isLive) return
-    const tick = () => {
-      if (activeTab === "papers") loadPapers()
-      else if (activeTab === "screening") loadScreening()
-    }
-    const id = setInterval(tick, LIVE_REFRESH_MS)
+    const id = setInterval(loadPapers, LIVE_REFRESH_MS)
     return () => clearInterval(id)
-  }, [isLive, activeTab, loadPapers, loadScreening])
+  }, [isLive, loadPapers])
 
-  // Show an initializing placeholder until the backend signals the DB is ready.
   if (!dbAvailable) {
     return (
       <div className="flex flex-col items-center justify-center h-64 gap-3 text-center">
@@ -128,228 +98,168 @@ export function DatabaseView({ runId, isDone, dbAvailable, isLive }: DatabaseVie
     )
   }
 
-  const TABS: { id: DbTab; label: string }[] = [
-    { id: "papers", label: "Papers" },
-    { id: "screening", label: "Screening" },
-  ]
-
   return (
     <div className="flex flex-col gap-4">
-      {/* Tab bar + live badge */}
+      {/* Filter bar */}
       <div className="flex items-center gap-3">
-        <div
-          role="tablist"
-          aria-label="Database explorer tabs"
-          className="flex items-center gap-1 bg-zinc-900 border border-zinc-800 rounded-xl p-1 w-fit"
-        >
-          {TABS.map((t) => (
-            <button
-              key={t.id}
-              role="tab"
-              aria-selected={activeTab === t.id}
-              aria-controls={`panel-${t.id}`}
-              id={`tab-${t.id}`}
-              onClick={() => setActiveTab(t.id)}
-              className={cn(
-                "px-4 py-1.5 rounded-lg text-sm font-medium transition-colors",
-                activeTab === t.id
-                  ? "bg-zinc-700 text-white"
-                  : "text-zinc-500 hover:text-zinc-300",
-              )}
-            >
-              {t.label}
-            </button>
-          ))}
+        <div className="relative flex-1 min-w-[180px] max-w-sm">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-zinc-500" />
+          <Input
+            value={search}
+            onChange={(e: React.ChangeEvent<HTMLInputElement>) => setSearch(e.target.value)}
+            placeholder="Search title or abstract..."
+            className="pl-8 bg-zinc-900 border-zinc-800 text-zinc-200 placeholder:text-zinc-600 h-8 text-sm"
+          />
         </div>
-        {isLive && (
-          <div className="flex items-center gap-1.5 text-xs text-violet-400">
-            <span className="relative flex h-2 w-2">
-              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-violet-400 opacity-75" />
-              <span className="relative inline-flex rounded-full h-2 w-2 bg-violet-500" />
+        <div className="flex items-center gap-3 ml-auto">
+          {!error && (
+            <span className="text-xs text-zinc-500 tabular-nums">
+              {total.toLocaleString()} papers
             </span>
-            Live
+          )}
+          {isLive && (
+            <div className="flex items-center gap-1.5 text-xs text-violet-400">
+              <span className="relative flex h-2 w-2">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-violet-400 opacity-75" />
+                <span className="relative inline-flex rounded-full h-2 w-2 bg-violet-500" />
+              </span>
+              Live
+            </div>
+          )}
+          {isDone && (
+            <span className="text-xs text-emerald-400 font-medium">Complete</span>
+          )}
+        </div>
+      </div>
+
+      {/* Table */}
+      <div className="bg-zinc-900 border border-zinc-800 rounded-xl overflow-hidden">
+        {error ? (
+          <div className="p-4">
+            <FetchError message={error} onRetry={loadPapers} />
           </div>
-        )}
-        {isDone && (
-          <span className="text-xs text-emerald-400 font-medium">Complete</span>
+        ) : loading ? (
+          <TableSkeleton cols={7} rows={8} />
+        ) : papers.length === 0 ? (
+          <EmptyState icon={Database} heading="No papers found." className="py-12" />
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs">
+              <thead>
+                <tr className="border-b border-zinc-800">
+                  <Th>Title</Th>
+                  <Th>Authors</Th>
+                  <Th>Year</Th>
+                  <Th>Source</Th>
+                  <Th>Country</Th>
+                  <Th filter={<ColumnFilterPopover value={taFilter} onChange={setTaFilter} />}>
+                    TA Decision
+                  </Th>
+                  <Th filter={<ColumnFilterPopover value={ftFilter} onChange={setFtFilter} />}>
+                    FT Decision
+                  </Th>
+                </tr>
+              </thead>
+              <tbody>
+                {papers.map((p, i) => (
+                  <tr
+                    key={p.paper_id}
+                    className={cn(
+                      "border-b border-zinc-800/50 hover:bg-zinc-800/40 transition-colors",
+                      i === papers.length - 1 && "border-0",
+                    )}
+                  >
+                    <Td className="max-w-xs">
+                      <span className="line-clamp-2 text-zinc-200">{p.title}</span>
+                    </Td>
+                    <Td className="text-zinc-500 max-w-[160px]">
+                      <span className="line-clamp-1">{p.authors}</span>
+                    </Td>
+                    <Td className="tabular-nums text-zinc-400">{p.year ?? "--"}</Td>
+                    <Td className="text-zinc-500">{p.source_database}</Td>
+                    <Td className="text-zinc-600">{p.country ?? "--"}</Td>
+                    <DecisionCell value={p.ta_decision} />
+                    <DecisionCell value={p.ft_decision} />
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         )}
       </div>
 
-      {/* Papers tab */}
-      {activeTab === "papers" && (
-        <div
-          role="tabpanel"
-          id="panel-papers"
-          aria-labelledby="tab-papers"
-          className="flex flex-col gap-3"
-        >
-          <div className="flex items-center gap-3">
-            <div className="relative flex-1 max-w-sm">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-zinc-500" />
-              <Input
-                value={search}
-                onChange={(e: React.ChangeEvent<HTMLInputElement>) => setSearch(e.target.value)}
-                placeholder="Search title or abstract..."
-                className="pl-8 bg-zinc-900 border-zinc-800 text-zinc-200 placeholder:text-zinc-600 h-8 text-sm"
-              />
-            </div>
-            {!papersError && (
-              <span className="text-xs text-zinc-500 tabular-nums">
-                {papersTotal.toLocaleString()} papers
-              </span>
-            )}
-          </div>
-
-          <div className="bg-zinc-900 border border-zinc-800 rounded-xl overflow-hidden">
-            {papersError ? (
-              <div className="p-4">
-                <FetchError message={papersError} onRetry={loadPapers} />
-              </div>
-            ) : papersLoading ? (
-              <TableSkeleton cols={5} rows={8} />
-            ) : papers.length === 0 ? (
-              <EmptyState icon={Database} heading="No papers found." className="py-12" />
-            ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full text-xs">
-                  <thead>
-                    <tr className="border-b border-zinc-800">
-                      <Th>Title</Th>
-                      <Th>Authors</Th>
-                      <Th>Year</Th>
-                      <Th>Source</Th>
-                      <Th>Country</Th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {papers.map((p, i) => (
-                      <tr
-                        key={p.paper_id}
-                        className={cn(
-                          "border-b border-zinc-800/50 hover:bg-zinc-800/40 transition-colors",
-                          i === papers.length - 1 && "border-0",
-                        )}
-                      >
-                        <Td className="max-w-xs">
-                          <span className="line-clamp-2 text-zinc-200">{p.title}</span>
-                        </Td>
-                        <Td className="text-zinc-500 max-w-[180px]">
-                          <span className="line-clamp-1">{p.authors}</span>
-                        </Td>
-                        <Td className="tabular-nums text-zinc-400">{p.year ?? "--"}</Td>
-                        <Td className="text-zinc-500">{p.source_database}</Td>
-                        <Td className="text-zinc-600">{p.country ?? "--"}</Td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </div>
-          <Pagination
-            page={page}
-            pageSize={PAGE_SIZE}
-            total={papersTotal}
-            onPrev={() => setPage((p) => Math.max(0, p - 1))}
-            onNext={() => setPage((p) => p + 1)}
-          />
-        </div>
-      )}
-
-      {/* Screening tab */}
-      {activeTab === "screening" && (
-        <div
-          role="tabpanel"
-          id="panel-screening"
-          aria-labelledby="tab-screening"
-          className="flex flex-col gap-3"
-        >
-          <div className="flex items-center gap-3">
-            <div className="flex items-center gap-1 bg-zinc-900 border border-zinc-800 rounded-lg p-0.5">
-              {["", "include", "exclude", "uncertain"].map((d) => (
-                <button
-                  key={d || "all"}
-                  onClick={() => setDecisionFilter(d)}
-                  className={cn(
-                    "px-3 py-1 rounded-md text-xs font-medium transition-colors",
-                    decisionFilter === d
-                      ? "bg-zinc-700 text-white"
-                      : "text-zinc-500 hover:text-zinc-300",
-                  )}
-                >
-                  {d || "All"}
-                </button>
-              ))}
-            </div>
-            {!decisionsError && (
-              <span className="text-xs text-zinc-500 tabular-nums">
-                {decisionsTotal.toLocaleString()} decisions
-              </span>
-            )}
-          </div>
-
-          <div className="bg-zinc-900 border border-zinc-800 rounded-xl overflow-hidden">
-            {decisionsError ? (
-              <div className="p-4">
-                <FetchError message={decisionsError} onRetry={loadScreening} />
-              </div>
-            ) : decisionsLoading ? (
-              <TableSkeleton cols={4} rows={8} />
-            ) : decisions.length === 0 ? (
-              <EmptyState icon={Database} heading="No screening decisions found." className="py-12" />
-            ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full text-xs">
-                  <thead>
-                    <tr className="border-b border-zinc-800">
-                      <Th>Paper ID</Th>
-                      <Th>Stage</Th>
-                      <Th>Decision</Th>
-                      <Th>Rationale</Th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {decisions.map((d, i) => (
-                      <tr
-                        key={`${d.paper_id}-${d.stage}-${i}`}
-                        className={cn(
-                          "border-b border-zinc-800/50 hover:bg-zinc-800/40 transition-colors",
-                          i === decisions.length - 1 && "border-0",
-                        )}
-                      >
-                        <Td className="font-mono text-zinc-500">{d.paper_id?.slice(0, 12)}...</Td>
-                        <Td className="text-zinc-400">{d.stage}</Td>
-                        <Td>
-                          <span
-                            className={cn(
-                              "font-semibold",
-                              DECISION_COLOR[d.decision ?? ""] ?? "text-zinc-400",
-                            )}
-                          >
-                            {d.decision}
-                          </span>
-                        </Td>
-                        <Td className="text-zinc-600 max-w-xs">
-                          <span className="line-clamp-1">{d.rationale ?? "--"}</span>
-                        </Td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </div>
-          <Pagination
-            page={page}
-            pageSize={PAGE_SIZE}
-            total={decisionsTotal}
-            onPrev={() => setPage((p) => Math.max(0, p - 1))}
-            onNext={() => setPage((p) => p + 1)}
-          />
-        </div>
-      )}
-
+      <Pagination
+        page={page}
+        pageSize={PAGE_SIZE}
+        total={total}
+        onPrev={() => setPage((p) => Math.max(0, p - 1))}
+        onNext={() => setPage((p) => p + 1)}
+      />
     </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Sub-components
+// ---------------------------------------------------------------------------
+
+function ColumnFilterPopover({
+  value,
+  onChange,
+}: {
+  value: string
+  onChange: (v: string) => void
+}) {
+  const isActive = value !== ""
+  return (
+    <Popover.Root>
+      <Popover.Trigger asChild>
+        <button
+          className={cn(
+            "flex items-center justify-center h-4 w-4 rounded transition-colors",
+            isActive ? "text-violet-400 hover:text-violet-300" : "text-zinc-600 hover:text-zinc-400",
+          )}
+          aria-label="Filter column"
+        >
+          <Filter className="h-3 w-3" />
+        </button>
+      </Popover.Trigger>
+      <Popover.Portal>
+        <Popover.Content
+          side="bottom"
+          align="start"
+          sideOffset={6}
+          className="z-50 flex items-center gap-0.5 bg-zinc-900 border border-zinc-800 rounded-lg p-1 shadow-xl shadow-black/40"
+        >
+          {DECISION_OPTIONS.map((d) => (
+            <button
+              key={d || "all"}
+              onClick={() => onChange(d)}
+              className={cn(
+                "px-2.5 py-1 rounded-md text-xs font-medium transition-colors whitespace-nowrap",
+                value === d ? "bg-zinc-700 text-white" : "text-zinc-500 hover:text-zinc-300",
+              )}
+            >
+              {d ? d.charAt(0).toUpperCase() + d.slice(1) : "All"}
+            </button>
+          ))}
+          <Popover.Arrow className="fill-zinc-800" />
+        </Popover.Content>
+      </Popover.Portal>
+    </Popover.Root>
+  )
+}
+
+function DecisionCell({ value }: { value: string | null }) {
+  if (!value) {
+    return <Td className="text-zinc-700">--</Td>
+  }
+  return (
+    <Td>
+      <span className={cn("font-semibold capitalize", DECISION_COLOR[value] ?? "text-zinc-400")}>
+        {value}
+      </span>
+    </Td>
   )
 }
 
@@ -357,7 +267,15 @@ export function DatabaseView({ runId, isDone, dbAvailable, isLive }: DatabaseVie
 // Shared table primitives
 // ---------------------------------------------------------------------------
 
-function Th({ children, align }: { children: React.ReactNode; align?: "right" }) {
+function Th({
+  children,
+  align,
+  filter,
+}: {
+  children: React.ReactNode
+  align?: "right"
+  filter?: React.ReactNode
+}) {
   return (
     <th
       className={cn(
@@ -365,7 +283,14 @@ function Th({ children, align }: { children: React.ReactNode; align?: "right" })
         align === "right" ? "text-right" : "text-left",
       )}
     >
-      {children}
+      {filter ? (
+        <div className="flex items-center gap-1.5">
+          <span>{children}</span>
+          {filter}
+        </div>
+      ) : (
+        children
+      )}
     </th>
   )
 }
@@ -458,4 +383,3 @@ function TableSkeleton({ cols, rows }: { cols: number; rows: number }) {
     </div>
   )
 }
-

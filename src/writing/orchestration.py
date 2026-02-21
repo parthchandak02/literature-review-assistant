@@ -192,15 +192,18 @@ async def write_section_with_validation(
         context=effective_context,
         word_limit=word_limit,
     )
-    if provider:
-        await provider.log_cost(
-            model=metadata.model,
-            tokens_in=metadata.tokens_in,
-            tokens_out=metadata.tokens_out,
-            cost_usd=metadata.cost_usd,
-            latency_ms=metadata.latency_ms,
-            phase="phase_6_writing",
-        )
+    if provider and metadata.cost_usd is not None:
+        try:
+            await provider.log_cost(
+                model=metadata.model,
+                tokens_in=metadata.tokens_in,
+                tokens_out=metadata.tokens_out,
+                cost_usd=metadata.cost_usd,
+                latency_ms=metadata.latency_ms,
+                phase="phase_6_writing",
+            )
+        except Exception as _log_exc:
+            logger.warning("Failed to persist writing cost for section '%s': %s", section, _log_exc)
     if on_llm_call:
         word_count = len(content.split())
         on_llm_call(

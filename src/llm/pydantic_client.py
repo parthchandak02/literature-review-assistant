@@ -82,11 +82,12 @@ class PydanticAIClient:
         model: str,
         temperature: float,
         json_schema: dict | None = None,
-    ) -> tuple[str, int, int]:
-        """Run completion and return (response_text, input_tokens, output_tokens).
+    ) -> tuple[str, int, int, int, int]:
+        """Run completion and return (text, input_tokens, output_tokens, cache_write, cache_read).
 
-        Use this variant in callers that need accurate token counts for cost
-        logging -- avoids word-count heuristics.
+        All five values come directly from the provider's usage object so there
+        are no word-count heuristics.  cache_write and cache_read are 0 when
+        the provider does not report them (e.g. OpenAI, Groq).
         """
         settings = ModelSettings(temperature=temperature)
 
@@ -105,4 +106,10 @@ class PydanticAIClient:
             usage = result_str.usage()
             text = result_str.output
 
-        return text, usage.input_tokens, usage.output_tokens
+        return (
+            text,
+            usage.input_tokens,
+            usage.output_tokens,
+            usage.cache_write_tokens or 0,
+            usage.cache_read_tokens or 0,
+        )

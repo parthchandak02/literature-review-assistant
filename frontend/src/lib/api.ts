@@ -65,6 +65,18 @@ export interface ScreeningRow {
   created_at: string | null
 }
 
+export interface PaperAllRow {
+  paper_id: string
+  title: string
+  authors: string
+  year: number | null
+  source_database: string
+  doi: string | null
+  country: string | null
+  ta_decision: string | null
+  ft_decision: string | null
+}
+
 export interface DbCostRow {
   model: string
   phase: string
@@ -185,6 +197,26 @@ export async function fetchScreening(
   const res = await fetch(`${BASE}/db/${runId}/screening?${params}`)
   if (!res.ok) throw await _apiError(res, "Screening fetch failed")
   return res.json() as Promise<{ total: number; offset: number; limit: number; decisions: ScreeningRow[] }>
+}
+
+export async function fetchPapersAll(
+  runId: string,
+  search = "",
+  taDecision = "",
+  ftDecision = "",
+  offset = 0,
+  limit = 50,
+): Promise<{ total: number; offset: number; limit: number; papers: PaperAllRow[] }> {
+  const params = new URLSearchParams({
+    search,
+    ta_decision: taDecision,
+    ft_decision: ftDecision,
+    offset: String(offset),
+    limit: String(limit),
+  })
+  const res = await fetch(`${BASE}/db/${runId}/papers-all?${params}`)
+  if (!res.ok) throw await _apiError(res, "Papers fetch failed")
+  return res.json() as Promise<{ total: number; offset: number; limit: number; papers: PaperAllRow[] }>
 }
 
 export async function fetchDbCosts(
@@ -348,6 +380,23 @@ export async function attachHistory(entry: HistoryEntry): Promise<RunResponse> {
   if (!res.ok) {
     const text = await res.text()
     throw new Error(`Failed to attach history: ${text}`)
+  }
+  return res.json() as Promise<RunResponse>
+}
+
+export async function resumeRun(entry: HistoryEntry): Promise<RunResponse> {
+  const res = await fetch(`${BASE}/history/resume`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      workflow_id: entry.workflow_id,
+      db_path: entry.db_path,
+      topic: entry.topic,
+    }),
+  })
+  if (!res.ok) {
+    const text = await res.text()
+    throw new Error(`Failed to resume run: ${text}`)
   }
   return res.json() as Promise<RunResponse>
 }

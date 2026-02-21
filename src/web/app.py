@@ -1,7 +1,13 @@
 """FastAPI web backend for the systematic review tool.
 
 Run with:
-    uv run uvicorn src.web.app:app --reload --port 8000
+    uv run uvicorn src.web.app:app --reload --port ${PORT:-8000}
+
+Or via Overmind (dev, runs API + Vite together):
+    overmind start -f Procfile.dev
+
+Or via Overmind (production, single process):
+    overmind start
 """
 
 from __future__ import annotations
@@ -27,7 +33,7 @@ from sse_starlette.sse import EventSourceResponse
 
 from src.export.submission_packager import package_submission
 from src.orchestration.context import WebRunContext
-from src.orchestration.workflow import run_workflow
+from src.orchestration.workflow import run_workflow, run_workflow_resume
 from src.utils.structured_log import load_events_from_jsonl
 
 # ---------------------------------------------------------------------------
@@ -67,9 +73,23 @@ async def _eviction_loop() -> None:
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI) -> AsyncGenerator[None, None]:
-    task = asyncio.create_task(_eviction_loop())
+    eviction = asyncio.create_task(_eviction_loop())
     yield
-    task.cancel()
+    # Graceful shutdown: cancel active tasks and mark workflows as 'interrupted'.
+    eviction.cancel()
+    for record in list(_active_runs.values()):
+        if not record.done and record.task and not record.task.done():
+            record.task.cancel()
+            if record.db_path and record.workflow_id:
+                try:
+                    async with aiosqlite.connect(record.db_path) as _db:
+                        await _db.execute(
+                            "UPDATE workflows SET status='interrupted' WHERE workflow_id=?",
+                            (record.workflow_id,),
+                        )
+                        await _db.commit()
+                except Exception:
+                    pass
 
 
 # ---------------------------------------------------------------------------
@@ -545,6 +565,68 @@ async def get_run_config(workflow_id: str, run_root: str = "runs") -> dict[str, 
     return {"content": content}
 
 
+class ResumeRequest(BaseModel):
+    workflow_id: str
+    db_path: str
+    topic: str
+
+
+async def _resume_wrapper(record: _RunRecord, workflow_id: str, db_path: str) -> None:
+    """Async task that resumes an interrupted workflow from its last checkpoint."""
+    review_path = str(pathlib.Path(db_path).parent / "review.yaml")
+    run_root = str(pathlib.Path(db_path).parent.parent.parent)
+
+    def _on_db_ready(path: str) -> None:
+        record.db_path = path
+
+    ctx = WebRunContext(
+        queue=record.queue,
+        on_db_ready=_on_db_ready,
+        on_event=record.event_log.append,
+    )
+    try:
+        outputs = await run_workflow_resume(
+            workflow_id=workflow_id,
+            review_path=review_path,
+            settings_path="config/settings.yaml",
+            run_root=run_root,
+            run_context=ctx,
+        )
+        record.outputs = outputs if isinstance(outputs, dict) else {}
+        record.workflow_id = workflow_id
+        record.db_path = db_path
+        record.done = True
+        await record.queue.put({"type": "done", "outputs": record.outputs})
+    except asyncio.CancelledError:
+        record.done = True
+        record.error = "Cancelled"
+        await record.queue.put({"type": "cancelled"})
+    except Exception as exc:
+        record.done = True
+        record.error = str(exc)
+        await record.queue.put({"type": "error", "msg": str(exc)})
+    finally:
+        if record.db_path and record.workflow_id:
+            await _persist_event_log(record.db_path, record.workflow_id, record.event_log)
+
+
+@app.post("/api/history/resume", response_model=RunResponse)
+async def resume_run(req: ResumeRequest) -> RunResponse:
+    """Resume an interrupted workflow from its last checkpoint.
+
+    Creates a new live RunRecord (new run_id) backed by the existing workflow_id
+    so the frontend can SSE-connect to watch the resumed run complete.
+    """
+    run_id = str(uuid.uuid4())[:8]
+    record = _RunRecord(run_id=run_id, topic=req.topic)
+    record.db_path = req.db_path
+    record.workflow_id = req.workflow_id
+    _active_runs[run_id] = record
+    task = asyncio.create_task(_resume_wrapper(record, req.workflow_id, req.db_path))
+    record.task = task
+    return RunResponse(run_id=run_id, topic=req.topic)
+
+
 @app.post("/api/history/attach", response_model=RunResponse)
 async def attach_history(req: AttachRequest) -> RunResponse:
     """Create a read-only completed _RunRecord from a historical workflow so
@@ -684,6 +766,92 @@ async def get_screening(
 
             decisions = [dict(row) for row in rows]
             return {"total": total, "offset": offset, "limit": limit, "decisions": decisions}
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@app.get("/api/db/{run_id}/papers-all")
+async def get_papers_all(
+    run_id: str,
+    search: str = "",
+    ta_decision: str = "",
+    ft_decision: str = "",
+    offset: int = 0,
+    limit: int = 50,
+) -> dict[str, Any]:
+    """Unified per-paper table joining papers with final screening decisions."""
+    db_path = _get_db_path(run_id)
+    try:
+        async with aiosqlite.connect(db_path) as db:
+            db.row_factory = aiosqlite.Row
+
+            conditions: list[str] = []
+            params: list[Any] = []
+
+            if search:
+                like = f"%{search}%"
+                conditions.append("(p.title LIKE ? OR p.abstract LIKE ?)")
+                params.extend([like, like])
+            if ta_decision:
+                conditions.append("COALESCE(ta.final_decision, '') = ?")
+                params.append(ta_decision)
+            if ft_decision:
+                conditions.append("COALESCE(ft.final_decision, '') = ?")
+                params.append(ft_decision)
+
+            where = f"WHERE {' AND '.join(conditions)}" if conditions else ""
+
+            base_query = f"""
+                FROM papers p
+                LEFT JOIN dual_screening_results ta
+                  ON p.paper_id = ta.paper_id AND ta.stage = 'title_abstract'
+                LEFT JOIN dual_screening_results ft
+                  ON p.paper_id = ft.paper_id AND ft.stage = 'fulltext'
+                {where}
+            """
+
+            async with db.execute(
+                f"""SELECT p.paper_id, p.title, p.authors, p.year,
+                           p.source_database, p.doi, p.country,
+                           ta.final_decision AS ta_decision,
+                           ft.final_decision AS ft_decision
+                    {base_query}
+                    ORDER BY p.year DESC LIMIT ? OFFSET ?""",
+                (*params, limit, offset),
+            ) as cur:
+                rows = await cur.fetchall()
+
+            async with db.execute(f"SELECT COUNT(*) {base_query}", params) as cur:
+                total = (await cur.fetchone())[0]  # type: ignore[index]
+
+            papers = []
+            for row in rows:
+                raw = row["authors"] or ""
+                try:
+                    authors_list = _json.loads(raw) if raw.startswith("[") else [raw]
+                    authors_fmt = ", ".join(
+                        (a.get("name") or a.get("raw_name") or str(a))
+                        if isinstance(a, dict)
+                        else str(a)
+                        for a in authors_list
+                    )
+                except Exception:
+                    authors_fmt = raw
+                papers.append({
+                    "paper_id": row["paper_id"],
+                    "title": row["title"],
+                    "authors": authors_fmt,
+                    "year": row["year"],
+                    "source_database": row["source_database"],
+                    "doi": row["doi"],
+                    "country": row["country"],
+                    "ta_decision": row["ta_decision"],
+                    "ft_decision": row["ft_decision"],
+                })
+
+            return {"total": total, "offset": offset, "limit": limit, "papers": papers}
     except HTTPException:
         raise
     except Exception as exc:

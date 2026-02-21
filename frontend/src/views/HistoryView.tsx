@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useState } from "react"
-import { fetchHistory } from "@/lib/api"
-import type { HistoryEntry } from "@/lib/api"
+import { fetchHistory, resumeRun } from "@/lib/api"
+import type { HistoryEntry, RunResponse } from "@/lib/api"
 import { cn } from "@/lib/utils"
-import { AlertTriangle, BookOpen, Clock, Loader, RefreshCw } from "lucide-react"
+import { AlertTriangle, BookOpen, Clock, Loader, Play, RefreshCw } from "lucide-react"
 import { Button } from "@/components/ui/button"
 
 const STATUS_STYLE: Record<string, string> = {
@@ -58,12 +58,14 @@ function isLikelyStale(entry: HistoryEntry): boolean {
 
 interface HistoryViewProps {
   onAttach: (entry: HistoryEntry) => Promise<void>
+  onResume: (res: RunResponse) => void
 }
 
-export function HistoryView({ onAttach }: HistoryViewProps) {
+export function HistoryView({ onAttach, onResume }: HistoryViewProps) {
   const [entries, setEntries] = useState<HistoryEntry[]>([])
   const [loading, setLoading] = useState(false)
   const [openingId, setOpeningId] = useState<string | null>(null)
+  const [resumingId, setResumingId] = useState<string | null>(null)
   const [openErrors, setOpenErrors] = useState<Record<string, string>>({})
   const [fetchError, setFetchError] = useState<string | null>(null)
 
@@ -103,6 +105,24 @@ export function HistoryView({ onAttach }: HistoryViewProps) {
       setOpenErrors((prev) => ({ ...prev, [entry.workflow_id]: msg }))
     } finally {
       setOpeningId(null)
+    }
+  }
+
+  async function handleResume(entry: HistoryEntry) {
+    setResumingId(entry.workflow_id)
+    setOpenErrors((prev) => {
+      const next = { ...prev }
+      delete next[entry.workflow_id]
+      return next
+    })
+    try {
+      const res = await resumeRun(entry)
+      onResume(res)
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e)
+      setOpenErrors((prev) => ({ ...prev, [entry.workflow_id]: msg }))
+    } finally {
+      setResumingId(null)
     }
   }
 
@@ -203,6 +223,8 @@ export function HistoryView({ onAttach }: HistoryViewProps) {
                 const papersFound = entry.papers_found ?? null
                 const papersIncluded = entry.papers_included ?? null
                 const totalCost = entry.total_cost ?? null
+                const isResumable = entry.status.toLowerCase() === "running" || entry.status.toLowerCase() === "interrupted"
+                const isResuming = resumingId === entry.workflow_id
 
                 return (
                   <tr
@@ -284,9 +306,25 @@ export function HistoryView({ onAttach }: HistoryViewProps) {
                       )}
                     </td>
 
-                    {/* Open button */}
+                    {/* Open / Resume buttons */}
                     <td className="px-5 py-3.5 text-right">
-                      <div className="flex flex-col items-end gap-1">
+                      <div className="flex flex-col items-end gap-1.5">
+                        {isResumable && openable ? (
+                          <Button
+                            size="sm"
+                            onClick={() => handleResume(entry)}
+                            disabled={isResuming}
+                            className="h-7 text-xs bg-amber-600/20 hover:bg-amber-600/30 text-amber-300 border border-amber-600/40 gap-1.5"
+                            variant="outline"
+                          >
+                            {isResuming ? (
+                              <Loader className="h-3 w-3 animate-spin" />
+                            ) : (
+                              <Play className="h-3 w-3" />
+                            )}
+                            {isResuming ? "Resuming..." : "Resume"}
+                          </Button>
+                        ) : null}
                         {openable ? (
                           <Button
                             size="sm"
@@ -303,7 +341,7 @@ export function HistoryView({ onAttach }: HistoryViewProps) {
                             {isOpening ? "Opening..." : "Open"}
                           </Button>
                         ) : (
-                          <span className="text-zinc-700 text-xs">Unavailable</span>
+                          !isResumable && <span className="text-zinc-700 text-xs">Unavailable</span>
                         )}
                         {openError && (
                           <span className="text-[10px] text-red-400 max-w-[140px] text-right leading-tight">

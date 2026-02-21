@@ -1071,8 +1071,8 @@ class WritingNode(BaseNode[ReviewState]):
                     citation_catalog=citation_catalog,
                     style_patterns=style_patterns,
                     word_limit=word_limit,
-                    on_llm_call=_on_write if rc and rc.verbose else None,
-                    provider=provider if rc and rc.verbose else None,
+                    on_llm_call=_on_write if rc else None,
+                    provider=provider,
                     grounding=grounding,
                 )
 

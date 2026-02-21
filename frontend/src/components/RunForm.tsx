@@ -138,7 +138,7 @@ function parseYaml(yaml: string): Partial<ReviewConfig> {
       while (i < lines.length && lines[i].startsWith("  ")) {
         const m = lines[i].match(/^\s+(\w+):\s*(.*)$/)
         if (m && m[1] in pico) {
-          ;(pico as Record<string, string>)[m[1]] = extractValue(m[2])
+          ;(pico as unknown as Record<string, string>)[m[1]] = extractValue(m[2])
         }
         i++
       }

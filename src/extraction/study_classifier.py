@@ -58,6 +58,25 @@ class PydanticAIStudyClassificationClient:
             json_schema=schema,
         )
 
+    async def complete_json_with_usage(
+        self,
+        prompt: str,
+        *,
+        agent_name: str,
+        model: str,
+        temperature: float,
+    ) -> tuple[str, int, int, int, int]:
+        """Return (json_str, input_tokens, output_tokens, cache_write, cache_read)."""
+        _ = agent_name
+        schema = StudyClassificationResult.model_json_schema()
+        client = PydanticAIClient()
+        return await client.complete_with_usage(
+            prompt,
+            model=model,
+            temperature=temperature,
+            json_schema=schema,
+        )
+
 
 # Backward-compatibility alias.
 GeminiStudyClassificationClient = PydanticAIStudyClassificationClient
@@ -119,16 +138,29 @@ class StudyClassifier:
         prompt = self._build_prompt(paper)
         runtime = await self.provider.reserve_call_slot(self.agent_name)
         started = time.perf_counter()
-        raw = await self.llm_client.complete_json(
-            prompt,
-            agent_name=self.agent_name,
-            model=runtime.model,
-            temperature=runtime.temperature,
-        )
+        if hasattr(self.llm_client, "complete_json_with_usage"):
+            raw, tokens_in, tokens_out, cache_write, cache_read = (
+                await self.llm_client.complete_json_with_usage(
+                    prompt,
+                    agent_name=self.agent_name,
+                    model=runtime.model,
+                    temperature=runtime.temperature,
+                )
+            )
+        else:
+            raw = await self.llm_client.complete_json(
+                prompt,
+                agent_name=self.agent_name,
+                model=runtime.model,
+                temperature=runtime.temperature,
+            )
+            tokens_in = max(1, len(prompt.split()))
+            tokens_out = max(1, len(raw.split()))
+            cache_write = cache_read = 0
         elapsed_ms = int((time.perf_counter() - started) * 1000)
-        tokens_in = max(1, len(prompt.split()))
-        tokens_out = max(1, len(raw.split()))
-        cost_usd = self.provider.estimate_cost(runtime.model, tokens_in, tokens_out)
+        cost_usd = self.provider.estimate_cost(
+            runtime.model, tokens_in, tokens_out, cache_write, cache_read
+        )
         parsed = self._parse_response(raw)
         await self.provider.log_cost(
             model=runtime.model,

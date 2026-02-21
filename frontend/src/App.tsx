@@ -15,9 +15,10 @@ import {
   clearLiveRun,
   startRun,
 } from "@/lib/api"
-import type { HistoryEntry, RunRequest } from "@/lib/api"
+import type { HistoryEntry, RunRequest, RunResponse } from "@/lib/api"
 import { RunView } from "@/views/RunView"
 import type { RunTab, SelectedRun } from "@/views/RunView"
+import { HistoryView } from "@/views/HistoryView"
 
 const SetupView = lazy(() => import("@/views/SetupView").then((m) => ({ default: m.SetupView })))
 
@@ -29,24 +30,6 @@ function ViewLoader() {
   )
 }
 
-function WelcomeScreen({ onNewReview }: { onNewReview: () => void }) {
-  return (
-    <div className="flex flex-col items-center justify-center h-full gap-6 text-center px-8">
-      <div className="flex flex-col gap-2 max-w-sm">
-        <h2 className="text-lg font-semibold text-zinc-200">Welcome to LitReview</h2>
-        <p className="text-sm text-zinc-500 leading-relaxed">
-          Start a new systematic review or select a past review from the sidebar.
-        </p>
-      </div>
-      <button
-        onClick={onNewReview}
-        className="flex items-center gap-2 px-5 py-2.5 rounded-lg bg-violet-600 hover:bg-violet-500 text-white text-sm font-medium transition-colors"
-      >
-        Start New Review
-      </button>
-    </div>
-  )
-}
 
 export default function App() {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
@@ -238,6 +221,27 @@ export default function App() {
     setShowSetup(false)
   }
 
+  function handleResumeRun(res: RunResponse) {
+    const now = new Date()
+    reset()
+    setLiveRunId(res.run_id)
+    setLiveTopic(res.topic)
+    setLiveStartedAt(now)
+    saveLiveRun({ runId: res.run_id, topic: res.topic, startedAt: now.toISOString() })
+    const run: SelectedRun = {
+      runId: res.run_id,
+      workflowId: null,
+      topic: res.topic,
+      dbPath: null,
+      isDone: false,
+      startedAt: now,
+      createdAt: now.toISOString(),
+    }
+    setSelectedRun(run)
+    setActiveRunTab("activity")
+    setShowSetup(false)
+  }
+
   // ---------------------------------------------------------------------------
   // Layout
   // ---------------------------------------------------------------------------
@@ -257,7 +261,14 @@ export default function App() {
           </Suspense>
         )
       }
-      return <WelcomeScreen onNewReview={handleNewReview} />
+      return (
+        <div className="flex-1 overflow-y-auto p-6">
+          <HistoryView
+            onAttach={handleSelectHistory}
+            onResume={handleResumeRun}
+          />
+        </div>
+      )
     }
 
     return (
@@ -376,7 +387,7 @@ export default function App() {
             <span className="text-amber-500/70">
               Start it with:{" "}
               <code className="font-mono bg-amber-500/10 px-1 py-0.5 rounded">
-                uv run uvicorn src.web.app:app --reload --port 8000
+                overmind start -f Procfile.dev
               </code>
             </span>
           </div>
