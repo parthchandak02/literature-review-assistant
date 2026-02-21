@@ -49,7 +49,6 @@ htmlcov/
 
 # Generated files
 *.svg
-!templates/**/*.svg
 diagrams/
 *.backup
 

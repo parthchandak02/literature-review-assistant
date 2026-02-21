@@ -112,21 +112,20 @@ research-article-writer/
 |   |-- models/                     # ALL Pydantic data contracts
 |   |-- db/                         # SQLite schema, connection manager, repositories, registry
 |   |-- orchestration/              # workflow.py, context.py, state.py, resume.py, gates.py
-|   |-- search/                     # SearchConnector protocol + 7 connectors + dedup + strategy
-|   |-- screening/                  # dual_screener, keyword_filter, prompts, reliability
+|   |-- search/                     # base.py (SearchConnector protocol), 7 connectors, dedup, strategy, pdf_retrieval
+|   |-- screening/                  # dual_screener, keyword_filter, prompts.py, reliability, gemini_client
 |   |-- extraction/                 # extractor, study_classifier
 |   |-- quality/                    # rob2, robins_i, casp, grade, study_router
 |   |-- synthesis/                  # feasibility, meta_analysis, effect_size, narrative
-|   |-- writing/                    # section_writer, humanizer, style_extractor, naturalness_scorer, prompts/, context_builder
+|   |-- writing/                    # section_writer, humanizer, style_extractor, naturalness_scorer, prompts/ (dir), context_builder, orchestration
 |   |-- citation/                   # ledger (claim -> evidence -> citation)
 |   |-- protocol/                   # PROSPERO-format protocol generator
 |   |-- prisma/                     # PRISMA 2020 flow diagram
 |   |-- visualization/              # forest_plot, funnel_plot, rob_figure, timeline, geographic
 |   |-- export/                     # ieee_latex, bibtex_builder, submission_packager, prisma_checklist, ieee_validator
-|   |-- llm/                        # provider, gemini_client, rate_limiter
-|   |-- web/                        # FastAPI app (17 endpoints, SSE, static serving)
-|   `-- utils/                      # structured_log, logging_paths, ssl_context
-|-- templates/                      # IEEEtran.cls, IEEEtran.bst, cover_letter.md
+|   |-- llm/                        # provider, gemini_client (shim), pydantic_client, base_client, rate_limiter
+|   |-- web/                        # FastAPI app (18 endpoints, SSE, static serving)
+|   `-- utils/                      # structured_log, logging_paths (RunPaths + create_run_paths), ssl_context
 |-- tests/
 |   |-- unit/                       # 20 unit test files (86 passing)
 |   `-- integration/                # 7 integration test files
@@ -150,6 +149,9 @@ research-article-writer/
 | Search (auxiliary) | Perplexity Search API | latest | Discovery only; tagged OTHER_SOURCE; not primary evidence |
 | Meta-analysis | statsmodels combine_effects() | 0.14+ | Deterministic; peer-validated; forest plot built in; avoids custom statistical implementation |
 | Effect sizes | scipy.stats + statsmodels | latest | Deterministic; LLMs are NEVER used for statistics |
+| Screening ranking | bm25s | 0.2+ | BM25 relevance ranking for LLM screening cap; pure Python, scipy-based; faster than rank-bm25 |
+| Author parsing | nameparser | 1.1+ | Surname extraction for display_label; handles "Last, First" and "First Last" formats |
+| Title filtering | wordfreq | 3.0+ | Zipf frequency lookup for domain-agnostic title word filtering in display_label |
 | Backend API | FastAPI + uvicorn | 0.129+ / 0.40+ | Async; Pydantic-native; SSE via sse-starlette |
 | Frontend | React + TypeScript | 18 / 5 | Strict typing; no `any` at API boundaries |
 | Build tool | Vite + pnpm | 7 / 10 | Fast HMR in dev; chunk splitting in prod |
@@ -211,6 +213,9 @@ Edit this file for each new review. All other files stay the same.
 | `search_overrides` | Optional per-database Boolean query override; omit a key to use auto-generated |
 | `protocol.*` | PROSPERO registration info (PRISMA 2020 requirement) |
 | `funding.*` / `conflicts_of_interest` | Disclosure fields for manuscript |
+| `domain` | Subject domain string injected into LLM prompts for context |
+| `scope` | Scope description string injected into LLM prompts |
+| `target_sections` | Optional list of section names to generate (defaults to all 6) |
 
 ### 4.3 `config/settings.yaml` -- System Behavior Config
 
@@ -225,7 +230,7 @@ Change rarely. Values are tuned from real runs.
 | `gates.*` | `profile` (strict / warning), `search_volume_minimum` (50), `screening_minimum` (5), `extraction_completeness_threshold` (0.80), `cost_budget_max` (USD) |
 | `writing.*` | `style_extraction`, `humanization`, `humanization_iterations` (2), `naturalness_threshold` (0.75), `checkpoint_per_section`, `llm_timeout` (120s) |
 | `risk_of_bias.*` | `rct_tool` (rob2), `non_randomized_tool` (robins_i), `qualitative_tool` (casp) |
-| `meta_analysis.*` | `enabled`, `heterogeneity_threshold` (40 = I-squared cutoff for fixed vs random effects), `funnel_plot_minimum_studies` (10), effect measures |
+| `meta_analysis.*` | `enabled`, `heterogeneity_threshold` (50 = I-squared cutoff for fixed vs random effects), `funnel_plot_minimum_studies` (10), effect measures |
 | `ieee_export.*` | `template` (IEEEtran), `max_abstract_words` (250), `target_page_range` ([7, 10]) |
 | `citation_lineage.*` | `block_export_on_unresolved` (true), `minimum_evidence_score` (0.5) |
 | `search.*` | `max_results_per_db` (global default: 500), `per_database_limits` (per-connector overrides) |
@@ -279,6 +284,8 @@ These models cross internal function boundaries within a single module but do NO
 ### 5.4 display_label
 
 `CandidatePaper.display_label` is computed once on first DB save via `compute_display_label()` in `src/models/papers.py` and stored in the `papers.display_label` column. All downstream code (RoB figure, BibTeX citekey generation, visualizations) reads this field. Never re-derive it with local heuristics. Priority chain: author surname + year -> first meaningful title word + year -> first 22 chars of title -> `Paper_{paper_id[:6]}`.
+
+Implementation uses two libraries: `nameparser.HumanName(authors[0]).last` for author surname extraction (handles "Last, First" and "First Last" formats robustly), and `wordfreq.zipf_frequency(word, "en")` with a threshold of 3.5 to skip common filler words in title extraction -- replacing the previous ~60-entry hardcoded domain word list with a language-frequency-based filter that requires no topic-specific knowledge.
 
 ---
 
@@ -384,7 +391,7 @@ A risk-of-bias traffic-light figure (matplotlib) shows rows = studies, columns =
 If feasible:
 - Effect sizes computed via statsmodels (`effectsize_smd` for continuous, `effectsize_2proportions` for dichotomous) and scipy -- never by LLM
 - Results pooled via `statsmodels.stats.meta_analysis.combine_effects()`
-- Fixed-effect model when I-squared < 40%; random-effects (DerSimonian-Laird) when I-squared >= 40%
+- Fixed-effect model when I-squared < 50%; random-effects (DerSimonian-Laird) when I-squared >= 50%
 - Forest plot generated per outcome using statsmodels `.plot_forest()`
 - Funnel plot (matplotlib scatter: x = effect size, y = standard error inverted) generated when >= 10 studies
 
@@ -499,7 +506,7 @@ Reviewer A prompt emphasizes inclusion: "Include this paper if ANY inclusion cri
 
 ## 8. Persistence and Resume
 
-### 8.1 SQLite Schema (16 Tables)
+### 8.1 SQLite Schema (18 Tables)
 
 Each run creates its own `runtime.db`. Schema defined in `src/db/schema.sql`.
 
@@ -522,8 +529,11 @@ Each run creates its own `runtime.db`. Schema defined in `src/db/schema.sql`.
 | `workflows` | Per-run metadata (topic, config_hash, status, dedup_count) |
 | `checkpoints` | Phase completion markers (key: phase string, status: completed / partial) |
 | `synthesis_results` | SynthesisFeasibility + NarrativeSynthesis JSON per outcome |
+| `event_log` | Persisted SSE event log for replay; loaded by history/attach endpoint |
 
 SQLite connection settings: WAL journal mode (concurrent reads + single writer), NORMAL synchronous (~2-3x faster writes), foreign keys ON (SQLite does NOT enforce FKs by default), 40MB cache, temp tables in memory.
+
+All per-run file paths (runtime.db, app log, run_summary.json, output documents, figures) are resolved via `create_run_paths(run_root, workflow_description)` in `src/utils/logging_paths.py`, which returns a frozen `RunPaths` dataclass. Every log and output artifact lives under a single `run_dir` -- there is no separate log directory or output directory.
 
 ### 8.2 Central Registry
 
@@ -578,7 +588,7 @@ Skip processed papers -> process remaining -> write to SQLite immediately
 
 Topic-based auto-resume: if `run` is called and a workflow already exists for the same `config_hash`, the CLI prompts: "Found existing run for this topic (phase N/8 complete). Resume? [Y/n]".
 
-Fallback for old runs: if the registry is missing, `resume --workflow-id` scans `run_summary.json` files under the log root to locate the runtime.db.
+Fallback for old runs: if the registry is missing, `resume --workflow-id` scans `run_summary.json` files under the run root to locate the runtime.db.
 
 ### 8.5 run_summary.json
 
@@ -713,7 +723,7 @@ Run card status border (2px left): emerald = completed, violet = running/connect
 
 ## 10. API Contract
 
-### 10.1 REST Endpoints (17 total)
+### 10.1 REST Endpoints (18 total)
 
 | Method | Path | Description |
 |--------|------|-------------|
@@ -755,17 +765,24 @@ All events carry a `ts` field (UTC ISO-8601). `ReviewEvent` discriminated union 
 | done | outputs (label -> path) | Run completed successfully |
 | error | msg | Run failed |
 | cancelled | (none) | Run was cancelled by user |
-| heartbeat | (none) | Keep-alive every 15s; silently discarded by useSSEStream |
+| heartbeat | (none) | Keep-alive every 15s; sent as a raw SSE frame (not a JSON ReviewEvent), never enters the TypeScript ReviewEvent union; silently discarded by useSSEStream before JSON parsing |
 
 ### 10.3 In-Memory Run State
 
-Each active run in `src/web/app.py` is tracked as a `_RunRecord` dataclass:
+Each active run in `src/web/app.py` is tracked as a `_RunRecord` class (not a dataclass):
 - `run_id`: short UUID prefix used as SSE endpoint key
 - `queue`: asyncio.Queue receiving ReviewEvent JSON strings from WebRunContext
 - `task`: background asyncio.Task running run_workflow()
 - `event_log`: in-memory replay buffer for prefetch endpoint
 - `db_path`: path to runtime.db (set when db_ready event fires)
 - `workflow_id`: set after workflow starts; used for export and history
+- `topic`: research question string for the run
+- `done`: bool flag set when the run completes or errors
+- `error`: optional error message string
+- `outputs`: artifact label->path dict populated at finalize
+- `run_root`: root directory for this run's artifacts
+- `created_at`: ISO timestamp of run creation
+- `review_yaml`: original review.yaml content stored at run start
 
 ---
 
@@ -788,10 +805,6 @@ uv sync
 # Install frontend dependencies
 cd frontend && pnpm install
 
-# Get IEEEtran LaTeX files (required for export)
-curl -L "https://ctan.org/tex-archive/macros/latex/contrib/IEEEtran/IEEEtran.cls" -o templates/IEEEtran.cls
-curl -L "https://ctan.org/tex-archive/macros/latex/contrib/IEEEtran/bibtex/IEEEtran.bst" -o templates/IEEEtran.bst
-
 # Copy .env.example to .env and fill in API keys
 cp .env.example .env
 ```
@@ -806,14 +819,18 @@ cp .env.example .env
 uv run python -m src.main run --config config/review.yaml
 uv run python -m src.main run --config config/review.yaml --verbose
 uv run python -m src.main run --config config/review.yaml --debug
-uv run python -m src.main run --config config/review.yaml --offline   # heuristic screening only
+uv run python -m src.main run --config config/review.yaml --offline     # heuristic screening only
+uv run python -m src.main run --config config/review.yaml --fresh       # ignore existing run for same config_hash
+uv run python -m src.main run --config config/review.yaml --settings config/settings.yaml
+uv run python -m src.main run --config config/review.yaml --run-root runs/
 
 # Resume / manage runs:
 uv run python -m src.main resume --topic "my research question"
 uv run python -m src.main resume --workflow-id abc123
-uv run python -m src.main status --workflow-id abc123
-uv run python -m src.main validate --workflow-id abc123
-uv run python -m src.main export --workflow-id abc123
+uv run python -m src.main resume --topic "my research question" --config config/review.yaml --settings config/settings.yaml --run-root runs/
+uv run python -m src.main status --workflow-id abc123 --run-root runs/
+uv run python -m src.main validate --workflow-id abc123 --run-root runs/
+uv run python -m src.main export --workflow-id abc123 --run-root runs/
 ```
 
 ### 11.4 Testing
@@ -860,7 +877,7 @@ The tool enforces these academic standards structurally -- via typed data models
 | ROBINS-I | Phase 4 | 7-domain tool for non-randomized studies; separate judgment scale (Low / Moderate / Serious / Critical / No Information) |
 | CASP | Phase 4 | Qualitative appraisal checklist for qualitative studies |
 | GRADE | Phase 4/6 | Per-outcome certainty across 5 downgrading + 3 upgrading factors; output High / Moderate / Low / Very Low; Summary of Findings table in manuscript |
-| Meta-analysis | Phase 5 | Fixed-effect (I-squared < 40%) or random-effects DerSimonian-Laird (>= 40%); Cochran's Q + I-squared reported; forest plot per outcome; funnel plot when >= 10 studies |
+| Meta-analysis | Phase 5 | Fixed-effect (I-squared < 50%) or random-effects DerSimonian-Laird (>= 50%); Cochran's Q + I-squared reported; forest plot per outcome; funnel plot when >= 10 studies |
 | IEEE submission | Phase 8 | IEEEtran.cls; abstract 150-250 words; 7-10 pages; numbered BibTeX references; PRISMA checklist as supplementary |
 
 **Citation lineage rule:** Every factual claim in the manuscript must trace through: `ClaimRecord -> EvidenceLinkRecord -> CitationEntryRecord -> papers.paper_id`. The `block_export_on_unresolved` gate enforces this at export time. LLMs are constrained to the provided citation catalog; they cannot introduce new references.
