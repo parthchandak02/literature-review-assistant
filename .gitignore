@@ -67,3 +67,9 @@ frontend/.vite/
 
 # Cursor local plans (machine-specific, not project code)
 .cursor/plans/
+
+# Cloudflare Tunnel config (machine-specific, credentials in ~/.cloudflared/)
+cloudflared-config-litreview.yml
+
+# PM2 ecosystem config (machine-specific paths)
+ecosystem.config.js
