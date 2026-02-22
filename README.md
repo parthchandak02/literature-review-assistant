@@ -25,7 +25,7 @@ After a run completes, you get a `submission/` folder containing:
 |------|---------|---------|
 | Python | 3.11+ | [python.org](https://www.python.org/downloads/) or `brew install python` |
 | uv | latest | `curl -LsSf https://astral.sh/uv/install.sh \| sh` |
-| Node.js | 18+ | [nodejs.org](https://nodejs.org/) or `brew install node` |
+| Node.js | 20+ | [nodejs.org](https://nodejs.org/) or `brew install node` |
 | pnpm | latest | `npm install -g pnpm` or `brew install pnpm` |
 
 ---
@@ -249,43 +249,44 @@ Every factual claim in the manuscript is traced back to a citation via the citat
 
 **Dev servers (hot-reload):**
 
-Install [Overmind](https://github.com/DarthSim/overmind) and tmux once:
+The primary dev workflow uses [PM2](https://pm2.keymetrics.io/). Install it once:
 
 ```bash
-# macOS
-brew install overmind
-
-# Linux (requires Go and tmux)
-go install github.com/DarthSim/overmind/v2@latest
-sudo apt-get install tmux   # or your distro's equivalent
+npm install -g pm2
 ```
 
-Then from anywhere in the repo, start both servers with a single command:
+Then start both the FastAPI backend (port 8001, `--reload`) and Vite frontend (port 5173, HMR) with:
 
 ```bash
-./bin/dev
+pm2 start ecosystem.dev.config.js
 ```
 
-This starts the FastAPI backend (port 8000, `--reload`) and Vite frontend (port 5173, HMR)
-together. Both auto-restart on crash. Open `http://localhost:5173`.
+Open `http://localhost:5173`. The Vite dev server proxies `/api` to the backend automatically.
 
-Useful Overmind commands (run from any directory):
+Useful PM2 commands:
 
 ```bash
-overmind connect api      # attach to backend terminal (Ctrl-b d to detach)
-overmind connect ui       # attach to frontend terminal
-overmind restart api      # restart backend only (e.g. after adding a dependency)
-overmind stop             # stop all processes
-./bin/dev -D              # run as background daemon (survives terminal close)
-overmind echo             # tail logs from daemon
-overmind quit             # stop daemon
+pm2 logs              # tail logs from all processes
+pm2 logs api          # tail backend logs only
+pm2 restart api       # restart backend (e.g. after adding a dependency)
+pm2 restart ui        # restart frontend dev server
+pm2 stop all          # stop all processes
+pm2 delete all        # remove all processes from PM2 registry
+pm2 status            # show process status table
 ```
 
-No Overmind? Run each process in its own terminal instead:
+**Alternative -- Overmind (requires tmux):**
+
+```bash
+brew install overmind   # macOS
+overmind start          # reads Procfile.dev
+```
+
+**Alternative -- plain terminals:**
 
 ```bash
 # Terminal 1
-uv run uvicorn src.web.app:app --reload --port 8000
+uv run uvicorn src.web.app:app --reload --port 8001
 
 # Terminal 2
 cd frontend && pnpm dev

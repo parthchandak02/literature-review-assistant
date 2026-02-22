@@ -1,2 +1,2 @@
-api: .venv/bin/uvicorn src.web.app:app --port ${PORT:-8000} --reload --reload-dir src --reload-dir config
-ui:  env PATH=/Users/parthchandak/.nvm/versions/node/v20.19.2/bin:${PATH} sh -c 'cd frontend && pnpm run dev -- --port ${UI_PORT:-5173}'
+api: uv run uvicorn src.web.app:app --port ${PORT:-8001} --reload --reload-dir src --reload-dir config
+ui:  cd frontend && pnpm run dev -- --port ${UI_PORT:-5173}

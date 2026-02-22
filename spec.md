@@ -124,7 +124,7 @@ research-article-writer/
 |   |-- visualization/              # forest_plot, funnel_plot, rob_figure, timeline, geographic
 |   |-- export/                     # ieee_latex, bibtex_builder, submission_packager, prisma_checklist, ieee_validator
 |   |-- llm/                        # provider, gemini_client (shim), pydantic_client, base_client, rate_limiter
-|   |-- web/                        # FastAPI app (18 endpoints, SSE, static serving)
+|   |-- web/                        # FastAPI app (21 endpoints, SSE, static serving)
 |   `-- utils/                      # structured_log, logging_paths (RunPaths + create_run_paths), ssl_context
 |-- tests/
 |   |-- unit/                       # 20 unit test files (86 passing)
@@ -186,12 +186,15 @@ Three-layer configuration following the twelve-factor app principle. Secrets liv
 Never committed to git. Loaded via python-dotenv at startup before any config access.
 
 ```
-GEMINI_API_KEY=...           # Required
-OPENALEX_API_KEY=...         # Required since Feb 2026 (free at openalex.org)
-IEEE_API_KEY=...             # Optional; for IEEE Xplore connector
-NCBI_EMAIL=...               # Required for PubMed Entrez (Biopython)
-PERPLEXITY_API_KEY=...       # Optional; for auxiliary discovery connector
-SEMANTIC_SCHOLAR_API_KEY=... # Optional; improves rate limits for Semantic Scholar
+GEMINI_API_KEY=...              # Required
+OPENALEX_API_KEY=...            # Required since Feb 2026 (free at openalex.org)
+IEEE_API_KEY=...                # Optional; for IEEE Xplore connector
+PUBMED_EMAIL=...                # Required for PubMed Entrez (Biopython)
+PUBMED_API_KEY=...              # Optional; raises PubMed rate limit from 3 to 10 req/sec
+PERPLEXITY_SEARCH_API_KEY=...   # Optional; for auxiliary discovery connector
+SEMANTIC_SCHOLAR_API_KEY=...    # Optional; improves rate limits for Semantic Scholar
+PORT=8001                       # Optional; backend port (default 8001 in dev, 8002 in prod)
+UI_PORT=5173                    # Optional; Vite dev server port (dev only)
 ```
 
 The web UI never stores API keys server-side. The user pastes keys into the Setup form; they are posted in the request body to the local FastAPI process. The browser caches them in `localStorage` under `litreview_api_keys` for convenience between sessions.
@@ -624,13 +627,14 @@ Production:
   Browser opens http://localhost:8000
 ```
 
-Overmind reads `Procfile.dev` and manages both processes:
+PM2 (primary) or Overmind manage both processes. `Procfile.dev` (Overmind) and `ecosystem.dev.config.js` (PM2) are both committed:
+
 ```
-api: uv run uvicorn src.web.app:app --port 8000 --reload
-ui:  cd frontend && pnpm run dev -- --port 5173
+api: uv run uvicorn src.web.app:app --port ${PORT:-8001} --reload --reload-dir src --reload-dir config
+ui:  cd frontend && pnpm run dev -- --port ${UI_PORT:-5173}
 ```
 
-`./bin/dev` starts both. `overmind connect api` drops into the backend pane. `overmind restart api` hot-restarts the backend without touching the frontend.
+PM2: `pm2 start ecosystem.dev.config.js` then `pm2 logs`. Overmind: `overmind start` then `overmind connect api`.
 
 ### 9.2 SSE Event Flow
 
@@ -723,7 +727,7 @@ Run card status border (2px left): emerald = completed, violet = running/connect
 
 ## 10. API Contract
 
-### 10.1 REST Endpoints (18 total)
+### 10.1 REST Endpoints (21 total)
 
 | Method | Path | Description |
 |--------|------|-------------|
@@ -736,7 +740,10 @@ Run card status border (2px left): emerald = completed, violet = running/connect
 | GET | /api/config/review | Default review.yaml content (pre-fills Setup form) |
 | GET | /api/history | Past runs from workflows_registry.db |
 | POST | /api/history/attach | Attach historical run for DB explorer; loads event_log from DB |
+| POST | /api/history/resume | Resume a historical run by workflow_id; re-registers it as active |
 | GET | /api/db/{run_id}/papers | Paginated + searchable papers from runtime.db |
+| GET | /api/db/{run_id}/papers-all | All papers with optional text filters (year, source, decisions) |
+| GET | /api/db/{run_id}/papers-facets | Distinct facet values (sources, decisions) for filter UI |
 | GET | /api/db/{run_id}/screening | Screening decisions with stage/decision filters |
 | GET | /api/db/{run_id}/costs | Cost records grouped by model and phase |
 | GET | /api/run/{run_id}/artifacts | Full run_summary.json for any run (live or historical) |
@@ -792,7 +799,7 @@ Each active run in `src/web/app.py` is tracked as a `_RunRecord` class (not a da
 
 - Python 3.11+, uv (`pip install uv` or `curl -LsSf https://astral.sh/uv/install.sh | sh`)
 - Node 20+, pnpm 10 (`npm install -g pnpm`)
-- Overmind + tmux (`brew install overmind`)
+- PM2 (`npm install -g pm2`) -- primary dev process manager; or Overmind + tmux (`brew install overmind`) as alternative
 - pdflatex (for IEEE export compilation; part of TeX Live or MacTeX)
 - API keys in `.env` (see Section 4.1)
 
@@ -812,8 +819,8 @@ cp .env.example .env
 ### 11.3 Daily Development
 
 ```
-./bin/dev                                        # Start FastAPI + Vite together (recommended)
-# Open http://localhost:5173
+pm2 start ecosystem.dev.config.js               # Start FastAPI + Vite together (recommended)
+# Open http://localhost:5173 -- Vite proxies /api to FastAPI on :8001
 
 # Run CLI only (no frontend needed):
 uv run python -m src.main run --config config/review.yaml
@@ -836,7 +843,7 @@ uv run python -m src.main export --workflow-id abc123 --run-root runs/
 ### 11.4 Testing
 
 ```
-uv run pytest tests/unit -q           # ~86 unit tests
+uv run pytest tests/unit -q           # ~61 unit tests
 uv run pytest tests/integration -q   # integration tests (require config/review.yaml)
 uv run python -m src.main --help      # confirm CLI loads without error
 ```
@@ -900,11 +907,11 @@ Living section -- update as work completes.
 | Phase 6: Writing | DONE | Section writer, humanizer, citation validation, style extractor, naturalness scorer, per-section checkpoint, WritingGroundingData |
 | Phase 7: PRISMA + Viz | DONE | PRISMA diagram (prisma-flow-diagram + fallback), timeline, geographic, ROBINS-I in RoB figure, uniform artifact naming |
 | Phase 8: Export + Orchestration | DONE | Run/resume, IEEE LaTeX, BibTeX, validators, submission packager, pdflatex, CLI subcommands |
-| Web UI | DONE | FastAPI SSE backend (17 endpoints), React/Vite/TypeScript frontend, structured Setup form, run-centric sidebar, 4-tab RunView, DB explorer, cost tracking |
+| Web UI | DONE | FastAPI SSE backend (21 endpoints), React/Vite/TypeScript frontend, structured Setup form, run-centric sidebar, 4-tab RunView, DB explorer, cost tracking |
 | Resume | DONE | Central registry, topic auto-resume, mid-phase resume, fallback scan of run_summary.json |
 | Post-build improvements | DONE | display_label (single source of truth in papers table), synthesis_results table, dedup_count column, SearchConfig per-connector limits, BM25 cap with LOW_RELEVANCE_SCORE exclusions |
 
-**Test status:** 86 unit tests passing (`uv run pytest tests/unit -q`).
+**Test status:** ~61 unit tests passing (`uv run pytest tests/unit -q`).
 
 ---
 
