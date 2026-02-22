@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState, Suspense, lazy } from "react"
 import { AlertTriangle } from "lucide-react"
 import { Sidebar } from "@/components/Sidebar"
 import type { LiveRun } from "@/components/Sidebar"
+import { formatWorkflowId } from "@/lib/format"
 import { useSSEStream } from "@/hooks/useSSEStream"
 import { useCostStats } from "@/hooks/useCostStats"
 import { useBackendHealth } from "@/hooks/useBackendHealth"
@@ -92,6 +93,7 @@ export default function App() {
         topic: liveTopic ?? "",
         status,
         cost: costStats.total_cost,
+        workflowId: liveWorkflowId,
       }
     : null
 
@@ -134,6 +136,15 @@ export default function App() {
       if (stored) saveLiveRun({ ...stored, workflowId: wfId })
     }
   }, [liveOutputs, liveRunId, selectedRun])
+
+  // Eagerly populate selectedRun.workflowId from liveWorkflowId as soon as it is
+  // known (on_workflow_id_ready fires early in the run, before completion).
+  useEffect(() => {
+    if (!liveWorkflowId || !liveRunId) return
+    if (selectedRun?.runId === liveRunId && !selectedRun?.workflowId) {
+      setSelectedRun((r) => (r ? { ...r, workflowId: liveWorkflowId } : r))
+    }
+  }, [liveWorkflowId, liveRunId, selectedRun?.runId, selectedRun?.workflowId])
 
   // Load default YAML config (silently ignored if backend is offline)
   useEffect(() => {
@@ -205,7 +216,7 @@ export default function App() {
     if (!liveRunId || !liveTopic) return
     setSelectedRun({
       runId: liveRunId,
-      workflowId: null,
+      workflowId: liveWorkflowId,
       topic: liveTopic,
       dbPath: null,
       isDone: status === "done" || status === "error" || status === "cancelled",
@@ -371,7 +382,7 @@ export default function App() {
           {/* Workflow ID chip */}
           {selectedRun?.workflowId && (
             <span className="font-mono text-[11px] text-zinc-600 hidden sm:block shrink-0">
-              {selectedRun.workflowId.slice(0, 12)}
+              {formatWorkflowId(selectedRun.workflowId)}
             </span>
           )}
 

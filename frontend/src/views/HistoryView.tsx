@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from "react"
 import { fetchHistory, resumeRun } from "@/lib/api"
 import type { HistoryEntry, RunResponse } from "@/lib/api"
 import { cn } from "@/lib/utils"
-import { formatFullDate, formatDuration } from "@/lib/format"
+import { formatFullDate, formatDuration, formatWorkflowId } from "@/lib/format"
 import { AlertTriangle, BookOpen, Clock, Loader, Play, RefreshCw } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Th, Td } from "@/components/ui/table"
@@ -187,7 +187,7 @@ export function HistoryView({ onAttach, onResume }: HistoryViewProps) {
                         {entry.topic}
                       </span>
                       <span className="text-zinc-600 text-[10px] font-mono block mt-0.5">
-                        {entry.workflow_id}
+                        {formatWorkflowId(entry.workflow_id)}
                       </span>
                     </Td>
 

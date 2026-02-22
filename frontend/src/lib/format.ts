@@ -3,6 +3,16 @@
 // ---------------------------------------------------------------------------
 
 /**
+ * Format a workflow UUID for compact display.
+ * Returns "wf-XXXXXXXX" (prefix + first 8 hex chars) so IDs are easy to
+ * distinguish from plain numbers at a glance.
+ */
+export function formatWorkflowId(id: string | null | undefined): string {
+  if (!id) return ""
+  return `wf-${id.slice(0, 8)}`
+}
+
+/**
  * Parse an ISO or SQLite-style timestamp string into a Date object.
  * SQLite timestamps are stored without "T" and without timezone suffix;
  * we treat them as UTC by appending "Z".

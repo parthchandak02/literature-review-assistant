@@ -1,7 +1,7 @@
 import { Suspense, lazy, useEffect, useRef } from "react"
 import { Activity, BarChart3, Database, FileText, Terminal } from "lucide-react"
 import { cn } from "@/lib/utils"
-import { formatRunDate } from "@/lib/format"
+import { formatRunDate, formatWorkflowId } from "@/lib/format"
 import { Spinner } from "@/components/ui/feedback"
 import { ActivityView } from "@/views/ActivityView"
 import { useLogStream } from "@/hooks/useLogStream"
@@ -248,10 +248,10 @@ export function RunView({
             </InfoPill>
           </>
         )}
-        {run.runId && (
+        {(run.workflowId ?? run.runId) && (
           <>
             <InfoPill dim>|</InfoPill>
-            <InfoPill dim>{run.runId.slice(0, 8)}</InfoPill>
+            <InfoPill dim>{formatWorkflowId(run.workflowId ?? run.runId)}</InfoPill>
           </>
         )}
       </div>

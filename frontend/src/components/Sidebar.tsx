@@ -9,7 +9,7 @@ import {
   RefreshCw,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
-import { formatShortDate } from "@/lib/format"
+import { formatShortDate, formatWorkflowId } from "@/lib/format"
 import { fetchHistory } from "@/lib/api"
 import type { HistoryEntry } from "@/lib/api"
 import {
@@ -85,6 +85,7 @@ export interface LiveRun {
   topic: string
   status: RunStatus
   cost: number
+  workflowId?: string | null
 }
 
 interface SidebarProps {
@@ -361,7 +362,10 @@ export function Sidebar({
             )}
 
             <div className="space-y-0.5">
-              {history.map((entry) => {
+              {(liveRun?.workflowId
+                ? history.filter((e) => e.workflow_id !== liveRun.workflowId)
+                : history
+              ).map((entry) => {
                 const statusKey = resolveStatus(entry.status)
                 const isSelected = selectedWorkflowId === entry.workflow_id
                 const isOpening = openingId === entry.workflow_id
@@ -437,7 +441,7 @@ export function Sidebar({
                             </span>
                           </div>
                           <span className="font-mono text-[9px] text-zinc-600 leading-none mb-0.5">
-                            {entry.workflow_id}
+                            {formatWorkflowId(entry.workflow_id)}
                           </span>
                           <span className="text-xs text-zinc-400 line-clamp-2 leading-snug">
                             {entry.topic}
