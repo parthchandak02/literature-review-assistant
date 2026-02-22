@@ -228,7 +228,7 @@ Full documentation of every config field is in `spec.md` Section 4.
 
 ## How It Works
 
-The pipeline runs as an 8-phase PydanticAI graph. Each phase writes its results to SQLite immediately so a crash can resume from the exact paper where it stopped.
+The pipeline runs as a 6-phase PydanticAI graph plus a FinalizeNode that handles visualization and export. Each phase writes its results to SQLite immediately so a crash can resume from the exact paper where it stopped.
 
 ```text
 Phase 1: Load config, initialize DB, set up LLM provider
@@ -237,8 +237,8 @@ Phase 3: Dual-reviewer screening (AI Reviewer A + B, adjudicator on disagreement
 Phase 4: Data extraction + risk of bias (RoB 2 / ROBINS-I / CASP / GRADE)
 Phase 5: Meta-analysis or narrative synthesis
 Phase 6: Write manuscript sections (abstract through conclusion)
-Phase 7: Generate PRISMA diagram, RoB traffic-light, timeline, geographic chart
-Phase 8: Export IEEE LaTeX + compile PDF
+Finalize: Generate PRISMA diagram, RoB traffic-light, timeline, geographic chart
+          + Export IEEE LaTeX + compile PDF
 ```
 
 Every factual claim in the manuscript is traced back to a citation via the citation ledger. The LLM is given only the real extracted data -- it cannot hallucinate statistics.
@@ -312,11 +312,15 @@ uv run pytest tests/integration -q
 | `src/quality/` | RoB 2, ROBINS-I, CASP, GRADE |
 | `src/synthesis/` | Feasibility checker, meta-analysis, narrative synthesis |
 | `src/writing/` | Section writer, humanizer, style extractor, grounding |
+| `src/citation/` | Citation ledger -- claim-to-evidence-to-BibTeX lineage |
 | `src/export/` | IEEE LaTeX exporter, BibTeX builder, PRISMA validator |
 | `src/visualization/` | Forest plot, funnel plot, RoB figure, timeline, geographic |
 | `src/prisma/` | PRISMA 2020 flow diagram generator |
 | `src/protocol/` | PROSPERO-format protocol generator |
 | `src/web/` | FastAPI backend for the browser UI |
+| `src/llm/` | Gemini client, PydanticAI agent factory, rate limiter |
+| `src/config/` | Config loader (review.yaml + settings.yaml) |
+| `src/utils/` | SSL context, structured logging, shared path helpers |
 | `frontend/` | React + TypeScript web UI |
 
 **Full architecture spec:** `spec.md`
