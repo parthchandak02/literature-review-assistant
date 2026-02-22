@@ -2,7 +2,7 @@
 
 An open source tool that automates systematic literature reviews end-to-end -- from a research question to an IEEE-submission-ready manuscript.
 
-It runs a full PRISMA 2020-compliant pipeline: searches 6+ academic databases, dual-reviews every paper with independent AI reviewers, extracts data, assesses risk of bias (RoB 2, ROBINS-I, GRADE), synthesizes evidence (meta-analysis or narrative), and writes the manuscript with citation lineage enforced throughout.
+It runs a full PRISMA 2020-compliant pipeline: searches 7 academic databases (OpenAlex, PubMed, arXiv, IEEE Xplore, Semantic Scholar, Crossref, Perplexity), dual-reviews every paper with independent AI reviewers, extracts data, assesses risk of bias (RoB 2, ROBINS-I, GRADE), synthesizes evidence (meta-analysis or narrative), and writes the manuscript with citation lineage enforced throughout.
 
 **Use it via browser (web UI) or terminal (CLI).**
 
@@ -213,7 +213,7 @@ Two config files control behavior:
 - `research_question`, `pico`, `keywords`, `domain`
 - `inclusion_criteria`, `exclusion_criteria`
 - `date_range_start`, `date_range_end`
-- `target_databases` (openalex, pubmed, arxiv, ieee_xplore, semantic_scholar, crossref)
+- `target_databases` (openalex, pubmed, arxiv, ieee_xplore, semantic_scholar, crossref, perplexity)
 
 **`config/settings.yaml`** -- change this rarely:
 - LLM model assignments (which Gemini tier handles screening vs. writing)
@@ -232,7 +232,7 @@ The pipeline runs as an 8-phase PydanticAI graph. Each phase writes its results 
 
 ```text
 Phase 1: Load config, initialize DB, set up LLM provider
-Phase 2: Search 6+ databases, deduplicate, generate PROSPERO protocol
+Phase 2: Search 7 databases, deduplicate, generate PROSPERO protocol
 Phase 3: Dual-reviewer screening (AI Reviewer A + B, adjudicator on disagreement)
 Phase 4: Data extraction + risk of bias (RoB 2 / ROBINS-I / CASP / GRADE)
 Phase 5: Meta-analysis or narrative synthesis
@@ -314,6 +314,8 @@ uv run pytest tests/integration -q
 | `src/writing/` | Section writer, humanizer, style extractor, grounding |
 | `src/export/` | IEEE LaTeX exporter, BibTeX builder, PRISMA validator |
 | `src/visualization/` | Forest plot, funnel plot, RoB figure, timeline, geographic |
+| `src/prisma/` | PRISMA 2020 flow diagram generator |
+| `src/protocol/` | PROSPERO-format protocol generator |
 | `src/web/` | FastAPI backend for the browser UI |
 | `frontend/` | React + TypeScript web UI |
 

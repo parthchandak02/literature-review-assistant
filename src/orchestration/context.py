@@ -471,8 +471,21 @@ class WebRunContext:
     offline: bool = False
     progress: None = None
     proceed_with_partial_requested: list[bool] = field(default_factory=lambda: [False], repr=False)
-    on_db_ready: Any = None  # Callable[[str], None] | None -- called when db_path is known
-    on_event: Any = None     # Callable[[dict], None] | None -- called for every emitted event (replay buffer)
+    on_db_ready: Any = None           # Callable[[str], None] | None -- called when db_path is known
+    on_event: Any = None              # Callable[[dict], None] | None -- called for every emitted event (replay buffer)
+    on_workflow_id_ready: Any = None  # Callable[[str, str], None] | None -- called with (workflow_id, run_root)
+
+    def notify_workflow_id(self, workflow_id: str, run_root: str) -> None:
+        """Signal that the workflow_id is now known (called right after register_workflow).
+
+        Used by the web server to capture the workflow_id early so it can update
+        the registry status to 'failed' if the run crashes before FinalizeNode runs.
+        """
+        if self.on_workflow_id_ready is not None:
+            try:
+                self.on_workflow_id_ready(workflow_id, run_root)
+            except Exception:
+                pass
 
     def set_db_path(self, path: str) -> None:
         """Signal that the run database is now available at the given path.

@@ -1,7 +1,7 @@
 """FastAPI web backend for the systematic review tool.
 
 Run with:
-    uv run uvicorn src.web.app:app --reload --port ${PORT:-8000}
+    uv run uvicorn src.web.app:app --reload --port ${PORT:-8001}
 
 Or via Overmind (dev, runs API + Vite together):
     overmind start -f Procfile.dev
@@ -22,15 +22,18 @@ import uuid
 from contextlib import asynccontextmanager
 from typing import Any, AsyncGenerator
 
+import aiofiles
 import aiosqlite
 import yaml
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from sse_starlette.sse import EventSourceResponse
 
+from src.db.workflow_registry import update_heartbeat as _update_registry_heartbeat
+from src.db.workflow_registry import update_status as _update_registry_status
 from src.export.submission_packager import package_submission
 from src.orchestration.context import WebRunContext
 from src.orchestration.workflow import run_workflow, run_workflow_resume
@@ -49,9 +52,9 @@ class _RunRecord:
         self.done = False
         self.error: str | None = None
         self.outputs: dict[str, Any] = {}
-        self.db_path: str | None = None      # set once workflow completes
-        self.workflow_id: str | None = None  # set once workflow completes
-        self.run_root: str = "runs"
+        self.db_path: str | None = None      # set by on_db_ready callback when DB is created
+        self.workflow_id: str | None = None  # set by on_workflow_id_ready callback early in SearchNode
+        self.run_root: str = "runs"          # set immediately from req.run_root in _run_wrapper
         self.created_at: float = time.monotonic()  # for TTL eviction
         # Append-only log of every emitted event for replay on reconnect.
         self.event_log: list[dict[str, Any]] = []
@@ -185,6 +188,7 @@ class AttachRequest(BaseModel):
     workflow_id: str
     topic: str
     db_path: str
+    status: str = "completed"
 
 
 # ---------------------------------------------------------------------------
@@ -284,14 +288,38 @@ async def _load_event_log_from_db(db_path: str) -> list[dict[str, Any]]:
     return events
 
 
+async def _heartbeat_loop(run_root: str, workflow_id: str, interval: int = 60) -> None:
+    """Background task: update heartbeat_at every `interval` seconds while a workflow runs."""
+    try:
+        while True:
+            await asyncio.sleep(interval)
+            try:
+                await _update_registry_heartbeat(run_root, workflow_id)
+            except Exception:
+                pass
+    except asyncio.CancelledError:
+        pass
+
+
 async def _run_wrapper(record: _RunRecord, review_path: str, req: RunRequest) -> None:
+    record.run_root = req.run_root
+    heartbeat_task: asyncio.Task[Any] | None = None
+
     def _on_db_ready(path: str) -> None:
         record.db_path = path
+
+    def _on_workflow_id_ready(workflow_id: str, run_root: str) -> None:
+        record.workflow_id = workflow_id
+        record.run_root = run_root
+        nonlocal heartbeat_task
+        if heartbeat_task is None or heartbeat_task.done():
+            heartbeat_task = asyncio.create_task(_heartbeat_loop(run_root, workflow_id))
 
     ctx = WebRunContext(
         queue=record.queue,
         on_db_ready=_on_db_ready,
         on_event=record.event_log.append,
+        on_workflow_id_ready=_on_workflow_id_ready,
     )
     try:
         outputs = await run_workflow(
@@ -330,7 +358,14 @@ async def _run_wrapper(record: _RunRecord, review_path: str, req: RunRequest) ->
         record.done = True
         record.error = str(exc)
         await record.queue.put({"type": "error", "msg": str(exc)})
+        if record.workflow_id and record.run_root:
+            try:
+                await _update_registry_status(record.run_root, record.workflow_id, "failed")
+            except Exception:
+                pass
     finally:
+        if heartbeat_task is not None:
+            heartbeat_task.cancel()
         try:
             pathlib.Path(review_path).unlink(missing_ok=True)
         except Exception:
@@ -503,6 +538,29 @@ async def _fetch_run_stats(db_path: str) -> dict[str, Any]:
         return {}
 
 
+_STALE_THRESHOLD_SECONDS = 5 * 60  # 5 minutes
+
+
+def _is_stale(row: aiosqlite.Row) -> bool:
+    """Return True if a 'running' row has not received a heartbeat in 5 minutes.
+
+    Falls back to updated_at if heartbeat_at is NULL (runs that pre-date the heartbeat column).
+    """
+    heartbeat = row["heartbeat_at"] or row["updated_at"]
+    if not heartbeat:
+        return True
+    try:
+        import datetime
+        ts = datetime.datetime.fromisoformat(str(heartbeat))
+        # SQLite datetime() produces naive UTC strings; treat them as UTC.
+        if ts.tzinfo is None:
+            ts = ts.replace(tzinfo=datetime.timezone.utc)
+        age = (datetime.datetime.now(datetime.timezone.utc) - ts).total_seconds()
+        return age > _STALE_THRESHOLD_SECONDS
+    except Exception:
+        return True
+
+
 @app.get("/api/history")
 async def list_history(run_root: str = "runs") -> list[HistoryEntry]:
     """Return all past runs from the central workflows_registry.db, enriched
@@ -516,7 +574,8 @@ async def list_history(run_root: str = "runs") -> list[HistoryEntry]:
             async with db.execute(
                 """SELECT workflow_id, topic, status, db_path,
                           COALESCE(created_at, '') AS created_at,
-                          updated_at
+                          updated_at,
+                          heartbeat_at
                    FROM workflows_registry
                    ORDER BY created_at DESC"""
             ) as cur:
@@ -537,10 +596,15 @@ async def list_history(run_root: str = "runs") -> list[HistoryEntry]:
     enriched: list[HistoryEntry] = []
     for row, stats in zip(rows, stat_results):
         s = stats if isinstance(stats, dict) else {}
+        # Mark workflows that are stuck as 'running' after a crash as 'stale'.
+        # We do NOT write this back to the DB; it is a computed view-only status.
+        effective_status = row["status"]
+        if effective_status.lower() == "running" and _is_stale(row):
+            effective_status = "stale"
         enriched.append(HistoryEntry(
             workflow_id=row["workflow_id"],
             topic=row["topic"],
-            status=row["status"],
+            status=effective_status,
             db_path=row["db_path"],
             created_at=row["created_at"] or "",
             updated_at=row["updated_at"],
@@ -606,8 +670,20 @@ class ResumeRequest(BaseModel):
 
 async def _resume_wrapper(record: _RunRecord, workflow_id: str, db_path: str) -> None:
     """Async task that resumes an interrupted workflow from its last checkpoint."""
-    review_path = "config/review.yaml"
     run_root = str(pathlib.Path(db_path).parent.parent.parent.parent)
+    record.run_root = run_root
+    record.workflow_id = workflow_id
+
+    # Start heartbeat immediately -- workflow_id is already known for resumed runs.
+    heartbeat_task: asyncio.Task[Any] = asyncio.create_task(
+        _heartbeat_loop(run_root, workflow_id)
+    )
+
+    # Use the review.yaml saved alongside runtime.db (written by the original web run).
+    # Fall back to the global config if the file is absent (old CLI runs, early crashes).
+    run_dir = pathlib.Path(db_path).parent
+    stored_yaml = run_dir / "review.yaml"
+    review_path = str(stored_yaml) if stored_yaml.exists() else "config/review.yaml"
 
     def _on_db_ready(path: str) -> None:
         record.db_path = path
@@ -638,7 +714,12 @@ async def _resume_wrapper(record: _RunRecord, workflow_id: str, db_path: str) ->
         record.done = True
         record.error = str(exc)
         await record.queue.put({"type": "error", "msg": str(exc)})
+        try:
+            await _update_registry_status(run_root, workflow_id, "failed")
+        except Exception:
+            pass
     finally:
+        heartbeat_task.cancel()
         if record.db_path and record.workflow_id:
             await _persist_event_log(record.db_path, record.workflow_id, record.event_log)
 
@@ -669,6 +750,9 @@ async def attach_history(req: AttachRequest) -> RunResponse:
     record.done = True
     record.db_path = req.db_path
     record.workflow_id = req.workflow_id
+    # Reflect non-completed status so the frontend can differentiate failed/interrupted runs.
+    if req.status not in ("completed", "done"):
+        record.error = f"Workflow {req.status}"
     # FinalizeNode writes run_summary.json in the same directory as runtime.db.
     # It contains output_dir and the full artifacts dict (all output file paths).
     summary_path = pathlib.Path(req.db_path).parent / "run_summary.json"
@@ -809,7 +893,7 @@ async def get_screening(
 
 @app.get("/api/db/{run_id}/papers-facets")
 async def get_papers_facets(run_id: str) -> dict[str, Any]:
-    """Return distinct years and source databases for filter dropdowns."""
+    """Return distinct values for all filter columns (used by autocomplete dropdowns)."""
     db_path = _get_db_path(run_id)
     try:
         async with aiosqlite.connect(db_path) as db:
@@ -822,7 +906,87 @@ async def get_papers_facets(run_id: str) -> dict[str, Any]:
                 "SELECT DISTINCT source_database FROM papers WHERE source_database IS NOT NULL ORDER BY source_database"
             ) as cur:
                 sources = [row[0] for row in await cur.fetchall()]
-        return {"years": years, "sources": sources}
+            async with db.execute(
+                "SELECT DISTINCT country FROM papers WHERE country IS NOT NULL ORDER BY country"
+            ) as cur:
+                countries = [row[0] for row in await cur.fetchall()]
+            async with db.execute(
+                "SELECT DISTINCT final_decision FROM dual_screening_results "
+                "WHERE stage = 'title_abstract' AND final_decision IS NOT NULL ORDER BY final_decision"
+            ) as cur:
+                ta_decisions = [row[0] for row in await cur.fetchall()]
+            async with db.execute(
+                "SELECT DISTINCT final_decision FROM dual_screening_results "
+                "WHERE stage = 'fulltext' AND final_decision IS NOT NULL ORDER BY final_decision"
+            ) as cur:
+                ft_decisions = [row[0] for row in await cur.fetchall()]
+        return {
+            "years": years,
+            "sources": sources,
+            "countries": countries,
+            "ta_decisions": ta_decisions,
+            "ft_decisions": ft_decisions,
+        }
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@app.get("/api/db/{run_id}/papers-suggest")
+async def get_papers_suggest(
+    run_id: str,
+    column: str,
+    q: str = "",
+    limit: int = 10,
+) -> dict[str, Any]:
+    """Return distinct matching values for a column for autocomplete (title and author)."""
+    if column not in ("title", "author"):
+        raise HTTPException(status_code=400, detail="column must be 'title' or 'author'")
+    db_path = _get_db_path(run_id)
+    try:
+        async with aiosqlite.connect(db_path) as db:
+            like = f"%{q}%"
+            if column == "title":
+                async with db.execute(
+                    "SELECT DISTINCT title FROM papers WHERE title LIKE ? AND title IS NOT NULL "
+                    "ORDER BY title LIMIT ?",
+                    (like, limit),
+                ) as cur:
+                    suggestions = [row[0] for row in await cur.fetchall()]
+            else:
+                # Authors is stored as a JSON array; LIKE on raw string gives partial matches
+                async with db.execute(
+                    "SELECT DISTINCT authors FROM papers WHERE authors LIKE ? AND authors IS NOT NULL "
+                    "LIMIT ?",
+                    (like, limit),
+                ) as cur:
+                    raw_rows = [row[0] for row in await cur.fetchall()]
+                # Parse JSON arrays and extract distinct author names matching the query
+                import json as _json_local
+                seen: set[str] = set()
+                suggestions = []
+                for raw in raw_rows:
+                    try:
+                        authors_list = _json_local.loads(raw) if raw.startswith("[") else [raw]
+                        for a in authors_list:
+                            name = (
+                                (a.get("name") or a.get("raw_name") or str(a))
+                                if isinstance(a, dict)
+                                else str(a)
+                            )
+                            if q.lower() in name.lower() and name not in seen:
+                                seen.add(name)
+                                suggestions.append(name)
+                                if len(suggestions) >= limit:
+                                    break
+                    except Exception:
+                        if raw not in seen:
+                            seen.add(raw)
+                            suggestions.append(raw)
+                    if len(suggestions) >= limit:
+                        break
+        return {"suggestions": suggestions}
     except HTTPException:
         raise
     except Exception as exc:
@@ -833,6 +997,8 @@ async def get_papers_facets(run_id: str) -> dict[str, Any]:
 async def get_papers_all(
     run_id: str,
     search: str = "",
+    title: str = "",
+    author: str = "",
     ta_decision: str = "",
     ft_decision: str = "",
     year: str = "",
@@ -854,6 +1020,12 @@ async def get_papers_all(
                 like = f"%{search}%"
                 conditions.append("(p.title LIKE ? OR p.abstract LIKE ? OR p.authors LIKE ?)")
                 params.extend([like, like, like])
+            if title:
+                conditions.append("COALESCE(p.title, '') LIKE ?")
+                params.append(f"%{title}%")
+            if author:
+                conditions.append("COALESCE(p.authors, '') LIKE ?")
+                params.append(f"%{author}%")
             if ta_decision:
                 conditions.append("COALESCE(ta.final_decision, '') LIKE ?")
                 params.append(f"%{ta_decision}%")
@@ -1046,6 +1218,77 @@ if _static_dir.exists():
 
 # ---------------------------------------------------------------------------
 # Utilities
+# ---------------------------------------------------------------------------
+# Log streaming
+# ---------------------------------------------------------------------------
+
+_PM2_LOG_DIR = pathlib.Path.home() / ".pm2" / "logs"
+_TAIL_LINES = 200
+
+
+async def _log_stream_generator(
+    log_path: pathlib.Path, request: Request
+) -> AsyncGenerator[dict[str, str], None]:
+    """Yield the last N lines of a PM2 log file, then stream new lines as they arrive."""
+    import watchfiles  # noqa: PLC0415 -- deferred to avoid startup cost when unused
+
+    # Emit historical tail first
+    if log_path.exists():
+        async with aiofiles.open(log_path, "r", errors="replace") as fh:
+            raw = await fh.read()
+        tail = raw.splitlines()[-_TAIL_LINES:]
+        for line in tail:
+            if await request.is_disconnected():
+                return
+            yield {"event": "log", "data": line}
+
+    # If the file doesn't exist yet, yield a placeholder and wait
+    if not log_path.exists():
+        yield {"event": "log", "data": f"[waiting for {log_path.name}]"}
+
+    last_pos = log_path.stat().st_size if log_path.exists() else 0
+
+    # Watch for new bytes appended to the file
+    async for _ in watchfiles.awatch(str(log_path.parent), stop_event=None):
+        if await request.is_disconnected():
+            return
+        if not log_path.exists():
+            continue
+        current_size = log_path.stat().st_size
+        if current_size <= last_pos:
+            last_pos = current_size  # truncated -- reset
+            continue
+        async with aiofiles.open(log_path, "r", errors="replace") as fh:
+            await fh.seek(last_pos)
+            new_content = await fh.read()
+        last_pos = last_pos + len(new_content.encode("utf-8", errors="replace"))
+        for line in new_content.splitlines():
+            if await request.is_disconnected():
+                return
+            yield {"event": "log", "data": line}
+
+
+@app.get("/api/logs/stream")
+async def stream_logs(
+    request: Request,
+    process: str = "backend",
+    log_type: str = "out",
+) -> EventSourceResponse:
+    """Stream PM2 process log file over SSE.
+
+    Args:
+        process: PM2 process name (matches out_file in ecosystem.config.js).
+        log_type: 'out' for stdout, 'err' for stderr.
+    """
+    if log_type not in ("out", "err"):
+        raise HTTPException(status_code=400, detail="log_type must be 'out' or 'err'")
+    log_path = _PM2_LOG_DIR / f"{process}-{log_type}.log"
+    return EventSourceResponse(
+        _log_stream_generator(log_path, request),
+        headers={"X-Accel-Buffering": "no"},
+    )
+
+
 # ---------------------------------------------------------------------------
 
 def _json_safe(obj: Any) -> str:

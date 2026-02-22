@@ -9,13 +9,14 @@ alwaysApply: true
 ## Project Identity
 - **Purpose:** Automate systematic literature reviews to produce IEEE-submission-ready manuscripts
 - **Stack:** Python 3.11+, PydanticAI Graph, SQLite, Google Gemini 2.5, statsmodels, matplotlib
-- **Package manager:** uv
-- **Architecture:** Typed state, SQLite persistence, 3-tier LLM model selection
+- **Frontend:** React 19, Vite 7, TypeScript, Tailwind 4, Recharts, cmdk, Radix UI
+- **Package manager:** uv (Python), pnpm (frontend)
+- **Architecture:** Typed state, SQLite persistence, 3-tier LLM model selection, FastAPI web server
 
-## Key Directories
+## Key Directories -- Backend
 - `src/models/` -- Pydantic data contracts (enums, config, papers, screening, extraction, quality, writing, workflow)
 - `src/db/` -- SQLite schema, connection manager, typed repositories
-- `src/orchestration/` -- quality gates, workflow graph (workflow.py, context.py, resume.py, state.py)
+- `src/orchestration/` -- quality gates (gates.py), workflow graph (workflow.py), context (context.py), resume (resume.py), state (state.py)
 - `src/search/` -- OpenAlex, PubMed, arXiv, IEEE, Semantic Scholar, Crossref, Perplexity auxiliary + dedup + strategy
 - `src/screening/` -- Dual-reviewer screener, prompts, reliability (Cohen's kappa)
 - `src/extraction/` -- agentic study classifier + baseline structured extraction scaffolding
@@ -24,14 +25,32 @@ alwaysApply: true
 - `src/writing/` -- Section writer, prompts, humanizer, style extractor, naturalness scorer
 - `src/citation/` -- Citation ledger, BibTeX generation
 - `src/prisma/` -- PRISMA 2020 flow diagram
+- `src/protocol/` -- PROSPERO-format protocol generator
 - `src/visualization/` -- Forest plot, funnel plot, RoB figure, timeline, geographic
 - `src/export/` -- IEEE LaTeX, submission packager, PRISMA checklist validator
 - `src/llm/` -- PydanticAI agent factory, rate limiter, cost tracking
+- `src/web/` -- FastAPI backend (app.py): run lifecycle, SSE streaming, history, DB explorer, log streaming
 - `config/` -- review.yaml (per-review) + settings.yaml (system behavior)
+
+## Key Directories -- Frontend
+- `frontend/src/views/` -- RunView (tabs: Activity, Results, Data, Cost, Logs), DatabaseView, CostView, HistoryView
+- `frontend/src/components/` -- Sidebar (drag-resize, resume), UI primitives (command.tsx, status-badge.tsx, table.tsx, feedback.tsx)
+- `frontend/src/hooks/` -- useSSEStream (run events + SQLite replay fallback), useLogStream (backend log SSE)
+- `frontend/src/lib/` -- api.ts (typed API layer), format.ts (date/duration helpers)
 
 ## Key Tables
 - `workflows` (per-run runtime.db) -- topic, config_hash, status
-- `workflows_registry` (central `{run_root}/workflows_registry.db`) -- workflow_id, topic, config_hash, db_path for resume discovery
+- `workflows_registry` (central `{run_root}/workflows_registry.db`) -- workflow_id, topic, config_hash, db_path, status, heartbeat_at
+- `event_log` (per-run runtime.db) -- SSE event replay buffer; fields: workflow_id, event_type, payload, ts
+
+## Web API
+- FastAPI backend on port 8001 (dev) / 8000 (prod), Vite dev server on port 5173
+- Run lifecycle: POST /api/run, GET /api/stream/{run_id}, POST /api/cancel/{run_id}
+- History: GET /api/history, POST /api/history/resume, POST /api/history/attach
+- DB explorer: GET /api/db/{run_id}/papers-all, /papers-facets, /papers-suggest, /costs
+- Event replay: GET /api/workflow/{workflow_id}/events
+- Log streaming: GET /api/logs/stream (SSE, uses watchfiles + aiofiles)
+- Stale detection: heartbeat updated every 60s; runs with no heartbeat for 5+ min become "stale"
 
 ## Critical Constraints
 - **Use `rich`** for CLI output (progress bars, tables, status)

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react"
 import { fetchEventSource } from "@microsoft/fetch-event-source"
-import { fetchRunEvents } from "@/lib/api"
+import { fetchRunEvents, fetchWorkflowEvents } from "@/lib/api"
 import type { ReviewEvent } from "@/lib/api"
 
 export interface SSEState {
@@ -50,12 +50,38 @@ type SetState = React.Dispatch<React.SetStateAction<SSEState>>
 /**
  * Open an SSE connection to /api/stream/{runId}.
  * Incoming events are merged (with deduplication) into existing state.
- * Returns a cleanup function that aborts the connection.
+ * If the stream returns 404 and workflowId is provided, falls back to
+ * replaying historical events from SQLite (handles PM2 restarts).
  */
-function openStream(runId: string, signal: AbortSignal, setState: SetState): void {
+function openStream(runId: string, signal: AbortSignal, setState: SetState, workflowId?: string | null): void {
   fetchEventSource(`/api/stream/${runId}`, {
     signal,
     onopen: async (res) => {
+      if (res.status === 404 && workflowId) {
+        // Backend restarted -- live run is gone but SQLite history may exist.
+        // Fall back to replaying historical events from the workflow log.
+        fetchWorkflowEvents(workflowId).then((events) => {
+          if (signal.aborted) return
+          if (events.length > 0) {
+            setState({ events: dedup(events), status: "done", error: null })
+          } else {
+            setState((s) => ({
+              ...s,
+              status: "error",
+              error: "Run not found on backend (server may have restarted)",
+            }))
+          }
+        }).catch(() => {
+          if (!signal.aborted) {
+            setState((s) => ({
+              ...s,
+              status: "error",
+              error: "Run not found on backend (server may have restarted)",
+            }))
+          }
+        })
+        throw new Error("AbortError") // stop fetch-event-source retry loop
+      }
       if (!res.ok) throw new Error(`Stream open failed: ${res.status}`)
       setState((s) => ({ ...s, status: "streaming" }))
     },
@@ -91,7 +117,7 @@ function openStream(runId: string, signal: AbortSignal, setState: SetState): voi
   })
 }
 
-export function useSSEStream(runId: string | null) {
+export function useSSEStream(runId: string | null, workflowId?: string | null) {
   const [state, setState] = useState<SSEState>({
     events: [],
     status: "idle",
@@ -147,19 +173,20 @@ export function useSSEStream(runId: string | null) {
         }
 
         // Phase 2: open live SSE stream for remaining / future events.
-        openStream(runId, ctrl.signal, setState)
+        // Pass workflowId so openStream can fall back to SQLite replay on 404.
+        openStream(runId, ctrl.signal, setState, workflowId)
       })
       .catch(() => {
         // fetchRunEvents failed (backend offline) -- still try opening SSE directly.
         if (!ctrl.signal.aborted) {
-          openStream(runId, ctrl.signal, setState)
+          openStream(runId, ctrl.signal, setState, workflowId)
         }
       })
 
     return () => {
       ctrl.abort()
     }
-  }, [runId])
+  }, [runId, workflowId])
 
   const abort = useCallback(() => {
     abortRef.current?.abort()

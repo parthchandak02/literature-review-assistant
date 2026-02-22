@@ -210,9 +210,13 @@ export async function fetchPapersAll(
   country = "",
   offset = 0,
   limit = 50,
+  title = "",
+  author = "",
 ): Promise<{ total: number; offset: number; limit: number; papers: PaperAllRow[] }> {
   const params = new URLSearchParams({
     search,
+    title,
+    author,
     ta_decision: taDecision,
     ft_decision: ftDecision,
     year,
@@ -228,10 +232,21 @@ export async function fetchPapersAll(
 
 export async function fetchPapersFacets(
   runId: string,
-): Promise<{ years: number[]; sources: string[] }> {
+): Promise<{ years: number[]; sources: string[]; countries: string[]; ta_decisions: string[]; ft_decisions: string[] }> {
   const res = await fetch(`${BASE}/db/${runId}/papers-facets`)
   if (!res.ok) throw await _apiError(res, "Facets fetch failed")
-  return res.json() as Promise<{ years: number[]; sources: string[] }>
+  return res.json() as Promise<{ years: number[]; sources: string[]; countries: string[]; ta_decisions: string[]; ft_decisions: string[] }>
+}
+
+export async function fetchPapersSuggest(
+  runId: string,
+  column: "title" | "author",
+  q: string,
+): Promise<{ suggestions: string[] }> {
+  const params = new URLSearchParams({ column, q })
+  const res = await fetch(`${BASE}/db/${runId}/papers-suggest?${params}`)
+  if (!res.ok) throw await _apiError(res, "Suggest fetch failed")
+  return res.json() as Promise<{ suggestions: string[] }>
 }
 
 export async function fetchDbCosts(
@@ -301,6 +316,7 @@ export interface StoredLiveRun {
   runId: string
   topic: string
   startedAt: string  // ISO string
+  workflowId?: string | null
 }
 
 const LIVE_RUN_KEY = "litreview_live_run"
@@ -390,6 +406,7 @@ export async function attachHistory(entry: HistoryEntry): Promise<RunResponse> {
       workflow_id: entry.workflow_id,
       topic: entry.topic,
       db_path: entry.db_path,
+      status: entry.status,
     }),
   })
   if (!res.ok) {

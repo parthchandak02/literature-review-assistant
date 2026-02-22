@@ -1,13 +1,15 @@
-import { useCallback, useEffect, useState } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 import {
   BookMarked,
   ChevronLeft,
   ChevronRight,
   Clock,
+  Play,
   Plus,
   RefreshCw,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
+import { formatShortDate } from "@/lib/format"
 import { fetchHistory } from "@/lib/api"
 import type { HistoryEntry } from "@/lib/api"
 import {
@@ -21,7 +23,7 @@ import {
 // Types
 // ---------------------------------------------------------------------------
 
-export type RunStatus = "idle" | "connecting" | "streaming" | "done" | "error" | "cancelled"
+export type RunStatus = "idle" | "connecting" | "streaming" | "done" | "error" | "cancelled" | "stale"
 
 const STATUS_LABEL: Record<RunStatus, string> = {
   idle: "Ready",
@@ -30,6 +32,7 @@ const STATUS_LABEL: Record<RunStatus, string> = {
   done: "Completed",
   error: "Failed",
   cancelled: "Cancelled",
+  stale: "Stale",
 }
 
 const STATUS_DOT: Record<RunStatus, string> = {
@@ -39,6 +42,7 @@ const STATUS_DOT: Record<RunStatus, string> = {
   done: "bg-emerald-500",
   error: "bg-red-500",
   cancelled: "bg-amber-500",
+  stale: "bg-amber-600",
 }
 
 const STATUS_TEXT: Record<RunStatus, string> = {
@@ -48,6 +52,7 @@ const STATUS_TEXT: Record<RunStatus, string> = {
   done: "text-emerald-400",
   error: "text-red-400",
   cancelled: "text-amber-400",
+  stale: "text-amber-500",
 }
 
 const STATUS_BORDER: Record<RunStatus, string> = {
@@ -57,6 +62,7 @@ const STATUS_BORDER: Record<RunStatus, string> = {
   done: "border-emerald-500",
   error: "border-red-500",
   cancelled: "border-amber-500",
+  stale: "border-amber-600",
 }
 
 function resolveStatus(raw: string): RunStatus {
@@ -66,6 +72,7 @@ function resolveStatus(raw: string): RunStatus {
   if (s === "connecting") return "connecting"
   if (s === "error" || s === "failed") return "error"
   if (s === "cancelled" || s === "canceled") return "cancelled"
+  if (s === "stale") return "stale"
   return "idle"
 }
 
@@ -89,8 +96,11 @@ interface SidebarProps {
   onSelectLiveRun: () => void
   onSelectHistory: (entry: HistoryEntry) => void
   onNewReview: () => void
+  onResume?: (entry: HistoryEntry) => Promise<void>
   collapsed: boolean
   onToggle: () => void
+  width: number
+  onWidthChange: (w: number) => void
 }
 
 // ---------------------------------------------------------------------------
@@ -104,13 +114,20 @@ export function Sidebar({
   onSelectLiveRun,
   onSelectHistory,
   onNewReview,
+  onResume,
   collapsed,
   onToggle,
+  width,
+  onWidthChange,
 }: SidebarProps) {
   const [history, setHistory] = useState<HistoryEntry[]>([])
   const [loadingHistory, setLoadingHistory] = useState(false)
   const [historyError, setHistoryError] = useState<string | null>(null)
   const [openingId, setOpeningId] = useState<string | null>(null)
+  const [resumingId, setResumingId] = useState<string | null>(null)
+  const [isDragging, setIsDragging] = useState(false)
+  const dragStartX = useRef(0)
+  const dragStartWidth = useRef(0)
 
   const loadHistory = useCallback(async () => {
     setLoadingHistory(true)
@@ -148,6 +165,25 @@ export function Sidebar({
     }
   }, [liveRun?.status, loadHistory])
 
+  // Drag-to-resize the sidebar
+  useEffect(() => {
+    if (!isDragging) return
+    function onMouseMove(e: MouseEvent) {
+      const delta = e.clientX - dragStartX.current
+      const next = Math.max(200, Math.min(420, dragStartWidth.current + delta))
+      onWidthChange(next)
+    }
+    function onMouseUp() {
+      setIsDragging(false)
+    }
+    document.addEventListener("mousemove", onMouseMove)
+    document.addEventListener("mouseup", onMouseUp)
+    return () => {
+      document.removeEventListener("mousemove", onMouseMove)
+      document.removeEventListener("mouseup", onMouseUp)
+    }
+  }, [isDragging, onWidthChange])
+
   const isRunning =
     liveRun?.status === "streaming" || liveRun?.status === "connecting"
 
@@ -160,14 +196,32 @@ export function Sidebar({
     }
   }
 
+  async function handleResume(e: React.MouseEvent, entry: HistoryEntry) {
+    e.stopPropagation()
+    if (!onResume) return
+    setResumingId(entry.workflow_id)
+    try {
+      await onResume(entry)
+    } finally {
+      setResumingId(null)
+    }
+  }
+
+  function handleDragHandleMouseDown(e: React.MouseEvent) {
+    e.preventDefault()
+    dragStartX.current = e.clientX
+    dragStartWidth.current = width
+    setIsDragging(true)
+  }
+
   return (
     <TooltipProvider delayDuration={0}>
       <aside
         className={cn(
-          "fixed left-0 top-0 h-full bg-zinc-900 border-r border-zinc-800 flex flex-col z-20 select-none",
-          "transition-[width] duration-200 ease-in-out overflow-hidden",
-          collapsed ? "w-[56px]" : "w-[240px]",
+          "fixed left-0 top-0 h-full bg-zinc-900 border-r border-zinc-800 flex flex-col z-20 select-none overflow-hidden",
+          !isDragging && "transition-[width] duration-200 ease-in-out",
         )}
+        style={{ width: collapsed ? 56 : width }}
       >
         {/* Logo row */}
         <div className="flex items-center h-14 border-b border-zinc-800 shrink-0 px-3.5 gap-2">
@@ -330,6 +384,10 @@ export function Sidebar({
                   statChips.push({ value: `$${entry.total_cost.toFixed(2)}`, label: "", valColor: "text-amber-400" })
                 }
 
+                const isResumable = onResume !== undefined &&
+                  ["streaming", "cancelled", "error", "stale"].includes(statusKey)
+                const isResuming = resumingId === entry.workflow_id
+
                 return (
                   <SidebarTooltip
                     key={entry.workflow_id}
@@ -337,71 +395,98 @@ export function Sidebar({
                     collapsed={collapsed}
                     side="right"
                   >
-                    <button
-                      onClick={() => canOpen && void handleSelectHistory(entry)}
-                      disabled={!canOpen}
-                      className={cn(
-                        "w-full transition-colors text-left",
-                        collapsed
-                          ? "flex justify-center items-center h-9 w-9 mx-auto rounded-lg"
-                          : cn(
-                              "border-l-2 pl-2.5 pr-2 py-2 rounded-r-md",
-                              borderColor,
-                            ),
-                        isSelected
-                          ? "bg-zinc-800"
-                          : canOpen
-                            ? "hover:bg-zinc-800/50"
-                            : "opacity-40 cursor-not-allowed",
-                      )}
-                    >
-                      {collapsed ? (
-                        <RunDot status={statusKey} />
-                      ) : (
-                        <div className="flex flex-col gap-0.5 min-w-0">
-                          <div className="flex items-center gap-1.5 min-w-0">
-                            {isOpening ? (
-                              <div className="h-1.5 w-1.5 rounded-full border border-zinc-500 animate-spin shrink-0" />
-                            ) : (
-                              <RunDot status={statusKey} />
-                            )}
-                            <span
-                              className={cn(
-                                "text-[10px] font-semibold uppercase tracking-wide shrink-0",
-                                STATUS_TEXT[statusKey],
+                    <div className="relative group">
+                      <button
+                        onClick={() => canOpen && void handleSelectHistory(entry)}
+                        disabled={!canOpen}
+                        className={cn(
+                          "w-full transition-colors text-left",
+                          collapsed
+                            ? "flex justify-center items-center h-9 w-9 mx-auto rounded-lg"
+                            : cn(
+                                "border-l-2 pl-2.5 pr-2 py-2 rounded-r-md",
+                                borderColor,
+                              ),
+                          isSelected
+                            ? "bg-zinc-800"
+                            : canOpen
+                              ? "hover:bg-zinc-800/50"
+                              : "opacity-40 cursor-not-allowed",
+                        )}
+                      >
+                        {collapsed ? (
+                          <RunDot status={statusKey} />
+                        ) : (
+                          <div className="flex flex-col gap-0.5 min-w-0">
+                            <div className="flex items-center gap-1.5 min-w-0">
+                              {isOpening ? (
+                                <div className="h-1.5 w-1.5 rounded-full border border-zinc-500 animate-spin shrink-0" />
+                              ) : (
+                                <RunDot status={statusKey} />
                               )}
-                            >
-                              {STATUS_LABEL[statusKey]}
-                            </span>
+                              <span
+                                className={cn(
+                                  "text-[10px] font-semibold uppercase tracking-wide shrink-0",
+                                  STATUS_TEXT[statusKey],
+                                )}
+                              >
+                                {STATUS_LABEL[statusKey]}
+                              </span>
                             <span className="ml-auto text-[10px] text-zinc-600 shrink-0 tabular-nums">
                               {formatShortDate(entry.created_at)}
                             </span>
                           </div>
+                          <span className="font-mono text-[9px] text-zinc-600 leading-none mb-0.5">
+                            {entry.workflow_id}
+                          </span>
                           <span className="text-xs text-zinc-400 line-clamp-2 leading-snug">
                             {entry.topic}
                           </span>
-                          {statChips.length > 0 && (
-                            <div className="flex flex-wrap gap-x-2 gap-y-0.5 mt-1">
-                              {statChips.map((chip, idx) => (
-                                <span
-                                  key={`${chip.label}-${chip.valColor}-${idx}`}
-                                  className="flex items-baseline gap-0.5 tabular-nums leading-none"
-                                >
-                                  <span className={`text-[10px] font-semibold ${chip.valColor}`}>
-                                    {chip.value}
-                                  </span>
-                                  {chip.label && (
-                                    <span className="text-[9px] text-zinc-600 font-normal">
-                                      {chip.label}
+                            {statChips.length > 0 && (
+                              <div className="flex flex-wrap gap-x-2 gap-y-0.5 mt-1">
+                                {statChips.map((chip, idx) => (
+                                  <span
+                                    key={`${chip.label}-${chip.valColor}-${idx}`}
+                                    className="flex items-baseline gap-0.5 tabular-nums leading-none"
+                                  >
+                                    <span className={`text-[10px] font-semibold ${chip.valColor}`}>
+                                      {chip.value}
                                     </span>
-                                  )}
-                                </span>
-                              ))}
-                            </div>
+                                    {chip.label && (
+                                      <span className="text-[9px] text-zinc-600 font-normal">
+                                        {chip.label}
+                                      </span>
+                                    )}
+                                  </span>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </button>
+
+                      {/* Inline Resume button -- shown on hover for resumable runs */}
+                      {isResumable && !collapsed && (
+                        <button
+                          onClick={(e) => void handleResume(e, entry)}
+                          disabled={isResuming}
+                          aria-label="Resume run"
+                          title="Resume run"
+                          className={cn(
+                            "absolute top-1.5 right-1.5 flex items-center justify-center",
+                            "h-5 w-5 rounded bg-violet-600 hover:bg-violet-500 text-white",
+                            "opacity-0 group-hover:opacity-100 transition-opacity duration-150",
+                            isResuming && "opacity-100 cursor-wait",
                           )}
-                        </div>
+                        >
+                          {isResuming ? (
+                            <div className="h-2.5 w-2.5 border border-white/60 border-t-white rounded-full animate-spin" />
+                          ) : (
+                            <Play className="h-2.5 w-2.5 fill-white" />
+                          )}
+                        </button>
                       )}
-                    </button>
+                    </div>
                   </SidebarTooltip>
                 )
               })}
@@ -433,6 +518,18 @@ export function Sidebar({
             <ChevronLeft className="h-4 w-4" />
           )}
         </button>
+
+        {/* Drag resize handle */}
+        {!collapsed && (
+          <div
+            onMouseDown={handleDragHandleMouseDown}
+            className={cn(
+              "absolute top-0 right-0 w-1 h-full cursor-col-resize z-30",
+              "hover:bg-violet-500/40 transition-colors duration-150",
+              isDragging && "bg-violet-500/60",
+            )}
+          />
+        )}
       </aside>
     </TooltipProvider>
   )
@@ -464,22 +561,6 @@ function RunDot({
     )
   }
   return <span className={cn("inline-flex rounded-full h-1.5 w-1.5 shrink-0", color)} />
-}
-
-function formatShortDate(raw: string): string {
-  if (!raw) return ""
-  try {
-    const d = new Date(raw.includes("T") ? raw : raw.replace(" ", "T") + "Z")
-    const now = new Date()
-    const diffDays = Math.floor((now.getTime() - d.getTime()) / 86400000)
-    if (diffDays === 0) return "Today"
-    if (diffDays === 1) return "Yesterday"
-    if (diffDays < 7)
-      return d.toLocaleDateString(undefined, { weekday: "short" })
-    return d.toLocaleDateString(undefined, { month: "short", day: "numeric" })
-  } catch {
-    return raw.slice(0, 10)
-  }
 }
 
 function SidebarTooltip({

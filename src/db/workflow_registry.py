@@ -21,12 +21,17 @@ CREATE TABLE IF NOT EXISTS workflows_registry (
     db_path TEXT NOT NULL,
     status TEXT NOT NULL DEFAULT 'running',
     created_at TEXT DEFAULT (datetime('now')),
-    updated_at TEXT DEFAULT (datetime('now'))
+    updated_at TEXT DEFAULT (datetime('now')),
+    heartbeat_at TEXT
 );
 
 CREATE INDEX IF NOT EXISTS idx_registry_topic ON workflows_registry(topic);
 CREATE INDEX IF NOT EXISTS idx_registry_topic_hash ON workflows_registry(topic, config_hash);
 """
+
+_MIGRATION_ADD_HEARTBEAT = (
+    "ALTER TABLE workflows_registry ADD COLUMN heartbeat_at TEXT"
+)
 
 
 @dataclass
@@ -48,11 +53,16 @@ def _registry_path(run_root: str) -> str:
 
 
 async def _ensure_registry(run_root: str) -> str:
-    """Ensure registry db exists with schema. Return absolute path."""
+    """Ensure registry db exists with schema, running migrations. Return absolute path."""
     path = _registry_path(run_root)
     Path(path).parent.mkdir(parents=True, exist_ok=True)
     async with aiosqlite.connect(path) as db:
         await db.executescript(REGISTRY_SCHEMA)
+        # Migration: add heartbeat_at column for existing databases that pre-date the schema change.
+        try:
+            await db.execute(_MIGRATION_ADD_HEARTBEAT)
+        except Exception:
+            pass  # Column already exists -- sqlite raises OperationalError, ignore it.
         await db.commit()
     return path
 
@@ -207,5 +217,22 @@ async def update_status(run_root: str, workflow_id: str, status: str) -> None:
             WHERE workflow_id = ?
             """,
             (status, workflow_id),
+        )
+        await db.commit()
+
+
+async def update_heartbeat(run_root: str, workflow_id: str) -> None:
+    """Stamp heartbeat_at with the current UTC time for a running workflow.
+
+    Called every 60 seconds by a background asyncio task so that the /api/history
+    endpoint can detect workflows that are stuck as 'running' after a hard crash.
+    """
+    path = _registry_path(run_root)
+    if not os.path.isfile(path):
+        return
+    async with aiosqlite.connect(path) as db:
+        await db.execute(
+            "UPDATE workflows_registry SET heartbeat_at = datetime('now') WHERE workflow_id = ?",
+            (workflow_id,),
         )
         await db.commit()

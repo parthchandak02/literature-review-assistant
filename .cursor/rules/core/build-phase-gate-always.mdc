@@ -6,13 +6,15 @@ alwaysApply: true
 
 # Build Phase Discipline
 
-## Current Build Order
+## Current Build Order (ALL PHASES COMPLETE)
 Phase 1: Foundation -> Phase 2: Search -> Phase 3: Screening -> Phase 4: Extraction & Quality -> Phase 5: Synthesis -> Phase 6: Writing -> Phase 7: PRISMA & Viz -> Phase 8: Export & Orchestration
+
+All 8 phases are implemented and verified. See spec.md Section 13 for implementation status.
 
 ## Rules
 - Build in exact phase order. Do not implement Phase N+1 code before Phase N is approved.
 - After completing a phase, run acceptance criteria tests before proceeding.
-- Each build phase has specific test files listed in the v2 spec Part 8.
+- Each build phase has specific test files listed in spec.md Section 11.4.
 - When in doubt about which phase we're in, ask the user.
 
 ## Verification After Each Phase

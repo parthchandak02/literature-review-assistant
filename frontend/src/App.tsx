@@ -10,22 +10,23 @@ import {
   cancelRun,
   fetchArtifacts,
   getDefaultReviewConfig,
+  resumeRun,
   saveLiveRun,
   loadLiveRun,
   clearLiveRun,
   startRun,
 } from "@/lib/api"
+import { Spinner } from "@/components/ui/feedback"
 import type { HistoryEntry, RunRequest, RunResponse } from "@/lib/api"
 import { RunView } from "@/views/RunView"
 import type { RunTab, SelectedRun } from "@/views/RunView"
-import { HistoryView } from "@/views/HistoryView"
 
 const SetupView = lazy(() => import("@/views/SetupView").then((m) => ({ default: m.SetupView })))
 
 function ViewLoader() {
   return (
     <div className="flex items-center justify-center h-48">
-      <div className="h-5 w-5 rounded-full border-2 border-violet-500 border-t-transparent animate-spin" />
+      <Spinner size="md" className="text-violet-500" />
     </div>
   )
 }
@@ -33,7 +34,10 @@ function ViewLoader() {
 
 export default function App() {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
-  const [showSetup, setShowSetup] = useState(false)
+  const [sidebarWidth, setSidebarWidth] = useState<number>(() => {
+    const stored = localStorage.getItem("sidebar-width")
+    return stored ? Math.max(200, Math.min(420, Number(stored))) : 240
+  })
   const [defaultYaml, setDefaultYaml] = useState("")
 
   // --- Live SSE run ---
@@ -51,7 +55,9 @@ export default function App() {
   // Artifacts for historical ResultsView
   const [historyOutputs, setHistoryOutputs] = useState<Record<string, string>>({})
 
-  const { events, status, error, abort, reset } = useSSEStream(liveRunId)
+  const [liveWorkflowId, setLiveWorkflowId] = useState<string | null>(null)
+
+  const { events, status, error, abort, reset } = useSSEStream(liveRunId, liveWorkflowId)
   const costStats = useCostStats(events)
   const { isOnline } = useBackendHealth()
 
@@ -96,9 +102,10 @@ export default function App() {
     setLiveRunId(stored.runId)
     setLiveTopic(stored.topic)
     setLiveStartedAt(new Date(stored.startedAt))
+    if (stored.workflowId) setLiveWorkflowId(stored.workflowId)
     setSelectedRun({
       runId: stored.runId,
-      workflowId: null,
+      workflowId: stored.workflowId ?? null,
       topic: stored.topic,
       dbPath: null,
       isDone: false,
@@ -115,11 +122,16 @@ export default function App() {
   }, [status])
 
   // Update selectedRun workflowId once the live run outputs are available.
+  // Also persist workflowId to localStorage so SSE fallback works after PM2 restart.
   useEffect(() => {
     if (!liveOutputs || !liveRunId) return
     const wfId = liveOutputs.workflow_id as string | undefined
     if (wfId && selectedRun?.runId === liveRunId && !selectedRun?.workflowId) {
       setSelectedRun((r) => (r ? { ...r, workflowId: wfId, isDone: true } : r))
+      setLiveWorkflowId(wfId)
+      // Persist workflowId so it survives a PM2 restart / page refresh
+      const stored = loadLiveRun()
+      if (stored) saveLiveRun({ ...stored, workflowId: wfId })
     }
   }, [liveOutputs, liveRunId, selectedRun])
 
@@ -164,6 +176,7 @@ export default function App() {
     setLiveRunId(res.run_id)
     setLiveTopic(res.topic)
     setLiveStartedAt(now)
+    setLiveWorkflowId(null)
     saveLiveRun({ runId: res.run_id, topic: res.topic, startedAt: now.toISOString() })
     const run: SelectedRun = {
       runId: res.run_id,
@@ -176,7 +189,6 @@ export default function App() {
     }
     setSelectedRun(run)
     setActiveRunTab("activity")
-    setShowSetup(false)
   }
 
   async function handleCancel() {
@@ -185,7 +197,6 @@ export default function App() {
   }
 
   function handleNewReview() {
-    setShowSetup(true)
     setSelectedRun(null)
     setHistoryOutputs({})
   }
@@ -201,36 +212,41 @@ export default function App() {
       startedAt: liveStartedAt,
       createdAt: liveStartedAt?.toISOString() ?? null,
     })
-    setShowSetup(false)
   }
 
   async function handleSelectHistory(entry: HistoryEntry) {
     const res = await attachHistory(entry)
+    const isCompleted = ["completed", "done"].includes(entry.status.toLowerCase())
     setSelectedRun({
       runId: res.run_id,
       workflowId: entry.workflow_id,
       topic: entry.topic,
       dbPath: entry.db_path,
-      isDone: true,
+      isDone: isCompleted,
+      historicalStatus: entry.status,
       startedAt: null,
       createdAt: entry.created_at,
       papersFound: entry.papers_found ?? null,
       papersIncluded: entry.papers_included ?? null,
       historicalCost: entry.total_cost ?? null,
     })
-    setShowSetup(false)
   }
 
-  function handleResumeRun(res: RunResponse) {
+  function handleGoHome() {
+    setSelectedRun(null)
+  }
+
+  function handleResumeRun(res: RunResponse, workflowId: string) {
     const now = new Date()
     reset()
     setLiveRunId(res.run_id)
     setLiveTopic(res.topic)
     setLiveStartedAt(now)
-    saveLiveRun({ runId: res.run_id, topic: res.topic, startedAt: now.toISOString() })
+    setLiveWorkflowId(workflowId)
+    saveLiveRun({ runId: res.run_id, topic: res.topic, startedAt: now.toISOString(), workflowId })
     const run: SelectedRun = {
       runId: res.run_id,
-      workflowId: null,
+      workflowId,
       topic: res.topic,
       dbPath: null,
       isDone: false,
@@ -239,43 +255,54 @@ export default function App() {
     }
     setSelectedRun(run)
     setActiveRunTab("activity")
-    setShowSetup(false)
+  }
+
+  async function handleSidebarResume(entry: HistoryEntry) {
+    const res = await resumeRun(entry)
+    handleResumeRun(res, entry.workflow_id)
+  }
+
+  function handleSidebarWidthChange(w: number) {
+    setSidebarWidth(w)
+    localStorage.setItem("sidebar-width", String(w))
   }
 
   // ---------------------------------------------------------------------------
   // Layout
   // ---------------------------------------------------------------------------
 
-  const sidebarWidth = sidebarCollapsed ? "ml-[56px]" : "ml-[240px]"
+  const mainMargin = sidebarCollapsed ? 56 : sidebarWidth
 
   function renderMain() {
-    if (showSetup || selectedRun === null) {
-      if (showSetup) {
-        return (
-          <Suspense fallback={<ViewLoader />}>
-            <SetupView
-              defaultReviewYaml={defaultYaml}
-              onSubmit={handleStart}
-              disabled={isRunning}
-            />
-          </Suspense>
-        )
-      }
+    if (selectedRun === null) {
       return (
-        <div className="flex-1 overflow-y-auto p-6">
-          <HistoryView
-            onAttach={handleSelectHistory}
-            onResume={handleResumeRun}
+        <Suspense fallback={<ViewLoader />}>
+          <SetupView
+            defaultReviewYaml={defaultYaml}
+            onSubmit={handleStart}
+            disabled={isRunning}
           />
-        </div>
+        </Suspense>
       )
     }
+
+    // Map the registry's raw status string to an SSE-style status for historical runs.
+    const resolvedHistoricalStatus = (() => {
+      const s = (selectedRun.historicalStatus ?? "completed").toLowerCase()
+      if (s === "completed" || s === "done") return "done"
+      if (s === "running" || s === "streaming") return "streaming"
+      if (s === "stale") return "streaming"
+      if (s === "failed" || s === "error") return "error"
+      if (s === "cancelled" || s === "canceled") return "cancelled"
+      if (s === "interrupted") return "cancelled"
+      return "done"
+    })()
 
     return (
       <RunView
         run={selectedRun}
         events={viewEvents}
-        status={isViewingLiveRun ? status : "done"}
+        status={isViewingLiveRun ? status : resolvedHistoricalStatus}
         costStats={isViewingLiveRun ? costStats : { total_cost: 0, total_tokens_in: 0, total_tokens_out: 0, total_calls: 0, by_model: [], by_phase: [] }}
         activeTab={activeRunTab}
         onTabChange={setActiveRunTab}
@@ -290,13 +317,9 @@ export default function App() {
 
   // Breadcrumb
   const breadcrumbTopic = selectedRun?.topic ?? null
-  const breadcrumbTab = showSetup
-    ? "New Review"
-    : selectedRun
-      ? (
-          activeRunTab.charAt(0).toUpperCase() + activeRunTab.slice(1)
-        )
-      : "Home"
+  const breadcrumbTab = selectedRun
+    ? activeRunTab.charAt(0).toUpperCase() + activeRunTab.slice(1)
+    : "New Review"
 
   return (
     <div className="flex h-screen bg-[#09090b] text-zinc-100 overflow-hidden">
@@ -307,18 +330,27 @@ export default function App() {
         onSelectLiveRun={handleSelectLiveRun}
         onSelectHistory={(entry) => void handleSelectHistory(entry)}
         onNewReview={handleNewReview}
+        onResume={handleSidebarResume}
         collapsed={sidebarCollapsed}
         onToggle={() => setSidebarCollapsed((v) => !v)}
+        width={sidebarWidth}
+        onWidthChange={handleSidebarWidthChange}
       />
 
       <main
-        className={`flex-1 h-full overflow-hidden flex flex-col transition-[margin-left] duration-200 ease-in-out ${sidebarWidth}`}
+        className="flex-1 h-full overflow-hidden flex flex-col transition-[margin-left] duration-200 ease-in-out"
+        style={{ marginLeft: mainMargin }}
       >
         {/* Top bar */}
         <header className="sticky top-0 z-10 bg-[#09090b]/80 backdrop-blur-sm border-b border-zinc-800 h-14 flex items-center px-6 gap-4 shrink-0">
           {/* Breadcrumb */}
           <div className="flex items-center gap-1.5 text-sm flex-1 min-w-0">
-            <span className="text-zinc-600 font-medium shrink-0">LitReview</span>
+            <button
+              onClick={handleGoHome}
+              className="text-zinc-600 font-medium shrink-0 hover:text-zinc-400 transition-colors cursor-pointer"
+            >
+              LitReview
+            </button>
             {breadcrumbTopic && (
               <>
                 <span className="text-zinc-700 shrink-0">/</span>
@@ -387,7 +419,7 @@ export default function App() {
             <span className="text-amber-500/70">
               Start it with:{" "}
               <code className="font-mono bg-amber-500/10 px-1 py-0.5 rounded">
-                pm2 start ecosystem.dev.config.js
+                pm2 start ecosystem.config.js
               </code>
             </span>
           </div>
@@ -396,7 +428,7 @@ export default function App() {
         {/* Main content */}
         <div
           className={
-            selectedRun && !showSetup
+            selectedRun !== null
               ? "flex-1 overflow-hidden"
               : "flex-1 overflow-y-auto p-6"
           }

@@ -169,11 +169,11 @@ def _render_single_tool_figure(
     n_studies = len(row_data)
 
     has_note = bool(disclosure_note)
-    note_height = 0.5 if has_note else 0.0
-    dot_height = max(4, n_studies * 0.45)
-    legend_height = 0.5
-    summary_height = 2.0
-    key_height = max(1.8, n_domains * 0.28)
+    note_height = 0.9 if has_note else 0.0
+    dot_height = max(5.5, n_studies * 0.60)
+    legend_height = 0.65
+    summary_height = 2.5
+    key_height = max(2.4, n_domains * 0.40)
     total_height = dot_height + legend_height + summary_height + key_height + note_height
 
     n_rows_gs = 5 if has_note else 4
@@ -181,8 +181,8 @@ def _render_single_tool_figure(
     if has_note:
         height_ratios.append(note_height)
 
-    fig = plt.figure(figsize=(max(10, n_domains * 1.3), total_height))
-    gs = gridspec.GridSpec(n_rows_gs, 1, height_ratios=height_ratios, hspace=0.08, figure=fig)
+    fig = plt.figure(figsize=(max(12, n_domains * 1.9), total_height))
+    gs = gridspec.GridSpec(n_rows_gs, 1, height_ratios=height_ratios, hspace=0.22, figure=fig)
 
     ax_dots = fig.add_subplot(gs[0])
     ax_legend = fig.add_subplot(gs[1])
@@ -197,14 +197,14 @@ def _render_single_tool_figure(
     for row_idx, (label, color_keys) in enumerate(row_data):
         for col_idx, (hex_color, key) in enumerate(zip(dot_colors[row_idx], color_keys)):
             ax_dots.scatter(
-                col_idx, row_idx, s=260, c=hex_color, marker="o",
+                col_idx, row_idx, s=230, c=hex_color, marker="o",
                 edgecolors="black", linewidths=0.6, zorder=3,
             )
             domain_colors_per_col[col_idx].append(key)
 
     ax_dots.set_yticks(range(n_studies))
-    ax_dots.set_yticklabels(y_labels, fontsize=8)
-    ax_dots.set_ylim(-0.6, n_studies - 0.4)
+    ax_dots.set_yticklabels(y_labels, fontsize=9)
+    ax_dots.set_ylim(-0.7, n_studies - 0.3)
     ax_dots.set_xticks(range(n_domains))
     ax_dots.set_xticklabels([d[0] for d in domains], fontsize=9, fontweight="bold")
     ax_dots.set_xlim(-0.6, n_domains - 0.4)

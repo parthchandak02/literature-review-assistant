@@ -29,6 +29,8 @@ dependencies = [
   "bm25s>=0.2",
   "nameparser>=1.1",
   "wordfreq>=3.0",
+  "watchfiles>=1.1.1",
+  "aiofiles>=25.1.0",
 ]
 
 [dependency-groups]

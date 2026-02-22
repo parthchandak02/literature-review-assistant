@@ -1,7 +1,10 @@
-import { Suspense, lazy } from "react"
-import { Activity, BarChart3, Database, FileText } from "lucide-react"
+import { Suspense, lazy, useEffect, useRef } from "react"
+import { Activity, BarChart3, Database, FileText, Terminal } from "lucide-react"
 import { cn } from "@/lib/utils"
+import { formatRunDate } from "@/lib/format"
+import { Spinner } from "@/components/ui/feedback"
 import { ActivityView } from "@/views/ActivityView"
+import { useLogStream } from "@/hooks/useLogStream"
 import type { ReviewEvent } from "@/lib/api"
 import type { CostStats } from "@/hooks/useCostStats"
 
@@ -17,7 +20,7 @@ const ResultsView = lazy(() =>
 // Types
 // ---------------------------------------------------------------------------
 
-export type RunTab = "activity" | "results" | "database" | "cost"
+export type RunTab = "activity" | "results" | "database" | "cost" | "logs"
 
 /** A run that is currently being viewed (live or historical). */
 export interface SelectedRun {
@@ -34,6 +37,8 @@ export interface SelectedRun {
   papersFound?: number | null
   papersIncluded?: number | null
   historicalCost?: number | null
+  /** Raw backend status string for historical runs (e.g. "running", "failed", "completed"). */
+  historicalStatus?: string | null
 }
 
 const TAB_ITEMS: { id: RunTab; label: string; icon: React.ElementType }[] = [
@@ -41,12 +46,69 @@ const TAB_ITEMS: { id: RunTab; label: string; icon: React.ElementType }[] = [
   { id: "results", label: "Results", icon: FileText },
   { id: "database", label: "Data", icon: Database },
   { id: "cost", label: "Cost", icon: BarChart3 },
+  { id: "logs", label: "Logs", icon: Terminal },
 ]
 
 function ViewLoader() {
   return (
     <div className="flex items-center justify-center h-48">
-      <div className="h-5 w-5 rounded-full border-2 border-violet-500 border-t-transparent animate-spin" />
+      <Spinner size="md" className="text-violet-500" />
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Logs panel
+// ---------------------------------------------------------------------------
+
+function LogsPanel({ enabled }: { enabled: boolean }) {
+  const { lines, connected, error, clear } = useLogStream("backend", "out", enabled)
+  const bottomRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    bottomRef.current?.scrollIntoView({ behavior: "smooth" })
+  }, [lines])
+
+  return (
+    <div className="flex flex-col h-full min-h-0">
+      {/* Header */}
+      <div className="flex items-center justify-between mb-3 shrink-0">
+        <div className="flex items-center gap-2">
+          <Terminal className="h-4 w-4 text-zinc-500" />
+          <span className="text-sm font-medium text-zinc-300">Backend Logs</span>
+          <span className="text-[10px] text-zinc-600">(~/.pm2/logs/backend-out.log)</span>
+          <span
+            className={cn(
+              "h-1.5 w-1.5 rounded-full",
+              connected ? "bg-emerald-500" : "bg-zinc-600",
+            )}
+          />
+        </div>
+        <button
+          onClick={clear}
+          className="text-[11px] text-zinc-600 hover:text-zinc-400 transition-colors"
+        >
+          Clear
+        </button>
+      </div>
+
+      {/* Terminal area */}
+      <div className="flex-1 bg-zinc-950 border border-zinc-800 rounded-lg overflow-hidden min-h-0">
+        <div className="h-full overflow-y-auto p-4">
+          {error && (
+            <p className="text-[11px] text-red-400 mb-2 font-mono">{error}</p>
+          )}
+          {lines.length === 0 && !error && (
+            <p className="text-[11px] text-zinc-600 font-mono italic">
+              {enabled ? "Connecting to log stream..." : "Open this tab to start tailing logs."}
+            </p>
+          )}
+          <pre className="font-mono text-[11px] leading-5 text-zinc-300 whitespace-pre-wrap break-all">
+            {lines.join("\n")}
+          </pre>
+          <div ref={bottomRef} />
+        </div>
+      </div>
     </div>
   )
 }
@@ -54,21 +116,6 @@ function ViewLoader() {
 // ---------------------------------------------------------------------------
 // Run info strip helpers
 // ---------------------------------------------------------------------------
-
-function formatRunDate(raw: string | null | undefined): string {
-  if (!raw) return ""
-  try {
-    const d = new Date(raw.includes("T") ? raw : raw.replace(" ", "T") + "Z")
-    return d.toLocaleDateString(undefined, {
-      month: "short",
-      day: "numeric",
-      hour: "numeric",
-      minute: "2-digit",
-    })
-  } catch {
-    return raw.slice(0, 16)
-  }
-}
 
 interface InfoPillProps {
   children: React.ReactNode
@@ -228,46 +275,52 @@ export function RunView({
         ))}
       </div>
 
-      {/* Tab content */}
-      <div className="flex-1 overflow-y-auto p-6">
-        <Suspense fallback={<ViewLoader />}>
-          {activeTab === "activity" && (
-            <ActivityView
-              events={events}
-              status={status}
-              runId={run.runId}
-              isDone={isDone}
-              onCancel={onCancel}
-            />
-          )}
+      {/* Tab content -- Logs tab is full-height, others scroll */}
+      {activeTab === "logs" ? (
+        <div className="flex-1 overflow-hidden p-6 flex flex-col min-h-0">
+          <LogsPanel enabled={activeTab === "logs"} />
+        </div>
+      ) : (
+        <div className="flex-1 overflow-y-auto p-6">
+          <Suspense fallback={<ViewLoader />}>
+            {activeTab === "activity" && (
+              <ActivityView
+                events={events}
+                status={status}
+                runId={run.runId}
+                isDone={isDone}
+                onCancel={onCancel}
+              />
+            )}
 
-          {activeTab === "results" && (
-            <ResultsView
-              outputs={liveOutputs}
-              isDone={isDone}
-              historyOutputs={historyOutputs}
-              exportRunId={isDone ? run.runId : null}
-            />
-          )}
+            {activeTab === "results" && (
+              <ResultsView
+                outputs={liveOutputs}
+                isDone={isDone}
+                historyOutputs={historyOutputs}
+                exportRunId={isDone ? run.runId : null}
+              />
+            )}
 
-          {activeTab === "database" && (
-            <DatabaseView
-              runId={run.runId}
-              isDone={isDone}
-              dbAvailable={dbUnlocked}
-              isLive={isLive}
-            />
-          )}
+            {activeTab === "database" && (
+              <DatabaseView
+                runId={run.runId}
+                isDone={isDone}
+                dbAvailable={dbUnlocked}
+                isLive={isLive}
+              />
+            )}
 
-          {activeTab === "cost" && (
-            <CostView
-              costStats={costStats}
-              dbRunId={run.runId}
-              dbIsDone={isDone}
-            />
-          )}
-        </Suspense>
-      </div>
+            {activeTab === "cost" && (
+              <CostView
+                costStats={costStats}
+                dbRunId={run.runId}
+                dbIsDone={isDone}
+              />
+            )}
+          </Suspense>
+        </div>
+      )}
     </div>
   )
 }

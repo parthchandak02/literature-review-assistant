@@ -1,15 +1,24 @@
-import { useEffect, useRef, useState } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 import * as Popover from "@radix-ui/react-popover"
-import { Input } from "@/components/ui/input"
-import { Button } from "@/components/ui/button"
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from "@/components/ui/command"
 import { FetchError, EmptyState } from "@/components/ui/feedback"
+import { Th, Td, TableSkeleton, Pagination } from "@/components/ui/table"
 import { cn } from "@/lib/utils"
-import { ChevronLeft, ChevronRight, Database, Filter, Loader2, Search } from "lucide-react"
-import { fetchPapersAll } from "@/lib/api"
+import { Database, Filter, Loader2, X } from "lucide-react"
+import { fetchPapersAll, fetchPapersFacets, fetchPapersSuggest } from "@/lib/api"
 import type { PaperAllRow } from "@/lib/api"
 
 const LIVE_REFRESH_MS = 10_000
 const PAGE_SIZE = 50
+const SUGGEST_DEBOUNCE_MS = 200
+const FILTER_DEBOUNCE_MS = 350
 
 const DECISION_COLOR: Record<string, string> = {
   include: "text-emerald-400",
@@ -27,8 +36,8 @@ interface DatabaseViewProps {
 }
 
 export function DatabaseView({ runId, isDone, dbAvailable, isLive }: DatabaseViewProps) {
-  const [search, setSearch] = useState("")
-  const [debouncedSearch, setDebouncedSearch] = useState("")
+  const [titleFilter, setTitleFilter] = useState("")
+  const [authorFilter, setAuthorFilter] = useState("")
   const [taFilter, setTaFilter] = useState("")
   const [ftFilter, setFtFilter] = useState("")
   const [yearFilter, setYearFilter] = useState("")
@@ -41,16 +50,23 @@ export function DatabaseView({ runId, isDone, dbAvailable, isLive }: DatabaseVie
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
+  // Facet data (loaded once on mount / dbAvailable)
+  const [years, setYears] = useState<number[]>([])
+  const [sources, setSources] = useState<string[]>([])
+  const [countries, setCountries] = useState<string[]>([])
+  const [taDecisions, setTaDecisions] = useState<string[]>([])
+  const [ftDecisions, setFtDecisions] = useState<string[]>([])
+
+  // Title / author suggestions from server
+  const [titleSuggestions, setTitleSuggestions] = useState<string[]>([])
+  const [authorSuggestions, setAuthorSuggestions] = useState<string[]>([])
+  const [isSuggestingTitle, setIsSuggestingTitle] = useState(false)
+  const [isSuggestingAuthor, setIsSuggestingAuthor] = useState(false)
+
   // Keep a ref with current filter values so pagination effect can read them
   // without needing them in its dependency array.
-  const filtersRef = useRef({ runId, debouncedSearch, taFilter, ftFilter, yearFilter, sourceFilter, countryFilter })
-  filtersRef.current = { runId, debouncedSearch, taFilter, ftFilter, yearFilter, sourceFilter, countryFilter }
-
-  // Debounce search input
-  useEffect(() => {
-    const t = setTimeout(() => setDebouncedSearch(search), 350)
-    return () => clearTimeout(t)
-  }, [search])
+  const filtersRef = useRef({ runId, titleFilter, authorFilter, taFilter, ftFilter, yearFilter, sourceFilter, countryFilter })
+  filtersRef.current = { runId, titleFilter, authorFilter, taFilter, ftFilter, yearFilter, sourceFilter, countryFilter }
 
   function handleFetchError(e: unknown) {
     const msg = e instanceof Error ? e.message : String(e)
@@ -59,17 +75,54 @@ export function DatabaseView({ runId, isDone, dbAvailable, isLive }: DatabaseVie
     }
   }
 
+  // Load facets once when DB becomes available
+  useEffect(() => {
+    if (!dbAvailable) return
+    fetchPapersFacets(runId)
+      .then((data) => {
+        setYears(data.years)
+        setSources(data.sources)
+        setCountries(data.countries ?? [])
+        setTaDecisions(data.ta_decisions ?? [])
+        setFtDecisions(data.ft_decisions ?? [])
+      })
+      .catch(() => {})
+  }, [runId, dbAvailable])
+
+  const fetchTitleSuggestions = useCallback(
+    (q: string) => {
+      if (!q) { setTitleSuggestions([]); return }
+      setIsSuggestingTitle(true)
+      fetchPapersSuggest(runId, "title", q)
+        .then((d) => setTitleSuggestions(d.suggestions))
+        .catch(() => setTitleSuggestions([]))
+        .finally(() => setIsSuggestingTitle(false))
+    },
+    [runId],
+  )
+
+  const fetchAuthorSuggestions = useCallback(
+    (q: string) => {
+      if (!q) { setAuthorSuggestions([]); return }
+      setIsSuggestingAuthor(true)
+      fetchPapersSuggest(runId, "author", q)
+        .then((d) => setAuthorSuggestions(d.suggestions))
+        .catch(() => setAuthorSuggestions([]))
+        .finally(() => setIsSuggestingAuthor(false))
+    },
+    [runId],
+  )
+
   // Effect 1: any filter or runId change -> reset page to 0 AND fetch with offset=0
-  // This avoids the race where setPage(0) and loadPapers fire in separate effects.
   useEffect(() => {
     if (!dbAvailable) return
     setPage(0)
     let cancelled = false
     setLoading(true)
     setError(null)
-    const { runId: rid, debouncedSearch: q, taFilter: ta, ftFilter: ft, yearFilter: yr, sourceFilter: src, countryFilter: ct } =
+    const { runId: rid, titleFilter: tl, authorFilter: au, taFilter: ta, ftFilter: ft, yearFilter: yr, sourceFilter: src, countryFilter: ct } =
       filtersRef.current
-    fetchPapersAll(rid, q, ta, ft, yr, src, ct, 0, PAGE_SIZE)
+    fetchPapersAll(rid, "", ta, ft, yr, src, ct, 0, PAGE_SIZE, tl, au)
       .then((data) => {
         if (cancelled) return
         setPapers(data.papers)
@@ -79,18 +132,17 @@ export function DatabaseView({ runId, isDone, dbAvailable, isLive }: DatabaseVie
       .finally(() => { if (!cancelled) setLoading(false) })
     return () => { cancelled = true }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [runId, debouncedSearch, taFilter, ftFilter, yearFilter, sourceFilter, countryFilter, dbAvailable])
+  }, [runId, titleFilter, authorFilter, taFilter, ftFilter, yearFilter, sourceFilter, countryFilter, dbAvailable])
 
-  // Effect 2: pagination only (page > 0). Reads latest filters from ref to avoid stale closures.
-  // Page resets to 0 from Effect 1, so this only fires on explicit user page navigation.
+  // Effect 2: pagination only (page > 0).
   useEffect(() => {
     if (page === 0 || !dbAvailable) return
     let cancelled = false
     setLoading(true)
     setError(null)
-    const { runId: rid, debouncedSearch: q, taFilter: ta, ftFilter: ft, yearFilter: yr, sourceFilter: src, countryFilter: ct } =
+    const { runId: rid, titleFilter: tl, authorFilter: au, taFilter: ta, ftFilter: ft, yearFilter: yr, sourceFilter: src, countryFilter: ct } =
       filtersRef.current
-    fetchPapersAll(rid, q, ta, ft, yr, src, ct, page * PAGE_SIZE, PAGE_SIZE)
+    fetchPapersAll(rid, "", ta, ft, yr, src, ct, page * PAGE_SIZE, PAGE_SIZE, tl, au)
       .then((data) => {
         if (cancelled) return
         setPapers(data.papers)
@@ -106,9 +158,9 @@ export function DatabaseView({ runId, isDone, dbAvailable, isLive }: DatabaseVie
   useEffect(() => {
     if (!isLive || !dbAvailable) return
     const id = setInterval(() => {
-      const { runId: rid, debouncedSearch: q, taFilter: ta, ftFilter: ft, yearFilter: yr, sourceFilter: src, countryFilter: ct } =
+      const { runId: rid, titleFilter: tl, authorFilter: au, taFilter: ta, ftFilter: ft, yearFilter: yr, sourceFilter: src, countryFilter: ct } =
         filtersRef.current
-      fetchPapersAll(rid, q, ta, ft, yr, src, ct, 0, PAGE_SIZE)
+      fetchPapersAll(rid, "", ta, ft, yr, src, ct, 0, PAGE_SIZE, tl, au)
         .then((data) => { setPapers(data.papers); setTotal(data.total) })
         .catch(() => {})
     }, LIVE_REFRESH_MS)
@@ -116,14 +168,26 @@ export function DatabaseView({ runId, isDone, dbAvailable, isLive }: DatabaseVie
   }, [isLive, dbAvailable])
 
   const loadPapers = () => {
-    const { runId: rid, debouncedSearch: q, taFilter: ta, ftFilter: ft, yearFilter: yr, sourceFilter: src, countryFilter: ct } =
+    const { runId: rid, titleFilter: tl, authorFilter: au, taFilter: ta, ftFilter: ft, yearFilter: yr, sourceFilter: src, countryFilter: ct } =
       filtersRef.current
     setLoading(true)
     setError(null)
-    fetchPapersAll(rid, q, ta, ft, yr, src, ct, page * PAGE_SIZE, PAGE_SIZE)
+    fetchPapersAll(rid, "", ta, ft, yr, src, ct, page * PAGE_SIZE, PAGE_SIZE, tl, au)
       .then((data) => { setPapers(data.papers); setTotal(data.total) })
       .catch(handleFetchError)
       .finally(() => setLoading(false))
+  }
+
+  const clearAllFilters = () => {
+    setTitleFilter("")
+    setAuthorFilter("")
+    setTaFilter("")
+    setFtFilter("")
+    setYearFilter("")
+    setSourceFilter("")
+    setCountryFilter("")
+    setTitleSuggestions([])
+    setAuthorSuggestions([])
   }
 
   if (!dbAvailable) {
@@ -136,32 +200,15 @@ export function DatabaseView({ runId, isDone, dbAvailable, isLive }: DatabaseVie
     )
   }
 
-  const activeFilters = [search, taFilter, ftFilter, yearFilter, sourceFilter, countryFilter].filter(Boolean).length
+  const activeFilters = [titleFilter, authorFilter, taFilter, ftFilter, yearFilter, sourceFilter, countryFilter].filter(Boolean).length
 
   return (
     <div className="flex flex-col gap-4">
-      {/* Filter bar */}
+      {/* Metadata row */}
       <div className="flex items-center gap-3">
-        <div className="relative flex-1 min-w-[180px] max-w-sm">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-zinc-500" />
-          <Input
-            value={search}
-            onChange={(e: React.ChangeEvent<HTMLInputElement>) => setSearch(e.target.value)}
-            placeholder="Search title, abstract, or authors..."
-            className="pl-8 bg-zinc-900 border-zinc-800 text-zinc-200 placeholder:text-zinc-600 h-8 text-sm"
-          />
-        </div>
         {activeFilters > 0 && (
           <button
-            onClick={() => {
-              setSearch("")
-              setDebouncedSearch("")
-              setTaFilter("")
-              setFtFilter("")
-              setYearFilter("")
-              setSourceFilter("")
-              setCountryFilter("")
-            }}
+            onClick={clearAllFilters}
             className="text-xs text-violet-400 hover:text-violet-300 transition-colors whitespace-nowrap"
           >
             Clear {activeFilters} filter{activeFilters > 1 ? "s" : ""}
@@ -203,14 +250,41 @@ export function DatabaseView({ runId, isDone, dbAvailable, isLive }: DatabaseVie
             <table className="w-full text-xs">
               <thead>
                 <tr className="border-b border-zinc-800">
-                  <Th>Title</Th>
-                  <Th>Authors</Th>
                   <Th
                     filter={
-                      <TextFilterPopover
+                      <FilterComboboxPopover
+                        value={titleFilter}
+                        onChange={setTitleFilter}
+                        placeholder="Search titles..."
+                        serverSuggestions={titleSuggestions}
+                        onSuggestionQuery={fetchTitleSuggestions}
+                        isLoadingSuggestions={isSuggestingTitle}
+                      />
+                    }
+                  >
+                    Title
+                  </Th>
+                  <Th
+                    filter={
+                      <FilterComboboxPopover
+                        value={authorFilter}
+                        onChange={setAuthorFilter}
+                        placeholder="Search authors..."
+                        serverSuggestions={authorSuggestions}
+                        onSuggestionQuery={fetchAuthorSuggestions}
+                        isLoadingSuggestions={isSuggestingAuthor}
+                      />
+                    }
+                  >
+                    Authors
+                  </Th>
+                  <Th
+                    filter={
+                      <FilterComboboxPopover
                         value={yearFilter}
                         onChange={setYearFilter}
-                        placeholder="e.g. 2024"
+                        placeholder="Filter year..."
+                        staticSuggestions={years.map(String)}
                       />
                     }
                   >
@@ -218,10 +292,11 @@ export function DatabaseView({ runId, isDone, dbAvailable, isLive }: DatabaseVie
                   </Th>
                   <Th
                     filter={
-                      <TextFilterPopover
+                      <FilterComboboxPopover
                         value={sourceFilter}
                         onChange={setSourceFilter}
-                        placeholder="e.g. pubmed"
+                        placeholder="Filter source..."
+                        staticSuggestions={sources}
                       />
                     }
                   >
@@ -229,10 +304,11 @@ export function DatabaseView({ runId, isDone, dbAvailable, isLive }: DatabaseVie
                   </Th>
                   <Th
                     filter={
-                      <TextFilterPopover
+                      <FilterComboboxPopover
                         value={countryFilter}
                         onChange={setCountryFilter}
-                        placeholder="e.g. USA"
+                        placeholder="Filter country..."
+                        staticSuggestions={countries}
                       />
                     }
                   >
@@ -240,10 +316,11 @@ export function DatabaseView({ runId, isDone, dbAvailable, isLive }: DatabaseVie
                   </Th>
                   <Th
                     filter={
-                      <TextFilterPopover
+                      <FilterComboboxPopover
                         value={taFilter}
                         onChange={setTaFilter}
                         placeholder="include / exclude..."
+                        staticSuggestions={taDecisions}
                       />
                     }
                   >
@@ -251,10 +328,11 @@ export function DatabaseView({ runId, isDone, dbAvailable, isLive }: DatabaseVie
                   </Th>
                   <Th
                     filter={
-                      <TextFilterPopover
+                      <FilterComboboxPopover
                         value={ftFilter}
                         onChange={setFtFilter}
                         placeholder="include / exclude..."
+                        staticSuggestions={ftDecisions}
                       />
                     }
                   >
@@ -302,21 +380,33 @@ export function DatabaseView({ runId, isDone, dbAvailable, isLive }: DatabaseVie
 }
 
 // ---------------------------------------------------------------------------
-// Filter popovers
+// FilterComboboxPopover
 // ---------------------------------------------------------------------------
 
-/** Unified text-search filter popover used for all column filters. */
-function TextFilterPopover({
-  value,
-  onChange,
-  placeholder,
-}: {
+interface FilterComboboxPopoverProps {
   value: string
   onChange: (v: string) => void
   placeholder: string
-}) {
-  const [local, setLocal] = useState(value)
+  /** Categorical columns: pass all distinct values, filtered client-side by query. */
+  staticSuggestions?: string[]
+  /** Text columns: parent provides server-fetched suggestions. */
+  serverSuggestions?: string[]
+  /** Called with the debounced query so parent can fetch server suggestions. */
+  onSuggestionQuery?: (q: string) => void
+  isLoadingSuggestions?: boolean
+}
+
+function FilterComboboxPopover({
+  value,
+  onChange,
+  placeholder,
+  staticSuggestions,
+  serverSuggestions,
+  onSuggestionQuery,
+  isLoadingSuggestions = false,
+}: FilterComboboxPopoverProps) {
   const [open, setOpen] = useState(false)
+  const [local, setLocal] = useState(value)
   const isActive = value !== ""
 
   // Sync external reset (e.g. "Clear N filters" button) back to local state.
@@ -324,12 +414,38 @@ function TextFilterPopover({
     setLocal(value)
   }, [value])
 
-  // Debounce: propagate to parent 350 ms after the user stops typing.
+  // 200ms debounce for fetching server suggestions.
   useEffect(() => {
-    const t = setTimeout(() => onChange(local), 350)
+    if (!onSuggestionQuery) return
+    const t = setTimeout(() => onSuggestionQuery(local), SUGGEST_DEBOUNCE_MS)
     return () => clearTimeout(t)
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [local])
+
+  // 350ms debounce for applying the table filter.
+  useEffect(() => {
+    const t = setTimeout(() => onChange(local), FILTER_DEBOUNCE_MS)
+    return () => clearTimeout(t)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [local])
+
+  // For static suggestions, filter client-side.
+  const suggestions = staticSuggestions
+    ? staticSuggestions.filter((s) => s.toLowerCase().includes(local.toLowerCase()))
+    : (serverSuggestions ?? [])
+
+  const applyValue = (v: string) => {
+    setLocal(v)
+    onChange(v)
+    setOpen(false)
+  }
+
+  const clearValue = () => {
+    setLocal("")
+    onChange("")
+    if (onSuggestionQuery) onSuggestionQuery("")
+    setOpen(false)
+  }
 
   return (
     <Popover.Root open={open} onOpenChange={setOpen}>
@@ -349,32 +465,82 @@ function TextFilterPopover({
           side="bottom"
           align="start"
           sideOffset={6}
-          className="z-50 flex flex-col gap-1 bg-zinc-900 border border-zinc-800 rounded-lg p-2 shadow-xl shadow-black/40 w-44"
-        >
-          <Input
-            autoFocus
-            value={local}
-            onChange={(e: React.ChangeEvent<HTMLInputElement>) => setLocal(e.target.value)}
-            onKeyDown={(e: React.KeyboardEvent<HTMLInputElement>) => {
-              if (e.key === "Enter") setOpen(false)
-            }}
-            placeholder={placeholder}
-            className="h-7 text-xs bg-zinc-800 border-zinc-700 text-zinc-200 placeholder:text-zinc-600"
-          />
-          {local && (
-            <button
-              onClick={() => { setLocal(""); onChange("") }}
-              className="text-xs text-zinc-500 hover:text-zinc-300 text-left px-1 transition-colors"
-            >
-              Clear
-            </button>
+          onInteractOutside={() => setOpen(false)}
+          className={cn(
+            "z-50 w-56 bg-zinc-900 border border-zinc-800 rounded-xl shadow-2xl shadow-black/60",
+            "overflow-hidden",
           )}
+        >
+          <Command shouldFilter={false}>
+            <div className="relative flex items-center border-b border-zinc-800 px-2">
+              <CommandInput
+                value={local}
+                onValueChange={(v) => setLocal(v)}
+                placeholder={placeholder}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    // Immediately flush the filter without waiting for debounce.
+                    onChange(local)
+                    setOpen(false)
+                  }
+                  if (e.key === "Escape") {
+                    setOpen(false)
+                  }
+                }}
+                className="border-0 focus:ring-0 h-8 text-xs bg-transparent text-zinc-200 placeholder:text-zinc-600 py-0"
+              />
+              {local && (
+                <button
+                  onMouseDown={(e) => {
+                    e.preventDefault()
+                    clearValue()
+                  }}
+                  className="shrink-0 text-zinc-600 hover:text-zinc-300 transition-colors ml-1"
+                  aria-label="Clear filter"
+                >
+                  <X className="h-3 w-3" />
+                </button>
+              )}
+            </div>
+            <CommandList>
+              {isLoadingSuggestions && (
+                <div className="py-2 px-3 text-xs text-zinc-600 flex items-center gap-2">
+                  <Loader2 className="h-3 w-3 animate-spin" />
+                  Loading...
+                </div>
+              )}
+              {!isLoadingSuggestions && suggestions.length === 0 && local && (
+                <CommandEmpty className="py-3 text-xs text-zinc-600">No matches.</CommandEmpty>
+              )}
+              {suggestions.length > 0 && (
+                <CommandGroup>
+                  {suggestions.map((s) => (
+                    <CommandItem
+                      key={s}
+                      value={s}
+                      onSelect={() => applyValue(s)}
+                      className={cn(
+                        "text-xs text-zinc-300 cursor-pointer rounded-md px-2 py-1.5",
+                        "data-[selected=true]:bg-zinc-800 data-[selected=true]:text-zinc-100",
+                      )}
+                    >
+                      <span className="truncate">{s}</span>
+                    </CommandItem>
+                  ))}
+                </CommandGroup>
+              )}
+            </CommandList>
+          </Command>
           <Popover.Arrow className="fill-zinc-800" />
         </Popover.Content>
       </Popover.Portal>
     </Popover.Root>
   )
 }
+
+// ---------------------------------------------------------------------------
+// Helper cells
+// ---------------------------------------------------------------------------
 
 function DecisionCell({ value }: { value: string | null }) {
   if (!value) {
@@ -386,126 +552,5 @@ function DecisionCell({ value }: { value: string | null }) {
         {value}
       </span>
     </Td>
-  )
-}
-
-// ---------------------------------------------------------------------------
-// Shared table primitives
-// ---------------------------------------------------------------------------
-
-function Th({
-  children,
-  align,
-  filter,
-}: {
-  children: React.ReactNode
-  align?: "right"
-  filter?: React.ReactNode
-}) {
-  return (
-    <th
-      className={cn(
-        "px-4 py-2.5 text-xs font-medium text-zinc-500 uppercase tracking-wide",
-        align === "right" ? "text-right" : "text-left",
-      )}
-    >
-      {filter ? (
-        <div className="flex items-center gap-1.5">
-          <span>{children}</span>
-          {filter}
-        </div>
-      ) : (
-        children
-      )}
-    </th>
-  )
-}
-
-function Td({
-  children,
-  className,
-  align,
-}: {
-  children: React.ReactNode
-  className?: string
-  align?: "right"
-}) {
-  return (
-    <td
-      className={cn(
-        "px-4 py-2.5",
-        align === "right" ? "text-right" : "text-left",
-        className,
-      )}
-    >
-      {children}
-    </td>
-  )
-}
-
-function Pagination({
-  page,
-  pageSize,
-  total,
-  onPrev,
-  onNext,
-}: {
-  page: number
-  pageSize: number
-  total: number
-  onPrev: () => void
-  onNext: () => void
-}) {
-  const start = page * pageSize + 1
-  const end = Math.min((page + 1) * pageSize, total)
-  const hasPrev = page > 0
-  const hasNext = end < total
-
-  if (total <= pageSize) return null
-
-  return (
-    <div className="flex items-center justify-between text-xs text-zinc-500">
-      <span>
-        {start}-{end} of {total.toLocaleString()}
-      </span>
-      <div className="flex gap-1">
-        <Button
-          size="sm"
-          variant="outline"
-          onClick={onPrev}
-          disabled={!hasPrev}
-          className="h-7 w-7 p-0 border-zinc-800"
-        >
-          <ChevronLeft className="h-3.5 w-3.5" />
-        </Button>
-        <Button
-          size="sm"
-          variant="outline"
-          onClick={onNext}
-          disabled={!hasNext}
-          className="h-7 w-7 p-0 border-zinc-800"
-        >
-          <ChevronRight className="h-3.5 w-3.5" />
-        </Button>
-      </div>
-    </div>
-  )
-}
-
-function TableSkeleton({ cols, rows }: { cols: number; rows: number }) {
-  return (
-    <div className="p-4 space-y-2">
-      {Array.from({ length: rows }).map((_, i) => (
-        <div key={i} className="flex gap-3">
-          {Array.from({ length: cols }).map((_, j) => (
-            <div
-              key={j}
-              className="h-4 bg-zinc-800 rounded animate-pulse"
-              style={{ flex: j === 0 ? 3 : 1 }}
-            />
-          ))}
-        </div>
-      ))}
-    </div>
   )
 }

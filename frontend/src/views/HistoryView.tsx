@@ -2,53 +2,15 @@ import { useCallback, useEffect, useState } from "react"
 import { fetchHistory, resumeRun } from "@/lib/api"
 import type { HistoryEntry, RunResponse } from "@/lib/api"
 import { cn } from "@/lib/utils"
+import { formatFullDate, formatDuration } from "@/lib/format"
 import { AlertTriangle, BookOpen, Clock, Loader, Play, RefreshCw } from "lucide-react"
 import { Button } from "@/components/ui/button"
-
-const STATUS_STYLE: Record<string, string> = {
-  completed: "text-emerald-400 bg-emerald-500/10 border-emerald-500/20",
-  running: "text-amber-400 bg-amber-500/10 border-amber-500/20",
-  error: "text-red-400 bg-red-500/10 border-red-500/20",
-  failed: "text-red-400 bg-red-500/10 border-red-500/20",
-  interrupted: "text-zinc-400 bg-zinc-800/60 border-zinc-700",
-}
-
-function formatDate(raw: string): string {
-  if (!raw) return "--"
-  try {
-    const d = new Date(raw.includes("T") ? raw : raw.replace(" ", "T") + "Z")
-    return d.toLocaleString(undefined, {
-      month: "short",
-      day: "numeric",
-      year: "numeric",
-      hour: "2-digit",
-      minute: "2-digit",
-    })
-  } catch {
-    return raw.slice(0, 16)
-  }
-}
+import { Th, Td } from "@/components/ui/table"
+import { StatusBadge } from "@/components/ui/status-badge"
 
 /** True if a run has a db_path that could be browsed (including partial/stale runs). */
 function canOpen(entry: HistoryEntry): boolean {
   return Boolean(entry.db_path)
-}
-
-/** Compute human-readable duration from two ISO timestamp strings. */
-function formatDuration(start: string, end: string | null | undefined): string | null {
-  if (!end) return null
-  try {
-    const s = new Date(start.includes("T") ? start : start.replace(" ", "T") + "Z")
-    const e = new Date(end.includes("T") ? end : end.replace(" ", "T") + "Z")
-    const secs = Math.max(0, Math.round((e.getTime() - s.getTime()) / 1000))
-    if (secs < 60) return `${secs}s`
-    const m = Math.floor(secs / 60)
-    const h = Math.floor(m / 60)
-    if (h > 0) return `${h}h ${m % 60}m`
-    return `${m}m ${secs % 60}s`
-  } catch {
-    return null
-  }
 }
 
 /** True if a run may be stale (was marked running but backend has likely restarted). */
@@ -58,7 +20,7 @@ function isLikelyStale(entry: HistoryEntry): boolean {
 
 interface HistoryViewProps {
   onAttach: (entry: HistoryEntry) => Promise<void>
-  onResume: (res: RunResponse) => void
+  onResume: (res: RunResponse, workflowId: string) => void
 }
 
 export function HistoryView({ onAttach, onResume }: HistoryViewProps) {
@@ -117,7 +79,7 @@ export function HistoryView({ onAttach, onResume }: HistoryViewProps) {
     })
     try {
       const res = await resumeRun(entry)
-      onResume(res)
+      onResume(res, entry.workflow_id)
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e)
       setOpenErrors((prev) => ({ ...prev, [entry.workflow_id]: msg }))
@@ -189,31 +151,16 @@ export function HistoryView({ onAttach, onResume }: HistoryViewProps) {
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-zinc-800">
-                <th className="text-left px-5 py-3 text-xs font-medium text-zinc-500 uppercase tracking-wide">
-                  Research Question
-                </th>
-                <th className="text-left px-4 py-3 text-xs font-medium text-zinc-500 uppercase tracking-wide">
-                  Status
-                </th>
-                <th className="text-right px-4 py-3 text-xs font-medium text-zinc-500 uppercase tracking-wide">
-                  Papers
-                </th>
-                <th className="text-right px-4 py-3 text-xs font-medium text-zinc-500 uppercase tracking-wide">
-                  Cost
-                </th>
-                <th className="text-left px-4 py-3 text-xs font-medium text-zinc-500 uppercase tracking-wide">
-                  Date
-                </th>
-                <th className="px-5 py-3 text-xs font-medium text-zinc-500 uppercase tracking-wide text-right">
-                  Open
-                </th>
+                <Th className="px-5">Research Question</Th>
+                <Th>Status</Th>
+                <Th align="right">Papers</Th>
+                <Th align="right">Cost</Th>
+                <Th>Date</Th>
+                <Th align="right" className="px-5">Open</Th>
               </tr>
             </thead>
             <tbody>
               {entries.map((entry, i) => {
-                const statusKey = entry.status.toLowerCase()
-                const statusStyle =
-                  STATUS_STYLE[statusKey] ?? "text-zinc-400 bg-zinc-800/60 border-zinc-700"
                 const isOpening = openingId === entry.workflow_id
                 const openError = openErrors[entry.workflow_id]
                 const stale = isLikelyStale(entry)
@@ -223,7 +170,7 @@ export function HistoryView({ onAttach, onResume }: HistoryViewProps) {
                 const papersFound = entry.papers_found ?? null
                 const papersIncluded = entry.papers_included ?? null
                 const totalCost = entry.total_cost ?? null
-                const isResumable = entry.status.toLowerCase() === "running" || entry.status.toLowerCase() === "interrupted"
+                const isResumable = ["running", "interrupted", "failed", "stale"].includes(entry.status.toLowerCase())
                 const isResuming = resumingId === entry.workflow_id
 
                 return (
@@ -235,26 +182,19 @@ export function HistoryView({ onAttach, onResume }: HistoryViewProps) {
                     )}
                   >
                     {/* Topic */}
-                    <td className="px-5 py-3.5 max-w-xs">
+                    <Td className="px-5 py-3.5 max-w-xs">
                       <span className="text-zinc-200 text-sm line-clamp-2 leading-snug">
                         {entry.topic}
                       </span>
                       <span className="text-zinc-600 text-[10px] font-mono block mt-0.5">
                         {entry.workflow_id}
                       </span>
-                    </td>
+                    </Td>
 
                     {/* Status badge */}
-                    <td className="px-4 py-3.5">
+                    <Td className="py-3.5">
                       <div className="flex flex-col gap-1">
-                        <span
-                          className={cn(
-                            "inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium border w-fit",
-                            statusStyle,
-                          )}
-                        >
-                          {entry.status}
-                        </span>
+                        <StatusBadge status={entry.status} />
                         {stale && (
                           <span className="text-[10px] text-amber-500/70 flex items-center gap-1">
                             <AlertTriangle className="h-2.5 w-2.5" />
@@ -262,10 +202,10 @@ export function HistoryView({ onAttach, onResume }: HistoryViewProps) {
                           </span>
                         )}
                       </div>
-                    </td>
+                    </Td>
 
                     {/* Papers found / included */}
-                    <td className="px-4 py-3.5 text-right">
+                    <Td align="right" className="py-3.5">
                       {papersFound !== null ? (
                         <>
                           <span className="font-mono text-xs text-zinc-200">
@@ -280,10 +220,10 @@ export function HistoryView({ onAttach, onResume }: HistoryViewProps) {
                       ) : (
                         <span className="text-zinc-700 text-xs font-mono">--</span>
                       )}
-                    </td>
+                    </Td>
 
                     {/* Total cost */}
-                    <td className="px-4 py-3.5 text-right">
+                    <Td align="right" className="py-3.5">
                       {totalCost !== null ? (
                         <span className={cn(
                           "font-mono text-xs",
@@ -294,20 +234,20 @@ export function HistoryView({ onAttach, onResume }: HistoryViewProps) {
                       ) : (
                         <span className="text-zinc-700 text-xs font-mono">--</span>
                       )}
-                    </td>
+                    </Td>
 
                     {/* Date + duration */}
-                    <td className="px-4 py-3.5 text-xs text-zinc-500 whitespace-nowrap">
-                      {formatDate(entry.created_at)}
+                    <Td className="py-3.5 text-xs text-zinc-500 whitespace-nowrap">
+                      {formatFullDate(entry.created_at)}
                       {duration && (
                         <span className="text-zinc-600 text-[10px] block mt-0.5">
                           {duration}
                         </span>
                       )}
-                    </td>
+                    </Td>
 
                     {/* Open / Resume buttons */}
-                    <td className="px-5 py-3.5 text-right">
+                    <Td align="right" className="px-5 py-3.5">
                       <div className="flex flex-col items-end gap-1.5">
                         {isResumable && openable ? (
                           <Button
@@ -349,7 +289,7 @@ export function HistoryView({ onAttach, onResume }: HistoryViewProps) {
                           </span>
                         )}
                       </div>
-                    </td>
+                    </Td>
                   </tr>
                 )
               })}

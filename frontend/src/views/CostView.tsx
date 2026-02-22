@@ -51,19 +51,47 @@ const PHASE_COLORS: Record<string, string> = {
   phase_2_search: "#3b82f6",
   phase_3_screening: "#8b5cf6",
   phase_4_extraction: "#f59e0b",
-  phase_4_extraction_quality: "#f59e0b",
+  phase_4_extraction_quality: "#d97706",
   phase_5_synthesis: "#10b981",
   phase_6_writing: "#ef4444",
+  phase_6_humanizer: "#f97316",
+  quality_rob2: "#06b6d4",
+  quality_robins_i: "#0ea5e9",
+  quality_casp: "#38bdf8",
   finalize: "#6b7280",
 }
 
 function phaseColor(phase: string): string {
   if (phase in PHASE_COLORS) return PHASE_COLORS[phase]
-  // Fallback: match by known prefix segments
   for (const [key, color] of Object.entries(PHASE_COLORS)) {
     if (phase.startsWith(key)) return color
   }
   return "#6b7280"
+}
+
+const PHASE_LABEL_MAP: Record<string, string> = {
+  phase_2_search: "Search",
+  phase_3_screening: "Screening",
+  phase_4_extraction: "Extraction",
+  phase_4_extraction_quality: "Ext. Quality",
+  phase_5_synthesis: "Synthesis",
+  phase_6_writing: "Writing",
+  phase_6_humanizer: "Humanizer",
+  quality_rob2: "RoB 2",
+  quality_robins_i: "ROBINS-I",
+  quality_casp: "CASP",
+  finalize: "Finalize",
+}
+
+function formatPhaseName(phase: string): string {
+  if (phase in PHASE_LABEL_MAP) return PHASE_LABEL_MAP[phase]
+  // Generic fallback: strip phase_N_ or quality_ prefix, title-case words
+  return phase
+    .replace(/^phase_\d+_/, "")
+    .replace(/^quality_/, "")
+    .split("_")
+    .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+    .join(" ")
 }
 
 interface CostViewProps {
@@ -140,11 +168,14 @@ export function CostView({ costStats, dbRunId, dbIsDone = false }: CostViewProps
 
   const { total_cost, total_tokens_in, total_tokens_out, total_calls, by_model, by_phase } = activeCostStats
 
-  const chartData = by_phase.map((p) => ({
-    name: p.phase.replace("phase_", "").replace(/_/g, " "),
-    cost: parseFloat(p.cost_usd.toFixed(6)),
-    fullPhase: p.phase,
-  }))
+  const chartData = by_phase
+    .slice()
+    .sort((a, b) => b.cost_usd - a.cost_usd)
+    .map((p) => ({
+      name: formatPhaseName(p.phase),
+      cost: parseFloat(p.cost_usd.toFixed(6)),
+      fullPhase: p.phase,
+    }))
 
   const hasCosts = total_calls > 0
 
@@ -205,26 +236,33 @@ export function CostView({ costStats, dbRunId, dbIsDone = false }: CostViewProps
         />
       </div>
 
-      {/* Cost by phase chart */}
+      {/* Cost by phase chart -- horizontal bars so labels have room */}
       {chartData.length > 0 && (
         <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-5">
           <h3 className="text-sm font-semibold text-zinc-300 mb-4">Cost by Phase</h3>
-          <ResponsiveContainer width="100%" height={200}>
-            <BarChart data={chartData} margin={{ left: -20, right: 10 }}>
+          <ResponsiveContainer width="100%" height={Math.max(180, chartData.length * 36)}>
+            <BarChart
+              data={chartData}
+              layout="vertical"
+              margin={{ left: 4, right: 56, top: 4, bottom: 4 }}
+            >
               <XAxis
-                dataKey="name"
-                tick={{ fill: "#71717a", fontSize: 11 }}
-                axisLine={{ stroke: "#27272a" }}
-                tickLine={false}
-              />
-              <YAxis
+                type="number"
                 tickFormatter={(v: number) => `$${v.toFixed(3)}`}
                 tick={{ fill: "#71717a", fontSize: 10 }}
                 axisLine={false}
                 tickLine={false}
               />
-              <Tooltip content={<DarkTooltip />} cursor={{ fill: "#27272a" }} />
-              <Bar dataKey="cost" radius={[4, 4, 0, 0]}>
+              <YAxis
+                type="category"
+                dataKey="name"
+                width={110}
+                tick={{ fill: "#a1a1aa", fontSize: 11 }}
+                axisLine={false}
+                tickLine={false}
+              />
+              <Tooltip content={<DarkTooltip />} cursor={{ fill: "#27272a55" }} />
+              <Bar dataKey="cost" radius={[0, 4, 4, 0]} label={{ position: "right", formatter: (v: number) => `$${v.toFixed(4)}`, fill: "#52525b", fontSize: 10 }}>
                 {chartData.map((entry) => (
                   <Cell
                     key={entry.fullPhase}
@@ -310,7 +348,13 @@ export function CostView({ costStats, dbRunId, dbIsDone = false }: CostViewProps
                     )}
                   >
                     <td className="px-5 py-3 text-zinc-300 text-xs">
-                      {p.phase.replace(/_/g, " ")}
+                      <div className="flex items-center gap-2">
+                        <span
+                          className="inline-block h-2 w-2 rounded-sm shrink-0"
+                          style={{ backgroundColor: phaseColor(p.phase), opacity: 0.85 }}
+                        />
+                        {formatPhaseName(p.phase)}
+                      </div>
                     </td>
                     <td className="px-4 py-3 text-right tabular-nums text-zinc-400 text-xs">{p.calls}</td>
                     <td className="px-5 py-3 text-right tabular-nums font-mono font-medium text-emerald-400 text-xs">

@@ -1,6 +1,7 @@
 /**
  * Shared feedback components used across multiple views.
  *
+ * Spinner     - inline animated spinner with size variants
  * EmptyState  - centred icon + heading + optional sub-text
  * FetchError  - red alert box with optional retry button
  * LoadingPane - centred spinner for full-pane loading states
@@ -9,6 +10,30 @@ import { AlertTriangle, Loader2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import type { LucideIcon } from "lucide-react"
 import { cn } from "@/lib/utils"
+
+// ---------------------------------------------------------------------------
+// Spinner
+// ---------------------------------------------------------------------------
+
+interface SpinnerProps {
+  /** "sm" = 16px, "md" = 20px (default), "lg" = 32px */
+  size?: "sm" | "md" | "lg"
+  className?: string
+}
+
+const SPINNER_SIZE: Record<string, string> = {
+  sm: "h-4 w-4",
+  md: "h-5 w-5",
+  lg: "h-8 w-8",
+}
+
+export function Spinner({ size = "md", className }: SpinnerProps) {
+  return (
+    <Loader2
+      className={cn("animate-spin text-zinc-500", SPINNER_SIZE[size], className)}
+    />
+  )
+}
 
 // ---------------------------------------------------------------------------
 // EmptyState
