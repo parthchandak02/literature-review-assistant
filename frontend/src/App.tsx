@@ -387,7 +387,7 @@ export default function App() {
             <span className="text-amber-500/70">
               Start it with:{" "}
               <code className="font-mono bg-amber-500/10 px-1 py-0.5 rounded">
-                overmind start -f Procfile.dev
+                pm2 start ecosystem.dev.config.js
               </code>
             </span>
           </div>

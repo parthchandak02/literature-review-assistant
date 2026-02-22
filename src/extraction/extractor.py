@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import logging
+import time
 from typing import List
 
 from pydantic import BaseModel, Field
 
 from src.db.repositories import WorkflowRepository
 from src.llm.base_client import LLMBackend
+from src.llm.pydantic_client import PydanticAIClient
 from src.models import CandidatePaper, ExtractionRecord, StudyDesign
 from src.models.config import ReviewConfig, SettingsConfig
 
@@ -84,11 +86,13 @@ class ExtractionService:
         llm_client: LLMBackend | None = None,
         settings: SettingsConfig | None = None,
         review: ReviewConfig | None = None,
+        provider: object | None = None,
     ):
         self.repository = repository
         self.llm_client = llm_client
         self.settings = settings
         self.review = review
+        self.provider = provider
 
     @staticmethod
     def _heuristic_summary(paper: CandidatePaper, full_text: str) -> str:
@@ -157,9 +161,18 @@ class ExtractionService:
         prompt = _build_extraction_prompt(paper, text, self.review)
         schema = _ExtractionLLMResponse.model_json_schema()
 
-        raw = await self.llm_client.complete(
-            prompt, model=model, temperature=temperature, json_schema=schema
-        )
+        t0 = time.monotonic()
+        if self.provider is not None and isinstance(self.llm_client, PydanticAIClient):
+            raw, tok_in, tok_out, cw, cr = await self.llm_client.complete_with_usage(
+                prompt, model=model, temperature=temperature, json_schema=schema
+            )
+            latency_ms = int((time.monotonic() - t0) * 1000)
+            cost = self.provider.estimate_cost_usd(model, tok_in, tok_out, cw, cr)
+            await self.provider.log_cost(model, tok_in, tok_out, cost, latency_ms, phase="extraction")
+        else:
+            raw = await self.llm_client.complete(
+                prompt, model=model, temperature=temperature, json_schema=schema
+            )
         parsed = _ExtractionLLMResponse.model_validate_json(raw)
 
         outcomes: list[dict[str, str]] = []

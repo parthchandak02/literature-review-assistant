@@ -606,10 +606,11 @@ class ExtractionQualityNode(BaseNode[ReviewState]):
                 llm_client=llm_gemini,
                 settings=state.settings,
                 review=state.review,
+                provider=provider if use_llm else None,
             )
-            rob2 = Rob2Assessor(llm_client=llm_gemini, settings=state.settings)
-            robins_i = RobinsIAssessor(llm_client=llm_gemini, settings=state.settings)
-            casp = CaspAssessor(llm_client=llm_gemini, settings=state.settings)
+            rob2 = Rob2Assessor(llm_client=llm_gemini, settings=state.settings, provider=provider if use_llm else None)
+            robins_i = RobinsIAssessor(llm_client=llm_gemini, settings=state.settings, provider=provider if use_llm else None)
+            casp = CaspAssessor(llm_client=llm_gemini, settings=state.settings, provider=provider if use_llm else None)
             not_applicable_paper_ids: list[str] = []
 
             for i, paper in enumerate(to_process):

@@ -116,7 +116,8 @@ export async function startRun(req: RunRequest): Promise<RunResponse> {
 }
 
 export async function cancelRun(runId: string): Promise<void> {
-  await fetch(`${BASE}/cancel/${runId}`, { method: "POST" })
+  const res = await fetch(`${BASE}/cancel/${runId}`, { method: "POST" })
+  if (!res.ok) throw await _apiError(res, "Cancel failed")
 }
 
 export async function listRuns(): Promise<RunInfo[]> {
@@ -206,6 +207,7 @@ export async function fetchPapersAll(
   ftDecision = "",
   year = "",
   source = "",
+  country = "",
   offset = 0,
   limit = 50,
 ): Promise<{ total: number; offset: number; limit: number; papers: PaperAllRow[] }> {
@@ -215,6 +217,7 @@ export async function fetchPapersAll(
     ft_decision: ftDecision,
     year,
     source,
+    country,
     offset: String(offset),
     limit: String(limit),
   })

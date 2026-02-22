@@ -33,6 +33,7 @@ export function DatabaseView({ runId, isDone, dbAvailable, isLive }: DatabaseVie
   const [ftFilter, setFtFilter] = useState("")
   const [yearFilter, setYearFilter] = useState("")
   const [sourceFilter, setSourceFilter] = useState("")
+  const [countryFilter, setCountryFilter] = useState("")
   const [page, setPage] = useState(0)
 
   const [papers, setPapers] = useState<PaperAllRow[]>([])
@@ -42,8 +43,8 @@ export function DatabaseView({ runId, isDone, dbAvailable, isLive }: DatabaseVie
 
   // Keep a ref with current filter values so pagination effect can read them
   // without needing them in its dependency array.
-  const filtersRef = useRef({ runId, debouncedSearch, taFilter, ftFilter, yearFilter, sourceFilter })
-  filtersRef.current = { runId, debouncedSearch, taFilter, ftFilter, yearFilter, sourceFilter }
+  const filtersRef = useRef({ runId, debouncedSearch, taFilter, ftFilter, yearFilter, sourceFilter, countryFilter })
+  filtersRef.current = { runId, debouncedSearch, taFilter, ftFilter, yearFilter, sourceFilter, countryFilter }
 
   // Debounce search input
   useEffect(() => {
@@ -66,9 +67,9 @@ export function DatabaseView({ runId, isDone, dbAvailable, isLive }: DatabaseVie
     let cancelled = false
     setLoading(true)
     setError(null)
-    const { runId: rid, debouncedSearch: q, taFilter: ta, ftFilter: ft, yearFilter: yr, sourceFilter: src } =
+    const { runId: rid, debouncedSearch: q, taFilter: ta, ftFilter: ft, yearFilter: yr, sourceFilter: src, countryFilter: ct } =
       filtersRef.current
-    fetchPapersAll(rid, q, ta, ft, yr, src, 0, PAGE_SIZE)
+    fetchPapersAll(rid, q, ta, ft, yr, src, ct, 0, PAGE_SIZE)
       .then((data) => {
         if (cancelled) return
         setPapers(data.papers)
@@ -78,7 +79,7 @@ export function DatabaseView({ runId, isDone, dbAvailable, isLive }: DatabaseVie
       .finally(() => { if (!cancelled) setLoading(false) })
     return () => { cancelled = true }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [runId, debouncedSearch, taFilter, ftFilter, yearFilter, sourceFilter, dbAvailable])
+  }, [runId, debouncedSearch, taFilter, ftFilter, yearFilter, sourceFilter, countryFilter, dbAvailable])
 
   // Effect 2: pagination only (page > 0). Reads latest filters from ref to avoid stale closures.
   // Page resets to 0 from Effect 1, so this only fires on explicit user page navigation.
@@ -87,9 +88,9 @@ export function DatabaseView({ runId, isDone, dbAvailable, isLive }: DatabaseVie
     let cancelled = false
     setLoading(true)
     setError(null)
-    const { runId: rid, debouncedSearch: q, taFilter: ta, ftFilter: ft, yearFilter: yr, sourceFilter: src } =
+    const { runId: rid, debouncedSearch: q, taFilter: ta, ftFilter: ft, yearFilter: yr, sourceFilter: src, countryFilter: ct } =
       filtersRef.current
-    fetchPapersAll(rid, q, ta, ft, yr, src, page * PAGE_SIZE, PAGE_SIZE)
+    fetchPapersAll(rid, q, ta, ft, yr, src, ct, page * PAGE_SIZE, PAGE_SIZE)
       .then((data) => {
         if (cancelled) return
         setPapers(data.papers)
@@ -105,9 +106,9 @@ export function DatabaseView({ runId, isDone, dbAvailable, isLive }: DatabaseVie
   useEffect(() => {
     if (!isLive || !dbAvailable) return
     const id = setInterval(() => {
-      const { runId: rid, debouncedSearch: q, taFilter: ta, ftFilter: ft, yearFilter: yr, sourceFilter: src } =
+      const { runId: rid, debouncedSearch: q, taFilter: ta, ftFilter: ft, yearFilter: yr, sourceFilter: src, countryFilter: ct } =
         filtersRef.current
-      fetchPapersAll(rid, q, ta, ft, yr, src, 0, PAGE_SIZE)
+      fetchPapersAll(rid, q, ta, ft, yr, src, ct, 0, PAGE_SIZE)
         .then((data) => { setPapers(data.papers); setTotal(data.total) })
         .catch(() => {})
     }, LIVE_REFRESH_MS)
@@ -115,11 +116,11 @@ export function DatabaseView({ runId, isDone, dbAvailable, isLive }: DatabaseVie
   }, [isLive, dbAvailable])
 
   const loadPapers = () => {
-    const { runId: rid, debouncedSearch: q, taFilter: ta, ftFilter: ft, yearFilter: yr, sourceFilter: src } =
+    const { runId: rid, debouncedSearch: q, taFilter: ta, ftFilter: ft, yearFilter: yr, sourceFilter: src, countryFilter: ct } =
       filtersRef.current
     setLoading(true)
     setError(null)
-    fetchPapersAll(rid, q, ta, ft, yr, src, page * PAGE_SIZE, PAGE_SIZE)
+    fetchPapersAll(rid, q, ta, ft, yr, src, ct, page * PAGE_SIZE, PAGE_SIZE)
       .then((data) => { setPapers(data.papers); setTotal(data.total) })
       .catch(handleFetchError)
       .finally(() => setLoading(false))
@@ -135,7 +136,7 @@ export function DatabaseView({ runId, isDone, dbAvailable, isLive }: DatabaseVie
     )
   }
 
-  const activeFilters = [taFilter, ftFilter, yearFilter, sourceFilter].filter(Boolean).length
+  const activeFilters = [search, taFilter, ftFilter, yearFilter, sourceFilter, countryFilter].filter(Boolean).length
 
   return (
     <div className="flex flex-col gap-4">
@@ -152,7 +153,15 @@ export function DatabaseView({ runId, isDone, dbAvailable, isLive }: DatabaseVie
         </div>
         {activeFilters > 0 && (
           <button
-            onClick={() => { setTaFilter(""); setFtFilter(""); setYearFilter(""); setSourceFilter("") }}
+            onClick={() => {
+              setSearch("")
+              setDebouncedSearch("")
+              setTaFilter("")
+              setFtFilter("")
+              setYearFilter("")
+              setSourceFilter("")
+              setCountryFilter("")
+            }}
             className="text-xs text-violet-400 hover:text-violet-300 transition-colors whitespace-nowrap"
           >
             Clear {activeFilters} filter{activeFilters > 1 ? "s" : ""}
@@ -218,13 +227,23 @@ export function DatabaseView({ runId, isDone, dbAvailable, isLive }: DatabaseVie
                   >
                     Source
                   </Th>
-                  <Th>Country</Th>
+                  <Th
+                    filter={
+                      <TextFilterPopover
+                        value={countryFilter}
+                        onChange={setCountryFilter}
+                        placeholder="e.g. USA"
+                      />
+                    }
+                  >
+                    Country
+                  </Th>
                   <Th
                     filter={
                       <TextFilterPopover
                         value={taFilter}
                         onChange={setTaFilter}
-                        placeholder="e.g. include"
+                        placeholder="include / exclude..."
                       />
                     }
                   >
@@ -235,7 +254,7 @@ export function DatabaseView({ runId, isDone, dbAvailable, isLive }: DatabaseVie
                       <TextFilterPopover
                         value={ftFilter}
                         onChange={setFtFilter}
-                        placeholder="e.g. exclude"
+                        placeholder="include / exclude..."
                       />
                     }
                   >
@@ -297,6 +316,7 @@ function TextFilterPopover({
   placeholder: string
 }) {
   const [local, setLocal] = useState(value)
+  const [open, setOpen] = useState(false)
   const isActive = value !== ""
 
   // Sync external reset (e.g. "Clear N filters" button) back to local state.
@@ -312,7 +332,7 @@ function TextFilterPopover({
   }, [local])
 
   return (
-    <Popover.Root>
+    <Popover.Root open={open} onOpenChange={setOpen}>
       <Popover.Trigger asChild>
         <button
           className={cn(
@@ -335,6 +355,9 @@ function TextFilterPopover({
             autoFocus
             value={local}
             onChange={(e: React.ChangeEvent<HTMLInputElement>) => setLocal(e.target.value)}
+            onKeyDown={(e: React.KeyboardEvent<HTMLInputElement>) => {
+              if (e.key === "Enter") setOpen(false)
+            }}
             placeholder={placeholder}
             className="h-7 text-xs bg-zinc-800 border-zinc-700 text-zinc-200 placeholder:text-zinc-600"
           />

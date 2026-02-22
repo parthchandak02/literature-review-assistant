@@ -837,6 +837,7 @@ async def get_papers_all(
     ft_decision: str = "",
     year: str = "",
     source: str = "",
+    country: str = "",
     offset: int = 0,
     limit: int = 50,
 ) -> dict[str, Any]:
@@ -865,6 +866,9 @@ async def get_papers_all(
             if source:
                 conditions.append("COALESCE(p.source_database, '') LIKE ?")
                 params.append(f"%{source}%")
+            if country:
+                conditions.append("COALESCE(p.country, '') LIKE ?")
+                params.append(f"%{country}%")
 
             where = f"WHERE {' AND '.join(conditions)}" if conditions else ""
 
