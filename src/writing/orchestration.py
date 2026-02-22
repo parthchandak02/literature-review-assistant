@@ -201,6 +201,8 @@ async def write_section_with_validation(
                 cost_usd=metadata.cost_usd,
                 latency_ms=metadata.latency_ms,
                 phase="phase_6_writing",
+                cache_read_tokens=metadata.cache_read_tokens,
+                cache_write_tokens=metadata.cache_write_tokens,
             )
         except Exception as _log_exc:
             logger.warning("Failed to persist writing cost for section '%s': %s", section, _log_exc)

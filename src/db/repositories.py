@@ -515,8 +515,10 @@ class WorkflowRepository:
     async def save_cost_record(self, record: CostRecord) -> None:
         await self.db.execute(
             """
-            INSERT INTO cost_records (model, tokens_in, tokens_out, cost_usd, latency_ms, phase)
-            VALUES (?, ?, ?, ?, ?, ?)
+            INSERT INTO cost_records
+                (model, tokens_in, tokens_out, cost_usd, latency_ms, phase,
+                 cache_read_tokens, cache_write_tokens)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 record.model,
@@ -525,6 +527,8 @@ class WorkflowRepository:
                 record.cost_usd,
                 record.latency_ms,
                 record.phase,
+                record.cache_read_tokens,
+                record.cache_write_tokens,
             ),
         )
         await self.db.commit()

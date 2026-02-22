@@ -85,4 +85,6 @@ class CostRecord(BaseModel):
     cost_usd: float
     latency_ms: int
     phase: str
+    cache_read_tokens: int = 0
+    cache_write_tokens: int = 0
     timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))

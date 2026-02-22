@@ -258,6 +258,8 @@ class SearchNode(BaseNode[ReviewState]):
                 config_hash=config_hash,
                 db_path=state.db_path,
             )
+            if rc is not None and hasattr(rc, "notify_workflow_id"):
+                rc.notify_workflow_id(state.workflow_id, state.run_root)
             gate_runner = GateRunner(repository, state.settings)
             def _on_connector_done(
                 name: str,
@@ -633,82 +635,96 @@ class ExtractionQualityNode(BaseNode[ReviewState]):
                             phase="phase_4_extraction_quality",
                         )
                     )
-                record = await extractor.extract(
-                    workflow_id=state.workflow_id,
-                    paper=paper,
-                    study_design=design,
-                    full_text=full_text,
-                )
-                records.append(record)
-                if rc:
-                    rc.advance_screening("phase_4_extraction_quality", i + 1, len(to_process))
+                try:
+                    record = await extractor.extract(
+                        workflow_id=state.workflow_id,
+                        paper=paper,
+                        study_design=design,
+                        full_text=full_text,
+                    )
+                    records.append(record)
+                    if rc:
+                        rc.advance_screening("phase_4_extraction_quality", i + 1, len(to_process))
 
-                tool = router.route_tool(record)
-                rob_judgment = "not_applicable"
-                if tool == "rob2":
-                    assessment = await rob2.assess(record, full_text=full_text)
-                    await repository.save_rob2_assessment(state.workflow_id, assessment)
-                    rob_judgment = (
-                        assessment.overall_judgment.value
-                        if hasattr(assessment, "overall_judgment")
-                        else "unknown"
+                    tool = router.route_tool(record)
+                    rob_judgment = "not_applicable"
+                    if tool == "rob2":
+                        assessment = await rob2.assess(record, full_text=full_text)
+                        await repository.save_rob2_assessment(state.workflow_id, assessment)
+                        rob_judgment = (
+                            assessment.overall_judgment.value
+                            if hasattr(assessment, "overall_judgment")
+                            else "unknown"
+                        )
+                    elif tool == "robins_i":
+                        assessment = await robins_i.assess(record, full_text=full_text)
+                        await repository.save_robins_i_assessment(state.workflow_id, assessment)
+                        rob_judgment = (
+                            assessment.overall_judgment.value
+                            if hasattr(assessment, "overall_judgment")
+                            else "unknown"
+                        )
+                    elif tool == "casp":
+                        assessment = await casp.assess(record, full_text=full_text)
+                        rob_judgment = getattr(assessment, "overall_summary", "completed")[:80]
+                        await repository.append_decision_log(
+                            DecisionLogEntry(
+                                decision_type="casp_assessment",
+                                paper_id=record.paper_id,
+                                decision="completed",
+                                rationale=assessment.overall_summary,
+                                actor="quality_assessment",
+                                phase="phase_4_extraction_quality",
+                            )
+                        )
+                    else:
+                        # not_applicable: systematic reviews, technical reports, narrative papers.
+                        # ROBINS-I and RoB2 do not apply; record for figure disclosure.
+                        not_applicable_paper_ids.append(record.paper_id)
+                        await repository.append_decision_log(
+                            DecisionLogEntry(
+                                decision_type="rob_not_applicable",
+                                paper_id=record.paper_id,
+                                decision="not_applicable",
+                                rationale=(
+                                    f"Study design '{record.study_design.value}' is not an "
+                                    "interventional study; ROBINS-I/RoB2 assessment not applicable."
+                                ),
+                                actor="quality_assessment",
+                                phase="phase_4_extraction_quality",
+                            )
+                        )
+
+                    grade_assessment = grade.assess_outcome(
+                        outcome_name="primary_outcome",
+                        number_of_studies=1,
+                        study_design=record.study_design,
                     )
-                elif tool == "robins_i":
-                    assessment = await robins_i.assess(record, full_text=full_text)
-                    await repository.save_robins_i_assessment(state.workflow_id, assessment)
-                    rob_judgment = (
-                        assessment.overall_judgment.value
-                        if hasattr(assessment, "overall_judgment")
-                        else "unknown"
-                    )
-                elif tool == "casp":
-                    assessment = await casp.assess(record, full_text=full_text)
-                    rob_judgment = getattr(assessment, "overall_summary", "completed")[:80]
+                    await repository.save_grade_assessment(state.workflow_id, grade_assessment)
+
+                    if rc and rc.verbose:
+                        extraction_summary = (
+                            record.results_summary.get("summary") or ""
+                        )[:300]
+                        rc.log_extraction_paper(
+                            paper_id=paper.paper_id,
+                            design=design.value,
+                            extraction_summary=extraction_summary,
+                            rob_judgment=rob_judgment,
+                        )
+                except Exception as exc:
                     await repository.append_decision_log(
                         DecisionLogEntry(
-                            decision_type="casp_assessment",
-                            paper_id=record.paper_id,
-                            decision="completed",
-                            rationale=assessment.overall_summary,
-                            actor="quality_assessment",
+                            decision_type="extraction_error",
+                            paper_id=paper.paper_id,
+                            decision="error",
+                            rationale=f"Extraction/quality error, paper skipped: {type(exc).__name__}: {exc}",
+                            actor="workflow_run",
                             phase="phase_4_extraction_quality",
                         )
                     )
-                else:
-                    # not_applicable: systematic reviews, technical reports, narrative papers.
-                    # ROBINS-I and RoB2 do not apply; record for figure disclosure.
-                    not_applicable_paper_ids.append(record.paper_id)
-                    await repository.append_decision_log(
-                        DecisionLogEntry(
-                            decision_type="rob_not_applicable",
-                            paper_id=record.paper_id,
-                            decision="not_applicable",
-                            rationale=(
-                                f"Study design '{record.study_design.value}' is not an "
-                                "interventional study; ROBINS-I/RoB2 assessment not applicable."
-                            ),
-                            actor="quality_assessment",
-                            phase="phase_4_extraction_quality",
-                        )
-                    )
-
-                grade_assessment = grade.assess_outcome(
-                    outcome_name="primary_outcome",
-                    number_of_studies=1,
-                    study_design=record.study_design,
-                )
-                await repository.save_grade_assessment(state.workflow_id, grade_assessment)
-
-                if rc and rc.verbose:
-                    extraction_summary = (
-                        record.results_summary.get("summary") or ""
-                    )[:300]
-                    rc.log_extraction_paper(
-                        paper_id=paper.paper_id,
-                        design=design.value,
-                        extraction_summary=extraction_summary,
-                        rob_judgment=rob_judgment,
-                    )
+                    if rc:
+                        rc.advance_screening("phase_4_extraction_quality", i + 1, len(to_process))
 
             rob2_rows, robins_i_rows = await repository.load_rob_assessments(state.workflow_id)
             completeness_ratio = 1.0 if not records else (
@@ -1092,7 +1108,8 @@ class WritingNode(BaseNode[ReviewState]):
                         )
                     for _ in range(humanize_iters):
                         content = await humanize_async(
-                            content, model=h_model, temperature=h_temp, max_chars=4000
+                            content, model=h_model, temperature=h_temp, max_chars=4000,
+                            provider=provider if use_llm_write else None,
                         )
 
                 word_count = len(content.split())

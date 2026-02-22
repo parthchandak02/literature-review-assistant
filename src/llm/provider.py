@@ -141,6 +141,8 @@ class LLMProvider:
         cost_usd: float,
         latency_ms: int,
         phase: str,
+        cache_read_tokens: int = 0,
+        cache_write_tokens: int = 0,
     ) -> None:
         record = CostRecord(
             model=model,
@@ -149,5 +151,7 @@ class LLMProvider:
             cost_usd=cost_usd,
             latency_ms=latency_ms,
             phase=phase,
+            cache_read_tokens=cache_read_tokens,
+            cache_write_tokens=cache_write_tokens,
         )
         await self.repository.save_cost_record(record)

@@ -501,6 +501,8 @@ class DualReviewerScreener:
             cost_usd=cost_usd,
             latency_ms=elapsed_ms,
             phase="phase_3_screening",
+            cache_read_tokens=cache_read,
+            cache_write_tokens=cache_write,
         )
         return ScreeningDecision(
             paper_id=paper_id,

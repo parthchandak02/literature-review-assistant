@@ -168,7 +168,7 @@ class ExtractionService:
             )
             latency_ms = int((time.monotonic() - t0) * 1000)
             cost = self.provider.estimate_cost_usd(model, tok_in, tok_out, cw, cr)
-            await self.provider.log_cost(model, tok_in, tok_out, cost, latency_ms, phase="extraction")
+            await self.provider.log_cost(model, tok_in, tok_out, cost, latency_ms, phase="extraction", cache_read_tokens=cr, cache_write_tokens=cw)
         else:
             raw = await self.llm_client.complete(
                 prompt, model=model, temperature=temperature, json_schema=schema

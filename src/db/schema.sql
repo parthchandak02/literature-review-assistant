@@ -150,6 +150,8 @@ CREATE TABLE IF NOT EXISTS cost_records (
     cost_usd REAL NOT NULL,
     latency_ms INTEGER NOT NULL,
     phase TEXT NOT NULL,
+    cache_read_tokens INTEGER NOT NULL DEFAULT 0,
+    cache_write_tokens INTEGER NOT NULL DEFAULT 0,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 

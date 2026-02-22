@@ -3,8 +3,13 @@
 from __future__ import annotations
 
 import logging
+import time
+from typing import TYPE_CHECKING
 
 from src.llm.pydantic_client import PydanticAIClient
+
+if TYPE_CHECKING:
+    from src.llm.provider import LLMProvider
 
 logger = logging.getLogger(__name__)
 
@@ -44,17 +49,36 @@ async def humanize_async(
     model: str = "google-gla:gemini-2.5-pro",
     temperature: float = 0.3,
     max_chars: int = 4_000,
+    provider: LLMProvider | None = None,
 ) -> str:
     """Refine AI-generated text for academic naturalness using Gemini Pro.
 
     Truncates input to max_chars before sending. Falls back to returning the
-    original text if the LLM call fails.
+    original text if the LLM call fails. When provider is supplied, the LLM
+    call's token counts and cost are logged to the cost_records table.
     """
     truncated = text[:max_chars]
     prompt = _HUMANIZE_PROMPT_TEMPLATE.format(text=truncated)
     client = PydanticAIClient()
     try:
-        refined = await client.complete(prompt, model=model, temperature=temperature)
+        t0 = time.monotonic()
+        refined, tok_in, tok_out, cw, cr = await client.complete_with_usage(
+            prompt, model=model, temperature=temperature
+        )
+        latency_ms = int((time.monotonic() - t0) * 1000)
+        if provider is not None:
+            from src.llm.provider import LLMProvider as _LLMProvider
+            cost = _LLMProvider.estimate_cost_usd(model, tok_in, tok_out, cw, cr)
+            await provider.log_cost(
+                model=model,
+                tokens_in=tok_in,
+                tokens_out=tok_out,
+                cost_usd=cost,
+                latency_ms=latency_ms,
+                phase="phase_6_humanizer",
+                cache_read_tokens=cr,
+                cache_write_tokens=cw,
+            )
         # Preserve any text beyond max_chars that was truncated
         if len(text) > max_chars:
             refined = refined + "\n" + text[max_chars:]

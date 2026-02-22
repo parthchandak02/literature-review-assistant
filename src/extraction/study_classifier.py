@@ -169,6 +169,8 @@ class StudyClassifier:
             cost_usd=cost_usd,
             latency_ms=elapsed_ms,
             phase="phase_4_extraction_quality",
+            cache_read_tokens=cache_read,
+            cache_write_tokens=cache_write,
         )
         if self.on_llm_call:
             details = f"{paper.paper_id[:12]} {parsed.study_design.value}" if parsed else f"{paper.paper_id[:12]} parse_error"

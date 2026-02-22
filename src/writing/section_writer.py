@@ -21,6 +21,8 @@ class SectionWriteMetadata:
     tokens_out: int
     cost_usd: float
     latency_ms: int
+    cache_read_tokens: int = 0
+    cache_write_tokens: int = 0
 
 from src.writing.prompts.base import PROHIBITED_PHRASES, get_citation_catalog_constraint
 
@@ -103,6 +105,8 @@ class SectionWriter:
             tokens_out=tokens_out,
             cost_usd=cost_usd,
             latency_ms=elapsed_ms,
+            cache_read_tokens=cache_read,
+            cache_write_tokens=cache_write,
         )
         return content, metadata
 
