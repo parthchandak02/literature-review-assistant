@@ -97,17 +97,16 @@ function formatPhaseName(phase: string): string {
 interface CostViewProps {
   costStats: CostStats
   dbRunId?: string | null
-  dbIsDone?: boolean
 }
 
-export function CostView({ costStats, dbRunId, dbIsDone = false }: CostViewProps) {
+export function CostView({ costStats, dbRunId }: CostViewProps) {
   const [dbRows, setDbRows] = useState<DbCostRow[]>([])
   const [dbTotalCost, setDbTotalCost] = useState(0)
   const [loadingDb, setLoadingDb] = useState(false)
   const [dbError, setDbError] = useState<string | null>(null)
 
   const loadDbCosts = useCallback(() => {
-    if (!dbIsDone || !dbRunId || costStats.total_calls > 0) return
+    if (!dbRunId || costStats.total_calls > 0) return
     setLoadingDb(true)
     setDbError(null)
     fetchDbCosts(dbRunId)
@@ -121,7 +120,7 @@ export function CostView({ costStats, dbRunId, dbIsDone = false }: CostViewProps
         )
       })
       .finally(() => setLoadingDb(false))
-  }, [dbIsDone, dbRunId, costStats.total_calls])
+  }, [dbRunId, costStats.total_calls])
 
   // When browsing a completed historical run with no live SSE costs, load from DB.
   useEffect(() => {
@@ -177,7 +176,7 @@ export function CostView({ costStats, dbRunId, dbIsDone = false }: CostViewProps
       fullPhase: p.phase,
     }))
 
-  const hasCosts = total_calls > 0
+  const hasCosts = total_calls > 0 || total_cost > 0
 
   if (loadingDb) {
     return <LoadingPane message="Loading cost records..." />

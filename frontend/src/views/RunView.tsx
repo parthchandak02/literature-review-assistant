@@ -315,7 +315,6 @@ export function RunView({
               <CostView
                 costStats={costStats}
                 dbRunId={run.runId}
-                dbIsDone={isDone}
               />
             )}
           </Suspense>
