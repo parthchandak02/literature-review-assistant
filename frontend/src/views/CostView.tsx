@@ -262,7 +262,7 @@ export function CostView({ costStats, dbRunId, dbIsDone = false }: CostViewProps
                 tickLine={false}
               />
               <Tooltip content={<DarkTooltip />} cursor={{ fill: "#27272a55" }} />
-              <Bar dataKey="cost" radius={[0, 4, 4, 0]} label={{ position: "right", formatter: (v: number) => `$${v.toFixed(4)}`, fill: "#52525b", fontSize: 10 }}>
+              <Bar dataKey="cost" radius={[0, 4, 4, 0]} label={{ position: "right", formatter: (v: unknown) => `$${(v as number).toFixed(4)}`, fill: "#52525b", fontSize: 10 }}>
                 {chartData.map((entry) => (
                   <Cell
                     key={entry.fullPhase}
