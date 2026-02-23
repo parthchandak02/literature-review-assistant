@@ -42,6 +42,7 @@ export type ReviewEvent =
   | { type: "synthesis"; feasible: boolean; groups: number; n_studies: number; direction: string; ts: string }
   | { type: "rate_limit_wait"; tier: string; slots_used: number; limit: number; ts: string }
   | { type: "db_ready"; ts: string }
+  | { type: "workflow_id_ready"; workflow_id: string }
   | { type: "done"; outputs: Record<string, unknown>; ts?: string }
   | { type: "error"; msg: string; ts?: string }
   | { type: "cancelled"; ts?: string }
@@ -72,6 +73,7 @@ export interface PaperAllRow {
   year: number | null
   source_database: string
   doi: string | null
+  url: string | null
   country: string | null
   ta_decision: string | null
   ft_decision: string | null

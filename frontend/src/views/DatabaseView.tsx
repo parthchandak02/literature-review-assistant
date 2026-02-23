@@ -11,11 +11,25 @@ import {
 import { FetchError, EmptyState } from "@/components/ui/feedback"
 import { Th, Td, TableSkeleton, Pagination } from "@/components/ui/table"
 import { cn } from "@/lib/utils"
-import { Database, Filter, Loader2, X } from "lucide-react"
+import { Database, ExternalLink, Filter, Loader2, X } from "lucide-react"
 import { fetchPapersAll, fetchPapersFacets, fetchPapersSuggest } from "@/lib/api"
 import type { PaperAllRow } from "@/lib/api"
 
 const LIVE_REFRESH_MS = 10_000
+
+/**
+ * Resolve the best clickable link for a paper following Crossref DOI display
+ * guidelines (https://www.crossref.org/display-guidelines/):
+ * DOIs must be displayed as full HTTPS URLs: https://doi.org/10.xxxx/xxxxx
+ * Falls back to the connector-provided source URL when no DOI is available.
+ */
+function paperLink(p: PaperAllRow): string | null {
+  if (p.doi) {
+    const raw = p.doi.replace(/^https?:\/\/(dx\.)?doi\.org\//i, "")
+    return `https://doi.org/${raw}`
+  }
+  return p.url ?? null
+}
 const PAGE_SIZE = 50
 const SUGGEST_DEBOUNCE_MS = 200
 const FILTER_DEBOUNCE_MS = 350
@@ -350,7 +364,24 @@ export function DatabaseView({ runId, isDone, dbAvailable, isLive }: DatabaseVie
                     )}
                   >
                     <Td className="max-w-xs">
-                      <span className="line-clamp-2 text-zinc-200">{p.title}</span>
+                      {(() => {
+                        const href = paperLink(p)
+                        return href ? (
+                          <a
+                            href={href}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="group flex items-start gap-1"
+                          >
+                            <span className="line-clamp-2 text-zinc-200 group-hover:text-white group-hover:underline underline-offset-2">
+                              {p.title}
+                            </span>
+                            <ExternalLink className="h-3 w-3 shrink-0 mt-0.5 text-zinc-600 group-hover:text-zinc-400 transition-colors" />
+                          </a>
+                        ) : (
+                          <span className="line-clamp-2 text-zinc-200">{p.title}</span>
+                        )
+                      })()}
                     </Td>
                     <Td className="text-zinc-500 max-w-[160px]">
                       <span className="line-clamp-1">{p.authors}</span>

@@ -335,6 +335,10 @@ async def _run_wrapper(record: _RunRecord, review_path: str, req: RunRequest) ->
     def _on_workflow_id_ready(workflow_id: str, run_root: str) -> None:
         record.workflow_id = workflow_id
         record.run_root = run_root
+        # Emit early so the frontend can deduplicate the sidebar before the run completes.
+        event: dict[str, Any] = {"type": "workflow_id_ready", "workflow_id": workflow_id}
+        record.queue.put_nowait(event)
+        record.event_log.append(event)
         nonlocal heartbeat_task
         if heartbeat_task is None or heartbeat_task.done():
             heartbeat_task = asyncio.create_task(_heartbeat_loop(run_root, workflow_id))
@@ -636,8 +640,18 @@ async def list_history(run_root: str = "runs") -> list[HistoryEntry]:
         return_exceptions=True,
     )
 
+    # Exclude workflow_ids that are actively running in-process to avoid showing
+    # the same run twice in the sidebar (live card + history entry).
+    active_workflow_ids = {
+        r.workflow_id
+        for r in _active_runs.values()
+        if r.workflow_id and not r.done
+    }
+
     enriched: list[HistoryEntry] = []
     for row, stats in zip(rows, stat_results):
+        if row["workflow_id"] in active_workflow_ids:
+            continue
         s = stats if isinstance(stats, dict) else {}
         # Mark workflows that are stuck as 'running' after a crash as 'stale'.
         # We do NOT write this back to the DB; it is a computed view-only status.
@@ -1142,7 +1156,7 @@ async def get_papers_all(
 
             async with db.execute(
                 f"""SELECT p.paper_id, p.title, p.authors, p.year,
-                           p.source_database, p.doi, p.country,
+                           p.source_database, p.doi, p.url, p.country,
                            ta.final_decision AS ta_decision,
                            ft.final_decision AS ft_decision
                     {base_query}
@@ -1174,6 +1188,7 @@ async def get_papers_all(
                     "year": row["year"],
                     "source_database": row["source_database"],
                     "doi": row["doi"],
+                    "url": row["url"],
                     "country": row["country"],
                     "ta_decision": row["ta_decision"],
                     "ft_decision": row["ft_decision"],
@@ -1323,6 +1338,34 @@ async def download_submission_zip(run_id: str) -> StreamingResponse:
         buf,
         media_type="application/zip",
         headers={"Content-Disposition": "attachment; filename=submission.zip"},
+    )
+
+
+@app.get("/api/run/{run_id}/manuscript.docx")
+async def download_manuscript_docx(run_id: str) -> FileResponse:
+    """Stream the Word manuscript (.docx) generated during export.
+
+    The submission directory must exist (call POST /api/run/{run_id}/export first).
+    Returns a downloadable application/vnd.openxmlformats-officedocument.wordprocessingml.document response.
+    """
+    db_path = _get_db_path(run_id)
+    summary_path = pathlib.Path(db_path).parent / "run_summary.json"
+    if not summary_path.exists():
+        raise HTTPException(status_code=404, detail="run_summary.json not found -- run export first")
+    summary = _json.loads(summary_path.read_text(encoding="utf-8"))
+    output_dir: str | None = summary.get("output_dir")
+    if not output_dir:
+        raise HTTPException(status_code=404, detail="output_dir not in run_summary")
+    docx_path = pathlib.Path(output_dir) / "submission" / "manuscript.docx"
+    if not docx_path.exists():
+        raise HTTPException(
+            status_code=404,
+            detail="manuscript.docx not found -- click 'Export to LaTeX' first",
+        )
+    return FileResponse(
+        path=str(docx_path),
+        filename="manuscript.docx",
+        media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
     )
 
 
