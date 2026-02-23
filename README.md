@@ -329,7 +329,8 @@ uv run pytest tests/integration -q
 
 | Script | Purpose |
 |--------|---------|
-| `scripts/regenerate_figures.py` | Re-render all figures (PRISMA flow, timeline, geographic, RoB, RoB2) from a completed run's SQLite DB without any LLM calls. Useful after figure code fixes. Edit the `DB_PATH`, `WORKFLOW_ID`, `DEDUP_COUNT`, `OUTPUT_DIR` variables at the top of the file before running. Usage: `uv run python scripts/regenerate_figures.py` |
+| `scripts/finalize_manuscript.py` | Retroactively regenerate `doc_manuscript.md` sections (Figures, Declarations, Study Characteristics Table, References) for an existing run directory. Also injects missing IMRaD headings. Usage: `uv run python scripts/finalize_manuscript.py --run-dir runs/<date>/<topic>/run_<time>` |
+| `scripts/migrate_to_runs.py` | One-time migration to move legacy run artifacts into the current `runs/<date>/<topic>/` directory structure. |
 
 ---
 

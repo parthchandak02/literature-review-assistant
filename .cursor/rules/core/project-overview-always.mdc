@@ -30,10 +30,12 @@ alwaysApply: true
 - `src/export/` -- IEEE LaTeX, submission packager, PRISMA checklist validator
 - `src/llm/` -- PydanticAI agent factory, rate limiter, cost tracking
 - `src/web/` -- FastAPI backend (app.py): run lifecycle, SSE streaming, history, DB explorer, log streaming
+- `src/utils/` -- logging_paths.py (PM2 log path detection), ssl_context.py, structured_log.py
+- `scripts/` -- finalize_manuscript.py (IMRaD heading injection + post-run fixup), migrate_to_runs.py
 - `config/` -- review.yaml (per-review) + settings.yaml (system behavior)
 
 ## Key Directories -- Frontend
-- `frontend/src/views/` -- RunView (tabs: Activity, Results, Data, Cost, Logs), DatabaseView, CostView, HistoryView
+- `frontend/src/views/` -- RunView (tabs: Activity, Results, Data, Cost), DatabaseView, CostView, HistoryView, SetupView, ResultsView
 - `frontend/src/components/` -- Sidebar (drag-resize, resume), UI primitives (command.tsx, status-badge.tsx, table.tsx, feedback.tsx)
 - `frontend/src/hooks/` -- useSSEStream (run events + SQLite replay fallback), useLogStream (backend log SSE)
 - `frontend/src/lib/` -- api.ts (typed API layer), format.ts (date/duration helpers)
@@ -45,12 +47,15 @@ alwaysApply: true
 
 ## Web API
 - FastAPI backend on port 8001 (dev) / 8000 (prod), Vite dev server on port 5173
-- Run lifecycle: POST /api/run, GET /api/stream/{run_id}, POST /api/cancel/{run_id}
-- History: GET /api/history, POST /api/history/resume, POST /api/history/attach
-- DB explorer: GET /api/db/{run_id}/papers-all, /papers-facets, /papers-suggest, /costs
-- Event replay: GET /api/workflow/{workflow_id}/events
-- Log streaming: GET /api/logs/stream (SSE, uses watchfiles + aiofiles)
+- Run lifecycle: POST /api/run, GET /api/stream/{run_id}, POST /api/cancel/{run_id}, GET /api/runs
+- Results: GET /api/results/{run_id}, GET /api/run/{run_id}/artifacts, POST /api/run/{run_id}/export
+- History: GET /api/history, GET /api/history/{workflow_id}/config, POST /api/history/resume, POST /api/history/attach
+- DB explorer: GET /api/db/{run_id}/papers, /papers-all, /papers-facets, /papers-suggest, /screening, /costs
+- Event replay: GET /api/run/{run_id}/events, GET /api/workflow/{workflow_id}/events
+- Log streaming: GET /api/logs/stream?run_id={run_id} (SSE, per-run PM2 log tail)
+- Config: GET /api/config/review, GET /api/health
 - Stale detection: heartbeat updated every 60s; runs with no heartbeat for 5+ min become "stale"
+- Concurrent resume guard: if same workflow_id already active, returns existing run_id (no duplicate task)
 
 ## Critical Constraints
 - **Use `rich`** for CLI output (progress bars, tables, status)
