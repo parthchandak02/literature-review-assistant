@@ -1,5 +1,5 @@
 import { useState } from "react"
-import ReactMarkdown from "react-markdown"
+import ReactMarkdown, { defaultUrlTransform } from "react-markdown"
 import remarkGfm from "remark-gfm"
 import { Button } from "@/components/ui/button"
 import { Download, FileText, Image, FileCode, ChevronDown, ChevronUp } from "lucide-react"
@@ -106,6 +106,22 @@ function FileRow({ label, path, downloadName }: { label: string; path: string; d
   )
 }
 
+/**
+ * urlTransform for react-markdown: rewrites relative image src values to
+ * backend-servable /api/download URLs, using the markdown file's directory as
+ * the base.  Absolute URLs and non-src keys are passed through unchanged.
+ */
+function makeUrlTransform(markdownFilePath: string) {
+  return (url: string, key: string): string | undefined => {
+    if (key === "src" && !/^(https?:\/\/|data:|\/)/i.test(url)) {
+      const dir = markdownFilePath.split("/").slice(0, -1).join("/")
+      const resolved = dir ? `${dir}/${url}` : url
+      return downloadUrl(resolved)
+    }
+    return defaultUrlTransform(url)
+  }
+}
+
 /** Expandable document row with inline viewer for .md and .json files. */
 function InlineDocRow({ file }: { file: OutputFile }) {
   const [open, setOpen] = useState(false)
@@ -128,6 +144,19 @@ function InlineDocRow({ file }: { file: OutputFile }) {
     } finally {
       setLoading(false)
     }
+  }
+
+  const markdownComponents = {
+    img({ src, alt }: { src?: string; alt?: string }) {
+      return (
+        <img
+          src={src}
+          alt={alt ?? ""}
+          className="max-w-full rounded border border-zinc-800 my-2"
+          loading="lazy"
+        />
+      )
+    },
   }
 
   return (
@@ -160,10 +189,16 @@ function InlineDocRow({ file }: { file: OutputFile }) {
         <p className="text-xs text-red-400 px-1">Could not load file content.</p>
       )}
       {open && content !== null && (
-        <div className="rounded-lg border border-zinc-800 bg-zinc-950 overflow-auto max-h-[32rem] p-4">
+        <div className="rounded-lg border border-zinc-800 bg-zinc-950 overflow-auto max-h-[60rem] p-4">
           {file.isMarkdown ? (
             <div className="prose prose-invert prose-sm max-w-none text-zinc-300">
-              <ReactMarkdown remarkPlugins={[remarkGfm]}>{content}</ReactMarkdown>
+              <ReactMarkdown
+                remarkPlugins={[remarkGfm]}
+                urlTransform={makeUrlTransform(file.path)}
+                components={markdownComponents}
+              >
+                {content}
+              </ReactMarkdown>
             </div>
           ) : (
             <pre className="text-xs text-zinc-400 whitespace-pre-wrap font-mono">
