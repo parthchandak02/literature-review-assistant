@@ -37,7 +37,7 @@ alwaysApply: true
 ## Key Directories -- Frontend
 - `frontend/src/views/` -- RunView (tabs: Activity, Results, Data, Cost), DatabaseView, CostView, HistoryView, SetupView, ResultsView
 - `frontend/src/components/` -- Sidebar (drag-resize, resume), UI primitives (command.tsx, status-badge.tsx, table.tsx, feedback.tsx)
-- `frontend/src/hooks/` -- useSSEStream (run events + SQLite replay fallback), useLogStream (backend log SSE)
+- `frontend/src/hooks/` -- useSSEStream (run events + SQLite replay fallback), useLogStream (backend log SSE), useBackendHealth, useCostStats
 - `frontend/src/lib/` -- api.ts (typed API layer), format.ts (date/duration helpers)
 
 ## Key Tables
@@ -50,7 +50,7 @@ alwaysApply: true
 - Run lifecycle: POST /api/run, GET /api/stream/{run_id}, POST /api/cancel/{run_id}, GET /api/runs
 - Results: GET /api/results/{run_id}, GET /api/run/{run_id}/artifacts, POST /api/run/{run_id}/export, GET /api/run/{run_id}/submission.zip
 - History: GET /api/history, GET /api/history/{workflow_id}/config, POST /api/history/resume, POST /api/history/attach
-- DB explorer: GET /api/db/{run_id}/papers, /papers-all, /papers-facets, /papers-suggest, /screening, /costs
+- DB explorer: GET /api/db/{run_id}/papers, /papers-all (includes doi + url for clickable links), /papers-facets, /papers-suggest, /screening, /costs
 - Event replay: GET /api/run/{run_id}/events, GET /api/workflow/{workflow_id}/events
 - Log streaming: GET /api/logs/stream?run_id={run_id} (SSE, per-run PM2 log tail)
 - Config: GET /api/config/review, GET /api/health

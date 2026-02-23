@@ -146,6 +146,20 @@ export default function App() {
     }
   }, [liveWorkflowId, liveRunId, selectedRun?.runId, selectedRun?.workflowId])
 
+  // Set liveWorkflowId early from the workflow_id_ready SSE event so the sidebar
+  // can deduplicate the live run from history before the run finishes.
+  useEffect(() => {
+    if (liveWorkflowId) return
+    const ev = events.find((e) => e.type === "workflow_id_ready")
+    if (!ev || ev.type !== "workflow_id_ready") return
+    const wfId = ev.workflow_id
+    if (wfId) {
+      setLiveWorkflowId(wfId)
+      const stored = loadLiveRun()
+      if (stored) saveLiveRun({ ...stored, workflowId: wfId })
+    }
+  }, [events, liveWorkflowId])
+
   // Load default YAML config (silently ignored if backend is offline)
   useEffect(() => {
     getDefaultReviewConfig()

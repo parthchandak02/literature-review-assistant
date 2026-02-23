@@ -1,6 +1,7 @@
 """Export package: IEEE LaTeX, submission packager, validators."""
 
 from src.export.bibtex_builder import build_bibtex
+from src.export.docx_exporter import generate_docx
 from src.export.ieee_latex import markdown_to_latex
 from src.export.ieee_validator import ValidationResult as IEEEValidationResult
 from src.export.ieee_validator import validate_ieee
@@ -18,6 +19,7 @@ __all__ = [
     "build_bibtex",
     "build_markdown_figures_section",
     "build_markdown_references_section",
+    "generate_docx",
     "markdown_to_latex",
     "package_submission",
     "strip_appended_sections",

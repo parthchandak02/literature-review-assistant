@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import csv
 import json
 import shutil
@@ -12,6 +13,7 @@ from src.db.database import get_db
 from src.db.repositories import CitationRepository
 from src.db.workflow_registry import find_by_workflow_id, find_by_workflow_id_fallback
 from src.export.bibtex_builder import build_bibtex
+from src.export.docx_exporter import generate_docx
 from src.export.ieee_latex import markdown_to_latex
 
 
@@ -186,5 +188,13 @@ async def package_submission(
 
     if _run_pdflatex(manuscript_tex, submission_dir):
         pass
+
+    loop = asyncio.get_event_loop()
+    try:
+        await loop.run_in_executor(
+            None, generate_docx, manuscript_md, submission_dir / "manuscript.docx"
+        )
+    except Exception:
+        pass  # docx generation is best-effort; do not fail the whole export
 
     return submission_dir

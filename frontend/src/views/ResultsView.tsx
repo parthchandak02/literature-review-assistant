@@ -1,5 +1,5 @@
 import { useState, useMemo } from "react"
-import { FileText, Lock, Loader2, PackageCheck, AlertCircle, Archive } from "lucide-react"
+import { FileText, Lock, Loader2, PackageCheck, AlertCircle, Archive, FileType } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { ResultsPanel } from "@/components/ResultsPanel"
 import { triggerExport } from "@/lib/api"
@@ -103,15 +103,26 @@ export function ResultsView({
           </div>
           <div className="flex items-center gap-2 shrink-0">
             {exportState === "done" && exportRunId && (
-              <Button size="sm" variant="outline" asChild className="gap-1.5 border-zinc-700 text-zinc-300 hover:text-white">
-                <a
-                  href={`${API_BASE}/api/run/${exportRunId}/submission.zip`}
-                  download="submission.zip"
-                >
-                  <Archive className="h-3.5 w-3.5" />
-                  Download ZIP
-                </a>
-              </Button>
+              <>
+                <Button size="sm" variant="outline" asChild className="gap-1.5 border-zinc-700 text-zinc-300 hover:text-white">
+                  <a
+                    href={`${API_BASE}/api/run/${exportRunId}/manuscript.docx`}
+                    download="manuscript.docx"
+                  >
+                    <FileType className="h-3.5 w-3.5" />
+                    Download Word
+                  </a>
+                </Button>
+                <Button size="sm" variant="outline" asChild className="gap-1.5 border-zinc-700 text-zinc-300 hover:text-white">
+                  <a
+                    href={`${API_BASE}/api/run/${exportRunId}/submission.zip`}
+                    download="submission.zip"
+                  >
+                    <Archive className="h-3.5 w-3.5" />
+                    Download ZIP
+                  </a>
+                </Button>
+              </>
             )}
             <Button
               size="sm"

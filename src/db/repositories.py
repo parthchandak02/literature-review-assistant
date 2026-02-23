@@ -447,7 +447,7 @@ class WorkflowRepository:
         """Persist a section draft for checkpoint/resume."""
         await self.db.execute(
             """
-            INSERT INTO section_drafts (workflow_id, section, version, content, claims_used, citations_used, word_count)
+            INSERT OR REPLACE INTO section_drafts (workflow_id, section, version, content, claims_used, citations_used, word_count)
             VALUES (?, ?, ?, ?, ?, ?, ?)
             """,
             (
