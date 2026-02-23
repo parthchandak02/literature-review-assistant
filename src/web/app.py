@@ -58,6 +58,9 @@ class _RunRecord:
         self.created_at: float = time.monotonic()  # for TTL eviction
         # Append-only log of every emitted event for replay on reconnect.
         self.event_log: list[dict[str, Any]] = []
+        # Index into event_log up to which events have already been flushed to SQLite.
+        # The flusher task advances this so the final flush only writes the tail.
+        self._flush_index: int = 0
         # Original review YAML submitted by the user -- saved to run dir after completion.
         self.review_yaml: str = ""
 
@@ -301,6 +304,24 @@ async def _heartbeat_loop(run_root: str, workflow_id: str, interval: int = 60) -
         pass
 
 
+async def _event_flusher_loop(record: _RunRecord, interval: int = 5) -> None:
+    """Background task: flush new SSE events to SQLite every `interval` seconds.
+
+    Advances record._flush_index so the final flush in the wrapper's finally block
+    only writes the tail of events not yet persisted, preventing duplicates.
+    """
+    try:
+        while True:
+            await asyncio.sleep(interval)
+            if record.db_path and record.workflow_id:
+                new = record.event_log[record._flush_index:]
+                if new:
+                    await _persist_event_log(record.db_path, record.workflow_id, new)
+                    record._flush_index += len(new)
+    except asyncio.CancelledError:
+        pass
+
+
 async def _run_wrapper(record: _RunRecord, review_path: str, req: RunRequest) -> None:
     record.run_root = req.run_root
     heartbeat_task: asyncio.Task[Any] | None = None
@@ -321,6 +342,8 @@ async def _run_wrapper(record: _RunRecord, review_path: str, req: RunRequest) ->
         on_event=record.event_log.append,
         on_workflow_id_ready=_on_workflow_id_ready,
     )
+    # Flusher starts immediately; no-ops until db_path and workflow_id are set.
+    flusher_task: asyncio.Task[Any] = asyncio.create_task(_event_flusher_loop(record))
     try:
         outputs = await run_workflow(
             review_path=review_path,
@@ -366,13 +389,16 @@ async def _run_wrapper(record: _RunRecord, review_path: str, req: RunRequest) ->
     finally:
         if heartbeat_task is not None:
             heartbeat_task.cancel()
+        flusher_task.cancel()
         try:
             pathlib.Path(review_path).unlink(missing_ok=True)
         except Exception:
             pass
-        # Persist the full event log to SQLite for historical replay.
+        # Final flush: persist any events not yet written by the flusher loop.
         if record.db_path and record.workflow_id:
-            await _persist_event_log(record.db_path, record.workflow_id, record.event_log)
+            remaining = record.event_log[record._flush_index:]
+            if remaining:
+                await _persist_event_log(record.db_path, record.workflow_id, remaining)
 
 
 # ---------------------------------------------------------------------------
@@ -687,11 +713,15 @@ async def _resume_wrapper(record: _RunRecord, workflow_id: str, db_path: str) ->
         record.event_log = await _load_event_log_from_db(db_path)
     except Exception:
         pass
+    # Mark all pre-loaded events as already flushed so the flusher only writes
+    # new events emitted during this resumed run, not the historical ones.
+    record._flush_index = len(record.event_log)
 
     # Start heartbeat immediately -- workflow_id is already known for resumed runs.
     heartbeat_task: asyncio.Task[Any] = asyncio.create_task(
         _heartbeat_loop(run_root, workflow_id)
     )
+    flusher_task: asyncio.Task[Any] = asyncio.create_task(_event_flusher_loop(record))
 
     # Use the review.yaml saved alongside runtime.db (written by the original web run).
     # Fall back to the global config if the file is absent (old CLI runs, early crashes).
@@ -734,8 +764,12 @@ async def _resume_wrapper(record: _RunRecord, workflow_id: str, db_path: str) ->
             pass
     finally:
         heartbeat_task.cancel()
+        flusher_task.cancel()
+        # Final flush: persist any events not yet written by the flusher loop.
         if record.db_path and record.workflow_id:
-            await _persist_event_log(record.db_path, record.workflow_id, record.event_log)
+            remaining = record.event_log[record._flush_index:]
+            if remaining:
+                await _persist_event_log(record.db_path, record.workflow_id, remaining)
 
 
 @app.post("/api/history/resume", response_model=RunResponse)
@@ -1285,18 +1319,33 @@ async def _log_stream_generator(
 @app.get("/api/logs/stream")
 async def stream_logs(
     request: Request,
+    run_id: str | None = None,
     process: str = "backend",
     log_type: str = "out",
 ) -> EventSourceResponse:
-    """Stream PM2 process log file over SSE.
+    """Stream a run's app.jsonl log file (when run_id given) or a PM2 log file over SSE.
+
+    When run_id is provided the per-run app.jsonl written by structured_log is
+    streamed, giving the user a log scoped to exactly that run.  This works for
+    both live and historically attached runs because _active_runs always carries
+    db_path for both cases.
+
+    Falls back to the global PM2 log when no run_id is given (backward-compat).
 
     Args:
-        process: PM2 process name (matches out_file in ecosystem.config.js).
-        log_type: 'out' for stdout, 'err' for stderr.
+        run_id: Optional run identifier from _active_runs.
+        process: PM2 process name -- only used when run_id is absent.
+        log_type: 'out' / 'err' -- only used when run_id is absent.
     """
-    if log_type not in ("out", "err"):
-        raise HTTPException(status_code=400, detail="log_type must be 'out' or 'err'")
-    log_path = _PM2_LOG_DIR / f"{process}-{log_type}.log"
+    if run_id:
+        record = _active_runs.get(run_id)
+        if not record or not record.db_path:
+            raise HTTPException(status_code=404, detail="Run not found or log not yet available")
+        log_path = pathlib.Path(record.db_path).parent / "app.jsonl"
+    else:
+        if log_type not in ("out", "err"):
+            raise HTTPException(status_code=400, detail="log_type must be 'out' or 'err'")
+        log_path = _PM2_LOG_DIR / f"{process}-{log_type}.log"
     return EventSourceResponse(
         _log_stream_generator(log_path, request),
         headers={"X-Accel-Buffering": "no"},

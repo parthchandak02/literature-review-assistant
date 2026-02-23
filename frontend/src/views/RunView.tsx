@@ -61,8 +61,8 @@ function ViewLoader() {
 // Logs panel
 // ---------------------------------------------------------------------------
 
-function LogsPanel({ enabled }: { enabled: boolean }) {
-  const { lines, connected, error, clear } = useLogStream("backend", "out", enabled)
+function LogsPanel({ runId, enabled }: { runId: string; enabled: boolean }) {
+  const { lines, connected, error, clear } = useLogStream(runId, enabled)
   const bottomRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -76,7 +76,7 @@ function LogsPanel({ enabled }: { enabled: boolean }) {
         <div className="flex items-center gap-2">
           <Terminal className="h-4 w-4 text-zinc-500" />
           <span className="text-sm font-medium text-zinc-300">Backend Logs</span>
-          <span className="text-[10px] text-zinc-600">(~/.pm2/logs/backend-out.log)</span>
+          <span className="text-[10px] text-zinc-600">(app.jsonl - this run only)</span>
           <span
             className={cn(
               "h-1.5 w-1.5 rounded-full",
@@ -278,7 +278,7 @@ export function RunView({
       {/* Tab content -- Logs tab is full-height, others scroll */}
       {activeTab === "logs" ? (
         <div className="flex-1 overflow-hidden p-6 flex flex-col min-h-0">
-          <LogsPanel enabled={activeTab === "logs"} />
+          <LogsPanel runId={run.runId} enabled={activeTab === "logs"} />
         </div>
       ) : (
         <div className="flex-1 overflow-y-auto p-6">

@@ -1111,7 +1111,7 @@ class WritingNode(BaseNode[ReviewState]):
                         )
                     for _ in range(humanize_iters):
                         content = await humanize_async(
-                            content, model=h_model, temperature=h_temp, max_chars=4000,
+                            content, model=h_model, temperature=h_temp, max_chars=12000,
                             provider=provider if use_llm_write else None,
                         )
 
@@ -1134,14 +1134,35 @@ class WritingNode(BaseNode[ReviewState]):
                 state.workflow_id, "phase_6_writing", papers_processed=len(SECTIONS)
             )
             citation_rows = await CitationRepository(db).get_all_citations_for_export()
+            # Load papers + extraction records for the study characteristics table.
+            included_ids = await repository.get_included_paper_ids(state.workflow_id)
+            included_papers_for_table = await repository.load_papers_by_ids(included_ids)
+            extraction_records_for_table = await repository.load_extraction_records(state.workflow_id)
+
+        # Prefix each section with its standard IMRaD heading.
+        # The abstract is kept as-is (it already contains the title + structured fields).
+        _SECTION_HEADINGS: dict[str, str] = {
+            "abstract": "",
+            "introduction": "## Introduction",
+            "methods": "## Methods",
+            "results": "## Results",
+            "discussion": "## Discussion",
+            "conclusion": "## Conclusion",
+        }
+        titled_sections = []
+        for section, content in zip(SECTIONS, sections_written):
+            heading = _SECTION_HEADINGS.get(section, "")
+            titled_sections.append(f"{heading}\n\n{content}" if heading else content)
 
         manuscript_path = Path(state.artifacts["manuscript_md"])
-        body = "\n\n".join(sections_written)
+        body = "\n\n".join(titled_sections)
         full_manuscript = assemble_submission_manuscript(
             body=body,
             manuscript_path=manuscript_path,
             artifacts=state.artifacts,
             citation_rows=citation_rows,
+            papers=included_papers_for_table,
+            extraction_records=extraction_records_for_table,
         )
         manuscript_path.write_text(full_manuscript, encoding="utf-8")
 

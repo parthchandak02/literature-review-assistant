@@ -1,0 +1,46 @@
+---
+description:
+globs:
+alwaysApply: true
+---
+
+# End Every Response With "What Next?"
+
+At the end of EVERY response -- no matter how short or long -- add a final section titled:
+
+`---`
+`What next?`
+
+This section must contain 2-4 concrete, specific options the user could ask for next, formatted as a short numbered list. Options should be derived from the actual context of the current conversation and project state, not generic filler.
+
+## Rules for the "What next?" section
+
+- Place it AFTER all substantive content, separated by a horizontal rule (`---`).
+- Options must be specific to what was just discussed or done. Never write vague options like "continue development" or "ask me anything."
+- Each option should be phraseable as a direct user command (e.g., "Run the app and review results", "Fix the RoB quality gate", "Update config/review.yaml topic").
+- Include at least one option that advances the project toward its core goal: IEEE-submission-ready systematic review manuscript.
+- Include at least one option that tests or validates the last change made.
+- If the user just asked a conceptual question, one option should be the obvious next implementation step.
+- Keep the whole section under 6 lines.
+
+## Example (correct)
+
+```
+---
+What next?
+1. Run the app with the current review.yaml and check the Activity tab output
+2. Tweak the screening thresholds in config/settings.yaml and re-run
+3. Export the manuscript draft to LaTeX and validate IEEE compliance
+```
+
+## Example (wrong -- too vague)
+
+```
+---
+What next?
+1. Continue with development
+2. Ask me if you have questions
+3. Test things out
+```
+
+Never skip this section. Even for one-line answers.

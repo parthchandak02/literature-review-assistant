@@ -38,7 +38,7 @@ Return ONLY the revised section text. Do not include any commentary or explanati
 """
 
 
-def humanize(text: str, max_chars: int = 4_000) -> str:
+def humanize(text: str, max_chars: int = 12_000) -> str:
     """Synchronous pass-through stub for offline/test usage."""
     _ = max_chars
     return text
@@ -48,16 +48,23 @@ async def humanize_async(
     text: str,
     model: str = "google-gla:gemini-2.5-pro",
     temperature: float = 0.3,
-    max_chars: int = 4_000,
+    max_chars: int = 12_000,
     provider: LLMProvider | None = None,
 ) -> str:
     """Refine AI-generated text for academic naturalness using Gemini Pro.
 
-    Truncates input to max_chars before sending. Falls back to returning the
-    original text if the LLM call fails. When provider is supplied, the LLM
-    call's token counts and cost are logged to the cost_records table.
+    Truncates input to max_chars (at a word boundary) before sending.
+    Falls back to returning the original text if the LLM call fails.
+    When provider is supplied, the LLM call's token counts and cost are
+    logged to the cost_records table.
     """
-    truncated = text[:max_chars]
+    # Cut at the last whitespace before max_chars to avoid splitting mid-word.
+    if len(text) > max_chars:
+        cut = text.rfind(" ", 0, max_chars)
+        cut = cut if cut > 0 else max_chars
+    else:
+        cut = len(text)
+    truncated = text[:cut]
     prompt = _HUMANIZE_PROMPT_TEMPLATE.format(text=truncated)
     client = PydanticAIClient()
     try:
@@ -79,9 +86,9 @@ async def humanize_async(
                 cache_read_tokens=cr,
                 cache_write_tokens=cw,
             )
-        # Preserve any text beyond max_chars that was truncated
-        if len(text) > max_chars:
-            refined = refined + "\n" + text[max_chars:]
+        # Re-attach any text that was beyond the cut point.
+        if cut < len(text):
+            refined = refined + " " + text[cut:].lstrip()
         return refined
     except Exception as exc:
         logger.warning(
