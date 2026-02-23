@@ -1,8 +1,13 @@
-import { useState } from "react"
+import { useState, useRef, useCallback } from "react"
 import ReactMarkdown, { defaultUrlTransform } from "react-markdown"
 import remarkGfm from "remark-gfm"
+import rehypeSlug from "rehype-slug"
+import rehypeAutolinkHeadings from "rehype-autolink-headings"
+import rehypeHighlight from "rehype-highlight"
+// highlight.js theme loaded as a side-effect CSS import (Vite resolves npm CSS)
+import "highlight.js/styles/github-dark.css"
 import { Button } from "@/components/ui/button"
-import { Download, FileText, Image, FileCode, ChevronDown, ChevronUp } from "lucide-react"
+import { Download, FileText, Image, FileCode, ChevronDown, ChevronUp, BookOpen } from "lucide-react"
 import { downloadUrl } from "@/lib/api"
 
 interface ResultsPanelProps {
@@ -122,14 +127,78 @@ function makeUrlTransform(markdownFilePath: string) {
   }
 }
 
+/** Convert a heading string to a URL-safe slug (mirrors rehype-slug output). */
+function slugify(text: string): string {
+  return text
+    .toLowerCase()
+    .replace(/[^\w\s-]/g, "")
+    .trim()
+    .replace(/\s+/g, "-")
+}
+
+/** Extract top-level headings (h1-h3) from raw markdown text. */
+function extractHeadings(markdown: string): { level: number; text: string; slug: string }[] {
+  const headings: { level: number; text: string; slug: string }[] = []
+  const re = /^(#{1,3})\s+(.+)$/gm
+  let match
+  while ((match = re.exec(markdown)) !== null) {
+    const text = match[2].trim()
+    headings.push({ level: match[1].length, text, slug: slugify(text) })
+  }
+  return headings
+}
+
+/** Compact horizontal TOC jump bar rendered above the viewer. */
+function TocBar({
+  headings,
+  viewerRef,
+}: {
+  headings: { level: number; text: string; slug: string }[]
+  viewerRef: React.RefObject<HTMLDivElement | null>
+}) {
+  if (headings.length === 0) return null
+
+  function jumpTo(slug: string) {
+    const container = viewerRef.current
+    if (!container) return
+    const target = container.querySelector(`#${CSS.escape(slug)}`) as HTMLElement | null
+    if (target) {
+      target.scrollIntoView({ behavior: "smooth", block: "start" })
+    }
+  }
+
+  return (
+    <div className="flex items-center gap-1 px-3 py-2 border-b border-zinc-800 bg-zinc-950 overflow-x-auto">
+      <BookOpen className="h-3.5 w-3.5 text-zinc-600 shrink-0 mr-1" />
+      {headings.map((h) => (
+        <button
+          key={h.slug}
+          onClick={() => jumpTo(h.slug)}
+          className={[
+            "shrink-0 px-2 py-0.5 rounded text-xs transition-colors whitespace-nowrap",
+            h.level === 1
+              ? "text-zinc-200 font-semibold hover:bg-zinc-800"
+              : h.level === 2
+                ? "text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200"
+                : "text-zinc-600 hover:bg-zinc-800 hover:text-zinc-400",
+          ].join(" ")}
+        >
+          {h.text}
+        </button>
+      ))}
+    </div>
+  )
+}
+
 /** Expandable document row with inline viewer for .md and .json files. */
 function InlineDocRow({ file }: { file: OutputFile }) {
   const [open, setOpen] = useState(false)
   const [content, setContent] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
   const [fetchError, setFetchError] = useState(false)
+  const viewerRef = useRef<HTMLDivElement>(null)
 
-  async function handleToggle() {
+  const handleToggle = useCallback(async () => {
     if (open) { setOpen(false); return }
     if (content !== null) { setOpen(true); return }
     setLoading(true)
@@ -144,7 +213,9 @@ function InlineDocRow({ file }: { file: OutputFile }) {
     } finally {
       setLoading(false)
     }
-  }
+  }, [open, content, file.path])
+
+  const headings = file.isMarkdown && content ? extractHeadings(content) : []
 
   const markdownComponents = {
     img({ src, alt }: { src?: string; alt?: string }) {
@@ -152,7 +223,7 @@ function InlineDocRow({ file }: { file: OutputFile }) {
         <img
           src={src}
           alt={alt ?? ""}
-          className="max-w-full rounded border border-zinc-800 my-2"
+          className="max-w-full rounded border border-zinc-800 my-4 mx-auto block"
           loading="lazy"
         />
       )
@@ -189,22 +260,29 @@ function InlineDocRow({ file }: { file: OutputFile }) {
         <p className="text-xs text-red-400 px-1">Could not load file content.</p>
       )}
       {open && content !== null && (
-        <div className="rounded-lg border border-zinc-800 bg-zinc-950 overflow-auto max-h-[60rem] p-4">
-          {file.isMarkdown ? (
-            <div className="prose prose-invert prose-sm max-w-none text-zinc-300">
-              <ReactMarkdown
-                remarkPlugins={[remarkGfm]}
-                urlTransform={makeUrlTransform(file.path)}
-                components={markdownComponents}
-              >
-                {content}
-              </ReactMarkdown>
-            </div>
-          ) : (
-            <pre className="text-xs text-zinc-400 whitespace-pre-wrap font-mono">
-              {file.isJson ? (() => { try { return JSON.stringify(JSON.parse(content), null, 2) } catch { return content } })() : content}
-            </pre>
-          )}
+        <div className="rounded-lg border border-zinc-800 bg-zinc-950 overflow-hidden flex flex-col">
+          {file.isMarkdown && <TocBar headings={headings} viewerRef={viewerRef} />}
+          <div
+            ref={viewerRef}
+            className="overflow-auto max-h-[80vh] p-6"
+          >
+            {file.isMarkdown ? (
+              <div className="prose prose-invert prose-zinc max-w-none manuscript-viewer">
+                <ReactMarkdown
+                  remarkPlugins={[remarkGfm]}
+                  rehypePlugins={[rehypeSlug, [rehypeAutolinkHeadings, { behavior: "wrap" }], rehypeHighlight]}
+                  urlTransform={makeUrlTransform(file.path)}
+                  components={markdownComponents}
+                >
+                  {content}
+                </ReactMarkdown>
+              </div>
+            ) : (
+              <pre className="text-xs text-zinc-400 whitespace-pre-wrap font-mono">
+                {file.isJson ? (() => { try { return JSON.stringify(JSON.parse(content), null, 2) } catch { return content } })() : content}
+              </pre>
+            )}
+          </div>
         </div>
       )}
     </div>

@@ -50,6 +50,71 @@
   }
 }
 
+/* ------------------------------------------------------------------ */
+/* manuscript-viewer: overrides for the academic manuscript prose view */
+/* ------------------------------------------------------------------ */
+
+/* Section separator HRs (between body, Figures, and References) */
+.manuscript-viewer .prose hr,
+.manuscript-viewer hr {
+  border-color: #3f3f46;
+  margin-top: 2rem;
+  margin-bottom: 2rem;
+}
+
+/* Heading anchor links injected by rehype-autolink-headings */
+.manuscript-viewer :is(h1, h2, h3, h4) a {
+  text-decoration: none;
+  color: inherit;
+}
+.manuscript-viewer :is(h1, h2, h3, h4) a:hover::after {
+  content: " #";
+  color: #52525b;
+  font-weight: 400;
+  font-size: 0.85em;
+}
+
+/* Figure captions -- the **Fig. N.** bold prefix */
+.manuscript-viewer p > strong:first-child {
+  color: #a1a1aa;
+}
+
+/* Tables: visible borders for manuscript data tables */
+.manuscript-viewer table {
+  border-collapse: collapse;
+  width: 100%;
+}
+.manuscript-viewer th,
+.manuscript-viewer td {
+  border: 1px solid #3f3f46;
+  padding: 0.4rem 0.75rem;
+}
+.manuscript-viewer th {
+  background-color: #27272a;
+  font-weight: 600;
+}
+.manuscript-viewer tr:nth-child(even) td {
+  background-color: #18181b;
+}
+
+/* Inline citation keys like [AuthorYear] -- rendered as <code> by remark-gfm
+   when surrounded by brackets, or plain text. Keep them subtle but readable. */
+.manuscript-viewer code:not(pre code) {
+  color: #c4b5fd;
+  background-color: #1e1a2e;
+  padding: 0.1em 0.3em;
+  border-radius: 0.25em;
+  font-size: 0.875em;
+}
+
+/* Print: hide chrome, expand content for paper printing */
+@media print {
+  .manuscript-viewer {
+    max-height: none !important;
+    overflow: visible !important;
+  }
+}
+
 /* Scrollbar styling for dark theme */
 ::-webkit-scrollbar {
   width: 6px;
