@@ -80,6 +80,7 @@ async def load_resume_state(
         "coverage_report": str(run_dir / "doc_fulltext_retrieval_coverage.md"),
         "disagreements_report": str(run_dir / "doc_disagreements_report.md"),
         "rob_traffic_light": str(run_dir / "fig_rob_traffic_light.png"),
+        "rob2_traffic_light": str(run_dir / "fig_rob2_traffic_light.png"),
         "narrative_synthesis": str(run_dir / "data_narrative_synthesis.json"),
         "manuscript_md": str(run_dir / "doc_manuscript.md"),
         "prisma_diagram": str(run_dir / "fig_prisma_flow.png"),

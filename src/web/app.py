@@ -674,6 +674,20 @@ async def _resume_wrapper(record: _RunRecord, workflow_id: str, db_path: str) ->
     record.run_root = run_root
     record.workflow_id = workflow_id
 
+    # Mark workflow as running again in the registry so the sidebar reflects the
+    # active state immediately (status may be "interrupted"/"failed" before this).
+    try:
+        await _update_registry_status(run_root, workflow_id, "running")
+    except Exception:
+        pass
+
+    # Pre-load historical events so SSE replay includes pre-resume phases
+    # (mirrors what attach_history does for completed runs).
+    try:
+        record.event_log = await _load_event_log_from_db(db_path)
+    except Exception:
+        pass
+
     # Start heartbeat immediately -- workflow_id is already known for resumed runs.
     heartbeat_task: asyncio.Task[Any] = asyncio.create_task(
         _heartbeat_loop(run_root, workflow_id)

@@ -578,10 +578,12 @@ class ExtractionQualityNode(BaseNode[ReviewState]):
         grade = GradeAssessor()
 
         rob2_rows: list = []
-        records: list[ExtractionRecord] = list(state.extraction_records)
         async with get_db(state.db_path) as db:
             repository = WorkflowRepository(db)
-            already_extracted = await repository.get_extraction_record_ids(state.workflow_id)
+            # Always load from DB so records is complete even when resuming mid-phase
+            # (state.extraction_records is empty if the phase checkpoint was never saved).
+            records: list[ExtractionRecord] = await repository.load_extraction_records(state.workflow_id)
+            already_extracted = {r.paper_id for r in records}
             to_process = [p for p in state.included_papers if p.paper_id not in already_extracted]
             if rc:
                 rc.emit_phase_start(

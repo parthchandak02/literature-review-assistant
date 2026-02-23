@@ -613,7 +613,7 @@ class WorkflowRepository:
     async def save_grade_assessment(self, workflow_id: str, assessment: GRADEOutcomeAssessment) -> None:
         await self.db.execute(
             """
-            INSERT INTO grade_assessments (workflow_id, outcome_name, assessment_data, final_certainty)
+            INSERT OR REPLACE INTO grade_assessments (workflow_id, outcome_name, assessment_data, final_certainty)
             VALUES (?, ?, ?, ?)
             """,
             (
