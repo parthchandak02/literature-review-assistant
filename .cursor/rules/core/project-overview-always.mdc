@@ -48,7 +48,7 @@ alwaysApply: true
 ## Web API
 - FastAPI backend on port 8001 (dev) / 8000 (prod), Vite dev server on port 5173
 - Run lifecycle: POST /api/run, GET /api/stream/{run_id}, POST /api/cancel/{run_id}, GET /api/runs
-- Results: GET /api/results/{run_id}, GET /api/run/{run_id}/artifacts, POST /api/run/{run_id}/export
+- Results: GET /api/results/{run_id}, GET /api/run/{run_id}/artifacts, POST /api/run/{run_id}/export, GET /api/run/{run_id}/submission.zip
 - History: GET /api/history, GET /api/history/{workflow_id}/config, POST /api/history/resume, POST /api/history/attach
 - DB explorer: GET /api/db/{run_id}/papers, /papers-all, /papers-facets, /papers-suggest, /screening, /costs
 - Event replay: GET /api/run/{run_id}/events, GET /api/workflow/{workflow_id}/events

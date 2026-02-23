@@ -14,12 +14,14 @@ from __future__ import annotations
 
 import asyncio
 import datetime
+import io
 import json as _json
 import os
 import pathlib
 import tempfile
 import time
 import uuid
+import zipfile
 from contextlib import asynccontextmanager
 from typing import Any, AsyncGenerator
 
@@ -28,7 +30,7 @@ import aiosqlite
 import yaml
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from sse_starlette.sse import EventSourceResponse
@@ -1286,6 +1288,42 @@ async def trigger_export(run_id: str, run_root: str = "runs") -> dict[str, Any]:
         raise HTTPException(status_code=500, detail="Export failed: manuscript not found")
     files = sorted(str(f) for f in submission_dir.rglob("*") if f.is_file())
     return {"submission_dir": str(submission_dir), "files": files}
+
+
+@app.get("/api/run/{run_id}/submission.zip")
+async def download_submission_zip(run_id: str) -> StreamingResponse:
+    """Stream the full IEEE submission directory as a ZIP archive.
+
+    The submission directory must exist (call POST /api/run/{run_id}/export first).
+    Returns a downloadable application/zip response.
+    """
+    db_path = _get_db_path(run_id)
+    summary_path = pathlib.Path(db_path).parent / "run_summary.json"
+    if not summary_path.exists():
+        raise HTTPException(status_code=404, detail="run_summary.json not found -- run export first")
+    summary = _json.loads(summary_path.read_text(encoding="utf-8"))
+    # Derive submission dir from output_dir stored in run_summary
+    output_dir: str | None = summary.get("output_dir")
+    if not output_dir:
+        raise HTTPException(status_code=404, detail="output_dir not in run_summary")
+    submission_dir = pathlib.Path(output_dir) / "submission"
+    if not submission_dir.exists():
+        raise HTTPException(
+            status_code=404,
+            detail="Submission directory not found -- click 'Export to LaTeX' first",
+        )
+    # Build ZIP in memory
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, mode="w", compression=zipfile.ZIP_DEFLATED) as zf:
+        for fpath in sorted(submission_dir.rglob("*")):
+            if fpath.is_file():
+                zf.write(fpath, arcname=fpath.relative_to(submission_dir))
+    buf.seek(0)
+    return StreamingResponse(
+        buf,
+        media_type="application/zip",
+        headers={"Content-Disposition": "attachment; filename=submission.zip"},
+    )
 
 
 # ---------------------------------------------------------------------------

@@ -1,8 +1,10 @@
 import { useState, useMemo } from "react"
-import { FileText, Lock, Loader2, PackageCheck, AlertCircle } from "lucide-react"
+import { FileText, Lock, Loader2, PackageCheck, AlertCircle, Archive } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { ResultsPanel } from "@/components/ResultsPanel"
 import { triggerExport } from "@/lib/api"
+
+const API_BASE = import.meta.env.VITE_API_URL ?? ""
 
 interface ResultsViewProps {
   outputs: Record<string, unknown>
@@ -99,27 +101,40 @@ export function ResultsView({
               </span>
             )}
           </div>
-          <Button
-            size="sm"
-            variant={exportState === "done" ? "outline" : "default"}
-            disabled={exportState === "loading" || exportState === "done"}
-            onClick={() => void handleExport()}
-            className="shrink-0 gap-1.5"
-          >
-            {exportState === "loading" ? (
-              <>
-                <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                Packaging...
-              </>
-            ) : exportState === "done" ? (
-              <>
-                <PackageCheck className="h-3.5 w-3.5" />
-                Exported
-              </>
-            ) : (
-              "Export to LaTeX"
+          <div className="flex items-center gap-2 shrink-0">
+            {exportState === "done" && exportRunId && (
+              <Button size="sm" variant="outline" asChild className="gap-1.5 border-zinc-700 text-zinc-300 hover:text-white">
+                <a
+                  href={`${API_BASE}/api/run/${exportRunId}/submission.zip`}
+                  download="submission.zip"
+                >
+                  <Archive className="h-3.5 w-3.5" />
+                  Download ZIP
+                </a>
+              </Button>
             )}
-          </Button>
+            <Button
+              size="sm"
+              variant={exportState === "done" ? "outline" : "default"}
+              disabled={exportState === "loading" || exportState === "done"}
+              onClick={() => void handleExport()}
+              className="gap-1.5"
+            >
+              {exportState === "loading" ? (
+                <>
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  Packaging...
+                </>
+              ) : exportState === "done" ? (
+                <>
+                  <PackageCheck className="h-3.5 w-3.5" />
+                  Exported
+                </>
+              ) : (
+                "Export to LaTeX"
+              )}
+            </Button>
+          </div>
         </div>
       )}
 

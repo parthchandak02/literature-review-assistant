@@ -4,11 +4,15 @@ import remarkGfm from "remark-gfm"
 import rehypeSlug from "rehype-slug"
 import rehypeAutolinkHeadings from "rehype-autolink-headings"
 import rehypeHighlight from "rehype-highlight"
+import hljs from "highlight.js/lib/core"
+import latex from "highlight.js/lib/languages/latex"
 // highlight.js theme loaded as a side-effect CSS import (Vite resolves npm CSS)
 import "highlight.js/styles/github-dark.css"
 import { Button } from "@/components/ui/button"
-import { Download, FileText, Image, FileCode, ChevronDown, ChevronUp, BookOpen } from "lucide-react"
+import { Download, FileText, Image, ChevronDown, ChevronUp, BookOpen } from "lucide-react"
 import { downloadUrl } from "@/lib/api"
+
+hljs.registerLanguage("latex", latex)
 
 interface ResultsPanelProps {
   outputs: Record<string, unknown>
@@ -33,6 +37,7 @@ interface OutputFile {
   isLatex: boolean
   isMarkdown: boolean
   isJson: boolean
+  isCsv: boolean
 }
 
 function latexLabel(name: string): string {
@@ -54,6 +59,7 @@ function collectFiles(outputs: Record<string, unknown>): OutputFile[] {
       const isFigure = isRasterImage || /\.pdf$/i.test(name)
       const isMarkdown = /\.md$/i.test(name)
       const isJson = /\.json$/i.test(name)
+      const isCsv = /\.csv$/i.test(name)
       files.push({
         key: prefix,
         path: obj,
@@ -62,6 +68,7 @@ function collectFiles(outputs: Record<string, unknown>): OutputFile[] {
         isLatex,
         isMarkdown,
         isJson,
+        isCsv,
       })
     } else if (obj && typeof obj === "object" && !Array.isArray(obj)) {
       for (const [k, v] of Object.entries(obj as Record<string, unknown>)) {
@@ -190,7 +197,75 @@ function TocBar({
   )
 }
 
-/** Expandable document row with inline viewer for .md and .json files. */
+/** Parse a simple CSV string into rows of cells. */
+function parseCsv(text: string): string[][] {
+  return text
+    .trim()
+    .split("\n")
+    .map((row) =>
+      row
+        .split(",")
+        .map((cell) => cell.replace(/^"|"$/g, "").trim()),
+    )
+}
+
+/** Inline CSV table viewer. */
+function CsvViewer({ content }: { content: string }) {
+  const rows = parseCsv(content)
+  if (rows.length === 0) return <p className="text-xs text-zinc-600 p-4">Empty file.</p>
+  const [header, ...body] = rows
+  return (
+    <div className="overflow-auto max-h-[50vh]">
+      <table className="text-xs text-zinc-300 border-collapse w-full">
+        <thead className="sticky top-0 bg-zinc-900">
+          <tr>
+            {header.map((cell, i) => (
+              <th
+                key={i}
+                className="text-left px-3 py-2 border border-zinc-700 font-semibold text-zinc-200 whitespace-nowrap"
+              >
+                {cell}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {body.map((row, ri) => (
+            <tr key={ri} className={ri % 2 === 0 ? "bg-zinc-950" : "bg-zinc-900/50"}>
+              {row.map((cell, ci) => (
+                <td key={ci} className="px-3 py-1.5 border border-zinc-800 max-w-[20rem] truncate">
+                  {cell}
+                </td>
+              ))}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  )
+}
+
+/** Inline syntax-highlighted viewer for .tex and .bib files. */
+function LatexViewer({ content, isLatex }: { content: string; isLatex: boolean }) {
+  let highlighted = content
+  try {
+    if (isLatex) {
+      highlighted = hljs.highlight(content, { language: "latex" }).value
+    }
+  } catch {
+    // fallback to plain text if language not recognized
+  }
+  return (
+    <div className="overflow-auto max-h-[70vh]">
+      <pre className="hljs text-xs p-4 font-mono leading-relaxed whitespace-pre-wrap">
+        {/* eslint-disable-next-line react/no-danger */}
+        <code dangerouslySetInnerHTML={{ __html: highlighted }} />
+      </pre>
+    </div>
+  )
+}
+
+/** Expandable document row with inline viewer for .md, .json, .tex, .bib, and .csv files. */
 function InlineDocRow({ file }: { file: OutputFile }) {
   const [open, setOpen] = useState(false)
   const [content, setContent] = useState<string | null>(null)
@@ -230,6 +305,37 @@ function InlineDocRow({ file }: { file: OutputFile }) {
     },
   }
 
+  function renderContent() {
+    if (content === null) return null
+    if (file.isMarkdown) {
+      return (
+        <div className="prose prose-invert prose-zinc max-w-none manuscript-viewer">
+          <ReactMarkdown
+            remarkPlugins={[remarkGfm]}
+            rehypePlugins={[rehypeSlug, [rehypeAutolinkHeadings, { behavior: "wrap" }], rehypeHighlight]}
+            urlTransform={makeUrlTransform(file.path)}
+            components={markdownComponents}
+          >
+            {content}
+          </ReactMarkdown>
+        </div>
+      )
+    }
+    if (file.isCsv) {
+      return <CsvViewer content={content} />
+    }
+    if (file.isLatex) {
+      return <LatexViewer content={content} isLatex={/\.tex$/i.test(file.path)} />
+    }
+    return (
+      <pre className="text-xs text-zinc-400 whitespace-pre-wrap font-mono p-4">
+        {file.isJson
+          ? (() => { try { return JSON.stringify(JSON.parse(content), null, 2) } catch { return content } })()
+          : content}
+      </pre>
+    )
+  }
+
   return (
     <div className="flex flex-col gap-2">
       <div className="flex items-center justify-between gap-2">
@@ -262,26 +368,8 @@ function InlineDocRow({ file }: { file: OutputFile }) {
       {open && content !== null && (
         <div className="rounded-lg border border-zinc-800 bg-zinc-950 overflow-hidden flex flex-col">
           {file.isMarkdown && <TocBar headings={headings} viewerRef={viewerRef} />}
-          <div
-            ref={viewerRef}
-            className="overflow-auto max-h-[80vh] p-6"
-          >
-            {file.isMarkdown ? (
-              <div className="prose prose-invert prose-zinc max-w-none manuscript-viewer">
-                <ReactMarkdown
-                  remarkPlugins={[remarkGfm]}
-                  rehypePlugins={[rehypeSlug, [rehypeAutolinkHeadings, { behavior: "wrap" }], rehypeHighlight]}
-                  urlTransform={makeUrlTransform(file.path)}
-                  components={markdownComponents}
-                >
-                  {content}
-                </ReactMarkdown>
-              </div>
-            ) : (
-              <pre className="text-xs text-zinc-400 whitespace-pre-wrap font-mono">
-                {file.isJson ? (() => { try { return JSON.stringify(JSON.parse(content), null, 2) } catch { return content } })() : content}
-              </pre>
-            )}
+          <div ref={viewerRef} className={file.isMarkdown ? "overflow-auto max-h-[80vh] p-6" : ""}>
+            {renderContent()}
           </div>
         </div>
       )}
@@ -323,12 +411,11 @@ function FigureRow({ file }: { file: OutputFile }) {
 
 export function ResultsPanel({ outputs }: ResultsPanelProps) {
   const files = collectFiles(outputs)
-  // Documents: non-figure, non-latex files. Includes .md and .json which get inline viewer.
+  // Documents: all non-figure files (md, json, tex, bib, csv, etc.) unified in one section.
   const docs = files.filter(
-    (f) => !f.isRasterImage && !f.isLatex && !/\.(png|jpg|jpeg|svg|webp|pdf)$/i.test(f.path),
+    (f) => !f.isRasterImage && !/\.(png|jpg|jpeg|svg|webp|pdf)$/i.test(f.path),
   )
-  const figs = files.filter((f) => /\.(png|jpg|jpeg|svg|webp|pdf)$/i.test(f.path) && !f.isLatex)
-  const latex = files.filter((f) => f.isLatex)
+  const figs = files.filter((f) => /\.(png|jpg|jpeg|svg|webp|pdf)$/i.test(f.path))
 
   if (files.length === 0) {
     return (
@@ -342,22 +429,18 @@ export function ResultsPanel({ outputs }: ResultsPanelProps) {
   return (
     <div className="flex flex-col gap-4">
       {docs.length > 0 && (
-        <SectionBox icon={FileText} title="Documents" sub="Manuscript, protocol, appendices">
+        <SectionBox
+          icon={FileText}
+          title="Documents"
+          sub="Manuscript, protocol, LaTeX, appendices"
+        >
           {docs.map((f) =>
-            f.isMarkdown || f.isJson ? (
+            f.isMarkdown || f.isJson || f.isLatex || f.isCsv ? (
               <InlineDocRow key={f.key} file={f} />
             ) : (
               <FileRow key={f.key} label={f.label} path={f.path} />
             ),
           )}
-        </SectionBox>
-      )}
-
-      {latex.length > 0 && (
-        <SectionBox icon={FileCode} title="LaTeX Submission" sub="IEEE-ready .tex + .bib">
-          {latex.map((f) => (
-            <FileRow key={f.key} label={f.label} path={f.path} downloadName={f.path.split("/").pop()} />
-          ))}
         </SectionBox>
       )}
 
