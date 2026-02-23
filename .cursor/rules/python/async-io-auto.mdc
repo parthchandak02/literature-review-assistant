@@ -8,7 +8,7 @@ alwaysApply: false
 
 - All database calls use `aiosqlite` async context manager
 - All HTTP calls use `aiohttp.ClientSession` (not `requests`)
-- All LLM calls use PydanticAI async agent.run()
+- All LLM calls go through `_run_with_retry()` in `src/llm/pydantic_client.py` (exponential backoff + jitter on 429/502/503/504, max 5 retries) -- never call `agent.run()` directly from orchestration
 - Use `asyncio.gather()` for independent concurrent operations (e.g., multi-database search)
 - Rate limiting: use token bucket pattern in `src/llm/rate_limiter.py`
 - Every LLM call must be wrapped to log a `CostRecord` to the database

@@ -13,6 +13,7 @@ It runs a full PRISMA 2020-compliant pipeline: searches 7 academic databases (Op
 After a run completes, you get a `submission/` folder containing:
 
 - `manuscript.tex` + `manuscript.pdf` -- IEEE-formatted manuscript (IEEEtran)
+- `manuscript.docx` -- Word format with figures and formatted tables (for sharing / human review)
 - `references.bib` -- all citations
 - `figures/` -- PRISMA flow diagram, RoB traffic-light, forest plot, funnel plot, publication timeline, geographic distribution
 - `supplementary/` -- search strategies appendix, screening decisions CSV, extracted data CSV
@@ -313,7 +314,7 @@ uv run pytest tests/integration -q
 | `src/synthesis/` | Feasibility checker, meta-analysis, narrative synthesis |
 | `src/writing/` | Section writer, humanizer, style extractor, grounding |
 | `src/citation/` | Citation ledger -- claim-to-evidence-to-BibTeX lineage |
-| `src/export/` | IEEE LaTeX exporter, BibTeX builder, PRISMA validator |
+| `src/export/` | IEEE LaTeX exporter, Word DOCX exporter, BibTeX builder, PRISMA validator |
 | `src/visualization/` | Forest plot, funnel plot, RoB figure, timeline, geographic |
 | `src/prisma/` | PRISMA 2020 flow diagram generator |
 | `src/protocol/` | PROSPERO-format protocol generator |

@@ -444,6 +444,7 @@ Publication timeline and geographic distribution figures are also generated here
 submission/
 |-- manuscript.tex
 |-- manuscript.pdf
+|-- manuscript.docx
 |-- references.bib
 |-- figures/
 `-- supplementary/
@@ -906,8 +907,8 @@ Living section -- update as work completes.
 | Phase 5: Synthesis | DONE | Feasibility gates, statsmodels pooling (DL), forest + funnel plots, narrative fallback, synthesis_results table |
 | Phase 6: Writing | DONE | Section writer, humanizer, citation validation, style extractor, naturalness scorer, per-section checkpoint, WritingGroundingData |
 | Phase 7: PRISMA + Viz | DONE | PRISMA diagram (prisma-flow-diagram + fallback), timeline, geographic, ROBINS-I in RoB figure, uniform artifact naming |
-| Phase 8: Export + Orchestration | DONE | Run/resume, IEEE LaTeX, BibTeX, validators, submission packager, pdflatex, CLI subcommands |
-| Web UI | DONE | FastAPI SSE backend (21 endpoints), React/Vite/TypeScript frontend, structured Setup form, run-centric sidebar, 4-tab RunView, DB explorer, cost tracking |
+| Phase 8: Export + Orchestration | DONE | Run/resume, IEEE LaTeX, BibTeX, validators, Word DOCX export (pypandoc + python-docx), submission packager, pdflatex, CLI subcommands |
+| Web UI | DONE | FastAPI SSE backend (22 endpoints), React/Vite/TypeScript frontend, structured Setup form, run-centric sidebar, 4-tab RunView, DB explorer, cost tracking, grouped Results panel with per-filetype icons |
 | Resume | DONE | Central registry, topic auto-resume, mid-phase resume, fallback scan of run_summary.json |
 | Post-build improvements | DONE | display_label (single source of truth in papers table), synthesis_results table, dedup_count column, SearchConfig per-connector limits, BM25 cap with LOW_RELEVANCE_SCORE exclusions |
 
