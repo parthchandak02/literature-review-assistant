@@ -9,6 +9,7 @@
  */
 export function formatWorkflowId(id: string | null | undefined): string {
   if (!id) return ""
+  if (id.startsWith("wf-")) return id
   return `wf-${id.slice(0, 8)}`
 }
 
