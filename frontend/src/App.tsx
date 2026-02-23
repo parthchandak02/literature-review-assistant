@@ -227,7 +227,7 @@ export default function App() {
 
   async function handleSelectHistory(entry: HistoryEntry) {
     const res = await attachHistory(entry)
-    const isCompleted = ["completed", "done"].includes(entry.status.toLowerCase())
+    const isCompleted = ["completed", "done", "stale", "interrupted"].includes(entry.status.toLowerCase())
     setSelectedRun({
       runId: res.run_id,
       workflowId: entry.workflow_id,
@@ -302,10 +302,10 @@ export default function App() {
       const s = (selectedRun.historicalStatus ?? "completed").toLowerCase()
       if (s === "completed" || s === "done") return "done"
       if (s === "running" || s === "streaming") return "streaming"
-      if (s === "stale") return "streaming"
+      if (s === "stale") return "error"
       if (s === "failed" || s === "error") return "error"
       if (s === "cancelled" || s === "canceled") return "cancelled"
-      if (s === "interrupted") return "cancelled"
+      if (s === "interrupted") return "error"
       return "done"
     })()
 

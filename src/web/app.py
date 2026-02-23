@@ -13,6 +13,7 @@ Or via Overmind (production, single process):
 from __future__ import annotations
 
 import asyncio
+import datetime
 import json as _json
 import os
 import pathlib
@@ -833,6 +834,20 @@ async def attach_history(req: AttachRequest) -> RunResponse:
             pass  # graceful -- outputs stays {}
     # Load persisted events from SQLite for the historical event log viewer.
     record.event_log = await _load_event_log_from_db(req.db_path)
+    # Inject a synthetic terminal event when the event log has no terminal event
+    # (type "done"/"error"/"cancelled") and the run did not complete normally.
+    # This ensures the ActivityView phase timeline settles into a final state.
+    if req.status not in ("completed", "done"):
+        has_terminal = any(
+            isinstance(e, dict) and e.get("type") in ("done", "error", "cancelled")
+            for e in record.event_log
+        )
+        if not has_terminal:
+            record.event_log.append({
+                "type": "error",
+                "msg": f"Run ended with status: {req.status}",
+                "ts": datetime.datetime.now(tz=datetime.timezone.utc).isoformat(),
+            })
     _active_runs[run_id] = record
     # Refresh allowed download roots to include the newly attached run's location.
     await _refresh_allowed_roots()

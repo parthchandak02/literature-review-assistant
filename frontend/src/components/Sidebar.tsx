@@ -263,73 +263,14 @@ export function Sidebar({
           </SidebarTooltip>
         </div>
 
-        {/* Run list */}
-        <nav className="flex-1 overflow-y-auto overflow-x-hidden px-2.5 pb-2 space-y-4">
-          {/* Current / live run */}
-          {liveRun && (
-            <section>
-              {!collapsed && (
-                <div className="px-1 mb-1.5">
-                  <span className="text-[10px] font-semibold text-zinc-600 uppercase tracking-wider">
-                    Current
-                  </span>
-                </div>
-              )}
-              <SidebarTooltip label={liveRun.topic} collapsed={collapsed} side="right">
-                <button
-                  onClick={onSelectLiveRun}
-                  className={cn(
-                    "w-full transition-colors text-left",
-                    collapsed
-                      ? "flex justify-center items-center h-9 w-9 mx-auto rounded-lg"
-                      : cn(
-                          "border-l-2 pl-2.5 pr-2 py-2 rounded-r-md",
-                          STATUS_BORDER[liveRun.status],
-                        ),
-                    isLiveRunSelected
-                      ? "bg-zinc-800"
-                      : "hover:bg-zinc-800/60",
-                  )}
-                >
-                  {collapsed ? (
-                    <RunDot status={liveRun.status} animate={isRunning} />
-                  ) : (
-                    <div className="flex flex-col gap-0.5 min-w-0">
-                      <div className="flex items-center gap-1.5 min-w-0">
-                        <RunDot status={liveRun.status} animate={isRunning} />
-                        <span
-                          className={cn(
-                            "text-[10px] font-semibold uppercase tracking-wide shrink-0",
-                            STATUS_TEXT[liveRun.status],
-                          )}
-                        >
-                          {STATUS_LABEL[liveRun.status]}
-                        </span>
-                        <span className="ml-auto text-[10px] text-zinc-500 shrink-0">
-                          Now
-                        </span>
-                      </div>
-                      <span className="text-xs text-zinc-300 line-clamp-2 leading-snug">
-                        {liveRun.topic}
-                      </span>
-                      {liveRun.cost > 0 && (
-                        <span className="text-[10px] font-mono text-zinc-500 mt-0.5">
-                          ${liveRun.cost.toFixed(3)}
-                        </span>
-                      )}
-                    </div>
-                  )}
-                </button>
-              </SidebarTooltip>
-            </section>
-          )}
-
-          {/* History */}
+        {/* Run list -- unified single "Runs" section */}
+        <nav className="flex-1 overflow-y-auto overflow-x-hidden px-2.5 pb-2 pt-1">
           <section>
+            {/* Section header */}
             {!collapsed && (
               <div className="flex items-center justify-between px-1 mb-1.5">
                 <span className="text-[10px] font-semibold text-zinc-600 uppercase tracking-wider">
-                  History
+                  Runs
                 </span>
                 <button
                   onClick={() => void loadHistory()}
@@ -350,7 +291,7 @@ export function Sidebar({
               </div>
             )}
 
-            {loadingHistory && history.length === 0 && !collapsed && (
+            {loadingHistory && history.length === 0 && !liveRun && !collapsed && (
               <div className="space-y-0.5">
                 {[1, 2, 3].map((i) => (
                   <div key={i} className="pl-2.5 pr-2 py-2 rounded-r-md border-l-2 border-zinc-700">
@@ -362,6 +303,56 @@ export function Sidebar({
             )}
 
             <div className="space-y-0.5">
+              {/* Live run floats to the top with pulsing dot and "Now" badge */}
+              {liveRun && (
+                <SidebarTooltip label={liveRun.topic} collapsed={collapsed} side="right">
+                  <button
+                    onClick={onSelectLiveRun}
+                    className={cn(
+                      "w-full transition-colors text-left",
+                      collapsed
+                        ? "flex justify-center items-center h-9 w-9 mx-auto rounded-lg"
+                        : cn(
+                            "border-l-2 pl-2.5 pr-2 py-2 rounded-r-md",
+                            STATUS_BORDER[liveRun.status],
+                          ),
+                      isLiveRunSelected
+                        ? "bg-zinc-800"
+                        : "hover:bg-zinc-800/60",
+                    )}
+                  >
+                    {collapsed ? (
+                      <RunDot status={liveRun.status} animate={isRunning} />
+                    ) : (
+                      <div className="flex flex-col gap-0.5 min-w-0">
+                        <div className="flex items-center gap-1.5 min-w-0">
+                          <RunDot status={liveRun.status} animate={isRunning} />
+                          <span
+                            className={cn(
+                              "text-[10px] font-semibold uppercase tracking-wide shrink-0",
+                              STATUS_TEXT[liveRun.status],
+                            )}
+                          >
+                            {STATUS_LABEL[liveRun.status]}
+                          </span>
+                          <span className="ml-auto text-[10px] text-zinc-500 shrink-0">
+                            Now
+                          </span>
+                        </div>
+                        <span className="text-xs text-zinc-300 line-clamp-2 leading-snug">
+                          {liveRun.topic}
+                        </span>
+                        {liveRun.cost > 0 && (
+                          <span className="text-[10px] font-mono text-zinc-500 mt-0.5">
+                            ${liveRun.cost.toFixed(3)}
+                          </span>
+                        )}
+                      </div>
+                    )}
+                  </button>
+                </SidebarTooltip>
+              )}
+
               {(liveRun?.workflowId
                 ? history.filter((e) => e.workflow_id !== liveRun.workflowId)
                 : history
@@ -496,7 +487,7 @@ export function Sidebar({
               })}
             </div>
 
-            {!collapsed && history.length === 0 && !loadingHistory && (
+            {!collapsed && history.length === 0 && !loadingHistory && !liveRun && (
               <div className="flex flex-col items-center py-6 gap-2">
                 <Clock className="h-6 w-6 text-zinc-700" />
                 <p className="text-[11px] text-zinc-600 text-center">
