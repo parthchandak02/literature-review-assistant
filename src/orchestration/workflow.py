@@ -69,6 +69,7 @@ from src.visualization import (
 )
 from src.visualization.forest_plot import render_forest_plot
 from src.visualization.funnel_plot import render_funnel_plot
+from src.export.markdown_refs import assemble_submission_manuscript
 from src.writing.context_builder import build_writing_grounding
 from src.writing.humanizer import humanize_async
 from src.writing.orchestration import (
@@ -1130,12 +1131,17 @@ class WritingNode(BaseNode[ReviewState]):
             await repository.save_checkpoint(
                 state.workflow_id, "phase_6_writing", papers_processed=len(SECTIONS)
             )
+            citation_rows = await CitationRepository(db).get_all_citations_for_export()
 
         manuscript_path = Path(state.artifacts["manuscript_md"])
-        manuscript_path.write_text(
-            "\n\n".join(sections_written),
-            encoding="utf-8",
+        body = "\n\n".join(sections_written)
+        full_manuscript = assemble_submission_manuscript(
+            body=body,
+            manuscript_path=manuscript_path,
+            artifacts=state.artifacts,
+            citation_rows=citation_rows,
         )
+        manuscript_path.write_text(full_manuscript, encoding="utf-8")
 
         if rc:
             rc.emit_phase_done("phase_6_writing", {"sections": len(sections_written)})
