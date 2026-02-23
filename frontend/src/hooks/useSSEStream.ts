@@ -107,9 +107,17 @@ function openStream(runId: string, signal: AbortSignal, setState: SetState, work
     },
     onerror: (err) => {
       const msg = err instanceof Error ? err.message : String(err)
+      // Intentional abort (user navigated away, signal cancelled, or 404-SQLite fallback).
       if (msg === "AbortError" || msg.includes("aborted")) throw err
-      setState((s) => ({ ...s, status: "error", error: friendlyError(err) }))
-      throw err // stop automatic retry
+      // Permanent server error (non-2xx open): stop retrying and show the error.
+      if (msg.includes("Stream open failed:")) {
+        setState((s) => ({ ...s, status: "error", error: friendlyError(err) }))
+        throw err
+      }
+      // Transient network error (connection drop, brief offline, etc.).
+      // Do NOT throw -- fetch-event-source will auto-reconnect and will send
+      // Last-Event-ID so the server only replays events the client missed.
+      setState((s) => (s.status === "streaming" ? { ...s, status: "connecting" } : s))
     },
     openWhenHidden: true,
   }).catch(() => {

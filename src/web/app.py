@@ -429,19 +429,32 @@ async def start_run(req: RunRequest) -> RunResponse:
 
 
 @app.get("/api/stream/{run_id}")
-async def stream_run(run_id: str) -> EventSourceResponse:
+async def stream_run(run_id: str, request: Request) -> EventSourceResponse:
     record = _active_runs.get(run_id)
     if record is None:
         raise HTTPException(status_code=404, detail="Run not found")
 
+    # If the client sends Last-Event-ID, only replay events after that index.
+    # This avoids re-sending events the client already received on reconnect.
+    last_event_id_header = request.headers.get("last-event-id", "")
+    resume_from: int = 0
+    if last_event_id_header:
+        try:
+            resume_from = int(last_event_id_header) + 1
+        except ValueError:
+            resume_from = 0
+
     async def _generator() -> AsyncGenerator[dict[str, Any], None]:
-        # Replay buffered events so the client always gets the full history,
-        # even on page refresh or reconnect after events were already consumed
-        # from the queue.
-        replay_index = 0
-        for event in list(record.event_log):
-            yield {"data": _json_safe(event)}
-            replay_index += 1
+        # Replay buffered events the client has not yet seen. Each event is
+        # tagged with its sequential id so the browser can send Last-Event-ID
+        # on reconnect to skip already-received events.
+        snapshot = list(record.event_log)
+        for idx, event in enumerate(snapshot):
+            if idx < resume_from:
+                continue
+            yield {"id": str(idx), "data": _json_safe(event)}
+
+        replay_index = len(snapshot)
 
         # Fast-path: already completed and queue is empty after replay.
         if record.done and record.queue.empty():
@@ -451,13 +464,14 @@ async def stream_run(run_id: str) -> EventSourceResponse:
                 for e in record.event_log
             )
             if not already_has_terminal:
-                yield {"data": _json_safe({"type": "done", "outputs": record.outputs})}
+                yield {"id": str(replay_index), "data": _json_safe({"type": "done", "outputs": record.outputs})}
             return
 
         while True:
             try:
                 event = await asyncio.wait_for(record.queue.get(), timeout=15.0)
-                yield {"data": _json_safe(event)}
+                yield {"id": str(replay_index), "data": _json_safe(event)}
+                replay_index += 1
                 if event.get("type") in ("done", "error", "cancelled"):
                     break
             except asyncio.TimeoutError:
