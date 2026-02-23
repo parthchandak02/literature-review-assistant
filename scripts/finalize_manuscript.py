@@ -14,6 +14,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import pathlib
+import re
 import sys
 
 sys.path.insert(0, str(pathlib.Path(__file__).parent.parent))
@@ -24,6 +25,39 @@ from src.export.markdown_refs import (
     assemble_submission_manuscript,
     strip_appended_sections,
 )
+
+def _inject_imrad_headings(body: str) -> str:
+    """Inject missing H2 IMRaD headings into an existing LLM-generated body.
+
+    Handles manuscripts written before the heading-injection pipeline was
+    added.  Each substitution is idempotent: if the heading already exists
+    the pattern will not match and the body is returned unchanged.
+    """
+    # 1. Methods: insert before the PRISMA opening statement.
+    body = re.sub(
+        r"(?m)^(This systematic review follows the Preferred Reporting Items)",
+        r"## Methods\n\n\1",
+        body, count=1,
+    )
+    # 2. Results: upgrade ### **Results** (H3 with bold) to ## Results.
+    body = re.sub(r"(?m)^### \*\*Results\*\*\s*$", "## Results", body)
+    # 3. Discussion: insert before ### Principal Findings.
+    body = re.sub(
+        r"(?m)^(### Principal Findings)",
+        r"## Discussion\n\n\1",
+        body, count=1,
+    )
+    # 4. Introduction: insert after the last abstract bold-field line
+    #    (the line that starts with **Funding: or **Keywords: etc.)
+    #    The abstract always ends with one of these fields followed by a
+    #    blank line and the first prose sentence (capital letter).
+    body = re.sub(
+        r"(\*\*(?:Funding|Protocol Registration|Keywords)[^\n]*\n)(\n)([A-Z])",
+        r"\1\n## Introduction\n\n\3",
+        body, count=1,
+    )
+    return body
+
 
 ARTIFACT_MAP = {
     "prisma_diagram": "fig_prisma_flow.png",
@@ -47,6 +81,7 @@ async def main(run_dir: str) -> int:
         return 1
 
     body = strip_appended_sections(manuscript_path.read_text(encoding="utf-8"))
+    body = _inject_imrad_headings(body)
 
     artifacts = {key: str(run_path / filename) for key, filename in ARTIFACT_MAP.items()}
 
