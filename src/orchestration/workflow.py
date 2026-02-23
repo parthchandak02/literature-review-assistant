@@ -584,12 +584,16 @@ class ExtractionQualityNode(BaseNode[ReviewState]):
             # (state.extraction_records is empty if the phase checkpoint was never saved).
             records: list[ExtractionRecord] = await repository.load_extraction_records(state.workflow_id)
             already_extracted = {r.paper_id for r in records}
+            already_assessed = await repository.get_rob_assessment_ids(state.workflow_id)
             to_process = [p for p in state.included_papers if p.paper_id not in already_extracted]
+            # Papers that were extracted before a mid-phase crash but whose RoB
+            # assessment was never saved.  Re-run quality assessment only (skip extraction).
+            quality_only = [r for r in records if r.paper_id not in already_assessed]
             if rc:
                 rc.emit_phase_start(
                     "phase_4_extraction_quality",
                     f"Extracting {len(to_process)} papers...",
-                    total=len(to_process),
+                    total=len(to_process) + len(quality_only),
                 )
             gate_runner = GateRunner(repository, state.settings)
             provider = LLMProvider(state.settings, repository)
@@ -617,6 +621,54 @@ class ExtractionQualityNode(BaseNode[ReviewState]):
             robins_i = RobinsIAssessor(llm_client=llm_gemini, settings=state.settings, provider=provider if use_llm else None)
             casp = CaspAssessor(llm_client=llm_gemini, settings=state.settings, provider=provider if use_llm else None)
             not_applicable_paper_ids: list[str] = []
+
+            # Quality-only pass: papers extracted before a crash but missing RoB.
+            _paper_lookup = {p.paper_id: p for p in state.included_papers}
+            for qr in quality_only:
+                _src_paper = _paper_lookup.get(qr.paper_id)
+                full_text = (
+                    (_src_paper.abstract or _src_paper.title or "").strip()
+                    if _src_paper else ""
+                )
+                try:
+                    tool = router.route_tool(qr)
+                    if tool == "rob2":
+                        assessment = await rob2.assess(qr, full_text=full_text)
+                        await repository.save_rob2_assessment(state.workflow_id, assessment)
+                    elif tool == "robins_i":
+                        assessment = await robins_i.assess(qr, full_text=full_text)
+                        await repository.save_robins_i_assessment(state.workflow_id, assessment)
+                    elif tool == "casp":
+                        assessment = await casp.assess(qr, full_text=full_text)
+                        await repository.append_decision_log(
+                            DecisionLogEntry(
+                                decision_type="casp_assessment",
+                                paper_id=qr.paper_id,
+                                decision="completed",
+                                rationale=assessment.overall_summary,
+                                actor="quality_assessment",
+                                phase="phase_4_extraction_quality",
+                            )
+                        )
+                    else:
+                        not_applicable_paper_ids.append(qr.paper_id)
+                    grade_assessment = grade.assess_outcome(
+                        outcome_name="primary_outcome",
+                        number_of_studies=1,
+                        study_design=qr.study_design,
+                    )
+                    await repository.save_grade_assessment(state.workflow_id, grade_assessment)
+                except Exception as exc:
+                    await repository.append_decision_log(
+                        DecisionLogEntry(
+                            decision_type="quality_retry_error",
+                            paper_id=qr.paper_id,
+                            decision="error",
+                            rationale=f"Quality-only retry error: {type(exc).__name__}: {exc}",
+                            actor="workflow_run",
+                            phase="phase_4_extraction_quality",
+                        )
+                    )
 
             for i, paper in enumerate(to_process):
                 if rc and rc.verbose:

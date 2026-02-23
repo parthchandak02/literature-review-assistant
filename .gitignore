@@ -73,3 +73,6 @@ cloudflared-config-litreview.yml
 
 # PM2 ecosystem config (machine-specific paths)
 ecosystem.config.js
+
+# Reference materials (PDFs, manuscripts -- not source code)
+reference/

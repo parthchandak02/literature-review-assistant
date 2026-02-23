@@ -406,6 +406,17 @@ class WorkflowRepository:
         rows = await cursor.fetchall()
         return {str(row[0]) for row in rows}
 
+    async def get_rob_assessment_ids(self, workflow_id: str) -> Set[str]:
+        """Paper IDs that already have a row in rob_assessments for this workflow."""
+        cursor = await self.db.execute(
+            """
+            SELECT paper_id FROM rob_assessments WHERE workflow_id = ?
+            """,
+            (workflow_id,),
+        )
+        rows = await cursor.fetchall()
+        return {str(row[0]) for row in rows}
+
     async def load_extraction_records(self, workflow_id: str) -> List[ExtractionRecord]:
         """Load all extraction records for a workflow."""
         cursor = await self.db.execute(

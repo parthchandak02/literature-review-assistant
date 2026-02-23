@@ -1,49 +1,55 @@
-research_question: "How do conversational AI tutors impact learning outcomes, engagement, and knowledge retention in health science education, and what are the key design factors and implementation challenges?"
+research_question: "What is the impact of robotic medication dispensing systems on dispensing accuracy, medication error rates, operational efficiency, and patient safety in university and college health center pharmacy settings, and what are the implementation barriers and facilitators?"
 review_type: "systematic"
 
 pico:
-  population: "Health science students and health professions learners"
-  intervention: "Conversational AI tutors (including chatbots, intelligent tutoring systems, and LLM-based tutors)"
-  comparison: "Traditional instruction, no intervention, human tutors, or alternative educational technologies"
-  outcome: "Learning outcomes, engagement, knowledge retention, clinical reasoning, and skill development"
+  population: "Pharmacists, pharmacy technicians, and patients served by university or college health center pharmacies"
+  intervention: "Robotic or automated medication dispensing systems, including robotic prescription filling systems and automated dispensing cabinets (ADCs)"
+  comparison: "Manual or traditional pharmacy dispensing workflows, human-operated dispensing processes, or pre-implementation baselines"
+  outcome: "Dispensing accuracy, medication error rates, operational efficiency, prescription turnaround time, cost-effectiveness, staff workload and satisfaction, and patient safety outcomes"
 
 keywords:
-  - "chatbot"
-  - "AI tutor"
-  - "conversational AI"
-  - "conversational agent"
-  - "intelligent tutor"
-  - "tutoring system"
-  - "dialogue system"
-  - "virtual tutor"
-  - "AI assistant"
-  - "large language model tutor"
-  - "ChatGPT"
-  - "GPT-4"
-  - "generative AI tutor"
-  - "LLM-based tutoring"
-  - "virtual patient"
-  - "health professions education"
+  - "robotic dispensing"
+  - "automated dispensing"
+  - "pharmacy automation"
+  - "medication dispensing robot"
+  - "automated dispensing cabinet"
+  - "robotic pharmacy"
+  - "automated pharmacy system"
+  - "prescription dispensing automation"
+  - "pharmacy robotics"
+  - "dispensing accuracy"
+  - "medication error"
+  - "university health center"
+  - "college health"
+  - "campus pharmacy"
+  - "student health pharmacy"
+  - "ambulatory pharmacy"
+  - "outpatient pharmacy automation"
+  - "ScriptPro"
+  - "Pyxis"
+  - "pharmacy workflow"
 
-domain: "AI-powered educational technology in health sciences"
-scope: "Focus on conversational AI tutors used in health science education. Includes both legacy chatbot and intelligent tutoring system (ITS) implementations and modern LLM-powered tutors (post-2022, e.g., GPT-4-based, Claude-based systems). Covers medical, nursing, pharmacy, dental, and allied health programs."
+domain: "Pharmacy automation and robotic dispensing in university and college health settings"
+scope: "Focus on robotic and automated medication dispensing systems deployed in university health centers, college health pharmacies, and ambulatory outpatient pharmacy settings with a student or campus population. Includes legacy automated dispensing cabinets (e.g., Pyxis, Omnicell) and modern robotic prescription filling systems (e.g., ScriptPro, RxMedic). Covers outcomes related to dispensing accuracy, medication errors, efficiency, cost, and staff and patient experience."
 
 inclusion_criteria:
-  - "Studies on conversational AI tutors or chatbots for health science education"
-  - "Studies evaluating LLM-based (e.g., GPT, Claude, Gemini) educational chatbots or conversational agents"
-  - "Implementation in medical, nursing, pharmacy, dental, or allied health programs"
-  - "Learning outcomes, knowledge retention, clinical reasoning, or skill development measures"
-  - "Student engagement, satisfaction, or user experience evaluations"
+  - "Studies evaluating robotic or automated medication dispensing systems in university, college, or campus health center pharmacies"
+  - "Studies evaluating automated dispensing cabinets or robotic prescription filling in ambulatory or outpatient pharmacy settings applicable to university health populations"
+  - "Studies reporting dispensing accuracy, medication error rates, turnaround time, operational efficiency, or cost outcomes"
+  - "Studies reporting staff satisfaction, workload, or implementation experience with pharmacy automation"
+  - "Studies reporting patient safety outcomes related to automated dispensing"
   - "Published in English and peer-reviewed"
+  - "Implementation reports, quality improvement studies, or controlled trials with empirical outcome data"
 
 exclusion_criteria:
-  - "Non-conversational educational technology (e.g., passive video, static e-learning modules)"
-  - "Non-health science domains (unless providing direct comparative context for health science findings)"
-  - "Studies without empirical evaluation or outcomes data"
-  - "Opinion pieces, editorials, or non-peer-reviewed sources"
-  - "Conference-only abstracts lacking a full-length paper (i.e., abstracts submitted to conferences without an associated peer-reviewed full paper)"
+  - "Studies exclusively focused on inpatient hospital pharmacy dispensing with no ambulatory or outpatient applicability"
+  - "Studies on medication administration devices (e.g., infusion pumps, insulin pens) not involving dispensing workflow automation"
+  - "Studies without empirical outcome data (e.g., opinion pieces, editorials, purely descriptive technology overviews without evaluation)"
+  - "Non-peer-reviewed sources, conference-only abstracts lacking a full-length peer-reviewed paper"
+  - "Studies on inventory management or procurement systems without a dispensing accuracy or patient safety outcome"
+  - "Non-English publications"
 
-date_range_start: 2015
+date_range_start: 2010
 date_range_end: 2026
 
 target_databases:
@@ -79,28 +85,29 @@ conflicts_of_interest: "The authors declare no conflicts of interest."
 # Optional: override auto-generated queries per database. Omit a database to use default.
 search_overrides:
   crossref: >-
-    ("conversational AI" OR "chatbot" OR "AI tutor" OR "intelligent tutoring system"
-    OR "virtual patient" OR "large language model" OR "ChatGPT" OR "dialogue system")
+    ("robotic dispensing" OR "automated dispensing" OR "pharmacy automation"
+    OR "automated dispensing cabinet" OR "robotic pharmacy" OR "prescription dispensing automation"
+    OR "pharmacy robotics" OR "ScriptPro" OR "Pyxis" OR "Omnicell" OR "RxMedic")
     AND
-    ("health science" OR "medical education" OR "nursing education" OR "pharmacy education"
-    OR "dental education" OR "allied health" OR "health professions education"
-    OR "clinical education" OR "health education")
+    ("university health" OR "college health" OR "campus pharmacy" OR "student health"
+    OR "ambulatory pharmacy" OR "outpatient pharmacy" OR "dispensing accuracy"
+    OR "medication error" OR "pharmacy workflow" OR "patient safety")
   pubmed: >-
-    ("Artificial Intelligence"[MeSH Terms] OR chatbot*[Title/Abstract]
-    OR "conversational AI"[Title/Abstract] OR "conversational agent*"[Title/Abstract]
-    OR "virtual patient*"[Title/Abstract] OR "intelligent tutoring system*"[Title/Abstract]
-    OR "large language model*"[Title/Abstract] OR "ChatGPT"[Title/Abstract]
-    OR "GPT-4"[Title/Abstract] OR "dialogue system*"[Title/Abstract]
-    OR "AI tutor*"[Title/Abstract] OR "generative AI"[Title/Abstract])
+    ("Automation"[MeSH Terms] OR "Robotics"[MeSH Terms]
+    OR "robotic dispensing"[Title/Abstract] OR "automated dispensing"[Title/Abstract]
+    OR "pharmacy automation"[Title/Abstract] OR "automated dispensing cabinet"[Title/Abstract]
+    OR "robotic pharmacy"[Title/Abstract] OR "ScriptPro"[Title/Abstract]
+    OR "Pyxis"[Title/Abstract] OR "Omnicell"[Title/Abstract] OR "RxMedic"[Title/Abstract]
+    OR "prescription dispensing automation"[Title/Abstract])
     AND
-    ("Education, Medical"[MeSH Terms] OR "Education, Pharmacy"[MeSH Terms]
-    OR "Health Personnel/education"[MeSH Terms] OR "Students, Medical"[MeSH Terms]
-    OR "Nursing Education Research"[MeSH Terms]
-    OR "health science*"[Title/Abstract] OR "medical education"[Title/Abstract]
-    OR "nursing education"[Title/Abstract] OR "health professions education"[Title/Abstract]
-    OR "pharmacy education"[Title/Abstract] OR "dental education"[Title/Abstract]
-    OR "allied health"[Title/Abstract] OR "clinical training"[Title/Abstract])
+    ("Pharmacy Service, Hospital"[MeSH Terms] OR "Medication Errors"[MeSH Terms]
+    OR "Students"[MeSH Terms] OR "Universities"[MeSH Terms]
+    OR "university health"[Title/Abstract] OR "college health"[Title/Abstract]
+    OR "campus pharmacy"[Title/Abstract] OR "student health"[Title/Abstract]
+    OR "ambulatory pharmacy"[Title/Abstract] OR "outpatient pharmacy"[Title/Abstract]
+    OR "dispensing accuracy"[Title/Abstract] OR "medication error*"[Title/Abstract]
+    OR "pharmacy workflow"[Title/Abstract] OR "patient safety"[Title/Abstract])
   semantic_scholar: >-
-    conversational AI tutor health science education learning outcomes
-    medical nursing pharmacy dental LLM ChatGPT chatbot intelligent tutoring
-    virtual patient clinical reasoning knowledge retention engagement
+    robotic medication dispensing automated dispensing cabinet pharmacy automation
+    university health center college health campus pharmacy dispensing accuracy
+    medication error patient safety outpatient ambulatory ScriptPro Pyxis Omnicell

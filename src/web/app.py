@@ -778,7 +778,15 @@ async def resume_run(req: ResumeRequest) -> RunResponse:
 
     Creates a new live RunRecord (new run_id) backed by the existing workflow_id
     so the frontend can SSE-connect to watch the resumed run complete.
+
+    If the same workflow_id is already being actively resumed, returns the
+    existing run_id instead of spawning a second concurrent task.
     """
+    # Guard: prevent double-resume of the same workflow (e.g. user clicks twice).
+    for existing in _active_runs.values():
+        if existing.workflow_id == req.workflow_id and not existing.done:
+            return RunResponse(run_id=existing.run_id, topic=req.topic)
+
     run_id = str(uuid.uuid4())[:8]
     record = _RunRecord(run_id=run_id, topic=req.topic)
     record.db_path = req.db_path
