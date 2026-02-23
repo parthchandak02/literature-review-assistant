@@ -279,7 +279,8 @@ def build_study_characteristics_table(
     rows.sort(key=lambda r: r["author_year"])
 
     header = "| Author(s), Year | Study Design | N | Country | Setting | Key Outcomes |"
-    sep = "|---|---|---|---|---|---|"
+    # Proportional column widths: Author 15%, Design 12%, N 3%, Country 7%, Setting 28%, Outcomes 35%
+    sep = "|---------------|------------|---|-------|----------------------------|------------------------------------|"
     data_rows = [
         f"| {r['author_year']} | {r['design']} | {r['n']} | {r['country']} | {r['setting']} | {r['outcomes']} |"
         for r in rows

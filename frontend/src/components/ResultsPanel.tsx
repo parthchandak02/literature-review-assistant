@@ -9,7 +9,20 @@ import latex from "highlight.js/lib/languages/latex"
 // highlight.js theme loaded as a side-effect CSS import (Vite resolves npm CSS)
 import "highlight.js/styles/github-dark.css"
 import { Button } from "@/components/ui/button"
-import { Download, FileText, Image, ChevronDown, ChevronUp, BookOpen } from "lucide-react"
+import {
+  Download,
+  FileText,
+  Image,
+  ChevronDown,
+  ChevronUp,
+  BookOpen,
+  FileJson,
+  FileCode,
+  BookMarked,
+  FileSpreadsheet,
+  FileType,
+  File,
+} from "lucide-react"
 import { downloadUrl } from "@/lib/api"
 
 hljs.registerLanguage("latex", latex)
@@ -46,6 +59,48 @@ function latexLabel(name: string): string {
   if (/\.tex$/i.test(name)) return `LaTeX: ${name}`
   if (/\.bib$/i.test(name)) return `BibTeX: ${name}`
   return name
+}
+
+function fileIcon(file: OutputFile): { icon: React.ElementType; className: string } {
+  const name = file.path.split("/").pop() ?? ""
+  if (/\.docx$/i.test(name)) return { icon: FileType, className: "text-blue-400" }
+  if (/\.json$/i.test(name)) return { icon: FileJson, className: "text-zinc-500" }
+  if (/\.csv$/i.test(name)) return { icon: FileSpreadsheet, className: "text-emerald-500" }
+  if (/\.tex$/i.test(name)) return { icon: FileCode, className: "text-zinc-500" }
+  if (/\.bib$/i.test(name)) return { icon: BookMarked, className: "text-zinc-500" }
+  if (/\.md$/i.test(name)) return { icon: FileText, className: "text-zinc-500" }
+  if (/\.(png|jpg|jpeg|svg|webp)$/i.test(name)) return { icon: Image, className: "text-zinc-500" }
+  return { icon: File, className: "text-zinc-500" }
+}
+
+type DocGroup = "manuscript" | "protocol" | "data"
+
+function fileGroupKey(file: OutputFile): DocGroup {
+  const name = (file.path.split("/").pop() ?? "").toLowerCase()
+  // Primary deliverables
+  if (
+    /\.(docx)$/i.test(name) ||
+    name === "doc_manuscript.md" ||
+    name === "manuscript.tex" ||
+    name === "references.bib" ||
+    name === "cover_letter.md" ||
+    /^manuscript\./i.test(name)
+  ) return "manuscript"
+  // Protocol and search methodology
+  if (
+    name.startsWith("doc_protocol") ||
+    name.startsWith("doc_search") ||
+    name.startsWith("doc_fulltext") ||
+    name.startsWith("doc_disagree")
+  ) return "protocol"
+  // Data and analysis
+  return "data"
+}
+
+const GROUP_META: Record<DocGroup, { label: string; order: number }> = {
+  manuscript: { label: "Manuscript", order: 0 },
+  protocol: { label: "Protocol & Search", order: 1 },
+  data: { label: "Data & Analysis", order: 2 },
 }
 
 function collectFiles(outputs: Record<string, unknown>): OutputFile[] {
@@ -104,12 +159,16 @@ function SectionBox({
   )
 }
 
-function FileRow({ label, path, downloadName }: { label: string; path: string; downloadName?: string }) {
+function FileRow({ file }: { file: OutputFile }) {
+  const { icon: Icon, className: iconClass } = fileIcon(file)
   return (
     <div className="flex items-center justify-between gap-2">
-      <span className="text-sm truncate text-zinc-400">{label}</span>
+      <span className="flex items-center gap-2 min-w-0">
+        <Icon className={`h-4 w-4 shrink-0 ${iconClass}`} />
+        <span className="text-sm truncate text-zinc-400">{file.label}</span>
+      </span>
       <Button size="sm" variant="outline" asChild className="shrink-0 border-zinc-700 text-zinc-400 hover:text-zinc-200">
-        <a href={downloadUrl(path)} download={downloadName ?? label} className="gap-1.5">
+        <a href={downloadUrl(file.path)} download={file.label} className="gap-1.5">
           <Download className="h-3.5 w-3.5" />
           Download
         </a>
@@ -336,27 +395,32 @@ function InlineDocRow({ file }: { file: OutputFile }) {
     )
   }
 
+  const { icon: Icon, className: iconClass } = fileIcon(file)
+
   return (
     <div className="flex flex-col gap-2">
       <div className="flex items-center justify-between gap-2">
-        <span className="text-sm truncate text-zinc-400">{file.label}</span>
+        <span className="flex items-center gap-2 min-w-0">
+          <Icon className={`h-4 w-4 shrink-0 ${iconClass}`} />
+          <span className="text-sm truncate text-zinc-400">{file.label}</span>
+        </span>
         <div className="flex items-center gap-1.5 shrink-0">
           <Button
             size="sm"
             variant="ghost"
             onClick={handleToggle}
             disabled={loading}
-            className="h-7 px-2 text-xs text-zinc-500 hover:text-zinc-200 border border-zinc-800 gap-1"
+            className="border border-zinc-800 gap-1 text-zinc-500 hover:text-zinc-200"
           >
             {loading ? "Loading..." : open ? (
-              <><ChevronUp className="h-3 w-3" />Hide</>
+              <><ChevronUp className="h-3.5 w-3.5" />Hide</>
             ) : (
-              <><ChevronDown className="h-3 w-3" />View</>
+              <><ChevronDown className="h-3.5 w-3.5" />View</>
             )}
           </Button>
-          <Button size="sm" variant="outline" asChild className="h-7 px-2 border-zinc-700 text-zinc-400 hover:text-zinc-200">
-            <a href={downloadUrl(file.path)} download={file.label} className="gap-1.5 text-xs">
-              <Download className="h-3 w-3" />
+          <Button size="sm" variant="outline" asChild className="border-zinc-700 text-zinc-400 hover:text-zinc-200">
+            <a href={downloadUrl(file.path)} download={file.label} className="gap-1.5">
+              <Download className="h-3.5 w-3.5" />
               Download
             </a>
           </Button>
@@ -379,10 +443,14 @@ function InlineDocRow({ file }: { file: OutputFile }) {
 
 function FigureRow({ file }: { file: OutputFile }) {
   const [imgError, setImgError] = useState(false)
+  const { icon: Icon, className: iconClass } = fileIcon(file)
   return (
     <div className="flex flex-col gap-2">
       <div className="flex items-center justify-between gap-2">
-        <span className="text-sm truncate text-zinc-400">{file.label}</span>
+        <span className="flex items-center gap-2 min-w-0">
+          <Icon className={`h-4 w-4 shrink-0 ${iconClass}`} />
+          <span className="text-sm truncate text-zinc-400">{file.label}</span>
+        </span>
         {!imgError ? (
           <Button size="sm" variant="outline" asChild className="shrink-0 border-zinc-700 text-zinc-400 hover:text-zinc-200">
             <a href={downloadUrl(file.path)} download={file.label} className="gap-1.5">
@@ -411,7 +479,6 @@ function FigureRow({ file }: { file: OutputFile }) {
 
 export function ResultsPanel({ outputs }: ResultsPanelProps) {
   const files = collectFiles(outputs)
-  // Documents: all non-figure files (md, json, tex, bib, csv, etc.) unified in one section.
   const docs = files.filter(
     (f) => !f.isRasterImage && !/\.(png|jpg|jpeg|svg|webp|pdf)$/i.test(f.path),
   )
@@ -426,21 +493,45 @@ export function ResultsPanel({ outputs }: ResultsPanelProps) {
     )
   }
 
+  // Group docs into logical buckets and sort by group order
+  const groupedDocs = docs.reduce<Record<DocGroup, OutputFile[]>>(
+    (acc, f) => {
+      const g = fileGroupKey(f)
+      acc[g].push(f)
+      return acc
+    },
+    { manuscript: [], protocol: [], data: [] },
+  )
+  const orderedGroups = (Object.keys(GROUP_META) as DocGroup[]).sort(
+    (a, b) => GROUP_META[a].order - GROUP_META[b].order,
+  )
+
   return (
     <div className="flex flex-col gap-4">
       {docs.length > 0 && (
         <SectionBox
           icon={FileText}
           title="Documents"
-          sub="Manuscript, protocol, LaTeX, appendices"
+          sub="Manuscript, protocol, data"
         >
-          {docs.map((f) =>
-            f.isMarkdown || f.isJson || f.isLatex || f.isCsv ? (
-              <InlineDocRow key={f.key} file={f} />
-            ) : (
-              <FileRow key={f.key} label={f.label} path={f.path} />
-            ),
-          )}
+          {orderedGroups.map((group) => {
+            const groupFiles = groupedDocs[group]
+            if (groupFiles.length === 0) return null
+            return (
+              <div key={group} className="flex flex-col gap-2">
+                <p className="text-xs text-zinc-600 uppercase tracking-wider pt-1 pb-0.5 border-b border-zinc-800/60">
+                  {GROUP_META[group].label}
+                </p>
+                {groupFiles.map((f) =>
+                  f.isMarkdown || f.isJson || f.isLatex || f.isCsv ? (
+                    <InlineDocRow key={f.key} file={f} />
+                  ) : (
+                    <FileRow key={f.key} file={f} />
+                  ),
+                )}
+              </div>
+            )
+          })}
         </SectionBox>
       )}
 
