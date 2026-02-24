@@ -1,6 +1,11 @@
 """Non-LLM keyword pre-filter and BM25 relevance ranking for title/abstract screening.
 
-Two strategies are available:
+Three strategies are available:
+
+0. metadata_prefilter(): Hard metadata quality gate. Papers with no title,
+   no content (abstract + doi + url all empty), or no year are rejected
+   immediately before any keyword or LLM call. Ensures the inclusion DB only
+   contains papers with enough metadata to screen and extract from.
 
 1. keyword_prefilter(): Hard-gate filter. Papers matching fewer than
    `screening.keyword_filter_min_matches` terms are auto-excluded before any
@@ -23,6 +28,73 @@ from src.models.papers import CandidatePaper
 from src.models.screening import ScreeningDecision
 
 _log = logging.getLogger(__name__)
+
+
+def metadata_prefilter(
+    papers: list[CandidatePaper],
+) -> tuple[list[CandidatePaper], list[ScreeningDecision]]:
+    """Reject papers that lack the minimum metadata needed to screen or extract.
+
+    A paper is rejected if ANY of the following are true:
+    - No title (empty or whitespace-only)
+    - No abstract AND no DOI AND no URL (nothing to retrieve for screening)
+    - No publication year (cannot satisfy date range inclusion criterion)
+
+    Rejected papers receive a ScreeningDecision with INSUFFICIENT_DATA so they
+    appear correctly in PRISMA flow as "Records removed before screening."
+    Returns (acceptable_papers, rejected_decisions).
+    """
+    acceptable: list[CandidatePaper] = []
+    rejected: list[ScreeningDecision] = []
+
+    for paper in papers:
+        missing_title = not (paper.title or "").strip()
+        has_content = (
+            bool((paper.abstract or "").strip())
+            or bool((paper.doi or "").strip())
+            or bool((paper.url or "").strip())
+        )
+        missing_content = not has_content
+        missing_year = paper.year is None
+
+        reasons: list[str] = []
+        if missing_title:
+            reasons.append("no title")
+        if missing_content:
+            reasons.append("no abstract, DOI, or URL")
+        if missing_year:
+            reasons.append("no publication year")
+
+        if reasons:
+            reason_str = "Metadata pre-filter: " + "; ".join(reasons) + "."
+            _log.debug(
+                "Metadata pre-filter: rejecting paper %s (%s).",
+                paper.paper_id[:12],
+                reason_str,
+            )
+            rejected.append(
+                ScreeningDecision(
+                    paper_id=paper.paper_id,
+                    decision=ScreeningDecisionType.EXCLUDE,
+                    confidence=1.0,
+                    reason=reason_str,
+                    exclusion_reason=ExclusionReason.INSUFFICIENT_DATA,
+                    reviewer_type=ReviewerType.KEYWORD_FILTER,
+                )
+            )
+        else:
+            acceptable.append(paper)
+
+    if rejected:
+        _log.info(
+            "Metadata pre-filter: %d/%d papers rejected for missing metadata "
+            "(no title/abstract/year); %d forwarded to keyword/LLM screening.",
+            len(rejected),
+            len(papers),
+            len(acceptable),
+        )
+
+    return acceptable, rejected
 
 
 def bm25_rank_and_cap(

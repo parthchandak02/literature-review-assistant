@@ -21,6 +21,26 @@ def _topic_header(review: ReviewConfig, role: str, goal: str, backstory: str) ->
     )
 
 
+def _quality_criteria_block() -> str:
+    """Hard-floor data quality exclusion criteria applied before topic relevance.
+
+    Both recall-biased and precision-biased reviewers must apply these criteria
+    first. A paper failing any criterion is excluded regardless of topic match.
+    """
+    return "\n".join([
+        "MANDATORY DATA QUALITY EXCLUSION CRITERIA (evaluate BEFORE topic relevance):",
+        "EXCLUDE with exclusion_reason=insufficient_data if ANY of the following apply:",
+        "- No authors are listed (Authors field is empty or blank)",
+        "- The paper is an editorial, letter, opinion piece, commentary, or news item",
+        "  with no original empirical data",
+        "- The paper is a conference abstract only (no full peer-reviewed publication)",
+        "- No study population or participant count can be identified (purely theoretical)",
+        "- No measurable outcomes or quantitative/qualitative results are described",
+        "- The paper is purely descriptive technology marketing with no evaluation",
+        "",
+    ])
+
+
 def _output_schema_block() -> str:
     return "\n".join(
         [
@@ -53,8 +73,9 @@ def reviewer_a_prompt(review: ReviewConfig, paper: CandidatePaper, stage: str, f
                 goal="Include the paper if any inclusion criterion is plausibly met.",
                 backstory="You prioritize recall for systematic review screening.",
             ),
+            _quality_criteria_block(),
             _paper_block(paper, stage, full_text),
-            "Screening policy: Inclusion-emphasis reviewer.",
+            "Screening policy: Inclusion-emphasis reviewer. Apply mandatory data quality criteria above first.",
             _output_schema_block(),
         ]
     )
@@ -69,8 +90,9 @@ def reviewer_b_prompt(review: ReviewConfig, paper: CandidatePaper, stage: str, f
                 goal="Exclude the paper if any exclusion criterion clearly applies.",
                 backstory="You prioritize precision and strict exclusion decisions.",
             ),
+            _quality_criteria_block(),
             _paper_block(paper, stage, full_text),
-            "Screening policy: Exclusion-emphasis reviewer. When evidence is ambiguous, prefer uncertain over exclude.",
+            "Screening policy: Exclusion-emphasis reviewer. Apply mandatory data quality criteria above first. When evidence is ambiguous on topic, prefer uncertain over exclude.",
             _output_schema_block(),
         ]
     )
@@ -98,6 +120,7 @@ def adjudicator_prompt(
                 goal="Resolve disagreement between reviewer decisions.",
                 backstory="You are the tie-breaker for systematic review decisions. When reviewers disagree and evidence is equivocal, lean toward include to preserve recall for full-text screening.",
             ),
+            _quality_criteria_block(),
             _paper_block(paper, stage, full_text),
             decision_context,
             _output_schema_block(),

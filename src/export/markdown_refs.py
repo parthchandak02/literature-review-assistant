@@ -204,6 +204,45 @@ def build_markdown_declarations_section(
     )
 
 
+_PLACEHOLDER_OUTCOME_NAMES = {"", "primary_outcome", "not reported", "not_reported"}
+_RAW_SETTING_NORMALIZE = {
+    "not_reported": "NR",
+    "not reported": "NR",
+    "not applicable": "NR",
+    "n/a": "NR",
+    "na": "NR",
+    "unknown": "NR",
+}
+
+
+def is_extraction_failed(rec: Any) -> bool:
+    """Return True when LLM extraction produced only placeholder/empty data.
+
+    A record is considered failed when ALL three quality signals are absent:
+    - all outcome names are placeholders ("primary_outcome", "not reported", empty)
+    - study_design is "other" or unset (LLM defaulted)
+    - participant_count is None (could not parse a number)
+
+    Use this to exclude such records from the manuscript and study table so
+    the final document contains only papers with meaningful extracted data.
+    """
+    outcome_names = {
+        (o.get("name") or "").strip().lower()
+        for o in (rec.outcomes or [])
+        if isinstance(o, dict)
+    }
+    all_placeholder = outcome_names.issubset(_PLACEHOLDER_OUTCOME_NAMES)
+    design_obj = getattr(rec, "study_design", "other")
+    if hasattr(design_obj, "value"):
+        design_raw = design_obj.value.lower()
+    else:
+        design_raw = str(design_obj or "other").lower()
+    design_is_other = design_raw in ("other", "")
+    # Treat None and 0 the same: 0 participants is not a meaningful count.
+    no_participant_count = not rec.participant_count
+    return all_placeholder and design_is_other and no_participant_count
+
+
 def build_study_characteristics_table(
     papers: List[Any],
     extraction_records: List[Any],
@@ -212,57 +251,70 @@ def build_study_characteristics_table(
 
     Joins CandidatePaper (author, year, country) with ExtractionRecord
     (study_design, participant_count, setting, outcomes) by paper_id.
-    Returns an empty string if no data is available.
+    Excludes papers whose extraction completely failed (all placeholder data).
+    Returns an empty string if no usable data is available.
     """
     paper_map: Dict[str, Any] = {p.paper_id: p for p in papers}
     extraction_map: Dict[str, Any] = {r.paper_id: r for r in extraction_records}
 
     rows: List[Dict[str, str]] = []
+    excluded_count = 0
     for paper_id, paper in paper_map.items():
         rec = extraction_map.get(paper_id)
         if rec is None:
             continue
 
+        if is_extraction_failed(rec):
+            excluded_count += 1
+            continue
+
         # Author(s), Year
         if paper.authors:
             first_author_raw = str(paper.authors[0])
-            # Use the last word of the first author string as the family name
             first_author = first_author_raw.split()[-1] if first_author_raw.split() else first_author_raw
             author_str = f"{first_author} et al." if len(paper.authors) > 1 else first_author_raw
         else:
-            author_str = "Unknown"
+            author_str = "NR"
         year_str = str(paper.year) if paper.year else "n.d."
         author_year = f"{author_str}, {year_str}"
 
-        # Study design
+        # Study design - show "NR" for uninformative "Other"
         design_val = rec.study_design
         if hasattr(design_val, "value"):
-            design_str = design_val.value.replace("_", " ").title()
+            design_raw = design_val.value
         else:
-            design_str = str(design_val).replace("_", " ").title()
+            design_raw = str(design_val or "")
+        design_str = design_raw.replace("_", " ").title()
+        if design_str.lower() in ("other", ""):
+            design_str = "NR"
 
-        # N
+        # Sample size
         n_str = str(rec.participant_count) if rec.participant_count else "NR"
 
         # Country
         country_str = paper.country or "NR"
 
-        # Setting
-        setting_str = rec.setting or "NR"
+        # Setting - normalize raw enum-like values to NR
+        raw_setting = (rec.setting or "").strip()
+        setting_str = _RAW_SETTING_NORMALIZE.get(raw_setting.lower(), raw_setting) or "NR"
 
-        # Key outcomes - take first two outcome names or results_summary keys
-        outcomes_str = "NR"
-        if rec.outcomes:
-            outcome_names = [
-                o.get("name", o.get("outcome", ""))
-                for o in rec.outcomes[:2]
-                if isinstance(o, dict)
-            ]
-            outcome_names = [name for name in outcome_names if name]
-            if outcome_names:
-                outcomes_str = "; ".join(outcome_names)
-        if outcomes_str == "NR" and rec.results_summary:
-            outcomes_str = "; ".join(list(rec.results_summary.keys())[:2])
+        # Key outcomes - take first two real (non-placeholder) outcome names
+        real_names = [
+            o.get("name", "").strip()
+            for o in (rec.outcomes or [])[:3]
+            if isinstance(o, dict)
+            and (o.get("name") or "").strip().lower() not in _PLACEHOLDER_OUTCOME_NAMES
+        ]
+        if real_names:
+            outcomes_str = "; ".join(real_names[:2])
+        else:
+            # Fall back to results_summary["summary"] truncated to 80 chars
+            summary = ""
+            if isinstance(rec.results_summary, dict):
+                summary = rec.results_summary.get("summary", "")
+            elif isinstance(rec.results_summary, str):
+                summary = rec.results_summary
+            outcomes_str = summary[:80].rstrip() + "..." if len(summary) > 80 else summary or "NR"
 
         rows.append({
             "author_year": author_year,
@@ -278,15 +330,17 @@ def build_study_characteristics_table(
 
     rows.sort(key=lambda r: r["author_year"])
 
-    header = "| Author(s), Year | Study Design | N | Country | Setting | Key Outcomes |"
-    # Proportional column widths: Author 15%, Design 12%, N 3%, Country 7%, Setting 28%, Outcomes 35%
-    sep = "|---------------|------------|---|-------|----------------------------|------------------------------------|"
+    header = "| Author(s), Year | Study Design | Sample Size | Country | Setting | Key Outcomes |"
+    sep = "|----------------|------------|------------|-------|----------------------------|------------------------------------|"
     data_rows = [
         f"| {r['author_year']} | {r['design']} | {r['n']} | {r['country']} | {r['setting']} | {r['outcomes']} |"
         for r in rows
     ]
 
-    table_md = "\n".join([header, sep] + data_rows)
+    footnote = "_NR = Not Reported; n.d. = no publication date available._"
+    if excluded_count:
+        footnote += f" _{excluded_count} studies omitted: extraction data insufficient._"
+    table_md = "\n".join([header, sep] + data_rows) + "\n\n" + footnote
     return "## Appendix A: Characteristics of Included Studies\n\n" + table_md
 
 

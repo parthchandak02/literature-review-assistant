@@ -23,6 +23,7 @@ from src.db.database import get_db
 from src.db.repositories import CitationRepository, WorkflowRepository
 from src.export.markdown_refs import (
     assemble_submission_manuscript,
+    is_extraction_failed,
     strip_appended_sections,
 )
 
@@ -108,18 +109,30 @@ async def main(run_dir: str) -> int:
                 included_ids = await repo.get_included_paper_ids(workflow_id)
             papers = await repo.load_papers_by_ids(included_ids)
 
+    # Apply post-extraction quality gate: exclude papers where LLM extraction
+    # produced only placeholder data (all NR outcomes, "other" design, no count).
+    clean_records = [r for r in extraction_records if not is_extraction_failed(r)]
+    failed_count = len(extraction_records) - len(clean_records)
+    clean_paper_ids = {r.paper_id for r in clean_records}
+    clean_papers = [p for p in papers if p.paper_id in clean_paper_ids]
+
     found_figs = [k for k, v in artifacts.items() if pathlib.Path(v).exists()]
     print(f"Found {len(found_figs)} figure(s): {found_figs}")
     print(f"Found {len(citation_rows)} citation(s) in database.")
     print(f"Found {len(papers)} included paper(s), {len(extraction_records)} extraction record(s).")
+    if failed_count:
+        print(
+            f"Quality gate: {failed_count} extraction record(s) excluded (all-placeholder data). "
+            f"{len(clean_records)} clean records forwarded to manuscript."
+        )
 
     full_manuscript = assemble_submission_manuscript(
         body=body,
         manuscript_path=manuscript_path,
         artifacts=artifacts,
         citation_rows=citation_rows,
-        papers=papers,
-        extraction_records=extraction_records,
+        papers=clean_papers,
+        extraction_records=clean_records,
     )
 
     manuscript_path.write_text(full_manuscript, encoding="utf-8")

@@ -18,7 +18,7 @@ logger = logging.getLogger(__name__)
 
 
 class _OutcomeItem(BaseModel):
-    name: str = "primary_outcome"
+    name: str = ""
     description: str = ""
     effect_size: str = ""
     se: str = ""
@@ -56,15 +56,19 @@ def _build_extraction_prompt(
         text[:8000],
         "",
         "Extract the following from this study:",
-        "- study_duration: Duration of the study or intervention (e.g. '8 weeks', '1 semester', 'unknown')",
-        "- setting: Study setting (e.g. 'university classroom', 'online platform', 'hospital ward')",
-        "- participant_count: Total number of participants as a string (e.g. '120', 'not reported')",
-        "- participant_demographics: Brief description of participants (age, background, etc.)",
+        "- study_duration: Duration of the study or intervention (e.g. '8 weeks', '6 months', 'unknown')",
+        "- setting: Study setting as free text (e.g. 'hospital ward', 'community clinic', 'outpatient pharmacy')",
+        "- participant_count: Total participants as a plain number string (e.g. '120', '45').",
+        "  Use 'not reported' only if truly absent. Do NOT include units like 'patients'.",
+        "- participant_demographics: Brief description of participants (age, role, background, etc.)",
         "- intervention_description: What the intervention/treatment was in detail",
         "- comparator_description: What the control/comparison condition was (or 'no control' if absent)",
-        "- outcomes: List of outcome measures. For each outcome include:",
-        "    name (short identifier), description, effect_size (e.g. 'SMD=0.45', 'OR=2.1', or empty),",
-        "    se (standard error as decimal string, e.g. '0.12', or empty), n (sample size string or empty)",
+        "- outcomes: List of SPECIFIC outcome measures as reported in the paper. For each outcome:",
+        "    name: the actual measured outcome name from the paper (e.g. 'medication error rate',",
+        "          'dispensing accuracy', 'infection rate', 'patient satisfaction score', 'cost per visit').",
+        "    CRITICAL: NEVER use 'primary_outcome' as a name. Use the real outcome name.",
+        "    If no outcomes can be identified return an empty list [].",
+        "    Also include: description, effect_size (e.g. 'OR=2.1'), se (standard error), n (sample size)",
         "- results_summary: Plain text summary of the key findings (2-4 sentences)",
         "- funding_source: Who funded the study (or 'not reported')",
         "- conflicts_of_interest: Any declared COI (or 'none declared')",
@@ -104,14 +108,14 @@ class ExtractionService:
             return abstract[:1200]
         return "No summary available."
 
-    @staticmethod
-    def _heuristic_outcomes() -> list[dict[str, str]]:
-        return [
-            {
-                "name": "primary_outcome",
-                "description": "Learning performance or retention signal extracted from source context.",
-            }
-        ]
+    def _heuristic_outcomes(self) -> list[dict[str, str]]:
+        """Generic fallback when LLM extraction yields no outcomes.
+
+        Uses the review's PICO outcome field as description context so the
+        fallback is at least topic-aware. Never uses a hardcoded subject-area label.
+        """
+        topic = (self.review.pico.outcome if self.review else "") or "not reported"
+        return [{"name": "not reported", "description": topic[:200]}]
 
     def _heuristic_extract(
         self,
@@ -177,8 +181,11 @@ class ExtractionService:
 
         outcomes: list[dict[str, str]] = []
         for o in (parsed.outcomes or []):
+            name = (o.name or "").strip()
+            if not name:
+                continue
             entry: dict[str, str] = {
-                "name": o.name or "primary_outcome",
+                "name": name,
                 "description": o.description or "",
             }
             if o.effect_size:
@@ -191,10 +198,13 @@ class ExtractionService:
         if not outcomes:
             outcomes = self._heuristic_outcomes()
 
-        try:
-            participant_count: int | None = int(parsed.participant_count) if parsed.participant_count.strip().isdigit() else None
-        except (ValueError, AttributeError):
-            participant_count = None
+        import re as _re
+        participant_count: int | None = None
+        raw_count = (parsed.participant_count or "").strip()
+        if raw_count:
+            m = _re.search(r"\d+", raw_count)
+            if m:
+                participant_count = int(m.group())
 
         return ExtractionRecord(
             paper_id=paper.paper_id,

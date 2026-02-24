@@ -47,7 +47,7 @@ from src.quality import (
 )
 from src.screening.dual_screener import DualReviewerScreener
 from src.screening.gemini_client import PydanticAIScreeningClient
-from src.screening.keyword_filter import bm25_rank_and_cap, keyword_prefilter
+from src.screening.keyword_filter import bm25_rank_and_cap, keyword_prefilter, metadata_prefilter
 from src.search.arxiv import ArxivConnector
 from src.search.base import SearchConnector
 from src.search.crossref import CrossrefConnector
@@ -69,7 +69,7 @@ from src.visualization import (
 )
 from src.visualization.forest_plot import render_forest_plot
 from src.visualization.funnel_plot import render_funnel_plot
-from src.export.markdown_refs import assemble_submission_manuscript
+from src.export.markdown_refs import assemble_submission_manuscript, is_extraction_failed
 from src.writing.context_builder import build_writing_grounding
 from src.writing.humanizer import humanize_async
 from src.writing.orchestration import (
@@ -217,6 +217,14 @@ class StartNode(BaseNode[ReviewState]):
         state.artifacts["geographic"] = str(run_paths.run_dir / "fig_geographic_distribution.png")
         state.artifacts["fig_forest_plot"] = str(run_paths.run_dir / "fig_forest_plot.png")
         state.artifacts["fig_funnel_plot"] = str(run_paths.run_dir / "fig_funnel_plot.png")
+
+        # Snapshot the review config at run start so re-extraction and post-hoc
+        # scripts always use the config that produced this run, not a later config.
+        import shutil as _shutil
+        _config_src = Path("config/review.yaml")
+        if _config_src.exists():
+            _shutil.copy(_config_src, run_paths.run_dir / "config_snapshot.yaml")
+
         if rc:
             rc.emit_phase_done("start", {"workflow_id": state.workflow_id})
             if hasattr(rc, "set_db_path"):
@@ -402,15 +410,37 @@ class ScreeningNode(BaseNode[ReviewState]):
                 on_screening_decision=on_screening_decision,
             )
 
+            # --- Gate 0: Metadata pre-filter (no LLM cost) ---
+            # Reject papers with no title, no content (abstract+doi+url), or no year
+            # before any keyword scoring or LLM call. These cannot be meaningfully
+            # screened or extracted from and would produce garbage table rows.
+            meta_acceptable, meta_rejected = metadata_prefilter(state.deduped_papers)
+            if meta_rejected:
+                meta_rejected_papers = [
+                    p for p in state.deduped_papers
+                    if any(d.paper_id == p.paper_id for d in meta_rejected)
+                ]
+                await repository.bulk_save_screening_decisions(
+                    workflow_id=state.workflow_id,
+                    stage="title_abstract",
+                    papers=meta_rejected_papers,
+                    decisions=meta_rejected,
+                )
+                if rc and rc.verbose:
+                    rc.console.print(
+                        f"[dim]Metadata pre-filter: {len(meta_rejected)} papers rejected "
+                        f"(missing title/abstract/year), {len(meta_acceptable)} forwarded.[/]"
+                    )
+
             # --- Pre-screening: BM25 ranking (when cap is set) or keyword filter ---
             cap = state.settings.screening.max_llm_screen
-            paper_by_id = {p.paper_id: p for p in state.deduped_papers}
+            paper_by_id = {p.paper_id: p for p in meta_acceptable}
 
             if cap is not None:
-                # BM25 ranks ALL deduped papers; top N go to LLM, tail is auto-excluded.
+                # BM25 ranks metadata-acceptable papers; top N go to LLM, tail is auto-excluded.
                 # keyword_prefilter is NOT run as a hard gate - BM25 provides recall-safe ranking.
                 papers_for_llm, pre_excluded = bm25_rank_and_cap(
-                    state.deduped_papers, state.review, state.settings.screening
+                    meta_acceptable, state.review, state.settings.screening
                 )
                 if pre_excluded:
                     pre_excluded_papers = [
@@ -431,7 +461,7 @@ class ScreeningNode(BaseNode[ReviewState]):
             else:
                 # Original path: keyword hard-gate -> all passers go to LLM.
                 pre_excluded, papers_for_llm = keyword_prefilter(
-                    state.deduped_papers, state.review, state.settings.screening
+                    meta_acceptable, state.review, state.settings.screening
                 )
                 if pre_excluded:
                     pre_excluded_papers = [
@@ -464,7 +494,7 @@ class ScreeningNode(BaseNode[ReviewState]):
             include_ids = {d.paper_id for d in all_stage1 if d.decision.value in ("include", "uncertain")}
             prior_ta_includes = await repository.get_title_abstract_include_ids(state.workflow_id)
             include_ids.update(prior_ta_includes)
-            stage1_survivors = [p for p in state.deduped_papers if p.paper_id in include_ids]
+            stage1_survivors = [p for p in meta_acceptable if p.paper_id in include_ids]
 
             # --- Reset interrupt flag so stage 2 always runs to completion ---
             screener.reset_partial_flag()
@@ -1187,9 +1217,16 @@ class WritingNode(BaseNode[ReviewState]):
             )
             citation_rows = await CitationRepository(db).get_all_citations_for_export()
             # Load papers + extraction records for the study characteristics table.
-            included_ids = await repository.get_included_paper_ids(state.workflow_id)
+            # Derive included_ids from extraction_records first (not from fulltext
+            # screening decisions which may not exist when title_abstract screening
+            # is the only stage used).  This mirrors finalize_manuscript.py exactly.
+            all_extraction_records = await repository.load_extraction_records(state.workflow_id)
+            # Apply post-extraction quality gate: only pass records with real extracted data.
+            extraction_records_for_table = [r for r in all_extraction_records if not is_extraction_failed(r)]
+            included_ids = {r.paper_id for r in extraction_records_for_table}
+            if not included_ids:
+                included_ids = await repository.get_included_paper_ids(state.workflow_id)
             included_papers_for_table = await repository.load_papers_by_ids(included_ids)
-            extraction_records_for_table = await repository.load_extraction_records(state.workflow_id)
 
         # Prefix each section with its standard IMRaD heading.
         # The abstract is kept as-is (it already contains the title + structured fields).
