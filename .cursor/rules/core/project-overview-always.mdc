@@ -31,12 +31,12 @@ alwaysApply: true
 - `src/llm/` -- PydanticAI agent factory, rate limiter, cost tracking
 - `src/web/` -- FastAPI backend (app.py): run lifecycle, SSE streaming, history, DB explorer, log streaming
 - `src/utils/` -- logging_paths.py (PM2 log path detection), ssl_context.py, structured_log.py
-- `scripts/` -- finalize_manuscript.py (IMRaD heading injection + post-run fixup), migrate_to_runs.py
+- `scripts/` -- finalize_manuscript.py (IMRaD heading injection + post-run fixup), migrate_to_runs.py, re_extract.py (targeted re-extraction for low-quality studies)
 - `config/` -- review.yaml (per-review) + settings.yaml (system behavior)
 
 ## Key Directories -- Frontend
 - `frontend/src/views/` -- RunView (tabs: Activity, Results, Data, Cost), DatabaseView, CostView, HistoryView, SetupView, ResultsView
-- `frontend/src/components/` -- Sidebar (drag-resize, resume), UI primitives (command.tsx, status-badge.tsx, table.tsx, feedback.tsx)
+- `frontend/src/components/` -- Sidebar (drag-resize, resume), ResultsPanel (artifact links, download), LogStream (live log display), RunForm (topic/config entry), UI primitives (command.tsx, status-badge.tsx, table.tsx, feedback.tsx)
 - `frontend/src/hooks/` -- useSSEStream (run events + SQLite replay fallback), useLogStream (backend log SSE), useBackendHealth, useCostStats
 - `frontend/src/lib/` -- api.ts (typed API layer), format.ts (date/duration helpers)
 

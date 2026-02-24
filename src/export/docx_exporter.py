@@ -95,6 +95,23 @@ def _fix_table_layout(docx_path: Path) -> None:
                     tcW.set(qn("w:w"), str(scaled[idx]))
                     tcW.set(qn("w:type"), "dxa")
 
+        # Step 6: explicitly bold the header row so it is visually distinct in all
+        # renderers (Word, Google Docs, Cursor). Pandoc's embedded "Table" style
+        # only adds a bottom border to the first row -- no bold, no background --
+        # making the header visually identical to data rows without this step.
+        if table.rows:
+            for cell in table.rows[0].cells:
+                for para in cell.paragraphs:
+                    for run in para.runs:
+                        rPr = run._r.find(qn("w:rPr"))
+                        if rPr is None:
+                            rPr = OxmlElement("w:rPr")
+                            run._r.insert(0, rPr)
+                        for tag in ("w:b", "w:bCs"):
+                            if rPr.find(qn(tag)) is None:
+                                el = OxmlElement(tag)
+                                rPr.append(el)
+
     doc.save(str(docx_path))
 
 

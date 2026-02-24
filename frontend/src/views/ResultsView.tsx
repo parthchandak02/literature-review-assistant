@@ -4,7 +4,6 @@ import { Button } from "@/components/ui/button"
 import { ResultsPanel } from "@/components/ResultsPanel"
 import { triggerExport } from "@/lib/api"
 
-const API_BASE = import.meta.env.VITE_API_URL ?? ""
 
 interface ResultsViewProps {
   outputs: Record<string, unknown>

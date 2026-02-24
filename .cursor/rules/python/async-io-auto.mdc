@@ -1,6 +1,6 @@
 ---
 description:
-globs: src/search/**/*.py, src/screening/**/*.py, src/extraction/**/*.py, src/orchestration/**/*.py
+globs: src/search/**/*.py, src/screening/**/*.py, src/extraction/**/*.py, src/orchestration/**/*.py, src/writing/**/*.py, src/synthesis/**/*.py
 alwaysApply: false
 ---
 

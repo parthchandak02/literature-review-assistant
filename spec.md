@@ -124,7 +124,7 @@ research-article-writer/
 |   |-- visualization/              # forest_plot, funnel_plot, rob_figure, timeline, geographic
 |   |-- export/                     # ieee_latex, bibtex_builder, submission_packager, prisma_checklist, ieee_validator
 |   |-- llm/                        # provider, gemini_client (shim), pydantic_client, base_client, rate_limiter
-|   |-- web/                        # FastAPI app (21 endpoints, SSE, static serving)
+|   |-- web/                        # FastAPI app (25 endpoints, SSE, static serving)
 |   `-- utils/                      # structured_log, logging_paths (RunPaths + create_run_paths), ssl_context
 |-- tests/
 |   |-- unit/                       # 20 unit test files (86 passing)
@@ -728,7 +728,7 @@ Run card status border (2px left): emerald = completed, violet = running/connect
 
 ## 10. API Contract
 
-### 10.1 REST Endpoints (21 total)
+### 10.1 REST Endpoints (25 total)
 
 | Method | Path | Description |
 |--------|------|-------------|
@@ -739,20 +739,24 @@ Run card status border (2px left): emerald = completed, violet = running/connect
 | GET | /api/results/{run_id} | Artifact paths for completed run |
 | GET | /api/download | Download artifact file (restricted to runs/) |
 | GET | /api/config/review | Default review.yaml content (pre-fills Setup form) |
+| GET | /api/health | Health check; polled every 6s by useBackendHealth hook |
 | GET | /api/history | Past runs from workflows_registry.db |
+| GET | /api/history/{workflow_id}/config | Original review.yaml written at run completion |
 | POST | /api/history/attach | Attach historical run for DB explorer; loads event_log from DB |
 | POST | /api/history/resume | Resume a historical run by workflow_id; re-registers it as active |
 | GET | /api/db/{run_id}/papers | Paginated + searchable papers from runtime.db |
 | GET | /api/db/{run_id}/papers-all | All papers with optional text filters (year, source, decisions) |
 | GET | /api/db/{run_id}/papers-facets | Distinct facet values (sources, decisions) for filter UI |
+| GET | /api/db/{run_id}/papers-suggest | Autocomplete suggestions for paper search |
 | GET | /api/db/{run_id}/screening | Screening decisions with stage/decision filters |
 | GET | /api/db/{run_id}/costs | Cost records grouped by model and phase |
 | GET | /api/run/{run_id}/artifacts | Full run_summary.json for any run (live or historical) |
 | GET | /api/run/{run_id}/events | Replay buffer snapshot (all buffered events) |
 | GET | /api/workflow/{workflow_id}/events | Events from event_log table by workflow ID |
-| GET | /api/history/{workflow_id}/config | Original review.yaml written at run completion |
 | POST | /api/run/{run_id}/export | Package IEEE LaTeX submission; calls package_submission() |
-| GET | /api/health | Health check; polled every 6s by useBackendHealth hook |
+| GET | /api/run/{run_id}/submission.zip | Download the submission ZIP package |
+| GET | /api/run/{run_id}/manuscript.docx | Download the Word DOCX manuscript |
+| GET | /api/logs/stream | SSE tail of per-run PM2 log file; filtered by run_id |
 
 ### 10.2 SSE Event Types
 
@@ -799,7 +803,7 @@ Each active run in `src/web/app.py` is tracked as a `_RunRecord` class (not a da
 ### 11.1 Prerequisites
 
 - Python 3.11+, uv (`pip install uv` or `curl -LsSf https://astral.sh/uv/install.sh | sh`)
-- Node 20+, pnpm 10 (`npm install -g pnpm`)
+- Node 20.19+ or 22.12+, pnpm 10 (`npm install -g pnpm`)
 - PM2 (`npm install -g pm2`) -- primary dev process manager; or Overmind + tmux (`brew install overmind`) as alternative
 - pdflatex (for IEEE export compilation; part of TeX Live or MacTeX)
 - API keys in `.env` (see Section 4.1)
@@ -908,7 +912,7 @@ Living section -- update as work completes.
 | Phase 6: Writing | DONE | Section writer, humanizer, citation validation, style extractor, naturalness scorer, per-section checkpoint, WritingGroundingData |
 | Phase 7: PRISMA + Viz | DONE | PRISMA diagram (prisma-flow-diagram + fallback), timeline, geographic, ROBINS-I in RoB figure, uniform artifact naming |
 | Phase 8: Export + Orchestration | DONE | Run/resume, IEEE LaTeX, BibTeX, validators, Word DOCX export (pypandoc + python-docx), submission packager, pdflatex, CLI subcommands |
-| Web UI | DONE | FastAPI SSE backend (22 endpoints), React/Vite/TypeScript frontend, structured Setup form, run-centric sidebar, 4-tab RunView, DB explorer, cost tracking, grouped Results panel with per-filetype icons |
+| Web UI | DONE | FastAPI SSE backend (25 endpoints), React/Vite/TypeScript frontend, structured Setup form, run-centric sidebar, 4-tab RunView, DB explorer, cost tracking, grouped Results panel with per-filetype icons |
 | Resume | DONE | Central registry, topic auto-resume, mid-phase resume, fallback scan of run_summary.json |
 | Post-build improvements | DONE | display_label (single source of truth in papers table), synthesis_results table, dedup_count column, SearchConfig per-connector limits, BM25 cap with LOW_RELEVANCE_SCORE exclusions |
 

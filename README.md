@@ -26,7 +26,7 @@ After a run completes, you get a `submission/` folder containing:
 |------|---------|---------|
 | Python | 3.11+ | [python.org](https://www.python.org/downloads/) or `brew install python` |
 | uv | latest | `curl -LsSf https://astral.sh/uv/install.sh \| sh` |
-| Node.js | 20+ | [nodejs.org](https://nodejs.org/) or `brew install node` |
+| Node.js | 20.19+ or 22.12+ | [nodejs.org](https://nodejs.org/) or `brew install node` |
 | pnpm | latest | `npm install -g pnpm` or `brew install pnpm` |
 
 ---
@@ -332,6 +332,7 @@ uv run pytest tests/integration -q
 |--------|---------|
 | `scripts/finalize_manuscript.py` | Retroactively regenerate `doc_manuscript.md` sections (Figures, Declarations, Study Characteristics Table, References) for an existing run directory. Also injects missing IMRaD headings. Usage: `uv run python scripts/finalize_manuscript.py --run-dir runs/<date>/<topic>/run_<time>` |
 | `scripts/migrate_to_runs.py` | One-time migration to move legacy run artifacts into the current `runs/<date>/<topic>/` directory structure. |
+| `scripts/re_extract.py` | Targeted re-extraction for studies with low-quality data (placeholder outcomes, missing authors). Usage: `uv run python scripts/re_extract.py --run-dir runs/<date>/<topic>/run_<time>` |
 
 ---
 
