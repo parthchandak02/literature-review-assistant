@@ -8,6 +8,7 @@ from src.db.database import get_db
 from src.db.repositories import WorkflowRepository
 from src.llm.provider import LLMProvider
 from src.models import CandidatePaper, ReviewConfig, ReviewType, SettingsConfig
+from src.models.config import ScreeningConfig
 from src.screening.dual_screener import DualReviewerScreener, ScreeningLLMClient
 from src.screening.reliability import (
     compute_cohens_kappa,
@@ -59,7 +60,8 @@ def _settings() -> SettingsConfig:
             "screening_reviewer_a": {"model": "google-gla:gemini-2.5-flash-lite", "temperature": 0.1},
             "screening_reviewer_b": {"model": "google-gla:gemini-2.5-flash-lite", "temperature": 0.3},
             "screening_adjudicator": {"model": "google-gla:gemini-2.5-pro", "temperature": 0.2},
-        }
+        },
+        screening=ScreeningConfig(stage1_include_threshold=1.0, stage1_exclude_threshold=1.0),
     )
 
 

@@ -173,7 +173,8 @@ function PrismaChecklistPanel({ runId }: { runId: string }) {
     if (!open || data) return
     setLoading(true)
     setError(null)
-    fetch(`/api/run/${runId}/prisma-checklist`)
+    const apiBase = import.meta.env.VITE_API_URL ?? ""
+    fetch(`${apiBase}/api/run/${runId}/prisma-checklist`)
       .then((res) => {
         if (!res.ok) throw new Error(`${res.status}`)
         return res.json() as Promise<PrismaChecklist>

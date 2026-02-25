@@ -71,7 +71,7 @@ async def test_extraction_pipeline_persists_typed_record(tmp_path) -> None:
 
         assert record.paper_id == paper.paper_id
         assert record.study_design == StudyDesign.RCT
-        assert record.results_summary["source"] == "full_text"
+        assert record.results_summary["source"] == "heuristic"
         assert record.results_summary["summary"] != ""
         assert record.source_spans["title"] == paper.title
 

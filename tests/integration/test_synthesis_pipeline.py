@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import pytest
+
 from src.models import ExtractionRecord, StudyDesign
 from src.synthesis.effect_size import compute_mean_difference_effect_size
 from src.synthesis.feasibility import assess_meta_analysis_feasibility
@@ -14,12 +16,18 @@ def _record(paper_id: str, summary: str) -> ExtractionRecord:
         paper_id=paper_id,
         study_design=StudyDesign.RCT,
         intervention_description="AI tutoring support",
-        outcomes=[{"name": "knowledge_retention", "description": "Exam score retention"}],
+        outcomes=[{
+            "name": "knowledge_retention",
+            "description": "Exam score retention",
+            "effect_size": "SMD=0.5",
+            "se": "0.12",
+        }],
         results_summary={"summary": summary, "source": "metadata"},
     )
 
 
-def test_synthesis_pipeline_meta_analysis_and_narrative(tmp_path) -> None:
+@pytest.mark.asyncio
+async def test_synthesis_pipeline_meta_analysis_and_narrative(tmp_path) -> None:
     records = [
         _record("p1", "Students showed improved retention with higher scores."),
         _record("p2", "Results were better for intervention students."),
@@ -60,7 +68,7 @@ def test_synthesis_pipeline_meta_analysis_and_narrative(tmp_path) -> None:
     assert forest_path.endswith("forest_plot.png")
     assert (tmp_path / "forest_plot.png").exists()
 
-    narrative = build_narrative_synthesis("knowledge_retention", records)
+    narrative = await build_narrative_synthesis("knowledge_retention", records)
     assert narrative.n_studies == 3
     assert narrative.effect_direction_summary in {"predominantly_positive", "mixed", "predominantly_negative"}
 

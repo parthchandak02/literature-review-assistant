@@ -66,8 +66,8 @@ async def test_quality_pipeline_routes_assesses_and_persists(tmp_path) -> None:
         assert router.route_tool(rct_record) == "rob2"
         assert router.route_tool(nrs_record) == "robins_i"
 
-        rct_assessment = rob2.assess(rct_record)
-        nrs_assessment = robins_i.assess(nrs_record)
+        rct_assessment = await rob2.assess(rct_record)
+        nrs_assessment = await robins_i.assess(nrs_record)
         await repo.save_rob2_assessment("wf-quality", rct_assessment)
         await repo.save_robins_i_assessment("wf-quality", nrs_assessment)
 
