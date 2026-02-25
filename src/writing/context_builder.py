@@ -87,6 +87,9 @@ class WritingGroundingData(BaseModel):
     # Sensitivity analysis (leave-one-out + subgroup) -- only present when meta-analysis ran
     sensitivity_results: List[str] = []
 
+    # Protocol registration: always False unless the tool registers on PROSPERO (not yet implemented)
+    protocol_registered: bool = False
+
 
 def build_writing_grounding(
     prisma_counts: PRISMACounts,
@@ -233,6 +236,7 @@ def build_writing_grounding(
         n_studies_reporting_count=n_studies_reporting_count,
         n_total_studies=n_total_studies,
         sensitivity_results=sensitivity_results or [],
+        protocol_registered=False,
     )
 
 
@@ -298,6 +302,15 @@ def format_grounding_block(data: WritingGroundingData) -> str:
 
     lines.append(
         f"Meta-analysis: {'feasible' if data.meta_analysis_feasible else 'NOT feasible - narrative synthesis only'}"
+    )
+    reg_status = "YES (ID on file)" if data.protocol_registered else "NO - not prospectively registered"
+    lines.append(f"Protocol registration: {reg_status}")
+    lines.append(
+        "CRITICAL: The 'Protocol Registration' field above is the authoritative source. "
+        "Every section (Methods AND Declarations) MUST use identical wording. "
+        "If registration=NO, Methods must say 'The protocol was not prospectively registered' "
+        "and Declarations must say 'The protocol was not prospectively registered.' "
+        "NEVER write 'registered prospectively' unless registration=YES."
     )
     lines.append(f"Synthesis direction: {data.synthesis_direction}")
     lines.append(f"Studies synthesized: {data.n_studies_synthesized}")

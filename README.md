@@ -285,6 +285,8 @@ pm2 delete all        # remove all processes from PM2 registry
 pm2 status            # show process status table
 ```
 
+**IMPORTANT -- restart after code changes:** Python loads modules into memory at startup. If you modify any `src/` file while the server is running, the running process continues using the old code. Always run `pm2 restart api` (or restart the uvicorn process) after making backend changes before starting a new review run. Failure to restart means your run will use the pre-change code even though the files on disk are updated. The `--reload` flag handles this automatically in the plain-terminal dev workflow above, but PM2 does not hot-reload by default.
+
 **Alternative -- Overmind (requires tmux):**
 
 ```bash

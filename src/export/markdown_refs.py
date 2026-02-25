@@ -344,40 +344,72 @@ def build_study_characteristics_table(
     return "## Appendix A: Characteristics of Included Studies\n\n" + table_md
 
 
+_CERTAINTY_ORDER = {"high": 0, "moderate": 1, "low": 2, "very_low": 3}
+
+
 def generate_grade_table(grade_assessments: List[Any]) -> str:
     """Generate a GRADE evidence profile table in Markdown from a list of GRADEOutcomeAssessment objects.
+
+    Assessments are grouped by outcome_name. Per group we report the count of
+    studies, the most common study design, the maximum downgrade values, and
+    the most conservative certainty (worst-case per group).
 
     Returns an empty string when no assessments are provided.
     """
     if not grade_assessments:
         return ""
 
+    # Group assessments by outcome_name
+    from collections import defaultdict
+    groups: dict = defaultdict(list)
+    for g in grade_assessments:
+        outcome = (getattr(g, "outcome_name", None) or "Primary outcome").strip()
+        outcome = outcome.replace("_", " ").title() if outcome else "Primary outcome"
+        groups[outcome].append(g)
+
     rows: List[str] = []
     header = (
-        "| Outcome | Studies (N) | Study Design | RoB Downgrade | "
-        "Imprecision Downgrade | Certainty |"
+        "| Outcome | Studies (N) | Study Design | Max RoB Downgrade | "
+        "Max Imprecision Downgrade | Certainty (worst case) |"
     )
-    sep = "|---------|------------|-------------|--------------|---------------------|----------|"
+    sep = "|---------|------------|-------------|------------------|--------------------------|------------------------|"
     rows.append(header)
     rows.append(sep)
 
-    for g in grade_assessments:
-        outcome = getattr(g, "outcome_name", "NR")
-        n_studies = getattr(g, "number_of_studies", "NR")
-        design = getattr(g, "study_designs", "NR")
-        rob_dg = getattr(g, "risk_of_bias_downgrade", 0)
-        imp_dg = getattr(g, "imprecision_downgrade", 0)
-        certainty_raw = getattr(g, "final_certainty", None)
-        certainty = certainty_raw.value if hasattr(certainty_raw, "value") else str(certainty_raw or "NR")
-        certainty = certainty.replace("_", " ").upper()
+    for outcome, group in sorted(groups.items()):
+        n_studies = len(group)
+
+        # Collect designs -- most frequent
+        designs: dict = {}
+        for g in group:
+            d = str(getattr(g, "study_designs", "") or "").strip()
+            if d:
+                designs[d] = designs.get(d, 0) + 1
+        design_str = max(designs, key=designs.get) if designs else "NR"
+
+        max_rob = max((getattr(g, "risk_of_bias_downgrade", 0) or 0) for g in group)
+        max_imp = max((getattr(g, "imprecision_downgrade", 0) or 0) for g in group)
+
+        # Most conservative certainty
+        worst_order = -1
+        worst_cert = "NR"
+        for g in group:
+            cr = getattr(g, "final_certainty", None)
+            cert_val = cr.value if hasattr(cr, "value") else str(cr or "")
+            order = _CERTAINTY_ORDER.get(cert_val.lower(), -1)
+            if order > worst_order:
+                worst_order = order
+                worst_cert = cert_val.replace("_", " ").upper()
+
         rows.append(
-            f"| {outcome} | {n_studies} | {design} | {rob_dg} | {imp_dg} | {certainty} |"
+            f"| {outcome} | {n_studies} | {design_str} | {max_rob} | {max_imp} | {worst_cert} |"
         )
 
     footnote = (
         "_GRADE certainty levels: HIGH, MODERATE, LOW, VERY LOW. "
         "Downgrade values: 0=not downgraded, 1=serious, 2=very serious. "
-        "Inconsistency, indirectness, and publication-bias domains were not auto-computed and default to 0._"
+        "Inconsistency, indirectness, and publication-bias domains were not auto-computed and default to 0. "
+        "Studies with generic 'primary outcome' labels are grouped together._"
     )
     return (
         "## GRADE Evidence Profile\n\n"

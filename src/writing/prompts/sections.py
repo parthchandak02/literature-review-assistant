@@ -145,7 +145,11 @@ def get_methods_prompt_context(
         "use only the tools indicated by study designs in the block), "
         "(7) Synthesis methods (narrative synthesis only -- do NOT describe meta-analysis "
         "procedures if meta-analysis was NOT feasible), "
-        "(8) GRADE certainty assessment. "
+        "(8) GRADE certainty assessment, "
+        "(9) Protocol registration: use EXACTLY the wording shown in 'Protocol registration' "
+        "in the FACTUAL DATA BLOCK -- do NOT invent or contradict it. "
+        "If registration=NO, write 'The protocol was not prospectively registered.' "
+        "NEVER write 'registered prospectively' unless the block explicitly says YES. "
         "Use the subsection style of PRISMA 2020: each item is a distinct sub-paragraph."
     )
 

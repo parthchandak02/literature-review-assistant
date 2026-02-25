@@ -186,6 +186,53 @@ class DualReviewerScreener:
         "trial registration",
     )
 
+    # Abstract phrases that strongly signal the record is title-only with no retrievable data
+    _TITLE_ONLY_ABSTRACT_PHRASES: tuple[str, ...] = (
+        "title only",
+        "title-only",
+        "[no abstract]",
+        "no abstract available",
+        "abstract not available",
+        "abstract unavailable",
+        "[abstract not available]",
+    )
+
+    _TITLE_ONLY_ABSTRACT_WORD_THRESHOLD: int = 12
+
+    def _is_insufficient_content(self, paper: CandidatePaper) -> bool:
+        """Return True when the paper has no usable abstract content.
+
+        Fires when:
+        - The abstract is absent or has fewer than 12 words (title repeated or stub)
+        - The abstract text explicitly signals it is a title-only record
+
+        Papers that pass this check have no abstract content for reviewers
+        to evaluate against inclusion criteria and would produce unreliable
+        screening and extraction results.
+        """
+        abstract = (paper.abstract or "").strip()
+        title = (paper.title or "").strip()
+
+        # No abstract at all
+        if not abstract:
+            return True
+
+        # Abstract is just the title repeated (some databases duplicate title as abstract)
+        if abstract.lower() == title.lower():
+            return True
+
+        # Explicit "title only" signals
+        abstract_lower = abstract.lower()
+        if any(phrase in abstract_lower for phrase in self._TITLE_ONLY_ABSTRACT_PHRASES):
+            return True
+
+        # Stub abstract: fewer than threshold words
+        word_count = len(abstract.split())
+        if word_count < self._TITLE_ONLY_ABSTRACT_WORD_THRESHOLD:
+            return True
+
+        return False
+
     def _is_protocol_only(self, paper: CandidatePaper) -> bool:
         """Return True when title/abstract strongly indicate a protocol with no results.
 
@@ -378,6 +425,35 @@ class DualReviewerScreener:
             if self.on_screening_decision:
                 self.on_screening_decision(paper.paper_id, "exclude", "protocol_only_heuristic")
             return proto_decision
+
+        # Title-only / insufficient-content heuristic: papers with no extractable abstract
+        # cannot be meaningfully screened or have data extracted -- auto-exclude.
+        if stage == "title_abstract" and self._is_insufficient_content(paper):
+            _log.info("Insufficient-content heuristic: auto-excluding %s (%s)", paper.paper_id, paper.title)
+            insuf_decision = ScreeningDecision(
+                paper_id=paper.paper_id,
+                decision=ScreeningDecisionType.EXCLUDE,
+                confidence=0.90,
+                reason="Insufficient content: abstract absent, too short, or title-only stub -- no data extractable.",
+                reviewer_type=ReviewerType.KEYWORD_FILTER,
+                exclusion_reason=ExclusionReason.INSUFFICIENT_DATA,
+            )
+            await self.repository.save_screening_decision(
+                workflow_id=workflow_id, stage=stage, decision=insuf_decision
+            )
+            await self.repository.append_decision_log(
+                DecisionLogEntry(
+                    decision_type="screening_insufficient_content_heuristic",
+                    paper_id=paper.paper_id,
+                    decision=ScreeningDecisionType.EXCLUDE.value,
+                    rationale="Title-only or stub abstract: fewer than 12 words or explicit no-abstract marker.",
+                    actor=ReviewerType.KEYWORD_FILTER.value,
+                    phase="phase_3_screening",
+                )
+            )
+            if self.on_screening_decision:
+                self.on_screening_decision(paper.paper_id, "exclude", "insufficient_content_heuristic")
+            return insuf_decision
 
         include_thresh = self.settings.screening.stage1_include_threshold
         exclude_thresh = self.settings.screening.stage1_exclude_threshold

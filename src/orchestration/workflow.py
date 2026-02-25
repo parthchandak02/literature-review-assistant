@@ -797,8 +797,17 @@ class ExtractionQualityNode(BaseNode[ReviewState]):
                         )
                     else:
                         not_applicable_paper_ids.append(qr.paper_id)
+                    _qr_outcomes = [
+                        o.get("name", "").strip()
+                        for o in qr.outcomes
+                        if o.get("name", "").strip()
+                        and o.get("name", "").strip().lower() not in {
+                            "primary_outcome", "secondary_outcome", "not_reported", "",
+                        }
+                    ]
+                    _qr_outcome_name = _qr_outcomes[0] if _qr_outcomes else "primary_outcome"
                     grade_assessment = grade.assess_outcome(
-                        outcome_name="primary_outcome",
+                        outcome_name=_qr_outcome_name,
                         number_of_studies=1,
                         study_design=qr.study_design,
                     )
@@ -898,16 +907,27 @@ class ExtractionQualityNode(BaseNode[ReviewState]):
                             )
                         )
 
+                    # Use first named outcome from extraction record if available
+                    _grade_outcomes = [
+                        o.get("name", "").strip()
+                        for o in record.outcomes
+                        if o.get("name", "").strip()
+                        and o.get("name", "").strip().lower() not in {
+                            "primary_outcome", "secondary_outcome", "not_reported", "",
+                        }
+                    ]
+                    _grade_outcome_name = _grade_outcomes[0] if _grade_outcomes else "primary_outcome"
+
                     if rob_assessment_obj is not None:
                         grade_assessment = grade.assess_from_rob(
-                            outcome_name="primary_outcome",
+                            outcome_name=_grade_outcome_name,
                             study_design=record.study_design,
                             rob_assessments=[rob_assessment_obj],
                             extraction_records=[record],
                         )
                     else:
                         grade_assessment = grade.assess_outcome(
-                            outcome_name="primary_outcome",
+                            outcome_name=_grade_outcome_name,
                             number_of_studies=1,
                             study_design=record.study_design,
                         )
@@ -1207,6 +1227,86 @@ class SynthesisNode(BaseNode[ReviewState]):
         return WritingNode()
 
 
+def _reconcile_manuscript_consistency(body: str, state: "ReviewState") -> str:  # type: ignore[name-defined]
+    """Detect and repair cross-section contradictions in the assembled manuscript body.
+
+    Sections are written independently by the LLM, which can produce factual
+    inconsistencies such as:
+    - Claiming meta-analysis was performed (in abstract/methods) when the
+      feasibility check declared it infeasible (narrated in discussion/limitations)
+    - Claiming the protocol was prospectively registered when it was not
+
+    This function applies targeted string corrections that preserve all other text
+    while making the inter-section claims consistent with the grounding data.
+    It is intentionally conservative: only replace well-known contradiction patterns.
+    """
+    import json
+    import re
+
+    # Determine ground-truth flags from the narrative synthesis JSON artifact on disk
+    meta_feasible: bool = False
+    narrative_path = state.artifacts.get("narrative_synthesis", "")
+    if narrative_path:
+        try:
+            with open(narrative_path, encoding="utf-8") as _nf:
+                _narrative_data = json.load(_nf)
+            feasibility = _narrative_data.get("feasibility", {})
+            raw_feasible = bool(feasibility.get("feasible", False))
+            groupings = feasibility.get("groupings", [])
+            _generic = frozenset({"primary_outcome", "secondary_outcome"})
+            generic_only = not groupings or all(g in _generic for g in groupings)
+            meta_feasible = raw_feasible and not generic_only
+        except Exception:
+            pass
+
+    # -----------------------------------------------------------------------
+    # Fix 1: meta-analysis contradictions
+    # When NOT feasible, replace phrases that claim pooling was performed.
+    # -----------------------------------------------------------------------
+    if not meta_feasible:
+        # Patterns that assert a meta-analysis was conducted
+        _META_ASSERTIONS = [
+            (
+                r"determined that a meta-analysis was feasible",
+                "conducted a narrative synthesis; a meta-analysis was not feasible",
+            ),
+            (
+                r"the data were deemed suitable for meta-analysis",
+                "a meta-analysis was not feasible due to heterogeneity in outcomes; a narrative synthesis was conducted",
+            ),
+            (
+                r"we conducted a meta-analysis\b",
+                "we conducted a narrative synthesis (meta-analysis was not feasible)",
+            ),
+            (
+                r"We conducted a meta-analysis\b",
+                "We conducted a narrative synthesis (meta-analysis was not feasible)",
+            ),
+            (
+                r"A meta-analysis was initially considered but was precluded",
+                "A meta-analysis was not feasible",
+            ),
+        ]
+        for pattern, replacement in _META_ASSERTIONS:
+            body = re.sub(pattern, replacement, body)
+
+    # -----------------------------------------------------------------------
+    # Fix 2: protocol registration contradictions
+    # Always use "not prospectively registered" unless we have an ID (not yet
+    # implemented -- protocol_registered is always False in grounding data).
+    # -----------------------------------------------------------------------
+    _PROTO_REGISTERED_RE = re.compile(
+        r"The\s+(?:review\s+)?protocol\s+was\s+(?:prospectively\s+)?registered\s+prospectively",
+        re.IGNORECASE,
+    )
+    body = _PROTO_REGISTERED_RE.sub(
+        "The protocol was not prospectively registered",
+        body,
+    )
+
+    return body
+
+
 class WritingNode(BaseNode[ReviewState]):
     """Write manuscript sections, validate citations, save drafts."""
 
@@ -1394,6 +1494,9 @@ class WritingNode(BaseNode[ReviewState]):
 
         manuscript_path = Path(state.artifacts["manuscript_md"])
         body = "\n\n".join(titled_sections)
+        # Cross-section consistency pass: detect and repair contradictions that arise
+        # when sections are written independently by the LLM.
+        body = _reconcile_manuscript_consistency(body, state)
         async with get_db(state.db_path) as _grade_db:
             _grade_repo = WorkflowRepository(_grade_db)
             _grade_assessments = await _grade_repo.load_grade_assessments(state.workflow_id)
