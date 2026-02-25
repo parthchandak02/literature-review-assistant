@@ -1,5 +1,5 @@
-import { Suspense, lazy } from "react"
-import { Activity, BarChart3, Database, FileText } from "lucide-react"
+import { Suspense, lazy, useState } from "react"
+import { Activity, BarChart3, Database, FileText, ClipboardCheck, RefreshCw } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { formatRunDate, formatWorkflowId } from "@/lib/format"
 import { Spinner } from "@/components/ui/feedback"
@@ -14,12 +14,15 @@ const DatabaseView = lazy(() =>
 const ResultsView = lazy(() =>
   import("@/views/ResultsView").then((m) => ({ default: m.ResultsView })),
 )
+const ScreeningReviewView = lazy(() =>
+  import("@/views/ScreeningReviewView").then((m) => ({ default: m.ScreeningReviewView })),
+)
 
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 
-export type RunTab = "activity" | "results" | "database" | "cost"
+export type RunTab = "activity" | "results" | "database" | "cost" | "review-screening"
 
 /** A run that is currently being viewed (live or historical). */
 export interface SelectedRun {
@@ -94,6 +97,8 @@ interface RunViewProps {
   dbUnlocked: boolean
   /** True while the run is still streaming (for DatabaseView auto-refresh). */
   isLive: boolean
+  /** Called when the user requests a living-review refresh run. */
+  onLivingRefresh?: (runId: string) => void
 }
 
 export function RunView({
@@ -108,9 +113,30 @@ export function RunView({
   liveOutputs,
   dbUnlocked,
   isLive,
+  onLivingRefresh,
 }: RunViewProps) {
+  const [refreshing, setRefreshing] = useState(false)
   const isDone = run.isDone || status === "done"
   const isRunning = status === "streaming" || status === "connecting"
+
+  async function handleLivingRefresh() {
+    if (refreshing || !onLivingRefresh) return
+    setRefreshing(true)
+    try {
+      const res = await fetch(`/api/run/${run.runId}/living-refresh`, { method: "POST" })
+      if (!res.ok) {
+        const text = await res.text()
+        console.error("Living refresh failed:", text)
+        return
+      }
+      const data = await res.json() as { run_id: string; topic: string }
+      onLivingRefresh(data.run_id)
+    } catch (e) {
+      console.error("Living refresh error:", e)
+    } finally {
+      setRefreshing(false)
+    }
+  }
 
   // Derive stats for the info strip.
   // For live runs: use SSE-derived costStats + event counts.
@@ -196,6 +222,21 @@ export function RunView({
             <InfoPill dim>{formatWorkflowId(run.workflowId ?? run.runId)}</InfoPill>
           </>
         )}
+        {/* Living review refresh button -- only shown for completed runs */}
+        {isDone && onLivingRefresh && (
+          <>
+            <InfoPill dim>|</InfoPill>
+            <button
+              onClick={() => void handleLivingRefresh()}
+              disabled={refreshing}
+              className="inline-flex items-center gap-1 text-violet-500 hover:text-violet-300 transition-colors disabled:opacity-50"
+              title="Launch an incremental living-review run to pick up new papers"
+            >
+              <RefreshCw className={cn("h-3 w-3", refreshing && "animate-spin")} />
+              <span className="shrink-0">{refreshing ? "Starting..." : "Refresh Search"}</span>
+            </button>
+          </>
+        )}
       </div>
 
       {/* Tab bar */}
@@ -215,6 +256,21 @@ export function RunView({
             {tab.label}
           </button>
         ))}
+        {/* Show "Review Screening" tab when run is awaiting human review */}
+        {(run.historicalStatus === "awaiting_review" || status === "awaiting_review") && (
+          <button
+            onClick={() => onTabChange("review-screening")}
+            className={cn(
+              "flex items-center gap-1.5 px-4 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors",
+              activeTab === "review-screening"
+                ? "border-amber-500 text-amber-400"
+                : "border-amber-700 text-amber-600 hover:text-amber-400",
+            )}
+          >
+            <ClipboardCheck className="h-3.5 w-3.5" />
+            Review Screening
+          </button>
+        )}
       </div>
 
       {/* Tab content */}
@@ -253,6 +309,10 @@ export function RunView({
               costStats={costStats}
               dbRunId={run.runId}
             />
+          )}
+
+          {activeTab === "review-screening" && (
+            <ScreeningReviewView runId={run.runId} />
           )}
         </Suspense>
       </div>

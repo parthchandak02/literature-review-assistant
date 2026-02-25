@@ -11,7 +11,7 @@ import {
 import { FetchError, EmptyState } from "@/components/ui/feedback"
 import { Th, Td, TableSkeleton, Pagination } from "@/components/ui/table"
 import { cn } from "@/lib/utils"
-import { Database, ExternalLink, Filter, Loader2, X } from "lucide-react"
+import { AlertTriangle, Database, ExternalLink, Filter, Loader2, X } from "lucide-react"
 import { fetchPapersAll, fetchPapersFacets, fetchPapersSuggest } from "@/lib/api"
 import type { PaperAllRow } from "@/lib/api"
 
@@ -57,6 +57,7 @@ export function DatabaseView({ runId, isDone, dbAvailable, isLive }: DatabaseVie
   const [yearFilter, setYearFilter] = useState("")
   const [sourceFilter, setSourceFilter] = useState("")
   const [countryFilter, setCountryFilter] = useState("")
+  const [showHeuristicOnly, setShowHeuristicOnly] = useState(false)
   const [page, setPage] = useState(0)
 
   const [papers, setPapers] = useState<PaperAllRow[]>([])
@@ -200,6 +201,7 @@ export function DatabaseView({ runId, isDone, dbAvailable, isLive }: DatabaseVie
     setYearFilter("")
     setSourceFilter("")
     setCountryFilter("")
+    setShowHeuristicOnly(false)
     setTitleSuggestions([])
     setAuthorSuggestions([])
   }
@@ -214,12 +216,17 @@ export function DatabaseView({ runId, isDone, dbAvailable, isLive }: DatabaseVie
     )
   }
 
-  const activeFilters = [titleFilter, authorFilter, taFilter, ftFilter, yearFilter, sourceFilter, countryFilter].filter(Boolean).length
+  const activeFilters = [titleFilter, authorFilter, taFilter, ftFilter, yearFilter, sourceFilter, countryFilter].filter(Boolean).length + (showHeuristicOnly ? 1 : 0)
+
+  // Apply client-side heuristic filter after fetch
+  const displayedPapers = showHeuristicOnly
+    ? papers.filter((p) => p.assessment_source === "heuristic")
+    : papers
 
   return (
     <div className="flex flex-col gap-4">
       {/* Metadata row */}
-      <div className="flex items-center gap-3">
+      <div className="flex items-center gap-3 flex-wrap">
         {activeFilters > 0 && (
           <button
             onClick={clearAllFilters}
@@ -228,6 +235,18 @@ export function DatabaseView({ runId, isDone, dbAvailable, isLive }: DatabaseVie
             Clear {activeFilters} filter{activeFilters > 1 ? "s" : ""}
           </button>
         )}
+        <button
+          onClick={() => setShowHeuristicOnly((v) => !v)}
+          className={cn(
+            "flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-full border transition-colors",
+            showHeuristicOnly
+              ? "border-amber-600 bg-amber-900/30 text-amber-400"
+              : "border-zinc-700 text-zinc-500 hover:text-zinc-300 hover:border-zinc-600",
+          )}
+        >
+          <AlertTriangle className="h-3 w-3" />
+          Heuristic RoB only
+        </button>
         <div className="flex items-center gap-3 ml-auto">
           {!error && (
             <span className="text-xs text-zinc-500 tabular-nums">
@@ -256,8 +275,8 @@ export function DatabaseView({ runId, isDone, dbAvailable, isLive }: DatabaseVie
             <FetchError message={error} onRetry={loadPapers} />
           </div>
         ) : loading ? (
-          <TableSkeleton cols={7} rows={8} />
-        ) : papers.length === 0 ? (
+          <TableSkeleton cols={9} rows={8} />
+        ) : displayedPapers.length === 0 ? (
           <EmptyState icon={Database} heading="No papers found." className="py-12" />
         ) : (
           <div className="overflow-x-auto">
@@ -352,15 +371,17 @@ export function DatabaseView({ runId, isDone, dbAvailable, isLive }: DatabaseVie
                   >
                     FT Decision
                   </Th>
+                  <Th>Confidence</Th>
+                  <Th>RoB Source</Th>
                 </tr>
               </thead>
               <tbody>
-                {papers.map((p, i) => (
+                {displayedPapers.map((p, i) => (
                   <tr
                     key={p.paper_id}
                     className={cn(
                       "border-b border-zinc-800/50 hover:bg-zinc-800/40 transition-colors",
-                      i === papers.length - 1 && "border-0",
+                      i === displayedPapers.length - 1 && "border-0",
                     )}
                   >
                     <Td className="max-w-xs">
@@ -391,6 +412,8 @@ export function DatabaseView({ runId, isDone, dbAvailable, isLive }: DatabaseVie
                     <Td className="text-zinc-600">{p.country ?? "--"}</Td>
                     <DecisionCell value={p.ta_decision} />
                     <DecisionCell value={p.ft_decision} />
+                    <ExtractionConfidenceCell value={p.extraction_confidence} />
+                    <AssessmentSourceCell value={p.assessment_source} />
                   </tr>
                 ))}
               </tbody>
@@ -580,6 +603,54 @@ function DecisionCell({ value }: { value: string | null }) {
   return (
     <Td>
       <span className={cn("font-semibold capitalize", DECISION_COLOR[value] ?? "text-zinc-400")}>
+        {value}
+      </span>
+    </Td>
+  )
+}
+
+function ExtractionConfidenceCell({ value }: { value: number | null }) {
+  if (value == null) {
+    return <Td className="text-zinc-700">--</Td>
+  }
+  const pct = Math.round(value * 100)
+  const color =
+    pct >= 80
+      ? "bg-emerald-900/40 text-emerald-400 border-emerald-800"
+      : pct >= 60
+        ? "bg-amber-900/40 text-amber-400 border-amber-800"
+        : "bg-red-900/40 text-red-400 border-red-800"
+  return (
+    <Td>
+      <span
+        className={cn(
+          "inline-block px-1.5 py-0.5 rounded text-[10px] font-mono font-medium border",
+          color,
+        )}
+      >
+        {pct}%
+      </span>
+    </Td>
+  )
+}
+
+function AssessmentSourceCell({ value }: { value: string | null }) {
+  if (!value) {
+    return <Td className="text-zinc-700">--</Td>
+  }
+  if (value === "heuristic") {
+    return (
+      <Td>
+        <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-amber-900/40 text-amber-400 border border-amber-800">
+          <AlertTriangle className="h-2.5 w-2.5" />
+          heuristic
+        </span>
+      </Td>
+    )
+  }
+  return (
+    <Td>
+      <span className="inline-block px-1.5 py-0.5 rounded text-[10px] font-medium bg-zinc-800 text-zinc-400 border border-zinc-700">
         {value}
       </span>
     </Td>

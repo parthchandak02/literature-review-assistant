@@ -1,8 +1,9 @@
-import { useState, useMemo } from "react"
-import { FileText, Lock, Loader2, PackageCheck, AlertCircle } from "lucide-react"
+import { useState, useMemo, useEffect } from "react"
+import { FileText, Lock, Loader2, PackageCheck, AlertCircle, ChevronDown, ChevronUp, CheckCircle, XCircle, AlertTriangle } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { ResultsPanel } from "@/components/ResultsPanel"
 import { triggerExport } from "@/lib/api"
+import { cn } from "@/lib/utils"
 
 
 interface ResultsViewProps {
@@ -126,7 +127,170 @@ export function ResultsView({
         </div>
       )}
 
+      {exportRunId && <PrismaChecklistPanel runId={exportRunId} />}
+
       <ResultsPanel outputs={mergedOutputs} />
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// PRISMA 2020 Compliance Panel
+// ---------------------------------------------------------------------------
+
+interface PrismaItem {
+  item_id: string
+  section: string
+  description: string
+  status: "REPORTED" | "PARTIAL" | "MISSING"
+  rationale: string
+}
+
+interface PrismaChecklist {
+  run_id: string
+  reported_count: number
+  partial_count: number
+  missing_count: number
+  passed: boolean
+  total: number
+  items: PrismaItem[]
+}
+
+function PrismaStatusIcon({ status }: { status: string }) {
+  if (status === "REPORTED") return <CheckCircle className="h-3.5 w-3.5 text-emerald-400 shrink-0" />
+  if (status === "PARTIAL") return <AlertTriangle className="h-3.5 w-3.5 text-amber-400 shrink-0" />
+  return <XCircle className="h-3.5 w-3.5 text-red-400 shrink-0" />
+}
+
+function PrismaChecklistPanel({ runId }: { runId: string }) {
+  const [open, setOpen] = useState(false)
+  const [data, setData] = useState<PrismaChecklist | null>(null)
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [sectionFilter, setSectionFilter] = useState<string>("All")
+
+  useEffect(() => {
+    if (!open || data) return
+    setLoading(true)
+    setError(null)
+    fetch(`/api/run/${runId}/prisma-checklist`)
+      .then((res) => {
+        if (!res.ok) throw new Error(`${res.status}`)
+        return res.json() as Promise<PrismaChecklist>
+      })
+      .then(setData)
+      .catch((e) => setError(e instanceof Error ? e.message : String(e)))
+      .finally(() => setLoading(false))
+  }, [open, runId, data])
+
+  const sections = data
+    ? ["All", ...Array.from(new Set(data.items.map((i) => i.section)))]
+    : ["All"]
+
+  const filtered = data
+    ? sectionFilter === "All"
+      ? data.items
+      : data.items.filter((i) => i.section === sectionFilter)
+    : []
+
+  const passColor = data?.passed ? "text-emerald-400" : "text-amber-400"
+
+  return (
+    <div className="border border-zinc-800 rounded-lg overflow-hidden bg-zinc-900/40">
+      <button
+        onClick={() => setOpen((v) => !v)}
+        className="w-full flex items-center justify-between px-4 py-3 hover:bg-zinc-800/30 transition-colors"
+      >
+        <div className="flex items-center gap-2">
+          <FileText className="h-4 w-4 text-zinc-500" />
+          <span className="text-sm font-medium text-zinc-200">PRISMA 2020 Compliance</span>
+          {data && (
+            <span className={cn("text-xs font-mono font-semibold", passColor)}>
+              {data.reported_count}/{data.total}
+              {data.passed ? " -- PASS" : " -- needs attention"}
+            </span>
+          )}
+        </div>
+        {open ? (
+          <ChevronUp className="h-4 w-4 text-zinc-600" />
+        ) : (
+          <ChevronDown className="h-4 w-4 text-zinc-600" />
+        )}
+      </button>
+
+      {open && (
+        <div className="border-t border-zinc-800 p-4 space-y-4">
+          {loading && (
+            <div className="flex items-center gap-2 text-sm text-zinc-500">
+              <Loader2 className="h-4 w-4 animate-spin" />
+              Checking manuscript...
+            </div>
+          )}
+          {error && (
+            <p className="text-sm text-red-400">Failed to load checklist: {error}</p>
+          )}
+          {data && (
+            <>
+              {/* Summary bar */}
+              <div className="flex items-center gap-4 text-xs flex-wrap">
+                <span className="text-emerald-400 font-semibold">{data.reported_count} Reported</span>
+                <span className="text-amber-400 font-semibold">{data.partial_count} Partial</span>
+                <span className="text-red-400 font-semibold">{data.missing_count} Missing</span>
+                <span className={cn("font-semibold ml-auto", passColor)}>
+                  {data.passed ? "PASS (>=24 reported)" : "FAIL (<24 reported)"}
+                </span>
+              </div>
+
+              {/* Section filter */}
+              <div className="flex items-center gap-1 flex-wrap">
+                {sections.map((s) => (
+                  <button
+                    key={s}
+                    onClick={() => setSectionFilter(s)}
+                    className={cn(
+                      "px-2.5 py-1 rounded-full text-xs border transition-colors",
+                      sectionFilter === s
+                        ? "border-violet-600 bg-violet-900/40 text-violet-300"
+                        : "border-zinc-700 text-zinc-500 hover:text-zinc-300",
+                    )}
+                  >
+                    {s}
+                  </button>
+                ))}
+              </div>
+
+              {/* Item list */}
+              <div className="space-y-1">
+                {filtered.map((item) => (
+                  <div
+                    key={item.item_id}
+                    className={cn(
+                      "flex items-start gap-2.5 px-3 py-2 rounded-lg text-xs",
+                      item.status === "REPORTED"
+                        ? "bg-emerald-900/10"
+                        : item.status === "PARTIAL"
+                          ? "bg-amber-900/10"
+                          : "bg-red-900/10",
+                    )}
+                  >
+                    <PrismaStatusIcon status={item.status} />
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="font-mono text-zinc-500">{item.item_id}</span>
+                        <span className="text-zinc-400 font-medium">{item.description}</span>
+                        <span className="text-zinc-600 ml-auto">{item.section}</span>
+                      </div>
+                      {item.rationale && (
+                        <p className="text-zinc-600 mt-0.5">{item.rationale}</p>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </>
+          )}
+        </div>
+      )}
     </div>
   )
 }

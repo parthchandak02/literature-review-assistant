@@ -221,6 +221,27 @@ export default function App() {
     abort()
   }
 
+  function handleLivingRefresh(newRunId: string) {
+    const now = new Date()
+    const topic = selectedRun?.topic ? `[Living refresh] ${selectedRun.topic}` : "Living refresh"
+    reset()
+    setLiveRunId(newRunId)
+    setLiveTopic(topic)
+    setLiveStartedAt(now)
+    setLiveWorkflowId(null)
+    saveLiveRun({ runId: newRunId, topic, startedAt: now.toISOString() })
+    setSelectedRun({
+      runId: newRunId,
+      workflowId: null,
+      topic,
+      dbPath: null,
+      isDone: false,
+      startedAt: now,
+      createdAt: now.toISOString(),
+    })
+    setActiveRunTab("activity")
+  }
+
   function handleNewReview() {
     setSelectedRun(null)
     setHistoryOutputs({})
@@ -316,6 +337,7 @@ export default function App() {
       const s = (selectedRun.historicalStatus ?? "completed").toLowerCase()
       if (s === "completed" || s === "done") return "done"
       if (s === "running" || s === "streaming") return "streaming"
+      if (s === "awaiting_review") return "awaiting_review"
       if (s === "stale") return "error"
       if (s === "failed" || s === "error") return "error"
       if (s === "cancelled" || s === "canceled") return "cancelled"
@@ -332,6 +354,7 @@ export default function App() {
         activeTab={activeRunTab}
         onTabChange={setActiveRunTab}
         onCancel={handleCancel}
+        onLivingRefresh={handleLivingRefresh}
         historyOutputs={historyOutputs}
         liveOutputs={isViewingLiveRun ? liveOutputs : {}}
         dbUnlocked={Boolean(dbUnlocked)}

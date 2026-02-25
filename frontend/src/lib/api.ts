@@ -77,6 +77,8 @@ export interface PaperAllRow {
   country: string | null
   ta_decision: string | null
   ft_decision: string | null
+  extraction_confidence: number | null
+  assessment_source: string | null
 }
 
 export interface DbCostRow {
