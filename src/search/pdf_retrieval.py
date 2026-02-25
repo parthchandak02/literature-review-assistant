@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import io
+import logging
 import os
 from collections.abc import Sequence
 from urllib.parse import quote
@@ -11,6 +13,32 @@ from pydantic import BaseModel
 
 from src.models import CandidatePaper
 from src.utils.ssl_context import tcp_connector_with_certifi
+
+logger = logging.getLogger(__name__)
+
+# Maximum characters to keep from parsed PDF text before passing to the extractor.
+# Gemini 2.5 Pro supports 1M tokens; 32K chars is well within budget and
+# covers most academic papers (8-15 pages ~ 24K-45K chars).
+_PDF_MAX_CHARS = 32_000
+
+
+def _parse_pdf_bytes(body: bytes) -> str:
+    """Parse raw PDF bytes into clean markdown text using PyMuPDF.
+
+    Falls back to latin-1 decode if PyMuPDF is unavailable or parsing fails.
+    Returns up to _PDF_MAX_CHARS of markdown text.
+    """
+    try:
+        import fitz  # PyMuPDF
+        import pymupdf4llm
+
+        doc = fitz.open(stream=io.BytesIO(body), filetype="pdf")
+        md_text: str = pymupdf4llm.to_markdown(doc)
+        doc.close()
+        return md_text[:_PDF_MAX_CHARS]
+    except Exception as exc:
+        logger.debug("PyMuPDF parsing failed (%s); falling back to latin-1 decode.", exc)
+        return body[:_PDF_MAX_CHARS].decode("latin-1", errors="ignore")
 
 
 class PDFRetrievalResult(BaseModel):
@@ -53,13 +81,14 @@ class PDFRetriever:
                         content_type = response.headers.get("Content-Type", "").lower()
                         body = await response.read()
                 if "application/pdf" in content_type:
+                    parsed_text = _parse_pdf_bytes(body)
                     return PDFRetrievalResult(
                         paper_id=paper.paper_id,
                         resolved_url=url,
-                        full_text=body[:8000].decode("latin-1", errors="ignore"),
+                        full_text=parsed_text,
                         success=True,
                     )
-                text = body[:8000].decode("utf-8", errors="ignore")
+                text = body[:_PDF_MAX_CHARS].decode("utf-8", errors="ignore")
                 if text.strip():
                     return PDFRetrievalResult(
                         paper_id=paper.paper_id,

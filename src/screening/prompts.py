@@ -38,6 +38,15 @@ def _quality_criteria_block() -> str:
         "- No measurable outcomes or quantitative/qualitative results are described",
         "- The paper is purely descriptive technology marketing with no evaluation",
         "",
+        "EXCLUDE with exclusion_reason=protocol_only if the paper is a study PROTOCOL:",
+        "- The title or abstract indicates this is a trial/study protocol, study design,",
+        "  or registered trial with no reported results (e.g. 'Protocol for a randomized",
+        "  trial', 'Study design and methods', 'trial registration', 'PROSPERO protocol')",
+        "- A RCT protocol registered on ClinicalTrials.gov or PROSPERO with no outcome data",
+        "- Review protocols (without data), methodology papers without empirical findings",
+        "- NOTE: A completed trial that has a companion protocol paper is INCLUDED if the",
+        "  paper you are reviewing contains actual results/outcome data.",
+        "",
     ])
 
 
@@ -45,7 +54,7 @@ def _output_schema_block() -> str:
     return "\n".join(
         [
             "Return ONLY valid JSON matching this exact schema:",
-            '{"decision": "include|exclude|uncertain", "confidence": 0.0, "short_reason": "one-line summary max 80 chars", "reasoning": "full explanation", "exclusion_reason": "wrong_population|wrong_intervention|wrong_comparator|wrong_outcome|wrong_study_design|not_peer_reviewed|duplicate|insufficient_data|wrong_language|no_full_text|other|null"}',
+            '{"decision": "include|exclude|uncertain", "confidence": 0.0, "short_reason": "one-line summary max 80 chars", "reasoning": "full explanation", "exclusion_reason": "wrong_population|wrong_intervention|wrong_comparator|wrong_outcome|wrong_study_design|not_peer_reviewed|duplicate|insufficient_data|wrong_language|no_full_text|protocol_only|other|null"}',
             "Provide short_reason (one line, max 80 chars) for quick scanning; reasoning for full justification.",
         ]
     )

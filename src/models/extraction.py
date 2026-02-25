@@ -23,3 +23,7 @@ class ExtractionRecord(BaseModel):
     funding_source: Optional[str] = None
     conflicts_of_interest: Optional[str] = None
     source_spans: Dict[str, str] = Field(default_factory=dict)
+    extraction_confidence: Optional[float] = Field(
+        default=None,
+        description="LLM self-reported confidence in the extraction (0.0-1.0).",
+    )

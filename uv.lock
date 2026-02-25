@@ -885,6 +885,19 @@ wheels = [
 ]
 
 [[package]]
+name = "datasketch"
+version = "1.9.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "numpy" },
+    { name = "scipy" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/1f/d1/0b64dbc7626be277413daff298b9f026911389e75562952d5b7c662bbea1/datasketch-1.9.0.tar.gz", hash = "sha256:78d4560e415b0de11f595165887a0e4c9983d07b8f15dce9c53289a86bc12e92", size = 89790 }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/fb/c8/ef06f4c9a0d7697c14c39475eaccd7d3774c34ecc693691079a21bd0d1f1/datasketch-1.9.0-py3-none-any.whl", hash = "sha256:48c18ae889862793609971c6d6d392d71c86793e838dbddd8aa53af6b1716e8a", size = 96542 },
+]
+
+[[package]]
 name = "defusedxml"
 version = "0.7.1"
 source = { registry = "https://pypi.org/simple" }
@@ -3772,6 +3785,18 @@ wheels = [
 ]
 
 [[package]]
+name = "pymupdf4llm"
+version = "0.0.17"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "pymupdf" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/2e/3c/1a530a410bdf76d83289bf30b3b86236d338b3f5f21842790c2cf7e9c1f6/pymupdf4llm-0.0.17.tar.gz", hash = "sha256:27287ef9fe0217cf37841a3ef2bcf70da2553c43d95ea39b664a6de6485678c3", size = 25180 }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/ae/af/1576ecfc8a62d31c0c8b34b856e52f6b05f1d76546dbac0e1d037f044a9e/pymupdf4llm-0.0.17-py3-none-any.whl", hash = "sha256:26de9996945f15e3ca507908f80dc18a959f5b5214bb2e302c7f7034089665a0", size = 26190 },
+]
+
+[[package]]
 name = "pypandoc-binary"
 version = "1.16.2"
 source = { registry = "https://pypi.org/simple" }
@@ -4298,12 +4323,14 @@ dependencies = [
     { name = "bm25s" },
     { name = "certifi" },
     { name = "colrev" },
+    { name = "datasketch" },
     { name = "fastapi" },
     { name = "matplotlib" },
     { name = "nameparser" },
     { name = "prisma-flow-diagram" },
     { name = "pydantic" },
     { name = "pydantic-ai" },
+    { name = "pymupdf4llm" },
     { name = "pypandoc-binary" },
     { name = "python-docx" },
     { name = "python-dotenv" },
@@ -4336,12 +4363,14 @@ requires-dist = [
     { name = "bm25s", specifier = ">=0.2" },
     { name = "certifi", specifier = ">=2024.0" },
     { name = "colrev", specifier = ">=0.16.0" },
+    { name = "datasketch", specifier = ">=1.9.0" },
     { name = "fastapi", specifier = ">=0.129.0" },
     { name = "matplotlib", specifier = ">=3.8" },
     { name = "nameparser", specifier = ">=1.1" },
     { name = "prisma-flow-diagram", specifier = ">=0.1.0" },
     { name = "pydantic", specifier = ">=2.0" },
     { name = "pydantic-ai", specifier = ">=1.0.0" },
+    { name = "pymupdf4llm", specifier = ">=0.0.17" },
     { name = "pypandoc-binary", specifier = ">=1.16.2" },
     { name = "python-docx", specifier = ">=1.2.0" },
     { name = "python-dotenv", specifier = ">=1.0" },

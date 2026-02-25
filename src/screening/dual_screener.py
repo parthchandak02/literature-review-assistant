@@ -131,6 +131,9 @@ class DualReviewerScreener:
         self.on_prompt = on_prompt
         self.should_proceed_with_partial = should_proceed_with_partial
         self.on_screening_decision = on_screening_decision
+        # Accumulates DualScreeningResult objects where both reviewers participated.
+        # Used by the workflow to compute Cohen's kappa after screening completes.
+        self._dual_results: list = []
 
     async def screen_title_abstract(self, workflow_id: str, paper: CandidatePaper) -> ScreeningDecision:
         result = await self._screen_one(
@@ -165,6 +168,52 @@ class DualReviewerScreener:
         if getattr(self, "_partial_flag_consumed", False):
             return False
         return bool(self.should_proceed_with_partial and self.should_proceed_with_partial())
+
+    _PROTOCOL_TITLE_PATTERNS: tuple[str, ...] = (
+        "protocol for",
+        "protocol of",
+        "study protocol",
+        "trial protocol",
+        "research protocol",
+        "protocol paper",
+        "protocol article",
+        ": a protocol",
+        "- a protocol",
+        "design and methods",
+        "study design and",
+        "rationale and design",
+        "prospero registration",
+        "trial registration",
+    )
+
+    def _is_protocol_only(self, paper: CandidatePaper) -> bool:
+        """Return True when title/abstract strongly indicate a protocol with no results.
+
+        This heuristic acts as a post-LLM safety net. It is conservative: it
+        only fires when the title unambiguously marks the paper as a protocol,
+        or when the abstract explicitly states no results are yet available.
+        """
+        title_lower = (paper.title or "").lower()
+        abstract_lower = (paper.abstract or "").lower()
+
+        # Title-based signal: explicit protocol markers
+        if any(pat in title_lower for pat in self._PROTOCOL_TITLE_PATTERNS):
+            return True
+
+        # Abstract-based signal: phrases that confirm no results exist
+        no_results_phrases = (
+            "no results are available",
+            "results will be reported",
+            "results are not yet available",
+            "trial is ongoing",
+            "study is ongoing",
+            "data collection is underway",
+            "data collection has not",
+        )
+        if any(ph in abstract_lower for ph in no_results_phrases):
+            return True
+
+        return False
 
     async def screen_batch(
         self,
@@ -299,6 +348,37 @@ class DualReviewerScreener:
     ) -> ScreeningDecision:
         # Ensure FK integrity before writing screening decisions.
         await self.repository.save_paper(paper)
+
+        # Protocol-only heuristic pre-check: auto-exclude before any LLM call.
+        # Protocols registered on ClinicalTrials.gov/PROSPERO with no results
+        # cannot contribute outcome data and must not be counted as included studies.
+        if self._is_protocol_only(paper):
+            _log.info("Protocol-only heuristic: auto-excluding %s (%s)", paper.paper_id, paper.title)
+            proto_decision = ScreeningDecision(
+                paper_id=paper.paper_id,
+                decision=ScreeningDecisionType.EXCLUDE,
+                confidence=0.95,
+                reason="Protocol-only heuristic: title or abstract indicates a study protocol with no reported results.",
+                reviewer_type=ReviewerType.KEYWORD_FILTER,
+                exclusion_reason=ExclusionReason.PROTOCOL_ONLY,
+            )
+            await self.repository.save_screening_decision(
+                workflow_id=workflow_id, stage=stage, decision=proto_decision
+            )
+            await self.repository.append_decision_log(
+                DecisionLogEntry(
+                    decision_type="screening_protocol_heuristic",
+                    paper_id=paper.paper_id,
+                    decision=ScreeningDecisionType.EXCLUDE.value,
+                    rationale="Protocol-only auto-exclusion (no results available).",
+                    actor=ReviewerType.KEYWORD_FILTER.value,
+                    phase="phase_3_screening",
+                )
+            )
+            if self.on_screening_decision:
+                self.on_screening_decision(paper.paper_id, "exclude", "protocol_only_heuristic")
+            return proto_decision
+
         include_thresh = self.settings.screening.stage1_include_threshold
         exclude_thresh = self.settings.screening.stage1_exclude_threshold
 
@@ -338,6 +418,16 @@ class DualReviewerScreener:
                 other_reviewer_decision=reviewer_a.decision,
             )
             agreement = reviewer_a.decision == reviewer_b.decision
+            from src.models import DualScreeningResult
+            self._dual_results.append(
+                DualScreeningResult(
+                    paper_id=paper.paper_id,
+                    reviewer_a=reviewer_a,
+                    reviewer_b=reviewer_b,
+                    agreement=agreement,
+                    final_decision=reviewer_a.decision if agreement else reviewer_b.decision,
+                )
+            )
             if agreement:
                 final_decision = reviewer_a
                 adjudication_needed = False

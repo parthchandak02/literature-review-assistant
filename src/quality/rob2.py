@@ -92,27 +92,28 @@ class Rob2Assessor:
         self.provider = provider
 
     def _heuristic(self, record: ExtractionRecord) -> RoB2Assessment:
-        summary = (record.results_summary.get("summary") or "").lower()
-        d1 = RiskOfBiasJudgment.LOW if "random" in summary else RiskOfBiasJudgment.SOME_CONCERNS
-        d2 = RiskOfBiasJudgment.LOW if "protocol" in summary else RiskOfBiasJudgment.SOME_CONCERNS
-        d3 = RiskOfBiasJudgment.HIGH if "missing data" in summary else RiskOfBiasJudgment.LOW
-        d4 = RiskOfBiasJudgment.LOW if "validated" in summary else RiskOfBiasJudgment.SOME_CONCERNS
-        d5 = RiskOfBiasJudgment.SOME_CONCERNS if "selective" in summary else RiskOfBiasJudgment.LOW
-        overall = _max_judgment([d1, d2, d3, d4, d5])
+        """Conservative heuristic fallback when LLM call fails.
+
+        All domains default to 'some_concerns' (not LOW) to avoid granting
+        low-risk status without evidence. Assessment is flagged as heuristic
+        so downstream consumers can identify and flag these entries.
+        """
+        sc = RiskOfBiasJudgment.SOME_CONCERNS
         return RoB2Assessment(
             paper_id=record.paper_id,
-            domain_1_randomization=d1,
-            domain_1_rationale="Heuristic randomization signal check.",
-            domain_2_deviations=d2,
-            domain_2_rationale="Heuristic protocol deviation signal check.",
-            domain_3_missing_data=d3,
-            domain_3_rationale="Heuristic missing-data signal check.",
-            domain_4_measurement=d4,
-            domain_4_rationale="Heuristic measurement validity signal check.",
-            domain_5_selection=d5,
-            domain_5_rationale="Heuristic reporting-selection signal check.",
-            overall_judgment=overall,
-            overall_rationale="Overall follows RoB2 aggregation rule.",
+            domain_1_randomization=sc,
+            domain_1_rationale="Heuristic fallback: LLM unavailable; conservative default applied.",
+            domain_2_deviations=sc,
+            domain_2_rationale="Heuristic fallback: LLM unavailable; conservative default applied.",
+            domain_3_missing_data=sc,
+            domain_3_rationale="Heuristic fallback: LLM unavailable; conservative default applied.",
+            domain_4_measurement=sc,
+            domain_4_rationale="Heuristic fallback: LLM unavailable; conservative default applied.",
+            domain_5_selection=sc,
+            domain_5_rationale="Heuristic fallback: LLM unavailable; conservative default applied.",
+            overall_judgment=sc,
+            overall_rationale="Heuristic fallback: conservative overall judgment.",
+            assessment_source="heuristic",
         )
 
     async def assess(self, record: ExtractionRecord, full_text: str = "") -> RoB2Assessment:

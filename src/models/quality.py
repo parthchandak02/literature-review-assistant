@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Literal
+
 from pydantic import BaseModel, Field
 
 from src.models.enums import GRADECertainty, RiskOfBiasJudgment, RobinsIJudgment
@@ -21,6 +23,7 @@ class RoB2Assessment(BaseModel):
     domain_5_rationale: str
     overall_judgment: RiskOfBiasJudgment
     overall_rationale: str
+    assessment_source: Literal["llm", "heuristic"] = "llm"
 
 
 class RobinsIAssessment(BaseModel):
@@ -41,6 +44,7 @@ class RobinsIAssessment(BaseModel):
     domain_7_rationale: str
     overall_judgment: RobinsIJudgment
     overall_rationale: str
+    assessment_source: Literal["llm", "heuristic"] = "llm"
 
 
 class GRADEOutcomeAssessment(BaseModel):

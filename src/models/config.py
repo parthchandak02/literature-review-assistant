@@ -60,6 +60,22 @@ class ReviewConfig(BaseModel):
         default=None,
         description="Optional per-database query overrides. Keys: openalex, pubmed, arxiv, ieee_xplore, semantic_scholar, crossref, perplexity_search. Omit a database to use auto-generated query.",
     )
+    living_review: bool = Field(
+        default=False,
+        description=(
+            "Enable living review mode. When true, connectors only fetch records "
+            "published after last_search_date, and papers already screened in a "
+            "prior run are skipped automatically."
+        ),
+    )
+    last_search_date: Optional[str] = Field(
+        default=None,
+        description=(
+            "ISO date string (YYYY-MM-DD) of the most recent completed search. "
+            "Updated automatically by the workflow after each successful run. "
+            "Used as the from_date filter when living_review is true."
+        ),
+    )
 
 
 class AgentConfig(BaseModel):
@@ -88,6 +104,13 @@ class ScreeningConfig(BaseModel):
 class DualReviewConfig(BaseModel):
     enabled: bool = True
     kappa_warning_threshold: float = Field(ge=0.0, le=1.0, default=0.4)
+    reviewer_b_model: str = Field(
+        default="gemini-2.0-flash",
+        description=(
+            "Model used for Reviewer B. Using a different model than Reviewer A "
+            "enables genuine cross-model validation rather than intra-model disagreement."
+        ),
+    )
 
 
 class GatesConfig(BaseModel):
@@ -160,6 +183,21 @@ class SearchConfig(BaseModel):
     )
 
 
+class HumanInTheLoopConfig(BaseModel):
+    """Human-in-the-loop review checkpoint configuration.
+
+    When enabled=True, the workflow pauses after screening and waits for
+    a human to review and approve AI screening decisions before extraction begins.
+    The run status is set to "awaiting_review" and a POST to
+    /api/run/{run_id}/approve-screening resumes the workflow.
+    """
+
+    enabled: bool = Field(
+        default=False,
+        description="Enable human review checkpoint between screening and extraction.",
+    )
+
+
 class SettingsConfig(BaseModel):
     agents: Dict[str, AgentConfig]
     screening: ScreeningConfig = Field(default_factory=ScreeningConfig)
@@ -172,3 +210,4 @@ class SettingsConfig(BaseModel):
     citation_lineage: CitationLineageConfig = Field(default_factory=CitationLineageConfig)
     search: SearchConfig = Field(default_factory=SearchConfig)
     llm: LLMRateLimitConfig | None = None
+    human_in_the_loop: HumanInTheLoopConfig = Field(default_factory=HumanInTheLoopConfig)

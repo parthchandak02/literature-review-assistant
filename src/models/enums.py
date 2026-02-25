@@ -56,6 +56,7 @@ class ExclusionReason(str, Enum):
     NO_FULL_TEXT = "no_full_text"
     KEYWORD_FILTER = "keyword_filter"  # pre-filter: zero intervention keyword matches; no LLM call made
     LOW_RELEVANCE_SCORE = "low_relevance_score"  # BM25 score below cap cutoff; no LLM call made
+    PROTOCOL_ONLY = "protocol_only"  # study is a registered protocol/trial with no reported results
     OTHER = "other"
 
 
@@ -74,6 +75,7 @@ class StudyDesign(str, Enum):
     QUALITATIVE = "qualitative"
     MIXED_METHODS = "mixed_methods"
     CROSS_SECTIONAL = "cross_sectional"
+    PROTOCOL = "protocol"  # registered trial protocol or study design paper with no results
     OTHER = "other"
 
 

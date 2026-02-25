@@ -26,6 +26,7 @@ class CaspAssessment(BaseModel):
     findings_clear: bool
     value_of_research: bool
     overall_summary: str
+    assessment_source: str = "llm"
 
 
 class _CaspLLMResponse(BaseModel):
@@ -82,19 +83,23 @@ class CaspAssessor:
         self.provider = provider
 
     def _heuristic(self, record: ExtractionRecord) -> CaspAssessment:
-        summary = (record.results_summary.get("summary") or "").lower()
-        has_methods = any(token in summary for token in ["interview", "focus group", "thematic"])
+        """Conservative heuristic fallback when LLM call fails.
+
+        All qualitative criteria default to False (not assumed met) to avoid
+        falsely crediting rigor. Assessment is flagged as heuristic.
+        """
         return CaspAssessment(
             paper_id=record.paper_id,
-            design_appropriate=has_methods,
-            recruitment_strategy=True,
-            data_collection_rigorous=has_methods,
+            design_appropriate=False,
+            recruitment_strategy=False,
+            data_collection_rigorous=False,
             reflexivity_considered=False,
-            ethics_considered=True,
-            analysis_rigorous=has_methods,
-            findings_clear=True,
-            value_of_research=True,
-            overall_summary="CASP heuristic pass with conservative defaults.",
+            ethics_considered=False,
+            analysis_rigorous=False,
+            findings_clear=False,
+            value_of_research=False,
+            overall_summary="Heuristic fallback: LLM unavailable; conservative defaults applied.",
+            assessment_source="heuristic",
         )
 
     async def assess(self, record: ExtractionRecord, full_text: str = "") -> CaspAssessment:

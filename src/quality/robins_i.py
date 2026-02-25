@@ -103,33 +103,31 @@ class RobinsIAssessor:
         self.provider = provider
 
     def _heuristic(self, record: ExtractionRecord) -> RobinsIAssessment:
-        summary = (record.results_summary.get("summary") or "").lower()
-        d1 = RobinsIJudgment.SERIOUS if "confound" in summary else RobinsIJudgment.MODERATE
-        d2 = RobinsIJudgment.MODERATE
-        d3 = RobinsIJudgment.MODERATE
-        d4 = RobinsIJudgment.MODERATE
-        d5 = RobinsIJudgment.SERIOUS if "missing data" in summary else RobinsIJudgment.MODERATE
-        d6 = RobinsIJudgment.MODERATE
-        d7 = RobinsIJudgment.SERIOUS if "selective" in summary else RobinsIJudgment.MODERATE
-        overall = _worst([d1, d2, d3, d4, d5, d6, d7])
+        """Conservative heuristic fallback when LLM call fails.
+
+        All domains default to MODERATE (not LOW) and the assessment is
+        flagged as heuristic so downstream consumers can identify these entries.
+        """
+        mod = RobinsIJudgment.MODERATE
         return RobinsIAssessment(
             paper_id=record.paper_id,
-            domain_1_confounding=d1,
-            domain_1_rationale="Heuristic confounding signal check.",
-            domain_2_selection=d2,
-            domain_2_rationale="Conservative default for selection bias.",
-            domain_3_classification=d3,
-            domain_3_rationale="Conservative default for intervention classification.",
-            domain_4_deviations=d4,
-            domain_4_rationale="Conservative default for deviations.",
-            domain_5_missing_data=d5,
-            domain_5_rationale="Heuristic missing-data signal check.",
-            domain_6_measurement=d6,
-            domain_6_rationale="Conservative default for measurement bias.",
-            domain_7_reported_result=d7,
-            domain_7_rationale="Heuristic selective-reporting signal check.",
-            overall_judgment=overall,
-            overall_rationale="Overall follows worst-domain ROBINS-I logic.",
+            domain_1_confounding=mod,
+            domain_1_rationale="Heuristic fallback: LLM unavailable; conservative default applied.",
+            domain_2_selection=mod,
+            domain_2_rationale="Heuristic fallback: LLM unavailable; conservative default applied.",
+            domain_3_classification=mod,
+            domain_3_rationale="Heuristic fallback: LLM unavailable; conservative default applied.",
+            domain_4_deviations=mod,
+            domain_4_rationale="Heuristic fallback: LLM unavailable; conservative default applied.",
+            domain_5_missing_data=mod,
+            domain_5_rationale="Heuristic fallback: LLM unavailable; conservative default applied.",
+            domain_6_measurement=mod,
+            domain_6_rationale="Heuristic fallback: LLM unavailable; conservative default applied.",
+            domain_7_reported_result=mod,
+            domain_7_rationale="Heuristic fallback: LLM unavailable; conservative default applied.",
+            overall_judgment=mod,
+            overall_rationale="Heuristic fallback: conservative overall judgment.",
+            assessment_source="heuristic",
         )
 
     async def assess(self, record: ExtractionRecord, full_text: str = "") -> RobinsIAssessment:

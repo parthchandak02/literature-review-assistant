@@ -52,8 +52,8 @@ def _build_extraction_prompt(
         "",
         f"Title: {paper.title}",
         "",
-        "Text excerpt (up to 8000 chars):",
-        text[:8000],
+        "Text excerpt (up to 32000 chars):",
+        text[:32000],
         "",
         "Extract the following from this study:",
         "- study_duration: Duration of the study or intervention (e.g. '8 weeks', '6 months', 'unknown')",
@@ -123,7 +123,7 @@ class ExtractionService:
         study_design: StudyDesign,
         full_text: str,
     ) -> ExtractionRecord:
-        text = full_text[:10000]
+        text = full_text[:32000]
         summary = self._heuristic_summary(paper, text)
         return ExtractionRecord(
             paper_id=paper.paper_id,
@@ -161,7 +161,7 @@ class ExtractionService:
         model = agent.model if agent else "google-gla:gemini-2.5-pro"
         temperature = agent.temperature if agent else 0.1
 
-        text = full_text[:10000]
+        text = full_text[:32000]
         prompt = _build_extraction_prompt(paper, text, self.review)
         schema = _ExtractionLLMResponse.model_json_schema()
 
