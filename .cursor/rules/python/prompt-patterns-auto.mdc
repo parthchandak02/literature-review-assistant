@@ -25,7 +25,7 @@ All prompts end with:
 ## Truncation Limits (context window + cost control)
 - Title/abstract screening: full title + abstract (no truncation)
 - Full-text screening: first 8,000 characters of full text
-- Data extraction: first 10,000 characters of full text
+- Data extraction: first 32,000 characters of full text (Gemini 2.5 Pro supports 1M tokens; PDFs parsed with PyMuPDF via pdf_retrieval.py produce clean markdown up to ~60K chars)
 
 ## Confidence Thresholds (from config/settings.yaml)
 - Auto-include if confidence >= stage1_include_threshold (0.85)

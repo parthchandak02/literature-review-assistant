@@ -29,3 +29,6 @@ class ReviewState:
     extraction_records: list[ExtractionRecord] = field(default_factory=list)
     artifacts: dict[str, str] = field(default_factory=dict)
     next_phase: str = ""  # Set when resuming; first phase to run
+    cohens_kappa: float | None = None
+    kappa_stage: str | None = None
+    sensitivity_results: list[str] = field(default_factory=list)

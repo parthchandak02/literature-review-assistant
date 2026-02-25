@@ -636,6 +636,21 @@ class WorkflowRepository:
         )
         await self.db.commit()
 
+    async def load_grade_assessments(self, workflow_id: str) -> list[GRADEOutcomeAssessment]:
+        """Load all GRADE outcome assessments for a workflow."""
+        assessments: list[GRADEOutcomeAssessment] = []
+        async with self.db.execute(
+            "SELECT assessment_data FROM grade_assessments WHERE workflow_id = ?",
+            (workflow_id,),
+        ) as cursor:
+            rows = await cursor.fetchall()
+        for (data,) in rows:
+            try:
+                assessments.append(GRADEOutcomeAssessment.model_validate_json(data))
+            except Exception:
+                continue
+        return assessments
+
     async def save_checkpoint(
         self,
         workflow_id: str,

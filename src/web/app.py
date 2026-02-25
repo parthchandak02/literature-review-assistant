@@ -1151,6 +1151,10 @@ async def get_papers_all(
                   ON p.paper_id = ta.paper_id AND ta.stage = 'title_abstract'
                 LEFT JOIN dual_screening_results ft
                   ON p.paper_id = ft.paper_id AND ft.stage = 'fulltext'
+                LEFT JOIN extraction_records er
+                  ON p.paper_id = er.paper_id
+                LEFT JOIN rob_assessments ra
+                  ON p.paper_id = ra.paper_id
                 {where}
             """
 
@@ -1158,7 +1162,9 @@ async def get_papers_all(
                 f"""SELECT p.paper_id, p.title, p.authors, p.year,
                            p.source_database, p.doi, p.url, p.country,
                            ta.final_decision AS ta_decision,
-                           ft.final_decision AS ft_decision
+                           ft.final_decision AS ft_decision,
+                           er.data AS extraction_data,
+                           ra.assessment_data AS rob_assessment_data
                     {base_query}
                     ORDER BY p.year DESC LIMIT ? OFFSET ?""",
                 (*params, limit, offset),
@@ -1181,6 +1187,22 @@ async def get_papers_all(
                     )
                 except Exception:
                     authors_fmt = raw
+                extraction_confidence: float | None = None
+                try:
+                    if row["extraction_data"]:
+                        ed = _json.loads(row["extraction_data"])
+                        extraction_confidence = ed.get("extraction_confidence")
+                except Exception:
+                    pass
+
+                assessment_source: str | None = None
+                try:
+                    if row["rob_assessment_data"]:
+                        rad = _json.loads(row["rob_assessment_data"])
+                        assessment_source = rad.get("assessment_source")
+                except Exception:
+                    pass
+
                 papers.append({
                     "paper_id": row["paper_id"],
                     "title": row["title"],
@@ -1192,6 +1214,8 @@ async def get_papers_all(
                     "country": row["country"],
                     "ta_decision": row["ta_decision"],
                     "ft_decision": row["ft_decision"],
+                    "extraction_confidence": extraction_confidence,
+                    "assessment_source": assessment_source,
                 })
 
             return {"total": total, "offset": offset, "limit": limit, "papers": papers}
@@ -1367,6 +1391,227 @@ async def download_manuscript_docx(run_id: str) -> FileResponse:
         filename="manuscript.docx",
         media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
     )
+
+
+# ---------------------------------------------------------------------------
+# Human-in-the-loop review endpoints
+# ---------------------------------------------------------------------------
+
+@app.get("/api/run/{run_id}/screening-summary")
+async def get_screening_summary(run_id: str) -> dict:
+    """Return screened papers and AI decisions for human review.
+
+    Returns the list of papers that passed screening (included) with their
+    AI decisions and rationale, grouped by stage. Used by the frontend
+    'Review Screening' tab when run status is 'awaiting_review'.
+    """
+    db_path = _get_db_path(run_id)
+    if not pathlib.Path(db_path).exists():
+        raise HTTPException(status_code=404, detail="Run database not found")
+
+    import aiosqlite
+    async with aiosqlite.connect(db_path) as db:
+        db.row_factory = aiosqlite.Row
+        # Load included papers with their screening decisions
+        cursor = await db.execute(
+            """
+            SELECT
+                p.paper_id,
+                p.title,
+                p.authors,
+                p.year,
+                p.source_database,
+                p.doi,
+                p.abstract,
+                sd.stage,
+                sd.decision,
+                sd.rationale,
+                sd.confidence
+            FROM papers p
+            JOIN screening_decisions sd ON p.paper_id = sd.paper_id
+            WHERE sd.decision IN ('include', 'uncertain')
+            ORDER BY sd.stage, p.year DESC
+            """,
+        )
+        rows = await cursor.fetchall()
+        papers = [dict(row) for row in rows]
+
+    return {
+        "run_id": run_id,
+        "total": len(papers),
+        "papers": papers,
+        "instructions": (
+            "Review AI screening decisions below. "
+            "POST /api/run/{run_id}/approve-screening to proceed with extraction."
+        ),
+    }
+
+
+@app.post("/api/run/{run_id}/approve-screening")
+async def approve_screening(run_id: str) -> dict[str, str]:
+    """Approve AI screening decisions and resume the workflow.
+
+    When human_in_the_loop.enabled=True, the workflow pauses after screening.
+    Calling this endpoint resumes extraction by updating the registry status to 'running'.
+    The HumanReviewCheckpointNode polls for this status change.
+    """
+    db_path = _get_db_path(run_id)
+    if not pathlib.Path(db_path).exists():
+        raise HTTPException(status_code=404, detail="Run database not found")
+
+    # Update registry status to "running" so the workflow checkpoint node resumes
+    from src.db.workflow_registry import find_by_workflow_id_fallback, update_status as _update_status
+
+    import aiosqlite
+    async with aiosqlite.connect(db_path) as db:
+        cursor = await db.execute("SELECT workflow_id FROM workflows LIMIT 1")
+        row = await cursor.fetchone()
+
+    if not row:
+        raise HTTPException(status_code=404, detail="No workflow found in run database")
+
+    workflow_id = row[0]
+    run_root = str(pathlib.Path(db_path).parent.parent)
+
+    entry = await find_by_workflow_id_fallback(run_root, workflow_id)
+    if not entry:
+        raise HTTPException(status_code=404, detail="Workflow not found in registry")
+
+    await _update_status(run_root, workflow_id, "running")
+
+    return {
+        "status": "approved",
+        "workflow_id": workflow_id,
+        "message": "Screening approved. Extraction will resume shortly.",
+    }
+
+
+@app.get("/api/run/{run_id}/prisma-checklist")
+async def get_prisma_checklist(run_id: str) -> dict:
+    """Run the PRISMA 2020 checklist validator against the manuscript draft.
+
+    Reads the manuscript.md draft from the run directory, validates it
+    against all 27 PRISMA 2020 items, and returns the structured results
+    so the frontend can display the compliance panel.
+    """
+    from src.export.prisma_checklist import validate_prisma
+
+    db_path = _get_db_path(run_id)
+    # db_path is like runs/<run_id>/runtime.db; run_path is the run dir
+    run_path = pathlib.Path(db_path).parent
+
+    # Try to find manuscript draft (md or tex)
+    md_content: str | None = None
+    tex_content: str | None = None
+
+    for candidate in [
+        run_path / "manuscript.md",
+        run_path / "manuscript_draft.md",
+        run_path / "outputs" / "manuscript.md",
+    ]:
+        if candidate.exists():
+            md_content = candidate.read_text(encoding="utf-8", errors="replace")
+            break
+
+    for candidate in [
+        run_path / "submission" / "manuscript.tex",
+        run_path / "manuscript.tex",
+    ]:
+        if candidate.exists():
+            tex_content = candidate.read_text(encoding="utf-8", errors="replace")
+            break
+
+    result = validate_prisma(tex_content=tex_content, md_content=md_content)
+    return {
+        "run_id": run_id,
+        "reported_count": result.reported_count,
+        "partial_count": result.partial_count,
+        "missing_count": result.missing_count,
+        "passed": result.passed,
+        "total": len(result.items),
+        "items": [
+            {
+                "item_id": item.item_id,
+                "section": item.section,
+                "description": item.description,
+                "status": item.status,
+                "rationale": item.rationale,
+            }
+            for item in result.items
+        ],
+    }
+
+
+@app.post("/api/run/{run_id}/living-refresh")
+async def living_refresh(run_id: str) -> RunResponse:
+    """Launch an incremental living-review run based on a completed run.
+
+    Reads the prior run's review YAML, enables living_review mode, sets
+    last_search_date to today, and starts a new run. The new run inherits
+    all prior included papers' DOIs so they are skipped during search.
+
+    Only allowed when the source run is in a completed (done) state.
+    """
+    import yaml as _yaml
+    from datetime import date as _date
+
+    record = _active_runs.get(run_id)
+    if record is None:
+        raise HTTPException(status_code=404, detail="Run not found")
+
+    if not record.done:
+        raise HTTPException(
+            status_code=409,
+            detail="Living refresh only allowed on completed runs; this run has not finished yet.",
+        )
+
+    prior_yaml: str | None = getattr(record, "review_yaml", None)
+    if not prior_yaml:
+        raise HTTPException(status_code=422, detail="Prior run has no review YAML stored; cannot refresh.")
+
+    # Parse the prior YAML, enable living review, and set today as last_search_date
+    try:
+        config_dict = _yaml.safe_load(prior_yaml) or {}
+    except Exception as exc:
+        raise HTTPException(status_code=422, detail=f"Failed to parse prior review YAML: {exc}") from exc
+
+    config_dict["living_review"] = True
+    config_dict["last_search_date"] = str(_date.today())
+
+    new_yaml = _yaml.dump(config_dict, allow_unicode=True, default_flow_style=False)
+
+    # Reuse the same API keys as the prior run
+    req = RunRequest(
+        review_yaml=new_yaml,
+        gemini_api_key=os.environ.get("GEMINI_API_KEY", ""),
+        openalex_api_key=os.environ.get("OPENALEX_API_KEY"),
+        ieee_api_key=os.environ.get("IEEE_API_KEY"),
+        pubmed_email=os.environ.get("PUBMED_EMAIL"),
+        pubmed_api_key=os.environ.get("PUBMED_API_KEY"),
+        perplexity_api_key=os.environ.get("PERPLEXITY_API_KEY"),
+        semantic_scholar_api_key=os.environ.get("SEMANTIC_SCHOLAR_API_KEY"),
+        crossref_email=os.environ.get("CROSSREF_EMAIL"),
+        run_root=record.run_root,
+    )
+
+    new_run_id = str(uuid.uuid4())[:8]
+    topic = _extract_topic(new_yaml)
+
+    tmp = tempfile.NamedTemporaryFile(
+        mode="w", suffix=".yaml", prefix=f"review_{new_run_id}_", delete=False,
+    )
+    tmp.write(new_yaml)
+    tmp.flush()
+    tmp.close()
+
+    new_record = _RunRecord(run_id=new_run_id, topic=topic)
+    new_record.review_yaml = new_yaml
+    _active_runs[new_run_id] = new_record
+
+    task = asyncio.create_task(_run_wrapper(new_record, tmp.name, req))
+    new_record.task = task
+
+    return RunResponse(run_id=new_run_id, topic=f"[Living refresh] {topic}")
 
 
 # ---------------------------------------------------------------------------

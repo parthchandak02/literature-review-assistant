@@ -5,11 +5,16 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+import logging
 import os
 import signal
+
+_log = logging.getLogger(__name__)
 from datetime import datetime, timezone
 from pathlib import Path
 from uuid import uuid4
+
+logger = logging.getLogger(__name__)
 
 from pydantic_graph import BaseNode, End, Graph, GraphRunContext
 from rich.table import Table
@@ -48,8 +53,12 @@ from src.quality import (
 from src.screening.dual_screener import DualReviewerScreener
 from src.screening.gemini_client import PydanticAIScreeningClient
 from src.screening.keyword_filter import bm25_rank_and_cap, keyword_prefilter, metadata_prefilter
+from src.screening.reliability import compute_cohens_kappa, log_reliability_to_decision_log
+from src.search.citation_chasing import CitationChaser
 from src.search.arxiv import ArxivConnector
 from src.search.base import SearchConnector
+from src.search.citation_chasing import CitationChaser
+from src.search.clinicaltrials import ClinicalTrialsConnector
 from src.search.crossref import CrossrefConnector
 from src.search.deduplication import deduplicate_papers
 from src.search.ieee_xplore import IEEEXploreConnector
@@ -60,6 +69,7 @@ from src.search.semantic_scholar import SemanticScholarConnector
 from src.search.strategy import SearchStrategyCoordinator
 from src.synthesis import assess_meta_analysis_feasibility, build_narrative_synthesis
 from src.synthesis.meta_analysis import pool_effects
+from src.synthesis.sensitivity import run_sensitivity_analysis
 from src.utils import structured_log
 from src.utils.logging_paths import create_run_paths
 from src.visualization import (
@@ -145,6 +155,8 @@ def _build_connectors(workflow_id: str, target_databases: list[str]) -> tuple[li
                 connectors.append(CrossrefConnector(workflow_id))
             elif normalized == "perplexity_search":
                 connectors.append(PerplexitySearchConnector(workflow_id))
+            elif normalized in {"clinicaltrials", "clinicaltrials_gov"}:
+                connectors.append(ClinicalTrialsConnector(workflow_id))
             else:
                 failures[normalized] = "unsupported_connector"
         except Exception as exc:
@@ -162,7 +174,7 @@ class ResumeStartNode(BaseNode[ReviewState]):
     async def run(
         self,
         ctx: GraphRunContext[ReviewState],
-    ) -> SearchNode | ScreeningNode | ExtractionQualityNode | SynthesisNode | FinalizeNode:
+    ) -> SearchNode | ScreeningNode | HumanReviewCheckpointNode | ExtractionQualityNode | SynthesisNode | FinalizeNode:
         state = ctx.state
         rc = _rc(state)
         if rc:
@@ -312,6 +324,29 @@ class SearchNode(BaseNode[ReviewState]):
                 per_database_limits=search_cfg.per_database_limits or None,
             )
             all_papers = [paper for result in results for paper in result.papers]
+
+            # Living review: skip papers whose DOIs were already screened in a prior run.
+            if state.review.living_review:
+                known_dois: set[str] = set()
+                async with db.execute(
+                    "SELECT DISTINCT p.doi FROM papers p "
+                    "JOIN screening_decisions sd ON p.paper_id = sd.paper_id "
+                    "WHERE p.doi IS NOT NULL"
+                ) as _cur:
+                    async for _row in _cur:
+                        if _row[0]:
+                            known_dois.add(_row[0].lower().strip())
+                before_count = len(all_papers)
+                all_papers = [
+                    p for p in all_papers
+                    if not (p.doi and p.doi.lower().strip() in known_dois)
+                ]
+                _log.info(
+                    "Living review: skipped %d already-screened papers; %d new candidates",
+                    before_count - len(all_papers),
+                    len(all_papers),
+                )
+
             deduped, _ = deduplicate_papers(all_papers)
             state.deduped_papers = deduped
             state.dedup_count = dedup_count
@@ -342,7 +377,7 @@ class SearchNode(BaseNode[ReviewState]):
 
 
 class ScreeningNode(BaseNode[ReviewState]):
-    async def run(self, ctx: GraphRunContext[ReviewState]) -> ExtractionQualityNode:
+    async def run(self, ctx: GraphRunContext[ReviewState]) -> HumanReviewCheckpointNode:
         state = ctx.state
         rc = _rc(state)
         if rc:
@@ -562,6 +597,39 @@ class ScreeningNode(BaseNode[ReviewState]):
                     phase="phase_3_screening",
                 )
             )
+            # -- Compute Cohen's kappa from dual-review pairs (where both reviewers ran) --
+            if screener._dual_results:
+                reliability = compute_cohens_kappa(screener._dual_results, stage="title_abstract")
+                state.cohens_kappa = reliability.cohens_kappa
+                state.kappa_stage = reliability.stage
+                await log_reliability_to_decision_log(repository, reliability)
+
+            # -- Forward citation chasing (PRISMA 2020 snowball supplement) --
+            # Runs after inclusion decisions; found papers re-enter as screening candidates.
+            _citation_chasing = state.settings.search.get("citation_chasing_enabled", False) if (
+                state.settings and hasattr(state.settings, "search") and isinstance(state.settings.search, dict)
+            ) else False
+            if state.included_papers and _citation_chasing:
+                try:
+                    known_dois = {p.doi for p in state.deduped_papers if p.doi}
+                    chaser = CitationChaser(workflow_id=state.workflow_id)
+                    chased_results = await chaser.chase_citations_to_search_results(
+                        state.included_papers, known_dois
+                    )
+                    if chased_results:
+                        for sr in chased_results:
+                            await repository.save_search_result(sr)
+                        new_papers = [p for sr in chased_results for p in sr.papers]
+                        if rc:
+                            rc.emit_phase_start(
+                                "citation_chasing",
+                                f"Citation chasing: {len(new_papers)} candidates found.",
+                                total=0,
+                            )
+                        state.deduped_papers = state.deduped_papers + new_papers
+                except Exception as _cc_exc:
+                    logger.warning("Citation chasing failed: %s", _cc_exc)
+
             checkpoint_status = (
                 "partial"
                 if (rc and rc.should_proceed_with_partial())
@@ -594,6 +662,53 @@ class ScreeningNode(BaseNode[ReviewState]):
                     "phase_3_screening",
                     {"included_papers": len(state.included_papers), "screened": len(state.deduped_papers)},
                 )
+        return HumanReviewCheckpointNode()
+
+
+class HumanReviewCheckpointNode(BaseNode[ReviewState]):
+    """Optional pause between screening and extraction for human review.
+
+    When settings.human_in_the_loop.enabled is True, this node sets run
+    status to 'awaiting_review', emits a SSE event, and polls until the
+    /api/run/{run_id}/approve-screening endpoint is called.
+
+    When disabled (default), this node is a no-op.
+    """
+
+    async def run(self, ctx: GraphRunContext[ReviewState]) -> ExtractionQualityNode:
+        state = ctx.state
+        rc = _rc(state)
+        assert state.settings is not None
+
+        hitl = state.settings.human_in_the_loop
+        if not hitl.enabled:
+            return ExtractionQualityNode()
+
+        if rc:
+            rc.emit_phase_start(
+                "human_review_checkpoint",
+                f"Awaiting human review of {len(state.included_papers)} screened papers. "
+                "Approve via POST /api/run/{{run_id}}/approve-screening to continue.",
+                total=0,
+            )
+
+        await update_registry_status(state.run_root, state.workflow_id, "awaiting_review")
+
+        import asyncio as _asyncio
+        poll_interval = 5
+        max_wait = 7200
+        waited = 0
+        while waited < max_wait:
+            await _asyncio.sleep(poll_interval)
+            waited += poll_interval
+            entry = await find_by_workflow_id_fallback(state.run_root, state.workflow_id)
+            if entry and str(getattr(entry, "status", "awaiting_review")) == "running":
+                break
+
+        await update_registry_status(state.run_root, state.workflow_id, "running")
+        if rc:
+            rc.emit_phase_done("human_review_checkpoint", {"approved": True})
+
         return ExtractionQualityNode()
 
 
@@ -687,7 +802,7 @@ class ExtractionQualityNode(BaseNode[ReviewState]):
                         number_of_studies=1,
                         study_design=qr.study_design,
                     )
-                    await repository.save_grade_assessment(state.workflow_id, grade_assessment)
+                    await repository.save_grade_assessment(state.workflow_id, grade_assessment)  # quality-only retry; no fresh rob_assessment available
                 except Exception as exc:
                     await repository.append_decision_log(
                         DecisionLogEntry(
@@ -733,9 +848,11 @@ class ExtractionQualityNode(BaseNode[ReviewState]):
 
                     tool = router.route_tool(record)
                     rob_judgment = "not_applicable"
+                    rob_assessment_obj = None
                     if tool == "rob2":
                         assessment = await rob2.assess(record, full_text=full_text)
                         await repository.save_rob2_assessment(state.workflow_id, assessment)
+                        rob_assessment_obj = assessment
                         rob_judgment = (
                             assessment.overall_judgment.value
                             if hasattr(assessment, "overall_judgment")
@@ -744,6 +861,7 @@ class ExtractionQualityNode(BaseNode[ReviewState]):
                     elif tool == "robins_i":
                         assessment = await robins_i.assess(record, full_text=full_text)
                         await repository.save_robins_i_assessment(state.workflow_id, assessment)
+                        rob_assessment_obj = assessment
                         rob_judgment = (
                             assessment.overall_judgment.value
                             if hasattr(assessment, "overall_judgment")
@@ -780,11 +898,19 @@ class ExtractionQualityNode(BaseNode[ReviewState]):
                             )
                         )
 
-                    grade_assessment = grade.assess_outcome(
-                        outcome_name="primary_outcome",
-                        number_of_studies=1,
-                        study_design=record.study_design,
-                    )
+                    if rob_assessment_obj is not None:
+                        grade_assessment = grade.assess_from_rob(
+                            outcome_name="primary_outcome",
+                            study_design=record.study_design,
+                            rob_assessments=[rob_assessment_obj],
+                            extraction_records=[record],
+                        )
+                    else:
+                        grade_assessment = grade.assess_outcome(
+                            outcome_name="primary_outcome",
+                            number_of_studies=1,
+                            study_design=record.study_design,
+                        )
                     await repository.save_grade_assessment(state.workflow_id, grade_assessment)
 
                     if rc and rc.verbose:
@@ -967,12 +1093,20 @@ class SynthesisNode(BaseNode[ReviewState]):
         if rc:
             rc.emit_phase_start("phase_5_synthesis", "Building synthesis...", total=1)
         feasibility = assess_meta_analysis_feasibility(state.extraction_records)
-        narrative = build_narrative_synthesis("primary_outcome", state.extraction_records)
+        _use_llm = _llm_available(settings_cfg=state.settings) and (rc is None or not rc.offline)
+        _synth_llm = PydanticAIClient() if _use_llm else None
+        narrative = await build_narrative_synthesis(
+            "primary_outcome",
+            state.extraction_records,
+            llm_client=_synth_llm,
+            settings=state.settings,
+        )
 
         # Attempt quantitative meta-analysis for each feasible outcome group
         meta_result = None
         rendered_forest = None
         rendered_funnel = None
+        sensitivity_texts: list[str] = []
         if feasibility.feasible and state.settings.meta_analysis.enabled:
             het_threshold = float(state.settings.meta_analysis.heterogeneity_threshold)
             effect_measure = state.settings.meta_analysis.effect_measure_continuous
@@ -988,7 +1122,19 @@ class SynthesisNode(BaseNode[ReviewState]):
                     funnel_min_studies=funnel_min,
                 )
                 if meta_result is not None:
+                    # Run sensitivity analysis for this pooled outcome
+                    sens = run_sensitivity_analysis(
+                        records=state.extraction_records,
+                        outcome_name=group,
+                        effect_measure=effect_measure,
+                        subgroup_cols=["study_design"],
+                        heterogeneity_threshold=het_threshold,
+                    )
+                    if sens is not None:
+                        sensitivity_texts.append(sens.to_grounding_text())
                     break
+
+        state.sensitivity_results = sensitivity_texts
 
         if rc and rc.verbose:
             rc.log_synthesis(
@@ -1134,6 +1280,9 @@ class WritingNode(BaseNode[ReviewState]):
                 included_papers=state.included_papers,
                 narrative=narrative,
                 citation_catalog=citation_catalog,
+                cohens_kappa=state.cohens_kappa,
+                kappa_stage=state.kappa_stage,
+                sensitivity_results=state.sensitivity_results,
             )
 
             def _on_write(**kw):
@@ -1245,6 +1394,10 @@ class WritingNode(BaseNode[ReviewState]):
 
         manuscript_path = Path(state.artifacts["manuscript_md"])
         body = "\n\n".join(titled_sections)
+        async with get_db(state.db_path) as _grade_db:
+            _grade_repo = WorkflowRepository(_grade_db)
+            _grade_assessments = await _grade_repo.load_grade_assessments(state.workflow_id)
+
         full_manuscript = assemble_submission_manuscript(
             body=body,
             manuscript_path=manuscript_path,
@@ -1252,6 +1405,7 @@ class WritingNode(BaseNode[ReviewState]):
             citation_rows=citation_rows,
             papers=included_papers_for_table,
             extraction_records=extraction_records_for_table,
+            grade_assessments=_grade_assessments if _grade_assessments else None,
         )
         manuscript_path.write_text(full_manuscript, encoding="utf-8")
 
@@ -1306,6 +1460,7 @@ RUN_GRAPH = Graph(
         ResumeStartNode,
         SearchNode,
         ScreeningNode,
+        HumanReviewCheckpointNode,
         ExtractionQualityNode,
         SynthesisNode,
         WritingNode,

@@ -344,6 +344,49 @@ def build_study_characteristics_table(
     return "## Appendix A: Characteristics of Included Studies\n\n" + table_md
 
 
+def generate_grade_table(grade_assessments: List[Any]) -> str:
+    """Generate a GRADE evidence profile table in Markdown from a list of GRADEOutcomeAssessment objects.
+
+    Returns an empty string when no assessments are provided.
+    """
+    if not grade_assessments:
+        return ""
+
+    rows: List[str] = []
+    header = (
+        "| Outcome | Studies (N) | Study Design | RoB Downgrade | "
+        "Imprecision Downgrade | Certainty |"
+    )
+    sep = "|---------|------------|-------------|--------------|---------------------|----------|"
+    rows.append(header)
+    rows.append(sep)
+
+    for g in grade_assessments:
+        outcome = getattr(g, "outcome_name", "NR")
+        n_studies = getattr(g, "number_of_studies", "NR")
+        design = getattr(g, "study_designs", "NR")
+        rob_dg = getattr(g, "risk_of_bias_downgrade", 0)
+        imp_dg = getattr(g, "imprecision_downgrade", 0)
+        certainty_raw = getattr(g, "final_certainty", None)
+        certainty = certainty_raw.value if hasattr(certainty_raw, "value") else str(certainty_raw or "NR")
+        certainty = certainty.replace("_", " ").upper()
+        rows.append(
+            f"| {outcome} | {n_studies} | {design} | {rob_dg} | {imp_dg} | {certainty} |"
+        )
+
+    footnote = (
+        "_GRADE certainty levels: HIGH, MODERATE, LOW, VERY LOW. "
+        "Downgrade values: 0=not downgraded, 1=serious, 2=very serious. "
+        "Inconsistency, indirectness, and publication-bias domains were not auto-computed and default to 0._"
+    )
+    return (
+        "## GRADE Evidence Profile\n\n"
+        + "\n".join(rows)
+        + "\n\n"
+        + footnote
+    )
+
+
 def build_markdown_references_section(
     manuscript_text: str,
     citation_rows: List[Tuple],
@@ -421,11 +464,12 @@ def assemble_submission_manuscript(
     extraction_records: Optional[List[Any]] = None,
     funding: str = "",
     coi: str = "",
+    grade_assessments: Optional[List[Any]] = None,
 ) -> str:
     """Combine all manuscript sections with HR separators.
 
     Assembly order:
-      body -> Declarations -> Study Characteristics Table -> Figures -> References
+      body -> Declarations -> GRADE Evidence Profile -> Study Table -> Figures -> References
 
     The body is sanitized to remove LLM text artifacts and author-year
     citation keys are converted to sequential [N] numbered format.
@@ -436,6 +480,10 @@ def assemble_submission_manuscript(
     numbered_body, ordered_citation_rows = convert_to_numbered_citations(clean_body, citation_rows)
 
     declarations_section = build_markdown_declarations_section(funding=funding, coi=coi)
+
+    grade_section = ""
+    if grade_assessments:
+        grade_section = generate_grade_table(grade_assessments)
 
     study_table_section = ""
     if papers and extraction_records:
@@ -450,6 +498,8 @@ def assemble_submission_manuscript(
     parts = [numbered_body]
     if declarations_section:
         parts.append(declarations_section)
+    if grade_section:
+        parts.append(grade_section)
     if study_table_section:
         parts.append(study_table_section)
     if figures_section:
@@ -465,6 +515,8 @@ def strip_appended_sections(text: str) -> str:
     for marker in (
         "\n\n---\n\n## Declarations",
         "\n\n## Declarations",
+        "\n\n---\n\n## GRADE Evidence Profile",
+        "\n\n## GRADE Evidence Profile",
         "\n\n---\n\n## Appendix A",
         "\n\n## Appendix A",
         "\n\n---\n\n## Figures",

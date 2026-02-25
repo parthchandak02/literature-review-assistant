@@ -1,6 +1,14 @@
 research_question: "What is the impact of robotic medication dispensing systems on dispensing accuracy, medication error rates, operational efficiency, and patient safety in university and college health center pharmacy settings, and what are the implementation barriers and facilitators?"
 review_type: "systematic"
 
+# Living review settings (optional)
+# Set living_review: true to enable incremental updates.
+# last_search_date is updated automatically after each run.
+# When enabled, connectors only fetch records published after last_search_date,
+# and previously screened DOIs are skipped automatically.
+living_review: false
+last_search_date: null
+
 pico:
   population: "Pharmacists, pharmacy technicians, and patients served by university or college health center pharmacies"
   intervention: "Robotic or automated medication dispensing systems, including robotic prescription filling systems and automated dispensing cabinets (ADCs)"
@@ -60,6 +68,9 @@ target_databases:
   - semantic_scholar
   - crossref
   - perplexity_search
+  # clinicaltrials_gov is available as an opt-in grey literature source.
+  # Uncomment to include ClinicalTrials.gov registered trials in the search.
+  # - clinicaltrials_gov
 
 target_sections:
   - abstract

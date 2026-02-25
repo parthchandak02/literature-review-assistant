@@ -46,6 +46,7 @@ class WritingGroundingData(BaseModel):
 
     # Search
     databases_searched: List[str]
+    other_methods_searched: List[str]
     search_date: str
 
     # PRISMA counts
@@ -75,6 +76,17 @@ class WritingGroundingData(BaseModel):
     # Citation keys (the ONLY keys the LLM is allowed to use)
     valid_citekeys: List[str]
 
+    # Inter-rater reliability (from dual-reviewer screening phase)
+    cohens_kappa: Optional[float] = None
+    kappa_stage: Optional[str] = None
+
+    # Participant count provenance
+    n_studies_reporting_count: int = 0
+    n_total_studies: int = 0
+
+    # Sensitivity analysis (leave-one-out + subgroup) -- only present when meta-analysis ran
+    sensitivity_results: List[str] = []
+
 
 def build_writing_grounding(
     prisma_counts: PRISMACounts,
@@ -82,22 +94,30 @@ def build_writing_grounding(
     included_papers: List[CandidatePaper],
     narrative: Optional[dict],
     citation_catalog: str = "",
+    cohens_kappa: Optional[float] = None,
+    kappa_stage: Optional[str] = None,
+    sensitivity_results: Optional[List[str]] = None,
 ) -> WritingGroundingData:
     """Aggregate real pipeline outputs into a WritingGroundingData instance."""
 
-    # Databases actually used (non-zero counts from search)
-    all_dbs = list(prisma_counts.databases_records.keys()) + list(
-        prisma_counts.other_sources_records.keys()
-    )
+    # Bibliographic databases actually used (non-zero counts from databases_records)
+    _OTHER_METHOD_NAMES = frozenset({"perplexity_web", "perplexity_search", "perplexity"})
     active_dbs = sorted(
         db
-        for db in all_dbs
-        if (
-            prisma_counts.databases_records.get(db, 0)
-            + prisma_counts.other_sources_records.get(db, 0)
-        )
-        > 0
+        for db, cnt in prisma_counts.databases_records.items()
+        if cnt > 0 and db not in _OTHER_METHOD_NAMES
     )
+    # Other methods (grey lit, AI discovery tools -- not bibliographic databases)
+    active_other = sorted(
+        src
+        for src, cnt in prisma_counts.other_sources_records.items()
+        if cnt > 0
+    )
+    # Any perplexity records that ended up in databases_records (should be rare)
+    active_other = sorted(set(active_other) | {
+        db for db in prisma_counts.databases_records
+        if db in _OTHER_METHOD_NAMES and prisma_counts.databases_records.get(db, 0) > 0
+    })
 
     # Study design breakdown -- normalize enum value to readable label at source
     design_counts: Dict[str, int] = {}
@@ -105,7 +125,7 @@ def build_writing_grounding(
         key = _normalize_label(rec.study_design.value)
         design_counts[key] = design_counts.get(key, 0) + 1
 
-    # Participant total
+    # Participant total (only from studies that actually reported N)
     participant_counts = [
         rec.participant_count
         for rec in extraction_records
@@ -114,6 +134,8 @@ def build_writing_grounding(
     total_participants: Optional[int] = (
         sum(participant_counts) if participant_counts else None
     )
+    n_studies_reporting_count = len(participant_counts)
+    n_total_studies = len(extraction_records)
 
     # Year range from included papers
     years = [p.year for p in included_papers if p.year is not None]
@@ -186,6 +208,7 @@ def build_writing_grounding(
 
     return WritingGroundingData(
         databases_searched=active_dbs,
+        other_methods_searched=active_other,
         search_date=str(datetime.now().year),
         total_identified=prisma_counts.total_identified_databases
         + prisma_counts.total_identified_other,
@@ -205,6 +228,11 @@ def build_writing_grounding(
         key_themes=themes,
         study_summaries=study_summaries,
         valid_citekeys=valid_citekeys,
+        cohens_kappa=cohens_kappa,
+        kappa_stage=kappa_stage,
+        n_studies_reporting_count=n_studies_reporting_count,
+        n_total_studies=n_total_studies,
+        sensitivity_results=sensitivity_results or [],
     )
 
 
@@ -219,7 +247,9 @@ def format_grounding_block(data: WritingGroundingData) -> str:
         "Do NOT invent or fabricate any counts, statistics, or study characteristics",
         "that are not present in this block or the citation catalog below.",
         "---",
-        f"Databases searched: {', '.join(data.databases_searched) if data.databases_searched else 'see search appendix'}",
+        f"Bibliographic databases searched: {', '.join(data.databases_searched) if data.databases_searched else 'see search appendix'}",
+        f"Other methods (NOT databases - list separately as supplementary search): {', '.join(data.other_methods_searched) if data.other_methods_searched else 'none'}",
+        "IMPORTANT: Do NOT list 'perplexity_web' or AI search tools as bibliographic databases. List them only under 'Other Methods' per PRISMA 2020 item 7.",
         f"Search date: {data.search_date}",
         f"Records identified: {data.total_identified}",
         f"Duplicates removed: {data.duplicates_removed}",
@@ -248,7 +278,18 @@ def format_grounding_block(data: WritingGroundingData) -> str:
         lines.append("Study designs: all non-randomized (observational/quasi-experimental)")
 
     if data.total_participants is not None:
-        lines.append(f"Total participants reported: {data.total_participants}")
+        reporting_str = ""
+        if data.n_total_studies > 0:
+            reporting_str = (
+                f" (from {data.n_studies_reporting_count} of "
+                f"{data.n_total_studies} studies reporting N)"
+            )
+        lines.append(f"Total participants reported: {data.total_participants}{reporting_str}")
+        if data.n_studies_reporting_count < data.n_total_studies:
+            lines.append(
+                "CAUTION: participant total is based on a subset of studies; "
+                "do NOT state this as a definitive total without qualification."
+            )
     else:
         lines.append("Total participants: not consistently reported across studies")
 
@@ -284,6 +325,21 @@ def format_grounding_block(data: WritingGroundingData) -> str:
             if s.key_finding:
                 parts.append(f"   Finding: {s.key_finding}")
             lines.extend(parts)
+
+    if data.cohens_kappa is not None:
+        kappa_str = f"{data.cohens_kappa:.3f}"
+        stage_str = f" ({data.kappa_stage} stage)" if data.kappa_stage else ""
+        lines.append(f"Inter-rater reliability (Cohen's kappa): {kappa_str}{stage_str}")
+        lines.append(
+            "(Note: kappa is computed only for papers where both AI reviewers independently "
+            "evaluated the study; fast-path single-reviewer decisions are excluded.)"
+        )
+
+    if data.sensitivity_results:
+        lines.append("")
+        lines.append("SENSITIVITY ANALYSIS RESULTS (report in Discussion if applicable):")
+        for sens_text in data.sensitivity_results:
+            lines.append(sens_text)
 
     if data.valid_citekeys:
         lines.append("")
