@@ -65,10 +65,14 @@ def get_abstract_prompt_context(
     prefix = _grounding_prefix(grounding)
 
     # Build a hard meta-analysis constraint based on actual grounding data.
-    if grounding is not None and not grounding.meta_analysis_feasible:
+    # meta_analysis_ran=True means pooling succeeded and a result is available.
+    # meta_analysis_feasible=True but meta_analysis_ran=False means feasibility check
+    # passed but actual float parsing failed -- still narrative synthesis only.
+    meta_ran = getattr(grounding, "meta_analysis_ran", False) if grounding else False
+    if grounding is not None and not (grounding.meta_analysis_feasible and meta_ran):
         meta_constraint = (
             "CRITICAL -- META-ANALYSIS CONSTRAINT: A meta-analysis was NOT performed "
-            "in this review due to heterogeneity. In the Results field of the abstract "
+            "in this review. In the Results field of the abstract "
             "you MUST write ONLY a narrative description such as: "
             "'A narrative synthesis was conducted; the overall direction of evidence "
             "was predominantly positive.' "
@@ -77,9 +81,13 @@ def get_abstract_prompt_context(
             "This is a hard constraint -- violating it produces a factually incorrect abstract."
         )
     else:
+        poolable = getattr(grounding, "poolable_outcomes", []) if grounding else []
+        outcomes_str = ", ".join(poolable) if poolable else "the feasible outcome(s)"
         meta_constraint = (
-            "If meta-analysis was performed, report the pooled direction and effect "
-            "size in the Results field using the values from the FACTUAL DATA BLOCK."
+            f"Meta-analysis was performed for: {outcomes_str}. "
+            "Report the pooled direction and effect size in the Results field "
+            "using the values from the FACTUAL DATA BLOCK. "
+            "Do NOT claim meta-analysis for outcomes not listed above."
         )
 
     return (
@@ -143,8 +151,12 @@ def get_methods_prompt_context(
         "(5) Data collection process and data items extracted, "
         "(6) Risk of bias tools (ROBINS-I for non-randomized studies; RoB 2 for RCTs -- "
         "use only the tools indicated by study designs in the block), "
-        "(7) Synthesis methods (narrative synthesis only -- do NOT describe meta-analysis "
-        "procedures if meta-analysis was NOT feasible), "
+        "(7) Synthesis methods: check the 'Meta-analysis:' line in the FACTUAL DATA BLOCK. "
+        "If it says 'NARRATIVE SYNTHESIS ONLY' or 'NOT feasible', write ONLY narrative synthesis -- "
+        "do NOT write 'we conducted a meta-analysis', 'pooled effect sizes', 'SMD', or 'confidence intervals'. "
+        "If it says 'PERFORMED on outcome(s):', report meta-analysis ONLY for those specific outcomes and "
+        "use narrative synthesis for all other outcomes. "
+        "Never generalize or expand the pooled outcomes beyond what the block explicitly lists. "
         "(8) GRADE certainty assessment, "
         "(9) Protocol registration: use EXACTLY the wording shown in 'Protocol registration' "
         "in the FACTUAL DATA BLOCK -- do NOT invent or contradict it. "

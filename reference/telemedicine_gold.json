@@ -1,0 +1,142 @@
+{
+  "review_title": "What is the impact of low-cost telemedicine kiosk prototypes on patient outcomes, access, and healthcare delivery?",
+  "included_dois": [
+    "https://doi.org/10.3928/19404921-20100504-03",
+    "https://doi.org/10.3109/17538157.2011.647938",
+    "10.1037/h0095813",
+    "https://doi.org/10.3233/978-1-61499-488-6-109",
+    "10.1177/2399202617753101",
+    "10.1186/s12913-019-4759-9",
+    "https://doi.org/10.1109/gecost52368.2021.9538793",
+    "https://doi.org/10.1177/20552076221129100",
+    "10.1016/j.cvdhj.2022.07.073",
+    "https://doi.org/10.1177/11786329221125409",
+    "10.18203/2394-6040.ijcmph20230925",
+    "10.62951/icistech.v3i2.122",
+    "10.30953/thmt.v8.422",
+    "https://doi.org/10.1016/j.ajoint.2024.100097",
+    "10.1186/s12913-025-13820-4"
+  ],
+  "extractions": [
+    {
+      "doi": "https://doi.org/10.3928/19404921-20100504-03",
+      "sample_size": 9,
+      "intervention": "A qualitative descriptive assessment of the acceptability and perceived value of community-based telehealth kiosks.",
+      "outcome": "not reported",
+      "effect_size": null,
+      "rob_overall": "moderate"
+    },
+    {
+      "doi": "https://doi.org/10.3109/17538157.2011.647938",
+      "sample_size": 12,
+      "intervention": "A telehealth kiosk system implemented within a community setting for ongoing assessment of older adults' health and well",
+      "outcome": "User perceptions of usability",
+      "effect_size": null,
+      "rob_overall": "moderate"
+    },
+    {
+      "doi": "10.1037/h0095813",
+      "sample_size": null,
+      "intervention": "Walk-in telemedicine clinics.",
+      "outcome": "not reported",
+      "effect_size": null,
+      "rob_overall": "moderate"
+    },
+    {
+      "doi": "https://doi.org/10.3233/978-1-61499-488-6-109",
+      "sample_size": 7,
+      "intervention": "Participants interacted with a prototype multi-user telehealth kiosk to evaluate its physical design, appearance, functi",
+      "outcome": "Recommended new features",
+      "effect_size": null,
+      "rob_overall": "moderate"
+    },
+    {
+      "doi": "10.1177/2399202617753101",
+      "sample_size": null,
+      "intervention": "A telemedicine system implemented in 54 remote public hospitals to perform remote diagnostic services, including tomogra",
+      "outcome": "Number of remote tomography diagnoses",
+      "effect_size": null,
+      "rob_overall": "moderate"
+    },
+    {
+      "doi": "10.1186/s12913-019-4759-9",
+      "sample_size": null,
+      "intervention": "Implementation of a network of 16 self-sustaining community medical centres (Ubuntu-Afya Kiosks) to facilitate access to",
+      "outcome": "Coverage of antenatal care during previous pregnancy",
+      "effect_size": null,
+      "rob_overall": "moderate"
+    },
+    {
+      "doi": "https://doi.org/10.1109/gecost52368.2021.9538793",
+      "sample_size": null,
+      "intervention": "A self-service telemedicine kiosk designed for basic healthcare treatment. The kiosk features advanced sensors to measur",
+      "outcome": "not reported",
+      "effect_size": null,
+      "rob_overall": "moderate"
+    },
+    {
+      "doi": "https://doi.org/10.1177/20552076221129100",
+      "sample_size": null,
+      "intervention": "A village-based digital health kiosks program.",
+      "outcome": "not reported",
+      "effect_size": null,
+      "rob_overall": "moderate"
+    },
+    {
+      "doi": "10.1016/j.cvdhj.2022.07.073",
+      "sample_size": null,
+      "intervention": "A self-screening kiosk for atrial fibrillation located in general practice waiting rooms.",
+      "outcome": "Staff acceptability",
+      "effect_size": null,
+      "rob_overall": "moderate"
+    },
+    {
+      "doi": "https://doi.org/10.1177/11786329221125409",
+      "sample_size": null,
+      "intervention": "Two telemedicine interventions were examined: (1) telemedicine alone with no support team engagement, and (2) telemedici",
+      "outcome": "Missed appointment rate",
+      "effect_size": null,
+      "rob_overall": "moderate"
+    },
+    {
+      "doi": "10.18203/2394-6040.ijcmph20230925",
+      "sample_size": null,
+      "intervention": "Implementation of the Jharkhand digital dispensary (JHDD) project, a public-private partnership providing digital health",
+      "outcome": "Outpatient department (OPD) utilization",
+      "effect_size": null,
+      "rob_overall": "moderate"
+    },
+    {
+      "doi": "10.62951/icistech.v3i2.122",
+      "sample_size": null,
+      "intervention": "The use of virtual consultations, mobile health apps, and remote monitoring tools.",
+      "outcome": "not reported",
+      "effect_size": null,
+      "rob_overall": "moderate"
+    },
+    {
+      "doi": "10.30953/thmt.v8.422",
+      "sample_size": 69,
+      "intervention": "A video telemedicine service for general neurology follow-up visits. The neurologist conducted the visit from a remote h",
+      "outcome": "Telemedicine Patient Satisfaction Measure score",
+      "effect_size": null,
+      "rob_overall": "moderate"
+    },
+    {
+      "doi": "https://doi.org/10.1016/j.ajoint.2024.100097",
+      "sample_size": null,
+      "intervention": "The Michigan Screening and Intervention for Glaucoma and Eye Health through Telemedicine (MI-SIGHT) program, which offer",
+      "outcome": "Time spent on eye disease screening",
+      "effect_size": null,
+      "rob_overall": "moderate"
+    },
+    {
+      "doi": "10.1186/s12913-025-13820-4",
+      "sample_size": 532,
+      "intervention": "Telehealth consultations provided by EZShifa.",
+      "outcome": "Telehealth acceptance",
+      "effect_size": null,
+      "rob_overall": "moderate"
+    }
+  ]
+}

@@ -25,6 +25,15 @@ _GENERIC_OUTCOME_NAMES = frozenset({
 })
 
 
+def _is_numeric(val: str) -> bool:
+    """Return True when val represents a finite float (handles trailing '%')."""
+    try:
+        float(str(val).strip().rstrip("%"))
+        return True
+    except (ValueError, TypeError):
+        return False
+
+
 class SynthesisFeasibility(BaseModel):
     feasible: bool
     rationale: str
@@ -39,8 +48,10 @@ def assess_meta_analysis_feasibility(
     """Assess whether quantitative meta-analysis is feasible.
 
     Returns feasible=True only when at least two studies share a named outcome
-    AND both have numeric effect_size and se fields populated.
-    This prevents false-positive feasibility from outcome-name coincidences.
+    AND both have effect_size and se fields that are float-parseable numbers.
+    Non-numeric strings such as '71%', 'High satisfaction', or qualitative
+    descriptors do not satisfy the check, ensuring consistency with the
+    float() parsing performed in _try_meta_analysis.
     """
     if len(records) < min_studies:
         return SynthesisFeasibility(
@@ -55,8 +66,8 @@ def assess_meta_analysis_feasibility(
             name = outcome.get("name", "").strip().lower().replace(" ", "_")
             if not name or name in _GENERIC_OUTCOME_NAMES:
                 continue
-            has_es = bool((outcome.get("effect_size") or "").strip())
-            has_se = bool((outcome.get("se") or "").strip())
+            has_es = _is_numeric(outcome.get("effect_size") or "")
+            has_se = _is_numeric(outcome.get("se") or "")
             outcome_data[name].append((has_es, has_se))
 
     if not outcome_data:

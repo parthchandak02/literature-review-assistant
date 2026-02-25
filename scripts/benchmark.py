@@ -89,29 +89,67 @@ async def _load_run_data(db_path: pathlib.Path) -> dict[str, Any]:
     async with aiosqlite.connect(str(db_path)) as db:
         db.row_factory = aiosqlite.Row
 
-        async with db.execute(
-            "SELECT doi FROM papers WHERE LOWER(final_decision) = 'include'"
-        ) as cur:
-            async for row in cur:
-                doi = (row["doi"] or "").lower().strip()
-                if doi:
-                    result["included_dois"].add(doi)
-
+        # Find included papers via screening_decisions (final include wins)
         try:
             async with db.execute(
-                "SELECT doi, sample_size, intervention, primary_outcome, "
-                "effect_size, extraction_confidence FROM extraction_records"
+                "SELECT p.doi FROM screening_decisions sd "
+                "JOIN papers p ON p.paper_id = sd.paper_id "
+                "WHERE LOWER(sd.decision) = 'include' "
+                "GROUP BY sd.paper_id"
             ) as cur:
                 async for row in cur:
                     doi = (row["doi"] or "").lower().strip()
                     if doi:
-                        result["extractions"][doi] = dict(row)
+                        result["included_dois"].add(doi)
+        except Exception:
+            # Fallback: any paper that has an extraction record is included
+            try:
+                async with db.execute(
+                    "SELECT p.doi FROM extraction_records e "
+                    "JOIN papers p ON p.paper_id = e.paper_id"
+                ) as cur:
+                    async for row in cur:
+                        doi = (row["doi"] or "").lower().strip()
+                        if doi:
+                            result["included_dois"].add(doi)
+            except Exception:
+                pass
+
+        # Extraction records -- data column is a JSON blob
+        try:
+            async with db.execute(
+                "SELECT p.doi, e.data FROM extraction_records e "
+                "JOIN papers p ON p.paper_id = e.paper_id"
+            ) as cur:
+                async for row in cur:
+                    doi = (row["doi"] or "").lower().strip()
+                    if not doi:
+                        continue
+                    data: dict = {}
+                    try:
+                        raw = row["data"]
+                        data = json.loads(raw) if raw else {}
+                    except Exception:
+                        pass
+                    # Build a flat dict with the fields used by metrics
+                    outcomes = data.get("outcomes", [])
+                    first = outcomes[0] if outcomes else {}
+                    result["extractions"][doi] = {
+                        "doi": doi,
+                        "sample_size": data.get("participant_count"),
+                        "intervention": data.get("intervention_description", ""),
+                        "primary_outcome": first.get("name", ""),
+                        "effect_size": first.get("effect_size"),
+                        "extraction_confidence": data.get("confidence_score"),
+                    }
         except Exception:
             pass
 
+        # RoB assessments -- use rob_assessments table
         try:
             async with db.execute(
-                "SELECT doi, overall_judgment FROM rob2_assessments"
+                "SELECT p.doi, r.overall_judgment FROM rob_assessments r "
+                "JOIN papers p ON p.paper_id = r.paper_id"
             ) as cur:
                 async for row in cur:
                     doi = (row["doi"] or "").lower().strip()

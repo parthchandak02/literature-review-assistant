@@ -1245,6 +1245,7 @@ def _reconcile_manuscript_consistency(body: str, state: "ReviewState") -> str:  
 
     # Determine ground-truth flags from the narrative synthesis JSON artifact on disk
     meta_feasible: bool = False
+    meta_ran: bool = False  # True only when pooling produced a usable result
     narrative_path = state.artifacts.get("narrative_synthesis", "")
     if narrative_path:
         try:
@@ -1256,14 +1257,22 @@ def _reconcile_manuscript_consistency(body: str, state: "ReviewState") -> str:  
             _generic = frozenset({"primary_outcome", "secondary_outcome"})
             generic_only = not groupings or all(g in _generic for g in groupings)
             meta_feasible = raw_feasible and not generic_only
+            # meta_analysis key only present when pooling actually produced results
+            meta_ran = bool(_narrative_data.get("meta_analysis"))
         except Exception:
             pass
 
+    # Apply meta-analysis contradiction fixes when:
+    # (a) feasibility check failed, OR
+    # (b) feasibility check passed but actual float-parsing/pooling failed (meta_ran=False)
+    # In both cases the manuscript MUST describe narrative synthesis only.
+    should_fix_meta = not meta_feasible or (meta_feasible and not meta_ran)
+
     # -----------------------------------------------------------------------
     # Fix 1: meta-analysis contradictions
-    # When NOT feasible, replace phrases that claim pooling was performed.
+    # When pooling was not performed, replace phrases that claim it was.
     # -----------------------------------------------------------------------
-    if not meta_feasible:
+    if should_fix_meta:
         # Patterns that assert a meta-analysis was conducted
         _META_ASSERTIONS = [
             (

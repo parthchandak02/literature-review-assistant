@@ -90,6 +90,13 @@ class WritingGroundingData(BaseModel):
     # Protocol registration: always False unless the tool registers on PROSPERO (not yet implemented)
     protocol_registered: bool = False
 
+    # Meta-analysis execution state:
+    # meta_analysis_feasible=True means feasibility check passed (numeric effect_size+se in >=2 studies)
+    # meta_analysis_ran=True means pooling actually succeeded and produced a result
+    # When feasible=True but ran=False, the LLM MUST NOT claim meta-analysis was conducted
+    meta_analysis_ran: bool = False
+    poolable_outcomes: List[str] = []
+
 
 def build_writing_grounding(
     prisma_counts: PRISMACounts,
@@ -148,6 +155,8 @@ def build_writing_grounding(
 
     # Synthesis direction from narrative JSON or defaults
     meta_feasible = False
+    meta_ran = False
+    poolable_outcomes: List[str] = []
     direction = "mixed"
     n_synth = len(extraction_records)
     narr_text = f"Narrative synthesis of {n_synth} studies."
@@ -165,6 +174,9 @@ def build_writing_grounding(
             g in _GENERIC_GROUPINGS for g in groupings
         )
         meta_feasible = raw_feasible and not generic_only
+        poolable_outcomes = [g for g in groupings if g not in _GENERIC_GROUPINGS]
+        # meta_analysis_ran=True only when pooling produced a usable result
+        meta_ran = bool(narrative.get("meta_analysis"))
         narr_obj = narrative.get("narrative", {})
         direction = _normalize_label(narr_obj.get("effect_direction_summary", direction))
         n_synth = narr_obj.get("n_studies", n_synth)
@@ -237,6 +249,8 @@ def build_writing_grounding(
         n_total_studies=n_total_studies,
         sensitivity_results=sensitivity_results or [],
         protocol_registered=False,
+        meta_analysis_ran=meta_ran,
+        poolable_outcomes=poolable_outcomes,
     )
 
 
@@ -300,9 +314,33 @@ def format_grounding_block(data: WritingGroundingData) -> str:
     if data.year_range:
         lines.append(f"Publication year range: {data.year_range}")
 
-    lines.append(
-        f"Meta-analysis: {'feasible' if data.meta_analysis_feasible else 'NOT feasible - narrative synthesis only'}"
-    )
+    # Three-state meta-analysis status to prevent the LLM from hallucinating
+    # pooled results when the feasibility check passed but actual float parsing failed.
+    if data.meta_analysis_feasible and data.meta_analysis_ran:
+        outcomes_str = ", ".join(data.poolable_outcomes) if data.poolable_outcomes else "see synthesis"
+        lines.append(f"Meta-analysis: PERFORMED on outcome(s): {outcomes_str}")
+        lines.append(
+            "CRITICAL: In Methods, state that meta-analysis was performed ONLY for the "
+            f"outcome(s) listed above ({outcomes_str}). For all other outcomes use narrative synthesis."
+        )
+    elif data.meta_analysis_feasible and not data.meta_analysis_ran:
+        outcomes_str = ", ".join(data.poolable_outcomes) if data.poolable_outcomes else "named outcome(s)"
+        lines.append(
+            f"Meta-analysis: ATTEMPTED for {outcomes_str} but effect sizes were not "
+            "numeric -- NARRATIVE SYNTHESIS ONLY."
+        )
+        lines.append(
+            "CRITICAL: Do NOT write 'we conducted a meta-analysis', 'pooled effect sizes', "
+            "'meta-analysis showed', or any phrase implying quantitative pooling was performed. "
+            "Write ONLY that narrative synthesis was conducted."
+        )
+    else:
+        lines.append("Meta-analysis: NOT feasible - narrative synthesis only.")
+        lines.append(
+            "CRITICAL: Do NOT write 'we conducted a meta-analysis', 'pooled effect sizes', "
+            "'meta-analysis showed', or any phrase implying quantitative pooling was performed. "
+            "Write ONLY that narrative synthesis was conducted."
+        )
     reg_status = "YES (ID on file)" if data.protocol_registered else "NO - not prospectively registered"
     lines.append(f"Protocol registration: {reg_status}")
     lines.append(
