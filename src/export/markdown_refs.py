@@ -115,33 +115,40 @@ def convert_to_numbered_citations(
     return new_body, ordered_rows
 
 
-# Figure definitions: (artifact_key, figure_number, caption)
-FIGURE_DEFS: List[Tuple[str, int, str]] = [
+# Figure definitions: ordered list of (artifact_key, caption).
+# Numbers are NOT stored here -- they are assigned dynamically at render time
+# by counting only figures whose artifact file actually exists on disk.
+# This prevents gaps (e.g. Fig 1, 2, 4, 5) when optional figures like
+# rob2_traffic_light or forest plots are absent.
+FIGURE_DEFS: List[Tuple[str, str]] = [
     (
         "prisma_diagram",
-        1,
         "PRISMA 2020 flow diagram showing the study selection process.",
     ),
     (
         "rob_traffic_light",
-        2,
         "Risk of bias traffic-light plot for included non-randomized studies"
         " and reviews (ROBINS-I/CASP).",
     ),
     (
         "rob2_traffic_light",
-        3,
         "Risk of bias assessment using the Cochrane RoB 2 tool for the"
         " included randomized controlled trial.",
     ),
     (
+        "fig_forest_plot",
+        "Forest plot of pooled effect sizes for feasible meta-analysis outcomes.",
+    ),
+    (
+        "fig_funnel_plot",
+        "Funnel plot assessing publication bias for meta-analysis outcomes.",
+    ),
+    (
         "timeline",
-        4,
-        "Publication timeline of included studies (2016-2026).",
+        "Publication timeline of included studies.",
     ),
     (
         "geographic",
-        5,
         "Geographic distribution of included studies by country of origin.",
     ),
 ]
@@ -154,11 +161,14 @@ def build_markdown_figures_section(
     """Build a Figures section with relative-path image embeds and IEEE captions.
 
     Only includes figures whose artifact file actually exists on disk.
+    Figure numbers are assigned sequentially (1, 2, 3, ...) based on which
+    figures are present, preventing gaps in numbering when optional figures
+    (e.g. RoB 2 traffic light, forest plot) are absent.
     Returns an empty string if no figures are available.
     """
     lines: List[str] = ["## Figures", ""]
-    any_fig = False
-    for artifact_key, fig_num, caption in FIGURE_DEFS:
+    seq = 1
+    for artifact_key, caption in FIGURE_DEFS:
         fig_path_str = artifacts.get(artifact_key, "")
         if not fig_path_str:
             continue
@@ -170,12 +180,12 @@ def build_markdown_figures_section(
             rel = fig_path.relative_to(manuscript_path.parent)
         except ValueError:
             rel = fig_path  # type: ignore[assignment]
-        lines.append(f"**Fig. {fig_num}.** {caption}")
+        lines.append(f"**Fig. {seq}.** {caption}")
         lines.append("")
-        lines.append(f"![Fig. {fig_num}: {caption}]({rel})")
+        lines.append(f"![Fig. {seq}: {caption}]({rel})")
         lines.append("")
-        any_fig = True
-    if not any_fig:
+        seq += 1
+    if seq == 1:
         return ""
     return "\n".join(lines)
 
@@ -359,12 +369,20 @@ def generate_grade_table(grade_assessments: List[Any]) -> str:
     if not grade_assessments:
         return ""
 
-    # Group assessments by outcome_name
+    # Group assessments by outcome_name, skipping placeholder/generic labels.
+    # Per GRADE methodology, outcomes without usable named data are excluded
+    # from the evidence profile (they add noise without contributing evidence).
     from collections import defaultdict
     groups: dict = defaultdict(list)
     for g in grade_assessments:
-        outcome = (getattr(g, "outcome_name", None) or "Primary outcome").strip()
-        outcome = outcome.replace("_", " ").title() if outcome else "Primary outcome"
+        raw_name = (getattr(g, "outcome_name", None) or "").strip()
+        # Normalize for placeholder check: lowercase, collapse underscores/spaces
+        name_norm = raw_name.lower().replace(" ", "_")
+        if name_norm in _PLACEHOLDER_OUTCOME_NAMES:
+            continue
+        outcome = raw_name.replace("_", " ").title() if raw_name else None
+        if not outcome:
+            continue
         groups[outcome].append(g)
 
     rows: List[str] = []
@@ -409,7 +427,7 @@ def generate_grade_table(grade_assessments: List[Any]) -> str:
         "_GRADE certainty levels: HIGH, MODERATE, LOW, VERY LOW. "
         "Downgrade values: 0=not downgraded, 1=serious, 2=very serious. "
         "Inconsistency, indirectness, and publication-bias domains were not auto-computed and default to 0. "
-        "Studies with generic 'primary outcome' labels are grouped together._"
+        "Outcomes without a reported name are excluded from this profile per GRADE methodology._"
     )
     return (
         "## GRADE Evidence Profile\n\n"

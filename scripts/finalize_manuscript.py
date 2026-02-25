@@ -64,6 +64,8 @@ ARTIFACT_MAP = {
     "prisma_diagram": "fig_prisma_flow.png",
     "rob_traffic_light": "fig_rob_traffic_light.png",
     "rob2_traffic_light": "fig_rob2_traffic_light.png",
+    "fig_forest_plot": "fig_forest_plot.png",
+    "fig_funnel_plot": "fig_funnel_plot.png",
     "timeline": "fig_publication_timeline.png",
     "geographic": "fig_geographic_distribution.png",
 }

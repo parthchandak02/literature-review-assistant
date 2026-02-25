@@ -602,6 +602,7 @@ class ScreeningNode(BaseNode[ReviewState]):
                 reliability = compute_cohens_kappa(screener._dual_results, stage="title_abstract")
                 state.cohens_kappa = reliability.cohens_kappa
                 state.kappa_stage = reliability.stage
+                state.kappa_n = len(screener._dual_results)
                 await log_reliability_to_decision_log(repository, reliability)
 
             # -- Forward citation chasing (PRISMA 2020 snowball supplement) --
@@ -1391,6 +1392,7 @@ class WritingNode(BaseNode[ReviewState]):
                 citation_catalog=citation_catalog,
                 cohens_kappa=state.cohens_kappa,
                 kappa_stage=state.kappa_stage,
+                kappa_n=state.kappa_n,
                 sensitivity_results=state.sensitivity_results,
             )
 

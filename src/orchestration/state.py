@@ -31,4 +31,5 @@ class ReviewState:
     next_phase: str = ""  # Set when resuming; first phase to run
     cohens_kappa: float | None = None
     kappa_stage: str | None = None
+    kappa_n: int = 0  # number of papers in the uncertain-paper subset used for kappa
     sensitivity_results: list[str] = field(default_factory=list)

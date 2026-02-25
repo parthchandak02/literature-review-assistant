@@ -76,9 +76,15 @@ class WritingGroundingData(BaseModel):
     # Citation keys (the ONLY keys the LLM is allowed to use)
     valid_citekeys: List[str]
 
-    # Inter-rater reliability (from dual-reviewer screening phase)
+    # Inter-rater reliability (from dual-reviewer screening phase).
+    # kappa_n is the number of papers in the uncertain-paper subset on which
+    # kappa is computed. High-confidence papers are resolved via fast-path
+    # (Reviewer B not called), so kappa_n < total_screened. This context
+    # must be reported alongside the kappa value so the LLM can write an
+    # accurate Methods statement rather than just citing a raw negative number.
     cohens_kappa: Optional[float] = None
     kappa_stage: Optional[str] = None
+    kappa_n: int = 0
 
     # Participant count provenance
     n_studies_reporting_count: int = 0
@@ -106,6 +112,7 @@ def build_writing_grounding(
     citation_catalog: str = "",
     cohens_kappa: Optional[float] = None,
     kappa_stage: Optional[str] = None,
+    kappa_n: int = 0,
     sensitivity_results: Optional[List[str]] = None,
 ) -> WritingGroundingData:
     """Aggregate real pipeline outputs into a WritingGroundingData instance."""
@@ -245,6 +252,7 @@ def build_writing_grounding(
         valid_citekeys=valid_citekeys,
         cohens_kappa=cohens_kappa,
         kappa_stage=kappa_stage,
+        kappa_n=kappa_n,
         n_studies_reporting_count=n_studies_reporting_count,
         n_total_studies=n_total_studies,
         sensitivity_results=sensitivity_results or [],
@@ -380,10 +388,17 @@ def format_grounding_block(data: WritingGroundingData) -> str:
     if data.cohens_kappa is not None:
         kappa_str = f"{data.cohens_kappa:.3f}"
         stage_str = f" ({data.kappa_stage} stage)" if data.kappa_stage else ""
-        lines.append(f"Inter-rater reliability (Cohen's kappa): {kappa_str}{stage_str}")
+        n_str = f", N={data.kappa_n}" if data.kappa_n > 0 else ""
         lines.append(
-            "(Note: kappa is computed only for papers where both AI reviewers independently "
-            "evaluated the study; fast-path single-reviewer decisions are excluded.)"
+            f"Inter-rater reliability (Cohen's kappa): {kappa_str}{stage_str}"
+        )
+        lines.append(
+            f"CRITICAL -- kappa context: This kappa was computed on the uncertain-paper "
+            f"subset only{n_str}. High-confidence papers are resolved by a single reviewer "
+            f"(fast-path) and are NOT included in this kappa calculation. In the Methods "
+            f"section you MUST report: 'Inter-rater reliability, measured on the subset of "
+            f"papers that required dual review{n_str}, was Cohen's kappa = {kappa_str}.' "
+            f"Do NOT describe this as overall reviewer agreement without the subset qualifier."
         )
 
     if data.sensitivity_results:
