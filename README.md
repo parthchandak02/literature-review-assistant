@@ -214,12 +214,15 @@ Two config files control behavior:
 - `research_question`, `pico`, `keywords`, `domain`
 - `inclusion_criteria`, `exclusion_criteria`
 - `date_range_start`, `date_range_end`
-- `target_databases` (openalex, pubmed, arxiv, ieee_xplore, semantic_scholar, crossref, perplexity)
+- `target_databases` (openalex, pubmed, arxiv, ieee_xplore, semantic_scholar, crossref, perplexity, clinicaltrials_gov)
+- `living_review: false` -- set to `true` + set `last_search_date` to re-run only from that date forward
 
 **`config/settings.yaml`** -- change this rarely:
 - LLM model assignments (which Gemini tier handles screening vs. writing)
+- `dual_review.reviewer_b_model` -- second reviewer model for cross-model validation (default: gemini-2.0-flash)
 - Screening thresholds (include/exclude confidence cutoffs)
 - `max_llm_screen` -- hard cap on LLM screening volume (cost control)
+- `human_in_the_loop.enabled` -- pause after screening for manual review of AI decisions
 - Quality gate thresholds
 - Search depth (records per database)
 
@@ -233,10 +236,16 @@ The pipeline runs as a 6-phase PydanticAI graph plus a FinalizeNode that handles
 
 ```text
 Phase 1: Load config, initialize DB, set up LLM provider
-Phase 2: Search 7 databases, deduplicate, generate PROSPERO protocol
-Phase 3: Dual-reviewer screening (AI Reviewer A + B, adjudicator on disagreement)
-Phase 4: Data extraction + risk of bias (RoB 2 / ROBINS-I / CASP / GRADE)
-Phase 5: Meta-analysis or narrative synthesis
+Phase 2: Search 7+ databases (incl. ClinicalTrials.gov grey lit), deduplicate (MinHash LSH),
+         run forward citation chasing, generate PROSPERO protocol
+Phase 3: Dual-reviewer screening -- Reviewer A (gemini-2.5-flash-lite) + Reviewer B
+         (gemini-2.0-flash, cross-model validation), adjudicator on disagreement;
+         protocol-only studies auto-excluded; Cohen's kappa logged
+         [Optional pause: human review checkpoint when human_in_the_loop.enabled=true]
+Phase 4: Data extraction (full-text via PyMuPDF, 32K char context) + risk of bias
+         (RoB 2 / ROBINS-I / CASP / GRADE, heuristic fallback tagged by source)
+Phase 5: Meta-analysis or narrative synthesis + sensitivity analysis (leave-one-out,
+         subgroup by study_design)
 Phase 6: Write manuscript sections (abstract through conclusion)
 Finalize: Generate PRISMA diagram, RoB traffic-light, timeline, geographic chart
           + Export IEEE LaTeX + compile PDF
@@ -333,6 +342,7 @@ uv run pytest tests/integration -q
 | `scripts/finalize_manuscript.py` | Retroactively regenerate `doc_manuscript.md` sections (Figures, Declarations, Study Characteristics Table, References) for an existing run directory. Also injects missing IMRaD headings. Usage: `uv run python scripts/finalize_manuscript.py --run-dir runs/<date>/<topic>/run_<time>` |
 | `scripts/migrate_to_runs.py` | One-time migration to move legacy run artifacts into the current `runs/<date>/<topic>/` directory structure. |
 | `scripts/re_extract.py` | Targeted re-extraction for studies with low-quality data (placeholder outcomes, missing authors). Usage: `uv run python scripts/re_extract.py --run-dir runs/<date>/<topic>/run_<time>` |
+| `scripts/benchmark.py` | Validate tool outputs against a gold-standard corpus: measures screening recall, extraction field accuracy, and RoB Cohen's kappa vs. published review. Usage: `uv run python scripts/benchmark.py --run-dir runs/<date>/<topic>/run_<time> --gold gold.json` |
 
 ---
 

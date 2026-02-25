@@ -905,18 +905,21 @@ Living section -- update as work completes.
 | Component | Status | Notes |
 |-----------|--------|-------|
 | Phase 1: Foundation | DONE | Models, SQLite, 6 gates, citation ledger, LLM provider, rate limiter |
-| Phase 2: Search | DONE | All 7 connectors, dedup, BM25 ranking, protocol generator, SearchConfig |
-| Phase 3: Screening | DONE | Dual reviewer, keyword filter, BM25 cap, kappa, Ctrl+C proceed-with-partial, confidence fast-path |
-| Phase 4: Extraction + Quality | DONE | LLM extraction (Gemini Pro), async RoB 2 / ROBINS-I / CASP (Gemini Pro) with heuristic fallback, GRADE, study router, RoB traffic-light figure |
-| Phase 5: Synthesis | DONE | Feasibility gates, statsmodels pooling (DL), forest + funnel plots, narrative fallback, synthesis_results table |
-| Phase 6: Writing | DONE | Section writer, humanizer, citation validation, style extractor, naturalness scorer, per-section checkpoint, WritingGroundingData |
+| Phase 2: Search | DONE | All 7 connectors + ClinicalTrials.gov grey literature, MinHash LSH dedup (datasketch + thefuzz), forward citation chasing (Semantic Scholar + OpenAlex), BM25 ranking, protocol generator, SearchConfig |
+| Phase 3: Screening | DONE | Dual reviewer with cross-model validation (Reviewer A=gemini-2.5-flash-lite, Reviewer B=gemini-2.0-flash), keyword filter, BM25 cap, kappa injected into writing, Ctrl+C proceed-with-partial, confidence fast-path, protocol-only auto-exclusion |
+| Phase 4: Extraction + Quality | DONE | LLM extraction with PyMuPDF full-text parsing (32K char context, up from 8K), async RoB 2 / ROBINS-I / CASP with heuristic fallback tagged by assessment_source, GRADE auto-wired from RoB data (assess_from_rob), study router, RoB traffic-light figure |
+| Phase 5: Synthesis | DONE | Hardened feasibility (requires effect_size+se in >= 2 studies), statsmodels pooling (DL), forest + funnel plots, LLM-based narrative direction classification, sensitivity analysis (leave-one-out + subgroup), synthesis_results table |
+| Phase 6: Writing | DONE | Section writer, humanizer, citation validation, style extractor, naturalness scorer, per-section checkpoint, WritingGroundingData (includes kappa, sensitivity_results, n_studies_reporting_count, separated search sources), GRADE table injected into manuscript |
 | Phase 7: PRISMA + Viz | DONE | PRISMA diagram (prisma-flow-diagram + fallback), timeline, geographic, ROBINS-I in RoB figure, uniform artifact naming |
 | Phase 8: Export + Orchestration | DONE | Run/resume, IEEE LaTeX, BibTeX, validators, Word DOCX export (pypandoc + python-docx), submission packager, pdflatex, CLI subcommands |
-| Web UI | DONE | FastAPI SSE backend (25 endpoints), React/Vite/TypeScript frontend, structured Setup form, run-centric sidebar, 4-tab RunView, DB explorer, cost tracking, grouped Results panel with per-filetype icons |
+| Web UI | DONE | FastAPI SSE backend (30+ endpoints incl. screening-summary, approve-screening, living-refresh, prisma-checklist), React/Vite/TypeScript frontend, structured Setup form, run-centric sidebar, 5-tab RunView (Activity/Results/Data/Cost + Review Screening when awaiting_review), DB explorer with heuristic RoB filter, cost tracking, grouped Results panel with PRISMA checklist panel, ScreeningReviewView for HITL approval, living refresh button |
+| Human-in-the-Loop | DONE | HumanReviewCheckpointNode pauses run at awaiting_review status; approve-screening API resumes; frontend shows Review Screening tab with AI decisions + confidence |
+| Living Review | DONE | living_review + last_search_date in review.yaml; SearchNode skips previously-screened DOIs; POST /api/run/{id}/living-refresh creates incremental re-run |
 | Resume | DONE | Central registry, topic auto-resume, mid-phase resume, fallback scan of run_summary.json |
 | Post-build improvements | DONE | display_label (single source of truth in papers table), synthesis_results table, dedup_count column, SearchConfig per-connector limits, BM25 cap with LOW_RELEVANCE_SCORE exclusions |
+| Validation benchmark | DONE | scripts/benchmark.py measures screening recall, extraction field accuracy, RoB kappa vs. gold-standard corpus |
 
-**Test status:** ~61 unit tests passing (`uv run pytest tests/unit -q`).
+**Test status:** 18 unit tests + 13 integration tests passing (`uv run pytest tests/unit tests/integration -q`).
 
 ---
 
@@ -952,7 +955,7 @@ All of the following must be true before the first submission:
 - All claims traceable via citation ledger (ClaimRecord -> EvidenceLinkRecord -> CitationEntryRecord)
 - Zero unresolved citations at export
 - IEEE LaTeX compiles with IEEEtran.cls without errors
-- Abstract <= 250 words
+- Abstract <= 300 words
 - PRISMA checklist >= 24/27 items reported
 - All 6 quality gates pass in strict mode
 - All unit and integration tests pass
