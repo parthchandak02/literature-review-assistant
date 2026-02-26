@@ -143,6 +143,29 @@ export async function getDefaultReviewConfig(): Promise<string> {
   return data.content
 }
 
+/**
+ * Generate a complete review config YAML from a plain-English research question.
+ * Calls the backend LLM endpoint and returns the generated YAML string.
+ * Throws an Error with a descriptive message on failure.
+ */
+export async function generateConfig(researchQuestion: string, geminiApiKey = ""): Promise<string> {
+  const res = await fetch(`${BASE}/config/generate`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ research_question: researchQuestion, gemini_api_key: geminiApiKey }),
+  })
+  if (!res.ok) {
+    let detail = `HTTP ${res.status}`
+    try {
+      const body = await res.json() as { detail?: string }
+      if (body.detail) detail = body.detail
+    } catch { /* ignore */ }
+    throw new Error(detail)
+  }
+  const data = await res.json() as { yaml: string }
+  return data.yaml
+}
+
 /** Fetch the review.yaml that was used for a specific past run. Returns null if not available. */
 export async function fetchRunConfig(workflowId: string, runRoot = "runs"): Promise<string | null> {
   const params = new URLSearchParams({ run_root: runRoot })

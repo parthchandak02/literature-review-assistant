@@ -49,6 +49,10 @@ export interface RunFormProps {
   disabled: boolean
   /** Pre-populate the form from a past run's YAML (e.g. "Reuse config"). */
   loadYaml?: string | null
+  /** Section IDs to expand on first render. Pass [] to collapse all, or omit for default. */
+  defaultOpenSections?: string[]
+  /** When true, open the Advanced panel to the YAML tab on first render. */
+  defaultAdvancedOpen?: boolean
 }
 
 // ---------------------------------------------------------------------------
@@ -716,14 +720,16 @@ function buildSummary(cfg: ReviewConfig): string {
 // Main RunForm component
 // ---------------------------------------------------------------------------
 
-export function RunForm({ defaultReviewYaml, onSubmit, disabled, loadYaml }: RunFormProps) {
+export function RunForm({ defaultReviewYaml, onSubmit, disabled, loadYaml, defaultOpenSections, defaultAdvancedOpen }: RunFormProps) {
   const [cfg, setCfg] = useState<ReviewConfig>(EMPTY_CONFIG)
   const [openSections, setOpenSections] = useState<Set<string>>(
-    new Set(["pico", "keywords", "criteria", "sources", "api-keys"])
+    () => defaultOpenSections !== undefined
+      ? new Set(defaultOpenSections)
+      : new Set(["pico", "keywords", "criteria", "sources", "api-keys"])
   )
 
   // Unified Advanced panel (YAML + .env, two inner tabs)
-  const [advancedOpen, setAdvancedOpen] = useState(false)
+  const [advancedOpen, setAdvancedOpen] = useState(() => defaultAdvancedOpen ?? false)
   const [advancedTab, setAdvancedTab] = useState<"yaml" | "env">("yaml")
   const [yamlText, setYamlText] = useState("")
   const [yamlDirty, setYamlDirty] = useState(false)

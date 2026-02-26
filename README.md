@@ -68,9 +68,15 @@ uv run uvicorn src.web.app:app --port 8000
 
 **5. Open your browser**
 
-Go to `http://localhost:8000`. Click "+" in the sidebar to start a new review. The form has structured fields: PICO (Population, Intervention, Comparison, Outcome), keywords, inclusion/exclusion criteria, date range, and database checkboxes. It builds the YAML config automatically -- you do not need to write YAML by hand.
+Go to `http://localhost:8000`. Click "+" in the sidebar to start a new review.
 
-Enter your API keys and click Run. Your keys are saved in your browser (localStorage) and restored on the next visit. You can also paste your entire `.env` file into the "Paste .env" panel -- the form will detect and fill all recognised keys automatically (GEMINI_API_KEY, OPENALEX_API_KEY, PUBMED_EMAIL, etc.).
+The setup page has three modes (select via the pill buttons at the top):
+
+- **AI Generate** (default) -- Type your research question in plain English and click "Generate Review Config". The AI automatically generates the full PICO framework, 20+ search keywords, inclusion/exclusion criteria, and scope. Review and edit the populated fields, then click Start.
+- **YAML** -- Paste or edit the raw YAML config directly. Useful when you already have a config from a previous run or external source.
+- **Manual** -- Fill out each field yourself (PICO, keywords, criteria, date range, databases).
+
+Your Gemini API key is required for AI Generate mode and is pre-filled from localStorage on return visits. All keys are saved locally in your browser and never sent anywhere except your local backend.
 
 The sidebar shows all your runs (live and historical) with status colors (emerald = completed, violet = running, red = error, amber = cancelled) and a stats strip (papers found, papers included, artifacts, cost). Selecting a run opens its 4-tab dashboard: Activity (phase timeline + event log), Results, Database, Cost. The selected tab persists when you switch between runs.
 

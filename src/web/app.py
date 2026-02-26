@@ -542,6 +542,36 @@ async def get_review_config() -> dict[str, str]:
     return {"content": content}
 
 
+class _GenerateConfigRequest(BaseModel):
+    research_question: str
+    gemini_api_key: str = ""
+
+
+@app.post("/api/config/generate")
+async def generate_config(req: _GenerateConfigRequest) -> dict[str, str]:
+    """Generate a complete review config YAML from a plain-English research question.
+
+    Uses Gemini flash with native structured output to produce PICO, keywords,
+    inclusion/exclusion criteria, domain, and scope. Structural fields
+    (date range, databases, sections) are set to safe defaults.
+    """
+    from src.web.config_generator import generate_config_yaml
+
+    if not req.research_question.strip():
+        raise HTTPException(status_code=422, detail="research_question must not be empty")
+    # Set the API key in the environment so PydanticAI can find it.
+    # Falls back to whatever is already in the environment (e.g. set via .env).
+    if req.gemini_api_key.strip():
+        os.environ["GEMINI_API_KEY"] = req.gemini_api_key.strip()
+    if not os.environ.get("GEMINI_API_KEY"):
+        raise HTTPException(status_code=422, detail="Gemini API key is required to generate a config. Add it in the API Keys section.")
+    try:
+        yaml_content = await generate_config_yaml(req.research_question)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+    return {"yaml": yaml_content}
+
+
 # ---------------------------------------------------------------------------
 # Run history endpoints (reads workflows_registry.db from run_root)
 # ---------------------------------------------------------------------------

@@ -29,13 +29,13 @@ alwaysApply: true
 - `src/visualization/` -- Forest plot, funnel plot, RoB figure, timeline, geographic
 - `src/export/` -- IEEE LaTeX, Word DOCX exporter (pypandoc-binary + python-docx post-processing), submission packager, PRISMA checklist validator
 - `src/llm/` -- PydanticAI agent factory, rate limiter, cost tracking
-- `src/web/` -- FastAPI backend (app.py): run lifecycle, SSE streaming, history, DB explorer, log streaming
+- `src/web/` -- FastAPI backend (app.py): run lifecycle, SSE streaming, history, DB explorer, log streaming; config_generator.py: LLM-based review config generation from a research question
 - `src/utils/` -- logging_paths.py (PM2 log path detection), ssl_context.py, structured_log.py
 - `scripts/` -- finalize_manuscript.py (IMRaD heading injection + post-run fixup), migrate_to_runs.py, re_extract.py (targeted re-extraction for low-quality studies), benchmark.py (gold-standard corpus comparison: screening recall, extraction accuracy, RoB kappa)
 - `config/` -- review.yaml (per-review) + settings.yaml (system behavior)
 
 ## Key Directories -- Frontend
-- `frontend/src/views/` -- RunView (tabs: Activity, Results, Data, Cost; + Review Screening tab when status=awaiting_review), DatabaseView, CostView, HistoryView, SetupView, ResultsView (PRISMA checklist panel), ScreeningReviewView (human-in-the-loop approval UI)
+- `frontend/src/views/` -- RunView (tabs: Activity, Results, Data, Cost; + Review Screening tab when status=awaiting_review), DatabaseView, CostView, HistoryView, SetupView (3-mode: AI Generate / YAML / Manual), ResultsView (PRISMA checklist panel), ScreeningReviewView (human-in-the-loop approval UI)
 - `frontend/src/components/` -- Sidebar (drag-resize, resume), ResultsPanel (artifact links, download), LogStream (live log display), RunForm (topic/config entry), UI primitives (command.tsx, status-badge.tsx, table.tsx, feedback.tsx)
 - `frontend/src/hooks/` -- useSSEStream (run events + SQLite replay fallback), useLogStream (backend log SSE), useBackendHealth, useCostStats
 - `frontend/src/lib/` -- api.ts (typed API layer), format.ts (date/duration helpers)
@@ -53,7 +53,7 @@ alwaysApply: true
 - DB explorer: GET /api/db/{run_id}/papers, /papers-all (includes doi + url for clickable links), /papers-facets, /papers-suggest, /screening, /costs
 - Event replay: GET /api/run/{run_id}/events, GET /api/workflow/{workflow_id}/events
 - Log streaming: GET /api/logs/stream?run_id={run_id} (SSE, per-run PM2 log tail)
-- Config: GET /api/config/review, GET /api/health
+- Config: GET /api/config/review, GET /api/health, POST /api/config/generate (AI config generation from research question)
 - Human-in-the-loop: GET /api/run/{run_id}/screening-summary, POST /api/run/{run_id}/approve-screening
 - Living review: POST /api/run/{run_id}/living-refresh (creates incremental re-run from last_search_date)
 - PRISMA compliance: GET /api/run/{run_id}/prisma-checklist
