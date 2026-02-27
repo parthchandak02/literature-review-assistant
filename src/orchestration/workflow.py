@@ -66,6 +66,7 @@ from src.search.openalex import OpenAlexConnector
 from src.search.perplexity_search import PerplexitySearchConnector
 from src.search.pubmed import PubMedConnector
 from src.search.semantic_scholar import SemanticScholarConnector
+from src.search.csv_import import parse_masterlist_csv
 from src.search.strategy import SearchStrategyCoordinator
 from src.synthesis import assess_meta_analysis_feasibility, build_narrative_synthesis
 from src.synthesis.meta_analysis import pool_effects
@@ -250,6 +251,90 @@ class SearchNode(BaseNode[ReviewState]):
         rc = _rc(state)
         assert state.review is not None
         assert state.settings is not None
+
+        # --- CSV master list bypass ---
+        # When masterlist_csv_path is set the user has pre-assembled papers
+        # externally. We skip all connectors but keep every other side-effect
+        # (DB writes, SSE events, checkpointing, PRISMA rows, protocol) identical
+        # to the normal search branch so that no downstream node breaks.
+        if state.review.masterlist_csv_path:
+            if rc:
+                rc.emit_phase_start("phase_2_search", "Loading master list...", total=1)
+            async with get_db(state.db_path) as db:
+                repository = WorkflowRepository(db)
+                config_hash = _hash_config(state.review_path)
+                await repository.create_workflow(
+                    state.workflow_id, state.review.research_question, config_hash
+                )
+                await register_workflow(
+                    run_root=state.run_root,
+                    workflow_id=state.workflow_id,
+                    topic=state.review.research_question,
+                    config_hash=config_hash,
+                    db_path=state.db_path,
+                )
+                if rc is not None and hasattr(rc, "notify_workflow_id"):
+                    rc.notify_workflow_id(state.workflow_id, state.run_root)
+                gate_runner = GateRunner(repository, state.settings)
+
+                csv_result = parse_masterlist_csv(
+                    state.review.masterlist_csv_path, state.workflow_id
+                )
+                await repository.save_search_result(csv_result)
+
+                if rc:
+                    rc.log_connector_result(
+                        name="CSV Import",
+                        status="success",
+                        records=csv_result.records_retrieved,
+                        query=csv_result.search_query,
+                        date_start=None,
+                        date_end=None,
+                        error=None,
+                    )
+                    rc.advance_screening("phase_2_search", 1, 1)
+                structured_log.log_connector_result(
+                    connector="CSV Import",
+                    status="success",
+                    records=csv_result.records_retrieved,
+                    error=None,
+                )
+
+                await gate_runner.run_search_volume_gate(
+                    state.workflow_id, "phase_2_search", csv_result.records_retrieved
+                )
+
+                deduped, dedup_count = deduplicate_papers(csv_result.papers)
+                state.deduped_papers = deduped
+                state.dedup_count = dedup_count
+                state.connector_init_failures = {}
+                state.search_counts = await repository.get_search_counts(state.workflow_id)
+                await repository.save_dedup_count(state.workflow_id, dedup_count)
+
+                protocol_generator = ProtocolGenerator(output_dir=state.output_dir)
+                protocol = protocol_generator.generate(state.workflow_id, state.review)
+                protocol_markdown = protocol_generator.render_markdown(protocol, state.review)
+                protocol_generator.write_markdown(state.workflow_id, protocol_markdown)
+                await repository.save_checkpoint(
+                    state.workflow_id, "phase_2_search", papers_processed=len(deduped)
+                )
+            if rc:
+                total = sum(state.search_counts.values())
+                rc.emit_phase_done(
+                    "phase_2_search",
+                    {"papers": len(deduped), "total_records": total, "dedup": dedup_count},
+                )
+                if rc.debug:
+                    rc.emit_debug_state(
+                        "phase_2_search",
+                        {
+                            "search_counts": state.search_counts,
+                            "dedup_count": state.dedup_count,
+                            "connector_failures": 0,
+                        },
+                    )
+            return ScreeningNode()
+        # --- end CSV branch ---
 
         connectors, connector_init_failures = _build_connectors(state.workflow_id, state.review.target_databases)
         state.connector_init_failures = connector_init_failures

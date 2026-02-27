@@ -76,6 +76,15 @@ class ReviewConfig(BaseModel):
             "Used as the from_date filter when living_review is true."
         ),
     )
+    masterlist_csv_path: Optional[str] = Field(
+        default=None,
+        description=(
+            "Absolute path to a pre-assembled master list CSV (Scopus export format). "
+            "When set, SearchNode loads papers from this file instead of running "
+            "database connectors. target_databases is still required by validation "
+            "but is unused when this field is set."
+        ),
+    )
 
 
 class AgentConfig(BaseModel):

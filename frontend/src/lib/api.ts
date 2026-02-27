@@ -119,6 +119,41 @@ export async function startRun(req: RunRequest): Promise<RunResponse> {
   return res.json() as Promise<RunResponse>
 }
 
+/**
+ * Start a review run from a pre-assembled master list CSV.
+ * The CSV is uploaded as multipart/form-data alongside the review YAML and API keys.
+ * SearchNode will load papers from the CSV instead of querying databases.
+ * Every downstream phase (screening, extraction, synthesis, writing) runs identically.
+ */
+export async function startRunWithMasterlist(
+  csvFile: File,
+  reviewYaml: string,
+  keys: StoredApiKeys,
+  runRoot = "runs",
+): Promise<RunResponse> {
+  const form = new FormData()
+  form.append("csv_file", csvFile)
+  form.append("review_yaml", reviewYaml)
+  form.append("gemini_api_key", keys.gemini)
+  if (keys.openalex) form.append("openalex_api_key", keys.openalex)
+  if (keys.ieee) form.append("ieee_api_key", keys.ieee)
+  if (keys.pubmedEmail) form.append("pubmed_email", keys.pubmedEmail)
+  if (keys.pubmedApiKey) form.append("pubmed_api_key", keys.pubmedApiKey)
+  if (keys.perplexity) form.append("perplexity_api_key", keys.perplexity)
+  if (keys.semanticScholar) form.append("semantic_scholar_api_key", keys.semanticScholar)
+  if (keys.crossrefEmail) form.append("crossref_email", keys.crossrefEmail)
+  if (runRoot) form.append("run_root", runRoot)
+  const res = await fetch(`${BASE}/run-with-masterlist`, {
+    method: "POST",
+    body: form,
+  })
+  if (!res.ok) {
+    const text = await res.text()
+    throw new Error(`Failed to start master list run: ${text}`)
+  }
+  return res.json() as Promise<RunResponse>
+}
+
 export async function cancelRun(runId: string): Promise<void> {
   const res = await fetch(`${BASE}/cancel/${runId}`, { method: "POST" })
   if (!res.ok) throw await _apiError(res, "Cancel failed")

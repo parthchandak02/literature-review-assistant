@@ -28,7 +28,7 @@ from typing import Any, AsyncGenerator
 import aiofiles
 import aiosqlite
 import yaml
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
@@ -427,6 +427,79 @@ async def start_run(req: RunRequest) -> RunResponse:
 
     record = _RunRecord(run_id=run_id, topic=topic)
     record.review_yaml = req.review_yaml
+    _active_runs[run_id] = record
+
+    task = asyncio.create_task(_run_wrapper(record, tmp.name, req))
+    record.task = task
+
+    return RunResponse(run_id=run_id, topic=topic)
+
+
+@app.post("/api/run-with-masterlist", response_model=RunResponse)
+async def start_run_with_masterlist(
+    csv_file: UploadFile = File(...),
+    review_yaml: str = Form(...),
+    gemini_api_key: str = Form(...),
+    openalex_api_key: str | None = Form(default=None),
+    ieee_api_key: str | None = Form(default=None),
+    pubmed_email: str | None = Form(default=None),
+    pubmed_api_key: str | None = Form(default=None),
+    perplexity_api_key: str | None = Form(default=None),
+    semantic_scholar_api_key: str | None = Form(default=None),
+    crossref_email: str | None = Form(default=None),
+    run_root: str = Form(default="runs"),
+) -> RunResponse:
+    """Start a review run using a pre-assembled master list CSV instead of running connectors.
+
+    The CSV is saved to a staging directory and its absolute path is injected into the
+    review YAML as ``masterlist_csv_path``. SearchNode detects this field and loads
+    papers from the file instead of querying databases. Every downstream phase
+    (screening, extraction, synthesis, writing) runs identically to a normal run.
+    """
+    # Save the uploaded CSV to a stable staging path so SearchNode can read it.
+    run_id = str(uuid.uuid4())[:8]
+    staging_dir = pathlib.Path(run_root) / "staging" / run_id
+    staging_dir.mkdir(parents=True, exist_ok=True)
+    csv_path = staging_dir / "masterlist.csv"
+
+    content = await csv_file.read()
+    csv_path.write_bytes(content)
+
+    # Inject masterlist_csv_path into the review YAML.
+    try:
+        config_data = yaml.safe_load(review_yaml) or {}
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=f"Invalid review YAML: {exc}") from exc
+
+    config_data["masterlist_csv_path"] = str(csv_path.resolve())
+    modified_yaml = yaml.dump(config_data, default_flow_style=False, allow_unicode=True)
+
+    # Build a RunRequest so _inject_env and _run_wrapper can be reused unchanged.
+    req = RunRequest(
+        review_yaml=modified_yaml,
+        gemini_api_key=gemini_api_key,
+        openalex_api_key=openalex_api_key,
+        ieee_api_key=ieee_api_key,
+        pubmed_email=pubmed_email,
+        pubmed_api_key=pubmed_api_key,
+        perplexity_api_key=perplexity_api_key,
+        semantic_scholar_api_key=semantic_scholar_api_key,
+        crossref_email=crossref_email,
+        run_root=run_root,
+    )
+    _inject_env(req)
+
+    topic = _extract_topic(modified_yaml)
+
+    tmp = tempfile.NamedTemporaryFile(
+        mode="w", suffix=".yaml", prefix=f"review_{run_id}_", delete=False,
+    )
+    tmp.write(modified_yaml)
+    tmp.flush()
+    tmp.close()
+
+    record = _RunRecord(run_id=run_id, topic=topic)
+    record.review_yaml = modified_yaml
     _active_runs[run_id] = record
 
     task = asyncio.create_task(_run_wrapper(record, tmp.name, req))

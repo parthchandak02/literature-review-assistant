@@ -1,15 +1,20 @@
 import { useState, useEffect, useRef } from "react"
 import {
+  AlertCircle,
+  CheckCircle2,
   ChevronDown,
   ChevronLeft,
   Clock,
   Eye,
   EyeOff,
+  FileText,
   RotateCcw,
   Sparkles,
   Wand2,
   FileCode2,
   Key,
+  Upload,
+  X,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -32,10 +37,12 @@ import type { HistoryEntry, RunRequest, StoredApiKeys } from "@/lib/api"
 interface SetupViewProps {
   defaultReviewYaml: string
   onSubmit: (req: RunRequest) => Promise<void>
+  onSubmitWithCsv?: (csvFile: File, req: RunRequest) => Promise<void>
   disabled: boolean
 }
 
 type Stage = "question" | "review"
+type SetupMode = "search" | "masterlist"
 
 // ---------------------------------------------------------------------------
 // Generation steps (shown while AI is working)
@@ -181,7 +188,7 @@ function ApiKeysSection({ keys, onChange }: ApiKeysProps) {
         <Key className="h-3.5 w-3.5 text-zinc-500 shrink-0" />
         <span className="text-xs font-semibold text-zinc-300 flex-1">API Keys</span>
         {!keys.gemini && (
-          <span className="text-[10px] text-red-400 font-medium">Gemini key required</span>
+          <span className="text-xs text-red-400 font-medium">Gemini key required</span>
         )}
       </div>
 
@@ -245,7 +252,7 @@ function ApiKeysSection({ keys, onChange }: ApiKeysProps) {
 // ---------------------------------------------------------------------------
 
 interface Stage1Props {
-  onGenerated: (yaml: string, question: string) => void
+  onGenerated: (yaml: string, question: string, csvFile?: File) => void
   onPasteYaml: () => void
   history: HistoryEntry[]
   onLoadFromHistory: (entry: HistoryEntry) => void
@@ -253,6 +260,281 @@ interface Stage1Props {
   loadError: string | null
   onClearError: () => void
 }
+
+// ---------------------------------------------------------------------------
+// CSV validation helpers
+// ---------------------------------------------------------------------------
+
+const CSV_REQUIRED_COLS = ["Title"]
+const CSV_EXPECTED_COLS = ["Authors", "Year", "Source title", "DOI", "Abstract", "Link", "Author Keywords"]
+
+interface CsvAnalysis {
+  rowCount: number
+  headers: string[]
+  presentExpected: string[]
+  missingExpected: string[]
+  missingRequired: string[]
+  valid: boolean
+  error: string | null
+}
+
+function parseCsvHeaderRow(line: string): string[] {
+  const cols: string[] = []
+  let cur = ""
+  let inQuotes = false
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i]
+    if (ch === '"') {
+      inQuotes = !inQuotes
+    } else if (ch === "," && !inQuotes) {
+      cols.push(cur.trim().replace(/^"|"$/g, ""))
+      cur = ""
+    } else {
+      cur += ch
+    }
+  }
+  cols.push(cur.trim().replace(/^"|"$/g, ""))
+  return cols
+}
+
+function countCsvDataRows(text: string): number {
+  // Walk the text respecting quoted fields so embedded newlines don't skew the count.
+  let rows = 0
+  let inQuotes = false
+  let firstRow = true
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i]
+    if (ch === '"') {
+      inQuotes = !inQuotes
+    } else if (ch === "\n" && !inQuotes) {
+      if (firstRow) {
+        firstRow = false
+      } else {
+        // peek ahead: if the rest is only whitespace, don't count trailing blank line
+        const rest = text.slice(i + 1).trimStart()
+        if (rest.length > 0) rows++
+      }
+    }
+  }
+  // If file has no trailing newline, the last row isn't counted yet
+  if (!firstRow && text.trimEnd().length > 0 && text[text.length - 1] !== "\n") rows++
+  return rows
+}
+
+async function analyzeCsvFile(file: File): Promise<CsvAnalysis> {
+  return new Promise((resolve) => {
+    const reader = new FileReader()
+    reader.onerror = () =>
+      resolve({ rowCount: 0, headers: [], presentExpected: [], missingExpected: CSV_EXPECTED_COLS, missingRequired: CSV_REQUIRED_COLS, valid: false, error: "Failed to read file" })
+    reader.onload = (e) => {
+      const text = (e.target?.result ?? "") as string
+      if (!text) {
+        resolve({ rowCount: 0, headers: [], presentExpected: [], missingExpected: CSV_EXPECTED_COLS, missingRequired: CSV_REQUIRED_COLS, valid: false, error: "File is empty" })
+        return
+      }
+      const firstNl = text.indexOf("\n")
+      const headerLine = firstNl === -1 ? text : text.slice(0, firstNl).replace(/\r$/, "")
+      const headers = parseCsvHeaderRow(headerLine)
+      const rowCount = countCsvDataRows(text)
+      const missingRequired = CSV_REQUIRED_COLS.filter((c) => !headers.includes(c))
+      const presentExpected = CSV_EXPECTED_COLS.filter((c) => headers.includes(c))
+      const missingExpected = CSV_EXPECTED_COLS.filter((c) => !headers.includes(c))
+      resolve({
+        rowCount,
+        headers,
+        presentExpected,
+        missingExpected,
+        missingRequired,
+        valid: missingRequired.length === 0 && rowCount > 0,
+        error: null,
+      })
+    }
+    reader.readAsText(file, "utf-8")
+  })
+}
+
+// ---------------------------------------------------------------------------
+// CSV drop zone with inline validation (used by masterlist mode)
+// ---------------------------------------------------------------------------
+
+interface CsvDropZoneProps {
+  file: File | null
+  onFile: (f: File | null) => void
+}
+
+function CsvDropZone({ file, onFile }: CsvDropZoneProps) {
+  const [dragging, setDragging] = useState(false)
+  const [analysis, setAnalysis] = useState<CsvAnalysis | null>(null)
+  const [analysing, setAnalysing] = useState(false)
+  const inputRef = useRef<HTMLInputElement>(null)
+
+  useEffect(() => {
+    if (!file) { setAnalysis(null); return }
+    setAnalysing(true)
+    analyzeCsvFile(file).then((result) => {
+      setAnalysis(result)
+      setAnalysing(false)
+    }).catch(() => setAnalysing(false))
+  }, [file])
+
+  function handleDrop(e: React.DragEvent) {
+    e.preventDefault()
+    setDragging(false)
+    const dropped = e.dataTransfer.files[0]
+    if (dropped && dropped.name.endsWith(".csv")) onFile(dropped)
+  }
+
+  function handleAccept(f: File | undefined) {
+    if (f) onFile(f)
+  }
+
+  return (
+    <div>
+      <label className="block text-xs font-semibold text-zinc-400 mb-2 uppercase tracking-wide">
+        Master List CSV <span className="text-red-500">*</span>
+      </label>
+
+      {/* Drop zone / file picker */}
+      {!file ? (
+        <div
+          onDragOver={(e) => { e.preventDefault(); setDragging(true) }}
+          onDragLeave={() => setDragging(false)}
+          onDrop={handleDrop}
+          onClick={() => inputRef.current?.click()}
+          className={`flex flex-col items-center justify-center gap-2 px-4 py-6 rounded-xl border-2 border-dashed cursor-pointer transition-colors ${
+            dragging
+              ? "border-emerald-500/60 bg-emerald-500/8"
+              : "border-zinc-700 bg-zinc-900/50 hover:border-zinc-600 hover:bg-zinc-900"
+          }`}
+        >
+          <Upload className="h-5 w-5 text-zinc-500" />
+          <p className="text-xs text-zinc-500 text-center leading-relaxed">
+            Drop a CSV file here, or{" "}
+            <span className="text-emerald-400 font-medium">click to browse</span>
+          </p>
+          <p className="text-xs text-zinc-600">Scopus export format (Title, Authors, Year, DOI, Abstract...)</p>
+        </div>
+      ) : (
+        /* File info row */
+        <div className={`flex items-center gap-3 px-4 py-3 rounded-xl border ${
+          analysis?.valid
+            ? "border-emerald-500/30 bg-emerald-500/8"
+            : analysis && !analysis.valid
+            ? "border-amber-500/30 bg-amber-500/8"
+            : "border-zinc-700 bg-zinc-900/50"
+        }`}>
+          <FileText className={`h-4 w-4 shrink-0 ${analysis?.valid ? "text-emerald-400" : analysis ? "text-amber-400" : "text-zinc-500"}`} />
+          <div className="flex-1 min-w-0">
+            <p className={`text-xs font-medium truncate ${analysis?.valid ? "text-emerald-300" : analysis ? "text-amber-300" : "text-zinc-300"}`}>
+              {file.name}
+            </p>
+            <p className={`text-xs mt-0.5 ${analysis?.valid ? "text-emerald-500/70" : "text-zinc-600"}`}>
+              {(file.size / 1024).toFixed(0)} KB
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => { onFile(null); setAnalysis(null) }}
+            className="text-zinc-500 hover:text-zinc-300 transition-colors shrink-0"
+            aria-label="Remove file"
+          >
+            <X className="h-3.5 w-3.5" />
+          </button>
+        </div>
+      )}
+
+      {/* Validation panel */}
+      {file && (
+        <div className="mt-2 rounded-xl border border-zinc-800 bg-zinc-950/80 overflow-hidden">
+          {analysing && (
+            <div className="flex items-center gap-2 px-4 py-3 text-xs text-zinc-500">
+              <div className="h-3 w-3 rounded-full border border-zinc-600 border-t-zinc-400 animate-spin shrink-0" />
+              Analysing CSV...
+            </div>
+          )}
+
+          {analysis && !analysing && (
+            <>
+              {/* Status row */}
+              <div className={`flex items-center gap-2.5 px-4 py-3 border-b border-zinc-800/60 ${analysis.valid ? "bg-emerald-500/6" : "bg-amber-500/6"}`}>
+                {analysis.valid ? (
+                  <CheckCircle2 className="h-4 w-4 text-emerald-400 shrink-0" />
+                ) : (
+                  <AlertCircle className="h-4 w-4 text-amber-400 shrink-0" />
+                )}
+                <div className="flex-1">
+                  {analysis.error ? (
+                    <p className="text-xs font-semibold text-red-400">{analysis.error}</p>
+                  ) : analysis.valid ? (
+                    <p className="text-xs font-semibold text-emerald-300">
+                      {analysis.rowCount.toLocaleString()} papers ready to screen
+                    </p>
+                  ) : analysis.missingRequired.length > 0 ? (
+                    <p className="text-xs font-semibold text-amber-300">
+                      Missing required column: {analysis.missingRequired.join(", ")}
+                    </p>
+                  ) : (
+                    <p className="text-xs font-semibold text-amber-300">
+                      {analysis.rowCount === 0 ? "No data rows found" : `${analysis.rowCount.toLocaleString()} rows found`}
+                    </p>
+                  )}
+                  {analysis.valid && (
+                    <p className="text-xs text-emerald-500/70 mt-0.5">
+                      Database search will be skipped - papers go straight to screening
+                    </p>
+                  )}
+                </div>
+              </div>
+
+              {/* Column grid */}
+              <div className="px-4 py-3">
+                <p className="text-xs font-semibold text-zinc-500 uppercase tracking-wide mb-2">
+                  Detected columns
+                </p>
+                <div className="grid grid-cols-2 gap-x-4 gap-y-1.5">
+                  {[...CSV_REQUIRED_COLS, ...CSV_EXPECTED_COLS].map((col) => {
+                    const present = analysis.headers.includes(col)
+                    const required = CSV_REQUIRED_COLS.includes(col)
+                    return (
+                      <div key={col} className="flex items-center gap-1.5">
+                        <div className={`w-1.5 h-1.5 rounded-full shrink-0 ${
+                          present ? "bg-emerald-400" : required ? "bg-red-400" : "bg-zinc-700"
+                        }`} />
+                        <span className={`text-xs truncate ${
+                          present ? "text-zinc-300" : required ? "text-red-400" : "text-zinc-600"
+                        }`}>
+                          {col}
+                          {required && !present && " *"}
+                        </span>
+                      </div>
+                    )
+                  })}
+                </div>
+                {analysis.missingExpected.length > 0 && analysis.valid && (
+                  <p className="text-xs text-zinc-600 mt-2 leading-relaxed">
+                    {analysis.missingExpected.length} optional column{analysis.missingExpected.length > 1 ? "s" : ""} not found - those fields will be blank in the review.
+                  </p>
+                )}
+              </div>
+            </>
+          )}
+        </div>
+      )}
+
+      <input
+        ref={inputRef}
+        type="file"
+        accept=".csv"
+        className="hidden"
+        onChange={(e) => handleAccept(e.target.files?.[0])}
+      />
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Stage 1 -- Question input
+// ---------------------------------------------------------------------------
 
 function QuestionStage({
   onGenerated,
@@ -263,12 +545,14 @@ function QuestionStage({
   loadError,
   onClearError,
 }: Stage1Props) {
+  const [mode, setMode] = useState<SetupMode>("search")
   const [question, setQuestion] = useState("")
   const [geminiKey, setGeminiKey] = useState("")
   const [showKey, setShowKey] = useState(false)
   const [generating, setGenerating] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [showHistory, setShowHistory] = useState(false)
+  const [csvFile, setCsvFile] = useState<File | null>(null)
   const dropdownRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -288,11 +572,12 @@ function QuestionStage({
 
   async function handleGenerate() {
     if (!question.trim() || !geminiKey.trim()) return
+    if (mode === "masterlist" && !csvFile) return
     setError(null)
     setGenerating(true)
     try {
       const yaml = await generateConfig(question.trim(), geminiKey.trim())
-      onGenerated(yaml, question.trim())
+      onGenerated(yaml, question.trim(), mode === "masterlist" ? csvFile ?? undefined : undefined)
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
       setGenerating(false)
@@ -304,6 +589,7 @@ function QuestionStage({
   }
 
   const completedRuns = history.filter((h) => h.status === "completed").slice(0, 10)
+  const canGenerate = !!question.trim() && !!geminiKey.trim() && (mode === "search" || !!csvFile)
 
   return (
     <div className="flex flex-col gap-5">
@@ -319,9 +605,53 @@ function QuestionStage({
         </p>
       </div>
 
+      {/* Mode toggle */}
+      <div className="flex rounded-lg border border-zinc-800 bg-zinc-900/60 p-1 gap-1">
+        <button
+          type="button"
+          onClick={() => setMode("search")}
+          className={`flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-md text-xs font-medium transition-colors ${
+            mode === "search"
+              ? "bg-violet-600 text-white shadow-sm"
+              : "text-zinc-500 hover:text-zinc-300"
+          }`}
+        >
+          <Sparkles className="h-3.5 w-3.5" />
+          AI Search
+        </button>
+        <button
+          type="button"
+          onClick={() => setMode("masterlist")}
+          className={`flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-md text-xs font-medium transition-colors ${
+            mode === "masterlist"
+              ? "bg-emerald-600 text-white shadow-sm"
+              : "text-zinc-500 hover:text-zinc-300"
+          }`}
+        >
+          <FileText className="h-3.5 w-3.5" />
+          Start with Master List
+        </button>
+      </div>
+
+      {/* Master list explanation */}
+      {mode === "masterlist" && (
+        <div className="flex items-start gap-2.5 px-3 py-2.5 bg-emerald-500/8 border border-emerald-500/20 rounded-xl text-xs text-emerald-400/80 leading-relaxed">
+          <FileText className="h-3.5 w-3.5 text-emerald-500 shrink-0 mt-0.5" />
+          <span>
+            Upload a pre-assembled CSV (Scopus export format). We skip the database search phase
+            and take your list straight to screening, extraction, and synthesis.
+          </span>
+        </div>
+      )}
+
+      {/* CSV upload (masterlist mode only) */}
+      {mode === "masterlist" && (
+        <CsvDropZone file={csvFile} onFile={setCsvFile} />
+      )}
+
       {/* Research question */}
       <div>
-        <label className="block text-xs font-semibold text-zinc-400 mb-2 uppercase tracking-wide">
+        <label className="block label-caps font-semibold mb-2">
           Research Question
         </label>
         <Textarea
@@ -339,7 +669,7 @@ function QuestionStage({
 
       {/* Gemini key */}
       <div>
-        <label className="block text-xs font-semibold text-zinc-400 mb-2 uppercase tracking-wide">
+        <label className="block label-caps font-semibold mb-2">
           Gemini API Key <span className="text-red-500">*</span>
         </label>
         <div className="relative">
@@ -376,7 +706,7 @@ function QuestionStage({
       <Button
         type="button"
         onClick={() => void handleGenerate()}
-        disabled={!question.trim() || !geminiKey.trim()}
+        disabled={!canGenerate}
         className="w-full h-11 bg-violet-600 hover:bg-violet-500 disabled:opacity-40 text-white font-semibold gap-2 transition-colors"
       >
         <Sparkles className="h-4 w-4" />
@@ -450,6 +780,8 @@ interface Stage2Props {
   question: string | null
   onBack: () => void
   onSubmit: (req: RunRequest) => Promise<void>
+  onSubmitWithCsv?: (csvFile: File, req: RunRequest) => Promise<void>
+  csvFile?: File | null
   disabled: boolean
   defaultYaml: string
 }
@@ -460,6 +792,8 @@ function ConfigReviewStage({
   question,
   onBack,
   onSubmit,
+  onSubmitWithCsv,
+  csvFile,
   disabled,
   defaultYaml,
 }: Stage2Props) {
@@ -490,7 +824,7 @@ function ConfigReviewStage({
     setSubmitting(true)
     try {
       saveApiKeys(keys)
-      await onSubmit({
+      const req: RunRequest = {
         review_yaml: yaml || defaultYaml,
         gemini_api_key: keys.gemini,
         openalex_api_key: keys.openalex || undefined,
@@ -500,12 +834,19 @@ function ConfigReviewStage({
         perplexity_api_key: keys.perplexity || undefined,
         semantic_scholar_api_key: keys.semanticScholar || undefined,
         crossref_email: keys.crossrefEmail || undefined,
-      })
+      }
+      if (csvFile && onSubmitWithCsv) {
+        await onSubmitWithCsv(csvFile, req)
+      } else {
+        await onSubmit(req)
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
       setSubmitting(false)
     }
   }
+
+  const isMasterlist = !!csvFile
 
   return (
     <div className="flex flex-col gap-5">
@@ -529,12 +870,31 @@ function ConfigReviewStage({
         </div>
       </div>
 
+      {/* Master list badge */}
+      {isMasterlist && (
+        <div className="flex items-start gap-2.5 px-3 py-2.5 bg-violet-500/10 border border-violet-500/20 rounded-xl text-xs text-violet-300">
+          <FileText className="h-3.5 w-3.5 flex-shrink-0 mt-0.5" />
+          <span className="leading-relaxed">
+            Master list mode: <span className="font-medium text-violet-200">{csvFile.name}</span> will be used
+            as the paper source. Database connectors will be skipped.
+          </span>
+        </div>
+      )}
+
       {/* Generated banner */}
-      {question && (
+      {question && !isMasterlist && (
         <div className="flex items-start gap-2.5 px-3 py-2.5 bg-emerald-500/10 border border-emerald-500/20 rounded-xl text-xs text-emerald-400">
           <Sparkles className="h-3.5 w-3.5 flex-shrink-0 mt-0.5" />
           <span className="leading-relaxed">
             Config generated from your research question. Edit the YAML below if needed, add your API keys, then launch.
+          </span>
+        </div>
+      )}
+      {question && isMasterlist && (
+        <div className="flex items-start gap-2.5 px-3 py-2.5 bg-emerald-500/10 border border-emerald-500/20 rounded-xl text-xs text-emerald-400">
+          <Sparkles className="h-3.5 w-3.5 flex-shrink-0 mt-0.5" />
+          <span className="leading-relaxed">
+            Config generated from your research question. Review the YAML, add your Gemini key, then launch.
           </span>
         </div>
       )}
@@ -543,7 +903,7 @@ function ConfigReviewStage({
       <div>
         <div className="flex items-center gap-2 mb-2">
           <FileCode2 className="h-3.5 w-3.5 text-zinc-500" />
-          <label className="text-xs font-semibold text-zinc-400 uppercase tracking-wide">
+          <label className="label-caps font-semibold">
             Review Config (YAML)
           </label>
         </div>
@@ -593,10 +953,11 @@ function ConfigReviewStage({
 // Main SetupView
 // ---------------------------------------------------------------------------
 
-export function SetupView({ defaultReviewYaml, onSubmit, disabled }: SetupViewProps) {
+export function SetupView({ defaultReviewYaml, onSubmit, onSubmitWithCsv, disabled }: SetupViewProps) {
   const [stage, setStage] = useState<Stage>("question")
   const [generatedYaml, setGeneratedYaml] = useState("")
   const [researchQuestion, setResearchQuestion] = useState<string | null>(null)
+  const [pendingCsvFile, setPendingCsvFile] = useState<File | null>(null)
   const [history, setHistory] = useState<HistoryEntry[]>([])
   const [loadingHistoryId, setLoadingHistoryId] = useState<string | null>(null)
   const [loadError, setLoadError] = useState<string | null>(null)
@@ -605,15 +966,17 @@ export function SetupView({ defaultReviewYaml, onSubmit, disabled }: SetupViewPr
     fetchHistory().then(setHistory).catch(() => setHistory([]))
   }, [])
 
-  function handleGenerated(yaml: string, question: string) {
+  function handleGenerated(yaml: string, question: string, csvFile?: File) {
     setGeneratedYaml(yaml)
     setResearchQuestion(question)
+    setPendingCsvFile(csvFile ?? null)
     setStage("review")
   }
 
   function handlePasteYaml() {
     setGeneratedYaml(defaultReviewYaml)
     setResearchQuestion(null)
+    setPendingCsvFile(null)
     setStage("review")
   }
 
@@ -630,6 +993,7 @@ export function SetupView({ defaultReviewYaml, onSubmit, disabled }: SetupViewPr
       }
       setGeneratedYaml(yaml)
       setResearchQuestion(entry.topic)
+      setPendingCsvFile(null)
       setStage("review")
     } catch {
       setLoadError("Failed to load config for that run.")
@@ -660,6 +1024,8 @@ export function SetupView({ defaultReviewYaml, onSubmit, disabled }: SetupViewPr
             setLoadError(null)
           }}
           onSubmit={onSubmit}
+          onSubmitWithCsv={onSubmitWithCsv}
+          csvFile={pendingCsvFile}
           disabled={disabled}
           defaultYaml={defaultReviewYaml}
         />
