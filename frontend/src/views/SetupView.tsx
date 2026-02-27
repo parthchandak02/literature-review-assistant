@@ -1,13 +1,33 @@
 import { useState, useEffect, useRef } from "react"
-import { ChevronDown, Clock, Eye, EyeOff, RotateCcw, Sparkles, Wand2, X } from "lucide-react"
+import {
+  ChevronDown,
+  ChevronLeft,
+  Clock,
+  Eye,
+  EyeOff,
+  RotateCcw,
+  Sparkles,
+  Wand2,
+  FileCode2,
+  Key,
+} from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
-import { RunForm } from "@/components/RunForm"
-import { fetchHistory, fetchRunConfig, generateConfig, loadApiKeys } from "@/lib/api"
-import type { HistoryEntry, RunRequest } from "@/lib/api"
+import {
+  fetchHistory,
+  fetchRunConfig,
+  generateConfig,
+  loadApiKeys,
+  saveApiKeys,
+} from "@/lib/api"
+import { FetchError } from "@/components/ui/feedback"
+import { formatShortDate } from "@/lib/format"
+import type { HistoryEntry, RunRequest, StoredApiKeys } from "@/lib/api"
 
-type Mode = "ai" | "yaml" | "manual"
+// ---------------------------------------------------------------------------
+// Types
+// ---------------------------------------------------------------------------
 
 interface SetupViewProps {
   defaultReviewYaml: string
@@ -15,55 +35,10 @@ interface SetupViewProps {
   disabled: boolean
 }
 
-function formatDate(iso: string): string {
-  if (!iso) return ""
-  try {
-    const d = new Date(iso)
-    return d.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })
-  } catch {
-    return iso.slice(0, 10)
-  }
-}
+type Stage = "question" | "review"
 
 // ---------------------------------------------------------------------------
-// Mode pill selector
-// ---------------------------------------------------------------------------
-
-interface ModeSelectorProps {
-  mode: Mode
-  onSelect: (m: Mode) => void
-}
-
-function ModeSelector({ mode, onSelect }: ModeSelectorProps) {
-  const modes: Array<{ id: Mode; label: string; desc: string }> = [
-    { id: "ai", label: "AI Generate", desc: "Enter a research question, we fill everything" },
-    { id: "yaml", label: "YAML", desc: "Paste or edit the config YAML directly" },
-    { id: "manual", label: "Manual", desc: "Fill out each field yourself" },
-  ]
-  return (
-    <div className="flex gap-1 p-1 bg-zinc-900 border border-zinc-800 rounded-xl mb-5">
-      {modes.map((m) => (
-        <button
-          key={m.id}
-          type="button"
-          onClick={() => onSelect(m.id)}
-          title={m.desc}
-          className={`flex-1 text-xs py-2 px-3 rounded-lg font-medium transition-all ${
-            mode === m.id
-              ? "bg-violet-600/25 border border-violet-500/40 text-violet-200"
-              : "text-zinc-500 hover:text-zinc-300 border border-transparent"
-          }`}
-        >
-          {m.id === "ai" && <Sparkles className="inline h-3 w-3 mr-1 -mt-px opacity-70" />}
-          {m.label}
-        </button>
-      ))}
-    </div>
-  )
-}
-
-// ---------------------------------------------------------------------------
-// Generation steps for the loading screen
+// Generation steps (shown while AI is working)
 // ---------------------------------------------------------------------------
 
 const GEN_STEPS = [
@@ -75,32 +50,25 @@ const GEN_STEPS = [
   { label: "Finalizing domain and scope", detail: "Summarizing coverage and boundaries" },
 ]
 
-// Approximate ms each step takes (total ~15s spread across steps)
-const STEP_DURATIONS = [1800, 2800, 2600, 2400, 2400, 2000]
+const STEP_DURATIONS = [1500, 2200, 2200, 2000, 2000]
 
 function GeneratingScreen() {
   const [activeStep, setActiveStep] = useState(0)
-  const [doneSteps, setDoneSteps] = useState<Set<number>>(new Set())
 
   useEffect(() => {
-    let step = 0
-    let timeout: ReturnType<typeof setTimeout>
-
-    function advance() {
-      if (step >= GEN_STEPS.length - 1) return
-      setDoneSteps((prev) => new Set([...prev, step]))
-      step++
-      setActiveStep(step)
-      timeout = setTimeout(advance, STEP_DURATIONS[step] ?? 2000)
+    const timeouts: ReturnType<typeof setTimeout>[] = []
+    let elapsed = 0
+    for (let i = 0; i < STEP_DURATIONS.length; i++) {
+      elapsed += STEP_DURATIONS[i]
+      const nextStep = i + 1
+      const t = setTimeout(() => setActiveStep(nextStep), elapsed)
+      timeouts.push(t)
     }
-
-    timeout = setTimeout(advance, STEP_DURATIONS[0])
-    return () => clearTimeout(timeout)
+    return () => timeouts.forEach(clearTimeout)
   }, [])
 
   return (
-    <div className="flex flex-col items-center py-6 gap-6">
-      {/* Pulsing icon */}
+    <div className="flex flex-col items-center py-8 gap-6">
       <div className="relative flex items-center justify-center">
         <div className="absolute w-16 h-16 rounded-full bg-violet-500/10 animate-ping" />
         <div className="absolute w-12 h-12 rounded-full bg-violet-500/15 animate-pulse" />
@@ -111,15 +79,13 @@ function GeneratingScreen() {
 
       <div className="text-center">
         <p className="text-sm font-semibold text-zinc-200 mb-0.5">Generating your review config</p>
-        <p className="text-xs text-zinc-500">Usually 10-20 seconds -- sit tight</p>
+        <p className="text-xs text-zinc-500">Usually 20-30 seconds</p>
       </div>
 
-      {/* Step list */}
       <div className="w-full flex flex-col gap-1.5">
         {GEN_STEPS.map((step, i) => {
-          const done = doneSteps.has(i)
-          const active = activeStep === i
-          const pending = !done && !active
+          const done = i < activeStep
+          const active = i === activeStep
           return (
             <div
               key={i}
@@ -131,7 +97,6 @@ function GeneratingScreen() {
                   : "bg-zinc-900/40 border-zinc-800/60"
               }`}
             >
-              {/* Status indicator */}
               <div className="flex-shrink-0 mt-0.5">
                 {done ? (
                   <div className="w-4 h-4 rounded-full bg-emerald-500/30 border border-emerald-400/50 flex items-center justify-center">
@@ -145,8 +110,6 @@ function GeneratingScreen() {
                   <div className="w-4 h-4 rounded-full border border-zinc-700" />
                 )}
               </div>
-
-              {/* Text */}
               <div className="flex-1 min-w-0">
                 <p className={`text-xs font-medium leading-snug ${
                   done ? "text-emerald-300/80" : active ? "text-violet-200" : "text-zinc-600"
@@ -160,10 +123,13 @@ function GeneratingScreen() {
                     {step.detail}
                   </p>
                 )}
+                {active && i === GEN_STEPS.length - 1 && (
+                  <p className="text-xs mt-1 text-violet-400/70 animate-pulse leading-snug">
+                    Searching the web and building your config...
+                  </p>
+                )}
               </div>
-
-              {/* Active dots animation */}
-              {active && (
+              {active && i < GEN_STEPS.length - 1 && (
                 <div className="flex gap-0.5 mt-1 flex-shrink-0">
                   {[0, 1, 2].map((d) => (
                     <div
@@ -183,27 +149,145 @@ function GeneratingScreen() {
 }
 
 // ---------------------------------------------------------------------------
-// AI Generate panel (shown before generation completes)
+// API Keys section (inline, used in Stage 2 before launching)
 // ---------------------------------------------------------------------------
 
-interface AIGeneratePanelProps {
-  onGenerated: (yaml: string, question: string) => void
+interface ApiKeysProps {
+  keys: StoredApiKeys
+  onChange: (k: StoredApiKeys) => void
 }
 
-function AIGeneratePanel({ onGenerated }: AIGeneratePanelProps) {
+function ApiKeysSection({ keys, onChange }: ApiKeysProps) {
+  const [expanded, setExpanded] = useState(false)
+  const [showGemini, setShowGemini] = useState(false)
+
+  const fields: { id: keyof StoredApiKeys; label: string; placeholder: string; required?: boolean }[] = [
+    { id: "gemini", label: "Gemini API Key", placeholder: "AIza...", required: true },
+    { id: "openalex", label: "OpenAlex Email", placeholder: "user@example.com" },
+    { id: "pubmedEmail", label: "PubMed Email", placeholder: "user@example.com" },
+    { id: "pubmedApiKey", label: "PubMed API Key", placeholder: "optional -- increases rate limits" },
+    { id: "ieee", label: "IEEE Xplore API Key", placeholder: "optional" },
+    { id: "perplexity", label: "Perplexity API Key", placeholder: "pplx-..." },
+    { id: "semanticScholar", label: "Semantic Scholar API Key", placeholder: "optional" },
+    { id: "crossrefEmail", label: "Crossref Email", placeholder: "user@example.com" },
+  ]
+
+  const primaryField = fields[0]
+  const extraFields = fields.slice(1)
+
+  return (
+    <div className="rounded-xl border border-zinc-800 bg-zinc-900/50 overflow-hidden">
+      <div className="flex items-center gap-2 px-4 py-3 border-b border-zinc-800">
+        <Key className="h-3.5 w-3.5 text-zinc-500 shrink-0" />
+        <span className="text-xs font-semibold text-zinc-300 flex-1">API Keys</span>
+        {!keys.gemini && (
+          <span className="text-[10px] text-red-400 font-medium">Gemini key required</span>
+        )}
+      </div>
+
+      <div className="px-4 py-4 space-y-3">
+        {/* Gemini key -- always shown */}
+        <div>
+          <label className="block text-xs font-medium text-zinc-400 mb-1.5">
+            {primaryField.label} <span className="text-red-500">*</span>
+          </label>
+          <div className="relative">
+            <Input
+              type={showGemini ? "text" : "password"}
+              value={keys.gemini}
+              onChange={(e) => onChange({ ...keys, gemini: e.target.value })}
+              placeholder={primaryField.placeholder}
+              autoComplete="off"
+              className="pr-9 h-9 text-xs bg-zinc-950 border-zinc-700 text-zinc-200 placeholder:text-zinc-600 focus-visible:ring-violet-500/50"
+            />
+            <button
+              type="button"
+              onClick={() => setShowGemini((v) => !v)}
+              className="absolute right-2.5 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-zinc-300 transition-colors"
+            >
+              {showGemini ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+            </button>
+          </div>
+        </div>
+
+        {/* Optional keys toggle */}
+        <button
+          type="button"
+          onClick={() => setExpanded((v) => !v)}
+          className="flex items-center gap-1.5 text-xs text-zinc-500 hover:text-zinc-300 transition-colors"
+        >
+          <ChevronDown className={`h-3.5 w-3.5 transition-transform ${expanded ? "rotate-180" : ""}`} />
+          {expanded ? "Hide optional API keys" : "Add optional API keys (OpenAlex, PubMed, IEEE...)"}
+        </button>
+
+        {expanded && extraFields.map((f) => (
+          <div key={f.id}>
+            <label className="block text-xs font-medium text-zinc-500 mb-1">
+              {f.label}
+            </label>
+            <Input
+              type="text"
+              value={keys[f.id]}
+              onChange={(e) => onChange({ ...keys, [f.id]: e.target.value })}
+              placeholder={f.placeholder}
+              autoComplete="off"
+              className="h-9 text-xs bg-zinc-950 border-zinc-700 text-zinc-200 placeholder:text-zinc-600 focus-visible:ring-violet-500/50"
+            />
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Stage 1 -- Question input
+// ---------------------------------------------------------------------------
+
+interface Stage1Props {
+  onGenerated: (yaml: string, question: string) => void
+  onPasteYaml: () => void
+  history: HistoryEntry[]
+  onLoadFromHistory: (entry: HistoryEntry) => void
+  loadingHistoryId: string | null
+  loadError: string | null
+  onClearError: () => void
+}
+
+function QuestionStage({
+  onGenerated,
+  onPasteYaml,
+  history,
+  onLoadFromHistory,
+  loadingHistoryId,
+  loadError,
+  onClearError,
+}: Stage1Props) {
   const [question, setQuestion] = useState("")
   const [geminiKey, setGeminiKey] = useState("")
   const [showKey, setShowKey] = useState(false)
   const [generating, setGenerating] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [showHistory, setShowHistory] = useState(false)
+  const dropdownRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     const stored = loadApiKeys()
     if (stored?.gemini) setGeminiKey(stored.gemini)
   }, [])
 
+  useEffect(() => {
+    function handler(e: MouseEvent) {
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
+        setShowHistory(false)
+      }
+    }
+    if (showHistory) document.addEventListener("mousedown", handler)
+    return () => document.removeEventListener("mousedown", handler)
+  }, [showHistory])
+
   async function handleGenerate() {
-    if (!question.trim()) return
+    if (!question.trim() || !geminiKey.trim()) return
     setError(null)
     setGenerating(true)
     try {
@@ -219,36 +303,43 @@ function AIGeneratePanel({ onGenerated }: AIGeneratePanelProps) {
     return <GeneratingScreen />
   }
 
+  const completedRuns = history.filter((h) => h.status === "completed").slice(0, 10)
+
   return (
-    <div className="flex flex-col gap-3">
-      <div className="text-center py-4">
-        <div className="inline-flex items-center justify-center w-10 h-10 rounded-xl bg-violet-600/20 border border-violet-500/30 mb-3">
+    <div className="flex flex-col gap-5">
+      {/* Hero */}
+      <div className="text-center pt-6 pb-2">
+        <div className="inline-flex items-center justify-center w-11 h-11 rounded-xl bg-violet-600/20 border border-violet-500/30 mb-4">
           <Wand2 className="h-5 w-5 text-violet-400" />
         </div>
-        <h3 className="text-sm font-semibold text-zinc-200 mb-1">
-          Describe your research question
-        </h3>
-        <p className="text-xs text-zinc-500 max-w-sm mx-auto leading-relaxed">
-          We will automatically generate the PICO framework, search keywords, inclusion and
-          exclusion criteria, and scope -- ready to launch.
+        <h2 className="text-lg font-semibold text-zinc-100 mb-1">New Systematic Review</h2>
+        <p className="text-sm text-zinc-500 max-w-sm mx-auto leading-relaxed">
+          Describe your research question. We generate the PICO framework, search keywords,
+          inclusion and exclusion criteria automatically.
         </p>
       </div>
 
-      <Textarea
-        value={question}
-        onChange={(e) => setQuestion(e.target.value)}
-        rows={4}
-        placeholder="e.g. What is the impact of autonomous UV-C disinfection robots on pathogen reduction and healthcare-associated infection rates in hospital settings?"
-        className="resize-none text-sm bg-zinc-900 border-zinc-800 text-zinc-200 placeholder:text-zinc-600 focus-visible:ring-violet-500/50 leading-relaxed"
-        onKeyDown={(e) => {
-          if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) void handleGenerate()
-        }}
-      />
-      <p className="text-xs text-zinc-600 -mt-1">Cmd+Enter to generate</p>
-
-      {/* Gemini API key */}
+      {/* Research question */}
       <div>
-        <label className="block text-xs font-medium text-zinc-400 mb-1">
+        <label className="block text-xs font-semibold text-zinc-400 mb-2 uppercase tracking-wide">
+          Research Question
+        </label>
+        <Textarea
+          value={question}
+          onChange={(e) => setQuestion(e.target.value)}
+          rows={4}
+          placeholder="e.g. What is the impact of autonomous UV-C disinfection robots on pathogen reduction and healthcare-associated infection rates in hospital settings?"
+          className="resize-none text-sm bg-zinc-900 border-zinc-800 text-zinc-200 placeholder:text-zinc-600 focus-visible:ring-violet-500/50 leading-relaxed"
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) void handleGenerate()
+          }}
+        />
+        <p className="text-xs text-zinc-600 mt-1.5">Cmd+Enter to generate</p>
+      </div>
+
+      {/* Gemini key */}
+      <div>
+        <label className="block text-xs font-semibold text-zinc-400 mb-2 uppercase tracking-wide">
           Gemini API Key <span className="text-red-500">*</span>
         </label>
         <div className="relative">
@@ -258,7 +349,7 @@ function AIGeneratePanel({ onGenerated }: AIGeneratePanelProps) {
             onChange={(e) => setGeminiKey(e.target.value)}
             placeholder="AIza..."
             autoComplete="off"
-            className="pr-9 h-9 text-xs bg-zinc-900 border-zinc-800 text-zinc-200 placeholder:text-zinc-600 focus-visible:ring-violet-500/50"
+            className="pr-9 h-10 text-sm bg-zinc-900 border-zinc-800 text-zinc-200 placeholder:text-zinc-600 focus-visible:ring-violet-500/50"
           />
           <button
             type="button"
@@ -268,26 +359,231 @@ function AIGeneratePanel({ onGenerated }: AIGeneratePanelProps) {
             {showKey ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
           </button>
         </div>
-        <p className="text-xs text-zinc-600 mt-1">
-          Used only for config generation. You can set it again in API Keys before starting.
+        <p className="text-xs text-zinc-600 mt-1.5">
+          Used to generate the config. You will confirm this key again before launching.
         </p>
       </div>
 
+      {/* Error */}
       {error && (
-        <div className="flex items-start gap-2 text-xs text-red-400 bg-red-500/10 border border-red-500/20 rounded-lg px-3 py-2.5">
-          <X className="h-3.5 w-3.5 mt-0.5 flex-shrink-0" />
-          <span className="leading-relaxed">{error}</span>
-        </div>
+        <FetchError message={error} onRetry={() => setError(null)} />
+      )}
+      {loadError && (
+        <FetchError message={loadError} onRetry={onClearError} />
       )}
 
+      {/* CTA */}
       <Button
         type="button"
         onClick={() => void handleGenerate()}
         disabled={!question.trim() || !geminiKey.trim()}
-        className="w-full h-10 bg-violet-600 hover:bg-violet-500 disabled:opacity-40 text-white font-medium gap-2 transition-colors"
+        className="w-full h-11 bg-violet-600 hover:bg-violet-500 disabled:opacity-40 text-white font-semibold gap-2 transition-colors"
       >
         <Sparkles className="h-4 w-4" />
         Generate Review Config
+      </Button>
+
+      {/* Secondary actions */}
+      <div className="flex items-center justify-between pt-1">
+        {/* Load from past run */}
+        <div className="relative" ref={dropdownRef}>
+          {completedRuns.length > 0 && (
+            <button
+              type="button"
+              onClick={() => setShowHistory((v) => !v)}
+              disabled={!!loadingHistoryId}
+              className="flex items-center gap-1.5 text-xs text-zinc-500 hover:text-zinc-300 transition-colors"
+            >
+              <RotateCcw className={`h-3.5 w-3.5 ${loadingHistoryId ? "animate-spin" : ""}`} />
+              {loadingHistoryId ? "Loading..." : "Load config from a past run"}
+              <ChevronDown className={`h-3 w-3 transition-transform ${showHistory ? "rotate-180" : ""}`} />
+            </button>
+          )}
+
+          {showHistory && (
+            <div className="absolute left-0 top-full mt-1.5 z-20 w-[400px] max-h-[280px] overflow-y-auto bg-zinc-900 border border-zinc-700 rounded-xl shadow-xl">
+              <div className="px-3 py-2 border-b border-zinc-800">
+                <p className="text-xs text-zinc-500">Select a completed run to reuse its config</p>
+              </div>
+              {completedRuns.map((entry) => (
+                <button
+                  key={entry.workflow_id}
+                  type="button"
+                  onClick={() => {
+                    setShowHistory(false)
+                    onLoadFromHistory(entry)
+                  }}
+                  className="w-full flex items-start gap-2.5 px-3 py-2.5 hover:bg-zinc-800/60 transition-colors text-left border-b border-zinc-800/50 last:border-0"
+                >
+                  <Clock className="h-3.5 w-3.5 text-zinc-600 mt-0.5 flex-shrink-0" />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-xs text-zinc-200 truncate leading-snug">{entry.topic}</p>
+                    <p className="text-xs text-zinc-600 mt-0.5">{formatShortDate(entry.created_at)}</p>
+                  </div>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Skip to YAML */}
+        <button
+          type="button"
+          onClick={onPasteYaml}
+          className="flex items-center gap-1.5 text-xs text-zinc-600 hover:text-zinc-400 transition-colors"
+        >
+          <FileCode2 className="h-3.5 w-3.5" />
+          Paste YAML directly
+        </button>
+      </div>
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Stage 2 -- Config review + API keys + Launch
+// ---------------------------------------------------------------------------
+
+interface Stage2Props {
+  yaml: string
+  onYamlChange: (y: string) => void
+  question: string | null
+  onBack: () => void
+  onSubmit: (req: RunRequest) => Promise<void>
+  disabled: boolean
+  defaultYaml: string
+}
+
+function ConfigReviewStage({
+  yaml,
+  onYamlChange,
+  question,
+  onBack,
+  onSubmit,
+  disabled,
+  defaultYaml,
+}: Stage2Props) {
+  const [keys, setKeys] = useState<StoredApiKeys>({
+    gemini: "",
+    openalex: "",
+    ieee: "",
+    pubmedEmail: "",
+    pubmedApiKey: "",
+    perplexity: "",
+    semanticScholar: "",
+    crossrefEmail: "",
+  })
+  const [submitting, setSubmitting] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    const stored = loadApiKeys()
+    if (stored) setKeys(stored)
+  }, [])
+
+  async function handleLaunch() {
+    if (!keys.gemini.trim()) {
+      setError("Gemini API key is required to start a review.")
+      return
+    }
+    setError(null)
+    setSubmitting(true)
+    try {
+      saveApiKeys(keys)
+      await onSubmit({
+        review_yaml: yaml || defaultYaml,
+        gemini_api_key: keys.gemini,
+        openalex_api_key: keys.openalex || undefined,
+        ieee_api_key: keys.ieee || undefined,
+        pubmed_email: keys.pubmedEmail || undefined,
+        pubmed_api_key: keys.pubmedApiKey || undefined,
+        perplexity_api_key: keys.perplexity || undefined,
+        semantic_scholar_api_key: keys.semanticScholar || undefined,
+        crossref_email: keys.crossrefEmail || undefined,
+      })
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+      setSubmitting(false)
+    }
+  }
+
+  return (
+    <div className="flex flex-col gap-5">
+      {/* Header */}
+      <div className="flex items-center gap-3">
+        <button
+          type="button"
+          onClick={onBack}
+          className="flex items-center gap-1 text-xs text-zinc-500 hover:text-zinc-300 transition-colors"
+        >
+          <ChevronLeft className="h-3.5 w-3.5" />
+          Back
+        </button>
+        <div className="flex-1">
+          <h2 className="text-base font-semibold text-zinc-100">Review Configuration</h2>
+          {question && (
+            <p className="text-xs text-zinc-500 mt-0.5 leading-relaxed truncate max-w-md" title={question}>
+              Generated for: {question}
+            </p>
+          )}
+        </div>
+      </div>
+
+      {/* Generated banner */}
+      {question && (
+        <div className="flex items-start gap-2.5 px-3 py-2.5 bg-emerald-500/10 border border-emerald-500/20 rounded-xl text-xs text-emerald-400">
+          <Sparkles className="h-3.5 w-3.5 flex-shrink-0 mt-0.5" />
+          <span className="leading-relaxed">
+            Config generated from your research question. Edit the YAML below if needed, add your API keys, then launch.
+          </span>
+        </div>
+      )}
+
+      {/* YAML editor */}
+      <div>
+        <div className="flex items-center gap-2 mb-2">
+          <FileCode2 className="h-3.5 w-3.5 text-zinc-500" />
+          <label className="text-xs font-semibold text-zinc-400 uppercase tracking-wide">
+            Review Config (YAML)
+          </label>
+        </div>
+        <Textarea
+          value={yaml}
+          onChange={(e) => onYamlChange(e.target.value)}
+          rows={16}
+          placeholder="Paste your review.yaml content here..."
+          className="resize-none text-xs font-mono bg-zinc-950 border-zinc-800 text-zinc-300 placeholder:text-zinc-600 focus-visible:ring-violet-500/50 leading-relaxed"
+          spellCheck={false}
+        />
+        <p className="text-xs text-zinc-600 mt-1.5">
+          Edit any field before launching. The YAML drives all phases of the review.
+        </p>
+      </div>
+
+      {/* API Keys */}
+      <ApiKeysSection keys={keys} onChange={setKeys} />
+
+      {/* Error */}
+      {error && <FetchError message={error} onRetry={() => setError(null)} />}
+
+      {/* Launch */}
+      <Button
+        type="button"
+        onClick={() => void handleLaunch()}
+        disabled={disabled || submitting || !keys.gemini.trim()}
+        className="w-full h-11 bg-violet-600 hover:bg-violet-500 disabled:opacity-40 text-white font-semibold gap-2 transition-colors"
+      >
+        {submitting ? (
+          <>
+            <div className="h-4 w-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+            Starting...
+          </>
+        ) : (
+          <>
+            <Sparkles className="h-4 w-4" />
+            Launch Review
+          </>
+        )}
       </Button>
     </div>
   )
@@ -298,210 +594,74 @@ function AIGeneratePanel({ onGenerated }: AIGeneratePanelProps) {
 // ---------------------------------------------------------------------------
 
 export function SetupView({ defaultReviewYaml, onSubmit, disabled }: SetupViewProps) {
-  const [mode, setMode] = useState<Mode>("ai")
+  const [stage, setStage] = useState<Stage>("question")
+  const [generatedYaml, setGeneratedYaml] = useState("")
+  const [researchQuestion, setResearchQuestion] = useState<string | null>(null)
   const [history, setHistory] = useState<HistoryEntry[]>([])
-  const [loadYaml, setLoadYaml] = useState<string | null>(null)
-  const [loadedRunTopic, setLoadedRunTopic] = useState<string | null>(null)
-  const [loadingConfig, setLoadingConfig] = useState<string | null>(null)
+  const [loadingHistoryId, setLoadingHistoryId] = useState<string | null>(null)
   const [loadError, setLoadError] = useState<string | null>(null)
-  const [showDropdown, setShowDropdown] = useState(false)
-  const [aiGeneratedQuestion, setAiGeneratedQuestion] = useState<string | null>(null)
-
-  const dropdownRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     fetchHistory().then(setHistory).catch(() => setHistory([]))
   }, [])
 
-  useEffect(() => {
-    function handler(e: MouseEvent) {
-      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
-        setShowDropdown(false)
-      }
-    }
-    if (showDropdown) document.addEventListener("mousedown", handler)
-    return () => document.removeEventListener("mousedown", handler)
-  }, [showDropdown])
+  function handleGenerated(yaml: string, question: string) {
+    setGeneratedYaml(yaml)
+    setResearchQuestion(question)
+    setStage("review")
+  }
 
-  async function handleLoadRun(entry: HistoryEntry) {
-    setShowDropdown(false)
+  function handlePasteYaml() {
+    setGeneratedYaml(defaultReviewYaml)
+    setResearchQuestion(null)
+    setStage("review")
+  }
+
+  async function handleLoadFromHistory(entry: HistoryEntry) {
     setLoadError(null)
-    setLoadingConfig(entry.workflow_id)
+    setLoadingHistoryId(entry.workflow_id)
     try {
       const yaml = await fetchRunConfig(entry.workflow_id)
       if (!yaml) {
         setLoadError(
-          `Config not saved for "${entry.topic}". Only runs started after this feature was added can be loaded.`
+          `Config not saved for that run. Only runs started recently can be reloaded.`
         )
         return
       }
-      setLoadYaml(yaml)
-      setLoadedRunTopic(entry.topic)
-      setAiGeneratedQuestion(null)
-      setMode("manual")
+      setGeneratedYaml(yaml)
+      setResearchQuestion(entry.topic)
+      setStage("review")
     } catch {
       setLoadError("Failed to load config for that run.")
     } finally {
-      setLoadingConfig(null)
+      setLoadingHistoryId(null)
     }
   }
 
-  function clearLoaded() {
-    setLoadYaml(null)
-    setLoadedRunTopic(null)
-    setLoadError(null)
-    setAiGeneratedQuestion(null)
-  }
-
-  function handleModeChange(m: Mode) {
-    setMode(m)
-    setLoadError(null)
-  }
-
-  function handleAIGenerated(yaml: string, question: string) {
-    setLoadYaml(yaml)
-    setAiGeneratedQuestion(question)
-  }
-
-  const recentRuns = history.filter((h) => h.status === "completed").slice(0, 10)
-  const allSectionsOpen = ["pico", "keywords", "criteria", "sources", "api-keys"]
-
   return (
-    <div className="max-w-2xl mx-auto pt-2 pb-16">
-      <div className="mb-5">
-        <h2 className="text-base font-semibold text-zinc-200">New Systematic Review</h2>
-        <p className="text-xs text-zinc-500 mt-1 leading-relaxed">
-          Choose how you want to configure your review below.
-        </p>
-      </div>
-
-      <ModeSelector mode={mode} onSelect={handleModeChange} />
-
-      {/* Load from past run (available in all modes) */}
-      {recentRuns.length > 0 && (
-        <div className="relative mb-4" ref={dropdownRef}>
-          <div className="flex items-center gap-2">
-            {loadedRunTopic ? (
-              <div className="flex items-center gap-2 text-xs text-violet-300 bg-violet-600/15 border border-violet-500/30 rounded-lg px-3 py-1.5">
-                <RotateCcw className="h-3 w-3 flex-shrink-0" />
-                <span className="truncate max-w-[280px]">
-                  Loaded config from: &quot;{loadedRunTopic}&quot;
-                </span>
-                <button
-                  type="button"
-                  onClick={clearLoaded}
-                  className="ml-1 text-violet-400 hover:text-violet-200 transition-colors flex-shrink-0"
-                >
-                  <X className="h-3 w-3" />
-                </button>
-              </div>
-            ) : (
-              <button
-                type="button"
-                onClick={() => setShowDropdown((v) => !v)}
-                disabled={!!loadingConfig}
-                className="flex items-center gap-1.5 text-xs text-zinc-500 hover:text-zinc-300 transition-colors"
-              >
-                <RotateCcw className={`h-3.5 w-3.5 ${loadingConfig ? "animate-spin" : ""}`} />
-                {loadingConfig ? "Loading config..." : "Load config from a past run"}
-                <ChevronDown className={`h-3 w-3 transition-transform ${showDropdown ? "" : "-rotate-90"}`} />
-              </button>
-            )}
-          </div>
-
-          {showDropdown && (
-            <div className="absolute left-0 top-full mt-1 z-20 w-[420px] max-h-[280px] overflow-y-auto bg-zinc-900 border border-zinc-700 rounded-xl shadow-xl">
-              <div className="px-3 py-2 border-b border-zinc-800">
-                <p className="text-xs text-zinc-500">Select a completed run to reuse its configuration</p>
-              </div>
-              {recentRuns.map((entry) => (
-                <button
-                  key={entry.workflow_id}
-                  type="button"
-                  onClick={() => void handleLoadRun(entry)}
-                  className="w-full flex items-start gap-2.5 px-3 py-2.5 hover:bg-zinc-800/60 transition-colors text-left border-b border-zinc-800/50 last:border-0"
-                >
-                  <Clock className="h-3.5 w-3.5 text-zinc-600 mt-0.5 flex-shrink-0" />
-                  <div className="flex-1 min-w-0">
-                    <p className="text-xs text-zinc-200 truncate leading-snug">{entry.topic}</p>
-                    <p className="text-xs text-zinc-600 mt-0.5">{formatDate(entry.created_at)}</p>
-                  </div>
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* Load error */}
-      {loadError && (
-        <div className="mb-4 flex items-start gap-2 text-xs text-amber-400/80 bg-amber-500/10 border border-amber-500/20 rounded-lg px-3 py-2.5">
-          <span className="leading-relaxed">{loadError}</span>
-          <button
-            type="button"
-            onClick={() => setLoadError(null)}
-            className="ml-auto text-amber-500/60 hover:text-amber-400 transition-colors flex-shrink-0"
-          >
-            <X className="h-3.5 w-3.5" />
-          </button>
-        </div>
-      )}
-
-      {/* Mode 1: AI Generate */}
-      {mode === "ai" && !aiGeneratedQuestion && (
-        <AIGeneratePanel onGenerated={handleAIGenerated} />
-      )}
-
-      {mode === "ai" && aiGeneratedQuestion && (
-        <>
-          <div className="flex items-center gap-2.5 px-3 py-2.5 bg-emerald-500/10 border border-emerald-500/20 rounded-xl mb-4 text-xs text-emerald-400">
-            <Sparkles className="h-3.5 w-3.5 flex-shrink-0" />
-            <span className="flex-1 leading-relaxed">
-              Config generated from your research question. Review and edit the fields below,
-              then click Start.
-            </span>
-            <button
-              type="button"
-              onClick={() => {
-                setAiGeneratedQuestion(null)
-                setLoadYaml(null)
-              }}
-              className="text-emerald-600 hover:text-emerald-400 transition-colors flex-shrink-0"
-              title="Generate again"
-            >
-              <X className="h-3.5 w-3.5" />
-            </button>
-          </div>
-          <RunForm
-            defaultReviewYaml={defaultReviewYaml}
-            onSubmit={onSubmit}
-            disabled={disabled}
-            loadYaml={loadYaml}
-            defaultOpenSections={allSectionsOpen}
-          />
-        </>
-      )}
-
-      {/* Mode 2: YAML */}
-      {mode === "yaml" && (
-        <RunForm
-          defaultReviewYaml={defaultReviewYaml}
-          onSubmit={onSubmit}
-          disabled={disabled}
-          loadYaml={loadYaml}
-          defaultOpenSections={[]}
-          defaultAdvancedOpen={true}
+    <div className="max-w-xl mx-auto pt-4 pb-16">
+      {stage === "question" ? (
+        <QuestionStage
+          onGenerated={handleGenerated}
+          onPasteYaml={handlePasteYaml}
+          history={history}
+          onLoadFromHistory={(entry) => void handleLoadFromHistory(entry)}
+          loadingHistoryId={loadingHistoryId}
+          loadError={loadError}
+          onClearError={() => setLoadError(null)}
         />
-      )}
-
-      {/* Mode 3: Manual */}
-      {mode === "manual" && (
-        <RunForm
-          defaultReviewYaml={defaultReviewYaml}
+      ) : (
+        <ConfigReviewStage
+          yaml={generatedYaml}
+          onYamlChange={setGeneratedYaml}
+          question={researchQuestion}
+          onBack={() => {
+            setStage("question")
+            setLoadError(null)
+          }}
           onSubmit={onSubmit}
           disabled={disabled}
-          loadYaml={loadYaml}
-          defaultOpenSections={allSectionsOpen}
+          defaultYaml={defaultReviewYaml}
         />
       )}
     </div>

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef } from "react"
-import { ScrollArea } from "@/components/ui/scroll-area"
 import { cn } from "@/lib/utils"
+import { PHASE_LABELS } from "@/lib/constants"
 import type { ReviewEvent } from "@/lib/api"
 
 // ---------------------------------------------------------------------------
@@ -92,22 +92,17 @@ function eventToLogLine(ev: ReviewEvent): { text: string; level: "info" | "warn"
         level: "warn",
       }
     default:
-      return { text: JSON.stringify(ev), level: "dim" }
+      return { text: `[${fmtTs("ts" in ev ? (ev as { ts?: string }).ts : undefined)}] ${ev.type}`, level: "dim" }
   }
 }
+
+// Event types that produce no meaningful user-facing log line and should be
+// filtered out of the rendered output (infrastructure / plumbing events).
+const SKIP_EVENT_TYPES = new Set(["workflow_id_ready", "heartbeat"])
 
 // ---------------------------------------------------------------------------
 // Render item types (phase separators + LLM grouping)
 // ---------------------------------------------------------------------------
-
-const PHASE_LABELS: Record<string, string> = {
-  phase_2_search: "Search",
-  phase_3_screening: "Screening",
-  phase_4_extraction_quality: "Extraction & Quality",
-  phase_5_synthesis: "Synthesis",
-  phase_6_writing: "Writing",
-  finalize: "Finalize",
-}
 
 type RenderItem =
   | { kind: "phase-sep"; phase: string; label: string; key: string }
@@ -123,6 +118,12 @@ function buildRenderItems(events: ReviewEvent[]): RenderItem[] {
   while (i < events.length) {
     const ev = events[i]
     const ts = "ts" in ev ? (ev as { ts?: string }).ts ?? "" : ""
+
+    // Skip internal infrastructure events that have no user-facing meaning.
+    if (SKIP_EVENT_TYPES.has(ev.type)) {
+      i++
+      continue
+    }
 
     // Inject a visual phase separator before every phase_start event.
     if (ev.type === "phase_start") {
@@ -180,13 +181,35 @@ interface LogStreamProps {
 }
 
 export function LogStream({ events, autoScroll = true }: LogStreamProps) {
+  const scrollContainerRef = useRef<HTMLDivElement>(null)
   const bottomRef = useRef<HTMLDivElement>(null)
+  // True when the user has manually scrolled up so we suppress auto-scroll.
+  const userScrolledUp = useRef(false)
 
+  // Watch the sentinel element with an IntersectionObserver so we know whether
+  // the user has scrolled away from the bottom.
   useEffect(() => {
-    if (autoScroll) {
+    const sentinel = bottomRef.current
+    const container = scrollContainerRef.current
+    if (!sentinel || !container) return
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        userScrolledUp.current = !entry.isIntersecting
+      },
+      { root: container, threshold: 0 },
+    )
+    observer.observe(sentinel)
+    return () => observer.disconnect()
+  }, [])
+
+  // Scroll to bottom on new events only when the user hasn't scrolled up.
+  useEffect(() => {
+    if (autoScroll && !userScrolledUp.current) {
       bottomRef.current?.scrollIntoView({ behavior: "smooth" })
     }
   }, [events.length, autoScroll])
+
+  const renderItems = useMemo(() => buildRenderItems(events), [events])
 
   if (events.length === 0) {
     return (
@@ -196,11 +219,10 @@ export function LogStream({ events, autoScroll = true }: LogStreamProps) {
     )
   }
 
-  const renderItems = useMemo(() => buildRenderItems(events), [events])
-
   return (
-    <ScrollArea
-      className="h-[520px] w-full rounded-xl border border-zinc-800 bg-[#0d0d0f]"
+    <div
+      ref={scrollContainerRef}
+      className="h-[520px] w-full rounded-xl border border-zinc-800 bg-[#0d0d0f] overflow-y-auto"
       role="log"
       aria-live="polite"
       aria-label="Event log"
@@ -250,6 +272,6 @@ export function LogStream({ events, autoScroll = true }: LogStreamProps) {
         })}
         <div ref={bottomRef} />
       </div>
-    </ScrollArea>
+    </div>
   )
 }

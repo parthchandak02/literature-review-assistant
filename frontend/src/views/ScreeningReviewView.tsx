@@ -1,32 +1,9 @@
 import { useState, useEffect, useCallback } from "react"
 import { CheckCircle, XCircle, HelpCircle, ChevronDown, ChevronUp } from "lucide-react"
 import { cn } from "@/lib/utils"
-import { Spinner } from "@/components/ui/feedback"
-
-// ---------------------------------------------------------------------------
-// Types
-// ---------------------------------------------------------------------------
-
-interface ScreenedPaper {
-  paper_id: string
-  title: string
-  authors: string
-  year: number | null
-  source_database: string
-  doi: string | null
-  abstract: string | null
-  stage: string
-  decision: "include" | "uncertain" | "exclude"
-  rationale: string | null
-  confidence: number | null
-}
-
-interface ScreeningSummary {
-  run_id: string
-  total: number
-  papers: ScreenedPaper[]
-  instructions: string
-}
+import { Spinner, FetchError } from "@/components/ui/feedback"
+import { fetchScreeningSummary, approveScreening } from "@/lib/api"
+import type { ScreenedPaper, ScreeningSummary } from "@/lib/api"
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -159,12 +136,7 @@ export function ScreeningReviewView({ runId }: { runId: string }) {
     try {
       setLoading(true)
       setError(null)
-      const res = await fetch(`/api/run/${runId}/screening-summary`)
-      if (!res.ok) {
-        const text = await res.text()
-        throw new Error(`${res.status}: ${text}`)
-      }
-      const data: ScreeningSummary = await res.json()
+      const data = await fetchScreeningSummary(runId)
       setSummary(data)
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
@@ -174,18 +146,14 @@ export function ScreeningReviewView({ runId }: { runId: string }) {
   }, [runId])
 
   useEffect(() => {
-    load()
+    void load()
   }, [load])
 
   const handleApprove = async () => {
     if (approving || approved) return
     setApproving(true)
     try {
-      const res = await fetch(`/api/run/${runId}/approve-screening`, { method: "POST" })
-      if (!res.ok) {
-        const text = await res.text()
-        throw new Error(`${res.status}: ${text}`)
-      }
+      await approveScreening(runId)
       setApproved(true)
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
@@ -204,14 +172,8 @@ export function ScreeningReviewView({ runId }: { runId: string }) {
 
   if (error) {
     return (
-      <div className="flex flex-col items-center justify-center h-48 gap-3">
-        <p className="text-sm text-red-400">{error}</p>
-        <button
-          onClick={load}
-          className="text-xs text-zinc-500 hover:text-zinc-300 underline"
-        >
-          Retry
-        </button>
+      <div className="py-8">
+        <FetchError message={error} onRetry={() => void load()} />
       </div>
     )
   }
@@ -261,7 +223,7 @@ export function ScreeningReviewView({ runId }: { runId: string }) {
         </div>
       ) : (
         <button
-          onClick={handleApprove}
+          onClick={() => void handleApprove()}
           disabled={approving}
           className={cn(
             "flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium transition-colors",
@@ -288,7 +250,11 @@ export function ScreeningReviewView({ runId }: { runId: string }) {
                 : "border-transparent text-zinc-500 hover:text-zinc-300",
             )}
           >
-            {f === "all" ? `All (${summary.total})` : f === "include" ? `Include (${includedCount})` : `Uncertain (${uncertainCount})`}
+            {f === "all"
+              ? `All (${summary.total})`
+              : f === "include"
+                ? `Include (${includedCount})`
+                : `Uncertain (${uncertainCount})`}
           </button>
         ))}
       </div>

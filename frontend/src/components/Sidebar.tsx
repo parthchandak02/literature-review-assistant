@@ -18,63 +18,17 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip"
+import {
+  type RunStatus,
+  STATUS_LABEL,
+  STATUS_DOT,
+  STATUS_TEXT,
+  STATUS_BORDER,
+  resolveRunStatus,
+} from "@/lib/constants"
 
-// ---------------------------------------------------------------------------
-// Types
-// ---------------------------------------------------------------------------
-
-export type RunStatus = "idle" | "connecting" | "streaming" | "done" | "error" | "cancelled" | "stale"
-
-const STATUS_LABEL: Record<RunStatus, string> = {
-  idle: "Ready",
-  connecting: "Connecting",
-  streaming: "Running",
-  done: "Completed",
-  error: "Failed",
-  cancelled: "Cancelled",
-  stale: "Stale",
-}
-
-const STATUS_DOT: Record<RunStatus, string> = {
-  idle: "bg-zinc-600",
-  connecting: "bg-violet-400",
-  streaming: "bg-violet-500",
-  done: "bg-emerald-500",
-  error: "bg-red-500",
-  cancelled: "bg-amber-500",
-  stale: "bg-amber-600",
-}
-
-const STATUS_TEXT: Record<RunStatus, string> = {
-  idle: "text-zinc-500",
-  connecting: "text-violet-400",
-  streaming: "text-violet-400",
-  done: "text-emerald-400",
-  error: "text-red-400",
-  cancelled: "text-amber-400",
-  stale: "text-amber-500",
-}
-
-const STATUS_BORDER: Record<RunStatus, string> = {
-  idle: "border-zinc-700",
-  connecting: "border-violet-500",
-  streaming: "border-violet-500",
-  done: "border-emerald-500",
-  error: "border-red-500",
-  cancelled: "border-amber-500",
-  stale: "border-amber-600",
-}
-
-function resolveStatus(raw: string): RunStatus {
-  const s = raw.toLowerCase()
-  if (s === "completed" || s === "done") return "done"
-  if (s === "running" || s === "streaming") return "streaming"
-  if (s === "connecting") return "connecting"
-  if (s === "error" || s === "failed") return "error"
-  if (s === "cancelled" || s === "canceled") return "cancelled"
-  if (s === "stale") return "stale"
-  return "idle"
-}
+// Sidebar uses resolveRunStatus under its local alias for readability
+const resolveStatus = resolveRunStatus
 
 function fmtNum(n: number): string {
   return n.toLocaleString()

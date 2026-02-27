@@ -416,6 +416,83 @@ export function clearApiKeys(): void {
   }
 }
 
+// Human-in-the-loop screening endpoints
+
+export interface ScreenedPaper {
+  paper_id: string
+  title: string
+  authors: string
+  year: number | null
+  source_database: string
+  doi: string | null
+  abstract: string | null
+  stage: string
+  decision: "include" | "uncertain" | "exclude"
+  rationale: string | null
+  confidence: number | null
+}
+
+export interface ScreeningSummary {
+  run_id: string
+  total: number
+  papers: ScreenedPaper[]
+  instructions: string
+}
+
+export async function fetchScreeningSummary(runId: string): Promise<ScreeningSummary> {
+  const res = await fetch(`${BASE}/run/${runId}/screening-summary`)
+  if (!res.ok) {
+    const text = await res.text()
+    throw new Error(`${res.status}: ${text}`)
+  }
+  return res.json() as Promise<ScreeningSummary>
+}
+
+export async function approveScreening(runId: string): Promise<void> {
+  const res = await fetch(`${BASE}/run/${runId}/approve-screening`, { method: "POST" })
+  if (!res.ok) {
+    const text = await res.text()
+    throw new Error(`${res.status}: ${text}`)
+  }
+}
+
+// PRISMA checklist
+
+export interface PrismaChecklistItem {
+  item_id: string
+  section: string
+  description: string
+  status: "REPORTED" | "PARTIAL" | "MISSING"
+  rationale: string
+}
+
+export interface PrismaChecklist {
+  run_id: string
+  total: number
+  reported_count: number
+  partial_count: number
+  missing_count: number
+  passed: boolean
+  items: PrismaChecklistItem[]
+}
+
+export async function fetchPrismaChecklist(runId: string): Promise<PrismaChecklist> {
+  const res = await fetch(`${BASE}/run/${runId}/prisma-checklist`)
+  if (!res.ok) throw await _apiError(res, "PRISMA checklist fetch failed")
+  return res.json() as Promise<PrismaChecklist>
+}
+
+// Living review refresh
+
+export async function livingRefresh(runId: string): Promise<RunResponse> {
+  const res = await fetch(`${BASE}/run/${runId}/living-refresh`, { method: "POST" })
+  if (!res.ok) {
+    const text = await res.text()
+    throw new Error(`Living refresh failed: ${text}`)
+  }
+  return res.json() as Promise<RunResponse>
+}
+
 // History endpoints
 
 export async function fetchHistory(runRoot = "runs"): Promise<HistoryEntry[]> {

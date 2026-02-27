@@ -36,9 +36,9 @@ alwaysApply: true
 
 ## Key Directories -- Frontend
 - `frontend/src/views/` -- RunView (tabs: Activity, Results, Data, Cost; + Review Screening tab when status=awaiting_review), DatabaseView, CostView, HistoryView, SetupView (3-mode: AI Generate / YAML / Manual), ResultsView (PRISMA checklist panel), ScreeningReviewView (human-in-the-loop approval UI)
-- `frontend/src/components/` -- Sidebar (drag-resize, resume), ResultsPanel (artifact links, download), LogStream (live log display), RunForm (topic/config entry), UI primitives (command.tsx, status-badge.tsx, table.tsx, feedback.tsx)
-- `frontend/src/hooks/` -- useSSEStream (run events + SQLite replay fallback), useLogStream (backend log SSE), useBackendHealth, useCostStats
-- `frontend/src/lib/` -- api.ts (typed API layer), format.ts (date/duration helpers)
+- `frontend/src/components/` -- Sidebar (drag-resize, resume), ResultsPanel (artifact links, download), LogStream (live log display), UI primitives (command.tsx, status-badge.tsx, skeleton.tsx, table.tsx, feedback.tsx)
+- `frontend/src/hooks/` -- useSSEStream (run events + SQLite replay fallback), useBackendHealth, useCostStats
+- `frontend/src/lib/` -- api.ts (typed API layer), format.ts (date/duration helpers), constants.ts (shared constants), utils.ts (utility helpers)
 
 ## Key Tables
 - `workflows` (per-run runtime.db) -- topic, config_hash, status

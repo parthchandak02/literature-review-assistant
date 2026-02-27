@@ -78,7 +78,7 @@ The setup page has three modes (select via the pill buttons at the top):
 
 Your Gemini API key is required for AI Generate mode and is pre-filled from localStorage on return visits. All keys are saved locally in your browser and never sent anywhere except your local backend.
 
-The sidebar shows all your runs (live and historical) with status colors (emerald = completed, violet = running, red = error, amber = cancelled) and a stats strip (papers found, papers included, artifacts, cost). Selecting a run opens its 4-tab dashboard: Activity (phase timeline + event log), Results, Database, Cost. The selected tab persists when you switch between runs.
+The sidebar shows all your runs (live and historical) with status colors (emerald = completed, violet = running, red = error, amber = cancelled) and a stats strip (papers found, papers included, artifacts, cost). Selecting a run opens its dashboard with up to 5 tabs: Activity (phase timeline + event log), Results, Database, Cost, and Review Screening (appears only when the run pauses for human-in-the-loop screening approval). The selected tab persists when you switch between runs.
 
 **Tip -- reuse a past config:** Click "+" to open the form, then use the "Load from past run" dropdown to pre-populate the form from any previous run's config. Useful for iterating on the same research question with different parameters.
 
@@ -238,7 +238,7 @@ Full documentation of every config field is in `spec.md` Section 4.
 
 ## How It Works
 
-The pipeline runs as a 6-phase PydanticAI graph plus a FinalizeNode that handles visualization and export. Each phase writes its results to SQLite immediately so a crash can resume from the exact paper where it stopped.
+The pipeline runs as an 8-phase PydanticAI graph. Each phase writes its results to SQLite immediately so a crash can resume from the exact paper where it stopped.
 
 ```text
 Phase 1: Load config, initialize DB, set up LLM provider
@@ -253,8 +253,10 @@ Phase 4: Data extraction (full-text via PyMuPDF, 32K char context) + risk of bia
 Phase 5: Meta-analysis or narrative synthesis + sensitivity analysis (leave-one-out,
          subgroup by study_design)
 Phase 6: Write manuscript sections (abstract through conclusion)
-Finalize: Generate PRISMA diagram, RoB traffic-light, timeline, geographic chart
-          + Export IEEE LaTeX + compile PDF
+Phase 7: Generate PRISMA 2020 flow diagram, RoB traffic-light figure, publication
+         timeline, and geographic distribution chart
+Phase 8: Export IEEE LaTeX + compile PDF, Word DOCX, BibTeX, PRISMA checklist
+         validation, submission package
 ```
 
 Every factual claim in the manuscript is traced back to a citation via the citation ledger. The LLM is given only the real extracted data -- it cannot hallucinate statistics.

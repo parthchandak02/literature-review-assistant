@@ -104,9 +104,9 @@ research-article-writer/
 |   `-- src/
 |       |-- App.tsx                 # Root: sidebar + lazy view router
 |       |-- lib/api.ts              # All typed fetch wrappers + SSE types
-|       |-- hooks/                  # useSSEStream, useCostStats
-|       |-- components/             # Sidebar, RunForm, LogStream, ResultsPanel
-|       `-- views/                  # SetupView, RunView, ActivityView, CostView, DatabaseView, ResultsView, HistoryView
+|       |-- hooks/                  # useSSEStream, useCostStats, useBackendHealth
+|       |-- components/             # Sidebar, LogStream, ResultsPanel
+|       `-- views/                  # SetupView, RunView, ActivityView, CostView, DatabaseView, ResultsView, HistoryView, ScreeningReviewView
 |-- src/
 |   |-- main.py                     # CLI entry point (run, resume, export, validate, status)
 |   |-- models/                     # ALL Pydantic data contracts

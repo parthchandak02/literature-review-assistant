@@ -1,12 +1,25 @@
 """LLM-based review config generator.
 
-Given a plain-English research question, uses Gemini flash to generate a
-complete, structured ReviewConfig (PICO, keywords, inclusion/exclusion criteria,
-domain, scope) returned as a YAML string compatible with the frontend parseYaml()
-parser and the backend ReviewConfig model.
+Given a plain-English research question, uses a two-stage Gemini pipeline:
+
+Stage 1 -- Research (WebSearchTool + WebFetchTool, plain text):
+  Gemini searches the web AND fetches relevant pages to discover brand names,
+  domain terminology, and other facts that may not be in its training data.
+  Returns a structured research brief as plain text.
+
+Stage 2 -- Structure (NativeOutput, no web search):
+  Uses the research brief + original question to generate a validated
+  _GeneratedConfig (PICO, keywords, criteria, domain, scope) as JSON, then
+  serializes to YAML compatible with the frontend parseYaml() parser.
+
+Why two stages: Gemini's Google Search grounding (WebSearchTool) cannot be
+combined with built-in output schema enforcement (NativeOutput/responseSchema)
+in a single call -- the Gemini API does not support function/output tools
+alongside built-in tools. Splitting the calls resolves this constraint while
+giving us the best of both: real-time web knowledge + validated structure.
 
 This module is intentionally lightweight: no DB logging (pre-run, no run_id),
-no rate-limiter wrapping (single call, not part of a pipeline batch).
+no rate-limiter wrapping (single calls, not part of a pipeline batch).
 """
 
 from __future__ import annotations
@@ -16,8 +29,7 @@ import json
 import logging
 
 from pydantic import BaseModel, Field
-
-from src.llm.pydantic_client import PydanticAIClient
+from pydantic_ai import Agent, NativeOutput, StructuredDict, WebFetchTool, WebSearchTool
 
 logger = logging.getLogger(__name__)
 
@@ -63,9 +75,9 @@ class _GeneratedConfig(BaseModel):
     review_type: str = Field(description="Always 'systematic'")
     pico: _Pico
     keywords: list[str] = Field(
-        description="15-22 specific search keywords and phrases covering the topic, intervention, population, and key outcome concepts",
-        min_length=10,
-        max_length=25,
+        description="18-24 specific search keywords including intervention synonyms, abbreviations, commercial brand names, population/setting terms, outcome terms, and implementation terms",
+        min_length=15,
+        max_length=28,
     )
     domain: str = Field(description="One-line domain description (topic area and setting)")
     scope: str = Field(
@@ -132,40 +144,70 @@ def _build_yaml(cfg: _GeneratedConfig) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Prompt
+# Stage 1 -- Research prompt (WebSearchTool + WebFetchTool, plain text output)
 # ---------------------------------------------------------------------------
 
-_PROMPT_TEMPLATE = """\
-You are an expert systematic review methodologist. Your task is to generate a
-complete, publication-quality systematic review configuration for the research
-question below.
+_RESEARCH_PROMPT = (
+    "You are helping set up a systematic literature review. Search the web to "
+    "research the following topic thoroughly, then return a concise research brief.\n\n"
+    "Topic: {research_question}\n\n"
+    "Search for and report back:\n"
+    "1. The main technology, system, or intervention -- all synonyms, abbreviations,\n"
+    "   and alternate names used in the academic literature.\n"
+    "2. Specific commercial products and vendor brand names in this space that appear\n"
+    "   in published studies (exact product names like 'Xenex LightStrike',\n"
+    "   'Tru-D SmartUVC', 'Pyxis MedStation', 'Omnicell XT'). Include as many as\n"
+    "   you can find. These are critical for database search coverage.\n"
+    "3. The typical population or setting studied and any relevant sub-settings.\n"
+    "4. Key quantitative outcome measures and metrics used to evaluate this technology\n"
+    "   (e.g. specific pathogen names like 'C. difficile', 'MRSA', 'VRE'; or specific\n"
+    "   metrics like 'dispensing error rate', 'log reduction', 'colony-forming units').\n"
+    "5. Common implementation or adoption challenges and workflow terms.\n"
+    "6. Any adjacent or overlapping technologies that should be distinguished from the\n"
+    "   main intervention (so they can be excluded from the review).\n\n"
+    "Format as a concise bullet-point brief. Be specific. Include real brand names,\n"
+    "real pathogen names, real metric names. Do not generalize."
+)
 
-Research question provided by the user:
-{research_question}
+# ---------------------------------------------------------------------------
+# Stage 2 -- Structuring prompt (NativeOutput, no web search)
+# ---------------------------------------------------------------------------
 
-Instructions:
-- Refine the research question into a precise, well-formed systematic review
-  research question that follows PICO structure. Keep it close to the user's
-  intent but make it specific and academically precise.
-- Generate all PICO components: population (who/what is studied), intervention
-  (technology/treatment/system being evaluated), comparison (controls, baselines,
-  alternatives, or pre-implementation state), outcome (all relevant measurable
-  outcomes).
-- Generate 15-22 specific search keywords covering: the intervention technology
-  and its synonyms, the population/setting, key outcome measures, and well-known
-  brand names or specific product names if applicable.
-- Generate 6-8 inclusion criteria as complete, specific sentences covering:
-  study type, setting, intervention specificity, outcome reporting, language, and
-  publication type.
-- Generate 5-7 exclusion criteria as complete, specific sentences covering:
-  out-of-scope settings, non-empirical publications, languages, and adjacent
-  technologies that should be excluded.
-- Generate a one-line domain description and a 2-4 sentence scope statement.
-- Set review_type to exactly "systematic".
-
-Return the response as a JSON object matching the schema exactly. All text fields
-must be in English. Do not truncate or omit any field.
-"""
+_STRUCTURE_PROMPT = (
+    "You are an expert systematic review methodologist. Using the research brief\n"
+    "below, generate a complete, publication-quality systematic review configuration.\n\n"
+    "Original research question:\n"
+    "{research_question}\n\n"
+    "Research brief (from web search):\n"
+    "{research_brief}\n\n"
+    "Instructions:\n"
+    "- Refine the research question into a precise, well-formed systematic review\n"
+    "  research question that follows PICO structure. Keep it close to the user's\n"
+    "  intent but make it specific and academically precise.\n"
+    "- Generate all PICO components: population (who/what is studied), intervention\n"
+    "  (technology/treatment/system being evaluated), comparison (controls, baselines,\n"
+    "  alternatives, or pre-implementation state), outcome (all relevant measurable\n"
+    "  outcomes).\n"
+    "- Generate 18-24 specific search keywords. Draw directly from the research\n"
+    "  brief above. Cover ALL of:\n"
+    "  (a) the core intervention technology and its synonyms and abbreviations from\n"
+    "      the research brief,\n"
+    "  (b) the specific commercial brand names and product lines found in the\n"
+    "      research brief -- these MUST be included verbatim,\n"
+    "  (c) the population, setting, and context keywords from the research brief,\n"
+    "  (d) the specific outcome measure terms and measurable targets found in the\n"
+    "      research brief (e.g. exact pathogen names, metric names),\n"
+    "  (e) implementation-related terms (barriers, facilitators, adoption, workflow).\n"
+    "- Generate 6-8 inclusion criteria as complete, specific sentences covering:\n"
+    "  study type, setting, intervention specificity, outcome reporting, language, and\n"
+    "  publication type.\n"
+    "- Generate 5-7 exclusion criteria as complete, specific sentences. Include\n"
+    "  adjacent technologies identified in the research brief that should be excluded.\n"
+    "- Generate a one-line domain description and a 2-4 sentence scope statement.\n"
+    "- Set review_type to exactly 'systematic'.\n\n"
+    "Return the response as a JSON object matching the schema exactly. All text fields\n"
+    "must be in English. Do not truncate or omit any field."
+)
 
 
 # ---------------------------------------------------------------------------
@@ -175,38 +217,71 @@ must be in English. Do not truncate or omit any field.
 async def generate_config_yaml(research_question: str) -> str:
     """Generate a complete review config YAML from a research question.
 
-    Uses Gemini flash with native structured output (NativeOutput / responseSchema)
-    to produce a validated _GeneratedConfig, then serializes it to YAML.
+    Two-stage pipeline:
+    - Stage 1: Gemini + WebSearchTool + WebFetchTool performs a real web search
+      and fetches pages to discover brand names, metrics, and domain terminology.
+    - Stage 2: Gemini + NativeOutput structures the research brief into a
+      validated _GeneratedConfig, then serializes it to YAML.
 
     Raises RuntimeError on LLM or validation failure.
     """
-    prompt = _PROMPT_TEMPLATE.format(research_question=research_question.strip())
-    schema = _GeneratedConfig.model_json_schema()
+    rq = research_question.strip()
 
-    client = PydanticAIClient()
+    # ------------------------------------------------------------------
+    # Stage 1: web-grounded research brief
+    # ------------------------------------------------------------------
+    research_prompt = _RESEARCH_PROMPT.format(research_question=rq)
+    research_agent: Agent[None, str] = Agent(
+        _MODEL,
+        output_type=str,
+        builtin_tools=[WebSearchTool(), WebFetchTool()],
+    )
     try:
-        result_json = await client.complete(
-            prompt,
-            model=_MODEL,
-            temperature=_TEMPERATURE,
-            json_schema=schema,
+        research_result = await research_agent.run(research_prompt)
+        research_brief = research_result.output
+        logger.info(
+            "Config gen Stage 1 complete: brief length=%d chars", len(research_brief)
         )
     except Exception as exc:
-        logger.error("Config generation LLM call failed: %s", exc)
-        raise RuntimeError(f"LLM generation failed: {exc}") from exc
+        logger.warning(
+            "Config gen Stage 1 (web search+fetch) failed, falling back to model knowledge: %s", exc
+        )
+        # Graceful degradation: skip the research brief, rely on model knowledge.
+        research_brief = "(Web search unavailable -- rely on training knowledge only.)"
+
+    # ------------------------------------------------------------------
+    # Stage 2: structured output from research brief
+    # ------------------------------------------------------------------
+    structure_prompt = _STRUCTURE_PROMPT.format(
+        research_question=rq,
+        research_brief=research_brief,
+    )
+    schema = _GeneratedConfig.model_json_schema()
+    output_type = NativeOutput(StructuredDict(schema))
+    structure_agent: Agent = Agent(_MODEL, output_type=output_type)  # type: ignore[arg-type]
+
+    try:
+        structure_result = await structure_agent.run(
+            structure_prompt,
+            model_settings={"temperature": _TEMPERATURE},
+        )
+        output = structure_result.output
+        result_json = json.dumps(output) if isinstance(output, dict) else str(output)
+    except Exception as exc:
+        logger.error("Config gen Stage 2 (structure) failed: %s", exc)
+        raise RuntimeError(f"LLM structuring failed: {exc}") from exc
 
     try:
         parsed = _GeneratedConfig.model_validate_json(result_json)
     except Exception as exc:
-        logger.error("Config generation response failed validation: %s\nRaw: %s", exc, result_json[:500])
-        # Attempt to parse as dict and re-validate (handles JSON wrapped in dict)
+        logger.error(
+            "Config gen response failed validation: %s\nRaw: %s", exc, result_json[:500]
+        )
         try:
             raw_dict = json.loads(result_json)
             parsed = _GeneratedConfig.model_validate(raw_dict)
         except Exception:
             raise RuntimeError(f"Generated config failed schema validation: {exc}") from exc
 
-    # Ensure review_type is exactly "systematic"
     parsed = parsed.model_copy(update={"review_type": "systematic"})
-
     return _build_yaml(parsed)

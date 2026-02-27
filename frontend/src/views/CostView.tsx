@@ -8,12 +8,13 @@ import {
   ResponsiveContainer,
   Cell,
 } from "recharts"
-import { DollarSign, Zap, ArrowUpDown, Activity } from "lucide-react"
+import { ChevronDown, ChevronUp, DollarSign, Zap, ArrowUpDown, Activity } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { fetchDbCosts } from "@/lib/api"
 import type { DbCostRow } from "@/lib/api"
 import type { CostStats, ModelStat, PhaseStat } from "@/hooks/useCostStats"
-import { FetchError, LoadingPane } from "@/components/ui/feedback"
+import { FetchError } from "@/components/ui/feedback"
+import { SkeletonCard } from "@/components/ui/skeleton"
 
 interface MetricTileProps {
   icon: React.ElementType
@@ -104,6 +105,7 @@ export function CostView({ costStats, dbRunId }: CostViewProps) {
   const [dbTotalCost, setDbTotalCost] = useState(0)
   const [loadingDb, setLoadingDb] = useState(false)
   const [dbError, setDbError] = useState<string | null>(null)
+  const [showBreakdown, setShowBreakdown] = useState(false)
 
   const loadDbCosts = useCallback(() => {
     if (!dbRunId || costStats.total_calls > 0) return
@@ -176,10 +178,19 @@ export function CostView({ costStats, dbRunId }: CostViewProps) {
       fullPhase: p.phase,
     }))
 
+  const nonZeroPhasesCount = chartData.filter((d) => d.cost > 0).length
+
   const hasCosts = total_calls > 0 || total_cost > 0
 
   if (loadingDb) {
-    return <LoadingPane message="Loading cost records..." />
+    return (
+      <div className="flex flex-col gap-4 max-w-4xl">
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+          {[1, 2, 3, 4].map((i) => <SkeletonCard key={i} />)}
+        </div>
+        <SkeletonCard />
+      </div>
+    )
   }
 
   if (dbError) {

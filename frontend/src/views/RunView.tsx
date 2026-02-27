@@ -4,6 +4,7 @@ import { cn } from "@/lib/utils"
 import { formatRunDate, formatWorkflowId } from "@/lib/format"
 import { Spinner } from "@/components/ui/feedback"
 import { ActivityView } from "@/views/ActivityView"
+import { livingRefresh } from "@/lib/api"
 import type { ReviewEvent } from "@/lib/api"
 import type { CostStats } from "@/hooks/useCostStats"
 
@@ -123,13 +124,7 @@ export function RunView({
     if (refreshing || !onLivingRefresh) return
     setRefreshing(true)
     try {
-      const res = await fetch(`/api/run/${run.runId}/living-refresh`, { method: "POST" })
-      if (!res.ok) {
-        const text = await res.text()
-        console.error("Living refresh failed:", text)
-        return
-      }
-      const data = await res.json() as { run_id: string; topic: string }
+      const data = await livingRefresh(run.runId)
       onLivingRefresh(data.run_id)
     } catch (e) {
       console.error("Living refresh error:", e)

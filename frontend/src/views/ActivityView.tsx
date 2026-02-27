@@ -3,7 +3,6 @@ import {
   AlertTriangle,
   CheckCircle,
   Circle,
-  Layers,
   Loader,
   Loader2,
   XCircle,
@@ -11,31 +10,15 @@ import {
 import { Button } from "@/components/ui/button"
 import { LogStream } from "@/components/LogStream"
 import { FetchError } from "@/components/ui/feedback"
+import { Skeleton } from "@/components/ui/skeleton"
 import { fetchRunEvents } from "@/lib/api"
+import { PHASE_ORDER, PHASE_LABELS } from "@/lib/constants"
 import type { ReviewEvent } from "@/lib/api"
 import { cn } from "@/lib/utils"
 
 // ---------------------------------------------------------------------------
-// Phase timeline helpers
+// Phase state helpers
 // ---------------------------------------------------------------------------
-
-const PHASE_ORDER = [
-  "phase_2_search",
-  "phase_3_screening",
-  "phase_4_extraction_quality",
-  "phase_5_synthesis",
-  "phase_6_writing",
-  "finalize",
-]
-
-const PHASE_LABELS: Record<string, string> = {
-  phase_2_search: "Search",
-  phase_3_screening: "Screening",
-  phase_4_extraction_quality: "Extraction & Quality",
-  phase_5_synthesis: "Synthesis",
-  phase_6_writing: "Writing",
-  finalize: "Finalize",
-}
 
 type PhaseStatus = "pending" | "running" | "done"
 
@@ -65,13 +48,15 @@ function buildPhaseStates(events: ReviewEvent[]): Record<string, PhaseState> {
             : undefined,
       }
     } else if (ev.type === "progress" && states[ev.phase]) {
-      states[ev.phase].progress = { current: ev.current, total: ev.total }
+      states[ev.phase] = {
+        ...states[ev.phase],
+        progress: { current: ev.current, total: ev.total },
+      }
     }
   }
   return states
 }
 
-/** Format a duration in milliseconds as "Xm Ys" or "Xs". */
 function fmtDuration(ms: number): string {
   const secs = Math.floor(ms / 1000)
   if (secs < 60) return `${secs}s`
@@ -79,7 +64,97 @@ function fmtDuration(ms: number): string {
 }
 
 // ---------------------------------------------------------------------------
-// Event log filter helpers
+// Phase Stepper row
+// ---------------------------------------------------------------------------
+
+interface PhaseRowProps {
+  phase: string
+  state: PhaseState
+  isLast: boolean
+}
+
+function PhaseRow({ phase, state, isLast }: PhaseRowProps) {
+  const label = PHASE_LABELS[phase] ?? phase
+
+  const durationStr =
+    state.status === "done" && state.startedTs && state.doneTss
+      ? fmtDuration(
+          new Date(state.doneTss).getTime() - new Date(state.startedTs).getTime(),
+        )
+      : null
+
+  const progressLabel =
+    state.status === "running" && state.progress
+      ? `${state.progress.current}/${state.progress.total}`
+      : state.status === "done" && state.progress
+      ? `${state.progress.current}/${state.progress.total}`
+      : state.status === "done"
+      ? "done"
+      : null
+
+  return (
+    <div
+      className={cn(
+        "flex items-center gap-4 px-5 py-3.5",
+        !isLast && "border-b border-zinc-800/60",
+      )}
+    >
+      {/* Status icon */}
+      <div className="shrink-0 w-5 flex justify-center">
+        {state.status === "done" ? (
+          <CheckCircle className="h-4 w-4 text-emerald-500" />
+        ) : state.status === "running" ? (
+          <Loader className="h-4 w-4 text-violet-400 animate-spin" />
+        ) : (
+          <Circle className="h-4 w-4 text-zinc-700" />
+        )}
+      </div>
+
+      {/* Label */}
+      <span
+        className={cn(
+          "flex-1 text-sm font-medium",
+          state.status === "done"
+            ? "text-zinc-300"
+            : state.status === "running"
+            ? "text-white"
+            : "text-zinc-600",
+        )}
+      >
+        {label}
+      </span>
+
+      {/* Progress chip */}
+      {progressLabel && (
+        <span
+          className={cn(
+            "text-xs tabular-nums font-mono px-2 py-0.5 rounded-full",
+            state.status === "done"
+              ? "text-emerald-400 bg-emerald-500/10"
+              : "text-violet-400 bg-violet-500/10",
+          )}
+        >
+          {progressLabel}
+        </span>
+      )}
+
+      {/* Duration chip */}
+      {durationStr && (
+        <span className="text-[10px] tabular-nums text-zinc-600 bg-zinc-800 px-2 py-0.5 rounded font-mono shrink-0">
+          {durationStr}
+        </span>
+      )}
+
+      {/* Running indicator for phases with no progress yet */}
+      {state.status === "running" && !state.progress && (
+        <span className="text-[10px] text-violet-400/60 font-mono shrink-0">running...</span>
+      )}
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Event log filter
 // ---------------------------------------------------------------------------
 
 type EventFilter = "all" | "phases" | "llm" | "search" | "screening"
@@ -107,13 +182,9 @@ function filterEvents(events: ReviewEvent[], filter: EventFilter): ReviewEvent[]
 // ---------------------------------------------------------------------------
 
 export interface ActivityViewProps {
-  /** Live SSE events -- empty when viewing a historical run. */
   events: ReviewEvent[]
-  /** SSE connection status. */
   status: string
-  /** Backend run_id; used to fetch historical events when events is empty. */
   runId: string
-  /** Whether we are showing a historical (completed) run vs a live one. */
   isDone: boolean
   onCancel: () => void
 }
@@ -126,36 +197,30 @@ export function ActivityView({
   onCancel,
 }: ActivityViewProps) {
   const [activeFilter, setActiveFilter] = useState<EventFilter>("all")
-
-  // Historical event loading: when no live SSE events exist but the run is
-  // done, fetch the persisted event log from the backend.
   const [historicalEvents, setHistoricalEvents] = useState<ReviewEvent[]>([])
   const [loadingHistory, setLoadingHistory] = useState(false)
   const [fetchError, setFetchError] = useState<string | null>(null)
 
   const isHistoricalMode = isDone && events.length === 0 && Boolean(runId)
 
-  const loadHistoricalEvents = useCallback(
-    async (id: string) => {
-      setLoadingHistory(true)
-      setFetchError(null)
-      try {
-        const evs = await fetchRunEvents(id)
-        setHistoricalEvents(evs)
-      } catch (e) {
-        const msg = e instanceof Error ? e.message : String(e)
-        setFetchError(
-          msg.toLowerCase().includes("failed to fetch")
-            ? "Cannot reach backend. Start the server and try again."
-            : msg,
-        )
-        setHistoricalEvents([])
-      } finally {
-        setLoadingHistory(false)
-      }
-    },
-    [],
-  )
+  const loadHistoricalEvents = useCallback(async (id: string) => {
+    setLoadingHistory(true)
+    setFetchError(null)
+    try {
+      const evs = await fetchRunEvents(id)
+      setHistoricalEvents(evs)
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e)
+      setFetchError(
+        msg.toLowerCase().includes("failed to fetch")
+          ? "Cannot reach backend. Start the server and try again."
+          : msg,
+      )
+      setHistoricalEvents([])
+    } finally {
+      setLoadingHistory(false)
+    }
+  }, [])
 
   useEffect(() => {
     if (!isHistoricalMode || !runId) {
@@ -167,10 +232,8 @@ export function ActivityView({
   }, [isHistoricalMode, runId, loadHistoricalEvents])
 
   const activeEvents = isHistoricalMode ? historicalEvents : events
-
   const phaseStates = useMemo(() => buildPhaseStates(activeEvents), [activeEvents])
   const isRunning = status === "streaming" || status === "connecting"
-
   const filtered = filterEvents(activeEvents, activeFilter)
 
   return (
@@ -198,6 +261,7 @@ export function ActivityView({
         </div>
       )}
 
+      {/* Error banner */}
       {status === "error" && (
         <div className="flex items-start gap-2.5 bg-red-500/10 border border-red-500/20 rounded-xl px-4 py-3 text-sm text-red-400">
           <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
@@ -209,101 +273,34 @@ export function ActivityView({
         </div>
       )}
 
-      {/* Phase timeline */}
+      {/* Phase stepper */}
       <div>
-        <h3 className="text-xs font-semibold text-zinc-500 uppercase tracking-wide mb-3 flex items-center gap-2">
-          <Layers className="h-3.5 w-3.5" />
+        <h3 className="text-[11px] font-semibold text-zinc-500 uppercase tracking-wider mb-3">
           Phase Timeline
         </h3>
-        <div className="bg-zinc-900 border border-zinc-800 rounded-xl overflow-hidden">
-          {PHASE_ORDER.map((phase, i) => {
-            const state = phaseStates[phase] ?? { status: "pending" as PhaseStatus }
-            const label = PHASE_LABELS[phase] ?? phase
-            const isLast = i === PHASE_ORDER.length - 1
-            const progressPct =
-              state.progress != null && state.progress.total > 0
-                ? Math.round((state.progress.current / state.progress.total) * 100)
-                : state.status === "done"
-                  ? 100
-                  : 0
-
-            const durationStr =
-              state.status === "done" && state.startedTs && state.doneTss
-                ? fmtDuration(
-                    new Date(state.doneTss).getTime() - new Date(state.startedTs).getTime(),
-                  )
-                : null
-
-            return (
-              <div
+        <div className="bg-zinc-900/60 border border-zinc-800 rounded-xl overflow-hidden">
+          {loadingHistory ? (
+            <div className="px-5 py-4 space-y-3">
+              {PHASE_ORDER.map((p) => (
+                <Skeleton key={p} className="h-5 w-full" />
+              ))}
+            </div>
+          ) : (
+            PHASE_ORDER.map((phase, i) => (
+              <PhaseRow
                 key={phase}
-                className={cn(
-                  "flex items-center gap-4 px-4 py-3",
-                  !isLast && "border-b border-zinc-800",
-                )}
-              >
-                <div className="shrink-0">
-                  {state.status === "done" ? (
-                    <CheckCircle className="h-4 w-4 text-emerald-500" />
-                  ) : state.status === "running" ? (
-                    <Loader className="h-4 w-4 text-violet-400 animate-spin" />
-                  ) : (
-                    <Circle className="h-4 w-4 text-zinc-700" />
-                  )}
-                </div>
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center justify-between gap-2">
-                    <span
-                      className={cn(
-                        "text-sm font-medium",
-                        state.status === "done"
-                          ? "text-zinc-200"
-                          : state.status === "running"
-                            ? "text-white"
-                            : "text-zinc-600",
-                      )}
-                    >
-                      {label}
-                    </span>
-                    <div className="flex items-center gap-2 shrink-0">
-                      {durationStr && (
-                        <span className="text-[10px] tabular-nums text-zinc-600 bg-zinc-800 px-1.5 py-0.5 rounded font-mono">
-                          {durationStr}
-                        </span>
-                      )}
-                      {state.status !== "pending" && (
-                        <span className="text-xs tabular-nums text-zinc-500">
-                          {progressPct}%
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                  {state.status !== "pending" && (
-                    <div className="mt-1.5 h-1 bg-zinc-800 rounded-full overflow-hidden">
-                      <div
-                        className={cn(
-                          "h-full rounded-full transition-all duration-300",
-                          state.status === "done" ? "bg-emerald-500" : "bg-violet-500",
-                        )}
-                        style={{ width: `${progressPct}%` }}
-                      />
-                    </div>
-                  )}
-                </div>
-                {state.status === "running" && state.progress && (
-                  <div className="shrink-0 text-xs text-zinc-500 tabular-nums">
-                    {state.progress.current}/{state.progress.total}
-                  </div>
-                )}
-              </div>
-            )
-          })}
+                phase={phase}
+                state={phaseStates[phase] ?? { status: "pending" }}
+                isLast={i === PHASE_ORDER.length - 1}
+              />
+            ))
+          )}
         </div>
       </div>
 
       {/* Event log */}
       <div className="flex flex-col gap-3">
-        <h3 className="text-xs font-semibold text-zinc-500 uppercase tracking-wide flex items-center gap-2">
+        <h3 className="text-[11px] font-semibold text-zinc-500 uppercase tracking-wider">
           Activity Log
         </h3>
 
@@ -314,7 +311,7 @@ export function ActivityView({
           />
         )}
 
-        {/* Inline filter chips + event count */}
+        {/* Filter chips */}
         <div className="flex items-center gap-2 flex-wrap">
           <div
             role="toolbar"
@@ -326,7 +323,6 @@ export function ActivityView({
                 key={f.id}
                 onClick={() => setActiveFilter(f.id)}
                 aria-pressed={activeFilter === f.id}
-                aria-label={`${f.label} filter`}
                 className={cn(
                   "px-3 py-1 rounded-md text-xs font-medium transition-colors",
                   activeFilter === f.id
@@ -354,12 +350,14 @@ export function ActivityView({
         </div>
 
         {!loadingHistory && filtered.length === 0 && !fetchError && (
-          <div className="bg-zinc-900 border border-zinc-800 rounded-xl py-12 flex items-center justify-center">
+          <div className="bg-zinc-900/60 border border-zinc-800 rounded-xl py-12 flex items-center justify-center">
             <p className="text-zinc-600 text-sm">Events will appear here once the review starts.</p>
           </div>
         )}
 
-        {filtered.length > 0 && <LogStream events={filtered} autoScroll={activeFilter === "all"} />}
+        {filtered.length > 0 && (
+          <LogStream events={filtered} autoScroll={activeFilter === "all"} />
+        )}
       </div>
     </div>
   )

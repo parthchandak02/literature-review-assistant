@@ -7,6 +7,8 @@ import { AlertTriangle, BookOpen, Clock, Loader, Play, RefreshCw } from "lucide-
 import { Button } from "@/components/ui/button"
 import { Th, Td } from "@/components/ui/table"
 import { StatusBadge } from "@/components/ui/status-badge"
+import { FetchError } from "@/components/ui/feedback"
+import { Skeleton } from "@/components/ui/skeleton"
 
 /** True if a run has a db_path that could be browsed (including partial/stale runs). */
 function canOpen(entry: HistoryEntry): boolean {
@@ -113,10 +115,7 @@ export function HistoryView({ onAttach, onResume }: HistoryViewProps) {
 
       {/* Fetch error */}
       {fetchError && (
-        <div className="flex items-start gap-2 text-xs text-red-400 bg-red-500/10 border border-red-500/20 rounded-lg px-3 py-2.5">
-          <AlertTriangle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
-          <span>{fetchError}</span>
-        </div>
+        <FetchError message={fetchError} onRetry={() => void load()} />
       )}
 
       {/* Loading skeleton */}
@@ -124,10 +123,10 @@ export function HistoryView({ onAttach, onResume }: HistoryViewProps) {
         <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-4 space-y-3">
           {[1, 2, 3].map((i) => (
             <div key={i} className="flex gap-3 items-center">
-              <div className="h-4 bg-zinc-800 rounded animate-pulse flex-1" />
-              <div className="h-4 bg-zinc-800 rounded animate-pulse w-20" />
-              <div className="h-4 bg-zinc-800 rounded animate-pulse w-32" />
-              <div className="h-7 bg-zinc-800 rounded animate-pulse w-16" />
+              <Skeleton className="h-4 flex-1" />
+              <Skeleton className="h-4 w-20" />
+              <Skeleton className="h-4 w-32" />
+              <Skeleton className="h-7 w-16" />
             </div>
           ))}
         </div>
@@ -252,7 +251,7 @@ export function HistoryView({ onAttach, onResume }: HistoryViewProps) {
                         {isResumable && openable ? (
                           <Button
                             size="sm"
-                            onClick={() => handleResume(entry)}
+                            onClick={() => void handleResume(entry)}
                             disabled={isResuming}
                             className="h-7 text-xs bg-amber-600/20 hover:bg-amber-600/30 text-amber-300 border border-amber-600/40 gap-1.5"
                             variant="outline"
@@ -268,7 +267,7 @@ export function HistoryView({ onAttach, onResume }: HistoryViewProps) {
                         {openable ? (
                           <Button
                             size="sm"
-                            onClick={() => handleOpen(entry)}
+                            onClick={() => void handleOpen(entry)}
                             disabled={isOpening}
                             className="h-7 text-xs bg-zinc-800 hover:bg-zinc-700 text-zinc-200 border border-zinc-700 gap-1.5"
                             variant="outline"

@@ -1,46 +1,18 @@
 import { cn } from "@/lib/utils"
+import {
+  type RunStatus,
+  STATUS_LABEL,
+  BADGE_STYLE,
+  resolveRunStatus,
+} from "@/lib/constants"
 
-// ---------------------------------------------------------------------------
-// RunStatus type -- mirrors the SSE status values used across the app
-// ---------------------------------------------------------------------------
-
-export type RunStatus = "idle" | "connecting" | "streaming" | "done" | "error" | "cancelled" | "stale"
-
-export const STATUS_LABEL: Record<RunStatus, string> = {
-  idle: "Ready",
-  connecting: "Connecting",
-  streaming: "Running",
-  done: "Completed",
-  error: "Failed",
-  cancelled: "Cancelled",
-  stale: "Stale",
-}
-
-/** Map raw backend/SSE status strings to the canonical RunStatus. */
-export function resolveRunStatus(raw: string | null | undefined): RunStatus {
-  const s = (raw ?? "").toLowerCase()
-  if (s === "completed" || s === "done") return "done"
-  if (s === "running" || s === "streaming") return "streaming"
-  if (s === "connecting") return "connecting"
-  if (s === "error" || s === "failed") return "error"
-  if (s === "cancelled" || s === "canceled" || s === "interrupted") return "cancelled"
-  if (s === "stale") return "stale"
-  return "idle"
-}
+// Re-export shared types and helpers for backwards compatibility.
+export type { RunStatus }
+export { resolveRunStatus, STATUS_LABEL }
 
 // ---------------------------------------------------------------------------
 // StatusBadge -- pill badge with colored dot
 // ---------------------------------------------------------------------------
-
-const BADGE_STYLE: Record<RunStatus, string> = {
-  idle: "text-zinc-400 bg-zinc-800/60 border-zinc-700",
-  connecting: "text-violet-400 bg-violet-500/10 border-violet-500/20",
-  streaming: "text-amber-400 bg-amber-500/10 border-amber-500/20",
-  done: "text-emerald-400 bg-emerald-500/10 border-emerald-500/20",
-  error: "text-red-400 bg-red-500/10 border-red-500/20",
-  cancelled: "text-zinc-400 bg-zinc-800/60 border-zinc-700",
-  stale: "text-amber-500 bg-amber-500/10 border-amber-500/30",
-}
 
 interface StatusBadgeProps {
   status: RunStatus | string
