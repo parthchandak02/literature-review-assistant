@@ -275,7 +275,7 @@ export function ActivityView({
 
       {/* Phase stepper */}
       <div>
-        <h3 className="text-[11px] font-semibold text-zinc-500 uppercase tracking-wider mb-3">
+        <h3 className="label-caps font-semibold mb-3">
           Phase Timeline
         </h3>
         <div className="bg-zinc-900/60 border border-zinc-800 rounded-xl overflow-hidden">
@@ -300,7 +300,7 @@ export function ActivityView({
 
       {/* Event log */}
       <div className="flex flex-col gap-3">
-        <h3 className="text-[11px] font-semibold text-zinc-500 uppercase tracking-wider">
+        <h3 className="label-caps font-semibold">
           Activity Log
         </h3>
 

@@ -223,7 +223,7 @@ export function Sidebar({
             {/* Section header */}
             {!collapsed && (
               <div className="flex items-center justify-between px-1 mb-1.5">
-                <span className="text-[10px] font-semibold text-zinc-600 uppercase tracking-wider">
+                <span className="label-caps font-semibold text-zinc-600">
                   Runs
                 </span>
                 <button
@@ -246,9 +246,9 @@ export function Sidebar({
             )}
 
             {loadingHistory && history.length === 0 && !liveRun && !collapsed && (
-              <div className="space-y-0.5">
+              <div className="space-y-1">
                 {[1, 2, 3].map((i) => (
-                  <div key={i} className="pl-2.5 pr-2 py-2 rounded-r-md border-l-2 border-zinc-700">
+                  <div key={i} className="pl-2.5 pr-2 py-2.5 rounded-r-md border-l-2 border-zinc-700">
                     <div className="h-2.5 bg-zinc-800 rounded animate-pulse w-3/4 mb-1.5" />
                     <div className="h-2 bg-zinc-800 rounded animate-pulse w-1/2" />
                   </div>
@@ -256,7 +256,7 @@ export function Sidebar({
               </div>
             )}
 
-            <div className="space-y-0.5">
+            <div className="space-y-1">
               {/* Live run floats to the top with pulsing dot and "Now" badge */}
               {liveRun && (
                 <SidebarTooltip label={liveRun.topic} collapsed={collapsed} side="right">
@@ -267,7 +267,7 @@ export function Sidebar({
                       collapsed
                         ? "flex justify-center items-center h-9 w-9 mx-auto rounded-lg"
                         : cn(
-                            "border-l-2 pl-2.5 pr-2 py-2 rounded-r-md",
+                            "border-l-2 pl-2.5 pr-2 py-2.5 rounded-r-md",
                             STATUS_BORDER[liveRun.status],
                           ),
                       isLiveRunSelected
@@ -353,9 +353,9 @@ export function Sidebar({
                           collapsed
                             ? "flex justify-center items-center h-9 w-9 mx-auto rounded-lg"
                             : cn(
-                                "border-l-2 pl-2.5 pr-2 py-2 rounded-r-md",
-                                borderColor,
-                              ),
+                          "border-l-2 pl-2.5 pr-2 py-2.5 rounded-r-md",
+                            borderColor,
+                          ),
                           isSelected
                             ? "bg-zinc-800"
                             : canOpen
@@ -385,10 +385,10 @@ export function Sidebar({
                               {formatShortDate(entry.created_at)}
                             </span>
                           </div>
-                          <span className="font-mono text-[9px] text-zinc-600 leading-none mb-0.5">
+                          <span className="font-mono text-[9px] text-zinc-700 leading-none mb-0.5">
                             {formatWorkflowId(entry.workflow_id)}
                           </span>
-                          <span className="text-xs text-zinc-400 line-clamp-2 leading-snug">
+                          <span className="text-xs text-zinc-300 line-clamp-2 leading-snug">
                             {entry.topic}
                           </span>
                             {statChips.length > 0 && (
@@ -444,7 +444,7 @@ export function Sidebar({
             {!collapsed && history.length === 0 && !loadingHistory && !liveRun && (
               <div className="flex flex-col items-center py-6 gap-2">
                 <Clock className="h-6 w-6 text-zinc-700" />
-                <p className="text-[11px] text-zinc-600 text-center">
+                <p className="label-muted text-center">
                   Past reviews will appear here automatically.
                 </p>
               </div>

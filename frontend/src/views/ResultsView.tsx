@@ -8,21 +8,20 @@ import {
   FileText,
   Lock,
   Loader2,
+  Package,
   PackageCheck,
   CheckCircle,
   XCircle,
   AlertTriangle,
-  ChevronDown,
-  ChevronUp,
   BookOpen,
-  X,
   Download,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { ResultsPanel } from "@/components/ResultsPanel"
 import { triggerExport, fetchPrismaChecklist, downloadUrl } from "@/lib/api"
 import { Skeleton } from "@/components/ui/skeleton"
-import { FetchError } from "@/components/ui/feedback"
+import { FetchError, EmptyState } from "@/components/ui/feedback"
+import { CollapsibleSection } from "@/components/ui/section"
 import { cn } from "@/lib/utils"
 import type { PrismaChecklist } from "@/lib/api"
 
@@ -126,7 +125,7 @@ function ManuscriptViewer({ filePath }: { filePath: string }) {
 
   if (loading) {
     return (
-      <div className="rounded-xl border border-zinc-800 bg-zinc-900/50 overflow-hidden">
+      <div className="card-surface overflow-hidden">
         <div className="px-6 py-4 border-b border-zinc-800 flex items-center gap-2">
           <Loader2 className="h-4 w-4 animate-spin text-violet-400" />
           <span className="text-sm text-zinc-400">Loading manuscript...</span>
@@ -151,7 +150,7 @@ function ManuscriptViewer({ filePath }: { filePath: string }) {
   if (!content) return null
 
   return (
-    <div className="rounded-xl border border-zinc-800 bg-zinc-900/50 overflow-hidden">
+    <div className="card-surface overflow-hidden">
       {/* TOC bar */}
       {headings.length > 0 && (
         <div className="flex items-center gap-1 px-4 py-2 border-b border-zinc-800 bg-zinc-950/60 overflow-x-auto scrollbar-none">
@@ -196,7 +195,7 @@ function ManuscriptViewer({ filePath }: { filePath: string }) {
 }
 
 // ---------------------------------------------------------------------------
-// PRISMA slide-over panel
+// PRISMA inline collapsible card
 // ---------------------------------------------------------------------------
 
 function PrismaStatusIcon({ status }: { status: string }) {
@@ -205,26 +204,26 @@ function PrismaStatusIcon({ status }: { status: string }) {
   return <XCircle className="h-3.5 w-3.5 text-red-400 shrink-0" />
 }
 
-function PrismaSlideOver({
-  runId,
-  onClose,
-}: {
-  runId: string
-  onClose: () => void
-}) {
+function PrismaCard({ runId }: { runId: string }) {
+  const [open, setOpen] = useState(false)
   const [data, setData] = useState<PrismaChecklist | null>(null)
-  const [loading, setLoading] = useState(true)
+  const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [sectionFilter, setSectionFilter] = useState<string>("All")
+  const hasFetched = useRef(false)
 
-  useEffect(() => {
-    setLoading(true)
-    setError(null)
-    fetchPrismaChecklist(runId)
-      .then(setData)
-      .catch((e) => setError(e instanceof Error ? e.message : String(e)))
-      .finally(() => setLoading(false))
-  }, [runId])
+  function handleToggle() {
+    setOpen((v) => !v)
+    if (!hasFetched.current) {
+      hasFetched.current = true
+      setLoading(true)
+      setError(null)
+      fetchPrismaChecklist(runId)
+        .then(setData)
+        .catch((e) => setError(e instanceof Error ? e.message : String(e)))
+        .finally(() => setLoading(false))
+    }
+  }
 
   const sections = data
     ? ["All", ...Array.from(new Set(data.items.map((i) => i.section)))]
@@ -236,37 +235,27 @@ function PrismaSlideOver({
       : data.items.filter((i) => i.section === sectionFilter)
     : []
 
-  return (
-    <div className="fixed inset-0 z-50 flex">
-      {/* Backdrop */}
-      <div
-        className="flex-1 bg-black/40 backdrop-blur-sm"
-        onClick={onClose}
-      />
-      {/* Panel */}
-      <div className="w-full max-w-lg bg-zinc-900 border-l border-zinc-800 flex flex-col h-full shadow-2xl">
-        <div className="flex items-center justify-between px-5 py-4 border-b border-zinc-800 shrink-0">
-          <div>
-            <h2 className="text-sm font-semibold text-zinc-100">PRISMA 2020 Compliance</h2>
-            {data && (
-              <p className={cn(
-                "text-xs font-mono mt-0.5",
-                data.passed ? "text-emerald-400" : "text-amber-400",
-              )}>
-                {data.reported_count}/{data.total} reported --{" "}
-                {data.passed ? "PASS" : "needs attention"}
-              </p>
-            )}
-          </div>
-          <button
-            onClick={onClose}
-            className="text-zinc-500 hover:text-zinc-200 transition-colors p-1 rounded"
-          >
-            <X className="h-4 w-4" />
-          </button>
-        </div>
+  // Score chip shown in the header once data is available.
+  const scoreChip = data && data.total > 0 ? (
+    <span className={cn(
+      "text-[10px] font-mono px-1.5 py-0.5 rounded border shrink-0",
+      data.passed
+        ? "text-emerald-400 border-emerald-800 bg-emerald-900/20"
+        : "text-amber-400 border-amber-800 bg-amber-900/20",
+    )}>
+      {data.reported_count}/{data.total} {data.passed ? "PASS" : "review"}
+    </span>
+  ) : null
 
-        <div className="flex-1 overflow-y-auto p-4 space-y-4">
+  return (
+    <CollapsibleSection
+      icon={CheckCircle}
+      title="PRISMA 2020 Compliance"
+      badge={scoreChip}
+      open={open}
+      onToggle={handleToggle}
+    >
+      <div className="p-4 space-y-4">
           {loading && (
             <div className="space-y-3">
               <Skeleton className="h-4 w-full" />
@@ -275,16 +264,24 @@ function PrismaSlideOver({
             </div>
           )}
           {error && <FetchError message={`Failed to load: ${error}`} />}
-          {data && (
+          {data && data.total === 0 && (
+            <EmptyState
+              icon={AlertTriangle}
+              heading="PRISMA data not yet available for this run."
+              sub="PRISMA compliance is populated after the writing phase completes and the manuscript is generated."
+              className="py-10"
+            />
+          )}
+          {data && data.total > 0 && (
             <>
-              {/* Summary */}
+              {/* Summary bar */}
               <div className="flex items-center gap-4 text-xs flex-wrap p-3 rounded-lg bg-zinc-800/50">
                 <span className="text-emerald-400 font-semibold">{data.reported_count} Reported</span>
                 <span className="text-amber-400 font-semibold">{data.partial_count} Partial</span>
                 <span className="text-red-400 font-semibold">{data.missing_count} Missing</span>
               </div>
 
-              {/* Section filter */}
+              {/* Section filter chips */}
               <div className="flex items-center gap-1 flex-wrap">
                 {sections.map((s) => (
                   <button
@@ -333,8 +330,7 @@ function PrismaSlideOver({
             </>
           )}
         </div>
-      </div>
-    </div>
+    </CollapsibleSection>
   )
 }
 
@@ -360,7 +356,7 @@ export function ResultsView({
   const [exportState, setExportState] = useState<ExportState>("idle")
   const [exportError, setExportError] = useState<string | null>(null)
   const [exportFiles, setExportFiles] = useState<string[]>([])
-  const [showPrisma, setShowPrisma] = useState(false)
+  const [showManuscript, setShowManuscript] = useState(true)
   const [showOtherFiles, setShowOtherFiles] = useState(false)
 
   const effectiveOutputs = useMemo<Record<string, unknown>>(() => {
@@ -409,37 +405,37 @@ export function ResultsView({
 
   if (!hasResults) {
     return (
-      <div className="flex flex-col items-center justify-center h-64 gap-3 text-center">
-        <Lock className="h-10 w-10 text-zinc-700" />
-        <p className="text-zinc-500 text-sm font-medium">Results available once the review completes.</p>
-        <p className="text-zinc-600 text-xs max-w-xs leading-relaxed">
-          Switch to the Activity tab to monitor progress.
-        </p>
-      </div>
+      <EmptyState
+        icon={Lock}
+        heading="Results available once the review completes."
+        sub="Switch to the Activity tab to monitor progress."
+        className="h-64"
+      />
     )
   }
 
   if (Object.keys(mergedOutputs).length === 0) {
     return (
-      <div className="flex flex-col items-center justify-center h-64 gap-3 text-center">
-        <FileText className="h-10 w-10 text-zinc-700" />
-        <p className="text-zinc-500 text-sm">No output files found.</p>
-      </div>
+      <EmptyState
+        icon={FileText}
+        heading="No output files found."
+        className="h-64"
+      />
     )
   }
 
   return (
     <div className="flex flex-col gap-5 max-w-4xl">
-      {/* Action bar */}
+      {/* Action bar -- all buttons use outline variant with matching style */}
       <div className="flex items-center gap-2 flex-wrap">
         {/* Export to LaTeX */}
         {canExport && (
           <Button
             size="sm"
-            variant={exportState === "done" ? "outline" : "default"}
+            variant="outline"
             disabled={exportState === "loading" || exportState === "done"}
             onClick={() => void handleExport()}
-            className="gap-1.5"
+            className="border-zinc-700 text-zinc-300 hover:text-white gap-1.5 disabled:opacity-50"
           >
             {exportState === "loading" ? (
               <>
@@ -448,11 +444,14 @@ export function ResultsView({
               </>
             ) : exportState === "done" ? (
               <>
-                <PackageCheck className="h-3.5 w-3.5" />
-                LaTeX Exported
+                <PackageCheck className="h-3.5 w-3.5 text-emerald-400" />
+                <span className="text-emerald-400">LaTeX Exported</span>
               </>
             ) : (
-              "Export to LaTeX"
+              <>
+                <Package className="h-3.5 w-3.5" />
+                Export to LaTeX
+              </>
             )}
           </Button>
         )}
@@ -472,19 +471,6 @@ export function ResultsView({
           </Button>
         )}
 
-        {/* PRISMA checklist button */}
-        {exportRunId && (
-          <Button
-            size="sm"
-            variant="outline"
-            onClick={() => setShowPrisma(true)}
-            className="border-zinc-700 text-zinc-400 hover:text-zinc-200 gap-1.5"
-          >
-            <CheckCircle className="h-3.5 w-3.5" />
-            PRISMA Checklist
-          </Button>
-        )}
-
         {/* Export error */}
         {exportState === "error" && exportError && (
           <span className="text-xs text-red-400 flex items-center gap-1">
@@ -494,48 +480,36 @@ export function ResultsView({
         )}
       </div>
 
-      {/* Manuscript inline reader */}
+      {/* Manuscript inline reader -- collapsible, closed by default for a clean landing */}
       {manuscriptPath && (
-        <div>
-          <div className="flex items-center gap-2 mb-2">
-            <FileText className="h-3.5 w-3.5 text-zinc-500" />
-            <span className="text-[11px] font-semibold text-zinc-500 uppercase tracking-wider">
-              Manuscript
-            </span>
-          </div>
+        <CollapsibleSection
+          icon={FileText}
+          title="Manuscript"
+          open={showManuscript}
+          onToggle={() => setShowManuscript((v) => !v)}
+        >
           <ManuscriptViewer filePath={manuscriptPath} />
-        </div>
+        </CollapsibleSection>
       )}
 
       {/* Other artifacts (collapsible) */}
-      <div className="rounded-xl border border-zinc-800 bg-zinc-900/40 overflow-hidden">
-        <button
-          onClick={() => setShowOtherFiles((v) => !v)}
-          className="w-full flex items-center justify-between px-4 py-3 hover:bg-zinc-800/30 transition-colors"
-        >
-          <div className="flex items-center gap-2">
-            <FileText className="h-4 w-4 text-zinc-500" />
-            <span className="text-sm font-medium text-zinc-300">Other Artifacts</span>
-            <span className="text-xs text-zinc-600">Protocol, search appendix, data files, figures</span>
-          </div>
-          {showOtherFiles ? (
-            <ChevronUp className="h-4 w-4 text-zinc-600" />
-          ) : (
-            <ChevronDown className="h-4 w-4 text-zinc-600" />
-          )}
-        </button>
+      <CollapsibleSection
+        icon={FileText}
+        title="Other Artifacts"
+        description="Protocol, search appendix, data files, figures"
+        open={showOtherFiles}
+        onToggle={() => setShowOtherFiles((v) => !v)}
+      >
+        <div className="p-4">
+          <ResultsPanel
+            outputs={mergedOutputs}
+            excludePaths={manuscriptPath ? new Set([manuscriptPath]) : undefined}
+          />
+        </div>
+      </CollapsibleSection>
 
-        {showOtherFiles && (
-          <div className="border-t border-zinc-800 p-4">
-            <ResultsPanel outputs={mergedOutputs} />
-          </div>
-        )}
-      </div>
-
-      {/* PRISMA slide-over */}
-      {showPrisma && exportRunId && (
-        <PrismaSlideOver runId={exportRunId} onClose={() => setShowPrisma(false)} />
-      )}
+      {/* PRISMA 2020 Compliance -- at the end so the main content comes first */}
+      {exportRunId && <PrismaCard runId={exportRunId} />}
     </div>
   )
 }

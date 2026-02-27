@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from "react"
-import { CheckCircle, XCircle, HelpCircle, ChevronDown, ChevronUp } from "lucide-react"
+import { CheckCircle, XCircle, HelpCircle, ChevronDown, ChevronUp, Filter } from "lucide-react"
 import { cn } from "@/lib/utils"
-import { Spinner, FetchError } from "@/components/ui/feedback"
+import { Spinner, FetchError, EmptyState } from "@/components/ui/feedback"
 import { fetchScreeningSummary, approveScreening } from "@/lib/api"
 import type { ScreenedPaper, ScreeningSummary } from "@/lib/api"
 
@@ -52,7 +52,7 @@ function PaperRow({ paper }: { paper: ScreenedPaper }) {
   return (
     <div className="border border-zinc-800 rounded-lg bg-zinc-900/40 overflow-hidden">
       <button
-        className="w-full flex items-start gap-3 px-4 py-3 text-left hover:bg-zinc-800/30 transition-colors"
+        className="w-full flex items-start gap-3 px-4 py-3 text-left row-hover"
         onClick={() => setExpanded((v) => !v)}
       >
         <div className="flex-1 min-w-0">
@@ -261,7 +261,7 @@ export function ScreeningReviewView({ runId }: { runId: string }) {
 
       {/* Paper list */}
       {filtered.length === 0 ? (
-        <p className="text-sm text-zinc-500 text-center py-8">No papers match this filter.</p>
+        <EmptyState icon={Filter} heading="No papers match this filter." className="py-8" />
       ) : (
         <div className="space-y-2">
           {filtered.map((paper) => (

@@ -16,9 +16,10 @@ import {
   loadLiveRun,
   clearLiveRun,
   startRun,
+  startRunWithMasterlist,
 } from "@/lib/api"
 import { Spinner } from "@/components/ui/feedback"
-import type { HistoryEntry, RunRequest, RunResponse } from "@/lib/api"
+import type { HistoryEntry, RunRequest, RunResponse, StoredApiKeys } from "@/lib/api"
 import { RunView } from "@/views/RunView"
 import type { RunTab, SelectedRun } from "@/views/RunView"
 
@@ -216,6 +217,38 @@ export default function App() {
     setActiveRunTab("activity")
   }
 
+  async function handleStartWithCsv(csvFile: File, req: RunRequest) {
+    reset()
+    const now = new Date()
+    const keys: StoredApiKeys = {
+      gemini: req.gemini_api_key,
+      openalex: req.openalex_api_key ?? "",
+      ieee: req.ieee_api_key ?? "",
+      pubmedEmail: req.pubmed_email ?? "",
+      pubmedApiKey: req.pubmed_api_key ?? "",
+      perplexity: req.perplexity_api_key ?? "",
+      semanticScholar: req.semantic_scholar_api_key ?? "",
+      crossrefEmail: req.crossref_email ?? "",
+    }
+    const res = await startRunWithMasterlist(csvFile, req.review_yaml, keys, req.run_root)
+    setLiveRunId(res.run_id)
+    setLiveTopic(res.topic)
+    setLiveStartedAt(now)
+    setLiveWorkflowId(null)
+    saveLiveRun({ runId: res.run_id, topic: res.topic, startedAt: now.toISOString() })
+    const run: SelectedRun = {
+      runId: res.run_id,
+      workflowId: null,
+      topic: res.topic,
+      dbPath: null,
+      isDone: false,
+      startedAt: now,
+      createdAt: now.toISOString(),
+    }
+    setSelectedRun(run)
+    setActiveRunTab("activity")
+  }
+
   async function handleCancel() {
     if (liveRunId) await cancelRun(liveRunId)
     abort()
@@ -326,6 +359,7 @@ export default function App() {
           <SetupView
             defaultReviewYaml={defaultYaml}
             onSubmit={handleStart}
+            onSubmitWithCsv={handleStartWithCsv}
             disabled={isRunning}
           />
         </Suspense>
@@ -370,7 +404,7 @@ export default function App() {
     : "New Review"
 
   return (
-    <div className="flex h-screen bg-[#09090b] text-zinc-100 overflow-hidden">
+    <div className="flex h-screen bg-background text-zinc-100 overflow-hidden">
       <Sidebar
         liveRun={liveRunForSidebar}
         selectedWorkflowId={selectedRun?.workflowId ?? null}
@@ -390,7 +424,7 @@ export default function App() {
         style={{ marginLeft: mainMargin }}
       >
         {/* Top bar */}
-        <header className="sticky top-0 z-10 bg-[#09090b]/80 backdrop-blur-sm border-b border-zinc-800 h-14 flex items-center px-6 gap-4 shrink-0">
+        <header className="sticky top-0 z-10 bg-background/80 backdrop-blur-sm border-b border-zinc-800 h-14 flex items-center px-6 gap-4 shrink-0">
           {/* Breadcrumb */}
           <div className="flex items-center gap-1.5 text-sm flex-1 min-w-0">
             <button

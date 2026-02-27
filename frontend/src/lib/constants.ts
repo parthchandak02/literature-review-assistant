@@ -86,6 +86,49 @@ export const BADGE_STYLE: Record<RunStatus, string> = {
   stale: "text-amber-500 bg-amber-500/10 border-amber-500/30",
 }
 
+// ---------------------------------------------------------------------------
+// Phase colors (hex) used by charts and visualizations
+// ---------------------------------------------------------------------------
+
+export const PHASE_COLORS: Record<string, string> = {
+  phase_2_search: "#3b82f6",
+  phase_3_screening: "#8b5cf6",
+  phase_4_extraction: "#f59e0b",
+  phase_4_extraction_quality: "#d97706",
+  phase_5_synthesis: "#10b981",
+  phase_6_writing: "#ef4444",
+  phase_6_humanizer: "#f97316",
+  quality_rob2: "#06b6d4",
+  quality_robins_i: "#0ea5e9",
+  quality_casp: "#38bdf8",
+  finalize: "#6b7280",
+}
+
+/** Resolve the chart color for a phase key, falling back to prefix matching. */
+export function phaseColor(phase: string): string {
+  if (phase in PHASE_COLORS) return PHASE_COLORS[phase]
+  for (const [key, color] of Object.entries(PHASE_COLORS)) {
+    if (phase.startsWith(key)) return color
+  }
+  return "#6b7280"
+}
+
+export const PHASE_LABEL_MAP: Record<string, string> = {
+  phase_2_search: "Search",
+  phase_3_screening: "Screening",
+  phase_4_extraction: "Extraction",
+  phase_4_extraction_quality: "Ext. Quality",
+  phase_5_synthesis: "Synthesis",
+  phase_6_writing: "Writing",
+  phase_6_humanizer: "Humanizer",
+  quality_rob2: "RoB 2",
+  quality_robins_i: "ROBINS-I",
+  quality_casp: "CASP",
+  finalize: "Finalize",
+}
+
+// ---------------------------------------------------------------------------
+
 /** Map raw backend/SSE status strings to the canonical RunStatus. */
 export function resolveRunStatus(raw: string | null | undefined): RunStatus {
   const s = (raw ?? "").toLowerCase()

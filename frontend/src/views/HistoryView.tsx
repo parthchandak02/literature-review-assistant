@@ -7,7 +7,7 @@ import { AlertTriangle, BookOpen, Clock, Loader, Play, RefreshCw } from "lucide-
 import { Button } from "@/components/ui/button"
 import { Th, Td } from "@/components/ui/table"
 import { StatusBadge } from "@/components/ui/status-badge"
-import { FetchError } from "@/components/ui/feedback"
+import { FetchError, EmptyState } from "@/components/ui/feedback"
 import { Skeleton } from "@/components/ui/skeleton"
 
 /** True if a run has a db_path that could be browsed (including partial/stale runs). */
@@ -120,7 +120,7 @@ export function HistoryView({ onAttach, onResume }: HistoryViewProps) {
 
       {/* Loading skeleton */}
       {loading && entries.length === 0 && (
-        <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-4 space-y-3">
+        <div className="card-section space-y-3">
           {[1, 2, 3].map((i) => (
             <div key={i} className="flex gap-3 items-center">
               <Skeleton className="h-4 flex-1" />
@@ -134,19 +134,17 @@ export function HistoryView({ onAttach, onResume }: HistoryViewProps) {
 
       {/* Empty state */}
       {!loading && entries.length === 0 && !fetchError && (
-        <div className="flex flex-col items-center justify-center py-20 gap-3 text-center bg-zinc-900 border border-zinc-800 rounded-xl">
-          <Clock className="h-10 w-10 text-zinc-700" />
-          <p className="text-zinc-400 text-sm font-medium">No past reviews found</p>
-          <p className="text-zinc-600 text-xs max-w-xs leading-relaxed">
-            Run your first systematic review using "New Review".
-            Completed runs will appear here automatically.
-          </p>
-        </div>
+        <EmptyState
+          icon={Clock}
+          heading="No past reviews found"
+          sub='Run your first systematic review using "New Review". Completed runs will appear here automatically.'
+          className="py-20 card-surface"
+        />
       )}
 
       {/* Table */}
       {entries.length > 0 && (
-        <div className="bg-zinc-900 border border-zinc-800 rounded-xl overflow-hidden">
+        <div className="card-surface overflow-hidden">
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-zinc-800">
@@ -212,7 +210,7 @@ export function HistoryView({ onAttach, onResume }: HistoryViewProps) {
                             <span className="text-zinc-600"> / </span>
                             {papersIncluded !== null ? papersIncluded.toLocaleString() : "--"}
                           </span>
-                          <span className="text-zinc-600 text-[10px] block">
+                          <span className="label-muted block">
                             found / incl.
                           </span>
                         </>
@@ -239,7 +237,7 @@ export function HistoryView({ onAttach, onResume }: HistoryViewProps) {
                     <Td className="py-3.5 text-xs text-zinc-500 whitespace-nowrap">
                       {formatFullDate(entry.created_at)}
                       {duration && (
-                        <span className="text-zinc-600 text-[10px] block mt-0.5">
+                        <span className="label-muted block mt-0.5">
                           {duration}
                         </span>
                       )}

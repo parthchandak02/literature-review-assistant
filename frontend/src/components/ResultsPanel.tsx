@@ -9,6 +9,9 @@ import latex from "highlight.js/lib/languages/latex"
 // highlight.js theme loaded as a side-effect CSS import (Vite resolves npm CSS)
 import "highlight.js/styles/github-dark.css"
 import { Button } from "@/components/ui/button"
+import { Th } from "@/components/ui/table"
+import { EmptyState } from "@/components/ui/feedback"
+import { PageSection } from "@/components/ui/section"
 import {
   Download,
   FileText,
@@ -29,6 +32,8 @@ hljs.registerLanguage("latex", latex)
 
 interface ResultsPanelProps {
   outputs: Record<string, unknown>
+  /** File paths already rendered elsewhere that should not appear in this panel. */
+  excludePaths?: Set<string>
 }
 
 function isFilePath(val: unknown): val is string {
@@ -134,29 +139,6 @@ function collectFiles(outputs: Record<string, unknown>): OutputFile[] {
 
   walk(outputs, "")
   return files
-}
-
-function SectionBox({
-  icon: Icon,
-  title,
-  sub,
-  children,
-}: {
-  icon: React.ElementType
-  title: string
-  sub?: string
-  children: React.ReactNode
-}) {
-  return (
-    <div className="bg-zinc-900 border border-zinc-800 rounded-xl overflow-hidden">
-      <div className="flex items-center gap-2 px-4 py-3 border-b border-zinc-800">
-        <Icon className="h-4 w-4 text-zinc-500" />
-        <span className="text-sm font-medium text-zinc-200">{title}</span>
-        {sub && <span className="text-xs text-zinc-600 ml-1">{sub}</span>}
-      </div>
-      <div className="flex flex-col gap-2 p-4">{children}</div>
-    </div>
-  )
 }
 
 function FileRow({ file }: { file: OutputFile }) {
@@ -279,12 +261,9 @@ function CsvViewer({ content }: { content: string }) {
         <thead className="sticky top-0 bg-zinc-900">
           <tr>
             {header.map((cell, i) => (
-              <th
-                key={i}
-                className="text-left px-3 py-2 border border-zinc-700 font-semibold text-zinc-200 whitespace-nowrap"
-              >
+              <Th key={i} className="border border-zinc-700 whitespace-nowrap">
                 {cell}
-              </th>
+              </Th>
             ))}
           </tr>
         </thead>
@@ -477,20 +456,18 @@ function FigureRow({ file }: { file: OutputFile }) {
   )
 }
 
-export function ResultsPanel({ outputs }: ResultsPanelProps) {
-  const files = collectFiles(outputs)
+export function ResultsPanel({ outputs, excludePaths }: ResultsPanelProps) {
+  const allFiles = collectFiles(outputs)
+  const files = excludePaths
+    ? allFiles.filter((f) => !excludePaths.has(f.path))
+    : allFiles
   const docs = files.filter(
     (f) => !f.isRasterImage && !/\.(png|jpg|jpeg|svg|webp|pdf)$/i.test(f.path),
   )
   const figs = files.filter((f) => /\.(png|jpg|jpeg|svg|webp|pdf)$/i.test(f.path))
 
   if (files.length === 0) {
-    return (
-      <div className="flex flex-col items-center justify-center py-16 text-center">
-        <FileText className="h-10 w-10 text-zinc-700 mb-3" />
-        <p className="text-zinc-500 text-sm">No output files to display.</p>
-      </div>
-    )
+    return <EmptyState icon={FileText} heading="No output files to display." className="py-16" />
   }
 
   // Group docs into logical buckets and sort by group order
@@ -509,17 +486,18 @@ export function ResultsPanel({ outputs }: ResultsPanelProps) {
   return (
     <div className="flex flex-col gap-4">
       {docs.length > 0 && (
-        <SectionBox
+        <PageSection
           icon={FileText}
           title="Documents"
-          sub="Manuscript, protocol, data"
+          description="Manuscript, protocol, data"
+          contentClassName="flex flex-col gap-2"
         >
           {orderedGroups.map((group) => {
             const groupFiles = groupedDocs[group]
             if (groupFiles.length === 0) return null
             return (
               <div key={group} className="flex flex-col gap-2">
-                <p className="text-xs text-zinc-600 uppercase tracking-wider pt-1 pb-0.5 border-b border-zinc-800/60">
+                <p className="label-caps pt-1 pb-0.5 border-b border-zinc-800/60">
                   {GROUP_META[group].label}
                 </p>
                 {groupFiles.map((f) =>
@@ -532,15 +510,20 @@ export function ResultsPanel({ outputs }: ResultsPanelProps) {
               </div>
             )
           })}
-        </SectionBox>
+        </PageSection>
       )}
 
       {figs.length > 0 && (
-        <SectionBox icon={Image} title="Figures" sub="PRISMA flow, forest plot, RoB, geographic">
+        <PageSection
+          icon={Image}
+          title="Figures"
+          description="PRISMA flow, forest plot, RoB, geographic"
+          contentClassName="flex flex-col gap-2"
+        >
           {figs.map((f) => (
             <FigureRow key={f.key} file={f} />
           ))}
-        </SectionBox>
+        </PageSection>
       )}
     </div>
   )

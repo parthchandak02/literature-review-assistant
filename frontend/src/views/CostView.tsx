@@ -8,13 +8,14 @@ import {
   ResponsiveContainer,
   Cell,
 } from "recharts"
-import { ChevronDown, ChevronUp, DollarSign, Zap, ArrowUpDown, Activity } from "lucide-react"
+import { DollarSign, Zap, ArrowUpDown, Activity } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { fetchDbCosts } from "@/lib/api"
 import type { DbCostRow } from "@/lib/api"
 import type { CostStats, ModelStat, PhaseStat } from "@/hooks/useCostStats"
-import { FetchError } from "@/components/ui/feedback"
+import { FetchError, EmptyState } from "@/components/ui/feedback"
 import { SkeletonCard } from "@/components/ui/skeleton"
+import { PHASE_LABEL_MAP, phaseColor } from "@/lib/constants"
 
 interface MetricTileProps {
   icon: React.ElementType
@@ -26,13 +27,13 @@ interface MetricTileProps {
 
 function MetricTile({ icon: Icon, label, value, sub, iconClass }: MetricTileProps) {
   return (
-    <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-4">
+    <div className="card-section">
       <div className="flex items-center gap-2 mb-3">
         <Icon className={cn("h-4 w-4", iconClass ?? "text-zinc-500")} />
-        <span className="text-xs text-zinc-500 font-medium uppercase tracking-wide">{label}</span>
+        <span className="label-caps">{label}</span>
       </div>
       <div className="text-2xl font-bold text-white tabular-nums font-mono">{value}</div>
-      {sub && <div className="text-xs text-zinc-600 mt-1">{sub}</div>}
+      {sub && <div className="label-muted mt-1">{sub}</div>}
     </div>
   )
 }
@@ -46,42 +47,6 @@ function DarkTooltip({ active, payload, label }: { active?: boolean; payload?: A
       <div className="text-white font-mono font-semibold">${payload[0].value.toFixed(4)}</div>
     </div>
   )
-}
-
-const PHASE_COLORS: Record<string, string> = {
-  phase_2_search: "#3b82f6",
-  phase_3_screening: "#8b5cf6",
-  phase_4_extraction: "#f59e0b",
-  phase_4_extraction_quality: "#d97706",
-  phase_5_synthesis: "#10b981",
-  phase_6_writing: "#ef4444",
-  phase_6_humanizer: "#f97316",
-  quality_rob2: "#06b6d4",
-  quality_robins_i: "#0ea5e9",
-  quality_casp: "#38bdf8",
-  finalize: "#6b7280",
-}
-
-function phaseColor(phase: string): string {
-  if (phase in PHASE_COLORS) return PHASE_COLORS[phase]
-  for (const [key, color] of Object.entries(PHASE_COLORS)) {
-    if (phase.startsWith(key)) return color
-  }
-  return "#6b7280"
-}
-
-const PHASE_LABEL_MAP: Record<string, string> = {
-  phase_2_search: "Search",
-  phase_3_screening: "Screening",
-  phase_4_extraction: "Extraction",
-  phase_4_extraction_quality: "Ext. Quality",
-  phase_5_synthesis: "Synthesis",
-  phase_6_writing: "Writing",
-  phase_6_humanizer: "Humanizer",
-  quality_rob2: "RoB 2",
-  quality_robins_i: "ROBINS-I",
-  quality_casp: "CASP",
-  finalize: "Finalize",
 }
 
 function formatPhaseName(phase: string): string {
@@ -105,7 +70,6 @@ export function CostView({ costStats, dbRunId }: CostViewProps) {
   const [dbTotalCost, setDbTotalCost] = useState(0)
   const [loadingDb, setLoadingDb] = useState(false)
   const [dbError, setDbError] = useState<string | null>(null)
-  const [showBreakdown, setShowBreakdown] = useState(false)
 
   const loadDbCosts = useCallback(() => {
     if (!dbRunId || costStats.total_calls > 0) return
@@ -205,10 +169,11 @@ export function CostView({ costStats, dbRunId }: CostViewProps) {
 
   if (!hasCosts) {
     return (
-      <div className="flex flex-col items-center justify-center h-64 text-center">
-        <DollarSign className="h-10 w-10 text-zinc-700 mb-3" />
-        <p className="text-zinc-500 text-sm">Cost data will appear once the review starts.</p>
-      </div>
+      <EmptyState
+        icon={DollarSign}
+        heading="Cost data will appear once the review starts."
+        className="h-64"
+      />
     )
   }
 
@@ -246,9 +211,10 @@ export function CostView({ costStats, dbRunId }: CostViewProps) {
         />
       </div>
 
-      {/* Cost by phase chart -- horizontal bars so labels have room */}
-      {chartData.length > 0 && (
-        <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-5">
+      {/* Cost by phase chart -- horizontal bars so labels have room.
+          Only shown when 2+ phases have non-zero cost; a single bar is misleading. */}
+      {nonZeroPhasesCount >= 2 ? (
+        <div className="card-surface p-5">
           <h3 className="text-sm font-semibold text-zinc-300 mb-4">Cost by Phase</h3>
           <ResponsiveContainer width="100%" height={Math.max(180, chartData.length * 36)}>
             <BarChart
@@ -284,11 +250,15 @@ export function CostView({ costStats, dbRunId }: CostViewProps) {
             </BarChart>
           </ResponsiveContainer>
         </div>
-      )}
+      ) : chartData.length > 0 ? (
+        <div className="card-surface p-5 flex items-center justify-center h-24">
+          <p className="label-muted">Cost breakdown will appear as phases complete.</p>
+        </div>
+      ) : null}
 
       {/* Cost by model table */}
       {by_model.length > 0 && (
-        <div className="bg-zinc-900 border border-zinc-800 rounded-xl overflow-hidden">
+        <div className="card-surface overflow-hidden">
           <div className="px-5 py-3 border-b border-zinc-800">
             <h3 className="text-sm font-semibold text-zinc-300">Cost by Model</h3>
           </div>
@@ -296,11 +266,11 @@ export function CostView({ costStats, dbRunId }: CostViewProps) {
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-zinc-800">
-                  <th className="text-left px-5 py-2.5 text-xs font-medium text-zinc-500 uppercase tracking-wide">Model</th>
-                  <th className="text-right px-4 py-2.5 text-xs font-medium text-zinc-500 uppercase tracking-wide">Calls</th>
-                  <th className="text-right px-4 py-2.5 text-xs font-medium text-zinc-500 uppercase tracking-wide">Tokens In</th>
-                  <th className="text-right px-4 py-2.5 text-xs font-medium text-zinc-500 uppercase tracking-wide">Tokens Out</th>
-                  <th className="text-right px-5 py-2.5 text-xs font-medium text-zinc-500 uppercase tracking-wide">Cost</th>
+                  <th className="text-left px-5 py-2.5 label-caps">Model</th>
+                  <th className="text-right px-4 py-2.5 label-caps">Calls</th>
+                  <th className="text-right px-4 py-2.5 label-caps">Tokens In</th>
+                  <th className="text-right px-4 py-2.5 label-caps">Tokens Out</th>
+                  <th className="text-right px-5 py-2.5 label-caps">Cost</th>
                 </tr>
               </thead>
               <tbody>
@@ -333,9 +303,9 @@ export function CostView({ costStats, dbRunId }: CostViewProps) {
         </div>
       )}
 
-      {/* Phase breakdown table */}
+      {/* Cost by phase table */}
       {by_phase.length > 0 && (
-        <div className="bg-zinc-900 border border-zinc-800 rounded-xl overflow-hidden">
+        <div className="card-surface overflow-hidden">
           <div className="px-5 py-3 border-b border-zinc-800">
             <h3 className="text-sm font-semibold text-zinc-300">Cost by Phase</h3>
           </div>
@@ -343,9 +313,9 @@ export function CostView({ costStats, dbRunId }: CostViewProps) {
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-zinc-800">
-                  <th className="text-left px-5 py-2.5 text-xs font-medium text-zinc-500 uppercase tracking-wide">Phase</th>
-                  <th className="text-right px-4 py-2.5 text-xs font-medium text-zinc-500 uppercase tracking-wide">Calls</th>
-                  <th className="text-right px-5 py-2.5 text-xs font-medium text-zinc-500 uppercase tracking-wide">Cost</th>
+                  <th className="text-left px-5 py-2.5 label-caps">Phase</th>
+                  <th className="text-right px-4 py-2.5 label-caps">Calls</th>
+                  <th className="text-right px-5 py-2.5 label-caps">Cost</th>
                 </tr>
               </thead>
               <tbody>

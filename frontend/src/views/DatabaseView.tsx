@@ -8,10 +8,11 @@ import {
   CommandItem,
   CommandList,
 } from "@/components/ui/command"
-import { FetchError, EmptyState } from "@/components/ui/feedback"
+import { FetchError, EmptyState, LoadingPane } from "@/components/ui/feedback"
 import { Th, Td, TableSkeleton, Pagination } from "@/components/ui/table"
 import { cn } from "@/lib/utils"
 import { AlertTriangle, Database, ExternalLink, Filter, Loader2, X } from "lucide-react"
+// Loader2 is still used in FilterComboboxPopover
 import { fetchPapersAll, fetchPapersFacets, fetchPapersSuggest } from "@/lib/api"
 import type { PaperAllRow } from "@/lib/api"
 
@@ -207,13 +208,7 @@ export function DatabaseView({ runId, isDone, dbAvailable, isLive }: DatabaseVie
   }
 
   if (!dbAvailable) {
-    return (
-      <div className="flex flex-col items-center justify-center h-64 gap-3 text-center">
-        <Loader2 className="h-8 w-8 text-zinc-600 animate-spin" />
-        <p className="text-zinc-500 text-sm">Database initializing...</p>
-        <p className="text-zinc-600 text-xs">Data will appear here once the run begins.</p>
-      </div>
-    )
+    return <LoadingPane message="Database initializing..." className="h-64" />
   }
 
   const activeFilters = [titleFilter, authorFilter, taFilter, ftFilter, yearFilter, sourceFilter, countryFilter].filter(Boolean).length + (showHeuristicOnly ? 1 : 0)
@@ -222,6 +217,9 @@ export function DatabaseView({ runId, isDone, dbAvailable, isLive }: DatabaseVie
   const displayedPapers = showHeuristicOnly
     ? papers.filter((p) => p.assessment_source === "heuristic")
     : papers
+
+  // Hide the Confidence column when no paper on the current page has a value.
+  const hasConfidenceData = displayedPapers.some((p) => p.extraction_confidence != null)
 
   return (
     <div className="flex flex-col gap-4">
@@ -245,7 +243,7 @@ export function DatabaseView({ runId, isDone, dbAvailable, isLive }: DatabaseVie
           )}
         >
           <AlertTriangle className="h-3 w-3" />
-          Heuristic RoB only
+          Heuristic screen only
         </button>
         <div className="flex items-center gap-3 ml-auto">
           {!error && (
@@ -269,7 +267,7 @@ export function DatabaseView({ runId, isDone, dbAvailable, isLive }: DatabaseVie
       </div>
 
       {/* Table */}
-      <div className="bg-zinc-900 border border-zinc-800 rounded-xl overflow-hidden">
+      <div className="card-surface overflow-hidden">
         {error ? (
           <div className="p-4">
             <FetchError message={error} onRetry={loadPapers} />
@@ -371,7 +369,7 @@ export function DatabaseView({ runId, isDone, dbAvailable, isLive }: DatabaseVie
                   >
                     FT Decision
                   </Th>
-                  <Th>Confidence</Th>
+                  {hasConfidenceData && <Th>Confidence</Th>}
                   <Th>RoB Source</Th>
                 </tr>
               </thead>
@@ -412,7 +410,7 @@ export function DatabaseView({ runId, isDone, dbAvailable, isLive }: DatabaseVie
                     <Td className="text-zinc-600">{p.country ?? "--"}</Td>
                     <DecisionCell value={p.ta_decision} />
                     <DecisionCell value={p.ft_decision} />
-                    <ExtractionConfidenceCell value={p.extraction_confidence} />
+                    {hasConfidenceData && <ExtractionConfidenceCell value={p.extraction_confidence} />}
                     <AssessmentSourceCell value={p.assessment_source} />
                   </tr>
                 ))}

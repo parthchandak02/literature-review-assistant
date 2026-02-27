@@ -222,7 +222,7 @@ export function LogStream({ events, autoScroll = true }: LogStreamProps) {
   return (
     <div
       ref={scrollContainerRef}
-      className="h-[520px] w-full rounded-xl border border-zinc-800 bg-[#0d0d0f] overflow-y-auto"
+      className="h-[32rem] w-full rounded-xl border border-zinc-800 bg-background overflow-y-auto"
       role="log"
       aria-live="polite"
       aria-label="Event log"

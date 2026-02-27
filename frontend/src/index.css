@@ -8,6 +8,20 @@
   --color-border: #27272a;
   --color-muted: #71717a;
   --color-accent: #8b5cf6;
+
+  /* Semantic surface scale */
+  --color-surface-0: #09090b;   /* page background */
+  --color-surface-1: #18181b;   /* card */
+  --color-surface-2: #27272a;   /* inner card / thead */
+  --color-surface-3: #3f3f46;   /* dividers, table borders */
+  --color-surface-4: #52525b;   /* scrollbar hover, anchor hints */
+
+  /* Semantic text scale */
+  --color-text-dim: #a1a1aa;    /* figure captions, secondary labels */
+
+  /* Accent shades */
+  --color-accent-soft: #c4b5fd; /* inline citation keys */
+  --color-accent-muted: #1e1a2e; /* citation key background */
 }
 
 @layer base {
@@ -43,10 +57,45 @@
   }
 
   body {
-    background-color: #09090b;
+    background-color: var(--color-surface-0);
     color: hsl(var(--foreground));
     font-feature-settings: "rlig" 1, "calt" 1;
     -webkit-font-smoothing: antialiased;
+  }
+}
+
+/* ------------------------------------------------------------------ */
+/* Component utilities -- canonical compositions used across all views */
+/* ------------------------------------------------------------------ */
+
+@layer components {
+  /* Card surfaces */
+  .card-surface {
+    @apply bg-zinc-900 border border-zinc-800 rounded-xl;
+  }
+  .card-section {
+    @apply bg-zinc-900 border border-zinc-800 rounded-xl p-4;
+  }
+
+  /* Collapsible section header trigger */
+  .section-trigger {
+    @apply w-full flex items-center justify-between px-4 py-3 hover:bg-zinc-800/30 transition-colors;
+  }
+
+  /* Typography utilities */
+  .label-caps {
+    @apply text-[11px] font-medium uppercase tracking-wide text-zinc-500;
+  }
+  .label-sub {
+    @apply text-xs text-zinc-500;
+  }
+  .label-muted {
+    @apply text-xs text-zinc-600;
+  }
+
+  /* Interactive row hover */
+  .row-hover {
+    @apply hover:bg-zinc-800/40 transition-colors duration-150;
   }
 }
 
@@ -57,7 +106,7 @@
 /* Section separator HRs (between body, Figures, and References) */
 .manuscript-viewer .prose hr,
 .manuscript-viewer hr {
-  border-color: #3f3f46;
+  border-color: var(--color-surface-3);
   margin-top: 2rem;
   margin-bottom: 2rem;
 }
@@ -69,14 +118,14 @@
 }
 .manuscript-viewer :is(h1, h2, h3, h4) a:hover::after {
   content: " #";
-  color: #52525b;
+  color: var(--color-surface-4);
   font-weight: 400;
   font-size: 0.85em;
 }
 
 /* Figure captions -- the **Fig. N.** bold prefix */
 .manuscript-viewer p > strong:first-child {
-  color: #a1a1aa;
+  color: var(--color-text-dim);
 }
 
 /* Tables: visible borders for manuscript data tables */
@@ -86,22 +135,22 @@
 }
 .manuscript-viewer th,
 .manuscript-viewer td {
-  border: 1px solid #3f3f46;
+  border: 1px solid var(--color-surface-3);
   padding: 0.4rem 0.75rem;
 }
 .manuscript-viewer th {
-  background-color: #27272a;
+  background-color: var(--color-surface-2);
   font-weight: 600;
 }
 .manuscript-viewer tr:nth-child(even) td {
-  background-color: #18181b;
+  background-color: var(--color-surface-1);
 }
 
 /* Inline citation keys like [AuthorYear] -- rendered as <code> by remark-gfm
    when surrounded by brackets, or plain text. Keep them subtle but readable. */
 .manuscript-viewer code:not(pre code) {
-  color: #c4b5fd;
-  background-color: #1e1a2e;
+  color: var(--color-accent-soft);
+  background-color: var(--color-accent-muted);
   padding: 0.1em 0.3em;
   border-radius: 0.25em;
   font-size: 0.875em;
@@ -124,9 +173,9 @@
   background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  background: #3f3f46;
+  background: var(--color-surface-3);
   border-radius: 3px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: #52525b;
+  background: var(--color-surface-4);
 }
