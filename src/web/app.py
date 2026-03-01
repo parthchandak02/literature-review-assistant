@@ -1862,6 +1862,7 @@ async def get_prisma_checklist(run_id: str) -> dict:
     tex_content: str | None = None
 
     for candidate in [
+        run_path / "doc_manuscript.md",
         run_path / "manuscript.md",
         run_path / "manuscript_draft.md",
         run_path / "outputs" / "manuscript.md",

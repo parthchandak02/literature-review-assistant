@@ -8,11 +8,11 @@
  * Falls back gracefully when the graph has no edges or the API returns an error.
  */
 
-import { useState, useEffect, useRef, useCallback } from "react"
+import { useState, useEffect, useRef } from "react"
+import { Network } from "lucide-react"
 import { fetchKnowledgeGraph } from "@/lib/api"
 import type { KnowledgeGraph, KnowledgeGraphNode, KnowledgeGraphEdge } from "@/lib/api"
 import { Spinner, FetchError, EmptyState } from "@/components/ui/feedback"
-import { cn } from "@/lib/utils"
 
 const COMMUNITY_COLORS = [
   "#7c3aed", "#2563eb", "#059669", "#d97706", "#dc2626",
@@ -293,6 +293,7 @@ export function EvidenceNetworkViz({ runId }: EvidenceNetworkVizProps) {
   if (!graph || graph.nodes.length === 0) {
     return (
       <EmptyState
+        icon={Network}
         heading="No knowledge graph data yet."
         className="py-12"
       />
