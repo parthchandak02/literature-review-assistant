@@ -92,6 +92,7 @@ from src.export.markdown_refs import assemble_submission_manuscript, is_extracti
 from src.orchestration.embedding_node import EmbeddingNode
 from src.orchestration.knowledge_graph_node import KnowledgeGraphNode
 from src.rag.embedder import embed_query as rag_embed_query
+from src.rag.hyde import generate_hyde_document
 from src.rag.retriever import RAGRetriever
 from src.synthesis.contradiction_detector import detect_contradictions
 from src.writing.citation_grounding import verify_citation_grounding, repair_hallucinated_citekeys
@@ -1508,6 +1509,38 @@ class WritingNode(BaseNode[ReviewState]):
                 if rc:
                     rc.log_api_call(**kw)
 
+            # Pre-generate HyDE hypothetical documents for all sections in
+            # parallel before the writing loop. Abstract always returns "".
+            rag_cfg = getattr(state.settings, "rag", None)
+            use_hyde = getattr(rag_cfg, "use_hyde", True)
+            hyde_model = getattr(rag_cfg, "hyde_model", "google-gla:gemini-2.0-flash")
+
+            hyde_docs: dict[str, str] = {}
+            if use_hyde and state.review:
+                try:
+                    import asyncio as _asyncio
+                    _hyde_results = await _asyncio.gather(
+                        *[
+                            generate_hyde_document(
+                                section=s,
+                                research_question=state.review.research_question,
+                                model=hyde_model,
+                            )
+                            for s in SECTIONS
+                        ],
+                        return_exceptions=True,
+                    )
+                    for s, res in zip(SECTIONS, _hyde_results):
+                        if isinstance(res, str) and res:
+                            hyde_docs[s] = res
+                    logger.info(
+                        "HyDE pre-generated %d/%d section docs", len(hyde_docs), len(SECTIONS)
+                    )
+                except Exception as _hyde_err:
+                    logger.warning(
+                        "HyDE batch failed: %s -- falling back to bare embed_query", _hyde_err
+                    )
+
             for i, section in enumerate(SECTIONS):
                 if section in completed:
                     if rc and rc.verbose:
@@ -1539,9 +1572,14 @@ class WritingNode(BaseNode[ReviewState]):
                     retriever = RAGRetriever(db, state.workflow_id)
                     chunk_count = await retriever.chunk_count()
                     if chunk_count > 0:
-                        query_vec = await rag_embed_query(section)
-                        # Enrich BM25 query with the research question so BM25
-                        # has domain context beyond the bare section name.
+                        # HyDE: embed the hypothetical doc if available, else
+                        # fall back to bare section name. BM25 always uses the
+                        # factual query (not hypothetical) to avoid hallucinated
+                        # corpus-drift.
+                        hyde_text = hyde_docs.get(section, "")
+                        query_vec = await rag_embed_query(hyde_text if hyde_text else section)
+                        if hyde_text:
+                            logger.debug("RAG: HyDE embedding used for section '%s'", section)
                         bm25_query = f"{state.review.research_question} {section}"
                         chunks = await retriever.search(
                             query_vec, top_k=8, query_text=bm25_query

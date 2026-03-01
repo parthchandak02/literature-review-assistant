@@ -69,6 +69,10 @@ writing:
   checkpoint_per_section: true
   llm_timeout: 120
 
+rag:
+  use_hyde: true
+  hyde_model: "google-gla:gemini-2.0-flash"
+
 risk_of_bias:
   rct_tool: "rob2"
   non_randomized_tool: "robins_i"

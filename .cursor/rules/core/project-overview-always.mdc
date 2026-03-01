@@ -23,7 +23,7 @@ alwaysApply: true
 - `src/quality/` -- baseline RoB 2, ROBINS-I, CASP, GRADE, study router
 - `src/synthesis/` -- Meta-analysis (statsmodels), effect sizes, narrative (LLM-based direction classification), sensitivity analysis (leave-one-out + subgroup), contradiction_detector
 - `src/writing/` -- Section writer, prompts, humanizer, style extractor, naturalness scorer, citation_grounding, contradiction_resolver, orchestration
-- `src/rag/` -- RAG pipeline: chunker, embedder (PydanticAI Embedder), hybrid BM25+dense retriever with RRF (used by citation grounding and WritingNode)
+- `src/rag/` -- RAG pipeline: chunker, embedder (PydanticAI Embedder), hybrid BM25+dense retriever with RRF, hyde.py (HyDE hypothetical doc generation) (used by citation grounding and WritingNode)
 - `src/knowledge_graph/` -- builder, community (Louvain), gap_detector
 - `src/citation/` -- Citation ledger, BibTeX generation
 - `src/prisma/` -- PRISMA 2020 flow diagram
@@ -87,8 +87,8 @@ alwaysApply: true
   after any `src/` edit, or the running process uses the pre-edit code.
 - **Historical run PRISMA/results endpoints**: require the run to be registered in `_active_runs`.
   Use `POST /api/history/attach` to re-register a completed run before calling PRISMA/results APIs.
-- **PRISMA checklist 404/500 after restart**: the endpoint now falls back to workflows_registry.db when
-  the run_id is not in _active_runs. Works with both short run_ids and workflow_ids (wf-XXXXXXXX).
+- **PRISMA checklist 404/500 after restart**: the endpoint now falls back to `workflows_registry.db`
+  when the run_id is not in `_active_runs`. Works with both short run_ids and workflow_ids (wf-XXXXXXXX).
 
 <example>
 # Good: Typed phase boundary

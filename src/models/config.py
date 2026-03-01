@@ -192,6 +192,19 @@ class SearchConfig(BaseModel):
     )
 
 
+class RagConfig(BaseModel):
+    """RAG retrieval configuration including HyDE settings."""
+
+    use_hyde: bool = Field(
+        default=True,
+        description="Use HyDE (Hypothetical Document Embeddings) for RAG section retrieval.",
+    )
+    hyde_model: str = Field(
+        default="google-gla:gemini-2.0-flash",
+        description="Fast LLM model used to generate hypothetical document excerpts for RAG queries.",
+    )
+
+
 class HumanInTheLoopConfig(BaseModel):
     """Human-in-the-loop review checkpoint configuration.
 
@@ -218,5 +231,6 @@ class SettingsConfig(BaseModel):
     ieee_export: IEEEExportConfig = Field(default_factory=IEEEExportConfig)
     citation_lineage: CitationLineageConfig = Field(default_factory=CitationLineageConfig)
     search: SearchConfig = Field(default_factory=SearchConfig)
+    rag: RagConfig = Field(default_factory=RagConfig)
     llm: LLMRateLimitConfig | None = None
     human_in_the_loop: HumanInTheLoopConfig = Field(default_factory=HumanInTheLoopConfig)
