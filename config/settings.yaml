@@ -72,6 +72,8 @@ writing:
 rag:
   use_hyde: true
   hyde_model: "google-gla:gemini-2.0-flash"
+  rerank: true
+  reranker_model: "cross-encoder/ms-marco-MiniLM-L-6-v2"
 
 risk_of_bias:
   rct_tool: "rob2"

@@ -193,7 +193,7 @@ class SearchConfig(BaseModel):
 
 
 class RagConfig(BaseModel):
-    """RAG retrieval configuration including HyDE settings."""
+    """RAG retrieval configuration including HyDE and cross-encoder reranking settings."""
 
     use_hyde: bool = Field(
         default=True,
@@ -202,6 +202,14 @@ class RagConfig(BaseModel):
     hyde_model: str = Field(
         default="google-gla:gemini-2.0-flash",
         description="Fast LLM model used to generate hypothetical document excerpts for RAG queries.",
+    )
+    rerank: bool = Field(
+        default=True,
+        description="Use cross-encoder reranking on hybrid retrieval candidates before WritingNode.",
+    )
+    reranker_model: str = Field(
+        default="cross-encoder/ms-marco-MiniLM-L-6-v2",
+        description="HuggingFace cross-encoder model for reranking retrieved chunks.",
     )
 
 

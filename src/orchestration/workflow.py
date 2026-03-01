@@ -93,6 +93,7 @@ from src.orchestration.embedding_node import EmbeddingNode
 from src.orchestration.knowledge_graph_node import KnowledgeGraphNode
 from src.rag.embedder import embed_query as rag_embed_query
 from src.rag.hyde import generate_hyde_document
+from src.rag.reranker import get_reranker
 from src.rag.retriever import RAGRetriever
 from src.synthesis.contradiction_detector import detect_contradictions
 from src.writing.citation_grounding import verify_citation_grounding, repair_hallucinated_citekeys
@@ -1566,7 +1567,8 @@ class WritingNode(BaseNode[ReviewState]):
                 word_limit = get_section_word_limit(section)
 
                 # Retrieve semantically relevant evidence chunks for this section
-                # using hybrid BM25 + dense retrieval with Reciprocal Rank Fusion.
+                # using hybrid BM25 + dense retrieval with Reciprocal Rank Fusion,
+                # followed by optional cross-encoder reranking.
                 rag_context = ""
                 try:
                     retriever = RAGRetriever(db, state.workflow_id)
@@ -1581,9 +1583,27 @@ class WritingNode(BaseNode[ReviewState]):
                         if hyde_text:
                             logger.debug("RAG: HyDE embedding used for section '%s'", section)
                         bm25_query = f"{state.review.research_question} {section}"
+
+                        # Retrieve wider candidate set (top_k=20) for reranker;
+                        # fall back to top_k=8 when reranking is disabled.
+                        use_rerank = getattr(rag_cfg, "rerank", True)
+                        candidate_k = 20 if use_rerank else 8
                         chunks = await retriever.search(
-                            query_vec, top_k=8, query_text=bm25_query
+                            query_vec, top_k=candidate_k, query_text=bm25_query
                         )
+
+                        # Cross-encoder reranking: score (query, chunk) pairs
+                        # jointly and keep the best 8 for the writing context.
+                        if use_rerank and chunks:
+                            reranker_model = getattr(
+                                rag_cfg,
+                                "reranker_model",
+                                "cross-encoder/ms-marco-MiniLM-L-6-v2",
+                            )
+                            reranker = get_reranker(reranker_model)
+                            rerank_query = hyde_text if hyde_text else bm25_query
+                            chunks = await reranker.rerank(rerank_query, chunks, top_k=8)
+
                         if chunks:
                             rag_context = "\n\n".join(
                                 f"[Paper {c.paper_id} | score {c.score:.4f}]\n{c.content}"
