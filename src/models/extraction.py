@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Dict, List, Optional
+from typing import Dict, List, Literal, Optional
 
 from pydantic import BaseModel, Field
 
@@ -26,4 +26,8 @@ class ExtractionRecord(BaseModel):
     extraction_confidence: Optional[float] = Field(
         default=None,
         description="LLM self-reported confidence in the extraction (0.0-1.0).",
+    )
+    extraction_source: Optional[Literal["text", "pdf_vision", "hybrid", "heuristic"]] = Field(
+        default="text",
+        description="How outcome data was obtained: text LLM, PDF vision, merged hybrid, or heuristic fallback.",
     )

@@ -37,6 +37,13 @@ from src.extraction import ExtractionService, StudyClassifier
 from src.llm.provider import LLMProvider
 from src.llm.pydantic_client import PydanticAIClient
 from src.models import DecisionLogEntry, ExtractionRecord, SectionDraft, StudyDesign
+from src.models.diagrams import (
+    FlowchartDiagramInput,
+    FlowchartPhase,
+    FrameworkDiagramInput,
+    TaxonomyCategory,
+    TaxonomyDiagramInput,
+)
 from src.orchestration.context import RunContext
 from src.orchestration.gates import GateRunner
 from src.orchestration.resume import load_resume_state
@@ -78,9 +85,15 @@ from src.visualization import (
     render_rob_traffic_light,
     render_timeline,
 )
+from src.visualization.concept_diagrams import render_concept_diagrams
 from src.visualization.forest_plot import render_forest_plot
 from src.visualization.funnel_plot import render_funnel_plot
 from src.export.markdown_refs import assemble_submission_manuscript, is_extraction_failed
+from src.orchestration.embedding_node import EmbeddingNode
+from src.orchestration.knowledge_graph_node import KnowledgeGraphNode
+from src.synthesis.contradiction_detector import detect_contradictions
+from src.writing.citation_grounding import verify_citation_grounding, repair_hallucinated_citekeys
+from src.writing.contradiction_resolver import generate_contradiction_paragraph
 from src.writing.context_builder import build_writing_grounding
 from src.writing.humanizer import humanize_async
 from src.writing.orchestration import (
@@ -175,7 +188,7 @@ class ResumeStartNode(BaseNode[ReviewState]):
     async def run(
         self,
         ctx: GraphRunContext[ReviewState],
-    ) -> SearchNode | ScreeningNode | HumanReviewCheckpointNode | ExtractionQualityNode | SynthesisNode | FinalizeNode:
+    ) -> SearchNode | ScreeningNode | HumanReviewCheckpointNode | ExtractionQualityNode | EmbeddingNode | SynthesisNode | KnowledgeGraphNode | WritingNode | FinalizeNode:
         state = ctx.state
         rc = _rc(state)
         if rc:
@@ -189,8 +202,12 @@ class ResumeStartNode(BaseNode[ReviewState]):
             return ScreeningNode()
         if phase == "phase_4_extraction_quality":
             return ExtractionQualityNode()
+        if phase == "phase_4b_embedding":
+            return EmbeddingNode()
         if phase == "phase_5_synthesis":
             return SynthesisNode()
+        if phase == "phase_5b_knowledge_graph":
+            return KnowledgeGraphNode()
         if phase == "phase_6_writing":
             return WritingNode()
         if phase == "finalize":
@@ -230,6 +247,9 @@ class StartNode(BaseNode[ReviewState]):
         state.artifacts["geographic"] = str(run_paths.run_dir / "fig_geographic_distribution.png")
         state.artifacts["fig_forest_plot"] = str(run_paths.run_dir / "fig_forest_plot.png")
         state.artifacts["fig_funnel_plot"] = str(run_paths.run_dir / "fig_funnel_plot.png")
+        state.artifacts["concept_taxonomy"] = str(run_paths.run_dir / "fig_concept_taxonomy.svg")
+        state.artifacts["conceptual_framework"] = str(run_paths.run_dir / "fig_conceptual_framework.svg")
+        state.artifacts["methodology_flow"] = str(run_paths.run_dir / "fig_methodology_flow.svg")
 
         # Snapshot the review config at run start so re-extraction and post-hoc
         # scripts always use the config that produced this run, not a later config.
@@ -799,7 +819,7 @@ class HumanReviewCheckpointNode(BaseNode[ReviewState]):
 
 
 class ExtractionQualityNode(BaseNode[ReviewState]):
-    async def run(self, ctx: GraphRunContext[ReviewState]) -> SynthesisNode:
+    async def run(self, ctx: GraphRunContext[ReviewState]) -> EmbeddingNode:
         state = ctx.state
         rc = _rc(state)
         assert state.review is not None
@@ -1080,7 +1100,7 @@ class ExtractionQualityNode(BaseNode[ReviewState]):
                     "phase_4_extraction_quality",
                     {"extraction_records": len(records)},
                 )
-        return SynthesisNode()
+        return EmbeddingNode()
 
 
 def _try_meta_analysis(
@@ -1192,7 +1212,7 @@ def _try_meta_analysis(
 
 
 class SynthesisNode(BaseNode[ReviewState]):
-    async def run(self, ctx: GraphRunContext[ReviewState]) -> FinalizeNode:
+    async def run(self, ctx: GraphRunContext[ReviewState]) -> KnowledgeGraphNode:
         state = ctx.state
         rc = _rc(state)
         assert state.settings is not None
@@ -1310,7 +1330,7 @@ class SynthesisNode(BaseNode[ReviewState]):
                     "phase_5_synthesis",
                     {"feasible": feasibility.feasible, "n_studies": len(state.extraction_records)},
                 )
-        return WritingNode()
+        return KnowledgeGraphNode()
 
 
 def _reconcile_manuscript_consistency(body: str, state: "ReviewState") -> str:  # type: ignore[name-defined]
@@ -1461,6 +1481,7 @@ class WritingNode(BaseNode[ReviewState]):
                 rc.console.print(
                     f"  Geographic: {Path(state.artifacts['geographic']).name}"
                 )
+
             citation_repo = CitationRepository(db)
             completed = await repository.get_completed_sections(state.workflow_id)
             provider = LLMProvider(state.settings, repository)
@@ -1590,6 +1611,84 @@ class WritingNode(BaseNode[ReviewState]):
 
         manuscript_path = Path(state.artifacts["manuscript_md"])
         body = "\n\n".join(titled_sections)
+
+        # --- Contradiction detection pass (Idea 3) ---
+        # Detect directional disagreements between included studies and inject
+        # a disagreement paragraph into the Discussion section.
+        if state.extraction_records and len(state.extraction_records) >= 2:
+            try:
+                # Load mean chunk embeddings for cosine similarity (if available)
+                _chunk_embeddings: dict[str, list[float]] = {}
+                import json as _json
+                async with get_db(state.db_path) as _emb_db:
+                    async with _emb_db.execute(
+                        "SELECT paper_id, embedding FROM paper_chunks_meta "
+                        "WHERE workflow_id = ? AND embedding IS NOT NULL",
+                        (state.workflow_id,),
+                    ) as _emb_cursor:
+                        _paper_vecs: dict[str, list[list[float]]] = {}
+                        async for _emb_row in _emb_cursor:
+                            try:
+                                _vec = _json.loads(_emb_row[1])
+                                _paper_vecs.setdefault(_emb_row[0], []).append(_vec)
+                            except Exception:
+                                continue
+                    for _pid, _vecs in _paper_vecs.items():
+                        if _vecs:
+                            _dim = len(_vecs[0])
+                            _chunk_embeddings[_pid] = [
+                                sum(v[i] for v in _vecs) / len(_vecs)
+                                for i in range(_dim)
+                            ]
+
+                flags = detect_contradictions(
+                    state.extraction_records,
+                    chunk_embeddings=_chunk_embeddings if _chunk_embeddings else None,
+                )
+                state.contradiction_flags = flags
+
+                if flags:
+                    _use_llm_contra = _llm_available(settings_cfg=state.settings) and (rc is None or not rc.offline)
+                    api_key = os.getenv("GEMINI_API_KEY", "")
+                    contra_paragraph = await generate_contradiction_paragraph(
+                        flags,
+                        api_key=api_key if _use_llm_contra else None,
+                    )
+                    if contra_paragraph and "## Discussion" in body:
+                        # Inject after the first paragraph of the Discussion section
+                        _disc_marker = "## Discussion"
+                        _disc_idx = body.index(_disc_marker) + len(_disc_marker)
+                        _after_disc = body[_disc_idx:]
+                        _first_para_end = _after_disc.find("\n\n")
+                        if _first_para_end > 0:
+                            _inject_point = _disc_idx + _first_para_end
+                            body = (
+                                body[:_inject_point]
+                                + "\n\n"
+                                + contra_paragraph
+                                + body[_inject_point:]
+                            )
+            except Exception as _contra_exc:
+                logger.warning("Contradiction detection failed (non-fatal): %s", _contra_exc)
+
+        # --- Citation grounding verification (Idea 1) ---
+        # Verify all citekeys in the assembled manuscript are legitimate.
+        if citation_catalog:
+            _valid_citekeys = [
+                line.strip()[1:line.strip().index("]")]
+                for line in citation_catalog.splitlines()
+                if line.strip().startswith("[") and "]" in line.strip()
+            ]
+            if _valid_citekeys:
+                _verified, _hallucinated = verify_citation_grounding(body, _valid_citekeys, "full_manuscript")
+                if _hallucinated:
+                    body = repair_hallucinated_citekeys(body, _hallucinated, _valid_citekeys)
+                    logger.warning(
+                        "Citation grounding: repaired %d hallucinated citekeys: %s",
+                        len(_hallucinated),
+                        _hallucinated[:5],
+                    )
+
         # Cross-section consistency pass: detect and repair contradictions that arise
         # when sections are written independently by the LLM.
         body = _reconcile_manuscript_consistency(body, state)
@@ -1608,8 +1707,115 @@ class WritingNode(BaseNode[ReviewState]):
         )
         manuscript_path.write_text(full_manuscript, encoding="utf-8")
 
+        # Emit phase done and advance to FinalizeNode NOW, before concept diagrams.
+        # Concept diagrams are bonus artifacts -- a CancelledError, timeout, or any
+        # other failure must never prevent FinalizeNode from running.
         if rc:
             rc.emit_phase_done("phase_6_writing", {"sections": len(sections_written)})
+
+        # --- Concept diagrams (LLM -> Graphviz/Kroki -> SVG) ---
+        # Best-effort: runs after the phase is marked done so failures here are
+        # non-fatal.  CancelledError is explicitly caught and swallowed so a
+        # server shutdown during this block still allows FinalizeNode to run.
+        _out_dir = Path(state.artifacts["concept_taxonomy"]).parent
+        _review = state.review
+        _pico = _review.pico if _review else None
+        _n_included = len(state.included_papers)
+        _topic = _review.research_question if _review else "Systematic Review"
+
+        _taxonomy_spec: TaxonomyDiagramInput | None = None
+        if state.extraction_records and _pico:
+            from collections import Counter as _Counter
+            _design_counter = _Counter(
+                r.study_design.value if r.study_design else "Other"
+                for r in state.extraction_records
+            )
+            if len(_design_counter) >= 2:
+                _categories = [
+                    TaxonomyCategory(label=design, items=[f"n={count} studies"])
+                    for design, count in _design_counter.most_common()
+                ]
+                _taxonomy_spec = TaxonomyDiagramInput(
+                    title=f"Study Design Taxonomy ({_n_included} studies)",
+                    root_label="Included Studies",
+                    categories=_categories,
+                    review_topic=_topic,
+                )
+
+        _framework_spec: FrameworkDiagramInput | None = None
+        if _pico and _n_included >= 1:
+            _narr_themes: list[str] = []
+            if narrative and "narrative" in narrative:
+                _narr_data = narrative["narrative"]
+                if isinstance(_narr_data, dict):
+                    _narr_themes = _narr_data.get("key_themes", [])
+                elif isinstance(_narr_data, list):
+                    for _n in _narr_data:
+                        if isinstance(_n, dict):
+                            _narr_themes.extend(_n.get("key_themes", []))
+            _framework_spec = FrameworkDiagramInput(
+                title="Conceptual Framework",
+                population=_pico.population,
+                interventions=[_pico.intervention],
+                outcomes=[_pico.outcome],
+                comparator=_pico.comparison if _pico.comparison else None,
+                key_themes=list(dict.fromkeys(_narr_themes))[:6],
+                study_count=_n_included,
+                review_topic=_topic,
+            )
+
+        _flowchart_spec: FlowchartDiagramInput | None = None
+        if prisma_counts:
+            _phases = [
+                FlowchartPhase(
+                    label="Database Search",
+                    count=prisma_counts.records_identified_databases,
+                ),
+                FlowchartPhase(
+                    label="After Deduplication",
+                    count=prisma_counts.records_after_deduplication,
+                ),
+                FlowchartPhase(
+                    label="Title/Abstract Screening",
+                    count=prisma_counts.records_screened,
+                    sublabel=f"{prisma_counts.records_excluded_screening} excluded",
+                ),
+                FlowchartPhase(
+                    label="Eligible for Inclusion",
+                    count=prisma_counts.reports_sought_retrieval,
+                ),
+                FlowchartPhase(
+                    label="Included in Review",
+                    count=prisma_counts.studies_included_synthesis,
+                ),
+            ]
+            _flowchart_spec = FlowchartDiagramInput(
+                title="Systematic Review Methodology",
+                phases=_phases,
+                review_topic=_topic,
+            )
+
+        try:
+            _concept_results = await asyncio.wait_for(
+                render_concept_diagrams(
+                    taxonomy_spec=_taxonomy_spec,
+                    framework_spec=_framework_spec,
+                    flowchart_spec=_flowchart_spec,
+                    out_dir=_out_dir,
+                ),
+                timeout=180.0,
+            )
+            if rc and rc.verbose:
+                for _key, _path in _concept_results.items():
+                    if _path:
+                        rc.console.print(f"  Concept diagram ({_key}): {_path.name}")
+        except asyncio.TimeoutError:
+            logger.warning("Concept diagram generation timed out after 180s -- skipping")
+        except asyncio.CancelledError:
+            logger.warning("Concept diagram generation cancelled -- skipping")
+        except Exception as _cd_exc:  # noqa: BLE001
+            logger.warning("Concept diagram generation failed: %s", _cd_exc)
+
         return FinalizeNode()
 
 
@@ -1661,7 +1867,9 @@ RUN_GRAPH = Graph(
         ScreeningNode,
         HumanReviewCheckpointNode,
         ExtractionQualityNode,
+        EmbeddingNode,
         SynthesisNode,
+        KnowledgeGraphNode,
         WritingNode,
         FinalizeNode,
     ],

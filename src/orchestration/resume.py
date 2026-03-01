@@ -15,7 +15,9 @@ PHASE_ORDER = [
     "phase_2_search",
     "phase_3_screening",
     "phase_4_extraction_quality",
+    "phase_4b_embedding",
     "phase_5_synthesis",
+    "phase_5b_knowledge_graph",
     "phase_6_writing",
     "finalize",
 ]
