@@ -1,116 +1,137 @@
-"""Cross-encoder reranker for RAG retrieval.
+"""Listwise reranker for RAG retrieval using Gemini Flash.
 
-After hybrid BM25+dense retrieval produces a top-k candidate set, a cross-encoder
-jointly scores each (query, chunk) pair -- capturing fine-grained token-level
-relevance that bi-encoders miss.
+After hybrid BM25+dense retrieval produces a top-k candidate set, this
+reranker prompts an LLM to order the chunks by relevance to the query.
+A single LLM call handles all candidates -- no local model download needed.
 
-The cross-encoder model is lazy-loaded on first use to avoid startup overhead.
-The model file (~80 MB) is downloaded from HuggingFace on first call.
+This approach uses the existing PydanticAI + Gemini infrastructure and adds
+zero new package dependencies.
 
-Reference: Nogueira & Cho (2019) "Passage Re-ranking with BERT".
+Design: listwise reranking (single call, all chunks ranked together) is more
+accurate than pointwise (per-chunk scores) and cheaper than pairwise.
 """
 from __future__ import annotations
 
-import asyncio
+import json
 import logging
 import time
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING
+
+from pydantic import BaseModel
+from pydantic_ai import Agent
 
 if TYPE_CHECKING:
     from src.rag.retriever import RetrievedChunk
 
 logger = logging.getLogger(__name__)
 
-_DEFAULT_MODEL = "cross-encoder/ms-marco-MiniLM-L-6-v2"
+_DEFAULT_MODEL = "google-gla:gemini-2.0-flash"
 
-_reranker_instance: Optional["CrossEncoderReranker"] = None
+_RERANK_PROMPT = """\
+You are a relevance-ranking assistant for a systematic literature review.
+
+QUERY: {query}
+
+Below are {n} text chunks from research papers. Rank them by relevance to the
+query above. The most relevant chunk should come first.
+
+{chunks_text}
+
+Return ONLY a JSON array of the chunk indices (0-based) in descending relevance
+order. Include all {n} indices. Example for 5 chunks: [2, 0, 4, 1, 3]
+"""
 
 
-class CrossEncoderReranker:
-    """Thin wrapper around sentence_transformers.CrossEncoder with lazy loading.
+class _RerankOutput(BaseModel):
+    indices: list[int]
 
-    The underlying model is loaded once and reused for all rerank calls.
-    Scoring is CPU-bound; all public methods are async and run the model in
-    a thread executor to avoid blocking the event loop.
+
+async def rerank_chunks(
+    query: str,
+    chunks: "list[RetrievedChunk]",
+    top_k: int = 8,
+    model: str = _DEFAULT_MODEL,
+) -> "list[RetrievedChunk]":
+    """Rerank chunks by relevance using Gemini listwise ranking.
+
+    A single LLM call receives all candidate chunks and returns their indices
+    in descending relevance order. The top_k best are returned with their
+    scores replaced by a position-based rank score.
+
+    Args:
+        query: The retrieval query (HyDE text or BM25 query).
+        chunks: Candidate chunks from hybrid retriever (top_k=20 recommended).
+        top_k: Number of chunks to return after reranking.
+        model: Fast LLM model for listwise scoring.
+
+    Returns:
+        Up to top_k chunks, ordered by reranker relevance (best first).
+        Falls back to original order on any failure.
     """
+    if not chunks or len(chunks) <= 1:
+        return chunks[:top_k]
 
-    def __init__(self, model_name: str = _DEFAULT_MODEL) -> None:
-        self._model_name = model_name
-        self._model = None  # loaded lazily on first call
+    # Truncate each chunk to 400 chars so the prompt stays within token budget.
+    chunk_lines = "\n".join(
+        f"[{i}] {c.content[:400].replace(chr(10), ' ')}"
+        for i, c in enumerate(chunks)
+    )
+    prompt = _RERANK_PROMPT.format(
+        query=query[:500],
+        n=len(chunks),
+        chunks_text=chunk_lines,
+    )
 
-    def _load_model(self) -> None:
-        if self._model is not None:
-            return
-        try:
-            from sentence_transformers import CrossEncoder
+    t0 = time.monotonic()
+    try:
+        agent: Agent[None, str] = Agent(model, result_type=str)
+        result = await agent.run(prompt)
+        raw = result.data.strip()
 
-            logger.info(
-                "[reranker] loading model '%s' (may download ~80 MB on first run)",
-                self._model_name,
-            )
-            self._model = CrossEncoder(self._model_name, max_length=512)
-            logger.info("[reranker] model '%s' ready", self._model_name)
-        except Exception as exc:
-            logger.warning("[reranker] model load failed: %s", exc)
-            self._model = None
+        # Extract JSON array from the response (handle prose wrapping).
+        start = raw.find("[")
+        end = raw.rfind("]") + 1
+        if start == -1 or end == 0:
+            raise ValueError(f"No JSON array found in response: {raw[:100]!r}")
 
-    def _score_sync(self, query: str, chunks: "list[RetrievedChunk]") -> "list[float]":
-        """Synchronous scoring -- called from executor thread."""
-        self._load_model()
-        if self._model is None or not chunks:
-            return [c.score for c in chunks]
+        indices: list[int] = json.loads(raw[start:end])
+        if not isinstance(indices, list):
+            raise ValueError(f"Expected list, got {type(indices)}")
 
-        pairs = [(query, c.content) for c in chunks]
-        t0 = time.monotonic()
-        try:
-            scores: list[float] = self._model.predict(pairs).tolist()
-        except Exception as exc:
-            logger.warning("[reranker] predict failed: %s -- using original scores", exc)
-            return [c.score for c in chunks]
+        # Validate and deduplicate indices within bounds.
+        valid = []
+        seen: set[int] = set()
+        for idx in indices:
+            if isinstance(idx, int) and 0 <= idx < len(chunks) and idx not in seen:
+                valid.append(idx)
+                seen.add(idx)
+
+        # Append any missing indices at the end (safety net).
+        for i in range(len(chunks)):
+            if i not in seen:
+                valid.append(i)
+
         elapsed_ms = int((time.monotonic() - t0) * 1000)
         logger.info(
-            "[reranker] scored %d chunks in %d ms", len(chunks), elapsed_ms
-        )
-        return scores
-
-    async def rerank(
-        self,
-        query: str,
-        chunks: "list[RetrievedChunk]",
-        top_k: int = 8,
-    ) -> "list[RetrievedChunk]":
-        """Rerank chunks by cross-encoder score and return the top_k best.
-
-        Args:
-            query: The retrieval query text (HyDE doc or research question + section).
-            chunks: Candidate chunks from the hybrid retriever (top_k=20 recommended).
-            top_k: Number of chunks to return after reranking.
-
-        Returns:
-            Up to top_k chunks sorted by descending cross-encoder score.
-        """
-        if not chunks:
-            return chunks
-
-        loop = asyncio.get_running_loop()
-        scores = await loop.run_in_executor(
-            None, self._score_sync, query, chunks
+            "[reranker] ranked %d chunks in %d ms via %s",
+            len(chunks),
+            elapsed_ms,
+            model,
         )
 
-        ranked = sorted(
-            zip(scores, chunks), key=lambda t: -t[0]
+        # Assign descending rank scores (1.0, 0.95, ...) for transparency.
+        result_chunks = []
+        for rank, idx in enumerate(valid[:top_k]):
+            chunk = chunks[idx]
+            chunk.score = max(0.0, 1.0 - rank * 0.05)
+            result_chunks.append(chunk)
+        return result_chunks
+
+    except Exception as exc:
+        elapsed_ms = int((time.monotonic() - t0) * 1000)
+        logger.warning(
+            "[reranker] failed after %d ms: %s -- using original RRF order",
+            elapsed_ms,
+            exc,
         )
-
-        result = []
-        for score_val, chunk in ranked[:top_k]:
-            chunk.score = float(score_val)
-            result.append(chunk)
-        return result
-
-
-def get_reranker(model_name: str = _DEFAULT_MODEL) -> CrossEncoderReranker:
-    """Return the global singleton reranker, creating it if needed."""
-    global _reranker_instance
-    if _reranker_instance is None or _reranker_instance._model_name != model_name:
-        _reranker_instance = CrossEncoderReranker(model_name)
-    return _reranker_instance
+        return chunks[:top_k]

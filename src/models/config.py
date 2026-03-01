@@ -208,8 +208,8 @@ class RagConfig(BaseModel):
         description="Use cross-encoder reranking on hybrid retrieval candidates before WritingNode.",
     )
     reranker_model: str = Field(
-        default="cross-encoder/ms-marco-MiniLM-L-6-v2",
-        description="HuggingFace cross-encoder model for reranking retrieved chunks.",
+        default="google-gla:gemini-2.0-flash",
+        description="LLM model used for listwise reranking of retrieved chunks (Gemini Flash recommended).",
     )
 
 

@@ -93,7 +93,7 @@ from src.orchestration.embedding_node import EmbeddingNode
 from src.orchestration.knowledge_graph_node import KnowledgeGraphNode
 from src.rag.embedder import embed_query as rag_embed_query
 from src.rag.hyde import generate_hyde_document
-from src.rag.reranker import get_reranker
+from src.rag.reranker import rerank_chunks
 from src.rag.retriever import RAGRetriever
 from src.synthesis.contradiction_detector import detect_contradictions
 from src.writing.citation_grounding import verify_citation_grounding, repair_hallucinated_citekeys
@@ -1592,17 +1592,18 @@ class WritingNode(BaseNode[ReviewState]):
                             query_vec, top_k=candidate_k, query_text=bm25_query
                         )
 
-                        # Cross-encoder reranking: score (query, chunk) pairs
-                        # jointly and keep the best 8 for the writing context.
+                        # Listwise reranking: single Gemini Flash call orders
+                        # all candidates by relevance, keeping the best 8.
                         if use_rerank and chunks:
                             reranker_model = getattr(
                                 rag_cfg,
                                 "reranker_model",
-                                "cross-encoder/ms-marco-MiniLM-L-6-v2",
+                                "google-gla:gemini-2.0-flash",
                             )
-                            reranker = get_reranker(reranker_model)
                             rerank_query = hyde_text if hyde_text else bm25_query
-                            chunks = await reranker.rerank(rerank_query, chunks, top_k=8)
+                            chunks = await rerank_chunks(
+                                rerank_query, chunks, top_k=8, model=reranker_model
+                            )
 
                         if chunks:
                             rag_context = "\n\n".join(
