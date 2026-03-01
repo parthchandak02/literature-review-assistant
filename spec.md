@@ -25,15 +25,6 @@ The primary goal is to publish 3-4 systematic review papers per year in IEEE jou
 
 The tool must produce manuscripts that pass peer review without requiring the user to manually execute any systematic review methodology step.
 
-### 1.3 Why It Was Rebuilt from Scratch
-
-A prior prototype at `github.com/parthchandak02/literature-review-assistant` had a working 12-phase pipeline but accumulated fatal technical debt:
-- `Any` types scattered through `WorkflowState` -- Pydantic contract enforcement was a retrofit
-- Checkpoint system serialized Python objects to JSON via custom `StateSerializer` -- fragile for citation lineage and dual-reviewer data
-- Nine-plus database connectors with inconsistent interfaces and no shared protocol
-- Six-plus major new systems needed (dual-reviewer, citation ledger, meta-analysis, RoB 2, IEEE export, quality gates) -- more new code than existing code
-- Long-term publication infrastructure cannot carry compounding technical debt
-
 ---
 
 ## 2. System Architecture
@@ -117,6 +108,7 @@ research-article-writer/
 |   |-- extraction/                 # extractor, study_classifier
 |   |-- quality/                    # rob2, robins_i, casp, grade, study_router
 |   |-- synthesis/                  # feasibility, meta_analysis, effect_size, narrative
+|   |-- rag/                        # chunker, embedder (PydanticAI), hybrid retriever (BM25+dense RRF), hyde (HyDE query expansion), reranker (Gemini listwise)
 |   |-- writing/                    # section_writer, humanizer, style_extractor, naturalness_scorer, prompts/ (dir), context_builder, orchestration
 |   |-- citation/                   # ledger (claim -> evidence -> citation)
 |   |-- protocol/                   # PROSPERO-format protocol generator
@@ -153,12 +145,12 @@ research-article-writer/
 | Author parsing | nameparser | 1.1+ | Surname extraction for display_label; handles "Last, First" and "First Last" formats |
 | Title filtering | wordfreq | 3.0+ | Zipf frequency lookup for domain-agnostic title word filtering in display_label |
 | Backend API | FastAPI + uvicorn | 0.129+ / 0.40+ | Async; Pydantic-native; SSE via sse-starlette |
-| Frontend | React + TypeScript | 18 / 5 | Strict typing; no `any` at API boundaries |
+| Frontend | React + TypeScript | 19 / 5 | Strict typing; no `any` at API boundaries |
 | Build tool | Vite + pnpm | 7 / 10 | Fast HMR in dev; chunk splitting in prod |
 | UI components | shadcn/ui + Tailwind CSS | latest / 4 | Copy-owned Radix-based components; utility classes only; no CSS-in-JS |
 | Charts | Recharts | latest | Cost bar charts in CostView |
 | SSE client | @microsoft/fetch-event-source | latest | Robust SSE with abort controller support |
-| Process manager | Overmind | latest | Dual-process dev (FastAPI + Vite) in a shared tmux session |
+| Process manager | PM2 | latest | Primary: runs litreview-api + litreview-ui via ecosystem.config.js; Overmind (tmux) is available as alternative via Procfile.dev |
 
 ### 3.1 Absolute Rules
 
@@ -237,6 +229,7 @@ Change rarely. Values are tuned from real runs.
 | `ieee_export.*` | `template` (IEEEtran), `max_abstract_words` (250), `target_page_range` ([7, 10]) |
 | `citation_lineage.*` | `block_export_on_unresolved` (true), `minimum_evidence_score` (0.5) |
 | `search.*` | `max_results_per_db` (global default: 500), `per_database_limits` (per-connector overrides) |
+| `rag.*` | `use_hyde` (true -- HyDE query expansion before dense embed), `hyde_model` (gemini-2.0-flash), `rerank` (true -- Gemini listwise reranking), `reranker_model` (gemini-2.0-flash) |
 
 Both YAML files are validated into Pydantic models at startup via `src/config/loader.py`. Invalid config fails fast with a clear error message.
 
@@ -408,6 +401,8 @@ Synthesis results (`SynthesisFeasibility` + `NarrativeSynthesis`) are persisted 
 
 **What happens:** Before writing begins, a style extractor (Gemini Pro) analyzes included papers (up to 50,000 chars per paper) to extract sentence openings, domain vocabulary, citation integration patterns, and transition phrases. These patterns are injected into every section prompt.
 
+**RAG retrieval (runs before each section):** A three-stage pipeline surfaces the most relevant evidence chunks from embedded paper content. (1) HyDE (`src/rag/hyde.py`) generates a 100-200 word hypothetical excerpt of the section using Gemini Flash -- producing a richer dense query vector than the bare section name. (2) The hypothetical text is embedded for cosine retrieval; BM25 uses the original research question + section name without the hypothetical, to avoid hallucinated keyword drift. Reciprocal Rank Fusion combines both signals into a top-20 candidate set. (3) A Gemini Flash listwise reranker (`src/rag/reranker.py`) scores all 20 candidates in a single LLM call and returns the top-8 chunks, which are injected as `rag_context` into the writing prompt. The abstract skips HyDE (already synthesis-grounded). Any retrieval failure falls back silently -- the section is written without RAG context. RAG is controlled by `settings.yaml rag.*` (`use_hyde`, `rerank`, and their model keys).
+
 A `WritingGroundingData` object is built from PRISMA counts, extraction records, and synthesis results. This block of factual data -- search metadata, PRISMA counts, study characteristics, synthesis direction, per-study summaries, and valid citekeys -- is injected verbatim into every writing prompt. The LLM is instructed to use these numbers exactly and never invent statistics.
 
 A section writer (Gemini Pro) generates each of six manuscript sections. All section prompts enforce:
@@ -470,11 +465,12 @@ Registry status updated to "completed". `run_summary.json` written to log dir wi
 
 | Tier | Model | Input / Output per 1M tokens | Agent Assignments |
 |------|-------|------------------------------|-------------------|
-| Bulk | gemini-2.5-flash-lite | $0.10 / $0.40 | screening_reviewer_a, screening_reviewer_b |
+| Bulk | gemini-2.5-flash-lite | $0.10 / $0.40 | screening_reviewer_a |
 | Balanced | gemini-2.5-flash | $0.30 / $2.50 | search, study_type_detection, abstract_generation |
+| Fast | gemini-2.0-flash | lower cost | screening_reviewer_b, hyde generation, rag reranker |
 | Quality | gemini-2.5-pro | $1.25 / $10.00 | screening_adjudicator, extraction, quality_assessment, writing, humanizer, style_extraction |
 
-Flash-Lite is 3x cheaper than Flash and 12.5x cheaper than Pro on input -- optimal for bulk classification where volume is high (hundreds of papers) and binary classification accuracy is sufficient.
+Reviewer A (flash-lite) and Reviewer B (gemini-2.0-flash) use different models intentionally -- this provides genuine cross-model validation rather than intra-model temperature variation. Flash-Lite is optimal for bulk classification at scale; gemini-2.0-flash is used for Reviewer B, HyDE generation, and listwise reranking where speed and cost matter more than peak quality.
 
 Model assignments per agent are in `settings.yaml` under `agents.*`. Changing a model requires only a YAML edit -- no code changes.
 
@@ -510,7 +506,7 @@ Reviewer A prompt emphasizes inclusion: "Include this paper if ANY inclusion cri
 
 ## 8. Persistence and Resume
 
-### 8.1 SQLite Schema (18 Tables)
+### 8.1 SQLite Schema (19 Tables)
 
 Each run creates its own `runtime.db`. Schema defined in `src/db/schema.sql`.
 
@@ -534,6 +530,7 @@ Each run creates its own `runtime.db`. Schema defined in `src/db/schema.sql`.
 | `checkpoints` | Phase completion markers (key: phase string, status: completed / partial) |
 | `synthesis_results` | SynthesisFeasibility + NarrativeSynthesis JSON per outcome |
 | `event_log` | Persisted SSE event log for replay; loaded by history/attach endpoint |
+| `paper_chunks_meta` | RAG chunk store: chunk_id, paper_id, chunk_index, content (text), embedding (JSON float array, 768-dim); indexed by workflow_id and paper_id |
 
 SQLite connection settings: WAL journal mode (concurrent reads + single writer), NORMAL synchronous (~2-3x faster writes), foreign keys ON (SQLite does NOT enforce FKs by default), 40MB cache, temp tables in memory.
 
@@ -619,23 +616,27 @@ artifacts:
 
 ```
 Dev mode:
-  Vite dev server (:5173) -- proxies /api/* to FastAPI (:8000)
+  Vite dev server (:5173) -- proxies /api/* to FastAPI (:8001)
   Browser opens http://localhost:5173
 
 Production:
   pnpm run build -> frontend/dist/
   FastAPI serves frontend/dist/ as StaticFiles at /
-  Browser opens http://localhost:8000
+  Browser opens http://localhost:8001
 ```
 
-PM2 (primary) or Overmind manage both processes. `Procfile.dev` (Overmind) and `ecosystem.dev.config.js` (PM2) are both committed:
+PM2 is the primary process manager. `ecosystem.config.js` starts `litreview-api` (port 8001) and `litreview-ui` (Vite on port 5173). Overmind (`Procfile.dev`) is the alternative for tmux-based dev.
 
 ```
+# PM2 (primary)
+pm2 start ecosystem.config.js
+
+# Overmind (alternative)
 api: uv run uvicorn src.web.app:app --port ${PORT:-8001} --reload --reload-dir src --reload-dir config
 ui:  cd frontend && pnpm run dev -- --port ${UI_PORT:-5173}
 ```
 
-PM2: `pm2 start ecosystem.dev.config.js` then `pm2 logs`. Overmind: `overmind start` then `overmind connect api`.
+PM2: `pm2 start ecosystem.config.js` then `pm2 logs`. Overmind: `overmind start` then `overmind connect api`.
 
 ### 9.2 SSE Event Flow
 
@@ -824,7 +825,7 @@ cp .env.example .env
 ### 11.3 Daily Development
 
 ```
-pm2 start ecosystem.dev.config.js               # Start FastAPI + Vite together (recommended)
+pm2 start ecosystem.config.js                    # Start FastAPI + Vite together (recommended)
 # Open http://localhost:5173 -- Vite proxies /api to FastAPI on :8001
 
 # Run CLI only (no frontend needed):
@@ -848,7 +849,7 @@ uv run python -m src.main export --workflow-id abc123 --run-root runs/
 ### 11.4 Testing
 
 ```
-uv run pytest tests/unit -q           # ~61 unit tests
+uv run pytest tests/unit -q           # 56 unit tests
 uv run pytest tests/integration -q   # integration tests (require config/review.yaml)
 uv run python -m src.main --help      # confirm CLI loads without error
 ```
@@ -921,7 +922,7 @@ Living section -- update as work completes.
 | Post-build: HyDE + Gemini listwise reranker | DONE | HyDE (hypothetical doc embeddings, Gao et al. 2022) for rich dense query vectors; Gemini Flash listwise reranker (single LLM call ranks 20 candidates to top 8); removed sentence-transformers/torch (382 MB) in favour of zero-new-dep PydanticAI calls |
 | Validation benchmark | DONE | scripts/benchmark.py measures screening recall, extraction field accuracy, RoB kappa vs. gold-standard corpus |
 
-**Test status:** 18 unit tests + 13 integration tests passing (`uv run pytest tests/unit tests/integration -q`).
+**Test status:** 56 unit tests + 13 integration tests passing (`uv run pytest tests/unit tests/integration -q`).
 
 ---
 
@@ -929,12 +930,22 @@ Living section -- update as work completes.
 
 Living section -- update as items complete.
 
-1. Run full end-to-end pipeline and review output quality: manuscript prose, PRISMA diagram arithmetic, RoB figure labels, synthesis section.
-2. Confirm PRISMA checklist >= 24/27 items reported on a real run output.
-3. Run `uv run python -m src.main export --workflow-id <id>` and verify IEEE LaTeX compiles to PDF without errors.
-4. Build React production bundle (`pnpm run build` in `frontend/`) and verify static serving from FastAPI at `http://localhost:8000`.
-5. Address any output quality issues found during the validation run (prose quality, citation density, section length).
-6. Submit to IEEE Access.
+The core 8-phase pipeline is complete and running. Active enhancements are tracked in `.cursor/plans/enhancement-roadmap.md`. Current status:
+
+| # | Enhancement | Status |
+|---|-------------|--------|
+| 1 | Hybrid BM25 + Dense RAG (RRF) | DONE |
+| 2 | HyDE (Hypothetical Document Embeddings) | DONE |
+| 3 | Gemini listwise cross-encoder reranking | DONE |
+| 4 | Semantic Chunking (spaCy sentence-boundary chunker) | pending |
+| 5 | PICO-Aware Retrieval (inject PICO into HyDE prompt + BM25) | pending |
+| 6 | Living Review Auto-Refresh (delta pipeline, parent_run_id) | pending |
+| 7 | Multi-Modal Evidence (HTML table + figure extraction) | pending |
+| 8 | Contradiction-Aware Synthesis (subsection in Discussion) | pending |
+| 9 | Adaptive Screening Threshold (active learning calibration) | pending |
+| 10 | GRADE Evidence Profile Auto-Generation (SoF table + LaTeX) | pending |
+
+For each pending enhancement, a full implementation spec is in the roadmap file above. Implement them in order; each builds on the previous.
 
 ---
 
