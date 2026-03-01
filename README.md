@@ -70,13 +70,14 @@ uv run uvicorn src.web.app:app --port 8000
 
 Go to `http://localhost:8000`. Click "+" in the sidebar to start a new review.
 
-The setup page has three modes (select via the pill buttons at the top):
+The setup page has two modes (select via the pill buttons at the top):
 
-- **AI Generate** (default) -- Type your research question in plain English and click "Generate Review Config". The AI automatically generates the full PICO framework, 20+ search keywords, inclusion/exclusion criteria, and scope. Review and edit the populated fields, then click Start.
-- **YAML** -- Paste or edit the raw YAML config directly. Useful when you already have a config from a previous run or external source.
-- **Manual** -- Fill out each field yourself (PICO, keywords, criteria, date range, databases).
+- **AI Search** (default) -- Type your research question in plain English and click "Generate Review Config". The AI automatically generates the full PICO framework, 20+ search keywords, inclusion/exclusion criteria, and scope. Review and edit the populated fields, then click Start. The tool then searches 7+ academic databases.
+- **Start with Master List** -- Upload a pre-assembled CSV (Scopus export format: Title, Authors, Year, Source title, DOI, Abstract). The search phase is skipped; your papers go straight to screening, extraction, and synthesis.
 
-Your Gemini API key is required for AI Generate mode and is pre-filled from localStorage on return visits. All keys are saved locally in your browser and never sent anywhere except your local backend.
+A secondary "Paste YAML directly" link is also available for pasting a raw config from a previous run or external source.
+
+Your Gemini API key is required and is pre-filled from localStorage on return visits. All keys are saved locally in your browser and never sent anywhere except your local backend.
 
 The sidebar shows all your runs (live and historical) with status colors (emerald = completed, violet = running, red = error, amber = cancelled) and a stats strip (papers found, papers included, artifacts, cost). Selecting a run opens its dashboard with up to 5 tabs: Activity (phase timeline + event log), Results, Database, Cost, and Review Screening (appears only when the run pauses for human-in-the-loop screening approval). The selected tab persists when you switch between runs.
 
@@ -294,6 +295,13 @@ pm2 status            # show process status table
 ```
 
 **IMPORTANT -- restart after code changes:** Python loads modules into memory at startup. If you modify any `src/` file while the server is running, the running process continues using the old code. Always run `pm2 restart api` (or restart the uvicorn process) after making backend changes before starting a new review run. Failure to restart means your run will use the pre-change code even though the files on disk are updated. The `--reload` flag handles this automatically in the plain-terminal dev workflow above, but PM2 does not hot-reload by default.
+
+**Production deploys -- rebuild the frontend:** When running in production (FastAPI serves `frontend/dist/` as static files on port 8000), a `pnpm build` is required after every frontend code change. The Vite dev server (port 5173) picks up changes automatically, but the production URL always serves the last built `dist/`. After rebuilding, restart the API process so it serves the new assets:
+
+```bash
+cd frontend && pnpm build && cd ..
+pm2 restart litreview-api   # or: pm2 restart api
+```
 
 **Alternative -- Overmind (requires tmux):**
 

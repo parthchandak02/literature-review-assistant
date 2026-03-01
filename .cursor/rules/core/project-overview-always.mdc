@@ -14,19 +14,21 @@ alwaysApply: true
 - **Architecture:** Typed state, SQLite persistence, 3-tier LLM model selection, FastAPI web server
 
 ## Key Directories -- Backend
-- `src/models/` -- Pydantic data contracts (enums, config, papers, screening, extraction, quality, writing, workflow)
+- `src/models/` -- Pydantic data contracts (enums, config, papers, screening, extraction, quality, writing, workflow, diagrams, claims, additional)
 - `src/db/` -- SQLite schema, connection manager, typed repositories
-- `src/orchestration/` -- quality gates (gates.py), workflow graph (workflow.py), context (context.py), resume (resume.py), state (state.py)
-- `src/search/` -- OpenAlex, PubMed, arXiv, IEEE, Semantic Scholar, Crossref, Perplexity auxiliary + dedup + strategy + citation_chasing (Semantic Scholar/OpenAlex forward search) + clinicaltrials (ClinicalTrials.gov grey literature)
-- `src/screening/` -- Dual-reviewer screener, prompts, reliability (Cohen's kappa)
-- `src/extraction/` -- agentic study classifier + baseline structured extraction scaffolding
+- `src/orchestration/` -- quality gates (gates.py), workflow graph (workflow.py), context (context.py), resume (resume.py), state (state.py), embedding_node.py, knowledge_graph_node.py
+- `src/search/` -- OpenAlex, PubMed, arXiv, IEEE, Semantic Scholar, Crossref, Perplexity auxiliary + dedup + strategy + citation_chasing (Semantic Scholar/OpenAlex forward search) + clinicaltrials (ClinicalTrials.gov grey literature) + csv_import (master list CSV pipeline)
+- `src/screening/` -- Dual-reviewer screener, prompts, reliability (Cohen's kappa), criteria_refinement, keyword_filter
+- `src/extraction/` -- agentic study classifier + baseline structured extraction scaffolding + table_extraction
 - `src/quality/` -- baseline RoB 2, ROBINS-I, CASP, GRADE, study router
-- `src/synthesis/` -- Meta-analysis (statsmodels), effect sizes, narrative (LLM-based direction classification), sensitivity analysis (leave-one-out + subgroup)
-- `src/writing/` -- Section writer, prompts, humanizer, style extractor, naturalness scorer
+- `src/synthesis/` -- Meta-analysis (statsmodels), effect sizes, narrative (LLM-based direction classification), sensitivity analysis (leave-one-out + subgroup), contradiction_detector
+- `src/writing/` -- Section writer, prompts, humanizer, style extractor, naturalness scorer, citation_grounding, contradiction_resolver, orchestration
+- `src/rag/` -- RAG pipeline: chunker, embedder, retriever (used by citation grounding)
+- `src/knowledge_graph/` -- builder, community (Louvain), gap_detector
 - `src/citation/` -- Citation ledger, BibTeX generation
 - `src/prisma/` -- PRISMA 2020 flow diagram
 - `src/protocol/` -- PROSPERO-format protocol generator
-- `src/visualization/` -- Forest plot, funnel plot, RoB figure, timeline, geographic
+- `src/visualization/` -- Forest plot, funnel plot, RoB figure, timeline, geographic, concept_diagrams (SVG export)
 - `src/export/` -- IEEE LaTeX, Word DOCX exporter (pypandoc-binary + python-docx post-processing), submission packager, PRISMA checklist validator
 - `src/llm/` -- PydanticAI agent factory, rate limiter, cost tracking
 - `src/web/` -- FastAPI backend (app.py): run lifecycle, SSE streaming, history, DB explorer, log streaming; config_generator.py: LLM-based review config generation from a research question
@@ -35,8 +37,8 @@ alwaysApply: true
 - `config/` -- review.yaml (per-review) + settings.yaml (system behavior)
 
 ## Key Directories -- Frontend
-- `frontend/src/views/` -- RunView (tabs: Activity, Results, Data, Cost; + Review Screening tab when status=awaiting_review), DatabaseView, CostView, HistoryView, SetupView (3-mode: AI Generate / YAML / Manual), ResultsView (PRISMA checklist panel), ScreeningReviewView (human-in-the-loop approval UI)
-- `frontend/src/components/` -- Sidebar (drag-resize, resume), ResultsPanel (artifact links, download), LogStream (live log display), UI primitives (command.tsx, status-badge.tsx, skeleton.tsx, table.tsx, feedback.tsx)
+- `frontend/src/views/` -- RunView (tabs: Activity, Results, Data, Cost; + Review Screening tab when status=awaiting_review), DatabaseView, CostView, HistoryView, SetupView (2-mode: AI Search / Master List CSV; YAML paste as secondary action), ResultsView (PRISMA checklist panel), ScreeningReviewView (human-in-the-loop approval UI)
+- `frontend/src/components/` -- Sidebar (drag-resize, resume), ResultsPanel (artifact links, download), LogStream (live log display), EvidenceNetworkViz (force-directed knowledge graph), UI primitives (command.tsx, status-badge.tsx, skeleton.tsx, table.tsx, feedback.tsx, section.tsx)
 - `frontend/src/hooks/` -- useSSEStream (run events + SQLite replay fallback), useBackendHealth, useCostStats
 - `frontend/src/lib/` -- api.ts (typed API layer), format.ts (date/duration helpers), constants.ts (shared constants), utils.ts (utility helpers)
 

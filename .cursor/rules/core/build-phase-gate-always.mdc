@@ -14,7 +14,6 @@ All 8 phases are implemented and verified. See spec.md Section 13 for implementa
 ## Rules
 - Build in exact phase order. Do not implement Phase N+1 code before Phase N is approved.
 - After completing a phase, run acceptance criteria tests before proceeding.
-- Each build phase has specific test files listed in spec.md Section 11.4.
 - When in doubt about which phase we're in, ask the user.
 
 ## Verification After Each Phase
