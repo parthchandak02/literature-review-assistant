@@ -2,14 +2,14 @@
 
 Runs after ExtractionQualityNode, before SynthesisNode.
 Idempotent on resume: skips papers already in paper_chunks_meta.
-All embedding calls go through the Gemini text-embedding-004 API.
+Embedding calls go through pydantic_ai.embeddings.Embedder (Gemini text-embedding-004).
+Auth is handled by PydanticAI via the GEMINI_API_KEY environment variable.
 """
 
 from __future__ import annotations
 
 import json
 import logging
-import os
 
 from pydantic_graph import BaseNode, GraphRunContext
 
@@ -38,8 +38,6 @@ class EmbeddingNode(BaseNode[ReviewState]):
                 f"Embedding {len(state.extraction_records)} extracted papers...",
                 total=len(state.extraction_records),
             )
-
-        api_key = os.environ.get("GEMINI_API_KEY", "")
 
         async with get_db(state.db_path) as db:
             # Load already-embedded paper_ids for idempotent resume
@@ -70,7 +68,7 @@ class EmbeddingNode(BaseNode[ReviewState]):
 
                 if all_chunks:
                     texts = [c.content for c in all_chunks]
-                    embeddings = await embed_texts(texts, api_key=api_key, batch_size=_BATCH_SIZE)
+                    embeddings = await embed_texts(texts, batch_size=_BATCH_SIZE)
 
                     # Persist chunks with embeddings
                     for chunk, embedding in zip(all_chunks, embeddings):

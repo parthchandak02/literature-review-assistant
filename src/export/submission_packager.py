@@ -176,6 +176,8 @@ async def package_submission(
         "fig_concept_taxonomy.svg",
         "fig_conceptual_framework.svg",
         "fig_methodology_flow.svg",
+        "fig_evidence_network.png",
+        "fig_evidence_network.svg",
     ]
     for fig_name in _figure_names:
         src = output_path / fig_name

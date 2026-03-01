@@ -42,12 +42,16 @@ def _inject_imrad_headings(body: str) -> str:
     )
     # 2. Results: upgrade ### **Results** (H3 with bold) to ## Results.
     body = re.sub(r"(?m)^### \*\*Results\*\*\s*$", "## Results", body)
-    # 3. Discussion: insert before ### Principal Findings.
+    # 3. Discussion: insert before ### Principal Findings only if ## Discussion
+    # is not already present directly above it (avoids duplicate H2).
     body = re.sub(
-        r"(?m)^(### Principal Findings)",
+        r"(?m)^(?<!## Discussion\n\n)(### Principal Findings)",
         r"## Discussion\n\n\1",
         body, count=1,
     )
+    # Collapse any accidental double ## Discussion headings produced by the
+    # workflow heading-injection + LLM self-heading.
+    body = re.sub(r"(?m)^## Discussion\n+## Discussion\n", "## Discussion\n", body)
     # 4. Introduction: insert after the last abstract bold-field line
     #    (the line that starts with **Funding: or **Keywords: etc.)
     #    The abstract always ends with one of these fields followed by a

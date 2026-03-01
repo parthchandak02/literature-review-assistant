@@ -23,7 +23,7 @@ alwaysApply: true
 - `src/quality/` -- baseline RoB 2, ROBINS-I, CASP, GRADE, study router
 - `src/synthesis/` -- Meta-analysis (statsmodels), effect sizes, narrative (LLM-based direction classification), sensitivity analysis (leave-one-out + subgroup), contradiction_detector
 - `src/writing/` -- Section writer, prompts, humanizer, style extractor, naturalness scorer, citation_grounding, contradiction_resolver, orchestration
-- `src/rag/` -- RAG pipeline: chunker, embedder, retriever (used by citation grounding)
+- `src/rag/` -- RAG pipeline: chunker, embedder (PydanticAI Embedder), hybrid BM25+dense retriever with RRF (used by citation grounding and WritingNode)
 - `src/knowledge_graph/` -- builder, community (Louvain), gap_detector
 - `src/citation/` -- Citation ledger, BibTeX generation
 - `src/prisma/` -- PRISMA 2020 flow diagram
@@ -75,6 +75,20 @@ alwaysApply: true
 ## Strict Commit Safety
 - NEVER stage or commit `.env`, `runs/**`, or topic/run-specific generated artifacts unless user explicitly asks.
 - Before any commit operation, verify staged files do not include secrets/runtime outputs and abort if they do.
+
+## Known Gotchas (hard-won session knowledge)
+- **PRISMA checklist**: the API reads `doc_manuscript.md` from the run dir, not `manuscript.md`.
+  Fixed in commit `3180f25`. If the PRISMA card shows "data not available", check the file exists.
+- **Run directory layout**: `runs/YYYY-MM-DD/<slug>/run_<HH-MM-SSam>/runtime.db`
+  (4 levels under `runs/`). Path math that assumes fewer levels will silently read the wrong dir.
+- **Frontend visible on localhost but not production**: always suspect a stale `frontend/dist/`.
+  Run `pnpm build` and restart `litreview-api`.
+- **Backend changes not taking effect**: Python loads modules at startup. Restart `litreview-api`
+  after any `src/` edit, or the running process uses the pre-edit code.
+- **Historical run PRISMA/results endpoints**: require the run to be registered in `_active_runs`.
+  Use `POST /api/history/attach` to re-register a completed run before calling PRISMA/results APIs.
+- **PRISMA checklist 404/500 after restart**: the endpoint now falls back to workflows_registry.db when
+  the run_id is not in _active_runs. Works with both short run_ids and workflow_ids (wf-XXXXXXXX).
 
 <example>
 # Good: Typed phase boundary

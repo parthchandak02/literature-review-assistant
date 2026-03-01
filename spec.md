@@ -917,6 +917,7 @@ Living section -- update as work completes.
 | Living Review | DONE | living_review + last_search_date in review.yaml; SearchNode skips previously-screened DOIs; POST /api/run/{id}/living-refresh creates incremental re-run |
 | Resume | DONE | Central registry, topic auto-resume, mid-phase resume, fallback scan of run_summary.json |
 | Post-build improvements | DONE | display_label (single source of truth in papers table), synthesis_results table, dedup_count column, SearchConfig per-connector limits, BM25 cap with LOW_RELEVANCE_SCORE exclusions |
+| Post-build: Hybrid RAG + PRISMA fixes | DONE | Hybrid BM25+dense RAG (RRF) in WritingNode, PydanticAI Embedder replacing google-generativeai SDK, PRISMA endpoint registry fallback, duplicate Discussion heading dedup, PRISMACounts field name fixes |
 | Validation benchmark | DONE | scripts/benchmark.py measures screening recall, extraction field accuracy, RoB kappa vs. gold-standard corpus |
 
 **Test status:** 18 unit tests + 13 integration tests passing (`uv run pytest tests/unit tests/integration -q`).

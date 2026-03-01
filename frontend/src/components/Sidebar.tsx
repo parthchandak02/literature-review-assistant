@@ -293,6 +293,11 @@ export function Sidebar({
                             Now
                           </span>
                         </div>
+                        {liveRun.workflowId && (
+                          <span className="font-mono text-[9px] text-zinc-700 leading-none">
+                            {formatWorkflowId(liveRun.workflowId)}
+                          </span>
+                        )}
                         <span className="text-xs text-zinc-300 line-clamp-2 leading-snug">
                           {liveRun.topic}
                         </span>

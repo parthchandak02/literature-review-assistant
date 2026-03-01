@@ -27,6 +27,7 @@ from __future__ import annotations
 import datetime
 import json
 import logging
+from collections.abc import Callable
 
 from pydantic import BaseModel, Field
 from pydantic_ai import Agent, NativeOutput, StructuredDict, WebFetchTool, WebSearchTool
@@ -214,7 +215,10 @@ _STRUCTURE_PROMPT = (
 # Public API
 # ---------------------------------------------------------------------------
 
-async def generate_config_yaml(research_question: str) -> str:
+async def generate_config_yaml(
+    research_question: str,
+    progress_cb: Callable[[str], None] | None = None,
+) -> str:
     """Generate a complete review config YAML from a research question.
 
     Two-stage pipeline:
@@ -223,13 +227,24 @@ async def generate_config_yaml(research_question: str) -> str:
     - Stage 2: Gemini + NativeOutput structures the research brief into a
       validated _GeneratedConfig, then serializes it to YAML.
 
+    progress_cb is called with a step key at each stage transition:
+      "web_research" -> "web_research_done" -> "structuring" -> "finalizing"
+
     Raises RuntimeError on LLM or validation failure.
     """
+    def emit(step: str) -> None:
+        if progress_cb:
+            try:
+                progress_cb(step)
+            except Exception:
+                pass
+
     rq = research_question.strip()
 
     # ------------------------------------------------------------------
     # Stage 1: web-grounded research brief
     # ------------------------------------------------------------------
+    emit("web_research")
     research_prompt = _RESEARCH_PROMPT.format(research_question=rq)
     research_agent: Agent[None, str] = Agent(
         _MODEL,
@@ -249,9 +264,12 @@ async def generate_config_yaml(research_question: str) -> str:
         # Graceful degradation: skip the research brief, rely on model knowledge.
         research_brief = "(Web search unavailable -- rely on training knowledge only.)"
 
+    emit("web_research_done")
+
     # ------------------------------------------------------------------
     # Stage 2: structured output from research brief
     # ------------------------------------------------------------------
+    emit("structuring")
     structure_prompt = _STRUCTURE_PROMPT.format(
         research_question=rq,
         research_brief=research_brief,
@@ -270,6 +288,8 @@ async def generate_config_yaml(research_question: str) -> str:
     except Exception as exc:
         logger.error("Config gen Stage 2 (structure) failed: %s", exc)
         raise RuntimeError(f"LLM structuring failed: {exc}") from exc
+
+    emit("finalizing")
 
     try:
         parsed = _GeneratedConfig.model_validate_json(result_json)

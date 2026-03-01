@@ -91,6 +91,8 @@ from src.visualization.funnel_plot import render_funnel_plot
 from src.export.markdown_refs import assemble_submission_manuscript, is_extraction_failed
 from src.orchestration.embedding_node import EmbeddingNode
 from src.orchestration.knowledge_graph_node import KnowledgeGraphNode
+from src.rag.embedder import embed_query as rag_embed_query
+from src.rag.retriever import RAGRetriever
 from src.synthesis.contradiction_detector import detect_contradictions
 from src.writing.citation_grounding import verify_citation_grounding, repair_hallucinated_citekeys
 from src.writing.contradiction_resolver import generate_contradiction_paragraph
@@ -1529,6 +1531,29 @@ class WritingNode(BaseNode[ReviewState]):
                     rc.console.print(f"  Writing section: {section}...")
                 context = get_section_context(section)
                 word_limit = get_section_word_limit(section)
+
+                # Retrieve semantically relevant evidence chunks for this section
+                # using hybrid BM25 + dense retrieval with Reciprocal Rank Fusion.
+                rag_context = ""
+                try:
+                    retriever = RAGRetriever(db, state.workflow_id)
+                    chunk_count = await retriever.chunk_count()
+                    if chunk_count > 0:
+                        query_vec = await rag_embed_query(section)
+                        # Enrich BM25 query with the research question so BM25
+                        # has domain context beyond the bare section name.
+                        bm25_query = f"{state.review.research_question} {section}"
+                        chunks = await retriever.search(
+                            query_vec, top_k=8, query_text=bm25_query
+                        )
+                        if chunks:
+                            rag_context = "\n\n".join(
+                                f"[Paper {c.paper_id} | score {c.score:.4f}]\n{c.content}"
+                                for c in chunks
+                            )
+                except Exception as _rag_exc:
+                    logger.warning("RAG retrieval failed for section '%s': %s", section, _rag_exc)
+
                 content = await write_section_with_validation(
                     section=section,
                     context=context,
@@ -1542,6 +1567,7 @@ class WritingNode(BaseNode[ReviewState]):
                     on_llm_call=_on_write if rc else None,
                     provider=provider,
                     grounding=grounding,
+                    rag_context=rag_context,
                 )
 
                 # Humanization pass: apply configured number of iterations
@@ -1607,6 +1633,13 @@ class WritingNode(BaseNode[ReviewState]):
         titled_sections = []
         for section, content in zip(SECTIONS, sections_written):
             heading = _SECTION_HEADINGS.get(section, "")
+            if heading:
+                # Strip any duplicate heading the LLM may have written at the top
+                # of the section (e.g. "## Discussion\n\n...") before prepending
+                # our canonical heading, so we never get two identical H2s.
+                stripped = content.lstrip()
+                if stripped.startswith(heading):
+                    content = stripped[len(heading):].lstrip("\n")
             titled_sections.append(f"{heading}\n\n{content}" if heading else content)
 
         manuscript_path = Path(state.artifacts["manuscript_md"])
@@ -1773,11 +1806,11 @@ class WritingNode(BaseNode[ReviewState]):
                 _phases = [
                     FlowchartPhase(
                         label="Database Search",
-                        count=prisma_counts.records_identified_databases,
+                        count=prisma_counts.total_identified_databases,
                     ),
                     FlowchartPhase(
                         label="After Deduplication",
-                        count=prisma_counts.records_after_deduplication,
+                        count=prisma_counts.records_screened + prisma_counts.records_excluded_screening,
                     ),
                     FlowchartPhase(
                         label="Title/Abstract Screening",
@@ -1786,11 +1819,11 @@ class WritingNode(BaseNode[ReviewState]):
                     ),
                     FlowchartPhase(
                         label="Eligible for Inclusion",
-                        count=prisma_counts.reports_sought_retrieval,
+                        count=prisma_counts.reports_sought,
                     ),
                     FlowchartPhase(
                         label="Included in Review",
-                        count=prisma_counts.studies_included_synthesis,
+                        count=prisma_counts.studies_included_qualitative + prisma_counts.studies_included_quantitative,
                     ),
                 ]
                 _flowchart_spec = FlowchartDiagramInput(

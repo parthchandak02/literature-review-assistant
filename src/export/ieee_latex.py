@@ -180,16 +180,34 @@ def markdown_to_latex(
 
     body = _md_section_to_latex(rest, citekeys)
 
+    _FIGURE_CAPTIONS: dict[str, str] = {
+        "fig_prisma_flow": "PRISMA 2020 flow diagram illustrating the systematic search and screening process.",
+        "fig_rob_traffic_light": "Risk-of-bias traffic-light summary across included studies.",
+        "fig_forest_plot": "Forest plot of pooled effect estimates with 95% confidence intervals.",
+        "fig_publication_timeline": "Publication timeline of included studies.",
+        "fig_geographic_distribution": "Geographic distribution of included studies by country.",
+        "fig_evidence_network": (
+            "Evidence network of included studies. Nodes represent papers, colored by research cluster. "
+            "Edge color denotes relationship type (teal = shared outcome, gold = shared population, "
+            "blue = shared intervention, purple = embedding similarity). "
+            "Amber rings indicate papers related to identified research gaps."
+        ),
+        "fig_concept_taxonomy": "Conceptual taxonomy of key constructs across included studies.",
+        "fig_conceptual_framework": "Conceptual framework derived from included studies.",
+        "fig_methodology_flow": "Methodology flow diagram.",
+    }
+
     fig_section = ""
     if figure_paths:
         fig_section = "\n\\section*{Figures}\n\n"
         for i, path in enumerate(figure_paths, 1):
             name = Path(path).stem
             inc_path = f"figures/{name}" if "/" not in path else path
+            caption = _FIGURE_CAPTIONS.get(name, f"Figure {i}.")
             fig_section += "\\begin{figure}[htbp]\n"
             fig_section += "  \\centering\n"
             fig_section += f"  \\includegraphics[width=0.9\\columnwidth]{{{inc_path}}}\n"
-            fig_section += f"  \\caption{{Figure {i}.}}\n"
+            fig_section += f"  \\caption{{{_escape_latex(caption)}}}\n"
             fig_section += "\\end{figure}\n\n"
 
     bib_section = "\n\\bibliographystyle{IEEEtran}\n\\bibliography{references}\n"

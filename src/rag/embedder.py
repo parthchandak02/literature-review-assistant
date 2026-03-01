@@ -1,103 +1,80 @@
-"""Embedding service: calls Gemini text-embedding-004 for batch text embedding.
+"""Embedding service: uses PydanticAI Embedder (Gemini) for batch text embedding.
 
-All calls are routed through asyncio.get_event_loop().run_in_executor so
-the synchronous google-generativeai SDK does not block the event loop.
-Costs are not logged here (called from EmbeddingNode which handles logging).
+Replaces the previous google-generativeai direct SDK calls with the
+pydantic_ai.embeddings.Embedder abstraction, which is natively async and
+consistent with the rest of the PydanticAI agent stack.
+
+Model: google-gla:text-embedding-004 (768-dim, matching paper_chunks_meta schema).
+Auth: GEMINI_API_KEY env var -- read automatically by PydanticAI, no manual wiring.
 """
 
 from __future__ import annotations
 
-import asyncio
 import logging
-import os
 from typing import Optional
+
+from pydantic_ai.embeddings import Embedder
 
 logger = logging.getLogger(__name__)
 
-_EMBED_MODEL = "models/text-embedding-004"
+_EMBED_MODEL = "google-gla:text-embedding-004"
 _EMBED_DIM = 768
 
+_embedder: Optional[Embedder] = None
 
-def _embed_batch_sync(texts: list[str], api_key: Optional[str]) -> list[list[float]]:
-    """Synchronous Gemini embedding call -- run in executor to avoid blocking."""
-    try:
-        import google.generativeai as genai  # type: ignore[import-untyped]
-    except ImportError:
-        logger.warning("google-generativeai not installed; returning zero embeddings")
-        return [[0.0] * _EMBED_DIM for _ in texts]
 
-    key = api_key or os.environ.get("GEMINI_API_KEY", "")
-    if not key:
-        logger.warning("No GEMINI_API_KEY; returning zero embeddings")
-        return [[0.0] * _EMBED_DIM for _ in texts]
-
-    genai.configure(api_key=key)
-    results: list[list[float]] = []
-    for text in texts:
-        try:
-            resp = genai.embed_content(
-                model=_EMBED_MODEL,
-                content=text[:8000],
-                task_type="retrieval_document",
-            )
-            vec = resp.get("embedding", [0.0] * _EMBED_DIM)
-            results.append(list(vec))
-        except Exception as exc:
-            logger.warning("Embedding call failed for text: %s", exc)
-            results.append([0.0] * _EMBED_DIM)
-    return results
+def _get_embedder() -> Embedder:
+    """Return a lazily constructed singleton Embedder."""
+    global _embedder
+    if _embedder is None:
+        _embedder = Embedder(_EMBED_MODEL)
+    return _embedder
 
 
 async def embed_texts(
     texts: list[str],
-    api_key: Optional[str] = None,
+    api_key: Optional[str] = None,  # kept for backward compat; PydanticAI reads GEMINI_API_KEY
     batch_size: int = 20,
 ) -> list[list[float]]:
-    """Embed a list of texts using Gemini text-embedding-004.
+    """Embed a list of documents using PydanticAI Embedder (Gemini text-embedding-004).
 
-    Batches calls to stay within rate limits. Returns list of float vectors
-    of length 768. Falls back to zero vectors on API failure.
+    Batches calls to stay within rate limits. Returns a list of 768-dim float
+    vectors. Falls back to zero vectors on API failure so the workflow never
+    hard-crashes during the embedding phase.
     """
     if not texts:
         return []
 
-    loop = asyncio.get_event_loop()
+    embedder = _get_embedder()
     all_embeddings: list[list[float]] = []
 
     for i in range(0, len(texts), batch_size):
         batch = texts[i : i + batch_size]
-        batch_result = await loop.run_in_executor(
-            None, _embed_batch_sync, batch, api_key
-        )
-        all_embeddings.extend(batch_result)
+        try:
+            result = await embedder.embed_documents(batch)
+            all_embeddings.extend([list(vec) for vec in result.embeddings])
+        except Exception as exc:
+            logger.warning("Embedding batch [%d:%d] failed: %s", i, i + batch_size, exc)
+            all_embeddings.extend([[0.0] * _EMBED_DIM for _ in batch])
 
     return all_embeddings
 
 
-async def embed_query(text: str, api_key: Optional[str] = None) -> list[float]:
-    """Embed a single query text with task_type=retrieval_query."""
+async def embed_query(
+    text: str,
+    api_key: Optional[str] = None,  # kept for backward compat
+) -> list[float]:
+    """Embed a single query string for similarity search (input_type=query).
+
+    Returns a 768-dim float vector, or a zero vector on failure.
+    """
     if not text.strip():
         return [0.0] * _EMBED_DIM
 
-    def _query_sync() -> list[float]:
-        try:
-            import google.generativeai as genai  # type: ignore[import-untyped]
-        except ImportError:
-            return [0.0] * _EMBED_DIM
-        key = api_key or os.environ.get("GEMINI_API_KEY", "")
-        if not key:
-            return [0.0] * _EMBED_DIM
-        genai.configure(api_key=key)
-        try:
-            resp = genai.embed_content(
-                model=_EMBED_MODEL,
-                content=text[:8000],
-                task_type="retrieval_query",
-            )
-            return list(resp.get("embedding", [0.0] * _EMBED_DIM))
-        except Exception as exc:
-            logger.warning("Query embedding failed: %s", exc)
-            return [0.0] * _EMBED_DIM
-
-    loop = asyncio.get_event_loop()
-    return await loop.run_in_executor(None, _query_sync)
+    embedder = _get_embedder()
+    try:
+        result = await embedder.embed_query(text[:8000])
+        return list(result.embeddings[0])
+    except Exception as exc:
+        logger.warning("Query embedding failed: %s", exc)
+        return [0.0] * _EMBED_DIM

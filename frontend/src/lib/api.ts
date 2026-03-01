@@ -201,6 +201,69 @@ export async function generateConfig(researchQuestion: string, geminiApiKey = ""
   return data.yaml
 }
 
+/**
+ * Streaming version of generateConfig. Calls the SSE endpoint, invoking
+ * onProgress with each step key as the backend progresses through stages.
+ * Resolves with the final YAML string when done.
+ *
+ * Steps emitted by backend: "start" -> "web_research" -> "web_research_done"
+ *   -> "structuring" -> "finalizing" -> (done event with yaml)
+ */
+export async function generateConfigStream(
+  researchQuestion: string,
+  geminiApiKey: string,
+  onProgress: (step: string) => void,
+): Promise<string> {
+  const res = await fetch(`${BASE}/config/generate/stream`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ research_question: researchQuestion, gemini_api_key: geminiApiKey }),
+  })
+  if (!res.ok) {
+    let detail = `HTTP ${res.status}`
+    try {
+      const body = await res.json() as { detail?: string }
+      if (body.detail) detail = body.detail
+    } catch { /* ignore */ }
+    throw new Error(detail)
+  }
+  const reader = res.body?.getReader()
+  if (!reader) throw new Error("No response body from config generation stream")
+  const decoder = new TextDecoder()
+  let buffer = ""
+  let yaml = ""
+  while (true) {
+    const { done, value } = await reader.read()
+    if (done) break
+    buffer += decoder.decode(value, { stream: true })
+    const lines = buffer.split("\n")
+    buffer = lines.pop() ?? ""
+    for (const line of lines) {
+      if (!line.startsWith("data: ")) continue
+      try {
+        const msg = JSON.parse(line.slice(6)) as {
+          type: string
+          step?: string
+          yaml?: string
+          detail?: string
+        }
+        if (msg.type === "progress" && msg.step) {
+          onProgress(msg.step)
+        } else if (msg.type === "done" && msg.yaml) {
+          yaml = msg.yaml
+        } else if (msg.type === "error") {
+          throw new Error(msg.detail ?? "Config generation failed")
+        }
+      } catch (parseErr) {
+        if (parseErr instanceof Error && parseErr.message !== "Config generation failed") continue
+        throw parseErr
+      }
+    }
+  }
+  if (!yaml) throw new Error("Config generation completed without producing a config")
+  return yaml
+}
+
 /** Fetch the review.yaml that was used for a specific past run. Returns null if not available. */
 export async function fetchRunConfig(workflowId: string, runRoot = "runs"): Promise<string | null> {
   const params = new URLSearchParams({ run_root: runRoot })

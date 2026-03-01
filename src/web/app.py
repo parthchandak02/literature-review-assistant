@@ -656,6 +656,65 @@ async def generate_config(req: _GenerateConfigRequest) -> dict[str, str]:
     return {"yaml": yaml_content}
 
 
+@app.post("/api/config/generate/stream")
+async def generate_config_stream(req: _GenerateConfigRequest) -> StreamingResponse:
+    """SSE streaming version of /api/config/generate.
+
+    Emits progress events as each stage completes, then a final 'done' event
+    containing the generated YAML. Events are JSON-encoded SSE data lines.
+
+    Progress steps: start -> web_research -> web_research_done -> structuring -> finalizing -> done
+    Error: {"type": "error", "detail": "..."}
+    Done:  {"type": "done", "yaml": "..."}
+    """
+    from src.web.config_generator import generate_config_yaml
+
+    if not req.research_question.strip():
+        raise HTTPException(status_code=422, detail="research_question must not be empty")
+    if req.gemini_api_key.strip():
+        os.environ["GEMINI_API_KEY"] = req.gemini_api_key.strip()
+    if not os.environ.get("GEMINI_API_KEY"):
+        raise HTTPException(status_code=422, detail="Gemini API key is required to generate a config. Add it in the API Keys section.")
+
+    queue: asyncio.Queue[dict[str, Any] | None] = asyncio.Queue()
+
+    def progress_cb(step: str) -> None:
+        queue.put_nowait({"type": "progress", "step": step})
+
+    async def run_generation() -> None:
+        try:
+            yaml_content = await generate_config_yaml(req.research_question, progress_cb=progress_cb)
+            queue.put_nowait({"type": "done", "yaml": yaml_content})
+        except RuntimeError as exc:
+            queue.put_nowait({"type": "error", "detail": str(exc)})
+        except Exception as exc:
+            queue.put_nowait({"type": "error", "detail": f"Unexpected error: {exc}"})
+        finally:
+            queue.put_nowait(None)
+
+    async def event_stream() -> AsyncGenerator[str, None]:
+        task = asyncio.create_task(run_generation())
+        yield f"data: {_json.dumps({'type': 'progress', 'step': 'start'})}\n\n"
+        try:
+            while True:
+                try:
+                    msg = await asyncio.wait_for(queue.get(), timeout=180.0)
+                except asyncio.TimeoutError:
+                    yield f"data: {_json.dumps({'type': 'error', 'detail': 'Generation timed out after 3 minutes'})}\n\n"
+                    break
+                if msg is None:
+                    break
+                yield f"data: {_json.dumps(msg)}\n\n"
+        finally:
+            task.cancel()
+
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
 # ---------------------------------------------------------------------------
 # Run history endpoints (reads workflows_registry.db from run_root)
 # ---------------------------------------------------------------------------
@@ -1753,9 +1812,15 @@ async def get_knowledge_graph(run_id: str) -> dict:
         _wf_id = _wf_row[0]
 
         # Load nodes (papers with community assignments)
+        # study_design lives in extraction_records; LEFT JOIN so unextracted papers still appear.
         nodes: list[dict] = []
         async with _kg_db.execute(
-            "SELECT paper_id, title, year, study_design FROM papers"
+            "SELECT p.paper_id, p.title, p.year, COALESCE(er.study_design, 'unknown')"
+            " FROM papers p"
+            " LEFT JOIN extraction_records er"
+            "  ON er.paper_id = p.paper_id AND er.workflow_id = ?"
+            " WHERE p.paper_id IN (SELECT paper_id FROM extraction_records WHERE workflow_id = ?)",
+            (_wf_id, _wf_id),
         ) as _nc:
             async for _nr in _nc:
                 nodes.append({
@@ -1853,7 +1918,19 @@ async def get_prisma_checklist(run_id: str) -> dict:
     """
     from src.export.prisma_checklist import validate_prisma
 
-    db_path = _get_db_path(run_id)
+    # Resolve db_path: try active runs first, then registry by workflow_id.
+    # This handles both live runs (short run_id) and historical runs where
+    # the frontend may pass a workflow_id (wf-XXXXXXXX) directly.
+    resolved_db: str | None = None
+    try:
+        resolved_db = _get_db_path(run_id)
+    except HTTPException:
+        # Not in active_runs -- look up by workflow_id in the registry.
+        resolved_db = await _resolve_db_path("runs", run_id)
+        if resolved_db is None:
+            raise HTTPException(status_code=404, detail="Run not found")
+
+    db_path = resolved_db
     # db_path is like runs/<run_id>/runtime.db; run_path is the run dir
     run_path = pathlib.Path(db_path).parent
 

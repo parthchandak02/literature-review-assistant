@@ -165,12 +165,15 @@ async def write_section_with_validation(
     on_llm_call: Optional[Callable[..., None]] = None,
     provider=None,
     grounding: Optional["WritingGroundingData"] = None,
+    rag_context: str = "",
 ) -> str:
     """Write a section, validate with citation ledger, return content.
 
     Orchestrates: SectionWriter -> CitationLedger.validate_section.
     The grounding parameter injects real pipeline data into the section
     context so the LLM cannot hallucinate counts or statistics.
+    The rag_context parameter appends semantically retrieved chunks from
+    the paper embedding store so the LLM has targeted evidence for the section.
     """
     from src.writing.prompts.sections import get_section_context
 
@@ -180,6 +183,14 @@ async def write_section_with_validation(
         if grounding is not None
         else context
     )
+
+    # Append RAG-retrieved evidence chunks when available
+    if rag_context:
+        effective_context = (
+            effective_context
+            + "\n\n## Relevant Evidence Chunks (retrieved by semantic search)\n"
+            + rag_context
+        )
 
     writer = SectionWriter(
         review=review,

@@ -22,7 +22,7 @@ import { Textarea } from "@/components/ui/textarea"
 import {
   fetchHistory,
   fetchRunConfig,
-  generateConfig,
+  generateConfigStream,
   loadApiKeys,
   saveApiKeys,
 } from "@/lib/api"
@@ -45,34 +45,20 @@ type Stage = "question" | "review"
 type SetupMode = "search" | "masterlist"
 
 // ---------------------------------------------------------------------------
-// Generation steps (shown while AI is working)
+// Generation steps (driven by real SSE events from the backend)
 // ---------------------------------------------------------------------------
 
-const GEN_STEPS = [
-  { label: "Analyzing your research question", detail: "Understanding scope, domain, and intent" },
-  { label: "Defining PICO framework", detail: "Population, Intervention, Comparison, Outcome" },
-  { label: "Generating search keywords", detail: "20+ terms covering synonyms and brand names" },
-  { label: "Writing inclusion criteria", detail: "Specifying eligible study types and settings" },
-  { label: "Writing exclusion criteria", detail: "Filtering out irrelevant or low-quality sources" },
-  { label: "Finalizing domain and scope", detail: "Summarizing coverage and boundaries" },
+const GEN_STEPS: { key: string; label: string; detail: string }[] = [
+  { key: "start",            label: "Analyzing your research question", detail: "Understanding scope, domain, and intent" },
+  { key: "web_research",     label: "Searching the web",                detail: "Discovering brand names, synonyms, and domain terminology" },
+  { key: "web_research_done",label: "Processing search results",        detail: "Building research brief from web findings" },
+  { key: "structuring",      label: "Generating PICO and criteria",     detail: "Keywords, inclusion/exclusion criteria, domain and scope" },
+  { key: "finalizing",       label: "Finalizing your config",           detail: "Validating and serializing to YAML" },
 ]
 
-const STEP_DURATIONS = [1500, 2200, 2200, 2000, 2000]
-
-function GeneratingScreen() {
-  const [activeStep, setActiveStep] = useState(0)
-
-  useEffect(() => {
-    const timeouts: ReturnType<typeof setTimeout>[] = []
-    let elapsed = 0
-    for (let i = 0; i < STEP_DURATIONS.length; i++) {
-      elapsed += STEP_DURATIONS[i]
-      const nextStep = i + 1
-      const t = setTimeout(() => setActiveStep(nextStep), elapsed)
-      timeouts.push(t)
-    }
-    return () => timeouts.forEach(clearTimeout)
-  }, [])
+function GeneratingScreen({ activeStepKey }: { activeStepKey: string }) {
+  const activeIdx = GEN_STEPS.findIndex((s) => s.key === activeStepKey)
+  const activeStep = activeIdx === -1 ? 0 : activeIdx
 
   return (
     <div className="flex flex-col items-center py-8 gap-6">
@@ -95,7 +81,7 @@ function GeneratingScreen() {
           const active = i === activeStep
           return (
             <div
-              key={i}
+              key={step.key}
               className={`flex items-start gap-3 px-3 py-2.5 rounded-lg border transition-all duration-500 ${
                 done
                   ? "bg-emerald-500/8 border-emerald-500/20"
@@ -130,13 +116,8 @@ function GeneratingScreen() {
                     {step.detail}
                   </p>
                 )}
-                {active && i === GEN_STEPS.length - 1 && (
-                  <p className="text-xs mt-1 text-violet-400/70 animate-pulse leading-snug">
-                    Searching the web and building your config...
-                  </p>
-                )}
               </div>
-              {active && i < GEN_STEPS.length - 1 && (
+              {active && (
                 <div className="flex gap-0.5 mt-1 flex-shrink-0">
                   {[0, 1, 2].map((d) => (
                     <div
@@ -550,6 +531,7 @@ function QuestionStage({
   const [geminiKey, setGeminiKey] = useState("")
   const [showKey, setShowKey] = useState(false)
   const [generating, setGenerating] = useState(false)
+  const [activeGenStep, setActiveGenStep] = useState("start")
   const [error, setError] = useState<string | null>(null)
   const [showHistory, setShowHistory] = useState(false)
   const [csvFile, setCsvFile] = useState<File | null>(null)
@@ -574,9 +556,14 @@ function QuestionStage({
     if (!question.trim() || !geminiKey.trim()) return
     if (mode === "masterlist" && !csvFile) return
     setError(null)
+    setActiveGenStep("start")
     setGenerating(true)
     try {
-      const yaml = await generateConfig(question.trim(), geminiKey.trim())
+      const yaml = await generateConfigStream(
+        question.trim(),
+        geminiKey.trim(),
+        (step) => setActiveGenStep(step),
+      )
       onGenerated(yaml, question.trim(), mode === "masterlist" ? csvFile ?? undefined : undefined)
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
@@ -585,7 +572,7 @@ function QuestionStage({
   }
 
   if (generating) {
-    return <GeneratingScreen />
+    return <GeneratingScreen activeStepKey={activeGenStep} />
   }
 
   const completedRuns = history.filter((h) => h.status === "completed").slice(0, 10)
