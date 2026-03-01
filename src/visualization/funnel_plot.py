@@ -43,5 +43,6 @@ def render_funnel_plot(
     ax.set_ylim(max(upper * 1.05, 0.1), max(lower * 0.8, 0.0))
     ax.invert_yaxis()
     fig.savefig(path, dpi=300, bbox_inches="tight")
+    fig.savefig(path.with_suffix(".svg"), bbox_inches="tight")
     plt.close(fig)
     return str(path)

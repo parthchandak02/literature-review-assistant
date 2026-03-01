@@ -33,5 +33,6 @@ def render_forest_plot(
     path = Path(output_path)
     path.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(path, dpi=300, bbox_inches="tight")
+    fig.savefig(path.with_suffix(".svg"), bbox_inches="tight")
     plt.close(fig)
     return str(path)

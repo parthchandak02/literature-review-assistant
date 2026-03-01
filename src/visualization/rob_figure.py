@@ -292,6 +292,7 @@ def _render_single_tool_figure(
                      fontsize=7.5, va="top", color="#555555", style="italic", wrap=True)
 
     fig.savefig(path, dpi=150, bbox_inches="tight")
+    fig.savefig(path.with_suffix(".svg"), bbox_inches="tight")
     plt.close(fig)
 
 
@@ -331,6 +332,7 @@ def render_rob_traffic_light(
         ax.axis("off")
         fig.tight_layout()
         fig.savefig(path, dpi=150, bbox_inches="tight")
+        fig.savefig(path.with_suffix(".svg"), bbox_inches="tight")
         plt.close(fig)
         return path
 
@@ -384,6 +386,7 @@ def render_rob_traffic_light(
         ax.axis("off")
         fig.tight_layout()
         fig.savefig(path, dpi=150, bbox_inches="tight")
+        fig.savefig(path.with_suffix(".svg"), bbox_inches="tight")
         plt.close(fig)
 
     # --- Render separate RoB2 figure ---

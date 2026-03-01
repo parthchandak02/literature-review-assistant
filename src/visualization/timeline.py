@@ -31,6 +31,7 @@ def render_timeline(papers: list[CandidatePaper], output_path: str) -> Path:
         ax.axis("off")
         fig.tight_layout()
         fig.savefig(path, dpi=150, bbox_inches="tight")
+        fig.savefig(path.with_suffix(".svg"), bbox_inches="tight")
         plt.close(fig)
         return path
 
@@ -74,5 +75,6 @@ def render_timeline(papers: list[CandidatePaper], output_path: str) -> Path:
 
     fig.tight_layout(rect=[0, 0.05 if n_missing_year > 0 else 0, 1, 1])
     fig.savefig(path, dpi=150, bbox_inches="tight")
+    fig.savefig(path.with_suffix(".svg"), bbox_inches="tight")
     plt.close(fig)
     return path

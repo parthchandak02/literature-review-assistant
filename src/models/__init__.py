@@ -1,5 +1,15 @@
 """Model exports for phase boundaries."""
 
+from src.models.diagrams import (
+    ConceptDiagramInput,
+    FlowchartDiagramInput,
+    FlowchartPhase,
+    FrameworkDiagramInput,
+    FrameworkEdge,
+    FrameworkNode,
+    TaxonomyCategory,
+    TaxonomyDiagramInput,
+)
 from src.models.additional import (
     CostRecord,
     InterRaterReliability,
@@ -46,6 +56,14 @@ from src.models.writing import SectionDraft
 
 __all__ = [
     "AgentConfig",
+    "ConceptDiagramInput",
+    "FlowchartDiagramInput",
+    "FlowchartPhase",
+    "FrameworkDiagramInput",
+    "FrameworkEdge",
+    "FrameworkNode",
+    "TaxonomyCategory",
+    "TaxonomyDiagramInput",
     "CandidatePaper",
     "CitationEntryRecord",
     "CitationLineageConfig",

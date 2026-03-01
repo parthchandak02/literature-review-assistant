@@ -164,7 +164,20 @@ async def package_submission(
     (submission_dir / "references.bib").write_text(bib_content, encoding="utf-8")
 
     figure_paths: list[str] = []
-    for fig_name in ["fig_prisma_flow.png", "fig_rob_traffic_light.png", "fig_publication_timeline.png", "fig_geographic_distribution.png"]:
+    _figure_names = [
+        "fig_prisma_flow.png",
+        "fig_rob_traffic_light.png",
+        "fig_publication_timeline.png",
+        "fig_geographic_distribution.png",
+        "fig_forest_plot.png",
+        "fig_forest_plot.svg",
+        "fig_publication_timeline.svg",
+        "fig_geographic_distribution.svg",
+        "fig_concept_taxonomy.svg",
+        "fig_conceptual_framework.svg",
+        "fig_methodology_flow.svg",
+    ]
+    for fig_name in _figure_names:
         src = output_path / fig_name
         if src.exists():
             dst = figures_dir / fig_name

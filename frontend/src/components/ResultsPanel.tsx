@@ -517,7 +517,7 @@ export function ResultsPanel({ outputs, excludePaths }: ResultsPanelProps) {
         <PageSection
           icon={Image}
           title="Figures"
-          description="PRISMA flow, forest plot, RoB, geographic"
+          description="PRISMA flow, forest plot, RoB, geographic, concept diagrams"
           contentClassName="flex flex-col gap-2"
         >
           {figs.map((f) => (

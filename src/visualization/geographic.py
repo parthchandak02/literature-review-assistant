@@ -82,6 +82,7 @@ def render_geographic(papers: list[CandidatePaper], output_path: str) -> Path:
         _render_bar(ax, labels, values, title=title, ylabel="Number of studies")
         fig.tight_layout()
         fig.savefig(path, dpi=150, bbox_inches="tight")
+        fig.savefig(path.with_suffix(".svg"), bbox_inches="tight")
         plt.close(fig)
         return path
 
@@ -100,6 +101,7 @@ def render_geographic(papers: list[CandidatePaper], output_path: str) -> Path:
         ax.axis("off")
         fig.tight_layout()
         fig.savefig(path, dpi=150, bbox_inches="tight")
+        fig.savefig(path.with_suffix(".svg"), bbox_inches="tight")
         plt.close(fig)
         return path
 
@@ -124,5 +126,6 @@ def render_geographic(papers: list[CandidatePaper], output_path: str) -> Path:
         wrap=True,
     )
     fig.savefig(path, dpi=150, bbox_inches="tight")
+    fig.savefig(path.with_suffix(".svg"), bbox_inches="tight")
     plt.close(fig)
     return path
