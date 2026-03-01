@@ -62,3 +62,25 @@ class GRADEOutcomeAssessment(BaseModel):
     residual_confounding_upgrade: int = Field(ge=0, le=1)
     final_certainty: GRADECertainty
     justification: str
+
+
+class GradeSoFRow(BaseModel):
+    """One row in the GRADE Summary of Findings table (one outcome)."""
+
+    outcome_name: str
+    n_studies: int
+    study_design: str
+    risk_of_bias: str
+    inconsistency: str
+    indirectness: str
+    imprecision: str
+    other_considerations: str
+    certainty: GRADECertainty
+    effect_summary: str
+
+
+class GradeSoFTable(BaseModel):
+    """GRADE Summary of Findings table for the full review."""
+
+    topic: str
+    rows: list[GradeSoFRow] = Field(default_factory=list)

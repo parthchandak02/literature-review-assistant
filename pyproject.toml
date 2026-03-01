@@ -39,6 +39,7 @@ dependencies = [
   "sqlite-vec>=0.1.6",
   "networkx>=3.0",
   "python-louvain>=0.16",
+  "nltk>=3.9.3",
 ]
 
 [dependency-groups]

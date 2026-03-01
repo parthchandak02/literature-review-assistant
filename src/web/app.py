@@ -164,6 +164,7 @@ class RunRequest(BaseModel):
     semantic_scholar_api_key: str | None = None
     crossref_email: str | None = None
     run_root: str = "runs"
+    parent_db_path: str | None = None
 
 
 class RunResponse(BaseModel):
@@ -359,6 +360,7 @@ async def _run_wrapper(record: _RunRecord, review_path: str, req: RunRequest) ->
             run_root=req.run_root,
             run_context=ctx,
             fresh=True,
+            parent_db_path=req.parent_db_path,
         )
         record.outputs = outputs if isinstance(outputs, dict) else {}
         record.done = True
@@ -1977,6 +1979,73 @@ async def get_prisma_checklist(run_id: str) -> dict:
     }
 
 
+@app.get("/api/run/{run_id}/grade-sof")
+async def get_grade_sof(run_id: str, fmt: str = "json") -> dict:
+    """Return the GRADE Summary of Findings table for a completed run.
+
+    Query params:
+      fmt=json  (default) -- return structured JSON
+      fmt=latex           -- return a LaTeX longtable string
+    """
+    from src.db.repositories import WorkflowRepository
+    from src.quality.grade import build_sof_table
+
+    resolved_db: str | None = None
+    try:
+        resolved_db = _get_db_path(run_id)
+    except HTTPException:
+        resolved_db = await _resolve_db_path("runs", run_id)
+        if resolved_db is None:
+            raise HTTPException(status_code=404, detail="Run not found")
+
+    async with aiosqlite.connect(resolved_db) as db:
+        db.row_factory = aiosqlite.Row
+        repo = WorkflowRepository(db)
+
+        # Resolve actual workflow_id for the GRADE query.
+        wf_id = run_id
+        try:
+            async with db.execute(
+                "SELECT workflow_id FROM workflows ORDER BY rowid DESC LIMIT 1"
+            ) as cur:
+                row = await cur.fetchone()
+                if row:
+                    wf_id = row[0]
+        except Exception:
+            pass
+
+        assessments = await repo.load_grade_assessments(wf_id)
+
+    if not assessments:
+        raise HTTPException(
+            status_code=404,
+            detail="No GRADE assessments found for this run. Run the quality assessment phase first.",
+        )
+
+    # Derive topic from the run's workflow record if possible.
+    topic = run_id
+    try:
+        async with aiosqlite.connect(resolved_db) as db2:
+            async with db2.execute("SELECT topic FROM workflows LIMIT 1") as cur2:
+                row2 = await cur2.fetchone()
+                if row2:
+                    topic = row2[0]
+    except Exception:
+        pass
+
+    table = build_sof_table(assessments, topic=topic)
+
+    if fmt == "latex":
+        from src.export.ieee_latex import render_grade_sof_latex
+        return {"run_id": run_id, "latex": render_grade_sof_latex(table)}
+
+    return {
+        "run_id": run_id,
+        "topic": table.topic,
+        "rows": [r.model_dump() for r in table.rows],
+    }
+
+
 @app.post("/api/run/{run_id}/living-refresh")
 async def living_refresh(run_id: str) -> RunResponse:
     """Launch an incremental living-review run based on a completed run.
@@ -1992,15 +2061,30 @@ async def living_refresh(run_id: str) -> RunResponse:
 
     record = _active_runs.get(run_id)
     if record is None:
-        raise HTTPException(status_code=404, detail="Run not found")
+        # Allow historical runs not in active_runs (e.g. after restart).
+        resolved_parent_db = await _resolve_db_path("runs", run_id)
+        if resolved_parent_db is None:
+            raise HTTPException(status_code=404, detail="Run not found")
+        # For historical runs we don't have the YAML in memory -- read from disk.
+        parent_yaml_path = pathlib.Path(resolved_parent_db).parent / "review.yaml"
+        if not parent_yaml_path.exists():
+            raise HTTPException(
+                status_code=422,
+                detail="review.yaml not found next to prior runtime.db; cannot refresh.",
+            )
+        prior_yaml = parent_yaml_path.read_text(encoding="utf-8")
+        parent_db_path_value = resolved_parent_db
+        prior_run_root = str(pathlib.Path(resolved_parent_db).parent.parent.parent.parent)
+    else:
+        if not record.done:
+            raise HTTPException(
+                status_code=409,
+                detail="Living refresh only allowed on completed runs; this run has not finished yet.",
+            )
+        prior_yaml = getattr(record, "review_yaml", None)
+        parent_db_path_value = record.db_path or None
+        prior_run_root = record.run_root
 
-    if not record.done:
-        raise HTTPException(
-            status_code=409,
-            detail="Living refresh only allowed on completed runs; this run has not finished yet.",
-        )
-
-    prior_yaml: str | None = getattr(record, "review_yaml", None)
     if not prior_yaml:
         raise HTTPException(status_code=422, detail="Prior run has no review YAML stored; cannot refresh.")
 
@@ -2026,7 +2110,8 @@ async def living_refresh(run_id: str) -> RunResponse:
         perplexity_api_key=os.environ.get("PERPLEXITY_API_KEY"),
         semantic_scholar_api_key=os.environ.get("SEMANTIC_SCHOLAR_API_KEY"),
         crossref_email=os.environ.get("CROSSREF_EMAIL"),
-        run_root=record.run_root,
+        run_root=prior_run_root,
+        parent_db_path=parent_db_path_value,
     )
 
     new_run_id = str(uuid.uuid4())[:8]

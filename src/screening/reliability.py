@@ -2,13 +2,21 @@
 
 from __future__ import annotations
 
+import logging
+import random
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Sequence
+from typing import TYPE_CHECKING, Callable, Sequence
 
 from sklearn.metrics import cohen_kappa_score
 
 from src.db.repositories import WorkflowRepository
 from src.models import DecisionLogEntry, DualScreeningResult, InterRaterReliability
+
+if TYPE_CHECKING:
+    from src.models import CandidatePaper
+
+logger = logging.getLogger(__name__)
 
 
 def compute_cohens_kappa(results: Sequence[DualScreeningResult], stage: str) -> InterRaterReliability:
@@ -61,6 +69,91 @@ def generate_disagreements_report(output_path: str, results: Sequence[DualScreen
             )
     path.write_text("\n".join(lines), encoding="utf-8")
     return path
+
+
+@dataclass
+class CalibratedThresholds:
+    """Result of threshold calibration: adjusted include/exclude thresholds."""
+
+    include_threshold: float
+    exclude_threshold: float
+    achieved_kappa: float
+    iterations: int
+    sample_size: int
+
+
+async def calibrate_threshold(
+    papers: "list[CandidatePaper]",
+    screener_fn: Callable[["list[CandidatePaper]", float], "Sequence[DualScreeningResult]"],
+    target_kappa: float = 0.7,
+    max_iterations: int = 3,
+    sample_size: int = 30,
+    initial_include_threshold: float = 0.85,
+) -> CalibratedThresholds:
+    """Calibrate the screening inclusion threshold via bisection on a paper sample.
+
+    Screens a random subset of `sample_size` papers at progressively adjusted
+    thresholds until Cohen's kappa >= `target_kappa` or `max_iterations` are
+    exhausted. The exclude_threshold is kept 0.05 below include_threshold.
+
+    Args:
+        papers: Full candidate paper list; a random sample is drawn from these.
+        screener_fn: Async callable(papers, threshold) -> list[DualScreeningResult].
+            The caller should partially apply the screener with its workflow_id etc.
+        target_kappa: Minimum acceptable kappa (default 0.7).
+        max_iterations: Maximum bisection rounds (default 3).
+        sample_size: Number of papers to screen per calibration round.
+        initial_include_threshold: Starting threshold for bisection.
+
+    Returns:
+        CalibratedThresholds with the best threshold found.
+    """
+    sample = random.sample(papers, min(sample_size, len(papers)))
+    lo, hi = 0.5, 0.95
+    current = initial_include_threshold
+    best_kappa = 0.0
+    best_threshold = current
+
+    for iteration in range(1, max_iterations + 1):
+        results: Sequence[DualScreeningResult] = await screener_fn(sample, current)  # type: ignore[arg-type]
+
+        if not results:
+            logger.warning("calibrate_threshold: screener returned no results (iteration %d)", iteration)
+            break
+
+        reliability = compute_cohens_kappa(list(results), stage="calibration")
+        kappa = reliability.cohens_kappa
+        logger.info(
+            "calibrate_threshold iter=%d threshold=%.3f kappa=%.4f (target=%.2f)",
+            iteration, current, kappa, target_kappa,
+        )
+
+        if kappa > best_kappa:
+            best_kappa = kappa
+            best_threshold = current
+
+        if kappa >= target_kappa:
+            break
+
+        # Bisect: if kappa is too low, widen the uncertain band (lower threshold).
+        # Lower threshold -> more papers reviewed -> higher reviewer agreement on clear cases.
+        hi = current
+        current = (lo + hi) / 2.0
+
+    exclude = max(0.0, best_threshold - 0.05)
+    result = CalibratedThresholds(
+        include_threshold=round(best_threshold, 3),
+        exclude_threshold=round(exclude, 3),
+        achieved_kappa=round(best_kappa, 4),
+        iterations=min(max_iterations, iteration),
+        sample_size=len(sample),
+    )
+    logger.info(
+        "calibrate_threshold: final include=%.3f exclude=%.3f kappa=%.4f after %d iter",
+        result.include_threshold, result.exclude_threshold,
+        result.achieved_kappa, result.iterations,
+    )
+    return result
 
 
 async def log_reliability_to_decision_log(

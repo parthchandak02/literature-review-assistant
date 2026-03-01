@@ -390,6 +390,30 @@ class SearchNode(BaseNode[ReviewState]):
             )
             if rc is not None and hasattr(rc, "notify_workflow_id"):
                 rc.notify_workflow_id(state.workflow_id, state.run_root)
+
+            # Living review delta: merge previously included papers from the parent
+            # run DB before searching, so they are present when the dedup and
+            # living-review DOI-skip logic runs. This avoids re-screening papers
+            # that were already adjudicated in the prior run.
+            if state.parent_db_path:
+                try:
+                    from src.db.repositories import merge_papers_from_parent
+                    n_merged = await merge_papers_from_parent(state.parent_db_path, db)
+                    logger.info(
+                        "Living refresh: merged %d papers from parent DB %s",
+                        n_merged, state.parent_db_path,
+                    )
+                    if rc:
+                        rc.emit_event(
+                            "living_refresh_merge",
+                            {"merged_papers": n_merged, "parent_db": state.parent_db_path},
+                        )
+                except Exception as _merge_err:
+                    logger.warning(
+                        "Living refresh: parent DB merge failed (%s) -- proceeding as fresh run",
+                        _merge_err,
+                    )
+
             gate_runner = GateRunner(repository, state.settings)
             def _on_connector_done(
                 name: str,
@@ -622,6 +646,68 @@ class ScreeningNode(BaseNode[ReviewState]):
                             f"[dim]Keyword pre-filter: {len(pre_excluded)} auto-excluded, "
                             f"{len(papers_for_llm)} forwarded to LLM screening.[/]"
                         )
+
+            # --- Adaptive threshold calibration (optional) ---
+            screening_cfg = state.settings.screening
+            if (
+                getattr(screening_cfg, "calibrate_threshold", True)
+                and papers_for_llm
+                and use_real_client
+                and not state.parent_db_path  # skip for living-refresh delta runs
+            ):
+                from src.screening.reliability import calibrate_threshold as _calibrate_threshold
+
+                async def _calibration_screener(
+                    sample_papers: "list[CandidatePaper]",
+                    threshold: float,
+                ) -> "list[DualScreeningResult]":
+                    # Temporarily override threshold on screener for calibration pass.
+                    original_include = getattr(
+                        screener._settings.screening, "stage1_include_threshold", 0.85
+                    )
+                    try:
+                        screener._settings.screening.stage1_include_threshold = threshold
+                        screener._settings.screening.stage1_exclude_threshold = max(0.0, threshold - 0.05)
+                        results = await screener.screen_batch(
+                            workflow_id=f"{state.workflow_id}_calib",
+                            stage="calibration",
+                            papers=sample_papers,
+                        )
+                        return list(results)
+                    finally:
+                        screener._settings.screening.stage1_include_threshold = original_include
+                        screener._settings.screening.stage1_exclude_threshold = max(0.0, original_include - 0.05)
+
+                try:
+                    calibrated = await _calibrate_threshold(
+                        papers=papers_for_llm,
+                        screener_fn=_calibration_screener,
+                        target_kappa=getattr(screening_cfg, "calibration_target_kappa", 0.7),
+                        max_iterations=getattr(screening_cfg, "calibration_max_iterations", 3),
+                        sample_size=getattr(screening_cfg, "calibration_sample_size", 30),
+                        initial_include_threshold=screening_cfg.stage1_include_threshold,
+                    )
+                    screening_cfg.stage1_include_threshold = calibrated.include_threshold
+                    screening_cfg.stage1_exclude_threshold = calibrated.exclude_threshold
+                    logger.info(
+                        "Screening calibration: threshold adjusted to %.3f (kappa=%.4f, %d iter)",
+                        calibrated.include_threshold, calibrated.achieved_kappa, calibrated.iterations,
+                    )
+                    if rc:
+                        rc.emit_event(
+                            "screening_calibration",
+                            {
+                                "include_threshold": calibrated.include_threshold,
+                                "exclude_threshold": calibrated.exclude_threshold,
+                                "kappa": calibrated.achieved_kappa,
+                                "iterations": calibrated.iterations,
+                                "sample_size": calibrated.sample_size,
+                            },
+                        )
+                except Exception as _cal_err:
+                    logger.warning(
+                        "Screening calibration failed (%s) -- using default thresholds", _cal_err
+                    )
 
             # --- Stage 1: title/abstract LLM dual-review ---
             stage1_llm = await screener.screen_batch(
@@ -1516,6 +1602,8 @@ class WritingNode(BaseNode[ReviewState]):
             use_hyde = getattr(rag_cfg, "use_hyde", True)
             hyde_model = getattr(rag_cfg, "hyde_model", "google-gla:gemini-2.0-flash")
 
+            _pico_cfg = getattr(state.review, "pico", None) if state.review else None
+
             hyde_docs: dict[str, str] = {}
             if use_hyde and state.review:
                 try:
@@ -1526,6 +1614,7 @@ class WritingNode(BaseNode[ReviewState]):
                                 section=s,
                                 research_question=state.review.research_question,
                                 model=hyde_model,
+                                pico=_pico_cfg,
                             )
                             for s in SECTIONS
                         ],
@@ -1535,7 +1624,8 @@ class WritingNode(BaseNode[ReviewState]):
                         if isinstance(res, str) and res:
                             hyde_docs[s] = res
                     logger.info(
-                        "HyDE pre-generated %d/%d section docs", len(hyde_docs), len(SECTIONS)
+                        "HyDE pre-generated %d/%d section docs (PICO=%s)",
+                        len(hyde_docs), len(SECTIONS), _pico_cfg is not None,
                     )
                 except Exception as _hyde_err:
                     logger.warning(
@@ -1582,7 +1672,19 @@ class WritingNode(BaseNode[ReviewState]):
                         query_vec = await rag_embed_query(hyde_text if hyde_text else section)
                         if hyde_text:
                             logger.debug("RAG: HyDE embedding used for section '%s'", section)
-                        bm25_query = f"{state.review.research_question} {section}"
+                        # PICO enrichment: appending PICO terms gives BM25
+                        # domain-specific keywords beyond the bare section name.
+                        _pico_terms = " ".join(filter(None, [
+                            getattr(_pico_cfg, "population", "") or "",
+                            getattr(_pico_cfg, "intervention", "") or "",
+                            getattr(_pico_cfg, "comparison", "") or "",
+                            getattr(_pico_cfg, "outcome", "") or "",
+                        ])).strip() if _pico_cfg else ""
+                        bm25_query = " ".join(filter(None, [
+                            state.review.research_question,
+                            _pico_terms,
+                            section,
+                        ]))
 
                         # Retrieve wider candidate set (top_k=20) for reranker;
                         # fall back to top_k=8 when reranking is disabled.
@@ -2048,6 +2150,7 @@ async def run_workflow(
     run_root: str = "runs",
     run_context: RunContext | None = None,
     fresh: bool = False,
+    parent_db_path: str | None = None,
 ) -> dict[str, str | int | dict[str, int] | dict[str, str]]:
     review, settings = load_configs(review_path, settings_path)
     config_hash = _hash_config(review_path)
@@ -2101,6 +2204,7 @@ async def run_workflow(
         settings_path=settings_path,
         run_root=run_root,
         run_context=run_context,
+        parent_db_path=parent_db_path,
     )
     result = await RUN_GRAPH.run(start, state=initial)
     return result.output

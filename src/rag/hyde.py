@@ -22,7 +22,7 @@ You are a systematic review author. Write a 2-3 sentence excerpt that would
 appear in the {section} section of a systematic review on this topic:
 
 "{research_question}"
-
+{pico_block}
 Requirements:
 - Be specific to the topic above
 - Use academic language matching published systematic reviews
@@ -39,10 +39,33 @@ _SECTION_CONTEXT: dict[str, str] = {
 }
 
 
+def _build_pico_block(pico: Optional[object]) -> str:
+    """Build a PICO context block to inject into the HyDE prompt.
+
+    Returns "" when pico is None or all fields are empty.
+    """
+    if pico is None:
+        return ""
+    parts: list[str] = []
+    for label, attr in (
+        ("Population", "population"),
+        ("Intervention", "intervention"),
+        ("Comparison", "comparison"),
+        ("Outcome", "outcome"),
+    ):
+        val = getattr(pico, attr, "") or ""
+        if val.strip():
+            parts.append(f"  {label}: {val.strip()}")
+    if not parts:
+        return ""
+    return "\nPICO framework for this review:\n" + "\n".join(parts) + "\n"
+
+
 async def generate_hyde_document(
     section: str,
     research_question: str,
     model: str = "google-gla:gemini-2.0-flash",
+    pico: Optional[object] = None,
     provider: Optional[object] = None,
 ) -> str:
     """Generate a hypothetical document excerpt for use as a RAG query vector.
@@ -51,6 +74,8 @@ async def generate_hyde_document(
         section: Section name, e.g. "methods", "discussion".
         research_question: The full review research question.
         model: Fast LLM model to use for generation.
+        pico: Optional PICOConfig object; when provided, PICO terms are injected
+            into the prompt to anchor the hypothetical text to the review topic.
         provider: Optional PydanticAI provider override (unused; reserved for future).
 
     Returns:
@@ -64,6 +89,7 @@ async def generate_hyde_document(
     prompt = _HYDE_PROMPT.format(
         section=f"{section} ({section_hint})",
         research_question=research_question,
+        pico_block=_build_pico_block(pico),
     )
 
     try:

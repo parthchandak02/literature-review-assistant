@@ -108,6 +108,32 @@ class ScreeningConfig(BaseModel):
             "Set to null (or omit) to screen all candidate papers."
         ),
     )
+    calibrate_threshold: bool = Field(
+        default=True,
+        description=(
+            "Run an active-learning kappa calibration pass on a random sample "
+            "of papers before the main screening loop. Adjusts stage1_include_threshold "
+            "until Cohen's kappa >= calibration_target_kappa or max iterations reached."
+        ),
+    )
+    calibration_sample_size: int = Field(
+        default=30,
+        ge=5,
+        le=200,
+        description="Number of papers to screen in the calibration sample.",
+    )
+    calibration_target_kappa: float = Field(
+        default=0.7,
+        ge=0.0,
+        le=1.0,
+        description="Target Cohen's kappa for calibration bisection. Calibration stops when reached.",
+    )
+    calibration_max_iterations: int = Field(
+        default=3,
+        ge=1,
+        le=10,
+        description="Maximum bisection iterations during threshold calibration.",
+    )
 
 
 class DualReviewConfig(BaseModel):

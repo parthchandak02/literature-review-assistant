@@ -212,3 +212,64 @@ def markdown_to_latex(
 
     bib_section = "\n\\bibliographystyle{IEEEtran}\n\\bibliography{references}\n"
     return preamble + body + fig_section + bib_section + "\n\\end{document}\n"
+
+
+def render_grade_sof_latex(table: "GradeSoFTable") -> str:
+    """Render a GradeSoFTable as a LaTeX longtable appendix section.
+
+    The returned string is self-contained and can be appended to the IEEE
+    LaTeX document before the bibliography.
+    """
+    from src.models.quality import GradeSoFTable  # noqa: PLC0415 -- local to avoid circular import
+
+    _CERT_SYMBOL: dict[str, str] = {
+        "high": "HIGH",
+        "moderate": "MODERATE",
+        "low": "LOW",
+        "very_low": "VERY LOW",
+    }
+
+    e = _escape_latex
+    lines: list[str] = [
+        "",
+        "\\section*{Appendix: GRADE Summary of Findings}",
+        "",
+        f"\\textbf{{Topic:}} {e(table.topic)}",
+        "",
+        "\\begin{longtable}{p{2.8cm}p{0.6cm}p{1.4cm}p{1.4cm}p{1.4cm}p{1.4cm}p{1.4cm}p{1.4cm}p{2.0cm}}",
+        "\\caption{GRADE Summary of Findings} \\label{tab:grade_sof} \\\\",
+        "\\hline",
+        "\\textbf{Outcome} & \\textbf{N} & \\textbf{Design} & \\textbf{Risk of Bias} & "
+        "\\textbf{Inconsistency} & \\textbf{Indirectness} & \\textbf{Imprecision} & "
+        "\\textbf{Other} & \\textbf{Certainty} \\\\",
+        "\\hline",
+        "\\endfirsthead",
+        "\\hline",
+        "\\textbf{Outcome} & \\textbf{N} & \\textbf{Design} & \\textbf{Risk of Bias} & "
+        "\\textbf{Inconsistency} & \\textbf{Indirectness} & \\textbf{Imprecision} & "
+        "\\textbf{Other} & \\textbf{Certainty} \\\\",
+        "\\hline",
+        "\\endhead",
+        "\\hline",
+        "\\endfoot",
+    ]
+
+    for row in table.rows:
+        cert_label = _CERT_SYMBOL.get(row.certainty.value if hasattr(row.certainty, "value") else str(row.certainty), str(row.certainty).upper())
+        cells = [
+            e(row.outcome_name),
+            str(row.n_studies),
+            e(row.study_design),
+            e(row.risk_of_bias),
+            e(row.inconsistency),
+            e(row.indirectness),
+            e(row.imprecision),
+            e(row.other_considerations),
+            f"\\textbf{{{cert_label}}}",
+        ]
+        lines.append(" & ".join(cells) + " \\\\")
+        lines.append("\\hline")
+
+    lines.append("\\end{longtable}")
+    lines.append("")
+    return "\n".join(lines)

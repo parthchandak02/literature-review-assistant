@@ -12,6 +12,7 @@ from collections.abc import Sequence
 from typing import Union
 
 from src.models import GRADECertainty, GRADEOutcomeAssessment, StudyDesign
+from src.models.quality import GradeSoFRow, GradeSoFTable
 
 
 def _certainty_to_score(certainty: GRADECertainty) -> int:
@@ -152,3 +153,54 @@ class GradeAssessor:
             "Inconsistency/indirectness/publication-bias: not auto-computed; review manually."
         )
         return assessment.model_copy(update={"justification": justification})
+
+
+_DOWNGRADE_LABEL: dict[int, str] = {
+    0: "not serious",
+    1: "serious",
+    2: "very serious",
+}
+
+_UPGRADE_LABEL: dict[int, str] = {
+    0: "none",
+    1: "large effect",
+    2: "very large effect",
+}
+
+
+def build_sof_table(
+    assessments: list[GRADEOutcomeAssessment],
+    topic: str = "Systematic Review",
+) -> GradeSoFTable:
+    """Build a GRADE Summary of Findings table from a list of outcome assessments.
+
+    Each GRADEOutcomeAssessment becomes one row with human-readable downgrade
+    and upgrade labels so the table can be rendered as LaTeX or JSON.
+    """
+    rows: list[GradeSoFRow] = []
+    for a in assessments:
+        other: list[str] = []
+        if a.large_effect_upgrade:
+            other.append(_UPGRADE_LABEL.get(a.large_effect_upgrade, "upgrade"))
+        if a.dose_response_upgrade:
+            other.append("dose-response gradient")
+        if a.residual_confounding_upgrade:
+            other.append("residual confounding (protective)")
+        if a.publication_bias_downgrade:
+            other.append(f"publication bias ({_DOWNGRADE_LABEL.get(a.publication_bias_downgrade, '-')})")
+
+        rows.append(
+            GradeSoFRow(
+                outcome_name=a.outcome_name,
+                n_studies=a.number_of_studies,
+                study_design=a.study_designs,
+                risk_of_bias=_DOWNGRADE_LABEL.get(a.risk_of_bias_downgrade, "not serious"),
+                inconsistency=_DOWNGRADE_LABEL.get(a.inconsistency_downgrade, "not serious"),
+                indirectness=_DOWNGRADE_LABEL.get(a.indirectness_downgrade, "not serious"),
+                imprecision=_DOWNGRADE_LABEL.get(a.imprecision_downgrade, "not serious"),
+                other_considerations="; ".join(other) if other else "none",
+                certainty=a.final_certainty,
+                effect_summary=a.justification[:120] if a.justification else "",
+            )
+        )
+    return GradeSoFTable(topic=topic, rows=rows)
