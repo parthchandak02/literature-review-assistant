@@ -119,6 +119,14 @@ export function RunView({
   const [refreshing, setRefreshing] = useState(false)
   const isDone = run.isDone || status === "done"
   const isRunning = status === "streaming" || status === "connecting"
+  // A live run is awaiting human review when a phase_start("human_review_checkpoint")
+  // event exists but no matching phase_done has been emitted yet.
+  const isAwaitingReview =
+    run.historicalStatus === "awaiting_review" ||
+    status === "awaiting_review" ||
+    (isRunning &&
+      events.some((e) => e.type === "phase_start" && e.phase === "human_review_checkpoint") &&
+      !events.some((e) => e.type === "phase_done" && e.phase === "human_review_checkpoint"))
 
   async function handleLivingRefresh() {
     if (refreshing || !onLivingRefresh) return
@@ -152,26 +160,30 @@ export function RunView({
     costStats.total_cost > 0 ? costStats.total_cost : (run.historicalCost ?? null)
 
   const statusLabel =
-    isRunning
-      ? "Running"
-      : status === "done" || isDone
-        ? "Completed"
-        : status === "error"
-          ? "Failed"
-          : status === "cancelled"
-            ? "Cancelled"
-            : "Ready"
+    isAwaitingReview && !isDone
+      ? "Awaiting Review"
+      : isRunning
+        ? "Running"
+        : status === "done" || isDone
+          ? "Completed"
+          : status === "error"
+            ? "Failed"
+            : status === "cancelled"
+              ? "Cancelled"
+              : "Ready"
 
   const statusClass =
-    isRunning
-      ? "text-violet-400"
-      : status === "done" || isDone
-        ? "text-emerald-400"
-        : status === "error"
-          ? "text-red-400"
-          : status === "cancelled"
-            ? "text-amber-400"
-            : "text-zinc-500"
+    isAwaitingReview && !isDone
+      ? "text-amber-400"
+      : isRunning
+        ? "text-violet-400"
+        : status === "done" || isDone
+          ? "text-emerald-400"
+          : status === "error"
+            ? "text-red-400"
+            : status === "cancelled"
+              ? "text-amber-400"
+              : "text-zinc-500"
 
   return (
     <div className="flex flex-col gap-0 h-full">
@@ -251,8 +263,8 @@ export function RunView({
             {tab.label}
           </button>
         ))}
-        {/* Show "Review Screening" tab when run is awaiting human review */}
-        {(run.historicalStatus === "awaiting_review" || status === "awaiting_review") && (
+        {/* Show "Review Screening" tab when run is awaiting human review (live or historical) */}
+        {isAwaitingReview && (
           <button
             onClick={() => onTabChange("review-screening")}
             className={cn(

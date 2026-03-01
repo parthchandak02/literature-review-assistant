@@ -90,6 +90,9 @@ async def load_resume_state(
         "geographic": str(run_dir / "fig_geographic_distribution.png"),
         "fig_forest_plot": str(run_dir / "fig_forest_plot.png"),
         "fig_funnel_plot": str(run_dir / "fig_funnel_plot.png"),
+        "concept_taxonomy": str(run_dir / "fig_concept_taxonomy.svg"),
+        "conceptual_framework": str(run_dir / "fig_conceptual_framework.svg"),
+        "methodology_flow": str(run_dir / "fig_methodology_flow.svg"),
     }
 
     state = ReviewState(

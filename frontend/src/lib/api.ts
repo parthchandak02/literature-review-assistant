@@ -483,12 +483,71 @@ export async function fetchScreeningSummary(runId: string): Promise<ScreeningSum
   return res.json() as Promise<ScreeningSummary>
 }
 
-export async function approveScreening(runId: string): Promise<void> {
-  const res = await fetch(`${BASE}/run/${runId}/approve-screening`, { method: "POST" })
+export interface ScreeningOverride {
+  paper_id: string
+  decision: "include" | "exclude"
+  reason?: string
+}
+
+export async function approveScreening(
+  runId: string,
+  overrides?: ScreeningOverride[],
+): Promise<void> {
+  const body = overrides && overrides.length > 0 ? { overrides } : { overrides: [] }
+  const res = await fetch(`${BASE}/run/${runId}/approve-screening`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  })
   if (!res.ok) {
     const text = await res.text()
     throw new Error(`${res.status}: ${text}`)
   }
+}
+
+export interface KnowledgeGraphNode {
+  id: string
+  title: string
+  year: number | null
+  study_design: string
+  community_id: number
+}
+
+export interface KnowledgeGraphEdge {
+  source: string
+  target: string
+  rel_type: string
+  weight: number
+}
+
+export interface KnowledgeCommunity {
+  id: number
+  paper_ids: string[]
+  label: string
+}
+
+export interface ResearchGap {
+  id: string
+  description: string
+  gap_type: string
+  related_paper_ids: string[]
+}
+
+export interface KnowledgeGraph {
+  run_id: string
+  nodes: KnowledgeGraphNode[]
+  edges: KnowledgeGraphEdge[]
+  communities: KnowledgeCommunity[]
+  gaps: ResearchGap[]
+}
+
+export async function fetchKnowledgeGraph(runId: string): Promise<KnowledgeGraph> {
+  const res = await fetch(`${BASE}/run/${runId}/knowledge-graph`)
+  if (!res.ok) {
+    const text = await res.text()
+    throw new Error(`${res.status}: ${text}`)
+  }
+  return res.json() as Promise<KnowledgeGraph>
 }
 
 // PRISMA checklist

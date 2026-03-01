@@ -3,7 +3,7 @@ import { CheckCircle, XCircle, HelpCircle, ChevronDown, ChevronUp, Filter } from
 import { cn } from "@/lib/utils"
 import { Spinner, FetchError, EmptyState } from "@/components/ui/feedback"
 import { fetchScreeningSummary, approveScreening } from "@/lib/api"
-import type { ScreenedPaper, ScreeningSummary } from "@/lib/api"
+import type { ScreenedPaper, ScreeningSummary, ScreeningOverride } from "@/lib/api"
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -46,11 +46,36 @@ function ConfidencePill({ confidence }: { confidence: number | null }) {
   )
 }
 
-function PaperRow({ paper }: { paper: ScreenedPaper }) {
+interface PaperRowProps {
+  paper: ScreenedPaper
+  override: ScreeningOverride | null
+  onOverride: (override: ScreeningOverride | null) => void
+}
+
+function PaperRow({ paper, override, onOverride }: PaperRowProps) {
   const [expanded, setExpanded] = useState(false)
+  const [reason, setReason] = useState("")
+
+  const handleOverride = (decision: "include" | "exclude") => {
+    if (override?.decision === decision) {
+      onOverride(null)
+    } else {
+      onOverride({ paper_id: paper.paper_id, decision, reason: reason || undefined })
+    }
+  }
+
+  const handleReasonChange = (val: string) => {
+    setReason(val)
+    if (override) {
+      onOverride({ ...override, reason: val || undefined })
+    }
+  }
 
   return (
-    <div className="border border-zinc-800 rounded-lg bg-zinc-900/40 overflow-hidden">
+    <div className={cn(
+      "border rounded-lg overflow-hidden",
+      override ? "border-violet-700 bg-violet-900/10" : "border-zinc-800 bg-zinc-900/40"
+    )}>
       <button
         className="w-full flex items-start gap-3 px-4 py-3 text-left row-hover"
         onClick={() => setExpanded((v) => !v)}
@@ -58,6 +83,11 @@ function PaperRow({ paper }: { paper: ScreenedPaper }) {
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 flex-wrap mb-1">
             <DecisionBadge decision={paper.decision} />
+            {override && (
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium bg-violet-900/50 text-violet-300 border border-violet-700">
+                Override: {override.decision}
+              </span>
+            )}
             <ConfidencePill confidence={paper.confidence} />
             {paper.year && (
               <span className="text-xs text-zinc-500 font-mono">{paper.year}</span>
@@ -114,6 +144,53 @@ function PaperRow({ paper }: { paper: ScreenedPaper }) {
             <p className="text-xs font-semibold text-zinc-400 mb-1">Stage</p>
             <span className="text-xs text-zinc-500 font-mono">{paper.stage}</span>
           </div>
+
+          {/* Human override controls */}
+          <div className="pt-2 border-t border-zinc-800">
+            <p className="text-xs font-semibold text-zinc-400 mb-2">Override AI Decision</p>
+            <div className="flex items-center gap-2 flex-wrap">
+              <button
+                onClick={(e) => { e.stopPropagation(); handleOverride("include") }}
+                className={cn(
+                  "px-2.5 py-1 rounded text-xs font-medium border transition-colors",
+                  override?.decision === "include"
+                    ? "bg-emerald-700 border-emerald-600 text-white"
+                    : "bg-zinc-800 border-zinc-700 text-zinc-300 hover:border-emerald-700"
+                )}
+              >
+                Force Include
+              </button>
+              <button
+                onClick={(e) => { e.stopPropagation(); handleOverride("exclude") }}
+                className={cn(
+                  "px-2.5 py-1 rounded text-xs font-medium border transition-colors",
+                  override?.decision === "exclude"
+                    ? "bg-red-800 border-red-700 text-white"
+                    : "bg-zinc-800 border-zinc-700 text-zinc-300 hover:border-red-700"
+                )}
+              >
+                Force Exclude
+              </button>
+              {override && (
+                <button
+                  onClick={(e) => { e.stopPropagation(); onOverride(null); setReason("") }}
+                  className="px-2.5 py-1 rounded text-xs font-medium border border-zinc-700 bg-zinc-800 text-zinc-400 hover:text-zinc-200"
+                >
+                  Clear Override
+                </button>
+              )}
+            </div>
+            {override && (
+              <input
+                type="text"
+                placeholder="Reason for override (optional)..."
+                value={reason}
+                onChange={(e) => handleReasonChange(e.target.value)}
+                onClick={(e) => e.stopPropagation()}
+                className="mt-2 w-full px-2 py-1.5 rounded text-xs bg-zinc-800 border border-zinc-700 text-zinc-300 placeholder-zinc-600 focus:outline-none focus:border-violet-600"
+              />
+            )}
+          </div>
         </div>
       )}
     </div>
@@ -131,6 +208,7 @@ export function ScreeningReviewView({ runId }: { runId: string }) {
   const [approving, setApproving] = useState(false)
   const [approved, setApproved] = useState(false)
   const [filter, setFilter] = useState<"all" | "include" | "uncertain">("all")
+  const [overrides, setOverrides] = useState<Map<string, ScreeningOverride>>(new Map())
 
   const load = useCallback(async () => {
     try {
@@ -149,11 +227,24 @@ export function ScreeningReviewView({ runId }: { runId: string }) {
     void load()
   }, [load])
 
+  const handleOverride = (paperId: string, override: ScreeningOverride | null) => {
+    setOverrides((prev) => {
+      const next = new Map(prev)
+      if (override === null) {
+        next.delete(paperId)
+      } else {
+        next.set(paperId, override)
+      }
+      return next
+    })
+  }
+
   const handleApprove = async () => {
     if (approving || approved) return
     setApproving(true)
     try {
-      await approveScreening(runId)
+      const overrideList = Array.from(overrides.values())
+      await approveScreening(runId, overrideList.length > 0 ? overrideList : undefined)
       setApproved(true)
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
@@ -222,19 +313,26 @@ export function ScreeningReviewView({ runId }: { runId: string }) {
           Screening approved -- workflow is resuming extraction...
         </div>
       ) : (
-        <button
-          onClick={() => void handleApprove()}
-          disabled={approving}
-          className={cn(
-            "flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium transition-colors",
-            approving
-              ? "bg-zinc-800 text-zinc-500 cursor-not-allowed"
-              : "bg-amber-600 hover:bg-amber-500 text-white",
+        <div className="flex items-center gap-3 flex-wrap">
+          <button
+            onClick={() => void handleApprove()}
+            disabled={approving}
+            className={cn(
+              "flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium transition-colors",
+              approving
+                ? "bg-zinc-800 text-zinc-500 cursor-not-allowed"
+                : "bg-amber-600 hover:bg-amber-500 text-white",
+            )}
+          >
+            {approving && <Spinner size="sm" className="text-zinc-400" />}
+            {approving ? "Approving..." : "Approve Screening and Resume Extraction"}
+          </button>
+          {overrides.size > 0 && (
+            <span className="text-xs text-violet-400 font-medium">
+              {overrides.size} override{overrides.size !== 1 ? "s" : ""} will be sent for active learning
+            </span>
           )}
-        >
-          {approving && <Spinner size="sm" className="text-zinc-400" />}
-          {approving ? "Approving..." : "Approve Screening and Resume Extraction"}
-        </button>
+        </div>
       )}
 
       {/* Filter tabs */}
@@ -265,7 +363,12 @@ export function ScreeningReviewView({ runId }: { runId: string }) {
       ) : (
         <div className="space-y-2">
           {filtered.map((paper) => (
-            <PaperRow key={`${paper.paper_id}-${paper.stage}`} paper={paper} />
+            <PaperRow
+              key={`${paper.paper_id}-${paper.stage}`}
+              paper={paper}
+              override={overrides.get(paper.paper_id) ?? null}
+              onOverride={(ov) => handleOverride(paper.paper_id, ov)}
+            />
           ))}
         </div>
       )}

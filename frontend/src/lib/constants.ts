@@ -138,5 +138,6 @@ export function resolveRunStatus(raw: string | null | undefined): RunStatus {
   if (s === "error" || s === "failed") return "error"
   if (s === "cancelled" || s === "canceled" || s === "interrupted") return "cancelled"
   if (s === "stale") return "stale"
+  if (s === "awaiting_review") return "streaming"
   return "idle"
 }

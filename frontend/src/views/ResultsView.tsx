@@ -18,6 +18,7 @@ import {
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { ResultsPanel } from "@/components/ResultsPanel"
+import { EvidenceNetworkViz } from "@/components/EvidenceNetworkViz"
 import { triggerExport, fetchPrismaChecklist, downloadUrl } from "@/lib/api"
 import { Skeleton } from "@/components/ui/skeleton"
 import { FetchError, EmptyState } from "@/components/ui/feedback"
@@ -335,6 +336,25 @@ function PrismaCard({ runId }: { runId: string }) {
 }
 
 // ---------------------------------------------------------------------------
+// Evidence Network collapsible section (Idea 5: Knowledge Graph)
+// ---------------------------------------------------------------------------
+
+function EvidenceNetworkSection({ runId }: { runId: string }) {
+  const [open, setOpen] = useState(false)
+  return (
+    <CollapsibleSection
+      title="Evidence Network"
+      open={open}
+      onToggle={() => setOpen((v) => !v)}
+    >
+      <div className="p-4">
+        {open && <EvidenceNetworkViz runId={runId} />}
+      </div>
+    </CollapsibleSection>
+  )
+}
+
+// ---------------------------------------------------------------------------
 // ResultsView
 // ---------------------------------------------------------------------------
 
@@ -510,6 +530,9 @@ export function ResultsView({
 
       {/* PRISMA 2020 Compliance -- at the end so the main content comes first */}
       {exportRunId && <PrismaCard runId={exportRunId} />}
+
+      {/* Evidence Network (Idea 5: Knowledge Graph) */}
+      {exportRunId && <EvidenceNetworkSection runId={exportRunId} />}
     </div>
   )
 }

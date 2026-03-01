@@ -11,7 +11,7 @@ from src.visualization.forest_plot import render_forest_plot
 from src.visualization.funnel_plot import render_funnel_plot
 
 
-def _record(paper_id: str, summary: str) -> ExtractionRecord:
+def _record(paper_id: str, summary: str, effect_size: str = "0.5", se: str = "0.12") -> ExtractionRecord:
     return ExtractionRecord(
         paper_id=paper_id,
         study_design=StudyDesign.RCT,
@@ -19,8 +19,8 @@ def _record(paper_id: str, summary: str) -> ExtractionRecord:
         outcomes=[{
             "name": "knowledge_retention",
             "description": "Exam score retention",
-            "effect_size": "SMD=0.5",
-            "se": "0.12",
+            "effect_size": effect_size,
+            "se": se,
         }],
         results_summary={"summary": summary, "source": "metadata"},
     )

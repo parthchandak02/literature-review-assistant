@@ -807,7 +807,7 @@ class HumanReviewCheckpointNode(BaseNode[ReviewState]):
         while waited < max_wait:
             await _asyncio.sleep(poll_interval)
             waited += poll_interval
-            entry = await find_by_workflow_id_fallback(state.run_root, state.workflow_id)
+            entry = await find_by_workflow_id(state.run_root, state.workflow_id)
             if entry and str(getattr(entry, "status", "awaiting_review")) == "running":
                 break
 
@@ -1715,87 +1715,90 @@ class WritingNode(BaseNode[ReviewState]):
 
         # --- Concept diagrams (LLM -> Graphviz/Kroki -> SVG) ---
         # Best-effort: runs after the phase is marked done so failures here are
-        # non-fatal.  CancelledError is explicitly caught and swallowed so a
-        # server shutdown during this block still allows FinalizeNode to run.
-        _out_dir = Path(state.artifacts["concept_taxonomy"]).parent
-        _review = state.review
-        _pico = _review.pico if _review else None
-        _n_included = len(state.included_papers)
-        _topic = _review.research_question if _review else "Systematic Review"
+        # non-fatal.  The entire block -- including spec construction and the
+        # async render call -- is inside one try/except so that KeyErrors on
+        # missing artifact keys, Pydantic ValidationErrors on None PICO fields,
+        # LLM 503s, timeouts, and CancelledErrors all fall through gracefully to
+        # FinalizeNode without failing the run.
+        try:
+            _out_dir = Path(state.artifacts["concept_taxonomy"]).parent
+            _review = state.review
+            _pico = _review.pico if _review else None
+            _n_included = len(state.included_papers)
+            _topic = _review.research_question if _review else "Systematic Review"
 
-        _taxonomy_spec: TaxonomyDiagramInput | None = None
-        if state.extraction_records and _pico:
-            from collections import Counter as _Counter
-            _design_counter = _Counter(
-                r.study_design.value if r.study_design else "Other"
-                for r in state.extraction_records
-            )
-            if len(_design_counter) >= 2:
-                _categories = [
-                    TaxonomyCategory(label=design, items=[f"n={count} studies"])
-                    for design, count in _design_counter.most_common()
-                ]
-                _taxonomy_spec = TaxonomyDiagramInput(
-                    title=f"Study Design Taxonomy ({_n_included} studies)",
-                    root_label="Included Studies",
-                    categories=_categories,
+            _taxonomy_spec: TaxonomyDiagramInput | None = None
+            if state.extraction_records and _pico:
+                from collections import Counter as _Counter
+                _design_counter = _Counter(
+                    r.study_design.value if r.study_design else "Other"
+                    for r in state.extraction_records
+                )
+                if len(_design_counter) >= 2:
+                    _categories = [
+                        TaxonomyCategory(label=design, items=[f"n={count} studies"])
+                        for design, count in _design_counter.most_common()
+                    ]
+                    _taxonomy_spec = TaxonomyDiagramInput(
+                        title=f"Study Design Taxonomy ({_n_included} studies)",
+                        root_label="Included Studies",
+                        categories=_categories,
+                        review_topic=_topic,
+                    )
+
+            _framework_spec: FrameworkDiagramInput | None = None
+            if _pico and _n_included >= 1:
+                _narr_themes: list[str] = []
+                if narrative and "narrative" in narrative:
+                    _narr_data = narrative["narrative"]
+                    if isinstance(_narr_data, dict):
+                        _narr_themes = _narr_data.get("key_themes", [])
+                    elif isinstance(_narr_data, list):
+                        for _n in _narr_data:
+                            if isinstance(_n, dict):
+                                _narr_themes.extend(_n.get("key_themes", []))
+                _framework_spec = FrameworkDiagramInput(
+                    title="Conceptual Framework",
+                    population=_pico.population,
+                    interventions=[_pico.intervention],
+                    outcomes=[_pico.outcome],
+                    comparator=_pico.comparison if _pico.comparison else None,
+                    key_themes=list(dict.fromkeys(_narr_themes))[:6],
+                    study_count=_n_included,
                     review_topic=_topic,
                 )
 
-        _framework_spec: FrameworkDiagramInput | None = None
-        if _pico and _n_included >= 1:
-            _narr_themes: list[str] = []
-            if narrative and "narrative" in narrative:
-                _narr_data = narrative["narrative"]
-                if isinstance(_narr_data, dict):
-                    _narr_themes = _narr_data.get("key_themes", [])
-                elif isinstance(_narr_data, list):
-                    for _n in _narr_data:
-                        if isinstance(_n, dict):
-                            _narr_themes.extend(_n.get("key_themes", []))
-            _framework_spec = FrameworkDiagramInput(
-                title="Conceptual Framework",
-                population=_pico.population,
-                interventions=[_pico.intervention],
-                outcomes=[_pico.outcome],
-                comparator=_pico.comparison if _pico.comparison else None,
-                key_themes=list(dict.fromkeys(_narr_themes))[:6],
-                study_count=_n_included,
-                review_topic=_topic,
-            )
+            _flowchart_spec: FlowchartDiagramInput | None = None
+            if prisma_counts:
+                _phases = [
+                    FlowchartPhase(
+                        label="Database Search",
+                        count=prisma_counts.records_identified_databases,
+                    ),
+                    FlowchartPhase(
+                        label="After Deduplication",
+                        count=prisma_counts.records_after_deduplication,
+                    ),
+                    FlowchartPhase(
+                        label="Title/Abstract Screening",
+                        count=prisma_counts.records_screened,
+                        sublabel=f"{prisma_counts.records_excluded_screening} excluded",
+                    ),
+                    FlowchartPhase(
+                        label="Eligible for Inclusion",
+                        count=prisma_counts.reports_sought_retrieval,
+                    ),
+                    FlowchartPhase(
+                        label="Included in Review",
+                        count=prisma_counts.studies_included_synthesis,
+                    ),
+                ]
+                _flowchart_spec = FlowchartDiagramInput(
+                    title="Systematic Review Methodology",
+                    phases=_phases,
+                    review_topic=_topic,
+                )
 
-        _flowchart_spec: FlowchartDiagramInput | None = None
-        if prisma_counts:
-            _phases = [
-                FlowchartPhase(
-                    label="Database Search",
-                    count=prisma_counts.records_identified_databases,
-                ),
-                FlowchartPhase(
-                    label="After Deduplication",
-                    count=prisma_counts.records_after_deduplication,
-                ),
-                FlowchartPhase(
-                    label="Title/Abstract Screening",
-                    count=prisma_counts.records_screened,
-                    sublabel=f"{prisma_counts.records_excluded_screening} excluded",
-                ),
-                FlowchartPhase(
-                    label="Eligible for Inclusion",
-                    count=prisma_counts.reports_sought_retrieval,
-                ),
-                FlowchartPhase(
-                    label="Included in Review",
-                    count=prisma_counts.studies_included_synthesis,
-                ),
-            ]
-            _flowchart_spec = FlowchartDiagramInput(
-                title="Systematic Review Methodology",
-                phases=_phases,
-                review_topic=_topic,
-            )
-
-        try:
             _concept_results = await asyncio.wait_for(
                 render_concept_diagrams(
                     taxonomy_spec=_taxonomy_spec,

@@ -32,6 +32,7 @@ from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
+import pydantic
 from pydantic import BaseModel
 from sse_starlette.sse import EventSourceResponse
 
@@ -383,11 +384,20 @@ async def _run_wrapper(record: _RunRecord, review_path: str, req: RunRequest) ->
     except asyncio.CancelledError:
         record.done = True
         record.error = "Cancelled"
-        await record.queue.put({"type": "cancelled"})
+        _cancelled_evt: dict[str, Any] = {"type": "cancelled"}
+        record.event_log.append(_cancelled_evt)
+        await record.queue.put(_cancelled_evt)
+        if record.workflow_id and record.run_root:
+            try:
+                await _update_registry_status(record.run_root, record.workflow_id, "interrupted")
+            except Exception:
+                pass
     except Exception as exc:
         record.done = True
         record.error = str(exc)
-        await record.queue.put({"type": "error", "msg": str(exc)})
+        _error_evt: dict[str, Any] = {"type": "error", "msg": str(exc)}
+        record.event_log.append(_error_evt)
+        await record.queue.put(_error_evt)
         if record.workflow_id and record.run_root:
             try:
                 await _update_registry_status(record.run_root, record.workflow_id, "failed")
@@ -401,7 +411,8 @@ async def _run_wrapper(record: _RunRecord, review_path: str, req: RunRequest) ->
             pathlib.Path(review_path).unlink(missing_ok=True)
         except Exception:
             pass
-        # Final flush: persist any events not yet written by the flusher loop.
+        # Final flush: persist any events not yet written by the flusher loop,
+        # including the terminal error/cancelled event appended above.
         if record.db_path and record.workflow_id:
             remaining = record.event_log[record._flush_index:]
             if remaining:
@@ -847,6 +858,35 @@ async def _resume_wrapper(record: _RunRecord, workflow_id: str, db_path: str) ->
         record.event_log = await _load_event_log_from_db(db_path)
     except Exception:
         pass
+
+    # Inject synthetic phase_done events for phases that completed in a prior
+    # run segment but whose phase_done event was never flushed to SQLite (e.g.
+    # a server crash between checkpoint write and phase_done emit).  Without
+    # these, the UI phase timeline shows those phases as still "running".
+    try:
+        from src.orchestration.resume import PHASE_ORDER as _PHASE_ORDER
+        from src.db.database import get_db as _get_db
+        from src.db.repositories import WorkflowRepository as _WorkflowRepository
+        async with _get_db(db_path) as _chk_db:
+            _checkpoints = await _WorkflowRepository(_chk_db).get_checkpoints(workflow_id)
+        _phases_with_done = {
+            e["phase"]
+            for e in record.event_log
+            if isinstance(e, dict) and e.get("type") == "phase_done"
+        }
+        for _phase in _PHASE_ORDER:
+            if _phase in _checkpoints and _phase not in _phases_with_done:
+                record.event_log.append({
+                    "type": "phase_done",
+                    "phase": _phase,
+                    "summary": {},
+                    "total": None,
+                    "completed": None,
+                    "synthetic": True,
+                })
+    except Exception:
+        pass
+
     # Mark all pre-loaded events as already flushed so the flusher only writes
     # new events emitted during this resumed run, not the historical ones.
     record._flush_index = len(record.event_log)
@@ -887,11 +927,19 @@ async def _resume_wrapper(record: _RunRecord, workflow_id: str, db_path: str) ->
     except asyncio.CancelledError:
         record.done = True
         record.error = "Cancelled"
-        await record.queue.put({"type": "cancelled"})
+        _cancelled_resume_evt: dict[str, Any] = {"type": "cancelled"}
+        record.event_log.append(_cancelled_resume_evt)
+        await record.queue.put(_cancelled_resume_evt)
+        try:
+            await _update_registry_status(run_root, workflow_id, "interrupted")
+        except Exception:
+            pass
     except Exception as exc:
         record.done = True
         record.error = str(exc)
-        await record.queue.put({"type": "error", "msg": str(exc)})
+        _error_resume_evt: dict[str, Any] = {"type": "error", "msg": str(exc)}
+        record.event_log.append(_error_resume_evt)
+        await record.queue.put(_error_resume_evt)
         try:
             await _update_registry_status(run_root, workflow_id, "failed")
         except Exception:
@@ -899,7 +947,8 @@ async def _resume_wrapper(record: _RunRecord, workflow_id: str, db_path: str) ->
     finally:
         heartbeat_task.cancel()
         flusher_task.cancel()
-        # Final flush: persist any events not yet written by the flusher loop.
+        # Final flush: persist any events not yet written by the flusher loop,
+        # including the terminal error/cancelled event appended above.
         if record.db_path and record.workflow_id:
             remaining = record.event_log[record._flush_index:]
             if remaining:
@@ -1550,31 +1599,121 @@ async def get_screening_summary(run_id: str) -> dict:
     }
 
 
+class ScreeningOverride(pydantic.BaseModel):
+    """A single human override of an AI screening decision (Idea 4: Active Learning)."""
+
+    paper_id: str
+    decision: str  # 'include' | 'exclude'
+    reason: str | None = None
+
+
+class ApproveScreeningRequest(pydantic.BaseModel):
+    """Request body for approve-screening endpoint. overrides is optional for backward compat."""
+
+    overrides: list[ScreeningOverride] = []
+
+
 @app.post("/api/run/{run_id}/approve-screening")
-async def approve_screening(run_id: str) -> dict[str, str]:
+async def approve_screening(
+    run_id: str,
+    body: ApproveScreeningRequest | None = None,
+) -> dict[str, str]:
     """Approve AI screening decisions and resume the workflow.
 
     When human_in_the_loop.enabled=True, the workflow pauses after screening.
     Calling this endpoint resumes extraction by updating the registry status to 'running'.
     The HumanReviewCheckpointNode polls for this status change.
+
+    Optionally accepts a list of human overrides (Idea 4: Active Learning).
+    If overrides are present, they are saved to screening_corrections and
+    used to generate refined screening criteria for subsequent runs.
     """
     db_path = _get_db_path(run_id)
     if not pathlib.Path(db_path).exists():
         raise HTTPException(status_code=404, detail="Run database not found")
 
-    # Update registry status to "running" so the workflow checkpoint node resumes
     from src.db.workflow_registry import find_by_workflow_id_fallback, update_status as _update_status
 
     import aiosqlite
-    async with aiosqlite.connect(db_path) as db:
-        cursor = await db.execute("SELECT workflow_id FROM workflows LIMIT 1")
+    async with aiosqlite.connect(db_path) as _raw_db:
+        cursor = await _raw_db.execute("SELECT workflow_id FROM workflows LIMIT 1")
         row = await cursor.fetchone()
 
     if not row:
         raise HTTPException(status_code=404, detail="No workflow found in run database")
 
     workflow_id = row[0]
-    run_root = str(pathlib.Path(db_path).parent.parent)
+    run_root = str(pathlib.Path(db_path).parent.parent.parent.parent)
+
+    # Process human overrides (Idea 4: Active Learning) -- backward-compatible no-op if empty
+    overrides = (body.overrides if body else []) or []
+    if overrides:
+        try:
+            from src.db.database import get_db as _get_run_db
+            from src.screening.criteria_refinement import (
+                ScreeningCorrection,
+                refine_criteria_from_corrections,
+                save_corrections,
+                save_learned_criteria,
+            )
+
+            corrections = [
+                ScreeningCorrection(
+                    paper_id=o.paper_id,
+                    ai_decision="unknown",
+                    human_decision=o.decision,
+                    human_reason=o.reason,
+                )
+                for o in overrides
+            ]
+
+            async with _get_run_db(db_path) as _corr_db:
+                # Look up AI decisions from screening_decisions table
+                for corr in corrections:
+                    async with _corr_db.execute(
+                        """
+                        SELECT decision FROM screening_decisions
+                        WHERE paper_id = ? ORDER BY created_at DESC LIMIT 1
+                        """,
+                        (corr.paper_id,),
+                    ) as _sd_cur:
+                        _sd_row = await _sd_cur.fetchone()
+                        if _sd_row:
+                            corr.ai_decision = _sd_row[0]
+
+                # Look up paper titles for context
+                paper_titles: dict[str, str] = {}
+                async with _corr_db.execute(
+                    "SELECT paper_id, title FROM papers WHERE paper_id IN ({})".format(
+                        ",".join("?" * len(corrections))
+                    ),
+                    [c.paper_id for c in corrections],
+                ) as _t_cur:
+                    async for _t_row in _t_cur:
+                        paper_titles[_t_row[0]] = _t_row[1] or ""
+
+                await save_corrections(_corr_db, workflow_id, corrections)
+
+                # Generate refined criteria via LLM (non-blocking; failures are silent)
+                try:
+                    import os as _os
+                    learned = await refine_criteria_from_corrections(
+                        corrections,
+                        paper_titles,
+                        api_key=_os.environ.get("GEMINI_API_KEY", ""),
+                    )
+                    if learned:
+                        await save_learned_criteria(_corr_db, workflow_id, learned)
+                except Exception as _rf_exc:
+                    import logging as _logging
+                    _logging.getLogger(__name__).warning(
+                        "Criteria refinement failed (non-fatal): %s", _rf_exc
+                    )
+        except Exception as _al_exc:
+            import logging as _al_log
+            _al_log.getLogger(__name__).warning(
+                "Active learning processing failed (non-fatal): %s", _al_exc
+            )
 
     entry = await find_by_workflow_id_fallback(run_root, workflow_id)
     if not entry:
@@ -1585,7 +1724,122 @@ async def approve_screening(run_id: str) -> dict[str, str]:
     return {
         "status": "approved",
         "workflow_id": workflow_id,
+        "overrides_processed": str(len(overrides)),
         "message": "Screening approved. Extraction will resume shortly.",
+    }
+
+
+@app.get("/api/run/{run_id}/knowledge-graph")
+async def get_knowledge_graph(run_id: str) -> dict:
+    """Return the evidence knowledge graph for a completed run (Idea 5).
+
+    Returns JSON with nodes, edges, communities, and research gaps for
+    visualization in the EvidenceNetworkViz frontend component.
+    """
+    import json as _json
+    db_path = _get_db_path(run_id)
+    if not pathlib.Path(db_path).exists():
+        raise HTTPException(status_code=404, detail="Run database not found")
+
+    import aiosqlite
+    async with aiosqlite.connect(db_path) as _kg_db:
+        _kg_db.row_factory = aiosqlite.Row
+
+        # Get workflow_id
+        async with _kg_db.execute("SELECT workflow_id FROM workflows LIMIT 1") as _wc:
+            _wf_row = await _wc.fetchone()
+        if not _wf_row:
+            raise HTTPException(status_code=404, detail="No workflow found")
+        _wf_id = _wf_row[0]
+
+        # Load nodes (papers with community assignments)
+        nodes: list[dict] = []
+        async with _kg_db.execute(
+            "SELECT paper_id, title, year, study_design FROM papers"
+        ) as _nc:
+            async for _nr in _nc:
+                nodes.append({
+                    "id": _nr[0],
+                    "title": _nr[1] or "",
+                    "year": _nr[2],
+                    "study_design": _nr[3] or "unknown",
+                    "community_id": -1,
+                })
+
+        # Attach community IDs
+        community_map: dict[str, int] = {}
+        async with _kg_db.execute(
+            "SELECT community_id, paper_ids FROM graph_communities WHERE workflow_id = ?",
+            (_wf_id,),
+        ) as _cc:
+            async for _cr in _cc:
+                try:
+                    pids = _json.loads(_cr[1])
+                    for pid in pids:
+                        community_map[pid] = _cr[0]
+                except (TypeError, ValueError):
+                    pass
+        for node in nodes:
+            node["community_id"] = community_map.get(node["id"], -1)
+
+        # Load edges
+        edges: list[dict] = []
+        async with _kg_db.execute(
+            """
+            SELECT source_paper_id, target_paper_id, rel_type, weight
+            FROM paper_relationships WHERE workflow_id = ?
+            """,
+            (_wf_id,),
+        ) as _ec:
+            async for _er in _ec:
+                edges.append({
+                    "source": _er[0],
+                    "target": _er[1],
+                    "rel_type": _er[2],
+                    "weight": _er[3],
+                })
+
+        # Load communities
+        communities: list[dict] = []
+        async with _kg_db.execute(
+            "SELECT community_id, paper_ids, label FROM graph_communities WHERE workflow_id = ?",
+            (_wf_id,),
+        ) as _comm_c:
+            async for _comm_r in _comm_c:
+                try:
+                    pids = _json.loads(_comm_r[1])
+                except (TypeError, ValueError):
+                    pids = []
+                communities.append({
+                    "id": _comm_r[0],
+                    "paper_ids": pids,
+                    "label": _comm_r[2] or f"Cluster {_comm_r[0]}",
+                })
+
+        # Load research gaps
+        gaps: list[dict] = []
+        async with _kg_db.execute(
+            "SELECT gap_id, description, gap_type, related_paper_ids FROM research_gaps WHERE workflow_id = ?",
+            (_wf_id,),
+        ) as _gc:
+            async for _gr in _gc:
+                try:
+                    rids = _json.loads(_gr[3]) if _gr[3] else []
+                except (TypeError, ValueError):
+                    rids = []
+                gaps.append({
+                    "id": _gr[0],
+                    "description": _gr[1],
+                    "gap_type": _gr[2],
+                    "related_paper_ids": rids,
+                })
+
+    return {
+        "run_id": run_id,
+        "nodes": nodes,
+        "edges": edges,
+        "communities": communities,
+        "gaps": gaps,
     }
 
 
