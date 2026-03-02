@@ -15,7 +15,7 @@ from pydantic_graph import BaseNode, GraphRunContext
 
 from src.db.database import get_db
 from src.orchestration.state import ReviewState
-from src.rag.chunker import chunk_extraction_record
+from src.rag.chunker import chunk_extraction_record, chunk_table_outcomes
 from src.rag.embedder import embed_texts
 
 logger = logging.getLogger(__name__)
@@ -60,11 +60,27 @@ class EmbeddingNode(BaseNode[ReviewState]):
                     len(state.extraction_records),
                 )
             else:
-                # Chunk all records
+                # Chunk all records -- text chunks + vision-extracted table rows
                 all_chunks = []
                 for record in to_embed:
-                    chunks = chunk_extraction_record(record)
-                    all_chunks.extend(chunks)
+                    text_chunks = chunk_extraction_record(record)
+                    all_chunks.extend(text_chunks)
+                    # Also embed any vision-extracted table outcomes as structured chunks
+                    table_outcomes = [
+                        o for o in (record.outcomes or [])
+                        if o.get("effect_size") or o.get("p_value") or o.get("ci_lower")
+                    ]
+                    if table_outcomes:
+                        table_chunks = chunk_table_outcomes(
+                            paper_id=record.paper_id,
+                            outcomes=table_outcomes,
+                            start_index=len(text_chunks),
+                        )
+                        all_chunks.extend(table_chunks)
+                        logger.debug(
+                            "EmbeddingNode: added %d table chunks for paper %s",
+                            len(table_chunks), record.paper_id,
+                        )
 
                 if all_chunks:
                     texts = [c.content for c in all_chunks]

@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useState, Suspense, lazy } from "react"
+import { useEffect, useMemo, useRef, useState, Suspense, lazy } from "react"
+import { useNavigate, useLocation } from "react-router-dom"
 import { AlertTriangle } from "lucide-react"
 import { Sidebar } from "@/components/Sidebar"
 import type { LiveRun } from "@/components/Sidebar"
@@ -10,6 +11,7 @@ import {
   attachHistory,
   cancelRun,
   fetchArtifacts,
+  fetchHistory,
   getDefaultReviewConfig,
   resumeRun,
   saveLiveRun,
@@ -25,6 +27,17 @@ import type { RunTab, SelectedRun } from "@/views/RunView"
 
 const SetupView = lazy(() => import("@/views/SetupView").then((m) => ({ default: m.SetupView })))
 
+const VALID_TABS = new Set<RunTab>(["activity", "results", "database", "cost", "review-screening"])
+
+function parseRunUrl(pathname: string): { workflowId: string; tab: RunTab } | null {
+  const match = pathname.match(/^\/run\/([^/]+)(?:\/([^/]+))?$/)
+  if (!match) return null
+  const workflowId = match[1]
+  const rawTab = match[2] ?? "activity"
+  const tab = VALID_TABS.has(rawTab as RunTab) ? (rawTab as RunTab) : "activity"
+  return { workflowId, tab }
+}
+
 function ViewLoader() {
   return (
     <div className="flex items-center justify-center h-48">
@@ -35,6 +48,9 @@ function ViewLoader() {
 
 
 export default function App() {
+  const navigate = useNavigate()
+  const location = useLocation()
+
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
   const [sidebarWidth, setSidebarWidth] = useState<number>(() => {
     const stored = localStorage.getItem("sidebar-width")
@@ -43,14 +59,11 @@ export default function App() {
   const [defaultYaml, setDefaultYaml] = useState("")
 
   // --- Live SSE run ---
-  // runId drives the SSE connection. Only set when the user starts a run in
-  // this browser session (or restores from localStorage on page refresh).
   const [liveRunId, setLiveRunId] = useState<string | null>(null)
   const [liveTopic, setLiveTopic] = useState<string | null>(null)
   const [liveStartedAt, setLiveStartedAt] = useState<Date | null>(null)
 
   // --- Selected run (what is displayed in the main area) ---
-  // Distinct from liveRunId: can be a historical run while a live one streams.
   const [selectedRun, setSelectedRun] = useState<SelectedRun | null>(null)
   const [activeRunTab, setActiveRunTab] = useState<RunTab>("activity")
 
@@ -58,6 +71,9 @@ export default function App() {
   const [historyOutputs, setHistoryOutputs] = useState<Record<string, string>>({})
 
   const [liveWorkflowId, setLiveWorkflowId] = useState<string | null>(null)
+
+  // Track the last workflowId we pushed to the URL (avoid duplicate navigations).
+  const liveRunNavigatedRef = useRef<string | null>(null)
 
   const { events, status, error, abort, reset } = useSSEStream(liveRunId, liveWorkflowId)
   const costStats = useCostStats(events)
@@ -98,57 +114,94 @@ export default function App() {
       }
     : null
 
-  // --- localStorage restore: reconnect to a live run after page refresh ---
+  // ---------------------------------------------------------------------------
+  // Mount: restore live SSE state from localStorage AND restore selectedRun from URL
+  // ---------------------------------------------------------------------------
   useEffect(() => {
     const stored = loadLiveRun()
-    if (!stored) return
-    setLiveRunId(stored.runId)
-    setLiveTopic(stored.topic)
-    setLiveStartedAt(new Date(stored.startedAt))
-    if (stored.workflowId) setLiveWorkflowId(stored.workflowId)
-    setSelectedRun({
-      runId: stored.runId,
-      workflowId: stored.workflowId ?? null,
-      topic: stored.topic,
-      dbPath: null,
-      isDone: false,
-      startedAt: new Date(stored.startedAt),
-      createdAt: stored.startedAt,
-    })
-  }, [])
 
+    // Always reconnect SSE state from localStorage if available.
+    if (stored) {
+      setLiveRunId(stored.runId)
+      setLiveTopic(stored.topic)
+      setLiveStartedAt(new Date(stored.startedAt))
+      if (stored.workflowId) {
+        setLiveWorkflowId(stored.workflowId)
+        liveRunNavigatedRef.current = stored.workflowId
+      }
+    }
+
+    // Restore selectedRun and active tab from the URL.
+    const parsed = parseRunUrl(location.pathname)
+    if (!parsed) return // URL is "/", show SetupView
+
+    const { workflowId: urlWfId, tab: urlTab } = parsed
+    setActiveRunTab(urlTab)
+
+    if (stored?.workflowId === urlWfId) {
+      // URL points to the currently-live run -- restore from localStorage.
+      setSelectedRun({
+        runId: stored.runId,
+        workflowId: stored.workflowId ?? null,
+        topic: stored.topic,
+        dbPath: null,
+        isDone: false,
+        startedAt: new Date(stored.startedAt),
+        createdAt: stored.startedAt,
+      })
+    } else {
+      // URL points to a historical run -- load from the history API.
+      void restoreRunFromUrl(urlWfId, urlTab)
+    }
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps -- mount only
+
+  // ---------------------------------------------------------------------------
   // Clear localStorage when the live run reaches a terminal state.
+  // ---------------------------------------------------------------------------
   useEffect(() => {
     if (status === "done" || status === "error" || status === "cancelled") {
       clearLiveRun()
     }
   }, [status])
 
-  // Update selectedRun workflowId once the live run outputs are available.
-  // Also persist workflowId to localStorage so SSE fallback works after PM2 restart.
+  // ---------------------------------------------------------------------------
+  // Sync selectedRun.workflowId from liveOutputs (run "done" event).
+  // ---------------------------------------------------------------------------
   useEffect(() => {
     if (!liveOutputs || !liveRunId) return
     const wfId = liveOutputs.workflow_id as string | undefined
     if (wfId && selectedRun?.runId === liveRunId && !selectedRun?.workflowId) {
       setSelectedRun((r) => (r ? { ...r, workflowId: wfId, isDone: true } : r))
       setLiveWorkflowId(wfId)
-      // Persist workflowId so it survives a PM2 restart / page refresh
       const stored = loadLiveRun()
       if (stored) saveLiveRun({ ...stored, workflowId: wfId })
     }
   }, [liveOutputs, liveRunId, selectedRun])
 
-  // Eagerly populate selectedRun.workflowId from liveWorkflowId as soon as it is
-  // known (on_workflow_id_ready fires early in the run, before completion).
+  // ---------------------------------------------------------------------------
+  // Eagerly populate workflowId from workflow_id_ready SSE event, then navigate.
+  // ---------------------------------------------------------------------------
   useEffect(() => {
     if (!liveWorkflowId || !liveRunId) return
+
+    // Keep selectedRun.workflowId in sync.
     if (selectedRun?.runId === liveRunId && !selectedRun?.workflowId) {
       setSelectedRun((r) => (r ? { ...r, workflowId: liveWorkflowId } : r))
     }
+
+    // Navigate to /run/:workflowId/:tab the first time we learn the workflowId
+    // for this live run. Subsequent tab changes use handleTabChange instead.
+    if (liveRunNavigatedRef.current !== liveWorkflowId) {
+      liveRunNavigatedRef.current = liveWorkflowId
+      if (!selectedRun || selectedRun.runId === liveRunId) {
+        navigate(`/run/${liveWorkflowId}/${activeRunTab}`, { replace: true })
+      }
+    }
   }, [liveWorkflowId, liveRunId, selectedRun?.runId, selectedRun?.workflowId])
 
-  // Set liveWorkflowId early from the workflow_id_ready SSE event so the sidebar
-  // can deduplicate the live run from history before the run finishes.
+  // ---------------------------------------------------------------------------
+  // Pick up workflow_id_ready SSE event (fires earlier than the "done" event).
+  // ---------------------------------------------------------------------------
   useEffect(() => {
     if (liveWorkflowId) return
     const ev = events.find((e) => e.type === "workflow_id_ready")
@@ -161,14 +214,18 @@ export default function App() {
     }
   }, [events, liveWorkflowId])
 
-  // Load default YAML config (silently ignored if backend is offline)
+  // ---------------------------------------------------------------------------
+  // Load default YAML config.
+  // ---------------------------------------------------------------------------
   useEffect(() => {
     getDefaultReviewConfig()
       .then((yaml) => setDefaultYaml(yaml))
       .catch(() => {})
   }, [isOnline])
 
+  // ---------------------------------------------------------------------------
   // Fetch artifacts for ResultsView when viewing a completed historical run.
+  // ---------------------------------------------------------------------------
   useEffect(() => {
     if (!selectedRun?.isDone || isViewingLiveRun) {
       setHistoryOutputs({})
@@ -179,7 +236,9 @@ export default function App() {
       .catch(() => setHistoryOutputs({}))
   }, [selectedRun?.runId, selectedRun?.isDone, isViewingLiveRun])
 
+  // ---------------------------------------------------------------------------
   // Keyboard shortcut: Cmd+B / Ctrl+B to toggle sidebar
+  // ---------------------------------------------------------------------------
   useEffect(() => {
     function handleKey(e: KeyboardEvent) {
       if ((e.metaKey || e.ctrlKey) && e.key === "b") {
@@ -192,11 +251,46 @@ export default function App() {
   }, [])
 
   // ---------------------------------------------------------------------------
+  // Restore a historical run from the URL (direct navigation / refresh)
+  // ---------------------------------------------------------------------------
+  async function restoreRunFromUrl(workflowId: string, tab: RunTab) {
+    try {
+      const history = await fetchHistory()
+      const entry = history.find((e) => e.workflow_id === workflowId)
+      if (!entry) {
+        navigate("/", { replace: true })
+        return
+      }
+      const res = await attachHistory(entry)
+      const isCompleted = ["completed", "done", "stale", "interrupted"].includes(
+        entry.status.toLowerCase(),
+      )
+      setSelectedRun({
+        runId: res.run_id,
+        workflowId: entry.workflow_id,
+        topic: entry.topic,
+        dbPath: entry.db_path,
+        isDone: isCompleted,
+        historicalStatus: entry.status,
+        startedAt: null,
+        createdAt: entry.created_at,
+        papersFound: entry.papers_found ?? null,
+        papersIncluded: entry.papers_included ?? null,
+        historicalCost: entry.total_cost ?? null,
+      })
+      setActiveRunTab(tab)
+    } catch {
+      navigate("/", { replace: true })
+    }
+  }
+
+  // ---------------------------------------------------------------------------
   // Handlers
   // ---------------------------------------------------------------------------
 
   async function handleStart(req: RunRequest) {
     reset()
+    liveRunNavigatedRef.current = null
     const now = new Date()
     const res = await startRun(req)
     setLiveRunId(res.run_id)
@@ -215,10 +309,12 @@ export default function App() {
     }
     setSelectedRun(run)
     setActiveRunTab("activity")
+    // URL will update once workflow_id_ready fires and liveWorkflowId is set.
   }
 
   async function handleStartWithCsv(csvFile: File, req: RunRequest) {
     reset()
+    liveRunNavigatedRef.current = null
     const now = new Date()
     const keys: StoredApiKeys = {
       gemini: req.gemini_api_key,
@@ -258,6 +354,7 @@ export default function App() {
     const now = new Date()
     const topic = selectedRun?.topic ? `[Living refresh] ${selectedRun.topic}` : "Living refresh"
     reset()
+    liveRunNavigatedRef.current = null
     setLiveRunId(newRunId)
     setLiveTopic(topic)
     setLiveStartedAt(now)
@@ -278,6 +375,7 @@ export default function App() {
   function handleNewReview() {
     setSelectedRun(null)
     setHistoryOutputs({})
+    navigate("/")
   }
 
   function handleSelectLiveRun() {
@@ -291,6 +389,9 @@ export default function App() {
       startedAt: liveStartedAt,
       createdAt: liveStartedAt?.toISOString() ?? null,
     })
+    if (liveWorkflowId) {
+      navigate(`/run/${liveWorkflowId}/activity`)
+    }
   }
 
   async function handleSelectHistory(entry: HistoryEntry) {
@@ -309,15 +410,18 @@ export default function App() {
       papersIncluded: entry.papers_included ?? null,
       historicalCost: entry.total_cost ?? null,
     })
+    navigate(`/run/${entry.workflow_id}/activity`)
   }
 
   function handleGoHome() {
     setSelectedRun(null)
+    navigate("/")
   }
 
   function handleResumeRun(res: RunResponse, workflowId: string) {
     const now = new Date()
     reset()
+    liveRunNavigatedRef.current = workflowId
     setLiveRunId(res.run_id)
     setLiveTopic(res.topic)
     setLiveStartedAt(now)
@@ -334,6 +438,7 @@ export default function App() {
     }
     setSelectedRun(run)
     setActiveRunTab("activity")
+    navigate(`/run/${workflowId}/activity`, { replace: true })
   }
 
   async function handleSidebarResume(entry: HistoryEntry) {
@@ -344,6 +449,14 @@ export default function App() {
   function handleSidebarWidthChange(w: number) {
     setSidebarWidth(w)
     localStorage.setItem("sidebar-width", String(w))
+  }
+
+  // Update URL when the active tab changes.
+  function handleTabChange(tab: RunTab) {
+    setActiveRunTab(tab)
+    if (selectedRun?.workflowId) {
+      navigate(`/run/${selectedRun.workflowId}/${tab}`, { replace: true })
+    }
   }
 
   // ---------------------------------------------------------------------------
@@ -386,7 +499,7 @@ export default function App() {
         status={isViewingLiveRun ? status : resolvedHistoricalStatus}
         costStats={isViewingLiveRun ? costStats : { total_cost: 0, total_tokens_in: 0, total_tokens_out: 0, total_calls: 0, by_model: [], by_phase: [] }}
         activeTab={activeRunTab}
-        onTabChange={setActiveRunTab}
+        onTabChange={handleTabChange}
         onCancel={handleCancel}
         onLivingRefresh={handleLivingRefresh}
         historyOutputs={historyOutputs}
@@ -460,7 +573,7 @@ export default function App() {
           {/* Live cost pill */}
           {isViewingLiveRun && costStats.total_cost > 0 && (
             <button
-              onClick={() => setActiveRunTab("cost")}
+              onClick={() => handleTabChange("cost")}
               className="flex items-center gap-1.5 bg-emerald-500/10 border border-emerald-500/20 rounded-full px-3 py-1 hover:bg-emerald-500/15 transition-colors"
             >
               <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />

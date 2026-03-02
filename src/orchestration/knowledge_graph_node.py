@@ -146,15 +146,15 @@ class KnowledgeGraphNode(BaseNode[ReviewState]):
                     len(gaps),
                 )
 
-                # Render figure to run output directory (best-effort; never blocks the run)
+                # Render figure to run directory (same level as all other figures)
                 if state.db_path:
                     import os
                     _run_dir = os.path.dirname(state.db_path)
-                    _out_dir = os.path.join(_run_dir, "output")
                     try:
                         from src.visualization.evidence_network import render_evidence_network
-                        await render_evidence_network(state.db_path, state.workflow_id, _out_dir)
-                        logger.info("KnowledgeGraphNode: evidence network figure saved to %s", _out_dir)
+                        await render_evidence_network(state.db_path, state.workflow_id, _run_dir)
+                        state.artifacts["evidence_network"] = os.path.join(_run_dir, "fig_evidence_network.png")
+                        logger.info("KnowledgeGraphNode: evidence network figure saved to %s", _run_dir)
                     except Exception as _ev_err:
                         logger.warning("KnowledgeGraphNode: evidence network figure failed (non-fatal): %s", _ev_err)
 

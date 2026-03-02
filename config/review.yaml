@@ -63,14 +63,15 @@ date_range_end: 2026
 target_databases:
   - openalex
   - pubmed
-  - arxiv
-  - ieee_xplore
+  - scopus
   - semantic_scholar
-  - crossref
-  - perplexity_search
-  # clinicaltrials_gov is available as an opt-in grey literature source.
-  # Uncomment to include ClinicalTrials.gov registered trials in the search.
+  - ieee_xplore
+  # Grey literature (opt-in):
   # - clinicaltrials_gov
+  # Legacy connectors removed from default -- not standard systematic review sources:
+  # - arxiv          (preprints; no peer-reviewed clinical pharmacy content)
+  # - crossref       (DOI resolver, not a searchable bibliographic database)
+  # - perplexity_search  (web AI -- flagged by peer reviewers)
 
 target_sections:
   - abstract

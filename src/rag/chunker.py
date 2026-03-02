@@ -149,3 +149,64 @@ def chunk_extraction_record(record: ExtractionRecord) -> list[TextChunk]:
         record.paper_id, len(chunks), len(sentences),
     )
     return chunks
+
+
+def chunk_table_outcomes(
+    paper_id: str,
+    outcomes: list[dict[str, str]],
+    start_index: int = 0,
+) -> list[TextChunk]:
+    """Convert vision-extracted table outcome rows into embeddable text chunks.
+
+    Each outcome row is rendered as a short structured string so it can be
+    retrieved alongside normal text chunks during RAG. Table chunks use the
+    naming convention "{paper_id}_table_{idx}" to distinguish them.
+
+    Args:
+        paper_id: Paper identifier (used in chunk_id prefix).
+        outcomes: List of outcome dicts as produced by merge_outcomes() /
+                  extract_tables_from_pdf(). Each dict may contain: name,
+                  description, effect_size, se, n, p_value, ci_lower, ci_upper.
+        start_index: Chunk index offset (use len(existing_chunks) to avoid
+                     collisions when appending to already-chunked records).
+
+    Returns:
+        List of TextChunk objects ready for embedding.
+    """
+    chunks: list[TextChunk] = []
+    for idx, outcome in enumerate(outcomes):
+        name = outcome.get("name", "").strip()
+        if not name:
+            continue
+        parts: list[str] = [f"[Table outcome] {name}"]
+        desc = outcome.get("description", "").strip()
+        if desc:
+            parts.append(f"Description: {desc}")
+        effect = outcome.get("effect_size", "").strip()
+        if effect:
+            parts.append(f"Effect size: {effect}")
+        ci_low = outcome.get("ci_lower", "").strip()
+        ci_high = outcome.get("ci_upper", "").strip()
+        if ci_low and ci_high:
+            parts.append(f"95% CI: [{ci_low}, {ci_high}]")
+        p_val = outcome.get("p_value", "").strip()
+        if p_val:
+            parts.append(f"p-value: {p_val}")
+        n_val = outcome.get("n", "").strip()
+        if n_val:
+            parts.append(f"N: {n_val}")
+        content = " | ".join(parts)
+        chunk_idx = start_index + idx
+        chunks.append(
+            TextChunk(
+                chunk_id=f"{paper_id}_table_{chunk_idx}",
+                paper_id=paper_id,
+                chunk_index=chunk_idx,
+                content=content,
+            )
+        )
+    logger.debug(
+        "chunk_table_outcomes: paper_id=%s produced %d table chunks from %d outcomes",
+        paper_id, len(chunks), len(outcomes),
+    )
+    return chunks

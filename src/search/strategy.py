@@ -50,6 +50,17 @@ def build_database_query(config: ReviewConfig, database_name: str) -> str:
         return f'"{config.research_question}" OR ({base})'
     if name == "perplexity_search":
         return short_query
+    if name == "scopus":
+        # Use Scopus field-code syntax: TITLE-ABS-KEY covers title, abstract, and author keywords.
+        # Take up to 8 keywords to keep the query within Scopus length limits.
+        kw_terms = " OR ".join(f'"{k}"' for k in config.keywords[:8]) if config.keywords else f'"{config.pico.intervention}"'
+        date_s = config.date_range_start or 2009
+        date_e = config.date_range_end or 2027
+        return (
+            f'TITLE-ABS-KEY({kw_terms}) AND '
+            f'TITLE-ABS-KEY("{config.pico.intervention}" OR "{config.pico.outcome}") '
+            f'AND PUBYEAR > {date_s - 1} AND PUBYEAR < {date_e + 1}'
+        )
     return base
 
 

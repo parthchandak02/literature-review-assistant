@@ -61,3 +61,17 @@ async def test_log_reliability_to_decision_log(tmp_path) -> None:
         )
         row = await cursor.fetchone()
         assert int(row[0]) == 1
+
+
+def test_calibrate_threshold_imported() -> None:
+    """Smoke test: calibrate_threshold and CalibratedThresholds are importable."""
+    from src.screening.reliability import CalibratedThresholds, calibrate_threshold  # noqa: F401
+    assert callable(calibrate_threshold)
+    ct = CalibratedThresholds(
+        include_threshold=0.8,
+        exclude_threshold=0.75,
+        achieved_kappa=0.6,
+        iterations=1,
+        sample_size=10,
+    )
+    assert ct.include_threshold == 0.8

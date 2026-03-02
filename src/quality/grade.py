@@ -204,3 +204,47 @@ def build_sof_table(
             )
         )
     return GradeSoFTable(topic=topic, rows=rows)
+
+
+def sof_table_to_markdown(table: GradeSoFTable) -> str:
+    """Render a GradeSoFTable as a GFM markdown section for inclusion in the manuscript.
+
+    Columns: Outcome, N Studies, Study Design, RoB, Inconsistency,
+    Indirectness, Imprecision, Other, Certainty, Effect Summary.
+
+    Returns an empty string when the table has no rows.
+    """
+    if not table.rows:
+        return ""
+
+    header = (
+        "## GRADE Summary of Findings\n\n"
+        f"_Topic: {table.topic}_\n\n"
+        "| Outcome | N Studies | Study Design | Risk of Bias | Inconsistency | "
+        "Indirectness | Imprecision | Other | Certainty | Effect / Reason |\n"
+        "|---------|-----------|-------------|-------------|--------------|"
+        "------------|------------|-------|-----------|----------------|\n"
+    )
+    rows: list[str] = []
+    for r in table.rows:
+        certainty_str = (
+            r.certainty.value.upper().replace("_", " ")
+            if hasattr(r.certainty, "value")
+            else str(r.certainty).upper()
+        )
+        effect = (r.effect_summary or "").replace("|", "/").replace("\n", " ")[:120]
+        rows.append(
+            f"| {r.outcome_name} | {r.n_studies} | {r.study_design} "
+            f"| {r.risk_of_bias} | {r.inconsistency} | {r.indirectness} "
+            f"| {r.imprecision} | {r.other_considerations} | **{certainty_str}** "
+            f"| {effect} |"
+        )
+
+    note = (
+        "\n\n_GRADE certainty levels: HIGH, MODERATE, LOW, VERY LOW. "
+        "RoB/Inconsistency/Indirectness/Imprecision rated as: "
+        "not serious, serious, very serious. "
+        "Other considerations include upgrades for large effect, dose-response, or "
+        "residual confounding, and downgrades for suspected publication bias._\n"
+    )
+    return header + "\n".join(rows) + note

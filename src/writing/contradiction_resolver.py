@@ -103,3 +103,43 @@ async def generate_contradiction_paragraph(
     return await loop.run_in_executor(
         None, _generate_paragraph_sync, flags, raw_model, key
     )
+
+
+def build_conflicting_evidence_section(flags: list[ContradictionFlag]) -> str:
+    """Build a structured '### Conflicting Evidence' subsection for the Discussion.
+
+    Each detected contradiction pair is listed as a bullet with both paper IDs,
+    the shared outcome name, and the opposing result directions. This section is
+    injected into the Discussion draft AFTER the LLM-generated body but BEFORE
+    manuscript assembly so it appears in the final DOCX.
+
+    Returns an empty string when no flags are provided.
+    """
+    if not flags:
+        return ""
+
+    lines: list[str] = ["### Conflicting Evidence", ""]
+    lines.append(
+        "The following pairs of included studies reported contradictory findings "
+        "on the same outcome. These discrepancies may reflect differences in "
+        "study design, population characteristics, implementation context, or "
+        "outcome measurement methods."
+    )
+    lines.append("")
+
+    for flag in flags[:10]:
+        lines.append(
+            f"- **{flag.outcome_name}**: "
+            f"Study `{flag.paper_id_a[:12]}` reported a *{flag.direction_a}* direction, "
+            f"while Study `{flag.paper_id_b[:12]}` reported a *{flag.direction_b}* direction "
+            f"(outcome similarity: {flag.similarity:.2f})."
+            + (f" Note: {flag.note}" if flag.note else "")
+        )
+
+    lines.append("")
+    lines.append(
+        "These inconsistencies underscore the need for cautious interpretation of "
+        "pooled estimates and highlight areas requiring further primary research."
+    )
+
+    return "\n".join(lines)

@@ -899,65 +899,63 @@ async def merge_papers_from_parent(
     _logger = _logging.getLogger(__name__)
 
     merged = 0
-    async with aiosqlite.connect(parent_db_path) as src_db:
-        src_db.row_factory = aiosqlite.Row
+    parent_papers = []
+    parent_decisions: dict[str, str] = {}
 
-        # Fetch all included papers from parent.
-        try:
-            async with src_db.execute(
-                "SELECT paper_id, title, abstract, authors, year, doi, url, source, "
-                "       display_label, dedup_group, openalex_id, semantic_scholar_id, "
-                "       pubmed_id, arxiv_id, ieee_id, crossref_doi, "
-                "       relevance_score, citation_count, is_primary_source "
-                "FROM papers"
-            ) as cur:
-                parent_papers = await cur.fetchall()
-        except Exception:
-            # Schema variations in older DBs -- skip gracefully.
-            _logger.warning("merge_papers_from_parent: could not read papers from %s", parent_db_path)
-            return 0
+    try:
+        async with aiosqlite.connect(parent_db_path) as src_db:
+            src_db.row_factory = aiosqlite.Row
 
-        # Fetch screening decisions.
-        parent_decisions: dict[str, str] = {}
-        try:
-            async with src_db.execute(
-                "SELECT paper_id, decision FROM screening_decisions"
-            ) as cur:
-                for row in await cur.fetchall():
-                    parent_decisions[row["paper_id"]] = row["decision"]
-        except Exception:
-            pass
+            # Fetch all papers from parent using only columns guaranteed by the base schema.
+            try:
+                async with src_db.execute(
+                    "SELECT paper_id, title, abstract, authors, year, doi, url, source_database, "
+                    "       display_label, openalex_id "
+                    "FROM papers"
+                ) as cur:
+                    parent_papers = await cur.fetchall()
+            except Exception:
+                _logger.warning("merge_papers_from_parent: could not read papers from %s", parent_db_path)
+                return 0
+
+            # Fetch final screening decisions from dual_screening_results.
+            try:
+                async with src_db.execute(
+                    "SELECT paper_id, final_decision FROM dual_screening_results"
+                ) as cur:
+                    for row in await cur.fetchall():
+                        parent_decisions[row["paper_id"]] = row["final_decision"]
+            except Exception:
+                pass
+
+    except Exception:
+        _logger.warning("merge_papers_from_parent: cannot open parent DB at %s", parent_db_path)
+        return 0
 
     for row in parent_papers:
         try:
             await dst_db.execute(
                 """INSERT OR IGNORE INTO papers
-                   (paper_id, title, abstract, authors, year, doi, url, source,
-                    display_label, dedup_group, openalex_id, semantic_scholar_id,
-                    pubmed_id, arxiv_id, ieee_id, crossref_doi,
-                    relevance_score, citation_count, is_primary_source)
-                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                   (paper_id, title, abstract, authors, year, doi, url, source_database,
+                    display_label, openalex_id)
+                   VALUES (?,?,?,?,?,?,?,?,?,?)""",
                 (
                     row["paper_id"], row["title"], row["abstract"], row["authors"],
                     row["year"], row["doi"], row["url"],
-                    "merged_from_parent",  # override source to mark origin
-                    row["display_label"], row["dedup_group"],
-                    row["openalex_id"], row["semantic_scholar_id"],
-                    row["pubmed_id"], row["arxiv_id"], row["ieee_id"], row["crossref_doi"],
-                    row["relevance_score"], row["citation_count"], row["is_primary_source"],
+                    "merged_from_parent",  # mark as carrying over from a parent run
+                    row["display_label"], row["openalex_id"],
                 ),
             )
             merged += 1
 
-            # Carry over the screening decision so this paper is not re-screened.
+            # Carry over the screening outcome so this paper is not re-screened.
             decision = parent_decisions.get(row["paper_id"])
             if decision:
                 await dst_db.execute(
-                    """INSERT OR IGNORE INTO screening_decisions
-                       (paper_id, decision, confidence, rationale, reviewer_a_decision,
-                        reviewer_b_decision, adjudicator_decision)
-                       VALUES (?, ?, 1.0, 'merged from parent run', ?, ?, ?)""",
-                    (row["paper_id"], decision, decision, decision, decision),
+                    """INSERT OR IGNORE INTO dual_screening_results
+                       (workflow_id, paper_id, stage, agreement, final_decision, adjudication_needed)
+                       VALUES ('merged', ?, 'stage1', 1, ?, 0)""",
+                    (row["paper_id"], decision),
                 )
         except Exception as exc:
             _logger.debug("merge_papers_from_parent: skip %s: %s", row["paper_id"], exc)

@@ -100,16 +100,33 @@ citation_lineage:
   block_export_on_unresolved: true
   minimum_evidence_score: 0.5
 
+# Full-text retrieval and multi-modal extraction settings.
+# Tier 1: ScienceDirect API (Elsevier OA papers, ~100KB full text)
+# Tier 2: Unpaywall open-access PDF (~50% of recent papers)
+# Tier 3: PubMed Central XML (NIH-funded OA papers)
+# Fallback: abstract text (no regression from current behavior)
+extraction:
+  sciencedirect_full_text: true
+  unpaywall_full_text: true
+  pmc_full_text: true
+  use_pdf_vision: true
+  pdf_vision_model: "google-gla:gemini-2.5-flash"
+  full_text_min_chars: 500
+
 # Search depth: how many records to fetch per database connector.
 # max_results_per_db is the global default; per_database_limits overrides
-# it for individual connectors. Perplexity is capped internally at 20.
+# it for individual connectors.
+# Primary peer-reviewed databases only -- Perplexity, Crossref, arXiv removed
+# as they are not standard systematic review sources.
 search:
   max_results_per_db: 500
   per_database_limits:
-    crossref: 1000
     pubmed: 500
-    semantic_scholar: 500
     openalex: 500
-    arxiv: 200
+    scopus: 500
+    semantic_scholar: 500
     ieee_xplore: 200
+    # Legacy connectors kept for backward-compat but not in default target_databases:
+    crossref: 500
+    arxiv: 200
     perplexity_search: 20

@@ -131,7 +131,11 @@ def generate_docx(source_path: Path, output_path: Path) -> Path:
         str(abs_source),
         "docx",
         outputfile=str(output_path),
-        extra_args=["--standalone", "--resource-path", str(abs_source.parent)],
+        extra_args=[
+            "--standalone",
+            "--resource-path", str(abs_source.parent),
+            "--dpi=300",   # preserve image resolution in DOCX (pandoc default is 96)
+        ],
     )
     if not output_path.exists():
         raise RuntimeError(f"pypandoc did not produce output at {output_path}")
