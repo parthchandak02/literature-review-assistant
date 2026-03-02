@@ -1,7 +1,7 @@
 # LitReview -- Unified System Specification
 
 **Version:** 1.0
-**Date:** February 2026
+**Date:** March 2026
 **Owner:** Parth Chandak
 **Purpose:** Single living recipe for building and maintaining the LitReview systematic review automation system. Covers architecture, technology decisions, data flow, phase design, and operating procedures. This document is the sole source of truth -- read it before writing any code.
 
@@ -849,7 +849,7 @@ uv run python -m src.main export --workflow-id abc123 --run-root runs/
 ### 11.4 Testing
 
 ```
-uv run pytest tests/unit -q           # 56 unit tests
+uv run pytest tests/unit -q           # 104 unit tests
 uv run pytest tests/integration -q   # integration tests (require config/review.yaml)
 uv run python -m src.main --help      # confirm CLI loads without error
 ```
@@ -907,7 +907,7 @@ Living section -- update as work completes.
 |-----------|--------|-------|
 | Phase 1: Foundation | DONE | Models, SQLite, 6 gates, citation ledger, LLM provider, rate limiter |
 | Phase 2: Search | DONE | All 7 connectors + ClinicalTrials.gov grey literature, MinHash LSH dedup (datasketch + thefuzz), forward citation chasing (Semantic Scholar + OpenAlex), BM25 ranking, protocol generator, SearchConfig |
-| Phase 3: Screening | DONE | Dual reviewer with cross-model validation (Reviewer A=gemini-2.5-flash-lite, Reviewer B=gemini-2.0-flash), keyword filter, BM25 cap, kappa injected into writing, Ctrl+C proceed-with-partial, confidence fast-path, protocol-only auto-exclusion |
+| Phase 3: Screening | DONE | Dual reviewer with cross-model validation (Reviewer A=flash-lite tier, Reviewer B=flash tier -- see config/settings.yaml), keyword filter, BM25 cap, kappa injected into writing, Ctrl+C proceed-with-partial, confidence fast-path, protocol-only auto-exclusion |
 | Phase 4: Extraction + Quality | DONE | LLM extraction with PyMuPDF full-text parsing (32K char context, up from 8K), async RoB 2 / ROBINS-I / CASP with heuristic fallback tagged by assessment_source, GRADE auto-wired from RoB data (assess_from_rob), study router, RoB traffic-light figure |
 | Phase 5: Synthesis | DONE | Hardened feasibility (requires effect_size+se in >= 2 studies), statsmodels pooling (DL), forest + funnel plots, LLM-based narrative direction classification, sensitivity analysis (leave-one-out + subgroup), synthesis_results table |
 | Phase 6: Writing | DONE | Section writer, humanizer, citation validation, style extractor, naturalness scorer, per-section checkpoint, WritingGroundingData (includes kappa, sensitivity_results, n_studies_reporting_count, separated search sources), GRADE table injected into manuscript |
@@ -921,8 +921,17 @@ Living section -- update as work completes.
 | Post-build: Hybrid RAG + PRISMA fixes | DONE | Hybrid BM25+dense RAG (RRF) in WritingNode, PydanticAI Embedder replacing google-generativeai SDK, PRISMA endpoint registry fallback, duplicate Discussion heading dedup, PRISMACounts field name fixes |
 | Post-build: HyDE + Gemini listwise reranker | DONE | HyDE (hypothetical doc embeddings, Gao et al. 2022) for rich dense query vectors; Gemini Flash listwise reranker (single LLM call ranks 20 candidates to top 8); removed sentence-transformers/torch (382 MB) in favour of zero-new-dep PydanticAI calls |
 | Validation benchmark | DONE | scripts/benchmark.py measures screening recall, extraction field accuracy, RoB kappa vs. gold-standard corpus |
+| Enhancement #4: Semantic Chunking | DONE | spaCy sentence-boundary chunker replaces fixed 512-word windows; chunks stay under max_tokens (400), 2-sentence overlap, character-split fallback; settings: rag.chunk_max_tokens, rag.chunk_overlap_sentences |
+| Enhancement #5: PICO-Aware Retrieval | DONE | PICO terms from review.yaml injected into HyDE prompt and BM25 query string; controlled by rag.pico_query_boost in settings.yaml |
+| Enhancement #6: Living Review Auto-Refresh | DONE | Delta pipeline: search from last_search_date, screen/embed new papers only, merge into previous DB, re-run synthesis+writing only if new evidence added |
+| Enhancement #7: Multi-Modal Evidence | DONE | 3-tier full-text retrieval (ScienceDirect OA API -> Unpaywall PDF -> PMC XML -> abstract fallback); Gemini vision extracts quantitative outcome rows from PDFs; vision+text outcomes merged; table rows chunked as separate embeddings; GET /api/db/{run_id}/tables endpoint; Scopus abstract gap fixed via enrich_scopus_abstracts() |
+| Enhancement #8: Contradiction-Aware Synthesis | DONE | contradiction_detector.py surfaces conflict pairs; WritingNode injects "Conflicting Evidence" subsection into Discussion with citation keys and reconciliation hypothesis |
+| Enhancement #9: Adaptive Screening Threshold | DONE | Active-learning calibration loop: 30-paper sample, kappa computed, thresholds adjusted via bisection until kappa > 0.7 or 3 iterations; settings: screening.calibration_sample_size |
+| Enhancement #10: GRADE Evidence Profile | DONE | Full GRADE Summary of Findings table (studies, participants, effect estimate, certainty, reason); build_sof_table() in grade.py; GradeSoFTable + GradeSoFRow models; LaTeX longtable export; GET /api/run/{run_id}/grade-sof endpoint |
+| Search quality sprint | DONE | Scopus connector (src/search/scopus.py, TITLE-ABS-KEY field codes, 5 req/sec limit, 429 back-off); default target_databases updated to openalex + pubmed + scopus + semantic_scholar + ieee_xplore; perplexity_search + crossref + arxiv removed from default pipeline |
+| Manuscript quality sprint | DONE | finalize_manuscript.py: _strip_unresolved_citekeys() removes orphaned author-year citekeys; _reframe_kappa() contextualises borderline-only kappa; GRADE table wired from DB; search strings appendix auto-appended; characteristics table note explains partial-extraction rows |
 
-**Test status:** 56 unit tests + 13 integration tests passing (`uv run pytest tests/unit tests/integration -q`).
+**Test status:** 104 unit tests + 13 integration tests passing (`uv run pytest tests/unit tests/integration -q`).
 
 ---
 
@@ -930,22 +939,30 @@ Living section -- update as work completes.
 
 Living section -- update as items complete.
 
-The core 8-phase pipeline is complete and running. Active enhancements are tracked in `.cursor/plans/enhancement-roadmap.md`. Current status:
+The core 8-phase pipeline and all 10 post-build enhancements are complete and running in production.
 
-| # | Enhancement | Status |
-|---|-------------|--------|
-| 1 | Hybrid BM25 + Dense RAG (RRF) | DONE |
-| 2 | HyDE (Hypothetical Document Embeddings) | DONE |
-| 3 | Gemini listwise cross-encoder reranking | DONE |
-| 4 | Semantic Chunking (spaCy sentence-boundary chunker) | pending |
-| 5 | PICO-Aware Retrieval (inject PICO into HyDE prompt + BM25) | pending |
-| 6 | Living Review Auto-Refresh (delta pipeline, parent_run_id) | pending |
-| 7 | Multi-Modal Evidence (HTML table + figure extraction) | pending |
-| 8 | Contradiction-Aware Synthesis (subsection in Discussion) | pending |
-| 9 | Adaptive Screening Threshold (active learning calibration) | pending |
-| 10 | GRADE Evidence Profile Auto-Generation (SoF table + LaTeX) | pending |
+### Completed Enhancements
 
-For each pending enhancement, a full implementation spec is in the roadmap file above. Implement them in order; each builds on the previous.
+| # | Enhancement | Status | Key Files |
+|---|-------------|--------|-----------|
+| 1 | Hybrid BM25 + Dense RAG (RRF) | DONE | src/rag/retriever.py |
+| 2 | HyDE (Hypothetical Document Embeddings) | DONE | src/rag/hyde.py |
+| 3 | Gemini listwise reranking | DONE | src/rag/reranker.py |
+| 4 | Semantic Chunking | DONE | src/rag/chunker.py |
+| 5 | PICO-Aware Retrieval | DONE | src/rag/hyde.py, src/orchestration/workflow.py |
+| 6 | Living Review Auto-Refresh | DONE | src/web/app.py, src/orchestration/workflow.py |
+| 7 | Multi-Modal Evidence (full-text + vision tables) | DONE | src/extraction/table_extraction.py, src/search/scopus.py |
+| 8 | Contradiction-Aware Synthesis | DONE | src/synthesis/contradiction_detector.py, src/writing/orchestration.py |
+| 9 | Adaptive Screening Threshold | DONE | src/screening/reliability.py |
+| 10 | GRADE Evidence Profile (SoF table + LaTeX) | DONE | src/quality/grade.py, src/export/ieee_latex.py |
+
+### Active Priorities
+
+All major features are shipped. Current priorities for the next session:
+
+- **Embase connector:** Institutional API token required (`apisupport@elsevier.com`). Implementation pattern matches `src/search/scopus.py`.
+- **Higher kappa target:** Cohen's kappa was 0.118 on first real run (borderline-only subset). Enhancement #9 (adaptive threshold) is implemented; verify calibration reduces this on next run.
+- **End-to-end IEEE submission:** Run the full pipeline on a new topic, verify all Definition of Done criteria pass, produce submission package.
 
 ---
 
