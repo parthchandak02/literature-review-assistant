@@ -48,6 +48,18 @@ class CitationLedger:
         _ = section
         return await self.validate_manuscript(text)
 
-    async def block_export_if_invalid(self, text: str) -> bool:
+    async def block_export_if_invalid(
+        self,
+        text: str,
+        block_on_unresolved: bool = True,
+    ) -> bool:
+        """Return True if the manuscript should be blocked from export.
+
+        block_on_unresolved: when False, always returns False even if there are
+        unresolved citekeys (allows export with warnings). Reads from
+        CitationLineageConfig.block_export_on_unresolved in production call sites.
+        """
+        if not block_on_unresolved:
+            return False
         result = await self.validate_manuscript(text)
         return bool(result.unresolved_claims or result.unresolved_citations)

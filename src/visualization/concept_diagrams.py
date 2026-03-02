@@ -56,9 +56,9 @@ def _extract_code_block(text: str, language: str) -> str:
     return text.strip()
 
 
-async def _llm_generate(prompt: str) -> str:
+async def _llm_generate(prompt: str, model: str = _LLM_MODEL) -> str:
     client = PydanticAIClient()
-    return await client.complete(prompt, model=_LLM_MODEL, temperature=_LLM_TEMPERATURE)
+    return await client.complete(prompt, model=model, temperature=_LLM_TEMPERATURE)
 
 
 # ---------------------------------------------------------------------------
@@ -150,12 +150,12 @@ def _build_taxonomy_dot_prompt(spec: TaxonomyDiagramInput) -> str:
 
 
 async def render_taxonomy_diagram(
-    spec: TaxonomyDiagramInput, out_path: Path
+    spec: TaxonomyDiagramInput, out_path: Path, model: str = _LLM_MODEL
 ) -> Optional[Path]:
     """Generate a taxonomy tree SVG via LLM -> DOT -> Graphviz."""
     prompt = _build_taxonomy_dot_prompt(spec)
     try:
-        raw = await _llm_generate(prompt)
+        raw = await _llm_generate(prompt, model=model)
         dot_source = _extract_code_block(raw, "dot")
         if not dot_source.startswith("digraph") and not dot_source.startswith("graph"):
             logger.warning("LLM taxonomy DOT output does not look like DOT; skipping.")
@@ -220,12 +220,12 @@ def _build_framework_dot_prompt(spec: FrameworkDiagramInput) -> str:
 
 
 async def render_framework_diagram(
-    spec: FrameworkDiagramInput, out_path: Path
+    spec: FrameworkDiagramInput, out_path: Path, model: str = _LLM_MODEL
 ) -> Optional[Path]:
     """Generate a PICO conceptual framework SVG via LLM -> DOT -> Graphviz."""
     prompt = _build_framework_dot_prompt(spec)
     try:
-        raw = await _llm_generate(prompt)
+        raw = await _llm_generate(prompt, model=model)
         dot_source = _extract_code_block(raw, "dot")
         if not dot_source.startswith("digraph") and not dot_source.startswith("graph"):
             logger.warning("LLM framework DOT output does not look like DOT; skipping.")
@@ -275,12 +275,12 @@ def _build_flowchart_mermaid_prompt(spec: FlowchartDiagramInput) -> str:
 
 
 async def render_flowchart_diagram(
-    spec: FlowchartDiagramInput, out_path: Path
+    spec: FlowchartDiagramInput, out_path: Path, model: str = _LLM_MODEL
 ) -> Optional[Path]:
     """Generate a methodology flowchart SVG via LLM -> Mermaid -> Kroki API."""
     prompt = _build_flowchart_mermaid_prompt(spec)
     try:
-        raw = await _llm_generate(prompt)
+        raw = await _llm_generate(prompt, model=model)
         mermaid_source = _extract_code_block(raw, "mermaid")
         if not mermaid_source.startswith("flowchart") and not mermaid_source.startswith("graph"):
             logger.warning("LLM flowchart output does not look like Mermaid; skipping.")
@@ -300,6 +300,7 @@ async def render_concept_diagrams(
     framework_spec: Optional[FrameworkDiagramInput],
     flowchart_spec: Optional[FlowchartDiagramInput],
     out_dir: Path,
+    model: str = _LLM_MODEL,
 ) -> dict[str, Optional[Path]]:
     """Render all three concept diagrams concurrently.
 
@@ -319,17 +320,17 @@ async def render_concept_diagrams(
         return None
 
     taxonomy_coro = (
-        render_taxonomy_diagram(taxonomy_spec, taxonomy_path)
+        render_taxonomy_diagram(taxonomy_spec, taxonomy_path, model=model)
         if taxonomy_spec is not None
         else _noop()
     )
     framework_coro = (
-        render_framework_diagram(framework_spec, framework_path)
+        render_framework_diagram(framework_spec, framework_path, model=model)
         if framework_spec is not None
         else _noop()
     )
     flowchart_coro = (
-        render_flowchart_diagram(flowchart_spec, flowchart_path)
+        render_flowchart_diagram(flowchart_spec, flowchart_path, model=model)
         if flowchart_spec is not None
         else _noop()
     )

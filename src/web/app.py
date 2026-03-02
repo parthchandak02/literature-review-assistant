@@ -1100,6 +1100,40 @@ def _get_db_path(run_id: str) -> str:
     return record.db_path
 
 
+_STOP_WORDS = frozenset({
+    "a", "an", "the", "and", "or", "of", "in", "on", "to", "for",
+    "with", "is", "are", "what", "how", "why", "which", "that",
+    "this", "do", "does", "from", "by", "at", "as", "its",
+})
+
+
+def _make_download_slug(workflow_id: str, topic: str, max_words: int = 5) -> str:
+    """Build a filesystem-safe download slug: '<workflow_id>-<short-topic>'.
+
+    Takes the first *max_words* meaningful (non-stop) words from *topic*,
+    lowercases them, strips non-alphanumeric characters, and joins with
+    hyphens. Falls back gracefully if topic is empty.
+
+    Example: 'wf-ba930803-robotic-medication-dispensing-accuracy-patient'
+    """
+    import re
+    words = re.sub(r"[^a-zA-Z0-9 ]", " ", topic).lower().split()
+    meaningful = [w for w in words if w not in _STOP_WORDS and len(w) > 1]
+    short = "-".join(meaningful[:max_words]) if meaningful else "review"
+    return f"{workflow_id}-{short}"
+
+
+async def _get_topic_for_db(db_path: str) -> str:
+    """Read topic from the workflows table in *db_path*. Returns empty string on failure."""
+    try:
+        async with aiosqlite.connect(db_path) as db:
+            async with db.execute("SELECT topic FROM workflows LIMIT 1") as cur:
+                row = await cur.fetchone()
+                return str(row[0]) if row and row[0] else ""
+    except Exception:
+        return ""
+
+
 @app.get("/api/db/{run_id}/papers")
 async def get_papers(
     run_id: str,
@@ -1470,6 +1504,81 @@ async def get_db_costs(run_id: str) -> dict[str, Any]:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
+@app.get("/api/db/{run_id}/tables")
+async def get_db_tables(run_id: str) -> dict[str, Any]:
+    """Vision-extracted quantitative outcome table rows grouped by paper.
+
+    Returns outcome rows that have at least one numeric field (effect_size,
+    p_value, or ci_lower) so that text-extracted rows without numeric data
+    are excluded. The extraction_source field indicates the retrieval tier
+    used: 'text', 'pdf_vision', 'hybrid', 'sciencedirect', 'unpaywall_pdf',
+    'pmc', or 'abstract'.
+
+    Response shape:
+    {
+      "total_rows": int,
+      "papers": [
+        {
+          "paper_id": str,
+          "title": str,
+          "doi": str | null,
+          "extraction_source": str,
+          "outcomes": [ {name, effect_size, ci_lower, ci_upper, p_value, n, ...} ]
+        }
+      ]
+    }
+    """
+    db_path = _get_db_path(run_id)
+    try:
+        import json as _json
+        async with aiosqlite.connect(db_path) as db:
+            db.row_factory = aiosqlite.Row
+            # Load extraction records (data column holds full ExtractionRecord JSON)
+            async with db.execute(
+                """
+                SELECT er.paper_id, er.data, p.title, p.doi
+                FROM extraction_records er
+                LEFT JOIN papers p USING (paper_id)
+                WHERE er.data IS NOT NULL
+                ORDER BY er.paper_id
+                """
+            ) as cur:
+                rows = await cur.fetchall()
+
+        papers_out: list[dict[str, Any]] = []
+        total_rows = 0
+        for row in rows:
+            try:
+                record_data: dict[str, Any] = _json.loads(row["data"] or "{}")
+            except Exception:
+                record_data = {}
+            outcomes: list[dict[str, Any]] = record_data.get("outcomes") or []
+            extraction_source: str = record_data.get("extraction_source") or "text"
+            # Keep only rows with at least one numeric field
+            numeric_outcomes = [
+                o for o in outcomes
+                if o.get("effect_size") or o.get("p_value") or o.get("ci_lower")
+            ]
+            if not numeric_outcomes:
+                continue
+            total_rows += len(numeric_outcomes)
+            papers_out.append(
+                {
+                    "paper_id": row["paper_id"],
+                    "title": row["title"] or "",
+                    "doi": row["doi"],
+                    "extraction_source": extraction_source,
+                    "outcomes": numeric_outcomes,
+                }
+            )
+
+        return {"total_rows": total_rows, "papers": papers_out}
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
 # ---------------------------------------------------------------------------
 # Run artifacts + export endpoints
 # ---------------------------------------------------------------------------
@@ -1547,7 +1656,8 @@ async def download_submission_zip(run_id: str) -> StreamingResponse:
     """Stream the full IEEE submission directory as a ZIP archive.
 
     The submission directory must exist (call POST /api/run/{run_id}/export first).
-    Returns a downloadable application/zip response.
+    Returns a downloadable application/zip response named
+    '<workflow_id>-<short-topic>.zip'.
     """
     db_path = _get_db_path(run_id)
     summary_path = pathlib.Path(db_path).parent / "run_summary.json"
@@ -1564,6 +1674,9 @@ async def download_submission_zip(run_id: str) -> StreamingResponse:
             status_code=404,
             detail="Submission directory not found -- click 'Export to LaTeX' first",
         )
+    workflow_id: str = summary.get("workflow_id", run_id)
+    topic = await _get_topic_for_db(db_path)
+    download_name = _make_download_slug(workflow_id, topic) + ".zip"
     # Build ZIP in memory
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, mode="w", compression=zipfile.ZIP_DEFLATED) as zf:
@@ -1574,7 +1687,7 @@ async def download_submission_zip(run_id: str) -> StreamingResponse:
     return StreamingResponse(
         buf,
         media_type="application/zip",
-        headers={"Content-Disposition": "attachment; filename=submission.zip"},
+        headers={"Content-Disposition": f"attachment; filename={download_name}"},
     )
 
 
@@ -1583,7 +1696,7 @@ async def download_manuscript_docx(run_id: str) -> FileResponse:
     """Stream the Word manuscript (.docx) generated during export.
 
     The submission directory must exist (call POST /api/run/{run_id}/export first).
-    Returns a downloadable application/vnd.openxmlformats-officedocument.wordprocessingml.document response.
+    Returns a downloadable response named '<workflow_id>-<short-topic>.docx'.
     """
     db_path = _get_db_path(run_id)
     summary_path = pathlib.Path(db_path).parent / "run_summary.json"
@@ -1599,9 +1712,12 @@ async def download_manuscript_docx(run_id: str) -> FileResponse:
             status_code=404,
             detail="manuscript.docx not found -- click 'Export to LaTeX' first",
         )
+    workflow_id: str = summary.get("workflow_id", run_id)
+    topic = await _get_topic_for_db(db_path)
+    download_name = _make_download_slug(workflow_id, topic) + ".docx"
     return FileResponse(
         path=str(docx_path),
-        filename="manuscript.docx",
+        filename=download_name,
         media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
     )
 
@@ -1758,9 +1874,19 @@ async def approve_screening(
                 # Generate refined criteria via LLM (non-blocking; failures are silent)
                 try:
                     import os as _os
+                    from src.config.loader import load_configs as _load_cfgs
+                    _refine_model = "google-gla:gemini-2.5-pro"
+                    try:
+                        _, _refine_settings = _load_cfgs(settings_path="config/settings.yaml")
+                        _adjudicator_cfg = _refine_settings.agents.get("screening_adjudicator")
+                        if _adjudicator_cfg:
+                            _refine_model = _adjudicator_cfg.model
+                    except Exception:
+                        pass
                     learned = await refine_criteria_from_corrections(
                         corrections,
                         paper_titles,
+                        model_name=_refine_model,
                         api_key=_os.environ.get("GEMINI_API_KEY", ""),
                     )
                     if learned:
@@ -2143,8 +2269,26 @@ _runs_dir.mkdir(parents=True, exist_ok=True)
 app.mount("/runs", StaticFiles(directory=str(_runs_dir)), name="runs")
 
 _static_dir = pathlib.Path(__file__).parent.parent.parent / "frontend" / "dist"
-if _static_dir.exists():
-    app.mount("/", StaticFiles(directory=str(_static_dir), html=True), name="static")
+
+
+@app.get("/{full_path:path}", include_in_schema=False)
+async def spa_fallback(full_path: str) -> FileResponse:
+    """SPA catch-all: serve actual static files if they exist in the dist dir;
+    otherwise serve index.html so react-router can handle client-side routes
+    (e.g. /run/wf-abc123/results) on direct navigation and page refresh.
+
+    This route is registered before the StaticFiles mount so it is evaluated
+    first. For real assets (JS/CSS in dist/assets/) the file check short-circuits
+    and the file is served directly with the correct MIME type. For unknown paths
+    such as /run/:workflowId/:tab, the fallback to index.html lets the SPA boot."""
+    if _static_dir.exists():
+        candidate = _static_dir / full_path
+        if candidate.exists() and candidate.is_file():
+            return FileResponse(str(candidate))
+        index = _static_dir / "index.html"
+        if index.exists():
+            return FileResponse(str(index))
+    raise HTTPException(status_code=404, detail="Frontend not built. Run: pnpm build")
 
 
 # ---------------------------------------------------------------------------

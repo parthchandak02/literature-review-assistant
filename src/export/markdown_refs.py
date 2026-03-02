@@ -7,6 +7,8 @@ import re
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
+from src.quality.grade import build_sof_table, sof_table_to_markdown
+
 
 def _fmt_authors(authors_json: str) -> str:
     """Return 'Last, F. and Last, F. et al.' from authors JSON."""
@@ -37,14 +39,16 @@ def _fmt_authors(authors_json: str) -> str:
 def extract_citekeys_in_order(text: str) -> List[str]:
     """Return unique citekeys in order of first appearance in text.
 
-    Handles both single [Smith2023] and multi-key [Smith2023, Jones2024, Paper42]
-    citation groups, splitting on commas and validating each token.
+    Handles both single [Smith2023] and multi-key [Smith2023, Jones2024] or
+    [Smith2023; Jones2024] citation groups, splitting on commas and semicolons
+    and validating each token.
     """
     seen: set[str] = set()
     keys: List[str] = []
     _valid_key = re.compile(r"^[A-Za-z][A-Za-z0-9_:-]*$")
     for bracket_content in re.findall(r"\[([^\]]+)\]", text):
-        for part in bracket_content.split(","):
+        # Split on both commas and semicolons to handle both citation styles
+        for part in re.split(r"[,;]", bracket_content):
             key = part.strip()
             if _valid_key.match(key) and key not in seen:
                 seen.add(key)
@@ -101,7 +105,8 @@ def convert_to_numbered_citations(
 
     def _replacer(match: re.Match) -> str:  # type: ignore[type-arg]
         bracket_content = match.group(1)
-        parts = [p.strip() for p in bracket_content.split(",")]
+        # Split on both commas and semicolons to handle [Smith2023; Jones2024] style
+        parts = [p.strip() for p in re.split(r"[,;]", bracket_content)]
         valid_parts = [p for p in parts if _valid_key.match(p)]
         if not valid_parts:
             return match.group(0)
@@ -110,8 +115,8 @@ def convert_to_numbered_citations(
             return match.group(0)
         return ", ".join(f"[{num}]" for num in nums)
 
-    # Match bracket groups that contain citekey-like content (letters, commas, spaces)
-    new_body = re.sub(r"\[([A-Za-z][A-Za-z0-9_, :-]*)\]", _replacer, body)
+    # Match bracket groups that contain citekey-like content (letters, commas, semicolons, spaces)
+    new_body = re.sub(r"\[([A-Za-z][A-Za-z0-9_,; :-]*)\]", _replacer, body)
     return new_body, ordered_rows
 
 
@@ -150,6 +155,22 @@ FIGURE_DEFS: List[Tuple[str, str]] = [
     (
         "geographic",
         "Geographic distribution of included studies by country of origin.",
+    ),
+    (
+        "concept_taxonomy",
+        "Conceptual taxonomy of key constructs identified across included studies.",
+    ),
+    (
+        "conceptual_framework",
+        "Conceptual framework derived from synthesis of included studies.",
+    ),
+    (
+        "methodology_flow",
+        "Systematic review methodology flow diagram.",
+    ),
+    (
+        "evidence_network",
+        "Evidence network of co-citation relationships among included studies.",
     ),
 ]
 
@@ -256,6 +277,7 @@ def is_extraction_failed(rec: Any) -> bool:
 def build_study_characteristics_table(
     papers: List[Any],
     extraction_records: List[Any],
+    pre_filtered_count: int = 0,
 ) -> str:
     """Build a GFM markdown table of included study characteristics.
 
@@ -263,12 +285,16 @@ def build_study_characteristics_table(
     (study_design, participant_count, setting, outcomes) by paper_id.
     Excludes papers whose extraction completely failed (all placeholder data).
     Returns an empty string if no usable data is available.
+
+    pre_filtered_count: number of extraction records already excluded by the
+    caller before passing this list. Added to the footnote so the total
+    omission count is accurate even when the caller pre-filters.
     """
     paper_map: Dict[str, Any] = {p.paper_id: p for p in papers}
     extraction_map: Dict[str, Any] = {r.paper_id: r for r in extraction_records}
 
     rows: List[Dict[str, str]] = []
-    excluded_count = 0
+    excluded_count = pre_filtered_count
     for paper_id, paper in paper_map.items():
         rec = extraction_map.get(paper_id)
         if rec is None:
@@ -347,9 +373,15 @@ def build_study_characteristics_table(
         for r in rows
     ]
 
+    total_records = len(rows) + excluded_count
     footnote = "_NR = Not Reported; n.d. = no publication date available._"
     if excluded_count:
-        footnote += f" _{excluded_count} studies omitted: extraction data insufficient._"
+        footnote += (
+            f" _{excluded_count} of {total_records} included studies omitted from "
+            f"this table: automated data extraction produced only placeholder values "
+            f"(study design unresolved, no quantitative outcome data, participant count "
+            f"not reported). These studies are cited in the narrative synthesis above._"
+        )
     table_md = "\n".join([header, sep] + data_rows) + "\n\n" + footnote
     return "## Appendix A: Characteristics of Included Studies\n\n" + table_md
 
@@ -515,14 +547,24 @@ def assemble_submission_manuscript(
     funding: str = "",
     coi: str = "",
     grade_assessments: Optional[List[Any]] = None,
+    failed_count: int = 0,
+    search_appendix_path: Optional[Path] = None,
 ) -> str:
     """Combine all manuscript sections with HR separators.
 
     Assembly order:
-      body -> Declarations -> GRADE Evidence Profile -> Study Table -> Figures -> References
+      body -> Declarations -> GRADE Evidence Profile -> GRADE SoF Table ->
+      Study Table -> Figures -> References -> Search Strategies Appendix
 
     The body is sanitized to remove LLM text artifacts and author-year
     citation keys are converted to sequential [N] numbered format.
+
+    failed_count: number of extraction records already excluded by the caller
+    (e.g. pre-filtered with is_extraction_failed) before passing extraction_records.
+    Forwarded to build_study_characteristics_table so the omission footnote is accurate.
+
+    search_appendix_path: optional path to doc_search_strategies_appendix.md written
+    by SearchStrategyCoordinator in Phase 2. When present it is appended as Appendix B.
     """
     clean_body = _sanitize_body(body)
 
@@ -532,12 +574,19 @@ def assemble_submission_manuscript(
     declarations_section = build_markdown_declarations_section(funding=funding, coi=coi)
 
     grade_section = ""
+    sof_section = ""
     if grade_assessments:
         grade_section = generate_grade_table(grade_assessments)
+        # Full GRADE Summary of Findings table (with RoB/inconsistency breakdown)
+        # appended after the simplified Evidence Profile
+        sof_table = build_sof_table(grade_assessments)
+        sof_section = sof_table_to_markdown(sof_table)
 
     study_table_section = ""
     if papers and extraction_records:
-        study_table_section = build_study_characteristics_table(papers, extraction_records)
+        study_table_section = build_study_characteristics_table(
+            papers, extraction_records, pre_filtered_count=failed_count
+        )
 
     figures_section = build_markdown_figures_section(manuscript_path, artifacts)
 
@@ -545,17 +594,31 @@ def assemble_submission_manuscript(
         numbered_body, ordered_citation_rows, numbered=True
     )
 
+    search_appendix_section = ""
+    if search_appendix_path and search_appendix_path.exists():
+        raw = search_appendix_path.read_text(encoding="utf-8").strip()
+        # Normalize the top-level heading to fit as an appendix
+        raw = raw.replace(
+            "# Search Strategies Appendix",
+            "## Appendix B: Search Strategies",
+        )
+        search_appendix_section = raw
+
     parts = [numbered_body]
     if declarations_section:
         parts.append(declarations_section)
     if grade_section:
         parts.append(grade_section)
+    if sof_section:
+        parts.append(sof_section)
     if study_table_section:
         parts.append(study_table_section)
     if figures_section:
         parts.append(figures_section)
     if refs_section:
         parts.append(refs_section)
+    if search_appendix_section:
+        parts.append(search_appendix_section)
 
     return "\n\n---\n\n".join(parts)
 

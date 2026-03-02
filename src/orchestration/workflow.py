@@ -7,6 +7,7 @@ import hashlib
 import json
 import logging
 import os
+import re
 import signal
 
 _log = logging.getLogger(__name__)
@@ -19,6 +20,7 @@ logger = logging.getLogger(__name__)
 from pydantic_graph import BaseNode, End, Graph, GraphRunContext
 from rich.table import Table
 
+from src.citation.ledger import CitationLedger
 from src.config.loader import load_configs
 from src.db.database import get_db
 from src.db.repositories import CitationRepository, WorkflowRepository
@@ -72,6 +74,7 @@ from src.search.ieee_xplore import IEEEXploreConnector
 from src.search.openalex import OpenAlexConnector
 from src.search.perplexity_search import PerplexitySearchConnector
 from src.search.pubmed import PubMedConnector
+from src.search.scopus import ScopusConnector
 from src.search.semantic_scholar import SemanticScholarConnector
 from src.search.csv_import import parse_masterlist_csv
 from src.search.strategy import SearchStrategyCoordinator
@@ -97,7 +100,10 @@ from src.rag.reranker import rerank_chunks
 from src.rag.retriever import RAGRetriever
 from src.synthesis.contradiction_detector import detect_contradictions
 from src.writing.citation_grounding import verify_citation_grounding, repair_hallucinated_citekeys
-from src.writing.contradiction_resolver import generate_contradiction_paragraph
+from src.writing.contradiction_resolver import (
+    build_conflicting_evidence_section,
+    generate_contradiction_paragraph,
+)
 from src.writing.context_builder import build_writing_grounding
 from src.writing.humanizer import humanize_async
 from src.writing.orchestration import (
@@ -173,6 +179,8 @@ def _build_connectors(workflow_id: str, target_databases: list[str]) -> tuple[li
                 connectors.append(CrossrefConnector(workflow_id))
             elif normalized == "perplexity_search":
                 connectors.append(PerplexitySearchConnector(workflow_id))
+            elif normalized == "scopus":
+                connectors.append(ScopusConnector(workflow_id))
             elif normalized in {"clinicaltrials", "clinicaltrials_gov"}:
                 connectors.append(ClinicalTrialsConnector(workflow_id))
             else:
@@ -254,6 +262,7 @@ class StartNode(BaseNode[ReviewState]):
         state.artifacts["concept_taxonomy"] = str(run_paths.run_dir / "fig_concept_taxonomy.svg")
         state.artifacts["conceptual_framework"] = str(run_paths.run_dir / "fig_conceptual_framework.svg")
         state.artifacts["methodology_flow"] = str(run_paths.run_dir / "fig_methodology_flow.svg")
+        state.artifacts["evidence_network"] = str(run_paths.run_dir / "fig_evidence_network.png")
 
         # Snapshot the review config at run start so re-extraction and post-hoc
         # scripts always use the config that produced this run, not a later config.
@@ -481,6 +490,27 @@ class SearchNode(BaseNode[ReviewState]):
                 )
 
             deduped, _ = deduplicate_papers(all_papers)
+
+            # Backfill abstracts for Scopus papers (Search API never returns dc:description)
+            scopus_no_abstract = sum(
+                1 for p in deduped
+                if p.source_database == "scopus" and not p.abstract and p.doi
+            )
+            if scopus_no_abstract > 0:
+                try:
+                    from src.search.scopus import enrich_scopus_abstracts
+                    enriched_count = await enrich_scopus_abstracts(deduped)
+                    logger.info(
+                        "SearchNode: enriched %d/%d Scopus abstracts via Abstract API",
+                        enriched_count,
+                        scopus_no_abstract,
+                    )
+                except Exception as _enrich_err:
+                    logger.warning(
+                        "SearchNode: Scopus abstract enrichment failed (%s) -- proceeding",
+                        _enrich_err,
+                    )
+
             state.deduped_papers = deduped
             state.dedup_count = dedup_count
             state.search_counts = await repository.get_search_counts(state.workflow_id)
@@ -663,11 +693,11 @@ class ScreeningNode(BaseNode[ReviewState]):
                 ) -> "list[DualScreeningResult]":
                     # Temporarily override threshold on screener for calibration pass.
                     original_include = getattr(
-                        screener._settings.screening, "stage1_include_threshold", 0.85
+                        screener.settings.screening, "stage1_include_threshold", 0.85
                     )
                     try:
-                        screener._settings.screening.stage1_include_threshold = threshold
-                        screener._settings.screening.stage1_exclude_threshold = max(0.0, threshold - 0.05)
+                        screener.settings.screening.stage1_include_threshold = threshold
+                        screener.settings.screening.stage1_exclude_threshold = max(0.0, threshold - 0.05)
                         results = await screener.screen_batch(
                             workflow_id=f"{state.workflow_id}_calib",
                             stage="calibration",
@@ -675,8 +705,8 @@ class ScreeningNode(BaseNode[ReviewState]):
                         )
                         return list(results)
                     finally:
-                        screener._settings.screening.stage1_include_threshold = original_include
-                        screener._settings.screening.stage1_exclude_threshold = max(0.0, original_include - 0.05)
+                        screener.settings.screening.stage1_include_threshold = original_include
+                        screener.settings.screening.stage1_exclude_threshold = max(0.0, original_include - 0.05)
 
                 try:
                     calibrated = await _calibrate_threshold(
@@ -802,9 +832,11 @@ class ScreeningNode(BaseNode[ReviewState]):
 
             # -- Forward citation chasing (PRISMA 2020 snowball supplement) --
             # Runs after inclusion decisions; found papers re-enter as screening candidates.
-            _citation_chasing = state.settings.search.get("citation_chasing_enabled", False) if (
-                state.settings and hasattr(state.settings, "search") and isinstance(state.settings.search, dict)
-            ) else False
+            _citation_chasing = (
+                state.settings.search.citation_chasing_enabled
+                if state.settings
+                else False
+            )
             if state.included_papers and _citation_chasing:
                 try:
                     known_dois = {p.doi for p in state.deduped_papers if p.doi}
@@ -1020,12 +1052,44 @@ class ExtractionQualityNode(BaseNode[ReviewState]):
                         )
                     )
 
+            # Load extraction config for full-text retrieval and PDF vision
+            extraction_cfg = getattr(state.settings, "extraction", None)
+
             for i, paper in enumerate(to_process):
                 if rc and rc.verbose:
                     rc.console.print(
                         f"  Extracting {paper.paper_id[:12]}... ({i + 1}/{len(to_process)})"
                     )
-                full_text = (paper.abstract or paper.title or "").strip()
+
+                # --- 3-tier full-text retrieval (replaces abstract-only) ---
+                ft_result = None
+                if use_real_client and extraction_cfg is not None:
+                    try:
+                        from src.extraction.table_extraction import fetch_full_text
+                        ft_result = await fetch_full_text(
+                            doi=paper.doi,
+                            url=paper.url,
+                            pmid=None,
+                            use_sciencedirect=getattr(extraction_cfg, "sciencedirect_full_text", True),
+                            use_unpaywall=getattr(extraction_cfg, "unpaywall_full_text", True),
+                            use_pmc=getattr(extraction_cfg, "pmc_full_text", True),
+                        )
+                    except Exception as _ft_err:
+                        logger.warning(
+                            "ExtractionNode: full-text fetch failed for %s (%s) -- using abstract",
+                            paper.paper_id, _ft_err,
+                        )
+
+                # Use fetched full text if substantial; fall back to abstract
+                if ft_result and ft_result.text and len(ft_result.text) >= getattr(extraction_cfg, "full_text_min_chars", 500):
+                    full_text = ft_result.text
+                    if rc and rc.verbose:
+                        rc.console.print(
+                            f"    [dim]full-text via {ft_result.source} ({len(full_text)} chars)[/]"
+                        )
+                else:
+                    full_text = (paper.abstract or paper.title or "").strip()
+
                 try:
                     design = await classifier.classify(state.workflow_id, paper)
                 except Exception as exc:
@@ -1047,6 +1111,55 @@ class ExtractionQualityNode(BaseNode[ReviewState]):
                         study_design=design,
                         full_text=full_text,
                     )
+
+                    # --- PDF vision table extraction ---
+                    use_vision = (
+                        use_real_client
+                        and extraction_cfg is not None
+                        and getattr(extraction_cfg, "use_pdf_vision", True)
+                        and ft_result is not None
+                        and ft_result.pdf_bytes is not None
+                    )
+                    # Set extraction_source from the full-text retrieval tier
+                    if ft_result and ft_result.source != "abstract":
+                        try:
+                            record.extraction_source = ft_result.source  # type: ignore[assignment]
+                        except Exception:
+                            pass  # model validation will reject unknown literals gracefully
+
+                    if use_vision:
+                        try:
+                            from src.extraction.table_extraction import (
+                                extract_tables_from_pdf,
+                                merge_outcomes,
+                            )
+                            vision_model = getattr(
+                                extraction_cfg, "pdf_vision_model", "gemini-2.5-flash"
+                            ).replace("google-gla:", "")
+                            vision_outcomes = await extract_tables_from_pdf(
+                                ft_result.pdf_bytes,
+                                model_name=vision_model,
+                            )
+                            if vision_outcomes:
+                                merged, _merge_source = merge_outcomes(
+                                    list(record.outcomes), vision_outcomes
+                                )
+                                record.outcomes = merged
+                                try:
+                                    record.extraction_source = _merge_source  # type: ignore[assignment]
+                                except Exception:
+                                    pass
+                                logger.info(
+                                    "ExtractionNode: vision extracted %d table rows "
+                                    "for paper %s (source=%s)",
+                                    len(vision_outcomes), paper.paper_id, _merge_source,
+                                )
+                        except Exception as _vis_err:
+                            logger.warning(
+                                "ExtractionNode: PDF vision failed for %s: %s",
+                                paper.paper_id, _vis_err,
+                            )
+
                     records.append(record)
                     if rc:
                         rc.advance_screening("phase_4_extraction_quality", i + 1, len(to_process))
@@ -1776,6 +1889,7 @@ class WritingNode(BaseNode[ReviewState]):
             all_extraction_records = await repository.load_extraction_records(state.workflow_id)
             # Apply post-extraction quality gate: only pass records with real extracted data.
             extraction_records_for_table = [r for r in all_extraction_records if not is_extraction_failed(r)]
+            _failed_extraction_count = len(all_extraction_records) - len(extraction_records_for_table)
             included_ids = {r.paper_id for r in extraction_records_for_table}
             if not included_ids:
                 included_ids = await repository.get_included_paper_ids(state.workflow_id)
@@ -1791,16 +1905,27 @@ class WritingNode(BaseNode[ReviewState]):
             "discussion": "## Discussion",
             "conclusion": "## Conclusion",
         }
+        # Patterns that match LLM-generated section-level heading variants we
+        # must strip before prepending the canonical ## heading.
+        # Covers: "## Results", "### Results", "### **Results**", etc.
+        _section_heading_strip_re = re.compile(
+            r"^#{2,3}\s+\*{0,2}(Introduction|Methods|Results|Discussion|Conclusion)\*{0,2}\s*\n+",
+            re.IGNORECASE,
+        )
+
         titled_sections = []
         for section, content in zip(SECTIONS, sections_written):
             heading = _SECTION_HEADINGS.get(section, "")
             if heading:
-                # Strip any duplicate heading the LLM may have written at the top
-                # of the section (e.g. "## Discussion\n\n...") before prepending
-                # our canonical heading, so we never get two identical H2s.
+                # Strip any duplicate or variant section heading the LLM may have
+                # written at the top (e.g. "## Discussion", "### **Results**").
                 stripped = content.lstrip()
+                # Exact match strip (fast path)
                 if stripped.startswith(heading):
                     content = stripped[len(heading):].lstrip("\n")
+                else:
+                    # Broad strip: remove any ## or ### section-level heading variant
+                    content = _section_heading_strip_re.sub("", stripped)
             titled_sections.append(f"{heading}\n\n{content}" if heading else content)
 
         manuscript_path = Path(state.artifacts["manuscript_md"])
@@ -1844,8 +1969,14 @@ class WritingNode(BaseNode[ReviewState]):
                 if flags:
                     _use_llm_contra = _llm_available(settings_cfg=state.settings) and (rc is None or not rc.offline)
                     api_key = os.getenv("GEMINI_API_KEY", "")
+                    _contra_model = (
+                        state.settings.agents["writing"].model
+                        if state.settings and "writing" in state.settings.agents
+                        else "google-gla:gemini-2.5-pro"
+                    )
                     contra_paragraph = await generate_contradiction_paragraph(
                         flags,
+                        model_name=_contra_model,
                         api_key=api_key if _use_llm_contra else None,
                     )
                     if contra_paragraph and "## Discussion" in body:
@@ -1862,6 +1993,20 @@ class WritingNode(BaseNode[ReviewState]):
                                 + contra_paragraph
                                 + body[_inject_point:]
                             )
+
+                    # Append structured "### Conflicting Evidence" subsection before
+                    # the Conclusion so reviewers can see the flag pairs explicitly.
+                    _conflict_section = build_conflicting_evidence_section(flags)
+                    if _conflict_section:
+                        # Insert before ## Conclusion (or append to body if absent)
+                        if "## Conclusion" in body:
+                            body = body.replace(
+                                "## Conclusion",
+                                _conflict_section + "\n\n## Conclusion",
+                                1,
+                            )
+                        else:
+                            body = body.rstrip() + "\n\n" + _conflict_section + "\n"
             except Exception as _contra_exc:
                 logger.warning("Contradiction detection failed (non-fatal): %s", _contra_exc)
 
@@ -1890,6 +2035,11 @@ class WritingNode(BaseNode[ReviewState]):
             _grade_repo = WorkflowRepository(_grade_db)
             _grade_assessments = await _grade_repo.load_grade_assessments(state.workflow_id)
 
+        _search_appendix_path = (
+            Path(state.artifacts["search_appendix"])
+            if "search_appendix" in state.artifacts
+            else None
+        )
         full_manuscript = assemble_submission_manuscript(
             body=body,
             manuscript_path=manuscript_path,
@@ -1898,6 +2048,8 @@ class WritingNode(BaseNode[ReviewState]):
             papers=included_papers_for_table,
             extraction_records=extraction_records_for_table,
             grade_assessments=_grade_assessments if _grade_assessments else None,
+            failed_count=_failed_extraction_count,
+            search_appendix_path=_search_appendix_path,
         )
         manuscript_path.write_text(full_manuscript, encoding="utf-8")
 
@@ -1993,12 +2145,18 @@ class WritingNode(BaseNode[ReviewState]):
                     review_topic=_topic,
                 )
 
+            _concept_model = (
+                state.settings.agents.get("abstract_generation", state.settings.agents.get("writing")).model
+                if state.settings and state.settings.agents
+                else "google-gla:gemini-2.5-flash"
+            )
             _concept_results = await asyncio.wait_for(
                 render_concept_diagrams(
                     taxonomy_spec=_taxonomy_spec,
                     framework_spec=_framework_spec,
                     flowchart_spec=_flowchart_spec,
                     out_dir=_out_dir,
+                    model=_concept_model,
                 ),
                 timeout=180.0,
             )
@@ -2044,6 +2202,39 @@ class FinalizeNode(BaseNode[ReviewState]):
             "extraction_records": len(state.extraction_records),
             "artifacts": filtered_artifacts,
         }
+        # --- Citation lineage validation gate ---
+        # Check the final manuscript for unresolved citekeys. Respects the
+        # citation_lineage.block_export_on_unresolved setting: when True, a warning
+        # is logged and the summary records the issue so the export endpoint can
+        # surface it. The run itself always completes -- the gate is advisory here.
+        _manuscript_path = state.artifacts.get("manuscript_md", "")
+        if _manuscript_path and os.path.isfile(_manuscript_path):
+            try:
+                _manuscript_text = Path(_manuscript_path).read_text(encoding="utf-8")
+                async with get_db(state.db_path) as _cit_db:
+                    _ledger = CitationLedger(CitationRepository(_cit_db))
+                    _block_on_unresolved = (
+                        state.settings.citation_lineage.block_export_on_unresolved
+                        if state.settings
+                        else True
+                    )
+                    _should_block = await _ledger.block_export_if_invalid(
+                        _manuscript_text,
+                        block_on_unresolved=_block_on_unresolved,
+                    )
+                    if _should_block:
+                        _log.warning(
+                            "Citation lineage gate: unresolved citations or claims detected "
+                            "in final manuscript. Export may be blocked. "
+                            "Check citation_lineage.block_export_on_unresolved in settings.yaml "
+                            "to suppress this warning."
+                        )
+                        summary["citation_lineage_valid"] = False
+                    else:
+                        summary["citation_lineage_valid"] = True
+            except Exception as _cit_err:
+                _log.warning("Citation lineage check skipped: %s", _cit_err)
+
         Path(state.artifacts["run_summary"]).write_text(json.dumps(summary, indent=2), encoding="utf-8")
         await update_registry_status(state.run_root, state.workflow_id, "completed")
         async with get_db(state.db_path) as db:

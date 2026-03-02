@@ -34,9 +34,23 @@ from pydantic_ai import Agent, NativeOutput, StructuredDict, WebFetchTool, WebSe
 
 logger = logging.getLogger(__name__)
 
-# Use the search agent model tier (flash-grade, fast and cheap).
-_MODEL = "google-gla:gemini-2.5-flash"
+# Fallback model used only when settings.yaml cannot be loaded.
+# In production the model is resolved from agents.search in settings.yaml.
+_MODEL_FALLBACK = "google-gla:gemini-2.5-flash"
 _TEMPERATURE = 0.3
+
+
+def _resolve_model() -> str:
+    """Resolve the config-generator model from settings.yaml at call time."""
+    try:
+        from src.config.loader import load_configs
+        _, settings = load_configs(settings_path="config/settings.yaml")
+        search_agent = settings.agents.get("search")
+        if search_agent:
+            return search_agent.model
+    except Exception:
+        pass
+    return _MODEL_FALLBACK
 
 # Structural defaults that are never LLM-generated (kept stable across all reviews).
 _DEFAULT_DATE_START = 2010
@@ -44,11 +58,9 @@ _DEFAULT_DATE_END = datetime.datetime.now().year
 _DEFAULT_DATABASES = [
     "openalex",
     "pubmed",
-    "arxiv",
-    "ieee_xplore",
+    "scopus",
     "semantic_scholar",
-    "crossref",
-    "perplexity_search",
+    "ieee_xplore",
 ]
 _DEFAULT_SECTIONS = [
     "abstract",
@@ -245,9 +257,10 @@ async def generate_config_yaml(
     # Stage 1: web-grounded research brief
     # ------------------------------------------------------------------
     emit("web_research")
+    _model = _resolve_model()
     research_prompt = _RESEARCH_PROMPT.format(research_question=rq)
     research_agent: Agent[None, str] = Agent(
-        _MODEL,
+        _model,
         output_type=str,
         builtin_tools=[WebSearchTool(), WebFetchTool()],
     )
@@ -276,7 +289,7 @@ async def generate_config_yaml(
     )
     schema = _GeneratedConfig.model_json_schema()
     output_type = NativeOutput(StructuredDict(schema))
-    structure_agent: Agent = Agent(_MODEL, output_type=output_type)  # type: ignore[arg-type]
+    structure_agent: Agent = Agent(_model, output_type=output_type)  # type: ignore[arg-type]
 
     try:
         structure_result = await structure_agent.run(

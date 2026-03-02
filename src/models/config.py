@@ -216,6 +216,70 @@ class SearchConfig(BaseModel):
             "openalex, pubmed, arxiv, ieee_xplore, semantic_scholar, crossref, perplexity_search."
         ),
     )
+    citation_chasing_enabled: bool = Field(
+        default=False,
+        description=(
+            "Enable PRISMA 2020 snowball forward citation chasing after inclusion decisions. "
+            "When true, the citation chaser queries Semantic Scholar and OpenAlex for papers "
+            "that cite included papers, adding new candidates to the screening pool."
+        ),
+    )
+
+
+class ExtractionConfig(BaseModel):
+    """Full-text retrieval and multi-modal extraction settings.
+
+    Controls whether the pipeline fetches actual paper full text (vs. abstract-only)
+    and whether Gemini vision is used to extract quantitative data from PDF tables.
+    """
+
+    sciencedirect_full_text: bool = Field(
+        default=True,
+        description=(
+            "Fetch full text from the ScienceDirect Article Retrieval API "
+            "(https://api.elsevier.com/content/article/doi/{doi}) using SCOPUS_API_KEY. "
+            "Returns 100KB+ of content for Elsevier open-access papers. "
+            "Gracefully skipped when SCOPUS_API_KEY is absent or the paper is not OA."
+        ),
+    )
+    unpaywall_full_text: bool = Field(
+        default=True,
+        description=(
+            "Fetch open-access PDFs via Unpaywall (https://api.unpaywall.org/v2/{doi}). "
+            "Covers ~50% of recent papers. No API key required. "
+            "Used as fallback when ScienceDirect returns no content."
+        ),
+    )
+    pmc_full_text: bool = Field(
+        default=True,
+        description=(
+            "Fetch full text from PubMed Central "
+            "(https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi). "
+            "Covers NIH-funded open-access papers. No API key required. "
+            "Used as fallback when ScienceDirect and Unpaywall return no content."
+        ),
+    )
+    use_pdf_vision: bool = Field(
+        default=True,
+        description=(
+            "When a PDF is available (from Unpaywall), send it to the Gemini vision model "
+            "to extract quantitative outcome data from tables. Merged with text extraction "
+            "results; vision takes precedence for numeric fields (effect_size, CI, p-value). "
+            "Disable for offline/cost-sensitive runs."
+        ),
+    )
+    pdf_vision_model: str = Field(
+        default="google-gla:gemini-2.5-flash",
+        description="Gemini model used for PDF table vision extraction.",
+    )
+    full_text_min_chars: int = Field(
+        default=500,
+        ge=100,
+        description=(
+            "Minimum character count for a full-text response to be considered usable. "
+            "Responses shorter than this fall through to the next retrieval tier."
+        ),
+    )
 
 
 class RagConfig(BaseModel):
@@ -266,5 +330,6 @@ class SettingsConfig(BaseModel):
     citation_lineage: CitationLineageConfig = Field(default_factory=CitationLineageConfig)
     search: SearchConfig = Field(default_factory=SearchConfig)
     rag: RagConfig = Field(default_factory=RagConfig)
+    extraction: ExtractionConfig = Field(default_factory=ExtractionConfig)
     llm: LLMRateLimitConfig | None = None
     human_in_the_loop: HumanInTheLoopConfig = Field(default_factory=HumanInTheLoopConfig)

@@ -228,7 +228,7 @@ Change rarely. Values are tuned from real runs.
 | `meta_analysis.*` | `enabled`, `heterogeneity_threshold` (50 = I-squared cutoff for fixed vs random effects), `funnel_plot_minimum_studies` (10), effect measures |
 | `ieee_export.*` | `template` (IEEEtran), `max_abstract_words` (250), `target_page_range` ([7, 10]) |
 | `citation_lineage.*` | `block_export_on_unresolved` (true), `minimum_evidence_score` (0.5) |
-| `search.*` | `max_results_per_db` (global default: 500), `per_database_limits` (per-connector overrides) |
+| `search.*` | `max_results_per_db` (global default: 500), `per_database_limits` (per-connector overrides), `citation_chasing_enabled` (false -- PRISMA 2020 snowball forward citation chasing) |
 | `rag.*` | `use_hyde` (true -- HyDE query expansion before dense embed), `hyde_model` (gemini-2.0-flash), `rerank` (true -- Gemini listwise reranking), `reranker_model` (gemini-2.0-flash) |
 
 Both YAML files are validated into Pydantic models at startup via `src/config/loader.py`. Invalid config fails fast with a clear error message.
@@ -929,7 +929,7 @@ Living section -- update as work completes.
 | Enhancement #9: Adaptive Screening Threshold | DONE | Active-learning calibration loop: 30-paper sample, kappa computed, thresholds adjusted via bisection until kappa > 0.7 or 3 iterations; settings: screening.calibration_sample_size |
 | Enhancement #10: GRADE Evidence Profile | DONE | Full GRADE Summary of Findings table (studies, participants, effect estimate, certainty, reason); build_sof_table() in grade.py; GradeSoFTable + GradeSoFRow models; LaTeX longtable export; GET /api/run/{run_id}/grade-sof endpoint |
 | Search quality sprint | DONE | Scopus connector (src/search/scopus.py, TITLE-ABS-KEY field codes, 5 req/sec limit, 429 back-off); default target_databases updated to openalex + pubmed + scopus + semantic_scholar + ieee_xplore; perplexity_search + crossref + arxiv removed from default pipeline |
-| Manuscript quality sprint | DONE | finalize_manuscript.py: _strip_unresolved_citekeys() removes orphaned author-year citekeys; _reframe_kappa() contextualises borderline-only kappa; GRADE table wired from DB; search strings appendix auto-appended; characteristics table note explains partial-extraction rows |
+| Manuscript quality sprint | DONE | Root causes fixed in pipeline: assemble_submission_manuscript() includes GRADE SoF table, search appendix, excluded-studies footnote; abstract prompt includes kappa framing; semicolon parsing in citation extraction; IMRaD heading prompts tightened. finalize_manuscript.py is a thin regeneration utility for historical runs; _strip_unresolved_citekeys() is the only remaining safety net. Citation lineage gate: FinalizeNode validates manuscript; block_export_on_unresolved respected. |
 
 **Test status:** 104 unit tests + 13 integration tests passing (`uv run pytest tests/unit tests/integration -q`).
 

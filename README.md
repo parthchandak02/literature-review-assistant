@@ -358,7 +358,7 @@ uv run pytest tests/integration -q
 
 | Script | Purpose |
 |--------|---------|
-| `scripts/finalize_manuscript.py` | Retroactively regenerate `doc_manuscript.md` sections (Figures, Declarations, Study Characteristics Table, References) for an existing run directory. Also injects missing IMRaD headings. Usage: `uv run python scripts/finalize_manuscript.py --run-dir runs/<date>/<topic>/run_<time>` |
+| `scripts/finalize_manuscript.py` | Thin regeneration utility for `doc_manuscript.md`: re-assembles all sections (Declarations, GRADE tables, Study Characteristics Table, Search appendix, Figures, References) from an existing run's runtime.db. Strips unresolved citekeys and injects IMRaD headings for historical runs. Usage: `uv run python scripts/finalize_manuscript.py --run-dir runs/<date>/<topic>/run_<time>` |
 | `scripts/migrate_to_runs.py` | One-time migration to move legacy run artifacts into the current `runs/<date>/<topic>/` directory structure. |
 | `scripts/re_extract.py` | Targeted re-extraction for studies with low-quality data (placeholder outcomes, missing authors). Usage: `uv run python scripts/re_extract.py --run-dir runs/<date>/<topic>/run_<time>` |
 | `scripts/benchmark.py` | Validate tool outputs against a gold-standard corpus: measures screening recall, extraction field accuracy, and RoB Cohen's kappa vs. published review. Usage: `uv run python scripts/benchmark.py --run-dir runs/<date>/<topic>/run_<time> --gold gold.json` |

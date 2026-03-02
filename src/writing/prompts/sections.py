@@ -30,10 +30,13 @@ SECTIONS = [
 # Instruction added to every non-abstract section to prevent the LLM from
 # writing its own duplicate heading (the assembly pipeline adds headings).
 _NO_HEADING_RULE = (
-    "STRUCTURE RULE: Do NOT begin the text with a section heading "
-    "(e.g. '## Introduction', '## Methods'). "
-    "The heading is inserted automatically by the assembly pipeline. "
-    "Begin directly with the first sentence of the section content."
+    "STRUCTURE RULE: Do NOT write the section name as a heading at the top. "
+    "Do NOT write '## Introduction', '## Methods', '## Results', '## Discussion', "
+    "'### Results', '### **Results**', '### Discussion', '### **Discussion**', "
+    "or any variant of the section name as a heading. "
+    "The section heading is inserted automatically by the assembly pipeline. "
+    "Begin directly with the first sentence of the section content. "
+    "Sub-headings within the section (e.g. '### Study Selection') are allowed."
 )
 
 _PROSE_QUALITY_RULE = (
@@ -90,9 +93,26 @@ def get_abstract_prompt_context(
             "Do NOT claim meta-analysis for outcomes not listed above."
         )
 
+    # Build kappa framing instruction if kappa data is present in grounding
+    kappa_instruction = ""
+    if grounding is not None and getattr(grounding, "cohens_kappa", None) is not None:
+        kappa_val = f"{grounding.cohens_kappa:.3f}"
+        kappa_n = getattr(grounding, "kappa_n", 0)
+        n_str = f" (N={kappa_n})" if kappa_n > 0 else ""
+        kappa_instruction = (
+            f"CRITICAL -- kappa abstract framing: If you mention inter-rater reliability "
+            f"in the Methods field, you MUST use the subset qualifier. Write: "
+            f"'Inter-rater reliability for the subset of ambiguous papers requiring dual "
+            f"review{n_str} was Cohen's kappa = {kappa_val}.' "
+            f"Do NOT report this as overall screening agreement. "
+            f"The majority of screening decisions were high-confidence single-reviewer "
+            f"classifications that are excluded from this kappa calculation.\n\n"
+        )
+
     return (
         prefix
         + meta_constraint + "\n\n"
+        + kappa_instruction
         + "Write the structured abstract. Format it with bold field labels on separate lines: "
         "**Objectives:**, **Methods:**, **Results:**, **Conclusion:**, **Keywords:**\n\n"
         "Use the FACTUAL DATA BLOCK above for all numbers -- "
@@ -177,6 +197,8 @@ def get_results_prompt_context(
         + "Write a thorough results section of approximately 900 words. "
         "ALL counts MUST come from the FACTUAL DATA BLOCK above -- "
         "do NOT invent records identified, screened, or excluded counts. "
+        "Begin immediately with '### Study Selection' as the first line -- "
+        "do NOT add a parent 'Results' heading before it. "
         "Structure with explicit sub-headings:\n"
         "### Study Selection\n"
         "Report exact PRISMA numbers from the block. Refer to Figure 1 (PRISMA flow diagram).\n"
@@ -202,7 +224,10 @@ def get_discussion_prompt_context(
         prefix
         + _NO_HEADING_RULE + "\n\n"
         + "Write a thorough discussion section of approximately 850 words. "
-        "Do not truncate. Use explicit sub-headings:\n"
+        "Do not truncate. "
+        "Begin immediately with '### Principal Findings' as the first line -- "
+        "do NOT add a parent 'Discussion' heading before it. "
+        "Use explicit sub-headings:\n"
         "### Principal Findings\n"
         "Summarise the main results and their implications.\n"
         "### Comparison with Prior Work\n"

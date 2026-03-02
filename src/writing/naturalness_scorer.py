@@ -19,9 +19,13 @@ def score_naturalness(
 
 async def score_naturalness_async(
     text: str,
-    model: str = "google-gla:gemini-2.5-pro",
+    model: str = "google-gla:gemini-2.5-flash",
     max_chars: int = 3_000,
 ) -> float:
-    """Async naturalness scoring. Placeholder for LLM integration."""
+    """Async naturalness scoring. Placeholder for LLM integration.
+
+    The model parameter is accepted for future LLM-based implementation.
+    Default matches the writing agent model tier from settings.yaml.
+    """
     _ = model
     return score_naturalness(text, max_chars=max_chars)
