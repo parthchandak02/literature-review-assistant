@@ -1,34 +1,57 @@
 # Session Bootstrap
 
 Orient yourself at the start of every new chat session before making any plans or edits.
-Run all steps below immediately -- do not skip them even for seemingly simple requests.
+Execute ALL steps below immediately -- do not skip any step even for seemingly simple requests.
 
-## Step 1 -- Understand recent changes
+---
+
+## Step 1 -- Read the authoritative project docs
+
+Read these two files in full. They are the ground truth for architecture, phase status, and
+every module's responsibility:
+
+- `spec.md` -- full technical specification (all 8 phases, acceptance criteria, implementation status)
+- `README.md` -- quick-start, production URLs, PM2 process names
+
+Also read the project overview rule which maps every directory:
+- `.cursor/rules/core/project-overview-always.mdc`
+
+The Known Gotchas section at the bottom of `project-overview-always.mdc` contains hard-won
+session knowledge. Check it before assuming any behavior about PRISMA, run directories, or
+frontend builds.
+
+---
+
+## Step 2 -- Understand recent changes
+
+Run all three commands and read the output carefully:
 
 ```bash
-git log --oneline -10             # what changed across recent sessions
-git log --name-only --oneline -5  # which specific files changed in the last 5 commits
-git status --short                # any uncommitted edits right now
+git log --oneline -10
+git log --format="%H%n%s%n%b%n---FILES---" --name-only -5
+git status --short
 ```
 
-Read the commit messages and file list carefully. They tell you what a previous agent
-already did so you do not repeat work or undo changes.
+The detailed log (second command) shows you:
+- Exact commit message and body for each of the last 5 commits
+- Which files each commit touched
 
-## Step 2 -- Check process health
+This tells you what a previous agent already did so you do not repeat work or undo changes.
+Pay special attention to any uncommitted modifications (M) and untracked files (??) in git status.
+
+---
+
+## Step 3 -- Check process health
 
 ```bash
-pm2 list                          # verify litreview-api (port 8001) and litreview-ui are online
-pm2 logs litreview-api --lines 20 # catch any recent backend crashes
+pm2 list
+pm2 logs litreview-api --lines 20
 ```
 
+Verify `litreview-api` (port 8001 dev / 8000 prod) and `litreview-ui` are online.
 If `litreview-api` is stopped or erroring, fix that before starting new work.
 
-## Step 3 -- Re-read the project overview
-
-`project-overview-always.mdc` is the authoritative map of every backend module (`src/`)
-and frontend component (`frontend/src/`). Re-read the relevant section before touching
-an unfamiliar module. The Known Gotchas section at the bottom contains hard-won session
-knowledge -- check it before assuming any behavior.
+---
 
 ## Step 4 -- Production deploy reminder
 
@@ -43,3 +66,13 @@ pm2 restart litreview-api
 ```
 
 The Vite dev server (localhost:5173) picks up changes automatically; the production URL does not.
+
+---
+
+## Orientation checklist (confirm before proceeding)
+
+- [ ] Read spec.md and README.md
+- [ ] Read .cursor/rules/core/project-overview-always.mdc (especially Known Gotchas)
+- [ ] Reviewed last 5 commit messages and touched files
+- [ ] Noted any uncommitted changes in git status
+- [ ] Confirmed pm2 process health

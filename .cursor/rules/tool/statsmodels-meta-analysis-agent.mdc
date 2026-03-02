@@ -23,10 +23,10 @@ from statsmodels.stats.meta_analysis import effectsize_smd, effectsize_2proporti
 See https://www.statsmodels.org/dev/generated/statsmodels.stats.meta_analysis.combine_effects.html
 ```python
 from statsmodels.stats.meta_analysis import combine_effects
-# Fixed: combine_effects(effect, variance, method_re="iterated", use_t=False)
-# Random (DL): combine_effects(effect, variance, method_re="chi2"|"dl", use_t=True)
-# method_re: "iterated"/"pm" (Paule-Mandel) or "chi2"/"dl" (DerSimonian-Laird)
-# Choose based on I^2: fixed if < 40%, random if >= 40%
+# Fixed (I^2 < 40%): combine_effects(effect, variance, method_re="dl", use_t=False)
+# Random (I^2 >= 40%, DerSimonian-Laird): combine_effects(effect, variance, method_re="dl", use_t=True)
+# method_re: "dl" (DerSimonian-Laird) is used in this codebase; "pm" (Paule-Mandel) also available
+# The codebase switches between fixed and random based on I^2 threshold (40%) in meta_analysis.py
 ```
 
 ## Note: Mantel-Haenszel is NOT available in statsmodels
@@ -34,7 +34,7 @@ Use DerSimonian-Laird for binary outcome pooling.
 
 ## Forest Plot
 ```python
-result = combine_effects(effect, variance, method_re="iterated")
-fig = result.plot_forest()
+result = combine_effects(effect, variance, method_re="dl", use_t=False)
+fig = result.plot_forest(alpha=0.05, use_t=False)
 fig.savefig("forest_plot.png", dpi=300, bbox_inches="tight")
 ```

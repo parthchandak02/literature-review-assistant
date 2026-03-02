@@ -1,0 +1,30 @@
+---
+description: Codebase-specific behavioral quirks and non-obvious facts. Apply when debugging PRISMA endpoints, run history, production deploys, or any behavior that seems wrong.
+globs:
+alwaysApply: false
+---
+
+# Operational Gotchas
+
+Non-obvious facts about this codebase that have caused agent mistakes in past sessions.
+Apply this rule when touching PRISMA, run history, export, or production serving.
+
+## PRISMA Checklist Filename
+The API reads `doc_manuscript.md` from the run directory, NOT `manuscript.md`.
+If the PRISMA checklist card shows "data not available", check that `doc_manuscript.md` exists.
+
+## Historical Run Endpoints
+PRISMA and results endpoints require the run to be registered in `_active_runs` in memory.
+After a server restart, historical runs are NOT in `_active_runs`.
+Use `POST /api/history/attach` to re-register a completed run before calling any results or PRISMA APIs.
+The PRISMA checklist endpoint falls back to `workflows_registry.db` automatically when the run_id
+is not in `_active_runs` -- supports both short run_ids and workflow_ids (wf-XXXXXXXX format).
+
+## Production Build
+The production URL (`https://litreview.parthchandak.info`) serves `frontend/dist/` -- NOT the Vite dev server.
+Frontend code changes are invisible in production until you run `cd frontend && pnpm build`.
+The Vite dev server on localhost:5173 picks up changes automatically.
+
+## Backend Module Reload
+Python loads all modules at startup. Any change to `src/` is invisible until `pm2 restart litreview-api`.
+The running process uses the pre-edit bytecode even after the file is saved.

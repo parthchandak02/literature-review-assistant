@@ -1,29 +1,22 @@
 ---
-description:
+description: Build phase status and test commands. Apply when asked about implementation status, adding new phases, or running acceptance criteria tests.
 globs:
-alwaysApply: true
+alwaysApply: false
 ---
 
-# Build Phase Discipline
+# Build Phase Status
 
-## Current Build Order (ALL PHASES COMPLETE)
-Phase 1: Foundation -> Phase 2: Search -> Phase 3: Screening -> Phase 4: Extraction & Quality -> Phase 5: Synthesis -> Phase 6: Writing -> Phase 7: PRISMA & Viz -> Phase 8: Export & Orchestration
+## All 8 Phases Complete
+Phase 1: Foundation, Phase 2: Search, Phase 3: Screening, Phase 4: Extraction & Quality,
+Phase 5: Synthesis, Phase 6: Writing, Phase 7: PRISMA & Viz, Phase 8: Export & Orchestration
 
-All 8 phases are implemented and verified. See spec.md Section 13 for implementation status.
+All phases implemented and verified. See `spec.md` Section 13 for detailed acceptance criteria.
 
-## Rules
-- Build in exact phase order. Do not implement Phase N+1 code before Phase N is approved.
-- After completing a phase, run acceptance criteria tests before proceeding.
-- When in doubt about which phase we're in, ask the user.
-
-## Verification After Each Phase
+## Test Commands
 ```bash
 uv run pytest tests/unit -q
 uv run pytest tests/integration -q
 uv run python -m src.main --help
 ```
 
-## Strict Commit Safety
-- Before any commit, inspect staged files and abort if secrets or runtime artifacts are staged.
-- Forbidden by default: `.env`, `runs/**`, and other run-specific generated artifacts.
-- Only proceed if the user explicitly asks to override this block.
+New work should extend existing phases, not introduce new phase ordering constraints.

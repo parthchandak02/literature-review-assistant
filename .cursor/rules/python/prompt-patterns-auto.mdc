@@ -6,8 +6,8 @@ alwaysApply: false
 
 # LLM Prompt Engineering Patterns
 
-## Topic Context Injection (every prompt header)
-Every LLM prompt starts with this context block, populated from ReviewConfig:
+## Topic Context Injection
+Screening and study-classifier prompts start with this context block, populated from ReviewConfig:
 ```
 Role: {role from settings.yaml}
 Goal: {goal with topic and research_question interpolated}
@@ -18,6 +18,10 @@ Domain: {domain}
 Keywords: {keywords joined by comma}
 ```
 
+Not all prompts use this block. Extraction (`extractor.py`) uses a structured extraction header
+with intervention/population/outcome fields. HyDE (`hyde.py`) and the reranker (`reranker.py`)
+use minimal one-line system prompts. Writing section prompts use a trimmed Role + Topic only.
+
 ## Structured Output Enforcement
 All prompts end with:
 "Return ONLY valid JSON matching this exact schema: {schema}"
@@ -25,7 +29,7 @@ All prompts end with:
 ## Truncation Limits (context window + cost control)
 - Title/abstract screening: full title + abstract (no truncation)
 - Full-text screening: first 8,000 characters of full text
-- Data extraction: first 32,000 characters of full text (Gemini 2.5 Pro supports 1M tokens; PDFs parsed with PyMuPDF via pdf_retrieval.py produce clean markdown up to ~60K chars)
+- Data extraction: first 32,000 characters of full text (the pro-tier model supports a large context window; PDFs parsed with PyMuPDF via pdf_retrieval.py produce clean markdown up to ~60K chars)
 
 ## Confidence Thresholds (from config/settings.yaml)
 - Auto-include if confidence >= stage1_include_threshold (0.85)
