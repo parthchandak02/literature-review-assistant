@@ -11,9 +11,18 @@ Relevance Labels" (arXiv:2212.10496).
 from __future__ import annotations
 
 import logging
-from typing import Optional
+import time
+from typing import TYPE_CHECKING, Optional
 
 from pydantic_ai import Agent
+from pydantic_ai.settings import ModelSettings
+
+from src.llm.pydantic_client import _run_with_retry
+from src.llm.provider import LLMProvider
+from src.models.additional import CostRecord
+
+if TYPE_CHECKING:
+    from src.db.repositories import WorkflowRepository
 
 logger = logging.getLogger(__name__)
 
@@ -67,6 +76,7 @@ async def generate_hyde_document(
     model: str = "google-gla:gemini-2.0-flash",
     pico: Optional[object] = None,
     provider: Optional[object] = None,
+    repository: Optional["WorkflowRepository"] = None,
 ) -> str:
     """Generate a hypothetical document excerpt for use as a RAG query vector.
 
@@ -77,6 +87,7 @@ async def generate_hyde_document(
         pico: Optional PICOConfig object; when provided, PICO terms are injected
             into the prompt to anchor the hypothetical text to the review topic.
         provider: Optional PydanticAI provider override (unused; reserved for future).
+        repository: Optional WorkflowRepository; when provided, cost is logged to DB.
 
     Returns:
         Hypothetical text (100-200 words), or "" on any failure.
@@ -93,13 +104,33 @@ async def generate_hyde_document(
     )
 
     try:
+        t0 = time.monotonic()
         agent: Agent[None, str] = Agent(model, result_type=str)
-        result = await agent.run(prompt)
-        text = result.data.strip()
+        result = await _run_with_retry(
+            agent, prompt, model_settings=ModelSettings(temperature=0.7)
+        )
+        elapsed_ms = int((time.monotonic() - t0) * 1000)
+        text = result.output.strip()
         if len(text) < 30:
             logger.warning("HyDE output too short for section '%s': %r", section, text)
             return ""
         logger.debug("HyDE generated %d chars for section '%s'", len(text), section)
+
+        if repository:
+            usage = result.usage()
+            tokens_in = usage.input_tokens or 0
+            tokens_out = usage.output_tokens or 0
+            cost_usd = LLMProvider.estimate_cost_usd(model, tokens_in, tokens_out)
+            await repository.save_cost_record(
+                CostRecord(
+                    model=model,
+                    tokens_in=tokens_in,
+                    tokens_out=tokens_out,
+                    cost_usd=cost_usd,
+                    latency_ms=elapsed_ms,
+                    phase="phase_6_hyde",
+                )
+            )
         return text
     except Exception as exc:
         logger.warning("HyDE generation failed for section '%s': %s", section, exc)

@@ -15,12 +15,18 @@ from __future__ import annotations
 import json
 import logging
 import time
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Optional
 
 from pydantic import BaseModel
 from pydantic_ai import Agent
+from pydantic_ai.settings import ModelSettings
+
+from src.llm.pydantic_client import _run_with_retry
+from src.llm.provider import LLMProvider
+from src.models.additional import CostRecord
 
 if TYPE_CHECKING:
+    from src.db.repositories import WorkflowRepository
     from src.rag.retriever import RetrievedChunk
 
 logger = logging.getLogger(__name__)
@@ -51,6 +57,7 @@ async def rerank_chunks(
     chunks: "list[RetrievedChunk]",
     top_k: int = 8,
     model: str = _DEFAULT_MODEL,
+    repository: Optional["WorkflowRepository"] = None,
 ) -> "list[RetrievedChunk]":
     """Rerank chunks by relevance using Gemini listwise ranking.
 
@@ -63,6 +70,7 @@ async def rerank_chunks(
         chunks: Candidate chunks from hybrid retriever (top_k=20 recommended).
         top_k: Number of chunks to return after reranking.
         model: Fast LLM model for listwise scoring.
+        repository: Optional WorkflowRepository; when provided, cost is logged to DB.
 
     Returns:
         Up to top_k chunks, ordered by reranker relevance (best first).
@@ -85,8 +93,10 @@ async def rerank_chunks(
     t0 = time.monotonic()
     try:
         agent: Agent[None, str] = Agent(model, result_type=str)
-        result = await agent.run(prompt)
-        raw = result.data.strip()
+        result = await _run_with_retry(
+            agent, prompt, model_settings=ModelSettings(temperature=0.0)
+        )
+        raw = result.output.strip()
 
         # Extract JSON array from the response (handle prose wrapping).
         start = raw.find("[")
@@ -118,6 +128,22 @@ async def rerank_chunks(
             elapsed_ms,
             model,
         )
+
+        if repository:
+            usage = result.usage()
+            tokens_in = usage.input_tokens or 0
+            tokens_out = usage.output_tokens or 0
+            cost_usd = LLMProvider.estimate_cost_usd(model, tokens_in, tokens_out)
+            await repository.save_cost_record(
+                CostRecord(
+                    model=model,
+                    tokens_in=tokens_in,
+                    tokens_out=tokens_out,
+                    cost_usd=cost_usd,
+                    latency_ms=elapsed_ms,
+                    phase="phase_6_rerank",
+                )
+            )
 
         # Assign descending rank scores (1.0, 0.95, ...) for transparency.
         result_chunks = []

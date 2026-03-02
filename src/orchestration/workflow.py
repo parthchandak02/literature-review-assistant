@@ -1728,6 +1728,7 @@ class WritingNode(BaseNode[ReviewState]):
                                 research_question=state.review.research_question,
                                 model=hyde_model,
                                 pico=_pico_cfg,
+                                repository=repository,
                             )
                             for s in SECTIONS
                         ],
@@ -1817,7 +1818,8 @@ class WritingNode(BaseNode[ReviewState]):
                             )
                             rerank_query = hyde_text if hyde_text else bm25_query
                             chunks = await rerank_chunks(
-                                rerank_query, chunks, top_k=8, model=reranker_model
+                                rerank_query, chunks, top_k=8, model=reranker_model,
+                                repository=repository,
                             )
 
                         if chunks:
