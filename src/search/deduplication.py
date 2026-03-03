@@ -33,7 +33,7 @@ def _shingled_tokens(text: str, k: int = 3) -> set[str]:
     tokens = text.split()
     if len(tokens) < k:
         return set(tokens)
-    return {" ".join(tokens[i: i + k]) for i in range(len(tokens) - k + 1)}
+    return {" ".join(tokens[i : i + k]) for i in range(len(tokens) - k + 1)}
 
 
 def _minhash_dedup(

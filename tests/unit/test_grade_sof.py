@@ -41,9 +41,7 @@ def _make_assessment(
 
 
 def test_build_sof_table_one_row():
-    assessment = _make_assessment(
-        outcome_name="All-cause mortality", n_studies=3, final_certainty=GRADECertainty.LOW
-    )
+    assessment = _make_assessment(outcome_name="All-cause mortality", n_studies=3, final_certainty=GRADECertainty.LOW)
     table = build_sof_table([assessment], topic="Statins in elderly")
     assert table.topic == "Statins in elderly"
     assert len(table.rows) == 1

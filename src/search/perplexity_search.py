@@ -125,9 +125,7 @@ class PerplexitySearchConnector:
             "Content-Type": "application/json",
         }
         papers: list[CandidatePaper] = []
-        async with aiohttp.ClientSession(
-            headers=headers, connector=tcp_connector_with_certifi()
-        ) as session:
+        async with aiohttp.ClientSession(headers=headers, connector=tcp_connector_with_certifi()) as session:
             async with session.post(self.base_url, json=payload, timeout=30) as response:
                 if response.status != 200:
                     body = await response.text()

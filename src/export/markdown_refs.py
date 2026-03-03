@@ -141,13 +141,11 @@ FIGURE_DEFS: list[tuple[str, str]] = [
     ),
     (
         "rob_traffic_light",
-        "Risk of bias traffic-light plot for included non-randomized studies"
-        " and reviews (ROBINS-I/CASP).",
+        "Risk of bias traffic-light plot for included non-randomized studies and reviews (ROBINS-I/CASP).",
     ),
     (
         "rob2_traffic_light",
-        "Risk of bias assessment using the Cochrane RoB 2 tool for the"
-        " included randomized controlled trial.",
+        "Risk of bias assessment using the Cochrane RoB 2 tool for the included randomized controlled trial.",
     ),
     (
         "fig_forest_plot",
@@ -269,11 +267,7 @@ def is_extraction_failed(rec: Any) -> bool:
     Use this to exclude such records from the manuscript and study table so
     the final document contains only papers with meaningful extracted data.
     """
-    outcome_names = {
-        (o.get("name") or "").strip().lower()
-        for o in (rec.outcomes or [])
-        if isinstance(o, dict)
-    }
+    outcome_names = {(o.get("name") or "").strip().lower() for o in (rec.outcomes or []) if isinstance(o, dict)}
     all_placeholder = outcome_names.issubset(_PLACEHOLDER_OUTCOME_NAMES)
     design_obj = getattr(rec, "study_design", "other")
     if hasattr(design_obj, "value"):
@@ -350,8 +344,7 @@ def build_study_characteristics_table(
         real_names = [
             o.get("name", "").strip()
             for o in (rec.outcomes or [])[:3]
-            if isinstance(o, dict)
-            and (o.get("name") or "").strip().lower() not in _PLACEHOLDER_OUTCOME_NAMES
+            if isinstance(o, dict) and (o.get("name") or "").strip().lower() not in _PLACEHOLDER_OUTCOME_NAMES
         ]
         if real_names:
             outcomes_str = "; ".join(real_names[:2])
@@ -368,15 +361,17 @@ def build_study_characteristics_table(
         extraction_source = getattr(rec, "extraction_source", None) or "text"
         full_text_retrieved = "Yes" if extraction_source != "text" else "No"
 
-        rows.append({
-            "author_year": author_year,
-            "design": design_str,
-            "n": n_str,
-            "country": country_str,
-            "setting": setting_str,
-            "outcomes": outcomes_str,
-            "full_text_retrieved": full_text_retrieved,
-        })
+        rows.append(
+            {
+                "author_year": author_year,
+                "design": design_str,
+                "n": n_str,
+                "country": country_str,
+                "setting": setting_str,
+                "outcomes": outcomes_str,
+                "full_text_retrieved": full_text_retrieved,
+            }
+        )
 
     if not rows:
         return ""
@@ -504,7 +499,9 @@ def build_picos_table(review_config: Any) -> str:
     header = "| Element | Description |"
     sep = "|---------|-------------|"
     data_rows = [f"| {label} | {_escape_table_cell(desc)} |" for label, desc in rows]
-    footnote = "_PICOS = Population, Intervention, Comparison, Outcome, Study design. Eligibility criteria from protocol._"
+    footnote = (
+        "_PICOS = Population, Intervention, Comparison, Outcome, Study design. Eligibility criteria from protocol._"
+    )
     table_md = "\n".join([header, sep] + data_rows) + "\n\n" + footnote
     return "## Appendix A: Eligibility Criteria (PICOS)\n\n" + table_md
 
@@ -533,6 +530,7 @@ def generate_grade_table(grade_assessments: list[Any]) -> str:
     # Per GRADE methodology, outcomes without usable named data are excluded
     # from the evidence profile (they add noise without contributing evidence).
     from collections import defaultdict
+
     groups: dict = defaultdict(list)
     for g in grade_assessments:
         raw_name = (getattr(g, "outcome_name", None) or "").strip()
@@ -550,7 +548,9 @@ def generate_grade_table(grade_assessments: list[Any]) -> str:
         "| Outcome | Studies (N) | Study Design | Max RoB Downgrade | "
         "Max Imprecision Downgrade | Certainty (worst case) |"
     )
-    sep = "|---------|------------|-------------|------------------|--------------------------|------------------------|"
+    sep = (
+        "|---------|------------|-------------|------------------|--------------------------|------------------------|"
+    )
     rows.append(header)
     rows.append(sep)
 
@@ -579,9 +579,7 @@ def generate_grade_table(grade_assessments: list[Any]) -> str:
                 worst_order = order
                 worst_cert = cert_val.replace("_", " ").upper()
 
-        rows.append(
-            f"| {outcome} | {n_studies} | {design_str} | {max_rob} | {max_imp} | {worst_cert} |"
-        )
+        rows.append(f"| {outcome} | {n_studies} | {design_str} | {max_rob} | {max_imp} | {worst_cert} |")
 
     footnote = (
         "_GRADE certainty levels: HIGH, MODERATE, LOW, VERY LOW. "
@@ -589,12 +587,7 @@ def generate_grade_table(grade_assessments: list[Any]) -> str:
         "Inconsistency, indirectness, and publication-bias domains were not auto-computed and default to 0. "
         "Outcomes without a reported name are excluded from this profile per GRADE methodology._"
     )
-    return (
-        "## GRADE Evidence Profile\n\n"
-        + "\n".join(rows)
-        + "\n\n"
-        + footnote
-    )
+    return "## GRADE Evidence Profile\n\n" + "\n".join(rows) + "\n\n" + footnote
 
 
 def build_markdown_references_section(
@@ -657,9 +650,7 @@ def build_markdown_references_section(
     section = "## References\n\n" + "\n\n".join(entries)
     if omitted:
         section += (
-            "\n\n*Note: "
-            + str(len(omitted))
-            + " citation(s) omitted from this list due to incomplete metadata "
+            "\n\n*Note: " + str(len(omitted)) + " citation(s) omitted from this list due to incomplete metadata "
             "(no author, DOI, or year recovered from source).*"
         )
     return section
@@ -758,9 +749,7 @@ def assemble_submission_manuscript(
 
     figures_section = build_markdown_figures_section(manuscript_path, artifacts)
 
-    refs_section = build_markdown_references_section(
-        numbered_body, ordered_citation_rows, numbered=True
-    )
+    refs_section = build_markdown_references_section(numbered_body, ordered_citation_rows, numbered=True)
 
     search_appendix_section = ""
     if search_appendix_path and search_appendix_path.exists():

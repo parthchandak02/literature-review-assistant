@@ -29,9 +29,7 @@ CREATE INDEX IF NOT EXISTS idx_registry_topic ON workflows_registry(topic);
 CREATE INDEX IF NOT EXISTS idx_registry_topic_hash ON workflows_registry(topic, config_hash);
 """
 
-_MIGRATION_ADD_HEARTBEAT = (
-    "ALTER TABLE workflows_registry ADD COLUMN heartbeat_at TEXT"
-)
+_MIGRATION_ADD_HEARTBEAT = "ALTER TABLE workflows_registry ADD COLUMN heartbeat_at TEXT"
 
 
 @dataclass
@@ -128,9 +126,7 @@ async def find_by_workflow_id(run_root: str, workflow_id: str) -> RegistryEntry 
     return entry
 
 
-async def find_by_workflow_id_fallback(
-    run_root: str, workflow_id: str
-) -> RegistryEntry | None:
+async def find_by_workflow_id_fallback(run_root: str, workflow_id: str) -> RegistryEntry | None:
     """Fallback: scan run_summary.json files under run_root for workflow_id.
     Used when the central registry is missing (e.g. runs from before registry existed).
     """

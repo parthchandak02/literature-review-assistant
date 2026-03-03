@@ -119,7 +119,7 @@ class DualReviewerScreener:
         on_progress: Callable[[str, int, int], None] | None = None,
         on_prompt: Callable[[str, str, str | None], None] | None = None,
         should_proceed_with_partial: Callable[[], bool] | None = None,
-        on_screening_decision: Callable[[str, str, str, float | None], None] | None = None,
+        on_screening_decision: Callable[[str, str, str, str | None, float | None], None] | None = None,
     ):
         self.repository = repository
         self.provider = provider
@@ -280,10 +280,15 @@ class DualReviewerScreener:
                 active_retriever = retriever or PDFRetriever()
                 retrieval_results, coverage = await active_retriever.retrieve_batch(papers)
                 full_text_by_paper = {
-                    paper_id: result.full_text
-                    for paper_id, result in retrieval_results.items()
-                    if result.success
+                    paper_id: result.full_text for paper_id, result in retrieval_results.items() if result.success
                 }
+                # Abstract fallback for papers without full text (when not excluding for no-PDF)
+                skip_no_pdf = getattr(self.settings.screening, "skip_fulltext_if_no_pdf", False)
+                if not skip_no_pdf:
+                    for paper in papers:
+                        if paper.paper_id not in full_text_by_paper:
+                            fallback = (paper.abstract or paper.title or "").strip()
+                            full_text_by_paper[paper.paper_id] = fallback
             else:
                 coverage = self._coverage_from_map(papers, full_text_by_paper)
             await self._persist_fulltext_coverage(
@@ -308,7 +313,40 @@ class DualReviewerScreener:
                     return None
                 if stage == "fulltext":
                     text = (full_text_by_paper or {}).get(paper.paper_id, "")
-                    result = await self.screen_full_text(workflow_id, paper, text)
+                    skip_no_pdf = getattr(self.settings.screening, "skip_fulltext_if_no_pdf", False)
+                    if skip_no_pdf and not text.strip():
+                        no_ft_decision = ScreeningDecision(
+                            paper_id=paper.paper_id,
+                            decision=ScreeningDecisionType.EXCLUDE,
+                            confidence=1.0,
+                            reason="Full text not retrievable.",
+                            reviewer_type=ReviewerType.ADJUDICATOR,
+                            exclusion_reason=ExclusionReason.NO_FULL_TEXT,
+                        )
+                        await self.repository.save_screening_decision(
+                            workflow_id=workflow_id, stage=stage, decision=no_ft_decision
+                        )
+                        await self.repository.save_dual_screening_result(
+                            workflow_id=workflow_id,
+                            paper_id=paper.paper_id,
+                            stage=stage,
+                            agreement=True,
+                            final_decision=ScreeningDecisionType.EXCLUDE,
+                            adjudication_needed=False,
+                        )
+                        await self.repository.append_decision_log(
+                            DecisionLogEntry(
+                                decision_type="screening_no_fulltext",
+                                paper_id=paper.paper_id,
+                                decision=ScreeningDecisionType.EXCLUDE.value,
+                                rationale="Full text not retrievable; excluded per skip_fulltext_if_no_pdf.",
+                                actor=ReviewerType.ADJUDICATOR.value,
+                                phase="phase_3_screening",
+                            )
+                        )
+                        result = no_ft_decision
+                    else:
+                        result = await self.screen_full_text(workflow_id, paper, text)
                 else:
                     result = await self.screen_title_abstract(workflow_id, paper)
                 completed_count += 1
@@ -326,9 +364,7 @@ class DualReviewerScreener:
     ) -> FullTextCoverageSummary:
         attempted = len(papers)
         succeeded_ids = [
-            paper.paper_id
-            for paper in papers
-            if (full_text_by_paper.get(paper.paper_id, "").strip() != "")
+            paper.paper_id for paper in papers if (full_text_by_paper.get(paper.paper_id, "").strip() != "")
         ]
         succeeded = len(succeeded_ids)
         failed_ids = [paper.paper_id for paper in papers if paper.paper_id not in set(succeeded_ids)]
@@ -409,9 +445,7 @@ class DualReviewerScreener:
                 reviewer_type=ReviewerType.KEYWORD_FILTER,
                 exclusion_reason=ExclusionReason.PROTOCOL_ONLY,
             )
-            await self.repository.save_screening_decision(
-                workflow_id=workflow_id, stage=stage, decision=proto_decision
-            )
+            await self.repository.save_screening_decision(workflow_id=workflow_id, stage=stage, decision=proto_decision)
             await self.repository.append_decision_log(
                 DecisionLogEntry(
                     decision_type="screening_protocol_heuristic",
@@ -423,7 +457,7 @@ class DualReviewerScreener:
                 )
             )
             if self.on_screening_decision:
-                self.on_screening_decision(paper.paper_id, "exclude", "protocol_only_heuristic", 1.0)
+                self.on_screening_decision(paper.paper_id, stage, "exclude", "protocol_only_heuristic", 0.95)
             return proto_decision
 
         # Title-only / insufficient-content heuristic: papers with no extractable abstract
@@ -438,9 +472,7 @@ class DualReviewerScreener:
                 reviewer_type=ReviewerType.KEYWORD_FILTER,
                 exclusion_reason=ExclusionReason.INSUFFICIENT_DATA,
             )
-            await self.repository.save_screening_decision(
-                workflow_id=workflow_id, stage=stage, decision=insuf_decision
-            )
+            await self.repository.save_screening_decision(workflow_id=workflow_id, stage=stage, decision=insuf_decision)
             await self.repository.append_decision_log(
                 DecisionLogEntry(
                     decision_type="screening_insufficient_content_heuristic",
@@ -452,7 +484,7 @@ class DualReviewerScreener:
                 )
             )
             if self.on_screening_decision:
-                self.on_screening_decision(paper.paper_id, "exclude", "insufficient_content_heuristic", 1.0)
+                self.on_screening_decision(paper.paper_id, stage, "exclude", "insufficient_content_heuristic", 0.90)
             return insuf_decision
 
         include_thresh = self.settings.screening.stage1_include_threshold
@@ -473,9 +505,7 @@ class DualReviewerScreener:
         # This saves ~40-50% of LLM calls on high-confidence decisions.
         fast_path = (
             reviewer_a.confidence >= include_thresh and reviewer_a.decision == ScreeningDecisionType.INCLUDE
-        ) or (
-            reviewer_a.confidence >= exclude_thresh and reviewer_a.decision == ScreeningDecisionType.EXCLUDE
-        )
+        ) or (reviewer_a.confidence >= exclude_thresh and reviewer_a.decision == ScreeningDecisionType.EXCLUDE)
 
         if fast_path:
             final_decision = reviewer_a
@@ -495,6 +525,7 @@ class DualReviewerScreener:
             )
             agreement = reviewer_a.decision == reviewer_b.decision
             from src.models import DualScreeningResult
+
             self._dual_results.append(
                 DualScreeningResult(
                     paper_id=paper.paper_id,
@@ -542,7 +573,11 @@ class DualReviewerScreener:
         )
         if self.on_screening_decision is not None:
             self.on_screening_decision(
-                paper.paper_id, stage, final_decision.decision.value, final_decision.confidence
+                paper.paper_id,
+                stage,
+                final_decision.decision.value,
+                final_decision.reason,
+                final_decision.confidence,
             )
         return final_decision
 
@@ -623,13 +658,11 @@ class DualReviewerScreener:
         runtime = await self.provider.reserve_call_slot(spec.agent_name)
         started = time.perf_counter()
         if hasattr(self.llm_client, "complete_json_with_usage"):
-            raw, tokens_in, tokens_out, cache_write, cache_read = (
-                await self.llm_client.complete_json_with_usage(
-                    prompt,
-                    agent_name=spec.agent_name,
-                    model=runtime.model,
-                    temperature=runtime.temperature,
-                )
+            raw, tokens_in, tokens_out, cache_write, cache_read = await self.llm_client.complete_json_with_usage(
+                prompt,
+                agent_name=spec.agent_name,
+                model=runtime.model,
+                temperature=runtime.temperature,
             )
         else:
             raw = await self.llm_client.complete_json(
@@ -642,9 +675,7 @@ class DualReviewerScreener:
             tokens_out = max(1, len(raw.split()))
             cache_write = cache_read = 0
         elapsed_ms = int((time.perf_counter() - started) * 1000)
-        cost_usd = self.provider.estimate_cost(
-            runtime.model, tokens_in, tokens_out, cache_write, cache_read
-        )
+        cost_usd = self.provider.estimate_cost(runtime.model, tokens_in, tokens_out, cache_write, cache_read)
         parsed = self._parse_response(raw)
         if self.on_llm_call:
             self.on_llm_call(

@@ -55,17 +55,13 @@ async def run_migrations(db: aiosqlite.Connection) -> None:
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         """)
-        await db.execute(
-            "CREATE INDEX IF NOT EXISTS idx_event_log_workflow ON event_log(workflow_id)"
-        )
+        await db.execute("CREATE INDEX IF NOT EXISTS idx_event_log_workflow ON event_log(workflow_id)")
         await db.commit()
     except Exception:
         pass
     # Migration: add extraction_source column to extraction_records (Idea 2)
     try:
-        await db.execute(
-            "ALTER TABLE extraction_records ADD COLUMN extraction_source TEXT DEFAULT 'text'"
-        )
+        await db.execute("ALTER TABLE extraction_records ADD COLUMN extraction_source TEXT DEFAULT 'text'")
         await db.commit()
     except Exception:
         pass
@@ -83,12 +79,8 @@ async def run_migrations(db: aiosqlite.Connection) -> None:
                 FOREIGN KEY (paper_id) REFERENCES papers(paper_id)
             )
         """)
-        await db.execute(
-            "CREATE INDEX IF NOT EXISTS idx_chunks_workflow ON paper_chunks_meta(workflow_id)"
-        )
-        await db.execute(
-            "CREATE INDEX IF NOT EXISTS idx_chunks_paper ON paper_chunks_meta(paper_id)"
-        )
+        await db.execute("CREATE INDEX IF NOT EXISTS idx_chunks_workflow ON paper_chunks_meta(workflow_id)")
+        await db.execute("CREATE INDEX IF NOT EXISTS idx_chunks_paper ON paper_chunks_meta(paper_id)")
         await db.commit()
     except Exception:
         pass
@@ -116,12 +108,8 @@ async def run_migrations(db: aiosqlite.Connection) -> None:
                 created_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         """)
-        await db.execute(
-            "CREATE INDEX IF NOT EXISTS idx_corrections_workflow ON screening_corrections(workflow_id)"
-        )
-        await db.execute(
-            "CREATE INDEX IF NOT EXISTS idx_criteria_workflow ON learned_criteria(workflow_id)"
-        )
+        await db.execute("CREATE INDEX IF NOT EXISTS idx_corrections_workflow ON screening_corrections(workflow_id)")
+        await db.execute("CREATE INDEX IF NOT EXISTS idx_criteria_workflow ON learned_criteria(workflow_id)")
         await db.commit()
     except Exception:
         pass
@@ -158,9 +146,7 @@ async def run_migrations(db: aiosqlite.Connection) -> None:
                 created_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         """)
-        await db.execute(
-            "CREATE INDEX IF NOT EXISTS idx_gaps_workflow ON research_gaps(workflow_id)"
-        )
+        await db.execute("CREATE INDEX IF NOT EXISTS idx_gaps_workflow ON research_gaps(workflow_id)")
         await db.commit()
     except Exception:
         pass
@@ -219,7 +205,7 @@ async def repair_foreign_key_integrity(db: aiosqlite.Connection) -> int:
         cur = await db.execute("SELECT workflow_id FROM workflows")
         existing_workflows = {str(row[0]) for row in await cur.fetchall()}
         missing_workflows: set[str] = set()
-        for (table, col) in [("checkpoints", "workflow_id")]:
+        for table, col in [("checkpoints", "workflow_id")]:
             try:
                 cur = await db.execute(f"SELECT DISTINCT {col} FROM {table}")
                 for row in await cur.fetchall():

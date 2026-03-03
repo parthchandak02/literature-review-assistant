@@ -677,6 +677,16 @@ export async function attachHistory(entry: HistoryEntry): Promise<RunResponse> {
   return res.json() as Promise<RunResponse>
 }
 
+/** Check if a workflow is actively running (e.g. resumed from CLI). Returns run_id if so. */
+export async function fetchActiveRun(
+  workflowId: string,
+): Promise<RunResponse | null> {
+  const res = await fetch(`${BASE}/history/active-run?workflow_id=${encodeURIComponent(workflowId)}`)
+  if (res.status === 404) return null
+  if (!res.ok) return null
+  return res.json() as Promise<RunResponse>
+}
+
 export async function resumeRun(
   entry: HistoryEntry,
   fromPhase?: string | null,

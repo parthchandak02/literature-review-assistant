@@ -22,15 +22,36 @@ from src.models import ExtractionRecord
 logger = logging.getLogger(__name__)
 
 _SIMILARITY_THRESHOLD = 0.75
-_DIRECTION_KEYWORDS_POSITIVE = frozenset({
-    "improved", "increased", "higher", "beneficial", "significant", "positive",
-    "effective", "reduced risk", "lower risk", "protective", "favored intervention"
-})
-_DIRECTION_KEYWORDS_NEGATIVE = frozenset({
-    "no effect", "no significant", "no difference", "worsened", "harmful",
-    "ineffective", "no benefit", "not significant", "favored control",
-    "null", "neutral"
-})
+_DIRECTION_KEYWORDS_POSITIVE = frozenset(
+    {
+        "improved",
+        "increased",
+        "higher",
+        "beneficial",
+        "significant",
+        "positive",
+        "effective",
+        "reduced risk",
+        "lower risk",
+        "protective",
+        "favored intervention",
+    }
+)
+_DIRECTION_KEYWORDS_NEGATIVE = frozenset(
+    {
+        "no effect",
+        "no significant",
+        "no difference",
+        "worsened",
+        "harmful",
+        "ineffective",
+        "no benefit",
+        "not significant",
+        "favored control",
+        "null",
+        "neutral",
+    }
+)
 
 
 @dataclass

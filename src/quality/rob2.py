@@ -53,29 +53,31 @@ def _max_judgment(values: list[RiskOfBiasJudgment]) -> RiskOfBiasJudgment:
 def _build_rob2_prompt(record: ExtractionRecord, full_text: str) -> str:
     results = record.results_summary.get("summary", "")[:2000]
     text_excerpt = full_text[:3000] if full_text.strip() else results
-    return "\n".join([
-        "You are an expert systematic review methodologist.",
-        "Assess Risk of Bias using the RoB 2 tool for the following randomized controlled trial.",
-        "",
-        f"Intervention: {record.intervention_description[:400]}",
-        f"Comparator: {record.comparator_description or 'not reported'}",
-        f"Setting: {record.setting or 'not reported'}",
-        f"Participants: {record.participant_count or 'not reported'}",
-        f"Results summary: {results}",
-        "",
-        "Text excerpt:",
-        text_excerpt,
-        "",
-        "RoB 2 Domains - assign 'low', 'some_concerns', or 'high' for each:",
-        "D1 - Randomization process: Was allocation sequence truly random? Was it concealed?",
-        "D2 - Deviations from intended interventions: Were there deviations? Were participants aware?",
-        "D3 - Missing outcome data: Were outcome data available for all (or nearly all) participants?",
-        "D4 - Measurement of the outcome: Was the outcome measured appropriately and consistently?",
-        "D5 - Selection of the reported result: Was the result selected from multiple analyses?",
-        "Overall: any 'high' -> 'high'; any 'some_concerns' -> 'some_concerns'; else 'low'.",
-        "",
-        "Return ONLY valid JSON matching the schema. Provide a 1-2 sentence rationale per domain.",
-    ])
+    return "\n".join(
+        [
+            "You are an expert systematic review methodologist.",
+            "Assess Risk of Bias using the RoB 2 tool for the following randomized controlled trial.",
+            "",
+            f"Intervention: {record.intervention_description[:400]}",
+            f"Comparator: {record.comparator_description or 'not reported'}",
+            f"Setting: {record.setting or 'not reported'}",
+            f"Participants: {record.participant_count or 'not reported'}",
+            f"Results summary: {results}",
+            "",
+            "Text excerpt:",
+            text_excerpt,
+            "",
+            "RoB 2 Domains - assign 'low', 'some_concerns', or 'high' for each:",
+            "D1 - Randomization process: Was allocation sequence truly random? Was it concealed?",
+            "D2 - Deviations from intended interventions: Were there deviations? Were participants aware?",
+            "D3 - Missing outcome data: Were outcome data available for all (or nearly all) participants?",
+            "D4 - Measurement of the outcome: Was the outcome measured appropriately and consistently?",
+            "D5 - Selection of the reported result: Was the result selected from multiple analyses?",
+            "Overall: any 'high' -> 'high'; any 'some_concerns' -> 'some_concerns'; else 'low'.",
+            "",
+            "Return ONLY valid JSON matching the schema. Provide a 1-2 sentence rationale per domain.",
+        ]
+    )
 
 
 class Rob2Assessor:
@@ -131,7 +133,16 @@ class Rob2Assessor:
                     )
                     latency_ms = int((time.monotonic() - t0) * 1000)
                     cost = self.provider.estimate_cost_usd(model, tok_in, tok_out, cw, cr)
-                    await self.provider.log_cost(model, tok_in, tok_out, cost, latency_ms, phase="quality_rob2", cache_read_tokens=cr, cache_write_tokens=cw)
+                    await self.provider.log_cost(
+                        model,
+                        tok_in,
+                        tok_out,
+                        cost,
+                        latency_ms,
+                        phase="quality_rob2",
+                        cache_read_tokens=cr,
+                        cache_write_tokens=cw,
+                    )
                 else:
                     raw = await self.llm_client.complete(
                         prompt, model=model, temperature=temperature, json_schema=schema

@@ -47,7 +47,10 @@ def _map_counts_to_library_format(
             excluded_reasons[label] = v
     # When no full-text exclusions exist, pass a single zero-count entry so
     # the library renders a clean box rather than placeholder "Reason (n=NA)" text.
-    if not excluded_reasons and counts.reports_assessed == counts.studies_included_qualitative + counts.studies_included_quantitative:
+    if (
+        not excluded_reasons
+        and counts.reports_assessed == counts.studies_included_qualitative + counts.studies_included_quantitative
+    ):
         excluded_reasons = {"None identified": 0}
 
     # Use combined total so library math: (db+other) - duplicates = screened
@@ -104,7 +107,9 @@ def _draw_box(
     text: str,
     fontsize: int = 9,
 ) -> None:
-    rect = mpatches.FancyBboxPatch((x, y), w, h, boxstyle="round,pad=0.02", fill=True, facecolor="white", edgecolor="black")
+    rect = mpatches.FancyBboxPatch(
+        (x, y), w, h, boxstyle="round,pad=0.02", fill=True, facecolor="white", edgecolor="black"
+    )
     ax.add_patch(rect)
     ax.text(x + w / 2, y + h / 2, text, ha="center", va="center", fontsize=fontsize, wrap=True)
 
@@ -138,7 +143,15 @@ def _render_fallback(counts: PRISMACounts, path: Path) -> Path:
     for name, cnt in counts.other_sources_records.items():
         other_lines.append(f"  {name}: {cnt}")
     other_lines.append(f"  Total: {counts.total_identified_other}")
-    _draw_box(ax, 2.8, y - box_h, box_w, box_h * (max(len(other_lines), 2) * 0.5 + 0.5), "\n".join(other_lines) if other_lines else "None", fontsize=8)
+    _draw_box(
+        ax,
+        2.8,
+        y - box_h,
+        box_w,
+        box_h * (max(len(other_lines), 2) * 0.5 + 0.5),
+        "\n".join(other_lines) if other_lines else "None",
+        fontsize=8,
+    )
 
     y -= box_h * (max(len(db_lines), len(other_lines), 2) * 0.5 + 0.5) + gap
     total_id = counts.total_identified_databases + counts.total_identified_other

@@ -31,15 +31,29 @@ _ZIPF_COMMON_THRESHOLD: float = 3.5
 # Minimal safety net for rare paper-structure abbreviations that have low Zipf
 # scores yet are meaningless as labels. "fig" scores ~2.8, below the threshold.
 # This list must stay topic-agnostic: only universal bibliographic shorthand.
-_UNIVERSAL_PAPER_STRUCTURE: frozenset[str] = frozenset({
-    "fig", "et", "al", "ibid", "viz", "cf",
-})
+_UNIVERSAL_PAPER_STRUCTURE: frozenset[str] = frozenset(
+    {
+        "fig",
+        "et",
+        "al",
+        "ibid",
+        "viz",
+        "cf",
+    }
+)
 
 # Placeholder strings that nameparser parses as a valid surname but carry no
 # information about the actual author. nameparser cannot detect these itself.
-_GENERIC_AUTHOR_PLACEHOLDERS: frozenset[str] = frozenset({
-    "unknown", "none", "na", "author", "anonymous", "anon",
-})
+_GENERIC_AUTHOR_PLACEHOLDERS: frozenset[str] = frozenset(
+    {
+        "unknown",
+        "none",
+        "na",
+        "author",
+        "anonymous",
+        "anon",
+    }
+)
 
 
 def _is_camelcase_compound(token: str) -> bool:

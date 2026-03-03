@@ -67,8 +67,7 @@ def detect_communities(graph: PaperGraph) -> tuple[list[PaperNode], list[Communi
             community_papers.setdefault(cid, []).append(paper_id)
 
         communities: list[Community] = [
-            Community(community_id=cid, paper_ids=pids)
-            for cid, pids in community_papers.items()
+            Community(community_id=cid, paper_ids=pids) for cid, pids in community_papers.items()
         ]
 
         logger.info(

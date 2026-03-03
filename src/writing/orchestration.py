@@ -22,19 +22,80 @@ logger = logging.getLogger(__name__)
 _GENERIC_AUTHOR_TOKENS = frozenset({"unknown", "none", "na", "author", "anonymous", "anon"})
 
 # Title words that are too generic to serve as a useful citekey base.
-_GENERIC_TITLE_WORDS = frozenset({
-    "a", "an", "the", "of", "in", "on", "at", "to", "for", "and", "or", "is",
-    "are", "was", "were", "be", "been", "being", "with", "this", "that",
-    "fig", "figure", "table", "appendix", "section", "chapter",
-    "methods", "method", "results", "result", "discussion", "conclusion",
-    "conclusions", "introduction", "abstract", "study", "studies",
-    "review", "systematic", "literature", "analysis", "analysing",
-    "investigating", "usability", "examining", "exploring", "evaluating",
-    "evaluation", "assessment", "towards", "toward", "role", "applying",
-    "application", "understanding", "comparing", "developing", "improving",
-    "educational", "learning", "teaching", "impact", "effect", "effects",
-    "use", "using", "based", "new", "novel",
-})
+_GENERIC_TITLE_WORDS = frozenset(
+    {
+        "a",
+        "an",
+        "the",
+        "of",
+        "in",
+        "on",
+        "at",
+        "to",
+        "for",
+        "and",
+        "or",
+        "is",
+        "are",
+        "was",
+        "were",
+        "be",
+        "been",
+        "being",
+        "with",
+        "this",
+        "that",
+        "fig",
+        "figure",
+        "table",
+        "appendix",
+        "section",
+        "chapter",
+        "methods",
+        "method",
+        "results",
+        "result",
+        "discussion",
+        "conclusion",
+        "conclusions",
+        "introduction",
+        "abstract",
+        "study",
+        "studies",
+        "review",
+        "systematic",
+        "literature",
+        "analysis",
+        "analysing",
+        "investigating",
+        "usability",
+        "examining",
+        "exploring",
+        "evaluating",
+        "evaluation",
+        "assessment",
+        "towards",
+        "toward",
+        "role",
+        "applying",
+        "application",
+        "understanding",
+        "comparing",
+        "developing",
+        "improving",
+        "educational",
+        "learning",
+        "teaching",
+        "impact",
+        "effect",
+        "effects",
+        "use",
+        "using",
+        "based",
+        "new",
+        "novel",
+    }
+)
 
 # Matches lowercase_with_underscores that appear in prose (not inside brackets).
 # We split text around [...] blocks first so citation keys are never touched.
@@ -178,18 +239,12 @@ async def write_section_with_validation(
     from src.writing.prompts.sections import get_section_context
 
     # Build context from grounding data if provided; otherwise use the passed context
-    effective_context = (
-        get_section_context(section, grounding=grounding)
-        if grounding is not None
-        else context
-    )
+    effective_context = get_section_context(section, grounding=grounding) if grounding is not None else context
 
     # Append RAG-retrieved evidence chunks when available
     if rag_context:
         effective_context = (
-            effective_context
-            + "\n\n## Relevant Evidence Chunks (retrieved by semantic search)\n"
-            + rag_context
+            effective_context + "\n\n## Relevant Evidence Chunks (retrieved by semantic search)\n" + rag_context
         )
 
     writer = SectionWriter(
@@ -268,10 +323,7 @@ def prepare_writing_context(
         "style_extraction",
         True,
     )
-    paper_texts = [
-        (p.abstract or "") + " " + (p.title or "")
-        for p in included_papers
-    ]
+    paper_texts = [(p.abstract or "") + " " + (p.title or "") for p in included_papers]
     if style_enabled:
         patterns = extract_style_patterns(paper_texts)
     else:

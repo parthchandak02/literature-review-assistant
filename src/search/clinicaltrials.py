@@ -48,11 +48,7 @@ class ClinicalTrialsConnector:
         _contacts_module = proto.get("contactsLocationsModule") or {}
 
         nct_id = id_module.get("nctId", "")
-        title = (
-            id_module.get("briefTitle")
-            or id_module.get("officialTitle")
-            or "Untitled"
-        ).strip()
+        title = (id_module.get("briefTitle") or id_module.get("officialTitle") or "Untitled").strip()
 
         if not title or not nct_id:
             return None
@@ -97,14 +93,16 @@ class ClinicalTrialsConnector:
         params: dict[str, str | int] = {
             "query.term": query,
             "pageSize": page_size,
-            "fields": ",".join([
-                "NCTId",
-                "BriefTitle",
-                "OfficialTitle",
-                "BriefSummary",
-                "StartDate",
-                "LeadSponsorName",
-            ]),
+            "fields": ",".join(
+                [
+                    "NCTId",
+                    "BriefTitle",
+                    "OfficialTitle",
+                    "BriefSummary",
+                    "StartDate",
+                    "LeadSponsorName",
+                ]
+            ),
         }
         if date_start:
             params["filter.advanced"] = f"AREA[StartDate]RANGE[{date_start}-01-01, MAX]"
@@ -112,9 +110,7 @@ class ClinicalTrialsConnector:
         papers: list[CandidatePaper] = []
         try:
             timeout = aiohttp.ClientTimeout(total=30)
-            async with aiohttp.ClientSession(
-                timeout=timeout, connector=tcp_connector_with_certifi()
-            ) as session:
+            async with aiohttp.ClientSession(timeout=timeout, connector=tcp_connector_with_certifi()) as session:
                 async with session.get(_CT_API_BASE, params=params) as response:
                     if response.status != 200:
                         logger.warning(

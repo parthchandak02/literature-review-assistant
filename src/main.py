@@ -175,10 +175,18 @@ def build_parser() -> argparse.ArgumentParser:
     run.add_argument("--config", default="config/review.yaml")
     run.add_argument("--settings", default="config/settings.yaml")
     run.add_argument("--run-root", default="runs")
-    run.add_argument("--fresh", action="store_true", help="Always start new run; skip resume prompt (needed when running in Progress context)")
-    run.add_argument("--verbose", "-v", action="store_true", help="Per-phase status, API call logging, screening summaries")
+    run.add_argument(
+        "--fresh",
+        action="store_true",
+        help="Always start new run; skip resume prompt (needed when running in Progress context)",
+    )
+    run.add_argument(
+        "--verbose", "-v", action="store_true", help="Per-phase status, API call logging, screening summaries"
+    )
     run.add_argument("--debug", "-d", action="store_true", help="Verbose plus Pydantic model dumps at phase boundaries")
-    run.add_argument("--offline", action="store_true", help="Force heuristic screening (no LLM API calls) even when API keys are set")
+    run.add_argument(
+        "--offline", action="store_true", help="Force heuristic screening (no LLM API calls) even when API keys are set"
+    )
 
     resume = sub.add_parser("resume")
     resume.add_argument("--topic", help="Resume by topic (research question, case-insensitive)")
@@ -254,7 +262,7 @@ async def _try_resume_via_api(
                 return None
             data = await r2.json()
             return (data["run_id"], data["topic"])
-    except (aiohttp.ClientError, asyncio.TimeoutError, KeyError):
+    except (TimeoutError, aiohttp.ClientError, KeyError):
         return None
 
 
@@ -270,6 +278,7 @@ async def _backfill_event_log(log_dir: str, workflow_id: str) -> None:
     if not events:
         return
     import json as _json
+
     try:
         async with aiosqlite.connect(db_path) as db:
             await db.executemany(
@@ -352,6 +361,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                     )
                     topic_preview = f"{topic[:60]}..." if len(topic) > 60 else topic
                     console.print(f"  Run ID: {run_id}  |  Topic: {topic_preview}")
+                    console.print("[dim]Logs: pm2 logs litreview-api (or use --no-api for terminal output)[/]")
                     return 0
 
             with create_progress(console) as progress:
@@ -428,8 +438,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             return 1
 
     console.print(
-        f"Command '{args.command}' is not yet available in the single-path milestone. "
-        "Use `run` for workflow execution."
+        f"Command '{args.command}' is not yet available in the single-path milestone. Use `run` for workflow execution."
     )
     return 0
 

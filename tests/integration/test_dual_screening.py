@@ -96,7 +96,10 @@ async def test_dual_screening_pipeline_with_reliability(tmp_path) -> None:
         dual_count = await cursor.fetchone()
         assert int(dual_count[0]) == 2
 
-        cursor = await db.execute("SELECT paper_id, reviewer_type, decision, confidence FROM screening_decisions WHERE workflow_id = ?", ("wf-int",))
+        cursor = await db.execute(
+            "SELECT paper_id, reviewer_type, decision, confidence FROM screening_decisions WHERE workflow_id = ?",
+            ("wf-int",),
+        )
         rows = await cursor.fetchall()
         by_paper: dict[str, list[tuple[str, str, float]]] = {}
         for row in rows:

@@ -321,6 +321,8 @@ export function ActivityView({
           <div>
             <span className="font-medium">Review failed. </span>
             {(activeEvents.find((e) => e.type === "error") as { msg?: string } | undefined)?.msg ??
+              (activeEvents.find((e) => e.type === "done") as { outputs?: { error?: string } } | undefined)?.outputs
+                ?.error ??
               "An unexpected error occurred."}
           </div>
         </div>

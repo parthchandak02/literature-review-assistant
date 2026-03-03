@@ -50,9 +50,7 @@ def metadata_prefilter(
     for paper in papers:
         missing_title = not (paper.title or "").strip()
         has_content = (
-            bool((paper.abstract or "").strip())
-            or bool((paper.doi or "").strip())
-            or bool((paper.url or "").strip())
+            bool((paper.abstract or "").strip()) or bool((paper.doi or "").strip()) or bool((paper.url or "").strip())
         )
         missing_content = not has_content
         missing_year = paper.year is None
@@ -131,8 +129,7 @@ def bm25_rank_and_cap(
 
     if zero_abstract_count > 0:
         _log.warning(
-            "BM25 ranking: %d/%d papers have no title or abstract "
-            "(data quality issue from search connectors).",
+            "BM25 ranking: %d/%d papers have no title or abstract (data quality issue from search connectors).",
             zero_abstract_count,
             total,
         )
@@ -209,8 +206,7 @@ def bm25_rank_and_cap(
     tail_scores = ranked_paper_scores[cap:]
 
     _log.info(
-        "BM25 ranking: %d papers scored, top %d forwarded to LLM, "
-        "%d auto-excluded (cutoff BM25 score=%.4f).",
+        "BM25 ranking: %d papers scored, top %d forwarded to LLM, %d auto-excluded (cutoff BM25 score=%.4f).",
         total,
         cap,
         len(tail_papers),
@@ -225,10 +221,7 @@ def bm25_rank_and_cap(
                 paper_id=paper.paper_id,
                 decision=ScreeningDecisionType.EXCLUDE,
                 confidence=1.0,
-                reason=(
-                    f"BM25 score below cap cutoff: score={score:.4f}, "
-                    f"rank={rank}/{total} (cap={cap})."
-                ),
+                reason=(f"BM25 score below cap cutoff: score={score:.4f}, rank={rank}/{total} (cap={cap})."),
                 exclusion_reason=ExclusionReason.LOW_RELEVANCE_SCORE,
                 reviewer_type=ReviewerType.KEYWORD_FILTER,
             )
@@ -272,8 +265,7 @@ def keyword_prefilter(
                     decision=ScreeningDecisionType.EXCLUDE,
                     confidence=1.0,
                     reason=(
-                        f"Keyword pre-filter: matched {matches}/{len(terms)} "
-                        f"intervention terms in title/abstract."
+                        f"Keyword pre-filter: matched {matches}/{len(terms)} intervention terms in title/abstract."
                     ),
                     exclusion_reason=ExclusionReason.KEYWORD_FILTER,
                     reviewer_type=ReviewerType.KEYWORD_FILTER,

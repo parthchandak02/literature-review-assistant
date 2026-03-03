@@ -8,6 +8,7 @@ richer query vector that aligns better with extracted evidence chunks.
 Reference: Gao et al. (2022) "Precise Zero-Shot Dense Retrieval without
 Relevance Labels" (arXiv:2212.10496).
 """
+
 from __future__ import annotations
 
 import logging
@@ -106,9 +107,7 @@ async def generate_hyde_document(
     try:
         t0 = time.monotonic()
         agent: Agent[None, str] = Agent(model, output_type=str)
-        result = await _run_with_retry(
-            agent, prompt, model_settings=ModelSettings(temperature=0.7)
-        )
+        result = await _run_with_retry(agent, prompt, model_settings=ModelSettings(temperature=0.7))
         elapsed_ms = int((time.monotonic() - t0) * 1000)
         text = result.output.strip()
         if len(text) < 30:

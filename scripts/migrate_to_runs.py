@@ -133,12 +133,9 @@ def main() -> None:
                     table.add_row(rel_label, "0", f"[red]ERROR: {exc}[/]")
 
     console.print(table)
+    console.print(f"\nMigration complete: {total_runs} run(s), {total_files} file(s) copied into runs/.")
     console.print(
-        f"\nMigration complete: {total_runs} run(s), {total_files} file(s) copied into runs/."
-    )
-    console.print(
-        "[dim]Originals in logs/ and data/outputs/ were left intact. "
-        "Delete them manually after verifying runs/.[/]"
+        "[dim]Originals in logs/ and data/outputs/ were left intact. Delete them manually after verifying runs/.[/]"
     )
 
 

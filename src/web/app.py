@@ -52,6 +52,7 @@ _logger = logging.getLogger(__name__)
 # State: in-process registry of active runs
 # ---------------------------------------------------------------------------
 
+
 class _RunRecord:
     def __init__(self, run_id: str, topic: str) -> None:
         self.run_id = run_id
@@ -61,9 +62,9 @@ class _RunRecord:
         self.done = False
         self.error: str | None = None
         self.outputs: dict[str, Any] = {}
-        self.db_path: str | None = None      # set by on_db_ready callback when DB is created
+        self.db_path: str | None = None  # set by on_db_ready callback when DB is created
         self.workflow_id: str | None = None  # set by on_workflow_id_ready callback early in SearchNode
-        self.run_root: str = "runs"          # set immediately from req.run_root in _run_wrapper
+        self.run_root: str = "runs"  # set immediately from req.run_root in _run_wrapper
         self.created_at: float = time.monotonic()  # for TTL eviction
         # Append-only log of every emitted event for replay on reconnect.
         self.event_log: list[dict[str, Any]] = []
@@ -72,6 +73,7 @@ class _RunRecord:
         self._flush_index: int = 0
         # Original review YAML submitted by the user -- saved to run dir after completion.
         self.review_yaml: str = ""
+
 
 _active_runs: dict[str, _RunRecord] = {}
 
@@ -118,6 +120,7 @@ async def _eviction_loop() -> None:
         for k in stale:
             _active_runs.pop(k, None)
 
+
 @asynccontextmanager
 async def lifespan(_app: FastAPI) -> AsyncGenerator[None, None]:
     await _refresh_allowed_roots()
@@ -157,6 +160,7 @@ app.add_middleware(
 # ---------------------------------------------------------------------------
 # Request / response models
 # ---------------------------------------------------------------------------
+
 
 class RunRequest(BaseModel):
     review_yaml: str
@@ -207,6 +211,7 @@ class AttachRequest(BaseModel):
 # ---------------------------------------------------------------------------
 # Helper: inject API keys
 # ---------------------------------------------------------------------------
+
 
 def _inject_env(req: RunRequest) -> None:
     os.environ["GEMINI_API_KEY"] = req.gemini_api_key
@@ -285,9 +290,7 @@ async def _load_event_log_from_db(db_path: str) -> list[dict[str, Any]]:
     try:
         async with aiosqlite.connect(db_path) as db:
             db.row_factory = aiosqlite.Row
-            async with db.execute(
-                "SELECT payload FROM event_log ORDER BY id ASC"
-            ) as cur:
+            async with db.execute("SELECT payload FROM event_log ORDER BY id ASC") as cur:
                 rows = await cur.fetchall()
         events: list[dict[str, Any]] = [_json.loads(row["payload"]) for row in rows]
     except Exception:
@@ -324,7 +327,7 @@ async def _event_flusher_loop(record: _RunRecord, interval: int = 5) -> None:
         while True:
             await asyncio.sleep(interval)
             if record.db_path and record.workflow_id:
-                new = record.event_log[record._flush_index:]
+                new = record.event_log[record._flush_index :]
                 if new:
                     await _persist_event_log(record.db_path, record.workflow_id, new)
                     record._flush_index += len(new)
@@ -409,6 +412,7 @@ async def _run_wrapper(record: _RunRecord, review_path: str, req: RunRequest) ->
                 pass
     except Exception as exc:
         import traceback
+
         record.done = True
         record.error = str(exc)
         _tb = traceback.format_exc()
@@ -436,7 +440,7 @@ async def _run_wrapper(record: _RunRecord, review_path: str, req: RunRequest) ->
         # Final flush: persist any events not yet written by the flusher loop,
         # including the terminal error/cancelled event appended above.
         if record.db_path and record.workflow_id:
-            remaining = record.event_log[record._flush_index:]
+            remaining = record.event_log[record._flush_index :]
             if remaining:
                 await _persist_event_log(record.db_path, record.workflow_id, remaining)
 
@@ -445,6 +449,7 @@ async def _run_wrapper(record: _RunRecord, review_path: str, req: RunRequest) ->
 # Core endpoints
 # ---------------------------------------------------------------------------
 
+
 @app.post("/api/run", response_model=RunResponse)
 async def start_run(req: RunRequest) -> RunResponse:
     _inject_env(req)
@@ -452,7 +457,10 @@ async def start_run(req: RunRequest) -> RunResponse:
     run_id = str(uuid.uuid4())[:8]
 
     tmp = tempfile.NamedTemporaryFile(
-        mode="w", suffix=".yaml", prefix=f"review_{run_id}_", delete=False,
+        mode="w",
+        suffix=".yaml",
+        prefix=f"review_{run_id}_",
+        delete=False,
     )
     tmp.write(req.review_yaml)
     tmp.flush()
@@ -525,7 +533,10 @@ async def start_run_with_masterlist(
     topic = _extract_topic(modified_yaml)
 
     tmp = tempfile.NamedTemporaryFile(
-        mode="w", suffix=".yaml", prefix=f"review_{run_id}_", delete=False,
+        mode="w",
+        suffix=".yaml",
+        prefix=f"review_{run_id}_",
+        delete=False,
     )
     tmp.write(modified_yaml)
     tmp.flush()
@@ -580,10 +591,7 @@ async def stream_run(run_id: str, request: Request) -> EventSourceResponse:
         # Fast-path: already completed and queue is empty after replay.
         if record.done and record.queue.empty():
             # Only emit the terminal done event if it wasn't already replayed.
-            already_has_terminal = any(
-                e.get("type") in ("done", "error", "cancelled")
-                for e in record.event_log
-            )
+            already_has_terminal = any(e.get("type") in ("done", "error", "cancelled") for e in record.event_log)
             if not already_has_terminal:
                 yield {"id": str(replay_index), "data": _json_safe({"type": "done", "outputs": record.outputs})}
             return
@@ -615,10 +623,7 @@ async def cancel_run(run_id: str) -> dict[str, str]:
 
 @app.get("/api/runs")
 async def list_runs() -> list[RunInfo]:
-    return [
-        RunInfo(run_id=r.run_id, topic=r.topic, done=r.done, error=r.error)
-        for r in _active_runs.values()
-    ]
+    return [RunInfo(run_id=r.run_id, topic=r.topic, done=r.done, error=r.error) for r in _active_runs.values()]
 
 
 @app.get("/api/results/{run_id}")
@@ -678,7 +683,9 @@ async def generate_config(req: _GenerateConfigRequest) -> dict[str, str]:
     if req.gemini_api_key.strip():
         os.environ["GEMINI_API_KEY"] = req.gemini_api_key.strip()
     if not os.environ.get("GEMINI_API_KEY"):
-        raise HTTPException(status_code=422, detail="Gemini API key is required to generate a config. Add it in the API Keys section.")
+        raise HTTPException(
+            status_code=422, detail="Gemini API key is required to generate a config. Add it in the API Keys section."
+        )
     try:
         yaml_content = await generate_config_yaml(req.research_question)
     except RuntimeError as exc:
@@ -704,7 +711,9 @@ async def generate_config_stream(req: _GenerateConfigRequest) -> StreamingRespon
     if req.gemini_api_key.strip():
         os.environ["GEMINI_API_KEY"] = req.gemini_api_key.strip()
     if not os.environ.get("GEMINI_API_KEY"):
-        raise HTTPException(status_code=422, detail="Gemini API key is required to generate a config. Add it in the API Keys section.")
+        raise HTTPException(
+            status_code=422, detail="Gemini API key is required to generate a config. Add it in the API Keys section."
+        )
 
     queue: asyncio.Queue[dict[str, Any] | None] = asyncio.Queue()
 
@@ -749,6 +758,7 @@ async def generate_config_stream(req: _GenerateConfigRequest) -> StreamingRespon
 # Run history endpoints (reads workflows_registry.db from run_root)
 # ---------------------------------------------------------------------------
 
+
 async def _fetch_run_stats(db_path: str) -> dict[str, Any]:
     """Open a run's runtime.db and return lightweight aggregate stats.
 
@@ -759,15 +769,15 @@ async def _fetch_run_stats(db_path: str) -> dict[str, Any]:
     try:
         async with aiosqlite.connect(db_path) as db:
             await db.execute("PRAGMA journal_mode=WAL")
-            papers_found = (await (await db.execute(
-                "SELECT COUNT(*) FROM papers"
-            )).fetchone())[0]
-            papers_included = (await (await db.execute(
-                "SELECT COUNT(*) FROM dual_screening_results WHERE final_decision='include'"
-            )).fetchone())[0]
-            total_cost = (await (await db.execute(
-                "SELECT COALESCE(SUM(cost_usd), 0.0) FROM cost_records"
-            )).fetchone())[0]
+            papers_found = (await (await db.execute("SELECT COUNT(*) FROM papers")).fetchone())[0]
+            papers_included = (
+                await (
+                    await db.execute("SELECT COUNT(*) FROM dual_screening_results WHERE final_decision='include'")
+                ).fetchone()
+            )[0]
+            total_cost = (await (await db.execute("SELECT COALESCE(SUM(cost_usd), 0.0) FROM cost_records")).fetchone())[
+                0
+            ]
 
         artifacts_count: int | None = None
         summary_path = pathlib.Path(db_path).parent / "run_summary.json"
@@ -801,6 +811,7 @@ def _is_stale(row: aiosqlite.Row) -> bool:
         return True
     try:
         import datetime
+
         ts = datetime.datetime.fromisoformat(str(heartbeat))
         # SQLite datetime() produces naive UTC strings; treat them as UTC.
         if ts.tzinfo is None:
@@ -845,11 +856,7 @@ async def list_history(run_root: str = "runs") -> list[HistoryEntry]:
 
     # Exclude workflow_ids that are actively running in-process to avoid showing
     # the same run twice in the sidebar (live card + history entry).
-    active_workflow_ids = {
-        r.workflow_id
-        for r in _active_runs.values()
-        if r.workflow_id and not r.done
-    }
+    active_workflow_ids = {r.workflow_id for r in _active_runs.values() if r.workflow_id and not r.done}
 
     enriched: list[HistoryEntry] = []
     for row, stats in zip(rows, stat_results):
@@ -861,18 +868,20 @@ async def list_history(run_root: str = "runs") -> list[HistoryEntry]:
         effective_status = row["status"]
         if effective_status.lower() == "running" and _is_stale(row):
             effective_status = "stale"
-        enriched.append(HistoryEntry(
-            workflow_id=row["workflow_id"],
-            topic=row["topic"],
-            status=effective_status,
-            db_path=row["db_path"],
-            created_at=row["created_at"] or "",
-            updated_at=row["updated_at"],
-            papers_found=s.get("papers_found"),
-            papers_included=s.get("papers_included"),
-            total_cost=s.get("total_cost"),
-            artifacts_count=s.get("artifacts_count"),
-        ))
+        enriched.append(
+            HistoryEntry(
+                workflow_id=row["workflow_id"],
+                topic=row["topic"],
+                status=effective_status,
+                db_path=row["db_path"],
+                created_at=row["created_at"] or "",
+                updated_at=row["updated_at"],
+                papers_found=s.get("papers_found"),
+                papers_included=s.get("papers_included"),
+                total_cost=s.get("total_cost"),
+                artifacts_count=s.get("artifacts_count"),
+            )
+        )
     return enriched
 
 
@@ -964,12 +973,11 @@ async def _resume_wrapper(
         from src.db.database import get_db as _get_db
         from src.db.repositories import WorkflowRepository as _WorkflowRepository
         from src.orchestration.resume import PHASE_ORDER as _PHASE_ORDER
+
         async with _get_db(db_path) as _chk_db:
             _checkpoints = await _WorkflowRepository(_chk_db).get_checkpoints(workflow_id)
         _phases_with_done = {
-            e["phase"]
-            for e in record.event_log
-            if isinstance(e, dict) and e.get("type") == "phase_done"
+            e["phase"] for e in record.event_log if isinstance(e, dict) and e.get("type") == "phase_done"
         }
         # Find index of first terminal event to insert synthetic events before it.
         _insert_index = len(record.event_log)
@@ -984,21 +992,21 @@ async def _resume_wrapper(
             if isinstance(_prev, dict) and "ts" in _prev:
                 _synthetic_ts = _prev["ts"]
         if _synthetic_ts is None:
-            _synthetic_ts = datetime.datetime.now(tz=datetime.UTC).strftime(
-                "%Y-%m-%dT%H:%M:%S.%f"
-            )[:-3] + "Z"
+            _synthetic_ts = datetime.datetime.now(tz=datetime.UTC).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
         _synthetic_events: list[dict[str, Any]] = []
         for _phase in _PHASE_ORDER:
             if _phase in _checkpoints and _phase not in _phases_with_done:
-                _synthetic_events.append({
-                    "type": "phase_done",
-                    "phase": _phase,
-                    "summary": {},
-                    "total": None,
-                    "completed": None,
-                    "synthetic": True,
-                    "ts": _synthetic_ts,
-                })
+                _synthetic_events.append(
+                    {
+                        "type": "phase_done",
+                        "phase": _phase,
+                        "summary": {},
+                        "total": None,
+                        "completed": None,
+                        "synthetic": True,
+                        "ts": _synthetic_ts,
+                    }
+                )
         for _ev in reversed(_synthetic_events):
             record.event_log.insert(_insert_index, _ev)
     except Exception:
@@ -1009,9 +1017,7 @@ async def _resume_wrapper(
     record._flush_index = len(record.event_log)
 
     # Start heartbeat immediately -- workflow_id is already known for resumed runs.
-    heartbeat_task: asyncio.Task[Any] = asyncio.create_task(
-        _heartbeat_loop(run_root, workflow_id)
-    )
+    heartbeat_task: asyncio.Task[Any] = asyncio.create_task(_heartbeat_loop(run_root, workflow_id))
     flusher_task: asyncio.Task[Any] = asyncio.create_task(_event_flusher_loop(record))
 
     # Use the review.yaml saved alongside runtime.db (written by the original web run).
@@ -1041,6 +1047,14 @@ async def _resume_wrapper(
         record.workflow_id = workflow_id
         record.db_path = db_path
         record.done = True
+        # When workflow returns status "failed" (e.g. gate failure), emit error event
+        # so the UI shows the actual message instead of "An unexpected error occurred".
+        if record.outputs.get("status") == "failed":
+            err_msg = record.outputs.get("error", "Workflow failed")
+            record.error = err_msg
+            _gate_err_evt: dict[str, Any] = {"type": "error", "msg": err_msg}
+            record.event_log.append(_gate_err_evt)
+            await record.queue.put(_gate_err_evt)
         _done_resume_evt: dict[str, Any] = {"type": "done", "outputs": record.outputs}
         record.event_log.append(_done_resume_evt)
         await record.queue.put(_done_resume_evt)
@@ -1056,6 +1070,7 @@ async def _resume_wrapper(
             pass
     except Exception as exc:
         import traceback
+
         record.done = True
         record.error = str(exc)
         _tb = traceback.format_exc()
@@ -1077,7 +1092,7 @@ async def _resume_wrapper(
         # Final flush: persist any events not yet written by the flusher loop,
         # including the terminal error/cancelled event appended above.
         if record.db_path and record.workflow_id:
-            remaining = record.event_log[record._flush_index:]
+            remaining = record.event_log[record._flush_index :]
             if remaining:
                 await _persist_event_log(record.db_path, record.workflow_id, remaining)
 
@@ -1092,6 +1107,20 @@ _RESUME_PHASE_ORDER = [
     "phase_6_writing",
     "finalize",
 ]
+
+
+@app.get("/api/history/active-run")
+async def get_active_run(workflow_id: str) -> RunResponse:
+    """Return the run_id for a workflow that is currently being actively resumed.
+
+    Used when the user resumes from CLI: the frontend polls this while viewing
+    a run; when it returns 200, the frontend switches to live SSE mode.
+    Returns 404 if the workflow is not actively running.
+    """
+    for record in _active_runs.values():
+        if record.workflow_id == workflow_id and not record.done:
+            return RunResponse(run_id=record.run_id, topic=record.topic or "")
+    raise HTTPException(status_code=404, detail="Workflow not actively running")
 
 
 @app.post("/api/history/resume", response_model=RunResponse)
@@ -1122,9 +1151,7 @@ async def resume_run(req: ResumeRequest) -> RunResponse:
     record.db_path = req.db_path
     record.workflow_id = req.workflow_id
     _active_runs[run_id] = record
-    task = asyncio.create_task(
-        _resume_wrapper(record, req.workflow_id, req.db_path, req.from_phase)
-    )
+    task = asyncio.create_task(_resume_wrapper(record, req.workflow_id, req.db_path, req.from_phase))
     record.task = task
     return RunResponse(run_id=run_id, topic=req.topic)
 
@@ -1200,15 +1227,16 @@ async def attach_history(req: AttachRequest) -> RunResponse:
     # This ensures the ActivityView phase timeline settles into a final state.
     if req.status not in ("completed", "done"):
         has_terminal = any(
-            isinstance(e, dict) and e.get("type") in ("done", "error", "cancelled")
-            for e in record.event_log
+            isinstance(e, dict) and e.get("type") in ("done", "error", "cancelled") for e in record.event_log
         )
         if not has_terminal:
-            record.event_log.append({
-                "type": "error",
-                "msg": f"Run ended with status: {req.status}",
-                "ts": datetime.datetime.now(tz=datetime.UTC).isoformat(),
-            })
+            record.event_log.append(
+                {
+                    "type": "error",
+                    "msg": f"Run ended with status: {req.status}",
+                    "ts": datetime.datetime.now(tz=datetime.UTC).isoformat(),
+                }
+            )
     _active_runs[run_id] = record
     # Refresh allowed download roots to include the newly attached run's location.
     await _refresh_allowed_roots()
@@ -1218,6 +1246,7 @@ async def attach_history(req: AttachRequest) -> RunResponse:
 # ---------------------------------------------------------------------------
 # Database explorer endpoints
 # ---------------------------------------------------------------------------
+
 
 def _get_db_path(run_id: str) -> str:
     record = _active_runs.get(run_id)
@@ -1232,11 +1261,36 @@ def _get_db_path(run_id: str) -> str:
     return record.db_path
 
 
-_STOP_WORDS = frozenset({
-    "a", "an", "the", "and", "or", "of", "in", "on", "to", "for",
-    "with", "is", "are", "what", "how", "why", "which", "that",
-    "this", "do", "does", "from", "by", "at", "as", "its",
-})
+_STOP_WORDS = frozenset(
+    {
+        "a",
+        "an",
+        "the",
+        "and",
+        "or",
+        "of",
+        "in",
+        "on",
+        "to",
+        "for",
+        "with",
+        "is",
+        "are",
+        "what",
+        "how",
+        "why",
+        "which",
+        "that",
+        "this",
+        "do",
+        "does",
+        "from",
+        "by",
+        "at",
+        "as",
+        "its",
+    }
+)
 
 
 def _make_download_slug(workflow_id: str, topic: str, max_words: int = 5) -> str:
@@ -1249,6 +1303,7 @@ def _make_download_slug(workflow_id: str, topic: str, max_words: int = 5) -> str
     Example: 'wf-ba930803-robotic-medication-dispensing-accuracy-patient'
     """
     import re
+
     words = re.sub(r"[^a-zA-Z0-9 ]", " ", topic).lower().split()
     meaningful = [w for w in words if w not in _STOP_WORDS and len(w) > 1]
     short = "-".join(meaningful[:max_words]) if meaningful else "review"
@@ -1313,15 +1368,17 @@ async def get_papers(
                             authors += " et al."
                 except Exception:
                     authors = str(authors_raw or "")
-                papers.append({
-                    "paper_id": row["paper_id"],
-                    "title": row["title"],
-                    "authors": authors,
-                    "year": row["year"],
-                    "source_database": row["source_database"],
-                    "doi": row["doi"],
-                    "country": row["country"],
-                })
+                papers.append(
+                    {
+                        "paper_id": row["paper_id"],
+                        "title": row["title"],
+                        "authors": authors,
+                        "year": row["year"],
+                        "source_database": row["source_database"],
+                        "doi": row["doi"],
+                        "country": row["country"],
+                    }
+                )
             return {"total": total, "offset": offset, "limit": limit, "papers": papers}
     except HTTPException:
         raise
@@ -1358,9 +1415,7 @@ async def get_screening(
                 (*params, limit, offset),
             ) as cur:
                 rows = await cur.fetchall()
-            async with db.execute(
-                f"SELECT COUNT(*) FROM screening_decisions {where}", params
-            ) as cur:
+            async with db.execute(f"SELECT COUNT(*) FROM screening_decisions {where}", params) as cur:
                 total = (await cur.fetchone())[0]  # type: ignore[index]
 
             decisions = [dict(row) for row in rows]
@@ -1378,9 +1433,7 @@ async def get_papers_facets(run_id: str) -> dict[str, Any]:
     try:
         async with aiosqlite.connect(db_path) as db:
             db.row_factory = aiosqlite.Row
-            async with db.execute(
-                "SELECT DISTINCT year FROM papers WHERE year IS NOT NULL ORDER BY year DESC"
-            ) as cur:
+            async with db.execute("SELECT DISTINCT year FROM papers WHERE year IS NOT NULL ORDER BY year DESC") as cur:
                 years = [row[0] for row in await cur.fetchall()]
             async with db.execute(
                 "SELECT DISTINCT source_database FROM papers WHERE source_database IS NOT NULL ORDER BY source_database"
@@ -1429,32 +1482,27 @@ async def get_papers_suggest(
             like = f"%{q}%"
             if column == "title":
                 async with db.execute(
-                    "SELECT DISTINCT title FROM papers WHERE title LIKE ? AND title IS NOT NULL "
-                    "ORDER BY title LIMIT ?",
+                    "SELECT DISTINCT title FROM papers WHERE title LIKE ? AND title IS NOT NULL ORDER BY title LIMIT ?",
                     (like, limit),
                 ) as cur:
                     suggestions = [row[0] for row in await cur.fetchall()]
             else:
                 # Authors is stored as a JSON array; LIKE on raw string gives partial matches
                 async with db.execute(
-                    "SELECT DISTINCT authors FROM papers WHERE authors LIKE ? AND authors IS NOT NULL "
-                    "LIMIT ?",
+                    "SELECT DISTINCT authors FROM papers WHERE authors LIKE ? AND authors IS NOT NULL LIMIT ?",
                     (like, limit),
                 ) as cur:
                     raw_rows = [row[0] for row in await cur.fetchall()]
                 # Parse JSON arrays and extract distinct author names matching the query
                 import json as _json_local
+
                 seen: set[str] = set()
                 suggestions = []
                 for raw in raw_rows:
                     try:
                         authors_list = _json_local.loads(raw) if raw.startswith("[") else [raw]
                         for a in authors_list:
-                            name = (
-                                (a.get("name") or a.get("raw_name") or str(a))
-                                if isinstance(a, dict)
-                                else str(a)
-                            )
+                            name = (a.get("name") or a.get("raw_name") or str(a)) if isinstance(a, dict) else str(a)
                             if q.lower() in name.lower() and name not in seen:
                                 seen.add(name)
                                 suggestions.append(name)
@@ -1559,9 +1607,7 @@ async def get_papers_all(
                 try:
                     authors_list = _json.loads(raw) if raw.startswith("[") else [raw]
                     authors_fmt = ", ".join(
-                        (a.get("name") or a.get("raw_name") or str(a))
-                        if isinstance(a, dict)
-                        else str(a)
+                        (a.get("name") or a.get("raw_name") or str(a)) if isinstance(a, dict) else str(a)
                         for a in authors_list
                     )
                 except Exception:
@@ -1582,20 +1628,22 @@ async def get_papers_all(
                 except Exception:
                     pass
 
-                papers.append({
-                    "paper_id": row["paper_id"],
-                    "title": row["title"],
-                    "authors": authors_fmt,
-                    "year": row["year"],
-                    "source_database": row["source_database"],
-                    "doi": row["doi"],
-                    "url": row["url"],
-                    "country": row["country"],
-                    "ta_decision": row["ta_decision"],
-                    "ft_decision": row["ft_decision"],
-                    "extraction_confidence": extraction_confidence,
-                    "assessment_source": assessment_source,
-                })
+                papers.append(
+                    {
+                        "paper_id": row["paper_id"],
+                        "title": row["title"],
+                        "authors": authors_fmt,
+                        "year": row["year"],
+                        "source_database": row["source_database"],
+                        "doi": row["doi"],
+                        "url": row["url"],
+                        "country": row["country"],
+                        "ta_decision": row["ta_decision"],
+                        "ft_decision": row["ft_decision"],
+                        "extraction_confidence": extraction_confidence,
+                        "assessment_source": assessment_source,
+                    }
+                )
 
             return {"total": total, "offset": offset, "limit": limit, "papers": papers}
     except HTTPException:
@@ -1623,9 +1671,7 @@ async def get_db_costs(run_id: str) -> dict[str, Any]:
                    ORDER BY cost_usd DESC"""
             ) as cur:
                 rows = await cur.fetchall()
-            async with db.execute(
-                "SELECT COALESCE(SUM(cost_usd), 0) FROM cost_records"
-            ) as cur:
+            async with db.execute("SELECT COALESCE(SUM(cost_usd), 0) FROM cost_records") as cur:
                 total_cost = float((await cur.fetchone())[0])  # type: ignore[index]
 
             records = [dict(row) for row in rows]
@@ -1663,6 +1709,7 @@ async def get_db_tables(run_id: str) -> dict[str, Any]:
     db_path = _get_db_path(run_id)
     try:
         import json as _json
+
         async with aiosqlite.connect(db_path) as db:
             db.row_factory = aiosqlite.Row
             # Load extraction records (data column holds full ExtractionRecord JSON)
@@ -1687,10 +1734,7 @@ async def get_db_tables(run_id: str) -> dict[str, Any]:
             outcomes: list[dict[str, Any]] = record_data.get("outcomes") or []
             extraction_source: str = record_data.get("extraction_source") or "text"
             # Keep only rows with at least one numeric field
-            numeric_outcomes = [
-                o for o in outcomes
-                if o.get("effect_size") or o.get("p_value") or o.get("ci_lower")
-            ]
+            numeric_outcomes = [o for o in outcomes if o.get("effect_size") or o.get("p_value") or o.get("ci_lower")]
             if not numeric_outcomes:
                 continue
             total_rows += len(numeric_outcomes)
@@ -1714,6 +1758,7 @@ async def get_db_tables(run_id: str) -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 # Run artifacts + export endpoints
 # ---------------------------------------------------------------------------
+
 
 @app.get("/api/run/{run_id}/artifacts")
 async def get_run_artifacts(run_id: str) -> dict[str, Any]:
@@ -1858,6 +1903,7 @@ async def download_manuscript_docx(run_id: str) -> FileResponse:
 # Human-in-the-loop review endpoints
 # ---------------------------------------------------------------------------
 
+
 @app.get("/api/run/{run_id}/screening-summary")
 async def get_screening_summary(run_id: str) -> dict:
     """Return screened papers and AI decisions for human review.
@@ -1871,6 +1917,7 @@ async def get_screening_summary(run_id: str) -> dict:
         raise HTTPException(status_code=404, detail="Run database not found")
 
     import aiosqlite
+
     async with aiosqlite.connect(db_path) as db:
         db.row_factory = aiosqlite.Row
         # Load included papers with their screening decisions
@@ -1902,8 +1949,7 @@ async def get_screening_summary(run_id: str) -> dict:
         "total": len(papers),
         "papers": papers,
         "instructions": (
-            "Review AI screening decisions below. "
-            "POST /api/run/{run_id}/approve-screening to proceed with extraction."
+            "Review AI screening decisions below. POST /api/run/{run_id}/approve-screening to proceed with extraction."
         ),
     }
 
@@ -1945,6 +1991,7 @@ async def approve_screening(
 
     from src.db.workflow_registry import find_by_workflow_id_fallback
     from src.db.workflow_registry import update_status as _update_status
+
     async with aiosqlite.connect(db_path) as _raw_db:
         cursor = await _raw_db.execute("SELECT workflow_id FROM workflows LIMIT 1")
         row = await cursor.fetchone()
@@ -2009,6 +2056,7 @@ async def approve_screening(
                     import os as _os
 
                     from src.config.loader import load_configs as _load_cfgs
+
                     _refine_model = "google-gla:gemini-2.5-pro"
                     try:
                         _, _refine_settings = _load_cfgs(settings_path="config/settings.yaml")
@@ -2027,14 +2075,12 @@ async def approve_screening(
                         await save_learned_criteria(_corr_db, workflow_id, learned)
                 except Exception as _rf_exc:
                     import logging as _logging
-                    _logging.getLogger(__name__).warning(
-                        "Criteria refinement failed (non-fatal): %s", _rf_exc
-                    )
+
+                    _logging.getLogger(__name__).warning("Criteria refinement failed (non-fatal): %s", _rf_exc)
         except Exception as _al_exc:
             import logging as _al_log
-            _al_log.getLogger(__name__).warning(
-                "Active learning processing failed (non-fatal): %s", _al_exc
-            )
+
+            _al_log.getLogger(__name__).warning("Active learning processing failed (non-fatal): %s", _al_exc)
 
     entry = await find_by_workflow_id_fallback(run_root, workflow_id)
     if not entry:
@@ -2058,11 +2104,13 @@ async def get_knowledge_graph(run_id: str) -> dict:
     visualization in the EvidenceNetworkViz frontend component.
     """
     import json as _json
+
     db_path = _get_db_path(run_id)
     if not pathlib.Path(db_path).exists():
         raise HTTPException(status_code=404, detail="Run database not found")
 
     import aiosqlite
+
     async with aiosqlite.connect(db_path) as _kg_db:
         _kg_db.row_factory = aiosqlite.Row
 
@@ -2085,13 +2133,15 @@ async def get_knowledge_graph(run_id: str) -> dict:
             (_wf_id, _wf_id),
         ) as _nc:
             async for _nr in _nc:
-                nodes.append({
-                    "id": _nr[0],
-                    "title": _nr[1] or "",
-                    "year": _nr[2],
-                    "study_design": _nr[3] or "unknown",
-                    "community_id": -1,
-                })
+                nodes.append(
+                    {
+                        "id": _nr[0],
+                        "title": _nr[1] or "",
+                        "year": _nr[2],
+                        "study_design": _nr[3] or "unknown",
+                        "community_id": -1,
+                    }
+                )
 
         # Attach community IDs
         community_map: dict[str, int] = {}
@@ -2119,12 +2169,14 @@ async def get_knowledge_graph(run_id: str) -> dict:
             (_wf_id,),
         ) as _ec:
             async for _er in _ec:
-                edges.append({
-                    "source": _er[0],
-                    "target": _er[1],
-                    "rel_type": _er[2],
-                    "weight": _er[3],
-                })
+                edges.append(
+                    {
+                        "source": _er[0],
+                        "target": _er[1],
+                        "rel_type": _er[2],
+                        "weight": _er[3],
+                    }
+                )
 
         # Load communities
         communities: list[dict] = []
@@ -2137,11 +2189,13 @@ async def get_knowledge_graph(run_id: str) -> dict:
                     pids = _json.loads(_comm_r[1])
                 except (TypeError, ValueError):
                     pids = []
-                communities.append({
-                    "id": _comm_r[0],
-                    "paper_ids": pids,
-                    "label": _comm_r[2] or f"Cluster {_comm_r[0]}",
-                })
+                communities.append(
+                    {
+                        "id": _comm_r[0],
+                        "paper_ids": pids,
+                        "label": _comm_r[2] or f"Cluster {_comm_r[0]}",
+                    }
+                )
 
         # Load research gaps
         gaps: list[dict] = []
@@ -2154,12 +2208,14 @@ async def get_knowledge_graph(run_id: str) -> dict:
                     rids = _json.loads(_gr[3]) if _gr[3] else []
                 except (TypeError, ValueError):
                     rids = []
-                gaps.append({
-                    "id": _gr[0],
-                    "description": _gr[1],
-                    "gap_type": _gr[2],
-                    "related_paper_ids": rids,
-                })
+                gaps.append(
+                    {
+                        "id": _gr[0],
+                        "description": _gr[1],
+                        "gap_type": _gr[2],
+                        "related_paper_ids": rids,
+                    }
+                )
 
     return {
         "run_id": run_id,
@@ -2265,9 +2321,7 @@ async def get_grade_sof(run_id: str, fmt: str = "json") -> dict:
         # Resolve actual workflow_id for the GRADE query.
         wf_id = run_id
         try:
-            async with db.execute(
-                "SELECT workflow_id FROM workflows ORDER BY rowid DESC LIMIT 1"
-            ) as cur:
+            async with db.execute("SELECT workflow_id FROM workflows ORDER BY rowid DESC LIMIT 1") as cur:
                 row = await cur.fetchone()
                 if row:
                     wf_id = row[0]
@@ -2297,6 +2351,7 @@ async def get_grade_sof(run_id: str, fmt: str = "json") -> dict:
 
     if fmt == "latex":
         from src.export.ieee_latex import render_grade_sof_latex
+
         return {"run_id": run_id, "latex": render_grade_sof_latex(table)}
 
     return {
@@ -2379,7 +2434,10 @@ async def living_refresh(run_id: str) -> RunResponse:
     topic = _extract_topic(new_yaml)
 
     tmp = tempfile.NamedTemporaryFile(
-        mode="w", suffix=".yaml", prefix=f"review_{new_run_id}_", delete=False,
+        mode="w",
+        suffix=".yaml",
+        prefix=f"review_{new_run_id}_",
+        delete=False,
     )
     tmp.write(new_yaml)
     tmp.flush()
@@ -2436,9 +2494,7 @@ _PM2_LOG_DIR = pathlib.Path.home() / ".pm2" / "logs"
 _TAIL_LINES = 200
 
 
-async def _log_stream_generator(
-    log_path: pathlib.Path, request: Request
-) -> AsyncGenerator[dict[str, str], None]:
+async def _log_stream_generator(log_path: pathlib.Path, request: Request) -> AsyncGenerator[dict[str, str], None]:
     """Yield the last N lines of a PM2 log file, then stream new lines as they arrive."""
     import watchfiles  # noqa: PLC0415 -- deferred to avoid startup cost when unused
 
@@ -2516,10 +2572,12 @@ async def stream_logs(
 
 # ---------------------------------------------------------------------------
 
+
 def _json_safe(obj: Any) -> str:
     def _default(o: Any) -> Any:
         try:
             return str(o)
         except Exception:
             return None
+
     return _json.dumps(obj, default=_default)

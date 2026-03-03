@@ -54,7 +54,7 @@ dual_review:
   # for genuine cross-model validation (not just temperature variation).
 
 gates:
-  profile: "strict"
+  profile: "warning"
   search_volume_minimum: 50
   screening_minimum: 5
   extraction_completeness_threshold: 0.8
@@ -101,7 +101,7 @@ citation_lineage:
   minimum_evidence_score: 0.5
 
 # Full-text retrieval and multi-modal extraction settings.
-# Tiers: Unpaywall, Semantic Scholar, CORE, Europe PMC, ScienceDirect, PMC
+# Tiers: Unpaywall, arXiv, Semantic Scholar, CORE, Europe PMC, ScienceDirect, PMC
 # Fallback: abstract text
 extraction:
   sciencedirect_full_text: true
@@ -110,6 +110,10 @@ extraction:
   core_full_text: true
   europepmc_full_text: true
   semanticscholar_full_text: true
+  arxiv_full_text: true
+  biorxiv_medrxiv_full_text: true
+  openalex_content_full_text: false  # opt-in; $0.01/file
+  crossref_links_full_text: true
   use_pdf_vision: true
   pdf_vision_model: "google-gla:gemini-2.5-flash"
   full_text_min_chars: 500

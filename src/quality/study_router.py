@@ -23,8 +23,13 @@ class StudyRouter:
         design = record.study_design
         if design == StudyDesign.RCT:
             return "rob2"
-        if design in {StudyDesign.NON_RANDOMIZED, StudyDesign.COHORT, StudyDesign.CASE_CONTROL,
-                      StudyDesign.CROSS_SECTIONAL, StudyDesign.MIXED_METHODS}:
+        if design in {
+            StudyDesign.NON_RANDOMIZED,
+            StudyDesign.COHORT,
+            StudyDesign.CASE_CONTROL,
+            StudyDesign.CROSS_SECTIONAL,
+            StudyDesign.MIXED_METHODS,
+        }:
             return "robins_i"
         if design == StudyDesign.QUALITATIVE:
             return "casp"

@@ -46,9 +46,7 @@ async def test_load_resume_state_phase3(tmp_path) -> None:
         await repo.save_dual_screening_result(
             "wf-resume", "p1", "title_abstract", True, ScreeningDecisionType.INCLUDE, False
         )
-        await repo.save_dual_screening_result(
-            "wf-resume", "p1", "fulltext", True, ScreeningDecisionType.INCLUDE, False
-        )
+        await repo.save_dual_screening_result("wf-resume", "p1", "fulltext", True, ScreeningDecisionType.INCLUDE, False)
 
     state, next_phase = await load_resume_state(
         db_path=str(db_path),

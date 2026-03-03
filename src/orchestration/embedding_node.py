@@ -49,10 +49,7 @@ class EmbeddingNode(BaseNode[ReviewState]):
                 async for row in cursor:
                     already_done.add(row[0])
 
-            to_embed = [
-                r for r in state.extraction_records
-                if r.paper_id not in already_done
-            ]
+            to_embed = [r for r in state.extraction_records if r.paper_id not in already_done]
 
             if not to_embed:
                 logger.info(
@@ -67,7 +64,8 @@ class EmbeddingNode(BaseNode[ReviewState]):
                     all_chunks.extend(text_chunks)
                     # Also embed any vision-extracted table outcomes as structured chunks
                     table_outcomes = [
-                        o for o in (record.outcomes or [])
+                        o
+                        for o in (record.outcomes or [])
                         if o.get("effect_size") or o.get("p_value") or o.get("ci_lower")
                     ]
                     if table_outcomes:
@@ -79,7 +77,8 @@ class EmbeddingNode(BaseNode[ReviewState]):
                         all_chunks.extend(table_chunks)
                         logger.debug(
                             "EmbeddingNode: added %d table chunks for paper %s",
-                            len(table_chunks), record.paper_id,
+                            len(table_chunks),
+                            record.paper_id,
                         )
 
                 if all_chunks:
@@ -112,6 +111,7 @@ class EmbeddingNode(BaseNode[ReviewState]):
 
             # Save checkpoint
             from src.db.repositories import WorkflowRepository
+
             repo = WorkflowRepository(db)
             await repo.save_checkpoint(
                 state.workflow_id,

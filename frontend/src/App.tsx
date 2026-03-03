@@ -12,6 +12,7 @@ import {
   attachHistory,
   cancelRun,
   deleteRun,
+  fetchActiveRun,
   fetchArtifacts,
   fetchHistory,
   getDefaultReviewConfig,
@@ -289,6 +290,44 @@ export default function App() {
       .then((artifacts) => setHistoryOutputs(artifacts))
       .catch(() => setHistoryOutputs({}))
   }, [selectedRun?.runId, selectedRun?.isDone, isViewingLiveRun])
+
+  // ---------------------------------------------------------------------------
+  // Poll for CLI-initiated resume: when viewing a run, check if it became active.
+  // ---------------------------------------------------------------------------
+  useEffect(() => {
+    const wfId = selectedRun?.workflowId
+    if (!wfId || isViewingLiveRun) return
+    const workflowId = wfId
+
+    async function checkAndSwitch() {
+      const res = await fetchActiveRun(workflowId)
+      if (!res) return
+      const now = new Date()
+      reset()
+      liveRunNavigatedRef.current = null
+      setLiveRunId(res.run_id)
+      setLiveTopic(res.topic)
+      setLiveStartedAt(now)
+      setLiveWorkflowId(workflowId)
+      saveLiveRun({ runId: res.run_id, topic: res.topic, startedAt: now.toISOString(), workflowId })
+      setSelectedRun({
+        runId: res.run_id,
+        workflowId,
+        topic: res.topic,
+        dbPath: null,
+        isDone: false,
+        startedAt: now,
+        createdAt: now.toISOString(),
+      })
+      setActiveRunTab("activity")
+      navigate(`/run/${workflowId}/activity`, { replace: true })
+    }
+
+    void checkAndSwitch()
+    const interval = setInterval(() => void checkAndSwitch(), 800)
+
+    return () => clearInterval(interval)
+  }, [selectedRun?.workflowId, isViewingLiveRun, reset, navigate])
 
   // ---------------------------------------------------------------------------
   // Keyboard shortcut: Cmd+B / Ctrl+B to toggle sidebar

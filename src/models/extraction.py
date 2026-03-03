@@ -27,21 +27,27 @@ class ExtractionRecord(BaseModel):
         default=None,
         description="LLM self-reported confidence in the extraction (0.0-1.0).",
     )
-    extraction_source: Optional[Literal[
-        "text",             # abstract / title text only (baseline)
-        "sciencedirect",    # full text from ScienceDirect Article Retrieval API
-        "sciencedirect_pdf",  # PDF from ScienceDirect (requires SCOPUS_INSTTOKEN)
-        "unpaywall_text",   # full text from Unpaywall (HTML/text response)
-        "unpaywall_pdf",    # PDF obtained from Unpaywall (used for vision extraction)
-        "core",             # full text from CORE (institutional repos)
-        "core_pdf",         # PDF from CORE download API
-        "europepmc",        # full text from Europe PMC fullTextXML
-        "semanticscholar_pdf",  # PDF from Semantic Scholar openAccessPdf
-        "pmc",              # full text from PubMed Central XML
-        "pdf_vision",       # table data extracted via Gemini vision from PDF
-        "hybrid",           # merge of text-LLM and PDF-vision outcomes
-        "heuristic",        # rule-based extraction fallback
-    ]] = Field(
+    extraction_source: Optional[
+        Literal[
+            "text",  # abstract / title text only (baseline)
+            "sciencedirect",  # full text from ScienceDirect Article Retrieval API
+            "sciencedirect_pdf",  # PDF from ScienceDirect (requires SCOPUS_INSTTOKEN)
+            "unpaywall_text",  # full text from Unpaywall (HTML/text response)
+            "unpaywall_pdf",  # PDF obtained from Unpaywall (used for vision extraction)
+            "core",  # full text from CORE (institutional repos)
+            "core_pdf",  # PDF from CORE download API
+            "europepmc",  # full text from Europe PMC fullTextXML
+            "semanticscholar_pdf",  # PDF from Semantic Scholar openAccessPdf
+            "arxiv_pdf",  # PDF from arXiv (papers from arXiv connector)
+            "biorxiv_medrxiv_pdf",  # PDF from bioRxiv/medRxiv (DOIs 10.1101/...)
+            "openalex_content",  # PDF from OpenAlex Content API (paid)
+            "crossref_link",  # PDF from Crossref works API link array
+            "pmc",  # full text from PubMed Central XML
+            "pdf_vision",  # table data extracted via Gemini vision from PDF
+            "hybrid",  # merge of text-LLM and PDF-vision outcomes
+            "heuristic",  # rule-based extraction fallback
+        ]
+    ] = Field(
         default="text",
         description=(
             "How outcome data was obtained. 'text' = abstract only (baseline). "

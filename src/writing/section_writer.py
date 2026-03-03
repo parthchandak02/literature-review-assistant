@@ -23,6 +23,7 @@ class SectionWriteMetadata:
     cache_read_tokens: int = 0
     cache_write_tokens: int = 0
 
+
 from src.writing.prompts.base import PROHIBITED_PHRASES, get_citation_catalog_constraint
 
 
@@ -85,18 +86,14 @@ class SectionWriter:
 
         start = time.perf_counter()
         client = PydanticAIClient()
-        content, tokens_in, tokens_out, cache_write, cache_read = (
-            await client.complete_with_usage(
-                prompt,
-                model=full_model,
-                temperature=agent_cfg.temperature,
-            )
+        content, tokens_in, tokens_out, cache_write, cache_read = await client.complete_with_usage(
+            prompt,
+            model=full_model,
+            temperature=agent_cfg.temperature,
         )
         elapsed_ms = int((time.perf_counter() - start) * 1000)
 
-        cost_usd = LLMProvider.estimate_cost_usd(
-            full_model, tokens_in, tokens_out, cache_write, cache_read
-        )
+        cost_usd = LLMProvider.estimate_cost_usd(full_model, tokens_in, tokens_out, cache_write, cache_read)
 
         metadata = SectionWriteMetadata(
             model=full_model,

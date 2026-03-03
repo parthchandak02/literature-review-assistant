@@ -96,9 +96,7 @@ async def test_low_confidence_falls_back_to_non_randomized(tmp_path) -> None:
             provider=provider,
             repository=repo,
             review=_review(),
-            llm_client=_StubLLMClient(
-                '{"study_design":"qualitative","confidence":0.55,"reasoning":"Weak signal."}'
-            ),
+            llm_client=_StubLLMClient('{"study_design":"qualitative","confidence":0.55,"reasoning":"Weak signal."}'),
             low_confidence_threshold=0.70,
         )
         paper = CandidatePaper(title="Interview-based AI tutor study", authors=["B"], source_database="pubmed")

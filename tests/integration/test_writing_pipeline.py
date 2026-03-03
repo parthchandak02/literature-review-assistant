@@ -57,6 +57,7 @@ def _minimal_review() -> ReviewConfig:
 
 def _minimal_settings() -> SettingsConfig:
     from src.models.config import AgentConfig
+
     return SettingsConfig(
         agents={
             "writing": AgentConfig(model="google-gla:gemini-2.5-pro", temperature=0.2),

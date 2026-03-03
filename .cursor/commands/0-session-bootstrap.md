@@ -69,6 +69,15 @@ The Vite dev server (localhost:5173) picks up changes automatically; the product
 
 ---
 
+## Step 5 -- Lint and fix (high-level health)
+
+```bash
+uv run ruff check . --fix && uv run ruff format .
+cd frontend && pnpm fix
+```
+
+---
+
 ## Orientation checklist (confirm before proceeding)
 
 - [ ] Read spec.md and README.md
@@ -76,3 +85,4 @@ The Vite dev server (localhost:5173) picks up changes automatically; the product
 - [ ] Reviewed last 5 commit messages and touched files
 - [ ] Noted any uncommitted changes in git status
 - [ ] Confirmed pm2 process health
+- [ ] Ran ruff + pnpm fix (or confirmed clean)

@@ -14,6 +14,7 @@ from src.search.scopus import ScopusConnector
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _make_entry(
     title: str = "Test Paper",
     doi: str = "10.1234/test",
@@ -78,6 +79,7 @@ async def _mock_session(responses: list[dict], statuses: list[int] | None = None
 # Test 1: Missing SCOPUS_API_KEY raises ValueError at init
 # ---------------------------------------------------------------------------
 
+
 def test_missing_api_key_raises(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("SCOPUS_API_KEY", raising=False)
     with pytest.raises(ValueError, match="SCOPUS_API_KEY"):
@@ -87,6 +89,7 @@ def test_missing_api_key_raises(monkeypatch: pytest.MonkeyPatch) -> None:
 # ---------------------------------------------------------------------------
 # Test 2: Date range embeds PUBYEAR in the query string
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.asyncio
 async def test_date_range_injected_into_query(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -131,6 +134,7 @@ async def test_date_range_injected_into_query(monkeypatch: pytest.MonkeyPatch) -
 # Test 3: PUBYEAR not injected when query already contains PUBYEAR
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.asyncio
 async def test_pubyear_not_duplicated_if_already_in_query(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("SCOPUS_API_KEY", "fake-key")
@@ -172,6 +176,7 @@ async def test_pubyear_not_duplicated_if_already_in_query(monkeypatch: pytest.Mo
 # Test 4: Pagination stops when max_results is reached before totalResults
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.asyncio
 async def test_pagination_stops_at_max_results(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("SCOPUS_API_KEY", "fake-key")
@@ -205,12 +210,13 @@ async def test_pagination_stops_at_max_results(monkeypatch: pytest.MonkeyPatch) 
 
     # 5 per page -> page 1 = 5 papers, page 2 = 10, page 3 = 15 > 12 -> stops after 3 pages
     assert result.records_retrieved <= 12 + 5  # allow one overshoot page
-    assert result.records_retrieved >= 10      # must have fetched at least 2 pages
+    assert result.records_retrieved >= 10  # must have fetched at least 2 pages
 
 
 # ---------------------------------------------------------------------------
 # Test 5: HTTP 429 triggers asyncio.sleep and retries
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.asyncio
 async def test_429_triggers_sleep_and_retry(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -260,6 +266,7 @@ async def test_429_triggers_sleep_and_retry(monkeypatch: pytest.MonkeyPatch) -> 
 # ---------------------------------------------------------------------------
 # Test 6: Malformed entry (missing dc:title) is skipped, not raised
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.asyncio
 async def test_malformed_entry_skipped(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -317,6 +324,7 @@ async def test_malformed_entry_skipped(monkeypatch: pytest.MonkeyPatch) -> None:
 # Test 7: _parse_year handles coverDate and falls back to coverDisplayDate
 # ---------------------------------------------------------------------------
 
+
 def test_parse_year_from_cover_date() -> None:
     entry = {"prism:coverDate": "2024-03-15"}
     assert ScopusConnector._parse_year(entry) == 2024
@@ -335,6 +343,7 @@ def test_parse_year_returns_none_when_no_dates() -> None:
 # ---------------------------------------------------------------------------
 # Test 8: _parse_authors handles list, dict, and dc:creator fallback
 # ---------------------------------------------------------------------------
+
 
 def test_parse_authors_from_list() -> None:
     entry = {"author": [{"authname": "Smith J."}, {"authname": "Doe A."}]}
@@ -363,6 +372,7 @@ def test_parse_authors_empty_returns_unknown() -> None:
 # ---------------------------------------------------------------------------
 # Test 9: Empty result set {"error": ...} terminates loop cleanly
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.asyncio
 async def test_empty_result_set_terminates(monkeypatch: pytest.MonkeyPatch) -> None:

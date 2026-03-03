@@ -27,27 +27,29 @@ def _quality_criteria_block() -> str:
     Both recall-biased and precision-biased reviewers must apply these criteria
     first. A paper failing any criterion is excluded regardless of topic match.
     """
-    return "\n".join([
-        "MANDATORY DATA QUALITY EXCLUSION CRITERIA (evaluate BEFORE topic relevance):",
-        "EXCLUDE with exclusion_reason=insufficient_data if ANY of the following apply:",
-        "- No authors are listed (Authors field is empty or blank)",
-        "- The paper is an editorial, letter, opinion piece, commentary, or news item",
-        "  with no original empirical data",
-        "- The paper is a conference abstract only (no full peer-reviewed publication)",
-        "- No study population or participant count can be identified (purely theoretical)",
-        "- No measurable outcomes or quantitative/qualitative results are described",
-        "- The paper is purely descriptive technology marketing with no evaluation",
-        "",
-        "EXCLUDE with exclusion_reason=protocol_only if the paper is a study PROTOCOL:",
-        "- The title or abstract indicates this is a trial/study protocol, study design,",
-        "  or registered trial with no reported results (e.g. 'Protocol for a randomized",
-        "  trial', 'Study design and methods', 'trial registration', 'PROSPERO protocol')",
-        "- A RCT protocol registered on ClinicalTrials.gov or PROSPERO with no outcome data",
-        "- Review protocols (without data), methodology papers without empirical findings",
-        "- NOTE: A completed trial that has a companion protocol paper is INCLUDED if the",
-        "  paper you are reviewing contains actual results/outcome data.",
-        "",
-    ])
+    return "\n".join(
+        [
+            "MANDATORY DATA QUALITY EXCLUSION CRITERIA (evaluate BEFORE topic relevance):",
+            "EXCLUDE with exclusion_reason=insufficient_data if ANY of the following apply:",
+            "- No authors are listed (Authors field is empty or blank)",
+            "- The paper is an editorial, letter, opinion piece, commentary, or news item",
+            "  with no original empirical data",
+            "- The paper is a conference abstract only (no full peer-reviewed publication)",
+            "- No study population or participant count can be identified (purely theoretical)",
+            "- No measurable outcomes or quantitative/qualitative results are described",
+            "- The paper is purely descriptive technology marketing with no evaluation",
+            "",
+            "EXCLUDE with exclusion_reason=protocol_only if the paper is a study PROTOCOL:",
+            "- The title or abstract indicates this is a trial/study protocol, study design,",
+            "  or registered trial with no reported results (e.g. 'Protocol for a randomized",
+            "  trial', 'Study design and methods', 'trial registration', 'PROSPERO protocol')",
+            "- A RCT protocol registered on ClinicalTrials.gov or PROSPERO with no outcome data",
+            "- Review protocols (without data), methodology papers without empirical findings",
+            "- NOTE: A completed trial that has a companion protocol paper is INCLUDED if the",
+            "  paper you are reviewing contains actual results/outcome data.",
+            "",
+        ]
+    )
 
 
 def _output_schema_block() -> str:

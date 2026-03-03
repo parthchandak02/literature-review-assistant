@@ -54,11 +54,24 @@ async def _export_screening_decisions(db_path: str, workflow_id: str, out_path: 
         )
         rows = await cursor.fetchall()
     if not rows:
-        out_path.write_text("workflow_id,paper_id,stage,decision,reason,exclusion_reason,reviewer_type,confidence\n", encoding="utf-8")
+        out_path.write_text(
+            "workflow_id,paper_id,stage,decision,reason,exclusion_reason,reviewer_type,confidence\n", encoding="utf-8"
+        )
         return
     with open(out_path, "w", newline="", encoding="utf-8") as f:
         writer = csv.writer(f)
-        writer.writerow(["workflow_id", "paper_id", "stage", "decision", "reason", "exclusion_reason", "reviewer_type", "confidence"])
+        writer.writerow(
+            [
+                "workflow_id",
+                "paper_id",
+                "stage",
+                "decision",
+                "reason",
+                "exclusion_reason",
+                "reviewer_type",
+                "confidence",
+            ]
+        )
         for row in rows:
             writer.writerow([str(c) for c in row])
 
@@ -287,9 +300,7 @@ async def package_submission(
 
     loop = asyncio.get_event_loop()
     try:
-        await loop.run_in_executor(
-            None, generate_docx, manuscript_md, submission_dir / "manuscript.docx"
-        )
+        await loop.run_in_executor(None, generate_docx, manuscript_md, submission_dir / "manuscript.docx")
     except Exception:
         pass  # docx generation is best-effort; do not fail the whole export
 

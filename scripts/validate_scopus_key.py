@@ -8,6 +8,7 @@ Usage:
 Loads SCOPUS_API_KEY from .env or environment. Reports HTTP status,
 X-RateLimit-Remaining if present, and sample result counts.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -51,6 +52,7 @@ async def _test_search(api_key: str) -> dict:
             rate_reset = resp.headers.get("X-RateLimit-Reset")
             try:
                 import json
+
                 data = json.loads(body)
                 sr = data.get("search-results", {})
                 total = int(sr.get("opensearch:totalResults", 0))
@@ -90,6 +92,7 @@ async def _test_abstract(api_key: str, doi: str = _SAMPLE_DOI) -> dict:
             has_abstract = False
             try:
                 import json
+
                 data = json.loads(body)
                 resp_obj = data.get("abstracts-retrieval-response", {})
                 coredata = resp_obj.get("coredata", {}) or {}

@@ -12,6 +12,7 @@ Usage:
 Example:
     uv run python scripts/test_fulltext_retrieval.py --run-dir runs/2026-03-02/what-is-the-effectiveness-of-artificial-intelligence-ai-interven/run_06-33-08PM
 """
+
 from __future__ import annotations
 
 import argparse
@@ -55,9 +56,7 @@ async def main(run_dir: str | None, workflow_id: str | None, run_root: str, verb
 
     async with get_db(str(db_path)) as db:
         repo = WorkflowRepository(db)
-        cursor = await db.execute(
-            "SELECT workflow_id FROM workflows ORDER BY rowid DESC LIMIT 1"
-        )
+        cursor = await db.execute("SELECT workflow_id FROM workflows ORDER BY rowid DESC LIMIT 1")
         row = await cursor.fetchone()
         if not row:
             console.print("[red]ERROR: No workflow in DB.[/]")
@@ -95,13 +94,15 @@ async def main(run_dir: str | None, workflow_id: str | None, run_root: str, verb
     for i, paper in enumerate(papers, 1):
         if not paper.doi:
             counts["abstract"] += 1
-            results.append({
-                "title": paper.title[:55],
-                "doi": "N/A",
-                "source": "abstract (no DOI)",
-                "pdf": "N/A",
-                "diagnostics": [],
-            })
+            results.append(
+                {
+                    "title": paper.title[:55],
+                    "doi": "N/A",
+                    "source": "abstract (no DOI)",
+                    "pdf": "N/A",
+                    "diagnostics": [],
+                }
+            )
             continue
 
         diag: list[str] = []
@@ -117,13 +118,15 @@ async def main(run_dir: str | None, workflow_id: str | None, run_root: str, verb
         source = ft.source
         counts[source] = counts.get(source, 0) + 1
         pdf_ok = "YES" if ft.pdf_bytes else "NO"
-        results.append({
-            "title": paper.title[:55],
-            "doi": paper.doi[:30],
-            "source": source,
-            "pdf": pdf_ok,
-            "diagnostics": diag,
-        })
+        results.append(
+            {
+                "title": paper.title[:55],
+                "doi": paper.doi[:30],
+                "source": source,
+                "pdf": pdf_ok,
+                "diagnostics": diag,
+            }
+        )
 
     table = Table(title="Full-Text Retrieval Results", show_lines=True)
     table.add_column("#", style="dim", width=4)
@@ -168,15 +171,12 @@ async def main(run_dir: str | None, workflow_id: str | None, run_root: str, verb
         + counts["pmc"]
     )
     console.print(
-        f"\n[bold]Full-text coverage:[/] {fulltext_total}/{len(papers)} "
-        f"({100 * fulltext_total / len(papers):.0f}%)"
+        f"\n[bold]Full-text coverage:[/] {fulltext_total}/{len(papers)} ({100 * fulltext_total / len(papers):.0f}%)"
     )
-    console.print(
-        f"[bold]PDF coverage:[/] {pdf_total}/{len(papers)} "
-        f"({100 * pdf_total / len(papers):.0f}%)"
-    )
+    console.print(f"[bold]PDF coverage:[/] {pdf_total}/{len(papers)} ({100 * pdf_total / len(papers):.0f}%)")
     # Explain abstract fallbacks: non-Elsevier DOIs cannot use ScienceDirect
     from src.extraction.table_extraction import _is_elsevier_doi
+
     abstract_dois = [r["doi"] for r in results if r["source"] == "abstract" and r["doi"] != "N/A"]
     non_elsevier = sum(1 for d in abstract_dois if not _is_elsevier_doi(d))
     if non_elsevier > 0:
@@ -199,10 +199,10 @@ async def main(run_dir: str | None, workflow_id: str | None, run_root: str, verb
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(
-        description="Test full-text retrieval for included papers from a workflow run."
+    parser = argparse.ArgumentParser(description="Test full-text retrieval for included papers from a workflow run.")
+    parser.add_argument(
+        "--run-dir", default=None, help="Path to run directory (e.g. runs/2026-03-02/.../run_06-33-08PM)"
     )
-    parser.add_argument("--run-dir", default=None, help="Path to run directory (e.g. runs/2026-03-02/.../run_06-33-08PM)")
     parser.add_argument("--workflow-id", default=None, help="Workflow ID (e.g. wf-58bd9dd5)")
     parser.add_argument("--run-root", default="runs", help="Root directory for runs (for workflow-id lookup)")
     parser.add_argument("-v", "--verbose", action="store_true", help="Show per-paper tier failure reasons")

@@ -48,6 +48,7 @@ def _convert_inline_formatting(
     num_to_citekey: dict[str, str] | None = None,
 ) -> str:
     """Convert **bold** and *italic* to LaTeX. Citations already converted."""
+
     def bold_repl(m: re.Match) -> str:
         inner = m.group(1)
         return f"\\textbf{{{_escape_latex(inner)}}}"
@@ -122,14 +123,8 @@ def _extract_title_and_abstract(md: str) -> tuple[str | None, str | None, str]:
                 first_h2_idx = idx
         if fallback_title and title is None:
             title = fallback_title
-        if (
-            fallback_abstract_start >= 0
-            and fallback_abstract_end >= fallback_abstract_start
-            and abstract is None
-        ):
-            abstract = "\n".join(
-                fallback_lines[fallback_abstract_start : fallback_abstract_end + 1]
-            ).strip()
+        if fallback_abstract_start >= 0 and fallback_abstract_end >= fallback_abstract_start and abstract is None:
+            abstract = "\n".join(fallback_lines[fallback_abstract_start : fallback_abstract_end + 1]).strip()
         if abstract and first_h2_idx >= 0 and rest == md:
             rest = "\n".join(fallback_lines[first_h2_idx:])
 
@@ -324,7 +319,9 @@ def render_grade_sof_latex(table: GradeSoFTable) -> str:
     ]
 
     for row in table.rows:
-        cert_label = _CERT_SYMBOL.get(row.certainty.value if hasattr(row.certainty, "value") else str(row.certainty), str(row.certainty).upper())
+        cert_label = _CERT_SYMBOL.get(
+            row.certainty.value if hasattr(row.certainty, "value") else str(row.certainty), str(row.certainty).upper()
+        )
         cells = [
             e(row.outcome_name),
             str(row.n_studies),

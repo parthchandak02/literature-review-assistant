@@ -24,6 +24,7 @@ from src.rag.chunker import chunk_table_outcomes
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _ft(text: str = "", source: str = "abstract", pdf_bytes: bytes | None = None) -> FullTextResult:
     return FullTextResult(text=text, source=source, pdf_bytes=pdf_bytes)
 
@@ -31,6 +32,7 @@ def _ft(text: str = "", source: str = "abstract", pdf_bytes: bytes | None = None
 # ---------------------------------------------------------------------------
 # fetch_full_text: tier routing
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.asyncio
 async def test_fetch_full_text_uses_unpaywall_first_then_sciencedirect(monkeypatch):
@@ -149,9 +151,7 @@ async def test_fetch_full_text_disable_tiers_via_flags(monkeypatch):
         patch("src.extraction.table_extraction._fetch_unpaywall", new=AsyncMock()) as mock_uw,
         patch("src.extraction.table_extraction._fetch_pmc", new=AsyncMock()) as mock_pmc,
     ):
-        result = await fetch_full_text(
-            doi="10.1000/test", use_unpaywall=False, use_pmc=False
-        )
+        result = await fetch_full_text(doi="10.1000/test", use_unpaywall=False, use_pmc=False)
 
     assert result.source == "abstract"
     mock_uw.assert_not_called()
@@ -180,6 +180,7 @@ async def test_fetch_full_text_returns_pdf_bytes_from_unpaywall(monkeypatch):
 # ---------------------------------------------------------------------------
 # merge_outcomes: conflict resolution
 # ---------------------------------------------------------------------------
+
 
 def test_merge_outcomes_returns_text_only_when_no_vision():
     text_outcomes = [{"name": "HbA1c", "effect_size": "SMD=0.4"}]
@@ -234,6 +235,7 @@ def test_merge_outcomes_case_insensitive_name_matching():
 # chunk_table_outcomes: output shape
 # ---------------------------------------------------------------------------
 
+
 def test_chunk_table_outcomes_produces_one_chunk_per_named_row():
     outcomes = [
         {"name": "HbA1c", "effect_size": "SMD=0.4", "p_value": "0.02"},
@@ -254,10 +256,7 @@ def test_chunk_table_outcomes_skips_rows_with_no_name():
 
 
 def test_chunk_table_outcomes_chunk_ids_are_unique():
-    outcomes = [
-        {"name": f"outcome_{i}", "effect_size": f"MD={i}"}
-        for i in range(5)
-    ]
+    outcomes = [{"name": f"outcome_{i}", "effect_size": f"MD={i}"} for i in range(5)]
     chunks = chunk_table_outcomes("paper-003", outcomes)
     chunk_ids = [c.chunk_id for c in chunks]
     assert len(chunk_ids) == len(set(chunk_ids))
@@ -296,6 +295,7 @@ def test_chunk_table_outcomes_empty_outcomes_returns_empty():
 # enrich_scopus_abstracts: offline mock
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.asyncio
 async def test_enrich_scopus_abstracts_skips_papers_with_no_doi():
     from src.models.papers import CandidatePaper
@@ -310,6 +310,7 @@ async def test_enrich_scopus_abstracts_skips_papers_with_no_doi():
         )
     ]
     from src.search.scopus import enrich_scopus_abstracts
+
     count = await enrich_scopus_abstracts(papers, api_key="test")
     assert count == 0
     assert papers[0].abstract is None
@@ -330,6 +331,7 @@ async def test_enrich_scopus_abstracts_skips_papers_already_with_abstract():
         )
     ]
     from src.search.scopus import enrich_scopus_abstracts
+
     count = await enrich_scopus_abstracts(papers, api_key="test")
     assert count == 0
 
@@ -348,5 +350,6 @@ async def test_enrich_scopus_abstracts_skips_non_scopus_papers():
         )
     ]
     from src.search.scopus import enrich_scopus_abstracts
+
     count = await enrich_scopus_abstracts(papers, api_key="test")
     assert count == 0

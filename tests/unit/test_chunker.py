@@ -37,9 +37,7 @@ def test_chunk_produces_sentence_complete_chunks() -> None:
     assert chunks, "Expected at least one chunk"
     for chunk in chunks:
         stripped = chunk.content.rstrip()
-        assert stripped[-1] in ".!?", (
-            f"Chunk does not end with sentence punctuation: {stripped[-30:]!r}"
-        )
+        assert stripped[-1] in ".!?", f"Chunk does not end with sentence punctuation: {stripped[-30:]!r}"
 
 
 def test_chunk_overlap_carries_sentences() -> None:
@@ -130,11 +128,7 @@ def test_fallback_when_nltk_unavailable(monkeypatch: pytest.MonkeyPatch) -> None
     monkeypatch.setattr(chunker_mod, "_tokenize_sentences", _regex_fallback)
 
     record = _make_record(
-        intervention=(
-            "Patients received the intervention daily. "
-            "The study was double-blind. "
-            "Results were significant."
-        )
+        intervention=("Patients received the intervention daily. The study was double-blind. Results were significant.")
     )
     chunks = chunk_extraction_record(record)
     assert chunks, "Expected chunks even when nltk is unavailable"

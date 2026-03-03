@@ -58,6 +58,7 @@ def _grounding_prefix(grounding: WritingGroundingData | None) -> str:
     if grounding is None:
         return ""
     from src.writing.context_builder import format_grounding_block
+
     return format_grounding_block(grounding) + "\n\n" + _PROSE_QUALITY_RULE + "\n\n"
 
 
@@ -111,7 +112,8 @@ def get_abstract_prompt_context(
 
     return (
         prefix
-        + meta_constraint + "\n\n"
+        + meta_constraint
+        + "\n\n"
         + kappa_instruction
         + "Write the structured abstract. Format it with bold field labels on separate lines: "
         "**Objectives:**, **Methods:**, **Results:**, **Conclusion:**, **Keywords:**\n\n"
@@ -134,9 +136,7 @@ def get_introduction_prompt_context(
     """Context for introduction."""
     prefix = _grounding_prefix(grounding)
     return (
-        prefix
-        + _NO_HEADING_RULE + "\n\n"
-        + "Write a thorough introduction of approximately 700 words. "
+        prefix + _NO_HEADING_RULE + "\n\n" + "Write a thorough introduction of approximately 700 words. "
         "Do not truncate findings or provide a superficial overview. "
         "Cover: (1) Background on the topic and its clinical/educational significance, "
         "(2) Current state of the literature and the evidence gap, "
@@ -151,9 +151,7 @@ def get_methods_prompt_context(
     """Context for methods. PRISMA Items 3-16."""
     prefix = _grounding_prefix(grounding)
     return (
-        prefix
-        + _NO_HEADING_RULE + "\n\n"
-        + "Write a thorough methods section of approximately 750 words. "
+        prefix + _NO_HEADING_RULE + "\n\n" + "Write a thorough methods section of approximately 750 words. "
         "Do not truncate or summarise -- describe each step fully. "
         "Use the FACTUAL DATA BLOCK for all database names and dates. "
         "PRISMA Items 3-16: "
@@ -196,9 +194,7 @@ def get_results_prompt_context(
     """Context for results."""
     prefix = _grounding_prefix(grounding)
     return (
-        prefix
-        + _NO_HEADING_RULE + "\n\n"
-        + "Write a thorough results section of approximately 900 words. "
+        prefix + _NO_HEADING_RULE + "\n\n" + "Write a thorough results section of approximately 900 words. "
         "ALL counts MUST come from the FACTUAL DATA BLOCK above -- "
         "do NOT invent records identified, screened, or excluded counts. "
         "Begin immediately with '### Study Selection' as the first line -- "
@@ -227,9 +223,7 @@ def get_discussion_prompt_context(
     """Context for discussion."""
     prefix = _grounding_prefix(grounding)
     return (
-        prefix
-        + _NO_HEADING_RULE + "\n\n"
-        + "Write a thorough discussion section of approximately 850 words. "
+        prefix + _NO_HEADING_RULE + "\n\n" + "Write a thorough discussion section of approximately 850 words. "
         "Do not truncate. "
         "Begin immediately with '### Principal Findings' as the first line -- "
         "do NOT add a parent 'Discussion' heading before it. "
@@ -253,9 +247,7 @@ def get_conclusion_prompt_context(
     """Context for conclusion."""
     prefix = _grounding_prefix(grounding)
     return (
-        prefix
-        + _NO_HEADING_RULE + "\n\n"
-        + "Write a concise conclusion of approximately 350 words. "
+        prefix + _NO_HEADING_RULE + "\n\n" + "Write a concise conclusion of approximately 350 words. "
         "Provide a clear summary of findings grounded in the INCLUDED STUDIES list, "
         "key implications for practice and future research, and a closing statement. "
         "Do NOT introduce new statistics. Cite only from the VALID CITATION KEYS list."

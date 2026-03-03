@@ -39,6 +39,7 @@ def _tokenize_sentences(text: str) -> list[str]:
     try:
         import nltk
         from nltk.tokenize import sent_tokenize
+
         try:
             sentences = sent_tokenize(text)
         except LookupError:
@@ -146,7 +147,9 @@ def chunk_extraction_record(record: ExtractionRecord) -> list[TextChunk]:
     chunks = _sentence_window_chunks(sentences, record.paper_id)
     logger.debug(
         "chunker: paper_id=%s produced %d chunks from %d sentences",
-        record.paper_id, len(chunks), len(sentences),
+        record.paper_id,
+        len(chunks),
+        len(sentences),
     )
     return chunks
 
@@ -207,6 +210,8 @@ def chunk_table_outcomes(
         )
     logger.debug(
         "chunk_table_outcomes: paper_id=%s produced %d table chunks from %d outcomes",
-        paper_id, len(chunks), len(outcomes),
+        paper_id,
+        len(chunks),
+        len(outcomes),
     )
     return chunks

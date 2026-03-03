@@ -854,12 +854,14 @@ uv run python -m src.main export --workflow-id abc123 --run-root runs/
 ### 11.4 Testing
 
 ```
-uv run pytest tests/unit -q           # 104 unit tests
-uv run pytest tests/integration -q   # integration tests (require config/review.yaml)
-uv run python -m src.main --help      # confirm CLI loads without error
+uv run ruff check . --fix && uv run ruff format .   # Python lint + format
+cd frontend && pnpm fix && pnpm typecheck           # ESLint + TypeScript
+uv run pytest tests/unit -q                         # 105 unit tests
+uv run pytest tests/integration -q                 # integration tests (require config/review.yaml)
+uv run python -m src.main --help                    # confirm CLI loads without error
 ```
 
-After each phase, run all three commands and confirm clean output before proceeding.
+After each phase, run all commands and confirm clean output before proceeding.
 
 ### 11.5 Production Frontend Build
 

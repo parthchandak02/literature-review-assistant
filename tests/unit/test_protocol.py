@@ -40,7 +40,9 @@ class _StubConnector:
         self.source_category = SourceCategory.DATABASE
         self.count = count
 
-    async def search(self, query: str, max_results: int = 100, date_start: int | None = None, date_end: int | None = None) -> SearchResult:
+    async def search(
+        self, query: str, max_results: int = 100, date_start: int | None = None, date_end: int | None = None
+    ) -> SearchResult:
         papers = [
             CandidatePaper(
                 title=f"{self.name}-{idx}",

@@ -13,9 +13,7 @@ async def test_database_migrations_create_tables(tmp_path) -> None:
     db_path = tmp_path / "phase1.db"
     async with get_db(str(db_path)) as db:
         assert isinstance(db, aiosqlite.Connection)
-        cursor = await db.execute(
-            "SELECT name FROM sqlite_master WHERE type='table' AND name='gate_results'"
-        )
+        cursor = await db.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='gate_results'")
         row = await cursor.fetchone()
         assert row is not None
 
@@ -59,11 +57,7 @@ async def test_get_included_paper_ids_includes_uncertain(tmp_path) -> None:
         )
         await db.commit()
         await repo.create_workflow("wf-inc", "topic", "hash")
-        await repo.save_dual_screening_result(
-            "wf-inc", "p1", "fulltext", True, ScreeningDecisionType.INCLUDE, False
-        )
-        await repo.save_dual_screening_result(
-            "wf-inc", "p2", "fulltext", True, ScreeningDecisionType.UNCERTAIN, False
-        )
+        await repo.save_dual_screening_result("wf-inc", "p1", "fulltext", True, ScreeningDecisionType.INCLUDE, False)
+        await repo.save_dual_screening_result("wf-inc", "p2", "fulltext", True, ScreeningDecisionType.UNCERTAIN, False)
         included = await repo.get_included_paper_ids("wf-inc")
         assert included == {"p1", "p2"}

@@ -25,6 +25,7 @@ Example:
     uv run python scripts/finalize_manuscript.py \\
         --run-dir runs/2026-03-01/what-is-the-impact.../run_01-42-59PM
 """
+
 from __future__ import annotations
 
 import argparse
@@ -53,9 +54,7 @@ from src.export.markdown_refs import (
 # [lise2013; Tomoki2022], [Bryan2016; Hisham2021; NANDINI2023].
 # These survived numbered-citation conversion because they were not in the
 # citation ledger. We strip them to keep prose clean for journal submission.
-_AUTHOR_YEAR_KEY_RE = re.compile(
-    r"\[[A-Za-z][A-Za-z0-9]*\d{4}(?:;\s*[A-Za-z][A-Za-z0-9]*\d{4})*\]"
-)
+_AUTHOR_YEAR_KEY_RE = re.compile(r"\[[A-Za-z][A-Za-z0-9]*\d{4}(?:;\s*[A-Za-z][A-Za-z0-9]*\d{4})*\]")
 
 
 def _strip_unresolved_citekeys(text: str) -> str:
@@ -68,29 +67,32 @@ def _strip_unresolved_citekeys(text: str) -> str:
     return cleaned
 
 
-
 # ---------------------------------------------------------------------------
 # IMRaD heading injection (safety net for historical runs)
 # ---------------------------------------------------------------------------
+
 
 def _inject_imrad_headings(body: str) -> str:
     """Inject missing H2 IMRaD headings into an existing LLM-generated body."""
     body = re.sub(
         r"(?m)^(This systematic review follows the Preferred Reporting Items)",
         r"## Methods\n\n\1",
-        body, count=1,
+        body,
+        count=1,
     )
     body = re.sub(r"(?m)^### \*\*Results\*\*\s*$", "## Results", body)
     body = re.sub(
         r"(?m)^(?<!## Discussion\n\n)(### Principal Findings)",
         r"## Discussion\n\n\1",
-        body, count=1,
+        body,
+        count=1,
     )
     body = re.sub(r"(?m)^## Discussion\n+## Discussion\n", "## Discussion\n", body)
     body = re.sub(
         r"(\*\*(?:Funding|Protocol Registration|Keywords)[^\n]*\n)(\n)([A-Z])",
         r"\1\n## Introduction\n\n\3",
-        body, count=1,
+        body,
+        count=1,
     )
     return body
 
@@ -118,6 +120,7 @@ ARTIFACT_MAP = {
 # Main
 # ---------------------------------------------------------------------------
 
+
 async def main(run_dir: str) -> int:
     run_path = pathlib.Path(run_dir).resolve()
     manuscript_path = run_path / "doc_manuscript.md"
@@ -140,9 +143,7 @@ async def main(run_dir: str) -> int:
         repo = WorkflowRepository(db)
         citation_rows = await CitationRepository(db).get_all_citations_for_export()
 
-        cursor = await db.execute(
-            "SELECT workflow_id FROM workflows ORDER BY rowid DESC LIMIT 1"
-        )
+        cursor = await db.execute("SELECT workflow_id FROM workflows ORDER BY rowid DESC LIMIT 1")
         row = await cursor.fetchone()
         workflow_id = str(row[0]) if row else None
 
@@ -159,9 +160,7 @@ async def main(run_dir: str) -> int:
             papers = await repo.load_papers_by_ids(included_ids)
 
             grade_assessments = await repo.load_grade_assessments(workflow_id)
-            _rob2_rows, robins_i_assessments = await repo.load_rob_assessments(
-                workflow_id
-            )
+            _rob2_rows, robins_i_assessments = await repo.load_rob_assessments(workflow_id)
 
     # Quality gate: exclude extraction records with only placeholder data
     clean_records = [r for r in extraction_records if not is_extraction_failed(r)]
@@ -227,9 +226,7 @@ async def main(run_dir: str) -> int:
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(
-        description="Regenerate appended sections in an existing doc_manuscript.md"
-    )
+    parser = argparse.ArgumentParser(description="Regenerate appended sections in an existing doc_manuscript.md")
     parser.add_argument(
         "--run-dir",
         required=True,

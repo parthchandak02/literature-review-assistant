@@ -46,7 +46,7 @@ def _fix_table_layout(docx_path: Path) -> None:
                 el = OxmlElement(f"w:{side}")
                 tblBorders.append(el)
             el.set(qn("w:val"), "single")
-            el.set(qn("w:sz"), "6")       # 6/8 = 0.75 pt
+            el.set(qn("w:sz"), "6")  # 6/8 = 0.75 pt
             el.set(qn("w:space"), "0")
             el.set(qn("w:color"), "000000")
 
@@ -133,8 +133,9 @@ def generate_docx(source_path: Path, output_path: Path) -> Path:
         outputfile=str(output_path),
         extra_args=[
             "--standalone",
-            "--resource-path", str(abs_source.parent),
-            "--dpi=300",   # preserve image resolution in DOCX (pandoc default is 96)
+            "--resource-path",
+            str(abs_source.parent),
+            "--dpi=300",  # preserve image resolution in DOCX (pandoc default is 96)
         ],
     )
     if not output_path.exists():

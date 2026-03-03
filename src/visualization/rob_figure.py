@@ -48,7 +48,12 @@ _ROBINS_I_DOMAINS = [
     ("D1", "domain_1_confounding", "Confounding", "Are there uncontrolled confounders?"),
     ("D2", "domain_2_selection", "Selection of participants", "Was selection of participants biased?"),
     ("D3", "domain_3_classification", "Classification of interventions", "Is the intervention correctly defined?"),
-    ("D4", "domain_4_deviations", "Deviations from interventions", "Were co-interventions or crossover issues present?"),
+    (
+        "D4",
+        "domain_4_deviations",
+        "Deviations from interventions",
+        "Were co-interventions or crossover issues present?",
+    ),
     ("D5", "domain_5_missing_data", "Missing data", "Is outcome data complete?"),
     ("D6", "domain_6_measurement", "Outcome measurement", "Was the outcome measured without bias?"),
     ("D7", "domain_7_reported_result", "Reported result selection", "Was the reported result chosen selectively?"),
@@ -65,19 +70,80 @@ _COLOR_NOT_ASSESSED = "#808080"
 # ---------------------------------------------------------------------------
 
 _GENERIC_AUTHORS = frozenset({"unknown", "none", "na", "author", "anonymous", "anon"})
-_GENERIC_TITLE_WORDS = frozenset({
-    "a", "an", "the", "of", "in", "on", "at", "to", "for", "and", "or",
-    "is", "are", "was", "were", "be", "been", "being", "with", "this", "that",
-    "fig", "figure", "table", "appendix", "section", "chapter",
-    "methods", "method", "results", "result", "discussion", "conclusion",
-    "conclusions", "introduction", "abstract", "study", "studies",
-    "review", "systematic", "literature", "analysis", "impact",
-    "effect", "effects", "use", "using", "based", "new", "novel",
-    "analysing", "investigating", "usability", "examining", "exploring",
-    "evaluating", "evaluation", "assessment", "towards", "toward",
-    "role", "applying", "application", "understanding", "comparing",
-    "developing", "improving", "educational", "learning", "teaching",
-})
+_GENERIC_TITLE_WORDS = frozenset(
+    {
+        "a",
+        "an",
+        "the",
+        "of",
+        "in",
+        "on",
+        "at",
+        "to",
+        "for",
+        "and",
+        "or",
+        "is",
+        "are",
+        "was",
+        "were",
+        "be",
+        "been",
+        "being",
+        "with",
+        "this",
+        "that",
+        "fig",
+        "figure",
+        "table",
+        "appendix",
+        "section",
+        "chapter",
+        "methods",
+        "method",
+        "results",
+        "result",
+        "discussion",
+        "conclusion",
+        "conclusions",
+        "introduction",
+        "abstract",
+        "study",
+        "studies",
+        "review",
+        "systematic",
+        "literature",
+        "analysis",
+        "impact",
+        "effect",
+        "effects",
+        "use",
+        "using",
+        "based",
+        "new",
+        "novel",
+        "analysing",
+        "investigating",
+        "usability",
+        "examining",
+        "exploring",
+        "evaluating",
+        "evaluation",
+        "assessment",
+        "towards",
+        "toward",
+        "role",
+        "applying",
+        "application",
+        "understanding",
+        "comparing",
+        "developing",
+        "improving",
+        "educational",
+        "learning",
+        "teaching",
+    }
+)
 
 
 def _paper_label(paper_id: str, paper_lookup: dict[str, CandidatePaper], index: int) -> str:
@@ -155,10 +221,11 @@ def _robins_i_color_key(judgment: RobinsIJudgment) -> str:
 # Single-tool figure renderer (shared logic for both RoB2 and ROBINS-I)
 # ---------------------------------------------------------------------------
 
+
 def _render_single_tool_figure(
     domains: list,
     row_data: list[tuple[str, list[str]]],  # [(label, [color_keys_per_domain])]
-    dot_colors: list[list[str]],             # [row][col] -> hex color
+    dot_colors: list[list[str]],  # [row][col] -> hex color
     title: str,
     path: Path,
     disclosure_note: str = "",
@@ -196,8 +263,14 @@ def _render_single_tool_figure(
     for row_idx, (label, color_keys) in enumerate(row_data):
         for col_idx, (hex_color, key) in enumerate(zip(dot_colors[row_idx], color_keys)):
             ax_dots.scatter(
-                col_idx, row_idx, s=230, c=hex_color, marker="o",
-                edgecolors="black", linewidths=0.6, zorder=3,
+                col_idx,
+                row_idx,
+                s=230,
+                c=hex_color,
+                marker="o",
+                edgecolors="black",
+                linewidths=0.6,
+                zorder=3,
             )
             domain_colors_per_col[col_idx].append(key)
 
@@ -217,21 +290,30 @@ def _render_single_tool_figure(
     legend_patches = [
         mpatches.Patch(facecolor=_COLOR_LOW, edgecolor="black", linewidth=0.6, label="Low risk"),
         mpatches.Patch(facecolor=_COLOR_MODERATE, edgecolor="black", linewidth=0.6, label="Moderate / Some concerns"),
-        mpatches.Patch(facecolor=_COLOR_SERIOUS, edgecolor="black", linewidth=0.6, label="Serious / Critical / High risk"),
-        mpatches.Patch(facecolor=_COLOR_NOT_ASSESSED, edgecolor="black", linewidth=0.6, label="Not assessed / No information"),
+        mpatches.Patch(
+            facecolor=_COLOR_SERIOUS, edgecolor="black", linewidth=0.6, label="Serious / Critical / High risk"
+        ),
+        mpatches.Patch(
+            facecolor=_COLOR_NOT_ASSESSED, edgecolor="black", linewidth=0.6, label="Not assessed / No information"
+        ),
     ]
-    ax_legend.legend(handles=legend_patches, loc="center", ncol=4, frameon=False,
-                     fontsize=8.5, handlelength=1.4, handleheight=0.9)
+    ax_legend.legend(
+        handles=legend_patches, loc="center", ncol=4, frameon=False, fontsize=8.5, handlelength=1.4, handleheight=0.9
+    )
 
     # --- Panel 2: Summary stacked % bar chart ---
     bucket_order = ["low", "moderate", "serious", "not_assessed"]
     bucket_colors = {
-        "low": _COLOR_LOW, "moderate": _COLOR_MODERATE,
-        "serious": _COLOR_SERIOUS, "not_assessed": _COLOR_NOT_ASSESSED,
+        "low": _COLOR_LOW,
+        "moderate": _COLOR_MODERATE,
+        "serious": _COLOR_SERIOUS,
+        "not_assessed": _COLOR_NOT_ASSESSED,
     }
     bucket_labels = {
-        "low": "Low", "moderate": "Moderate",
-        "serious": "Serious/Critical", "not_assessed": "Not assessed",
+        "low": "Low",
+        "moderate": "Moderate",
+        "serious": "Serious/Critical",
+        "not_assessed": "Not assessed",
     }
     x_pos = list(range(n_domains))
     left = [0.0] * n_domains
@@ -241,12 +323,28 @@ def _render_single_tool_figure(
             col = domain_colors_per_col[col_idx]
             pct = (col.count(bucket) / len(col) * 100) if col else 0.0
             proportions.append(pct)
-        ax_summary.bar(x_pos, proportions, bottom=left, color=bucket_colors[bucket],
-                       edgecolor="white", linewidth=0.4, label=bucket_labels[bucket], width=0.6)
+        ax_summary.bar(
+            x_pos,
+            proportions,
+            bottom=left,
+            color=bucket_colors[bucket],
+            edgecolor="white",
+            linewidth=0.4,
+            label=bucket_labels[bucket],
+            width=0.6,
+        )
         for xi, (prop, bot) in enumerate(zip(proportions, left)):
             if prop >= 12:
-                ax_summary.text(xi, bot + prop / 2, f"{prop:.0f}%", ha="center", va="center",
-                                fontsize=7, fontweight="bold", color="white")
+                ax_summary.text(
+                    xi,
+                    bot + prop / 2,
+                    f"{prop:.0f}%",
+                    ha="center",
+                    va="center",
+                    fontsize=7,
+                    fontweight="bold",
+                    color="white",
+                )
         left = [lv + p for lv, p in zip(left, proportions)]
 
     ax_summary.set_xticks(x_pos)
@@ -271,24 +369,42 @@ def _render_single_tool_figure(
     row_h = 1.0 / (n_rows + 1)
     col_x = [0.01, 0.09, 0.38]
     for x, hdr in zip(col_x, ["Code", "Domain name", "What it assesses"]):
-        ax_key.text(x, 1.0 - row_h * 0.4, hdr, transform=ax_key.transAxes,
-                    fontsize=8, fontweight="bold", va="top", color="#333333")
+        ax_key.text(
+            x,
+            1.0 - row_h * 0.4,
+            hdr,
+            transform=ax_key.transAxes,
+            fontsize=8,
+            fontweight="bold",
+            va="top",
+            color="#333333",
+        )
     ax_key.axhline(y=1.0 - row_h * 0.85, xmin=0.01, xmax=0.99, color="#aaaaaa", linewidth=0.6)
     for i, (code, name, desc) in enumerate(rows):
         y = 1.0 - row_h * (i + 1.2)
-        ax_key.text(col_x[0], y, code, transform=ax_key.transAxes,
-                    fontsize=8, fontweight="bold", va="top", color="#333333")
-        ax_key.text(col_x[1], y, name, transform=ax_key.transAxes,
-                    fontsize=8, va="top", color="#222222")
+        ax_key.text(
+            col_x[0], y, code, transform=ax_key.transAxes, fontsize=8, fontweight="bold", va="top", color="#333333"
+        )
+        ax_key.text(col_x[1], y, name, transform=ax_key.transAxes, fontsize=8, va="top", color="#222222")
         if desc:
-            ax_key.text(col_x[2], y, desc, transform=ax_key.transAxes,
-                        fontsize=7.5, va="top", color="#555555", style="italic")
+            ax_key.text(
+                col_x[2], y, desc, transform=ax_key.transAxes, fontsize=7.5, va="top", color="#555555", style="italic"
+            )
 
     # --- Panel 4: Disclosure note ---
     if ax_note is not None:
         ax_note.axis("off")
-        ax_note.text(0.0, 0.6, disclosure_note, transform=ax_note.transAxes,
-                     fontsize=7.5, va="top", color="#555555", style="italic", wrap=True)
+        ax_note.text(
+            0.0,
+            0.6,
+            disclosure_note,
+            transform=ax_note.transAxes,
+            fontsize=7.5,
+            va="top",
+            color="#555555",
+            style="italic",
+            wrap=True,
+        )
 
     fig.savefig(path, dpi=150, bbox_inches="tight")
     fig.savefig(path.with_suffix(".svg"), bbox_inches="tight")
@@ -298,6 +414,7 @@ def _render_single_tool_figure(
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
+
 
 def render_rob_traffic_light(
     rob2: list[RoB2Assessment],

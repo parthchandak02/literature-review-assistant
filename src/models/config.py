@@ -102,9 +102,17 @@ class AgentConfig(BaseModel):
 class ScreeningConfig(BaseModel):
     stage1_include_threshold: float = Field(ge=0.0, le=1.0, default=0.85)
     stage1_exclude_threshold: float = Field(ge=0.0, le=1.0, default=0.80)
-    keyword_filter_min_matches: int = Field(ge=0, default=1, description="Minimum keyword hits required to send a paper to LLM screening; 0 disables pre-filter.")
-    skip_fulltext_if_no_pdf: bool = Field(default=True, description="Skip stage 2 when no real PDFs are retrieved; treats stage-1 survivors as included.")
-    screening_concurrency: int = Field(ge=1, le=20, default=5, description="Number of papers screened concurrently by the LLM dual-reviewer.")
+    keyword_filter_min_matches: int = Field(
+        ge=0,
+        default=1,
+        description="Minimum keyword hits required to send a paper to LLM screening; 0 disables pre-filter.",
+    )
+    skip_fulltext_if_no_pdf: bool = Field(
+        default=True, description="Skip stage 2 when no real PDFs are retrieved; treats stage-1 survivors as included."
+    )
+    screening_concurrency: int = Field(
+        ge=1, le=20, default=5, description="Number of papers screened concurrently by the LLM dual-reviewer."
+    )
     max_llm_screen: int | None = Field(
         default=None,
         ge=1,
@@ -275,16 +283,36 @@ class ExtractionConfig(BaseModel):
     )
     europepmc_full_text: bool = Field(
         default=True,
-        description=(
-            "Fetch full text from Europe PMC fullTextXML (OA subset, 6.5M articles). "
-            "No API key required."
-        ),
+        description=("Fetch full text from Europe PMC fullTextXML (OA subset, 6.5M articles). No API key required."),
     )
     semanticscholar_full_text: bool = Field(
         default=True,
         description=(
             "Fetch PDF from Semantic Scholar openAccessPdf URL. "
             "Optional SEMANTIC_SCHOLAR_API_KEY for higher rate limits."
+        ),
+    )
+    arxiv_full_text: bool = Field(
+        default=True,
+        description=(
+            "Fetch PDF from arXiv (https://arxiv.org/pdf/{id}.pdf) when paper URL "
+            "is an arXiv abs link. Free; applies to papers from arXiv connector."
+        ),
+    )
+    biorxiv_medrxiv_full_text: bool = Field(
+        default=True,
+        description=("Fetch PDF from bioRxiv/medRxiv when DOI starts with 10.1101/. Free; life sciences preprints."),
+    )
+    openalex_content_full_text: bool = Field(
+        default=False,
+        description=(
+            "Fetch PDF from OpenAlex Content API (~60M OA works). Costs $0.01/file; 100 free/day with free key. Opt-in."
+        ),
+    )
+    crossref_links_full_text: bool = Field(
+        default=True,
+        description=(
+            "Try PDF URLs from Crossref works API link array (fallback). Many links are paywalled; low yield but free."
         ),
     )
     use_pdf_vision: bool = Field(

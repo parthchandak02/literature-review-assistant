@@ -82,7 +82,7 @@ async def test_extraction_pipeline_persists_typed_record(tmp_path) -> None:
         row = await cursor.fetchone()
         assert row is not None
         assert str(row[0]) == StudyDesign.RCT.value
-        assert "\"source\"" in str(row[1])
+        assert '"source"' in str(row[1])
 
 
 @pytest.mark.asyncio

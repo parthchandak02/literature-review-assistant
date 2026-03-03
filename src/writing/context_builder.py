@@ -122,22 +122,18 @@ def build_writing_grounding(
 
     # All bibliographic databases searched (including those with 0 records, for multi-database narrative)
     _OTHER_METHOD_NAMES = frozenset({"perplexity_web", "perplexity_search", "perplexity"})
-    active_dbs = sorted(
-        db
-        for db in prisma_counts.databases_records
-        if db not in _OTHER_METHOD_NAMES
-    )
+    active_dbs = sorted(db for db in prisma_counts.databases_records if db not in _OTHER_METHOD_NAMES)
     # Other methods (grey lit, AI discovery tools -- not bibliographic databases)
-    active_other = sorted(
-        src
-        for src, cnt in prisma_counts.other_sources_records.items()
-        if cnt > 0
-    )
+    active_other = sorted(src for src, cnt in prisma_counts.other_sources_records.items() if cnt > 0)
     # Any perplexity records that ended up in databases_records (should be rare)
-    active_other = sorted(set(active_other) | {
-        db for db in prisma_counts.databases_records
-        if db in _OTHER_METHOD_NAMES and prisma_counts.databases_records.get(db, 0) > 0
-    })
+    active_other = sorted(
+        set(active_other)
+        | {
+            db
+            for db in prisma_counts.databases_records
+            if db in _OTHER_METHOD_NAMES and prisma_counts.databases_records.get(db, 0) > 0
+        }
+    )
 
     # Study design breakdown -- normalize enum value to readable label at source
     design_counts: dict[str, int] = {}
@@ -151,17 +147,13 @@ def build_writing_grounding(
         for rec in extraction_records
         if rec.participant_count is not None and rec.participant_count > 0
     ]
-    total_participants: int | None = (
-        sum(participant_counts) if participant_counts else None
-    )
+    total_participants: int | None = sum(participant_counts) if participant_counts else None
     n_studies_reporting_count = len(participant_counts)
     n_total_studies = len(extraction_records)
 
     # Year range from included papers
     years = [p.year for p in included_papers if p.year is not None]
-    year_range: str | None = (
-        f"{min(years)}-{max(years)}" if years else None
-    )
+    year_range: str | None = f"{min(years)}-{max(years)}" if years else None
 
     # Synthesis direction from narrative JSON or defaults
     meta_feasible = False
@@ -180,9 +172,7 @@ def build_writing_grounding(
         groupings = feasibility.get("groupings", [])
         # Only treat as feasible when groupings contain real outcome names,
         # not just the generic "primary_outcome" / "secondary_outcome" fallbacks.
-        generic_only = not groupings or all(
-            g in _GENERIC_GROUPINGS for g in groupings
-        )
+        generic_only = not groupings or all(g in _GENERIC_GROUPINGS for g in groupings)
         meta_feasible = raw_feasible and not generic_only
         poolable_outcomes = [g for g in groupings if g not in _GENERIC_GROUPINGS]
         # meta_analysis_ran=True only when pooling produced a usable result
@@ -223,20 +213,14 @@ def build_writing_grounding(
             if key:
                 valid_citekeys.append(key)
 
-    total_included_count = (
-        prisma_counts.studies_included_qualitative
-        + prisma_counts.studies_included_quantitative
-    )
-    fulltext_excluded_count = max(
-        0, prisma_counts.reports_assessed - total_included_count
-    )
+    total_included_count = prisma_counts.studies_included_qualitative + prisma_counts.studies_included_quantitative
+    fulltext_excluded_count = max(0, prisma_counts.reports_assessed - total_included_count)
 
     return WritingGroundingData(
         databases_searched=active_dbs,
         other_methods_searched=active_other,
         search_date=str(datetime.now().year),
-        total_identified=prisma_counts.total_identified_databases
-        + prisma_counts.total_identified_other,
+        total_identified=prisma_counts.total_identified_databases + prisma_counts.total_identified_other,
         duplicates_removed=prisma_counts.duplicates_removed,
         total_screened=prisma_counts.records_screened,
         fulltext_assessed=prisma_counts.reports_assessed,
@@ -274,22 +258,26 @@ def format_grounding_block(data: WritingGroundingData) -> str:
     """
     lines: list[str] = []
     if data.total_included == 0:
-        lines.extend([
-            "CRITICAL - ZERO STUDIES: No studies met the eligibility criteria. You MUST:",
-            "1. State the exact PRISMA numbers from the FACTUAL DATA BLOCK (records identified, screened, excluded).",
-            "2. Write ONLY that no studies were included and no synthesis was performed.",
-            "3. Do NOT write findings, recommendations, or synthesis as if studies existed.",
-            "4. Do NOT invent or imply the existence of any study.",
-            "",
-        ])
-    lines.extend([
-        "FACTUAL DATA BLOCK - You MUST use these exact numbers verbatim.",
-        "Do NOT invent or fabricate any counts, statistics, or study characteristics",
-        "that are not present in this block or the citation catalog below.",
-        "---",
-        f"Bibliographic databases searched: {', '.join(data.databases_searched) if data.databases_searched else 'see search appendix'}",
-        f"Other methods (NOT databases - list separately as supplementary search): {', '.join(data.other_methods_searched) if data.other_methods_searched else 'none'}",
-    ])
+        lines.extend(
+            [
+                "CRITICAL - ZERO STUDIES: No studies met the eligibility criteria. You MUST:",
+                "1. State the exact PRISMA numbers from the FACTUAL DATA BLOCK (records identified, screened, excluded).",
+                "2. Write ONLY that no studies were included and no synthesis was performed.",
+                "3. Do NOT write findings, recommendations, or synthesis as if studies existed.",
+                "4. Do NOT invent or imply the existence of any study.",
+                "",
+            ]
+        )
+    lines.extend(
+        [
+            "FACTUAL DATA BLOCK - You MUST use these exact numbers verbatim.",
+            "Do NOT invent or fabricate any counts, statistics, or study characteristics",
+            "that are not present in this block or the citation catalog below.",
+            "---",
+            f"Bibliographic databases searched: {', '.join(data.databases_searched) if data.databases_searched else 'see search appendix'}",
+            f"Other methods (NOT databases - list separately as supplementary search): {', '.join(data.other_methods_searched) if data.other_methods_searched else 'none'}",
+        ]
+    )
     if data.search_limitation:
         lines.append(f"Search limitation: {data.search_limitation}")
     lines += [
@@ -304,19 +292,12 @@ def format_grounding_block(data: WritingGroundingData) -> str:
     ]
 
     if data.excluded_fulltext_reasons:
-        reasons_str = "; ".join(
-            f"{_normalize_label(k)} ({v})"
-            for k, v in data.excluded_fulltext_reasons.items()
-        )
-        lines.append(
-            f"Primary exclusion reasons (categories may overlap): {reasons_str}"
-        )
+        reasons_str = "; ".join(f"{_normalize_label(k)} ({v})" for k, v in data.excluded_fulltext_reasons.items())
+        lines.append(f"Primary exclusion reasons (categories may overlap): {reasons_str}")
 
     if data.study_design_counts:
         # Keys are already normalized by build_writing_grounding
-        design_str = ", ".join(
-            f"{k}: {v}" for k, v in data.study_design_counts.items()
-        )
+        design_str = ", ".join(f"{k}: {v}" for k, v in data.study_design_counts.items())
         lines.append(f"Study designs: {design_str}")
     else:
         lines.append("Study designs: all non-randomized (observational/quasi-experimental)")
@@ -324,10 +305,7 @@ def format_grounding_block(data: WritingGroundingData) -> str:
     if data.total_participants is not None:
         reporting_str = ""
         if data.n_total_studies > 0:
-            reporting_str = (
-                f" (from {data.n_studies_reporting_count} of "
-                f"{data.n_total_studies} studies reporting N)"
-            )
+            reporting_str = f" (from {data.n_studies_reporting_count} of {data.n_total_studies} studies reporting N)"
         lines.append(f"Total participants reported: {data.total_participants}{reporting_str}")
         if data.n_studies_reporting_count < data.n_total_studies:
             lines.append(
@@ -368,7 +346,8 @@ def format_grounding_block(data: WritingGroundingData) -> str:
             "Write ONLY that narrative synthesis was conducted."
         )
     reg_status = (
-        "YES (ID on file)" if data.protocol_registered
+        "YES (ID on file)"
+        if data.protocol_registered
         else "TODO: Register protocol at PROSPERO before submission - CRD420XXXXXXXX"
     )
     lines.append(f"Protocol registration: {reg_status}")
@@ -384,11 +363,7 @@ def format_grounding_block(data: WritingGroundingData) -> str:
     lines.append(f"Narrative summary: {data.narrative_text}")
 
     _GENERIC_THEME_IDS = frozenset({"primary_outcome", "secondary_outcome"})
-    readable_themes = [
-        t.replace("_", " ")
-        for t in data.key_themes
-        if t not in _GENERIC_THEME_IDS and t.strip()
-    ]
+    readable_themes = [t.replace("_", " ") for t in data.key_themes if t not in _GENERIC_THEME_IDS and t.strip()]
     if readable_themes:
         lines.append(f"Key outcome themes: {', '.join(readable_themes)}")
 
@@ -410,9 +385,7 @@ def format_grounding_block(data: WritingGroundingData) -> str:
         kappa_str = f"{data.cohens_kappa:.3f}"
         stage_str = f" ({data.kappa_stage} stage)" if data.kappa_stage else ""
         n_str = f", N={data.kappa_n}" if data.kappa_n > 0 else ""
-        lines.append(
-            f"Inter-rater reliability (Cohen's kappa): {kappa_str}{stage_str}"
-        )
+        lines.append(f"Inter-rater reliability (Cohen's kappa): {kappa_str}{stage_str}")
         lines.append(
             f"CRITICAL -- kappa context: This kappa was computed on the uncertain-paper "
             f"subset only{n_str}. High-confidence papers are resolved by a single reviewer "
@@ -430,9 +403,7 @@ def format_grounding_block(data: WritingGroundingData) -> str:
 
     if data.valid_citekeys:
         lines.append("")
-        lines.append(
-            "VALID CITATION KEYS - use ONLY these keys in square brackets, e.g. [Smith2023]:"
-        )
+        lines.append("VALID CITATION KEYS - use ONLY these keys in square brackets, e.g. [Smith2023]:")
         lines.append(", ".join(data.valid_citekeys))
 
     lines.append("---")

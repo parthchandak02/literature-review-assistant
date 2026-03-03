@@ -26,6 +26,8 @@ def _decision_style(decision: str | None, other_reviewer_decision: Any) -> str:
     if decision == "uncertain":
         return "[yellow]"  # uncertain
     return "[bold]"  # fallback
+
+
 from rich.progress import (
     BarColumn,
     MofNCompleteColumn,
@@ -53,9 +55,7 @@ class RunContext:
         """Return True if user requested to proceed with partial screening results (e.g. via Ctrl+C)."""
         return bool(self.proceed_with_partial_requested and self.proceed_with_partial_requested[0])
 
-    def emit_phase_start(
-        self, phase_name: str, description: str = "", total: int | None = None
-    ) -> None:
+    def emit_phase_start(self, phase_name: str, description: str = "", total: int | None = None) -> None:
         """Emit phase start status. Pass total when known so the progress bar renders properly."""
         structured_log.log_phase(phase=phase_name, action="start", description=description)
         if self.progress and phase_name not in self._phase_task_ids:
@@ -175,18 +175,33 @@ class RunContext:
             if raw_response:
                 if call_type == "llm_writing":
                     self._panel_llm_writing(
-                        source, section_name, word_count, raw_response,
-                        tokens_in, tokens_out, cost_usd, latency_ms,
+                        source,
+                        section_name,
+                        word_count,
+                        raw_response,
+                        tokens_in,
+                        tokens_out,
+                        cost_usd,
+                        latency_ms,
                     )
                 elif call_type == "llm_classification":
                     self._panel_llm_classification(
-                        source, paper_id, raw_response,
-                        tokens_in, tokens_out, cost_usd, latency_ms,
+                        source,
+                        paper_id,
+                        raw_response,
+                        tokens_in,
+                        tokens_out,
+                        cost_usd,
+                        latency_ms,
                     )
                 else:
                     self._panel_llm_screening(
-                        source, paper_id, raw_response,
-                        latency_ms, cost_usd, other_reviewer_decision,
+                        source,
+                        paper_id,
+                        raw_response,
+                        latency_ms,
+                        cost_usd,
+                        other_reviewer_decision,
                     )
         else:
             msg = f"[red]{source}[/] failed"
@@ -211,7 +226,7 @@ class RunContext:
             short_reason = (obj.get("short_reason") or "").strip()
             full_reason = obj.get("reasoning") or ""
             if not short_reason and full_reason:
-                short_reason = (full_reason[:80] + ("..." if len(full_reason) > 80 else ""))
+                short_reason = full_reason[:80] + ("..." if len(full_reason) > 80 else "")
             title_parts = [source]
             if paper_id:
                 title_parts.append(f"{paper_id[:12]}...")
@@ -406,9 +421,7 @@ class RunContext:
         structured_log.log_rate_limit_wait(tier=tier, slots_used=slots_used, limit=limit)
         if not self.verbose:
             return
-        self.console.print(
-            f"[yellow]Rate limit[/] ({tier}): {slots_used}/{limit} slots used, waiting..."
-        )
+        self.console.print(f"[yellow]Rate limit[/] ({tier}): {slots_used}/{limit} slots used, waiting...")
 
     def log_screening_decision(
         self,
@@ -422,11 +435,9 @@ class RunContext:
         structured_log.log_screening_decision(paper_id=paper_id, stage=stage, decision=decision, rationale=reason)
         if not self.verbose:
             return
-        reason_snippet = (reason or "")[:60]
+        reason_snippet = (str(reason) if reason is not None else "")[:60]
         conf_str = f" ({confidence:.2f})" if confidence is not None else ""
-        self.console.print(
-            f"  [dim]{paper_id[:12]}...[/] {stage} -> [bold]{decision}[/]{conf_str} {reason_snippet}"
-        )
+        self.console.print(f"  [dim]{paper_id[:12]}...[/] {stage} -> [bold]{decision}[/]{conf_str} {reason_snippet}")
 
     def advance_screening(self, phase_name: str, current: int, total: int) -> None:
         """Advance screening progress bar."""
@@ -473,8 +484,8 @@ class WebRunContext:
     offline: bool = False
     progress: None = None
     proceed_with_partial_requested: list[bool] = field(default_factory=lambda: [False], repr=False)
-    on_db_ready: Any = None           # Callable[[str], None] | None -- called when db_path is known
-    on_event: Any = None              # Callable[[dict], None] | None -- called for every emitted event (replay buffer)
+    on_db_ready: Any = None  # Callable[[str], None] | None -- called when db_path is known
+    on_event: Any = None  # Callable[[dict], None] | None -- called for every emitted event (replay buffer)
     on_workflow_id_ready: Any = None  # Callable[[str, str], None] | None -- called with (workflow_id, run_root)
 
     def notify_workflow_id(self, workflow_id: str, run_root: str) -> None:
@@ -505,6 +516,7 @@ class WebRunContext:
 
     def _emit(self, event: dict[str, Any]) -> None:
         import datetime
+
         event.setdefault(
             "ts",
             datetime.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z",
@@ -522,16 +534,16 @@ class WebRunContext:
     def should_proceed_with_partial(self) -> bool:
         return bool(self.proceed_with_partial_requested and self.proceed_with_partial_requested[0])
 
-    def emit_phase_start(
-        self, phase_name: str, description: str = "", total: int | None = None
-    ) -> None:
+    def emit_phase_start(self, phase_name: str, description: str = "", total: int | None = None) -> None:
         structured_log.log_phase(phase=phase_name, action="start", description=description)
-        self._emit({
-            "type": "phase_start",
-            "phase": phase_name,
-            "description": description,
-            "total": total,
-        })
+        self._emit(
+            {
+                "type": "phase_start",
+                "phase": phase_name,
+                "description": description,
+                "total": total,
+            }
+        )
 
     def emit_phase_done(
         self,
@@ -541,13 +553,15 @@ class WebRunContext:
         completed: int | None = None,
     ) -> None:
         structured_log.log_phase(phase=phase_name, action="done", summary=summary, total=total, completed=completed)
-        self._emit({
-            "type": "phase_done",
-            "phase": phase_name,
-            "summary": summary or {},
-            "total": total,
-            "completed": completed,
-        })
+        self._emit(
+            {
+                "type": "phase_done",
+                "phase": phase_name,
+                "summary": summary or {},
+                "total": total,
+                "completed": completed,
+            }
+        )
 
     def log_api_call(
         self,
@@ -585,23 +599,25 @@ class WebRunContext:
             cost_usd=cost_usd,
             call_type=call_type,
         )
-        self._emit({
-            "type": "api_call",
-            "source": source,
-            "status": status,
-            "phase": phase,
-            "call_type": call_type,
-            "model": model,
-            "paper_id": paper_id,
-            "latency_ms": latency_ms,
-            "tokens_in": tokens_in,
-            "tokens_out": tokens_out,
-            "cost_usd": cost_usd,
-            "records": records,
-            "details": details,
-            "section_name": section_name,
-            "word_count": word_count,
-        })
+        self._emit(
+            {
+                "type": "api_call",
+                "source": source,
+                "status": status,
+                "phase": phase,
+                "call_type": call_type,
+                "model": model,
+                "paper_id": paper_id,
+                "latency_ms": latency_ms,
+                "tokens_in": tokens_in,
+                "tokens_out": tokens_out,
+                "cost_usd": cost_usd,
+                "records": records,
+                "details": details,
+                "section_name": section_name,
+                "word_count": word_count,
+            }
+        )
 
     def log_connector_result(
         self,
@@ -619,13 +635,15 @@ class WebRunContext:
             records=records if status == "success" else None,
             error=error if status != "success" else None,
         )
-        self._emit({
-            "type": "connector_result",
-            "name": name,
-            "status": status,
-            "records": records,
-            "error": error,
-        })
+        self._emit(
+            {
+                "type": "connector_result",
+                "name": name,
+                "status": status,
+                "records": records,
+                "error": error,
+            }
+        )
 
     def log_extraction_paper(
         self,
@@ -634,12 +652,14 @@ class WebRunContext:
         extraction_summary: str,
         rob_judgment: str,
     ) -> None:
-        self._emit({
-            "type": "extraction_paper",
-            "paper_id": paper_id,
-            "design": design,
-            "rob_judgment": rob_judgment,
-        })
+        self._emit(
+            {
+                "type": "extraction_paper",
+                "paper_id": paper_id,
+                "design": design,
+                "rob_judgment": rob_judgment,
+            }
+        )
 
     def log_synthesis(
         self,
@@ -649,25 +669,29 @@ class WebRunContext:
         n_studies: int,
         direction: str,
     ) -> None:
-        self._emit({
-            "type": "synthesis",
-            "feasible": feasible,
-            "groups": len(groups),
-            "n_studies": n_studies,
-            "direction": direction,
-        })
+        self._emit(
+            {
+                "type": "synthesis",
+                "feasible": feasible,
+                "groups": len(groups),
+                "n_studies": n_studies,
+                "direction": direction,
+            }
+        )
 
     def log_prompt(self, agent_name: str, prompt: str, paper_id: str | None) -> None:
         pass
 
     def log_rate_limit_wait(self, tier: str, slots_used: int, limit: int) -> None:
         structured_log.log_rate_limit_wait(tier=tier, slots_used=slots_used, limit=limit)
-        self._emit({
-            "type": "rate_limit_wait",
-            "tier": tier,
-            "slots_used": slots_used,
-            "limit": limit,
-        })
+        self._emit(
+            {
+                "type": "rate_limit_wait",
+                "tier": tier,
+                "slots_used": slots_used,
+                "limit": limit,
+            }
+        )
 
     def log_screening_decision(
         self,
@@ -689,12 +713,14 @@ class WebRunContext:
         self._emit(payload)
 
     def advance_screening(self, phase_name: str, current: int, total: int) -> None:
-        self._emit({
-            "type": "progress",
-            "phase": phase_name,
-            "current": current,
-            "total": total,
-        })
+        self._emit(
+            {
+                "type": "progress",
+                "phase": phase_name,
+                "current": current,
+                "total": total,
+            }
+        )
 
     def emit_debug_state(self, phase_name: str, summary: dict[str, Any]) -> None:
         pass

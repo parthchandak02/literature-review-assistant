@@ -21,26 +21,34 @@ logger = logging.getLogger(__name__)
 
 # Node community colors -- vivid enough to pop on a white background
 _COMMUNITY_COLORS = [
-    "#6d28d9", "#1d4ed8", "#047857", "#b45309", "#b91c1c",
-    "#0e7490", "#7c3aed", "#15803d", "#7e22ce", "#d97706",
+    "#6d28d9",
+    "#1d4ed8",
+    "#047857",
+    "#b45309",
+    "#b91c1c",
+    "#0e7490",
+    "#7c3aed",
+    "#15803d",
+    "#7e22ce",
+    "#d97706",
 ]
 
 # Edge colors -- saturated/dark enough to be legible on white paper
 _EDGE_COLORS: dict[str, str] = {
-    "shared_outcome":       "#059669",   # teal-green
-    "shared_intervention":  "#2563eb",   # blue
-    "shared_population":    "#d97706",   # amber
-    "embedding_similarity": "#7c3aed",   # violet
-    "citation":             "#db2777",   # pink
+    "shared_outcome": "#059669",  # teal-green
+    "shared_intervention": "#2563eb",  # blue
+    "shared_population": "#d97706",  # amber
+    "embedding_similarity": "#7c3aed",  # violet
+    "citation": "#db2777",  # pink
 }
 
-_GAP_RING_COLOR    = "#f59e0b"
-_DEFAULT_EDGE_COLOR = "#9ca3af"   # neutral gray -- visible on white
-_BACKGROUND_COLOR  = "#ffffff"    # white -- print/DOCX friendly
-_AXES_COLOR        = "#f9fafb"    # very light gray axes background
-_LABEL_COLOR       = "#111827"    # near-black
-_TITLE_COLOR       = "#111827"
-_LEGEND_FACE       = "#f3f4f6"    # light gray legend box
+_GAP_RING_COLOR = "#f59e0b"
+_DEFAULT_EDGE_COLOR = "#9ca3af"  # neutral gray -- visible on white
+_BACKGROUND_COLOR = "#ffffff"  # white -- print/DOCX friendly
+_AXES_COLOR = "#f9fafb"  # very light gray axes background
+_LABEL_COLOR = "#111827"  # near-black
+_TITLE_COLOR = "#111827"
+_LEGEND_FACE = "#f3f4f6"  # light gray legend box
 
 
 def _truncate(text: str, max_len: int = 24) -> str:
@@ -65,6 +73,7 @@ async def render_evidence_network(
     """
     import aiosqlite
     import matplotlib
+
     matplotlib.use("Agg")  # non-interactive backend, safe in async context
     import matplotlib.patches as mpatches
     import matplotlib.pyplot as plt
@@ -78,8 +87,8 @@ async def render_evidence_network(
     # ------------------------------------------------------------------
     # Load graph data from SQLite
     # ------------------------------------------------------------------
-    nodes: dict[str, dict] = {}   # paper_id -> {title, community_id, study_design}
-    edges: list[dict] = []        # {source, target, rel_type, weight}
+    nodes: dict[str, dict] = {}  # paper_id -> {title, community_id, study_design}
+    edges: list[dict] = []  # {source, target, rel_type, weight}
     gap_paper_ids: set[str] = set()
 
     async with aiosqlite.connect(db_path) as db:
@@ -115,17 +124,18 @@ async def render_evidence_network(
 
         # Edges
         async with db.execute(
-            "SELECT source_paper_id, target_paper_id, rel_type, weight "
-            "FROM paper_relationships WHERE workflow_id = ?",
+            "SELECT source_paper_id, target_paper_id, rel_type, weight FROM paper_relationships WHERE workflow_id = ?",
             (workflow_id,),
         ) as cur:
             async for row in cur:
-                edges.append({
-                    "source": row[0],
-                    "target": row[1],
-                    "rel_type": row[2],
-                    "weight": float(row[3] or 0.5),
-                })
+                edges.append(
+                    {
+                        "source": row[0],
+                        "target": row[1],
+                        "rel_type": row[2],
+                        "weight": float(row[3] or 0.5),
+                    }
+                )
 
         # Gap paper IDs
         async with db.execute(
@@ -183,15 +193,15 @@ async def render_evidence_network(
                         dist_map[u][v] = 1.5
             pos = nx.kamada_kawai_layout(G, dist=dist_map)
         except Exception:
-            pos = nx.spring_layout(G, seed=42, k=2.0 / max(1, n_nodes ** 0.5))
+            pos = nx.spring_layout(G, seed=42, k=2.0 / max(1, n_nodes**0.5))
     else:
-        pos = nx.spring_layout(G, seed=42, k=2.0 / max(1, n_nodes ** 0.5), weight="weight")
+        pos = nx.spring_layout(G, seed=42, k=2.0 / max(1, n_nodes**0.5), weight="weight")
 
     # ------------------------------------------------------------------
     # Figure setup -- white background, generous size for label legibility
     # ------------------------------------------------------------------
     fig_w = max(12, min(18, n_nodes * 0.9))
-    fig_h = max(9,  min(14, n_nodes * 0.65))
+    fig_h = max(9, min(14, n_nodes * 0.65))
     fig, ax = plt.subplots(figsize=(fig_w, fig_h))
     fig.patch.set_facecolor(_BACKGROUND_COLOR)
     ax.set_facecolor(_AXES_COLOR)
@@ -258,7 +268,7 @@ async def render_evidence_network(
         alpha=0.92,
         ax=ax,
         linewidths=0.8,
-        edgecolors="#ffffff",   # white outline improves separation on light bg
+        edgecolors="#ffffff",  # white outline improves separation on light bg
     )
 
     # Node labels: truncated titles, dark text on white label box
@@ -267,7 +277,7 @@ async def render_evidence_network(
         G,
         pos,
         labels=labels,
-        font_size=8,            # up from 6 -- legible at 600 DPI
+        font_size=8,  # up from 6 -- legible at 600 DPI
         font_color=_LABEL_COLOR,
         ax=ax,
         verticalalignment="bottom",
@@ -285,13 +295,9 @@ async def render_evidence_network(
     legend_patches = []
     for rel_type in sorted(drawn_rel_types):
         color = _EDGE_COLORS.get(rel_type, _DEFAULT_EDGE_COLOR)
-        legend_patches.append(
-            mpatches.Patch(color=color, label=rel_type.replace("_", " "))
-        )
+        legend_patches.append(mpatches.Patch(color=color, label=rel_type.replace("_", " ")))
     if gap_nodes_in_graph:
-        legend_patches.append(
-            mpatches.Patch(color=_GAP_RING_COLOR, alpha=0.5, label="research gap")
-        )
+        legend_patches.append(mpatches.Patch(color=_GAP_RING_COLOR, alpha=0.5, label="research gap"))
     if legend_patches:
         ax.legend(
             handles=legend_patches,
@@ -334,6 +340,8 @@ async def render_evidence_network(
 
     logger.info(
         "Evidence network rendered: %s (%d nodes, %d edges)",
-        png_path, n_nodes, len(edges),
+        png_path,
+        n_nodes,
+        len(edges),
     )
     return png_path, svg_path

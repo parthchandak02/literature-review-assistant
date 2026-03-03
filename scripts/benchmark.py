@@ -21,6 +21,7 @@ Gold-standard JSON format:
       ]
     }
 """
+
 from __future__ import annotations
 
 import argparse
@@ -41,6 +42,7 @@ console = Console()
 # ---------------------------------------------------------------------------
 # Gold-standard schema
 # ---------------------------------------------------------------------------
+
 
 @dataclass
 class GoldExtraction:
@@ -72,6 +74,7 @@ def load_gold(path: pathlib.Path) -> GoldStandard:
 # ---------------------------------------------------------------------------
 # DB loading
 # ---------------------------------------------------------------------------
+
 
 async def _load_run_data(db_path: pathlib.Path) -> dict[str, Any]:
     try:
@@ -105,8 +108,7 @@ async def _load_run_data(db_path: pathlib.Path) -> dict[str, Any]:
             # Fallback: any paper that has an extraction record is included
             try:
                 async with db.execute(
-                    "SELECT p.doi FROM extraction_records e "
-                    "JOIN papers p ON p.paper_id = e.paper_id"
+                    "SELECT p.doi FROM extraction_records e JOIN papers p ON p.paper_id = e.paper_id"
                 ) as cur:
                     async for row in cur:
                         doi = (row["doi"] or "").lower().strip()
@@ -118,8 +120,7 @@ async def _load_run_data(db_path: pathlib.Path) -> dict[str, Any]:
         # Extraction records -- data column is a JSON blob
         try:
             async with db.execute(
-                "SELECT p.doi, e.data FROM extraction_records e "
-                "JOIN papers p ON p.paper_id = e.paper_id"
+                "SELECT p.doi, e.data FROM extraction_records e JOIN papers p ON p.paper_id = e.paper_id"
             ) as cur:
                 async for row in cur:
                     doi = (row["doi"] or "").lower().strip()
@@ -148,8 +149,7 @@ async def _load_run_data(db_path: pathlib.Path) -> dict[str, Any]:
         # RoB assessments -- use rob_assessments table
         try:
             async with db.execute(
-                "SELECT p.doi, r.overall_judgment FROM rob_assessments r "
-                "JOIN papers p ON p.paper_id = r.paper_id"
+                "SELECT p.doi, r.overall_judgment FROM rob_assessments r JOIN papers p ON p.paper_id = r.paper_id"
             ) as cur:
                 async for row in cur:
                     doi = (row["doi"] or "").lower().strip()
@@ -164,6 +164,7 @@ async def _load_run_data(db_path: pathlib.Path) -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 # Metrics
 # ---------------------------------------------------------------------------
+
 
 def _screening_recall(gold_dois: list[str], tool_dois: set[str]) -> dict[str, Any]:
     if not gold_dois:
@@ -184,10 +185,7 @@ def _cohens_kappa(ratings_a: list[int], ratings_b: list[int]) -> float | None:
         return None
     categories = sorted(set(ratings_a) | set(ratings_b))
     p_o = sum(a == b for a, b in zip(ratings_a, ratings_b)) / n
-    p_e = sum(
-        (ratings_a.count(c) / n) * (ratings_b.count(c) / n)
-        for c in categories
-    )
+    p_e = sum((ratings_a.count(c) / n) * (ratings_b.count(c) / n) for c in categories)
     if p_e >= 1.0:
         return 1.0
     return (p_o - p_e) / (1.0 - p_e)
@@ -229,15 +227,9 @@ def _extraction_accuracy(
                 continue
             db_col = "intervention" if f == "intervention" else "primary_outcome"
             tool_val = tool.get(db_col) or ""
-            hits[f].append(
-                gold_val.lower().strip() in tool_val.lower()
-                or tool_val.lower().strip() in gold_val.lower()
-            )
+            hits[f].append(gold_val.lower().strip() in tool_val.lower() or tool_val.lower().strip() in gold_val.lower())
 
-    return {
-        f: {"hit_rate": sum(bools) / len(bools) if bools else None, "n": len(bools)}
-        for f, bools in hits.items()
-    }
+    return {f: {"hit_rate": sum(bools) / len(bools) if bools else None, "n": len(bools)} for f, bools in hits.items()}
 
 
 def _rob_agreement(
@@ -263,6 +255,7 @@ def _rob_agreement(
 # ---------------------------------------------------------------------------
 # Report + display
 # ---------------------------------------------------------------------------
+
 
 def _render_report(
     gold: GoldStandard,
@@ -303,9 +296,12 @@ def _render_report(
     kappa_str = f"{rob['kappa']:.3f}" if rob["kappa"] is not None else "N/A"
     if rob["kappa"] is not None:
         label = (
-            "substantial" if rob["kappa"] >= 0.61
-            else "moderate" if rob["kappa"] >= 0.41
-            else "fair" if rob["kappa"] >= 0.21
+            "substantial"
+            if rob["kappa"] >= 0.61
+            else "moderate"
+            if rob["kappa"] >= 0.41
+            else "fair"
+            if rob["kappa"] >= 0.21
             else "slight"
         )
         kappa_display = f"{kappa_str} ({label})"
@@ -358,6 +354,7 @@ def _print_rich_summary(screening: dict, extraction: dict, rob: dict) -> None:
 # CLI
 # ---------------------------------------------------------------------------
 
+
 async def _main(args: argparse.Namespace) -> None:
     run_dir = pathlib.Path(args.run_dir).expanduser().resolve()
     gold_path = pathlib.Path(args.gold).expanduser().resolve()
@@ -397,12 +394,9 @@ def main() -> None:
     parser = argparse.ArgumentParser(
         description="Compare tool outputs against a gold-standard systematic review corpus.",
     )
-    parser.add_argument("--run-dir", required=True,
-                        help="Path to the run directory containing runtime.db")
-    parser.add_argument("--gold", required=True,
-                        help="Path to gold-standard JSON file")
-    parser.add_argument("--out", default=None,
-                        help="Output path for Markdown report")
+    parser.add_argument("--run-dir", required=True, help="Path to the run directory containing runtime.db")
+    parser.add_argument("--gold", required=True, help="Path to gold-standard JSON file")
+    parser.add_argument("--out", default=None, help="Output path for Markdown report")
     args = parser.parse_args()
     asyncio.run(_main(args))
 

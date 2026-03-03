@@ -136,8 +136,7 @@ class WorkflowRepository:
         skipped = len(decisions) - len(valid)
         if skipped:
             _logger.warning(
-                "bulk_save_screening_decisions: skipped %d decisions "
-                "for non-existent paper_ids",
+                "bulk_save_screening_decisions: skipped %d decisions for non-existent paper_ids",
                 skipped,
             )
 
@@ -171,10 +170,7 @@ class WorkflowRepository:
                 workflow_id, paper_id, stage, agreement, final_decision, adjudication_needed
             ) VALUES (?, ?, ?, ?, ?, ?)
             """,
-            [
-                (workflow_id, d.paper_id, stage, 1, d.decision.value, 0)
-                for d in valid
-            ],
+            [(workflow_id, d.paper_id, stage, 1, d.decision.value, 0) for d in valid],
         )
         await self.db.commit()
 
@@ -272,7 +268,9 @@ class WorkflowRepository:
             if paper.doi is not None:
                 _logger.debug(
                     "DOI conflict for paper %s (doi=%s), retrying with NULL DOI: %s",
-                    paper.paper_id, paper.doi, exc,
+                    paper.paper_id,
+                    paper.doi,
+                    exc,
                 )
                 params_no_doi = list(params)
                 params_no_doi[5] = None
@@ -280,7 +278,8 @@ class WorkflowRepository:
                     await self.db.execute(upsert_sql, tuple(params_no_doi))
                 except Exception:
                     _logger.warning(
-                        "Could not save paper %s even with NULL DOI", paper.paper_id,
+                        "Could not save paper %s even with NULL DOI",
+                        paper.paper_id,
                     )
             else:
                 _logger.warning("Could not save paper %s: %s", paper.paper_id, exc)
@@ -298,9 +297,7 @@ class WorkflowRepository:
         rows = await cursor.fetchall()
         return {str(row[0]): int(row[1]) for row in rows}
 
-    async def get_search_counts_by_category(
-        self, workflow_id: str
-    ) -> tuple[dict[str, int], dict[str, int]]:
+    async def get_search_counts_by_category(self, workflow_id: str) -> tuple[dict[str, int], dict[str, int]]:
         """Return (databases_records, other_sources_records) for PRISMA two-column."""
         cursor = await self.db.execute(
             """
@@ -323,9 +320,7 @@ class WorkflowRepository:
                 databases[name] = cnt
         return databases, other
 
-    async def get_prisma_screening_counts(
-        self, workflow_id: str
-    ) -> tuple[int, int, int, int, int, dict[str, int]]:
+    async def get_prisma_screening_counts(self, workflow_id: str) -> tuple[int, int, int, int, int, dict[str, int]]:
         """Return (records_screened, records_excluded_screening, reports_sought,
         reports_not_retrieved, reports_assessed, reports_excluded_with_reasons).
 
@@ -557,9 +552,7 @@ class WorkflowRepository:
         )
         await self.db.commit()
 
-    async def get_latest_gate_result(
-        self, workflow_id: str, phase: str, gate_name: str
-    ) -> GateResult | None:
+    async def get_latest_gate_result(self, workflow_id: str, phase: str, gate_name: str) -> GateResult | None:
         """Return the most recent gate result for the given workflow, phase, and gate."""
         cursor = await self.db.execute(
             """
@@ -575,6 +568,7 @@ class WorkflowRepository:
         if not row:
             return None
         from src.models.enums import GateStatus
+
         return GateResult(
             workflow_id=str(row[0]),
             gate_name=str(row[1]),
@@ -585,9 +579,7 @@ class WorkflowRepository:
             actual_value=str(row[6]) if row[6] is not None else None,
         )
 
-    async def get_screening_summary(
-        self, workflow_id: str
-    ) -> list[tuple[str, str, str, str]]:
+    async def get_screening_summary(self, workflow_id: str) -> list[tuple[str, str, str, str]]:
         """Return (paper_id, stage, final_decision, rationale) for screening summary table."""
         cursor = await self.db.execute(
             """
@@ -605,10 +597,7 @@ class WorkflowRepository:
             (workflow_id,),
         )
         rows = await cursor.fetchall()
-        return [
-            (str(r[0]), str(r[1]), str(r[2]), (r[3] or "")[:80])
-            for r in rows
-        ]
+        return [(str(r[0]), str(r[1]), str(r[2]), (r[3] or "")[:80]) for r in rows]
 
     async def append_decision_log(self, entry: DecisionLogEntry) -> None:
         await self.db.execute(
@@ -709,9 +698,7 @@ class WorkflowRepository:
         )
         await self.db.commit()
 
-    async def load_rob_assessments(
-        self, workflow_id: str
-    ) -> tuple[list[RoB2Assessment], list[RobinsIAssessment]]:
+    async def load_rob_assessments(self, workflow_id: str) -> tuple[list[RoB2Assessment], list[RobinsIAssessment]]:
         """Load RoB2 and ROBINS-I assessments from rob_assessments table."""
         rob2_list: list[RoB2Assessment] = []
         robins_i_list: list[RobinsIAssessment] = []
@@ -790,7 +777,9 @@ class WorkflowRepository:
     ) -> None:
         _logger.debug(
             "save_checkpoint: workflow_id=%s, phase=%s, papers_processed=%s",
-            workflow_id, phase, papers_processed,
+            workflow_id,
+            phase,
+            papers_processed,
         )
         await self.db.execute(
             """
@@ -804,9 +793,7 @@ class WorkflowRepository:
         )
         await self.db.commit()
 
-    async def delete_checkpoints_for_phases(
-        self, workflow_id: str, phases: list[str]
-    ) -> None:
+    async def delete_checkpoints_for_phases(self, workflow_id: str, phases: list[str]) -> None:
         """Delete checkpoints for the given phases. Used when resuming from a specific phase."""
         if not phases:
             return
@@ -855,9 +842,7 @@ class WorkflowRepository:
         )
         await self.db.commit()
 
-    async def load_synthesis_result(
-        self, workflow_id: str
-    ) -> tuple[SynthesisFeasibility, NarrativeSynthesis] | None:
+    async def load_synthesis_result(self, workflow_id: str) -> tuple[SynthesisFeasibility, NarrativeSynthesis] | None:
         """Load the most recent synthesis result for a workflow.
 
         Returns a typed (SynthesisFeasibility, NarrativeSynthesis) pair, or None
@@ -1016,7 +1001,9 @@ class CitationRepository:
         rows = await cursor.fetchall()
         return [(str(row[0]), str(row[1])) for row in rows]
 
-    async def get_all_citations_for_export(self) -> list[tuple[str, str, str | None, str, str, int | None, str | None, str | None]]:
+    async def get_all_citations_for_export(
+        self,
+    ) -> list[tuple[str, str, str | None, str, str, int | None, str | None, str | None]]:
         """Return (citation_id, citekey, doi, title, authors_json, year, journal, bibtex) for BibTeX export."""
         cursor = await self.db.execute(
             """
@@ -1054,6 +1041,7 @@ async def merge_papers_from_parent(
     Returns the number of papers merged.
     """
     import logging as _logging
+
     _logger = _logging.getLogger(__name__)
 
     merged = 0
@@ -1077,9 +1065,7 @@ async def merge_papers_from_parent(
 
             # Fetch final screening decisions from dual_screening_results.
             try:
-                async with src_db.execute(
-                    "SELECT paper_id, final_decision FROM dual_screening_results"
-                ) as cur:
+                async with src_db.execute("SELECT paper_id, final_decision FROM dual_screening_results") as cur:
                     for row in await cur.fetchall():
                         parent_decisions[row["paper_id"]] = row["final_decision"]
             except Exception:
@@ -1097,11 +1083,17 @@ async def merge_papers_from_parent(
                     source_category, display_label, openalex_id)
                    VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
                 (
-                    row["paper_id"], row["title"], row["abstract"], row["authors"],
-                    row["year"], row["doi"], row["url"],
+                    row["paper_id"],
+                    row["title"],
+                    row["abstract"],
+                    row["authors"],
+                    row["year"],
+                    row["doi"],
+                    row["url"],
                     "merged_from_parent",  # mark as carrying over from a parent run
                     "database",  # source_category (required; merged papers are database-sourced)
-                    row["display_label"], row["openalex_id"],
+                    row["display_label"],
+                    row["openalex_id"],
                 ),
             )
             merged += 1
@@ -1121,4 +1113,3 @@ async def merge_papers_from_parent(
     await dst_db.commit()
     _logger.info("merge_papers_from_parent: merged %d papers from %s", merged, parent_db_path)
     return merged
-

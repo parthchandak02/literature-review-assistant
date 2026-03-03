@@ -20,9 +20,15 @@ from pydantic import BaseModel
 
 from src.models import ExtractionRecord
 
-_GENERIC_OUTCOME_NAMES = frozenset({
-    "", "primary_outcome", "secondary_outcome", "not_reported", "not reported",
-})
+_GENERIC_OUTCOME_NAMES = frozenset(
+    {
+        "",
+        "primary_outcome",
+        "secondary_outcome",
+        "not_reported",
+        "not reported",
+    }
+)
 
 
 def _is_numeric(val: str) -> bool:

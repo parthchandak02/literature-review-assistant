@@ -31,7 +31,7 @@ from src.utils.ssl_context import tcp_connector_with_certifi
 logger = logging.getLogger(__name__)
 
 _BASE_URL = "https://api.elsevier.com/content/search/scopus"
-_PAGE_SIZE = 25   # safe page size without institutional TDM token
+_PAGE_SIZE = 25  # safe page size without institutional TDM token
 _RATE_SLEEP = 0.2  # 5 req/sec -- safely under the 6 req/sec official limit
 
 
@@ -153,8 +153,8 @@ class ScopusConnector:
                     "count": str(_PAGE_SIZE),
                     "start": str(start),
                     "field": "dc:title,prism:doi,prism:coverDate,prism:coverDisplayDate,"
-                             "prism:publicationName,dc:description,dc:creator,author,"
-                             "prism:url,dc:identifier",
+                    "prism:publicationName,dc:description,dc:creator,author,"
+                    "prism:url,dc:identifier",
                 }
 
                 try:
@@ -169,9 +169,7 @@ class ScopusConnector:
                             continue
                         if resp.status != 200:
                             body = await resp.text()
-                            logger.warning(
-                                "Scopus returned HTTP %d: %s", resp.status, body[:200]
-                            )
+                            logger.warning("Scopus returned HTTP %d: %s", resp.status, body[:200])
                             break
                         payload = await resp.json(content_type=None)
                 except Exception as exc:
@@ -232,7 +230,7 @@ class ScopusConnector:
 
 _ABSTRACT_API_BASE = "https://api.elsevier.com/content/abstract/doi"
 _ABSTRACT_RATE_SLEEP = 0.2  # 5 req/sec -- safely under 6 req/sec ceiling
-_ABSTRACT_BATCH_SIZE = 50   # enrich up to 50 papers per call to avoid long blocking
+_ABSTRACT_BATCH_SIZE = 50  # enrich up to 50 papers per call to avoid long blocking
 
 
 async def enrich_scopus_abstracts(
@@ -259,10 +257,7 @@ async def enrich_scopus_abstracts(
         logger.warning("enrich_scopus_abstracts: no SCOPUS_API_KEY, skipping")
         return 0
 
-    candidates = [
-        p for p in papers
-        if p.source_database == "scopus" and not p.abstract and p.doi
-    ]
+    candidates = [p for p in papers if p.source_database == "scopus" and not p.abstract and p.doi]
     if not candidates:
         return 0
 

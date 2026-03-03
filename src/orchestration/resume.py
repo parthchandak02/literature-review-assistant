@@ -93,9 +93,7 @@ async def load_resume_state(
 
         if from_phase is not None:
             if from_phase not in PHASE_ORDER:
-                raise ValueError(
-                    f"from_phase must be one of {PHASE_ORDER!r}, got {from_phase!r}"
-                )
+                raise ValueError(f"from_phase must be one of {PHASE_ORDER!r}, got {from_phase!r}")
             from_idx = PHASE_ORDER.index(from_phase)
             prior_phases = PHASE_ORDER[:from_idx]
             for p in prior_phases:
@@ -104,8 +102,7 @@ async def load_resume_state(
                     # mismatch). Resume from first incomplete instead.
                     fallback = _next_phase(checkpoints)
                     logger.warning(
-                        "Cannot resume from %s: phase %s has no checkpoint. "
-                        "Falling back to %s.",
+                        "Cannot resume from %s: phase %s has no checkpoint. Falling back to %s.",
                         from_phase,
                         p,
                         fallback,

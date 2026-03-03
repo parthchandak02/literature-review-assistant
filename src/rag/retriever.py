@@ -106,9 +106,7 @@ class RAGRetriever:
 
         # sorted=False: result_indices[0] are corpus positions in arbitrary order;
         # result_scores[0] are their corresponding BM25 scores.
-        result_indices, result_scores = model.retrieve(
-            query_tokens, k=len(contents), sorted=False, show_progress=False
-        )
+        result_indices, result_scores = model.retrieve(query_tokens, k=len(contents), sorted=False, show_progress=False)
 
         # Reconstruct scores in original corpus order.
         scores = np.zeros(len(contents), dtype=np.float32)
@@ -190,9 +188,7 @@ class RAGRetriever:
             logger.warning("numpy not available; returning empty retrieval results")
             return []
 
-        chunk_ids, paper_ids, chunk_indices, contents, embeddings = (
-            await self._load_all_chunks()
-        )
+        chunk_ids, paper_ids, chunk_indices, contents, embeddings = await self._load_all_chunks()
 
         if not embeddings:
             return []
@@ -228,9 +224,7 @@ class RAGRetriever:
         filter_set = set(paper_id_filter) if paper_id_filter else None
 
         scored: list[tuple[float, int]] = [
-            (final_scores[i], i)
-            for i in range(len(chunk_ids))
-            if (filter_set is None or paper_ids[i] in filter_set)
+            (final_scores[i], i) for i in range(len(chunk_ids)) if (filter_set is None or paper_ids[i] in filter_set)
         ]
 
         # Sort descending by score; for RRF all scores are positive so no

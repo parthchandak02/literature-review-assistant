@@ -16,12 +16,14 @@ def _record(paper_id: str, summary: str, effect_size: str = "0.5", se: str = "0.
         paper_id=paper_id,
         study_design=StudyDesign.RCT,
         intervention_description="AI tutoring support",
-        outcomes=[{
-            "name": "knowledge_retention",
-            "description": "Exam score retention",
-            "effect_size": effect_size,
-            "se": se,
-        }],
+        outcomes=[
+            {
+                "name": "knowledge_retention",
+                "description": "Exam score retention",
+                "effect_size": effect_size,
+                "se": se,
+            }
+        ],
         results_summary={"summary": summary, "source": "metadata"},
     )
 

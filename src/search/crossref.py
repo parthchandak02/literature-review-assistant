@@ -82,9 +82,7 @@ class CrossrefConnector:
         }
 
         papers: list[CandidatePaper] = []
-        async with aiohttp.ClientSession(
-            headers=headers, connector=tcp_connector_with_certifi()
-        ) as session:
+        async with aiohttp.ClientSession(headers=headers, connector=tcp_connector_with_certifi()) as session:
             async with session.get(self.base_url, params=params, timeout=30) as response:
                 if response.status == 200:
                     payload = await response.json()

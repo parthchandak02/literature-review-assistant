@@ -92,9 +92,7 @@ class OpenAlexConnector:
 
         papers: list[CandidatePaper] = []
         cursor = "*"
-        async with aiohttp.ClientSession(
-            connector=tcp_connector_with_certifi()
-        ) as session:
+        async with aiohttp.ClientSession(connector=tcp_connector_with_certifi()) as session:
             while len(papers) < max_results:
                 page_limit = min(self._PAGE_SIZE, max_results - len(papers))
                 params: dict[str, str] = {
@@ -109,9 +107,7 @@ class OpenAlexConnector:
                 ) as response:
                     if response.status != 200:
                         body = await response.text()
-                        raise RuntimeError(
-                            f"OpenAlex API error {response.status}: {body[:500]}"
-                        )
+                        raise RuntimeError(f"OpenAlex API error {response.status}: {body[:500]}")
                     payload = await response.json()
                     page_works = payload.get("results", [])
                     if not page_works:

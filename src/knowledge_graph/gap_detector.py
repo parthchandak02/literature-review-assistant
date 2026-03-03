@@ -51,8 +51,21 @@ def detect_research_gaps(records: list[ExtractionRecord]) -> list[ResearchGap]:
     population_mentions: dict[str, list[str]] = {}
     for rec in records:
         demos = (rec.participant_demographics or "").lower()
-        for keyword in ("elderly", "pediatric", "children", "women", "men", "rural", "urban",
-                        "low-income", "minority", "black", "hispanic", "asian", "white"):
+        for keyword in (
+            "elderly",
+            "pediatric",
+            "children",
+            "women",
+            "men",
+            "rural",
+            "urban",
+            "low-income",
+            "minority",
+            "black",
+            "hispanic",
+            "asian",
+            "white",
+        ):
             if keyword in demos:
                 population_mentions.setdefault(keyword, []).append(rec.paper_id)
 

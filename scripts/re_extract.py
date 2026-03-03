@@ -21,6 +21,7 @@ The script:
 After this script completes, run scripts/finalize_manuscript.py to regenerate the
 manuscript with the improved extraction data.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -75,9 +76,7 @@ async def main(run_dir: str, config_override: str | None) -> int:
         repo = WorkflowRepository(db)
 
         # Get the workflow_id for this run
-        cursor = await db.execute(
-            "SELECT workflow_id FROM workflows ORDER BY rowid DESC LIMIT 1"
-        )
+        cursor = await db.execute("SELECT workflow_id FROM workflows ORDER BY rowid DESC LIMIT 1")
         row = await cursor.fetchone()
         if not row:
             console.print("[red]ERROR: no workflow found in DB.[/]")
@@ -127,13 +126,13 @@ async def main(run_dir: str, config_override: str | None) -> int:
         for i, rec in enumerate(failed_records, 1):
             paper = paper_map.get(rec.paper_id)
             if paper is None:
-                console.print(f"[yellow]  [{i}/{len(failed_records)}] Paper {rec.paper_id[:12]} not found in DB -- skipping.[/]")
+                console.print(
+                    f"[yellow]  [{i}/{len(failed_records)}] Paper {rec.paper_id[:12]} not found in DB -- skipping.[/]"
+                )
                 still_failed += 1
                 continue
 
-            console.print(
-                f"[dim]  [{i}/{len(failed_records)}] Re-extracting: {paper.title[:70]}...[/]"
-            )
+            console.print(f"[dim]  [{i}/{len(failed_records)}] Re-extracting: {paper.title[:70]}...[/]")
 
             try:
                 study_design = await classifier.classify(workflow_id, paper)
@@ -155,27 +154,33 @@ async def main(run_dir: str, config_override: str | None) -> int:
                     improved += 1
                     status = "[green]IMPROVED[/]"
 
-                outcome_names = [
-                    o.get("name", "") for o in (new_rec.outcomes or []) if isinstance(o, dict)
-                ]
-                results.append({
-                    "paper": paper.title[:55],
-                    "status": status,
-                    "design": str(new_rec.study_design.value if hasattr(new_rec.study_design, "value") else new_rec.study_design),
-                    "n": str(new_rec.participant_count or "NR"),
-                    "outcomes": "; ".join(outcome_names[:2]) or "NR",
-                })
+                outcome_names = [o.get("name", "") for o in (new_rec.outcomes or []) if isinstance(o, dict)]
+                results.append(
+                    {
+                        "paper": paper.title[:55],
+                        "status": status,
+                        "design": str(
+                            new_rec.study_design.value
+                            if hasattr(new_rec.study_design, "value")
+                            else new_rec.study_design
+                        ),
+                        "n": str(new_rec.participant_count or "NR"),
+                        "outcomes": "; ".join(outcome_names[:2]) or "NR",
+                    }
+                )
 
             except Exception as exc:
                 console.print(f"[red]    Re-extraction failed: {exc}[/]")
                 still_failed += 1
-                results.append({
-                    "paper": paper.title[:55],
-                    "status": "[red]ERROR[/]",
-                    "design": "?",
-                    "n": "?",
-                    "outcomes": str(exc)[:60],
-                })
+                results.append(
+                    {
+                        "paper": paper.title[:55],
+                        "status": "[red]ERROR[/]",
+                        "design": "?",
+                        "n": "?",
+                        "outcomes": str(exc)[:60],
+                    }
+                )
 
     # Print summary table
     table = Table(title="Re-Extraction Summary", show_lines=True)

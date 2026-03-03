@@ -139,13 +139,11 @@ class StudyClassifier:
         runtime = await self.provider.reserve_call_slot(self.agent_name)
         started = time.perf_counter()
         if hasattr(self.llm_client, "complete_json_with_usage"):
-            raw, tokens_in, tokens_out, cache_write, cache_read = (
-                await self.llm_client.complete_json_with_usage(
-                    prompt,
-                    agent_name=self.agent_name,
-                    model=runtime.model,
-                    temperature=runtime.temperature,
-                )
+            raw, tokens_in, tokens_out, cache_write, cache_read = await self.llm_client.complete_json_with_usage(
+                prompt,
+                agent_name=self.agent_name,
+                model=runtime.model,
+                temperature=runtime.temperature,
             )
         else:
             raw = await self.llm_client.complete_json(
@@ -158,9 +156,7 @@ class StudyClassifier:
             tokens_out = max(1, len(raw.split()))
             cache_write = cache_read = 0
         elapsed_ms = int((time.perf_counter() - started) * 1000)
-        cost_usd = self.provider.estimate_cost(
-            runtime.model, tokens_in, tokens_out, cache_write, cache_read
-        )
+        cost_usd = self.provider.estimate_cost(runtime.model, tokens_in, tokens_out, cache_write, cache_read)
         parsed = self._parse_response(raw)
         await self.provider.log_cost(
             model=runtime.model,
@@ -173,7 +169,9 @@ class StudyClassifier:
             cache_write_tokens=cache_write,
         )
         if self.on_llm_call:
-            details = f"{paper.paper_id[:12]} {parsed.study_design.value}" if parsed else f"{paper.paper_id[:12]} parse_error"
+            details = (
+                f"{paper.paper_id[:12]} {parsed.study_design.value}" if parsed else f"{paper.paper_id[:12]} parse_error"
+            )
             self.on_llm_call(
                 source="study_type_detection",
                 status="success",

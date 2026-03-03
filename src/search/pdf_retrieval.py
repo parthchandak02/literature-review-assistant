@@ -103,9 +103,7 @@ class PDFRetriever:
         for url in candidate_urls:
             try:
                 timeout = aiohttp.ClientTimeout(total=self.timeout_seconds)
-                async with aiohttp.ClientSession(
-                    timeout=timeout, connector=tcp_connector_with_certifi()
-                ) as session:
+                async with aiohttp.ClientSession(timeout=timeout, connector=tcp_connector_with_certifi()) as session:
                     async with session.get(url) as response:
                         if response.status != 200:
                             continue

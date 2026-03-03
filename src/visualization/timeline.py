@@ -53,7 +53,10 @@ def render_timeline(papers: list[CandidatePaper], output_path: str) -> Path:
                 bar.get_x() + bar.get_width() / 2,
                 bar.get_height() + max(vals) * 0.02,
                 str(val),
-                ha="center", va="bottom", fontsize=9, fontweight="bold",
+                ha="center",
+                va="bottom",
+                fontsize=9,
+                fontweight="bold",
             )
     ax.set_xticks(all_years)
     ax.set_xticklabels([str(y) for y in all_years], fontsize=9, rotation=45, ha="right")
@@ -67,9 +70,13 @@ def render_timeline(papers: list[CandidatePaper], output_path: str) -> Path:
 
     if n_missing_year > 0:
         fig.text(
-            0.5, 0.01,
+            0.5,
+            0.01,
             f"Note: Publication year not reported for {n_missing_year} of {total_papers} included studies.",
-            ha="center", va="bottom", fontsize=7.5, color="gray",
+            ha="center",
+            va="bottom",
+            fontsize=7.5,
+            color="gray",
         )
         fig.subplots_adjust(bottom=0.18)
 

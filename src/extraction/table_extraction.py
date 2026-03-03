@@ -39,18 +39,42 @@ _CORE_OUTPUT_URL = "https://api.core.ac.uk/v3/outputs"
 _EUROPEPMC_SEARCH_URL = "https://www.ebi.ac.uk/europepmc/webservices/rest/search"
 _EUROPEPMC_FULLTEXT_URL = "https://www.ebi.ac.uk/europepmc/webservices/rest/articles"
 _S2_PAPER_URL = "https://api.semanticscholar.org/graph/v1/paper/DOI:"
+_ARXIV_PDF_BASE = "https://arxiv.org/pdf"
+_BIORXIV_PDF_BASE = "https://www.biorxiv.org/content"
+_MEDRXIV_PDF_BASE = "https://www.medrxiv.org/content"
+_OPENALEX_WORKS_URL = "https://api.openalex.org/works"
+_OPENALEX_CONTENT_BASE = "https://content.openalex.org/works"
+_CROSSREF_WORKS_URL = "https://api.crossref.org/works"
 _FT_TIMEOUT = 20  # seconds per tier
 # ScienceDirect returns non-OA papers as <500 chars -- treat as miss.
 _SD_MIN_CHARS = 500
 
 # Elsevier/ScienceDirect DOI prefixes. Article API only works for these;
 # non-Elsevier DOIs return 403/404. Skip to preserve API quota.
-_ELSEVIER_PREFIXES = frozenset({
-    "10.1016", "10.1006", "10.1067", "10.1053", "10.1054", "10.1078",
-    "10.4065", "10.1383", "10.1580", "10.1197", "10.1240", "10.1205",
-    "10.3182", "10.3921", "10.1157", "10.1602", "10.2353", "10.1529",
-    "10.3816", "10.1367",
-})
+_ELSEVIER_PREFIXES = frozenset(
+    {
+        "10.1016",
+        "10.1006",
+        "10.1067",
+        "10.1053",
+        "10.1054",
+        "10.1078",
+        "10.4065",
+        "10.1383",
+        "10.1580",
+        "10.1197",
+        "10.1240",
+        "10.1205",
+        "10.3182",
+        "10.3921",
+        "10.1157",
+        "10.1602",
+        "10.2353",
+        "10.1529",
+        "10.3816",
+        "10.1367",
+    }
+)
 
 
 def _is_elsevier_doi(doi: str) -> bool:
@@ -78,6 +102,7 @@ class FullTextResult:
 # ---------------------------------------------------------------------------
 # Tier 1: ScienceDirect Article Retrieval API
 # ---------------------------------------------------------------------------
+
 
 def _append_diag(diagnostics: list[str] | None, tier: str, msg: str) -> None:
     """Append diagnostic message when diagnostics list is provided."""
@@ -149,7 +174,9 @@ async def _fetch_sciencedirect_pdf(
         return None
 
 
-async def _fetch_sciencedirect(doi: str, api_key: str, insttoken: str | None = None, diagnostics: list[str] | None = None) -> FullTextResult | None:
+async def _fetch_sciencedirect(
+    doi: str, api_key: str, insttoken: str | None = None, diagnostics: list[str] | None = None
+) -> FullTextResult | None:
     """Fetch full text from ScienceDirect using the Article (Full Text) Retrieval API.
 
     Workflow per Elsevier docs: try PDF first (Accept: application/pdf), then
@@ -192,6 +219,7 @@ async def _fetch_sciencedirect(doi: str, api_key: str, insttoken: str | None = N
 # Tier 2: Unpaywall open-access PDF
 # ---------------------------------------------------------------------------
 
+
 async def _fetch_unpaywall(doi: str, diagnostics: list[str] | None = None) -> FullTextResult | None:
     """Fetch open-access PDF bytes via Unpaywall.
 
@@ -203,9 +231,7 @@ async def _fetch_unpaywall(doi: str, diagnostics: list[str] | None = None) -> Fu
     meta_url = f"{_UNPAYWALL_BASE}/{doi}?email=litreview@app.local"
     try:
         async with aiohttp.ClientSession() as session:
-            async with session.get(
-                meta_url, timeout=aiohttp.ClientTimeout(total=_FT_TIMEOUT)
-            ) as resp:
+            async with session.get(meta_url, timeout=aiohttp.ClientTimeout(total=_FT_TIMEOUT)) as resp:
                 if resp.status != 200:
                     _append_diag(diagnostics, "Unpaywall", f"HTTP {resp.status}")
                     return None
@@ -274,6 +300,7 @@ async def _fetch_unpaywall(doi: str, diagnostics: list[str] | None = None) -> Fu
 # Tier 2a: Semantic Scholar (openAccessPdf URL, optional API key)
 # ---------------------------------------------------------------------------
 
+
 async def _fetch_semanticscholar(doi: str, diagnostics: list[str] | None = None) -> FullTextResult | None:
     """Fetch full text from Semantic Scholar openAccessPdf URL.
 
@@ -336,6 +363,7 @@ async def _fetch_semanticscholar(doi: str, diagnostics: list[str] | None = None)
 # ---------------------------------------------------------------------------
 # Tier 2b: CORE (institutional repos, ~43M hosted full texts)
 # ---------------------------------------------------------------------------
+
 
 def _normalize_doi(doi: str) -> str:
     """Return bare DOI (e.g. 10.1016/j.test.2024.01.001) for API queries."""
@@ -417,7 +445,10 @@ async def _fetch_core(doi: str, api_key: str, diagnostics: list[str] | None = No
 # Tier 2c: Europe PMC (OA subset, 6.5M articles, no auth)
 # ---------------------------------------------------------------------------
 
-async def _fetch_europepmc(doi: str, pmid: str | None = None, diagnostics: list[str] | None = None) -> FullTextResult | None:
+
+async def _fetch_europepmc(
+    doi: str, pmid: str | None = None, diagnostics: list[str] | None = None
+) -> FullTextResult | None:
     """Fetch full text from Europe PMC Open Access subset via fullTextXML.
 
     Resolves DOI/PMID to PMCID via search, then fetches fullTextXML.
@@ -425,7 +456,7 @@ async def _fetch_europepmc(doi: str, pmid: str | None = None, diagnostics: list[
     if not doi and not pmid:
         return None
     bare_doi = _normalize_doi(doi) if doi else ""
-    query = f'DOI:{bare_doi}' if bare_doi else f'EXT_ID:{pmid}'
+    query = f"DOI:{bare_doi}" if bare_doi else f"EXT_ID:{pmid}"
     try:
         async with aiohttp.ClientSession() as session:
             async with session.get(
@@ -472,8 +503,210 @@ async def _fetch_europepmc(doi: str, pmid: str | None = None, diagnostics: list[
 
 
 # ---------------------------------------------------------------------------
+# Tier 1b: arXiv PDF (for papers from arXiv connector)
+# ---------------------------------------------------------------------------
+
+
+def _extract_arxiv_id(url: str | None) -> str | None:
+    """Extract arXiv ID from URL like https://arxiv.org/abs/2401.12345 or .../2401.12345v1."""
+    if not url or "arxiv.org" not in url:
+        return None
+    # Match /abs/XXYY.NNNNN or /abs/XXYY.NNNNNvN
+    m = re.search(r"arxiv\.org/abs/([\d]+\.[\d]+(?:v\d+)?)", url, re.IGNORECASE)
+    return m.group(1) if m else None
+
+
+async def _fetch_arxiv(
+    url: str | None,
+    diagnostics: list[str] | None = None,
+) -> FullTextResult | None:
+    """Fetch PDF from arXiv when paper URL is an arXiv abs link.
+
+    URL format: https://arxiv.org/abs/2401.12345
+    PDF URL: https://arxiv.org/pdf/2401.12345.pdf
+    """
+    arxiv_id = _extract_arxiv_id(url)
+    if not arxiv_id:
+        return None
+    pdf_url = f"{_ARXIV_PDF_BASE}/{arxiv_id}.pdf"
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(
+                pdf_url,
+                timeout=aiohttp.ClientTimeout(total=_FT_TIMEOUT),
+            ) as resp:
+                if resp.status != 200:
+                    _append_diag(diagnostics, "arXiv", f"PDF fetch HTTP {resp.status}")
+                    return None
+                body = await resp.read()
+        if not body or len(body) < 500:
+            _append_diag(diagnostics, "arXiv", "PDF too small or empty")
+            return None
+        # Parse PDF to text for consistency with other tiers
+        try:
+            import io
+
+            import fitz  # PyMuPDF
+            import pymupdf4llm
+
+            doc = fitz.open(stream=io.BytesIO(body), filetype="pdf")
+            md_text = pymupdf4llm.to_markdown(doc)
+            doc.close()
+            text = md_text[: _SD_MIN_CHARS * 2]  # ~1K chars min for meaningful content
+            if len(text.strip()) >= _SD_MIN_CHARS:
+                return FullTextResult(text=text, source="arxiv_pdf", pdf_bytes=body)
+        except Exception:
+            pass
+        # Fallback: return PDF bytes only (caller can parse)
+        return FullTextResult(text="", source="arxiv_pdf", pdf_bytes=body)
+    except Exception as exc:
+        _append_diag(diagnostics, "arXiv", str(exc))
+        logger.debug("arXiv fetch error for url=%s: %s", url, exc)
+        return None
+
+
+# ---------------------------------------------------------------------------
+# Tier 2b: bioRxiv/medRxiv PDF (DOIs 10.1101/...)
+# ---------------------------------------------------------------------------
+
+
+def _is_biorxiv_medrxiv_doi(doi: str | None) -> bool:
+    """True if DOI is from bioRxiv or medRxiv (both use 10.1101 prefix)."""
+    if not doi:
+        return False
+    s = doi.strip().lower().split("doi.org/")[-1] if "doi.org/" in doi else doi.strip().lower()
+    return s.startswith("10.1101/")
+
+
+async def _fetch_biorxiv_medrxiv(
+    doi: str,
+    diagnostics: list[str] | None = None,
+) -> FullTextResult | None:
+    """Fetch PDF from bioRxiv or medRxiv when DOI starts with 10.1101/.
+
+    Try biorxiv first, then medrxiv. Try v1, v2, v3 for revisions if v1 404s.
+    """
+    if not _is_biorxiv_medrxiv_doi(doi):
+        return None
+    bare = _normalize_doi(doi)
+    for base in (_BIORXIV_PDF_BASE, _MEDRXIV_PDF_BASE):
+        for ver in ("v1", "v2", "v3"):
+            pdf_url = f"{base}/{bare}{ver}.full.pdf"
+            try:
+                async with aiohttp.ClientSession() as session:
+                    async with session.get(
+                        pdf_url,
+                        timeout=aiohttp.ClientTimeout(total=_FT_TIMEOUT),
+                    ) as resp:
+                        if resp.status != 200:
+                            continue
+                        body = await resp.read()
+                if not body or len(body) < 500:
+                    continue
+                try:
+                    import io
+
+                    import fitz  # PyMuPDF
+                    import pymupdf4llm
+
+                    doc = fitz.open(stream=io.BytesIO(body), filetype="pdf")
+                    md_text = pymupdf4llm.to_markdown(doc)
+                    doc.close()
+                    text = md_text[: _SD_MIN_CHARS * 2]
+                    if len(text.strip()) >= _SD_MIN_CHARS:
+                        return FullTextResult(
+                            text=text,
+                            source="biorxiv_medrxiv_pdf",
+                            pdf_bytes=body,
+                        )
+                except Exception:
+                    pass
+                return FullTextResult(text="", source="biorxiv_medrxiv_pdf", pdf_bytes=body)
+            except Exception:
+                continue
+    _append_diag(diagnostics, "biorxiv_medrxiv", "PDF not found (tried both servers, v1-v3)")
+    return None
+
+
+# ---------------------------------------------------------------------------
+# Tier 2c: OpenAlex Content (paid $0.01/file; ~60M OA works)
+# ---------------------------------------------------------------------------
+
+
+async def _fetch_openalex_content(
+    doi: str,
+    diagnostics: list[str] | None = None,
+) -> FullTextResult | None:
+    """Fetch PDF from OpenAlex Content API.
+
+    Resolves DOI to work, checks content_url, fetches PDF. Costs $0.01/file.
+    Requires OPENALEX_API_KEY. Opt-in (use_openalex_content=False by default).
+    """
+    api_key = os.environ.get("OPENALEX_API_KEY", "").strip()
+    if not api_key:
+        _append_diag(diagnostics, "OpenAlex", "OPENALEX_API_KEY not set")
+        return None
+    bare = _normalize_doi(doi)
+    if not bare:
+        return None
+    try:
+        work_url = f"{_OPENALEX_WORKS_URL}/DOI:{quote(bare)}"
+        async with aiohttp.ClientSession() as session:
+            async with session.get(
+                work_url,
+                params={"mailto": os.environ.get("PUBMED_EMAIL", "unknown@example.com")},
+                timeout=aiohttp.ClientTimeout(total=_FT_TIMEOUT),
+            ) as resp:
+                if resp.status != 200:
+                    _append_diag(diagnostics, "OpenAlex", f"works API HTTP {resp.status}")
+                    return None
+                data = await resp.json(content_type=None)
+        content_url = data.get("content_url")
+        if not content_url:
+            _append_diag(diagnostics, "OpenAlex", "no content_url (no cached PDF)")
+            return None
+        # content_url is like https://content.openalex.org/works/W2741809807
+        # Fetch PDF: append .pdf and api_key
+        pdf_url = f"{content_url}.pdf"
+        async with aiohttp.ClientSession() as session:
+            async with session.get(
+                pdf_url,
+                params={"api_key": api_key},
+                timeout=aiohttp.ClientTimeout(total=_FT_TIMEOUT),
+                allow_redirects=True,
+            ) as resp:
+                if resp.status != 200:
+                    _append_diag(diagnostics, "OpenAlex", f"content PDF HTTP {resp.status}")
+                    return None
+                body = await resp.read()
+        if not body or len(body) < 500:
+            _append_diag(diagnostics, "OpenAlex", "PDF too small or empty")
+            return None
+        try:
+            import io
+
+            import fitz  # PyMuPDF
+            import pymupdf4llm
+
+            doc = fitz.open(stream=io.BytesIO(body), filetype="pdf")
+            md_text = pymupdf4llm.to_markdown(doc)
+            doc.close()
+            text = md_text[: _SD_MIN_CHARS * 2]
+            if len(text.strip()) >= _SD_MIN_CHARS:
+                return FullTextResult(text=text, source="openalex_content", pdf_bytes=body)
+        except Exception:
+            pass
+        return FullTextResult(text="", source="openalex_content", pdf_bytes=body)
+    except Exception as exc:
+        _append_diag(diagnostics, "OpenAlex", str(exc))
+        logger.debug("OpenAlex Content fetch error for doi=%s: %s", doi, exc)
+        return None
+
+
+# ---------------------------------------------------------------------------
 # Tier 4: PubMed Central full text
 # ---------------------------------------------------------------------------
+
 
 async def _fetch_pmc(doi: str, pmid: str | None = None, diagnostics: list[str] | None = None) -> FullTextResult | None:
     """Fetch full text from PubMed Central via NCBI E-utilities.
@@ -540,8 +773,90 @@ async def _fetch_pmc(doi: str, pmid: str | None = None, diagnostics: list[str] |
 
 
 # ---------------------------------------------------------------------------
-# Public: 3-tier full-text retrieval
+# Tier 5: Crossref link discovery (fallback; many links paywalled)
 # ---------------------------------------------------------------------------
+
+
+async def _fetch_crossref_links(
+    doi: str,
+    diagnostics: list[str] | None = None,
+) -> FullTextResult | None:
+    """Try PDF URLs from Crossref works API link array.
+
+    Prefer content-type: application/pdf and intended-application: text-mining.
+    Many links are paywalled; worth trying as last-resort fallback.
+    """
+    if not doi:
+        return None
+    bare = _normalize_doi(doi)
+    if not bare:
+        return None
+    try:
+        url = f"{_CROSSREF_WORKS_URL}/{quote(bare)}"
+        email = os.environ.get("CROSSREF_EMAIL") or os.environ.get("PUBMED_EMAIL") or "unknown@example.com"
+        async with aiohttp.ClientSession() as session:
+            async with session.get(
+                url,
+                params={"mailto": email},
+                timeout=aiohttp.ClientTimeout(total=_FT_TIMEOUT),
+            ) as resp:
+                if resp.status != 200:
+                    _append_diag(diagnostics, "Crossref", f"works API HTTP {resp.status}")
+                    return None
+                data = await resp.json(content_type=None)
+        message = data.get("message", {})
+        links = message.get("link", [])
+        pdf_urls: list[tuple[str, int]] = []  # (url, priority: 0=pdf+text-mining, 1=pdf only)
+        for link in links:
+            ct = (link.get("content-type") or "").lower()
+            app = (link.get("intended-application") or "").lower()
+            u = link.get("URL", "").strip()
+            if not u or "application/pdf" not in ct:
+                continue
+            priority = 0 if "text-mining" in app else 1
+            pdf_urls.append((u, priority))
+        pdf_urls.sort(key=lambda x: x[1])
+        for pdf_url, _ in pdf_urls:
+            try:
+                async with aiohttp.ClientSession() as session:
+                    async with session.get(
+                        pdf_url,
+                        timeout=aiohttp.ClientTimeout(total=_FT_TIMEOUT),
+                    ) as resp:
+                        if resp.status != 200:
+                            continue
+                        body = await resp.read()
+                if not body or len(body) < 500:
+                    continue
+                try:
+                    import io
+
+                    import fitz  # PyMuPDF
+                    import pymupdf4llm
+
+                    doc = fitz.open(stream=io.BytesIO(body), filetype="pdf")
+                    md_text = pymupdf4llm.to_markdown(doc)
+                    doc.close()
+                    text = md_text[: _SD_MIN_CHARS * 2]
+                    if len(text.strip()) >= _SD_MIN_CHARS:
+                        return FullTextResult(text=text, source="crossref_link", pdf_bytes=body)
+                except Exception:
+                    pass
+                return FullTextResult(text="", source="crossref_link", pdf_bytes=body)
+            except Exception:
+                continue
+        _append_diag(diagnostics, "Crossref", "no PDF link or all fetches failed")
+        return None
+    except Exception as exc:
+        _append_diag(diagnostics, "Crossref", str(exc))
+        logger.debug("Crossref links fetch error for doi=%s: %s", doi, exc)
+        return None
+
+
+# ---------------------------------------------------------------------------
+# Public: tiered full-text retrieval
+# ---------------------------------------------------------------------------
+
 
 async def fetch_full_text(
     doi: str | None = None,
@@ -555,6 +870,10 @@ async def fetch_full_text(
     use_core: bool = True,
     use_europepmc: bool = True,
     use_semanticscholar: bool = True,
+    use_arxiv_pdf: bool = True,
+    use_biorxiv_medrxiv: bool = True,
+    use_openalex_content: bool = False,
+    use_crossref_links: bool = True,
     diagnostics: list[str] | None = None,
 ) -> FullTextResult:
     """Retrieve full text using a tiered resolver.
@@ -590,7 +909,19 @@ async def fetch_full_text(
         if result:
             logger.info(
                 "fetch_full_text: tier 1 Unpaywall success for doi=%s source=%s",
-                effective_doi, result.source,
+                effective_doi,
+                result.source,
+            )
+            return result
+
+    # Tier 1b: arXiv PDF (for papers from arXiv connector; url must be arxiv.org/abs/...)
+    if use_arxiv_pdf and url:
+        result = await _fetch_arxiv(url, diagnostics=diagnostics)
+        if result:
+            logger.info(
+                "fetch_full_text: tier 1b arXiv success for url=%s source=%s",
+                url[:50],
+                result.source,
             )
             return result
 
@@ -600,7 +931,19 @@ async def fetch_full_text(
         if result:
             logger.info(
                 "fetch_full_text: tier 2a Semantic Scholar success for doi=%s source=%s",
-                effective_doi, result.source,
+                effective_doi,
+                result.source,
+            )
+            return result
+
+    # Tier 2b: bioRxiv/medRxiv (DOIs 10.1101/...; life sciences preprints)
+    if use_biorxiv_medrxiv and effective_doi:
+        result = await _fetch_biorxiv_medrxiv(effective_doi, diagnostics=diagnostics)
+        if result:
+            logger.info(
+                "fetch_full_text: tier 2b bioRxiv/medRxiv success for doi=%s source=%s",
+                effective_doi,
+                result.source,
             )
             return result
 
@@ -611,7 +954,19 @@ async def fetch_full_text(
         if result:
             logger.info(
                 "fetch_full_text: tier 2 CORE success for doi=%s source=%s",
-                effective_doi, result.source,
+                effective_doi,
+                result.source,
+            )
+            return result
+
+    # Tier 2c: OpenAlex Content (paid $0.01/file; ~60M OA works; opt-in)
+    if use_openalex_content and effective_doi:
+        result = await _fetch_openalex_content(effective_doi, diagnostics=diagnostics)
+        if result:
+            logger.info(
+                "fetch_full_text: tier 2c OpenAlex Content success for doi=%s source=%s",
+                effective_doi,
+                result.source,
             )
             return result
 
@@ -621,7 +976,8 @@ async def fetch_full_text(
         if result:
             logger.info(
                 "fetch_full_text: tier Europe PMC success for doi=%s source=%s",
-                effective_doi, result.source,
+                effective_doi,
+                result.source,
             )
             return result
 
@@ -643,8 +999,20 @@ async def fetch_full_text(
         result = await _fetch_pmc(effective_doi, pmid, diagnostics=diagnostics)
         if result:
             logger.info(
-                "fetch_full_text: tier 3 PMC success for doi=%s (%d chars)",
-                effective_doi, len(result.text),
+                "fetch_full_text: tier 4 PMC success for doi=%s (%d chars)",
+                effective_doi,
+                len(result.text),
+            )
+            return result
+
+    # Tier 5: Crossref link discovery (fallback; many paywalled)
+    if use_crossref_links and effective_doi:
+        result = await _fetch_crossref_links(effective_doi, diagnostics=diagnostics)
+        if result:
+            logger.info(
+                "fetch_full_text: tier 5 Crossref link success for doi=%s source=%s",
+                effective_doi,
+                result.source,
             )
             return result
 
@@ -653,6 +1021,7 @@ async def fetch_full_text(
         effective_doi,
     )
     return FullTextResult(text="", source="abstract")
+
 
 _TABLE_EXTRACTION_PROMPT = """\
 You are a systematic review data extractor specializing in clinical trial result tables.

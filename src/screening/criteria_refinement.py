@@ -37,8 +37,8 @@ _REFINEMENT_PROMPT_TEMPLATE = (
     "statement of what SHOULD be included or excluded.\n\n"
     "Format your response as JSON:\n"
     "[\n"
-    "  {{\"criterion_type\": \"refined_inclusion\", \"criterion_text\": \"...\"}},\n"
-    "  {{\"criterion_type\": \"refined_exclusion\", \"criterion_text\": \"...\"}}\n"
+    '  {{"criterion_type": "refined_inclusion", "criterion_text": "..."}},\n'
+    '  {{"criterion_type": "refined_exclusion", "criterion_text": "..."}}\n'
     "]\n\n"
     "Return ONLY valid JSON -- no markdown, no explanation.\n"
     "Each criterion_text must be <= 500 characters.\n"
@@ -79,7 +79,7 @@ def _format_corrections_for_prompt(
     lines: list[str] = []
     for c in corrections[:10]:
         title = papers.get(c.paper_id, c.paper_id[:16])[:80]
-        line = f"- Paper: \"{title}\""
+        line = f'- Paper: "{title}"'
         line += f"\n  AI decision: {c.ai_decision} -> Human decision: {c.human_decision}"
         if c.human_reason:
             line += f"\n  Reason: {c.human_reason[:200]}"
@@ -103,9 +103,7 @@ def _call_refinement_llm_sync(
         return []
 
     genai.configure(api_key=api_key)
-    prompt = _REFINEMENT_PROMPT_TEMPLATE.format(
-        corrections=_format_corrections_for_prompt(corrections, papers)
-    )
+    prompt = _REFINEMENT_PROMPT_TEMPLATE.format(corrections=_format_corrections_for_prompt(corrections, papers))
 
     try:
         model = genai.GenerativeModel(model_name)
@@ -166,10 +164,9 @@ async def refine_criteria_from_corrections(
     raw_model = model_name.replace("google-gla:", "").replace("google-vertex:", "")
 
     import asyncio
+
     loop = asyncio.get_event_loop()
-    return await loop.run_in_executor(
-        None, _call_refinement_llm_sync, corrections, papers, raw_model, key
-    )
+    return await loop.run_in_executor(None, _call_refinement_llm_sync, corrections, papers, raw_model, key)
 
 
 async def save_corrections(

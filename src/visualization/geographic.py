@@ -88,16 +88,15 @@ def render_geographic(papers: list[CandidatePaper], output_path: str) -> Path:
 
     # Country data not available -- fall back to source-database distribution.
     sources = [
-        _DB_DISPLAY.get(p.source_database or "", p.source_database or "Unknown")
-        for p in papers
-        if p.source_database
+        _DB_DISPLAY.get(p.source_database or "", p.source_database or "Unknown") for p in papers if p.source_database
     ]
     if not sources:
         # Absolute last resort: plain text notice
         fig, ax = plt.subplots(figsize=(6, 2))
         ax.set_title("Source Distribution")
-        ax.text(0.5, 0.5, f"No source metadata available ({len(papers)} studies).",
-                ha="center", va="center", fontsize=9)
+        ax.text(
+            0.5, 0.5, f"No source metadata available ({len(papers)} studies).", ha="center", va="center", fontsize=9
+        )
         ax.axis("off")
         fig.tight_layout()
         fig.savefig(path, dpi=150, bbox_inches="tight")
@@ -111,7 +110,9 @@ def render_geographic(papers: list[CandidatePaper], output_path: str) -> Path:
     values = list(values)
     fig, ax = plt.subplots(figsize=(max(6, len(labels) * 1.0), 5))
     _render_bar(
-        ax, labels, values,
+        ax,
+        labels,
+        values,
         title=f"Included Studies by Source Database (n={len(papers)})",
         ylabel="Number of studies",
         color="steelblue",
@@ -119,10 +120,14 @@ def render_geographic(papers: list[CandidatePaper], output_path: str) -> Path:
     # Footnote in figure coordinates (not axes coords) so it never overlaps x-tick labels.
     fig.subplots_adjust(bottom=0.22)
     fig.text(
-        0.5, 0.01,
+        0.5,
+        0.01,
         "Note: Country of origin not available from search API metadata. "
         "Chart shows the database from which each included study was retrieved.",
-        ha="center", va="bottom", fontsize=7, color="gray",
+        ha="center",
+        va="bottom",
+        fontsize=7,
+        color="gray",
         wrap=True,
     )
     fig.savefig(path, dpi=150, bbox_inches="tight")

@@ -30,19 +30,15 @@ def build_boolean_query(config: ReviewConfig) -> str:
     keyword_part = " OR ".join(f'"{k}"' for k in deduped_terms)
     return f"({keyword_part})"
 
+
 def build_database_query(config: ReviewConfig, database_name: str) -> str:
     name = database_name.lower()
     if config.search_overrides and name in config.search_overrides:
         return config.search_overrides[name]
     base = build_boolean_query(config)
-    short_query = (
-        f"{config.pico.intervention} {config.pico.population} {config.pico.outcome}"
-    )
+    short_query = f"{config.pico.intervention} {config.pico.population} {config.pico.outcome}"
     if name == "pubmed":
-        return (
-            f"({base})"
-            f" AND ({config.pico.population}[Title/Abstract] OR {config.pico.intervention}[Title/Abstract])"
-        )
+        return f"({base}) AND ({config.pico.population}[Title/Abstract] OR {config.pico.intervention}[Title/Abstract])"
     if name == "arxiv":
         return f'all:("{config.research_question}") OR all:("{config.pico.intervention}")'
     if name == "ieee_xplore":
@@ -56,13 +52,15 @@ def build_database_query(config: ReviewConfig, database_name: str) -> str:
     if name == "scopus":
         # Use Scopus field-code syntax: TITLE-ABS-KEY covers title, abstract, and author keywords.
         # Take up to 8 keywords to keep the query within Scopus length limits.
-        kw_terms = " OR ".join(f'"{k}"' for k in config.keywords[:8]) if config.keywords else f'"{config.pico.intervention}"'
+        kw_terms = (
+            " OR ".join(f'"{k}"' for k in config.keywords[:8]) if config.keywords else f'"{config.pico.intervention}"'
+        )
         date_s = config.date_range_start or 2009
         date_e = config.date_range_end or 2027
         return (
-            f'TITLE-ABS-KEY({kw_terms}) AND '
+            f"TITLE-ABS-KEY({kw_terms}) AND "
             f'TITLE-ABS-KEY("{config.pico.intervention}" OR "{config.pico.outcome}") '
-            f'AND PUBYEAR > {date_s - 1} AND PUBYEAR < {date_e + 1}'
+            f"AND PUBYEAR > {date_s - 1} AND PUBYEAR < {date_e + 1}"
         )
     return base
 
@@ -76,9 +74,7 @@ class SearchStrategyCoordinator:
         repository: WorkflowRepository,
         gate_runner: GateRunner,
         output_dir: str = "runs",
-        on_connector_done: Callable[
-            [str, str, int, str, int | None, int | None, str | None], None
-        ] | None = None,
+        on_connector_done: Callable[[str, str, int, str, int | None, int | None, str | None], None] | None = None,
     ):
         self.workflow_id = workflow_id
         self.config = config
@@ -134,9 +130,7 @@ class SearchStrategyCoordinator:
                     )
                 )
                 continue
-            result_list: list[SearchResult] = (
-                outcome if isinstance(outcome, list) else [outcome]
-            )
+            result_list: list[SearchResult] = outcome if isinstance(outcome, list) else [outcome]
             connector_results[connector.name] = result_list
             if self.on_connector_done:
                 total = sum(r.records_retrieved for r in result_list)
@@ -152,7 +146,7 @@ class SearchStrategyCoordinator:
             for r in result_list:
                 try:
                     await self.repository.save_search_result(r)
-                except Exception as exc:
+                except Exception:
                     _logger.exception(
                         "save_search_result failed: workflow_id=%s, papers=%d, first_paper=%s",
                         self.workflow_id,
@@ -165,9 +159,7 @@ class SearchStrategyCoordinator:
         all_papers = [paper for result in results for paper in result.papers]
         _, dedup_count = deduplicate_papers(all_papers)
         query_map = {connector.name: query for connector, query, _ in tasks}
-        await self._write_search_appendix(
-            query_map, connector_results, errors, dedup_count
-        )
+        await self._write_search_appendix(query_map, connector_results, errors, dedup_count)
         await self.gate_runner.run_search_volume_gate(
             workflow_id=self.workflow_id,
             phase="phase_2_search",

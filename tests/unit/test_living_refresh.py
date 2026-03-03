@@ -1,4 +1,5 @@
 """Unit tests for living review delta pipeline DB merge (Enhancement #6)."""
+
 from __future__ import annotations
 
 import pytest
@@ -17,9 +18,18 @@ async def _setup_parent_db(db_path: str, paper_ids: list) -> None:
                    (paper_id, title, abstract, authors, year, doi, url, source_database,
                     display_label, openalex_id)
                    VALUES (?,?,?,?,?,?,?,?,?,?)""",
-                (pid, f"Title {pid}", "Abstract.", '["Author A"]',
-                 2023, f"10.1234/{pid}", None, "openalex",
-                 f"Label {pid}", None),
+                (
+                    pid,
+                    f"Title {pid}",
+                    "Abstract.",
+                    '["Author A"]',
+                    2023,
+                    f"10.1234/{pid}",
+                    None,
+                    "openalex",
+                    f"Label {pid}",
+                    None,
+                ),
             )
         await db.commit()
         for pid in paper_ids:

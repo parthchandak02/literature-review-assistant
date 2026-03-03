@@ -44,6 +44,7 @@ def _resolve_model() -> str:
     """Resolve the config-generator model from settings.yaml at call time."""
     try:
         from src.config.loader import load_configs
+
         _, settings = load_configs(settings_path="config/settings.yaml")
         search_agent = settings.agents.get("search")
         if search_agent:
@@ -51,6 +52,7 @@ def _resolve_model() -> str:
     except Exception:
         pass
     return _MODEL_FALLBACK
+
 
 # Structural defaults that are never LLM-generated (kept stable across all reviews).
 _DEFAULT_DATE_START = 2010
@@ -75,6 +77,7 @@ _DEFAULT_SECTIONS = [
 # ---------------------------------------------------------------------------
 # Structured output schema
 # ---------------------------------------------------------------------------
+
 
 class _Pico(BaseModel):
     population: str = Field(description="Who or what is being studied")
@@ -111,6 +114,7 @@ class _GeneratedConfig(BaseModel):
 # ---------------------------------------------------------------------------
 # YAML serializer (mirrors frontend buildYaml() exactly)
 # ---------------------------------------------------------------------------
+
 
 def _yaml_str(s: str) -> str:
     """Wrap a string value in double quotes with escaping."""
@@ -227,6 +231,7 @@ _STRUCTURE_PROMPT = (
 # Public API
 # ---------------------------------------------------------------------------
 
+
 async def generate_config_yaml(
     research_question: str,
     progress_cb: Callable[[str], None] | None = None,
@@ -244,6 +249,7 @@ async def generate_config_yaml(
 
     Raises RuntimeError on LLM or validation failure.
     """
+
     def emit(step: str) -> None:
         if progress_cb:
             try:
@@ -267,13 +273,9 @@ async def generate_config_yaml(
     try:
         research_result = await research_agent.run(research_prompt)
         research_brief = research_result.output
-        logger.info(
-            "Config gen Stage 1 complete: brief length=%d chars", len(research_brief)
-        )
+        logger.info("Config gen Stage 1 complete: brief length=%d chars", len(research_brief))
     except Exception as exc:
-        logger.warning(
-            "Config gen Stage 1 (web search+fetch) failed, falling back to model knowledge: %s", exc
-        )
+        logger.warning("Config gen Stage 1 (web search+fetch) failed, falling back to model knowledge: %s", exc)
         # Graceful degradation: skip the research brief, rely on model knowledge.
         research_brief = "(Web search unavailable -- rely on training knowledge only.)"
 
@@ -307,9 +309,7 @@ async def generate_config_yaml(
     try:
         parsed = _GeneratedConfig.model_validate_json(result_json)
     except Exception as exc:
-        logger.error(
-            "Config gen response failed validation: %s\nRaw: %s", exc, result_json[:500]
-        )
+        logger.error("Config gen response failed validation: %s\nRaw: %s", exc, result_json[:500])
         try:
             raw_dict = json.loads(result_json)
             parsed = _GeneratedConfig.model_validate(raw_dict)

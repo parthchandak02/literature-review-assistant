@@ -77,6 +77,7 @@ ignore = ["E501", "UP042", "UP045"]
 # These modules set up logging early before imports (intentional early-logger pattern)
 "src/orchestration/*.py" = ["E402"]
 "src/screening/dual_screener.py" = ["E402"]
+"src/search/strategy.py" = ["E402"]
 "src/writing/section_writer.py" = ["E402"]
 # Tests commonly assign results without reading them to assert "no exception raised"
 "tests/**/*.py" = ["F841", "E741"]

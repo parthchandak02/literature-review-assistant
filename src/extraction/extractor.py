@@ -42,39 +42,41 @@ def _build_extraction_prompt(
     text: str,
     review: ReviewConfig,
 ) -> str:
-    return "\n".join([
-        "You are a systematic review data extractor.",
-        f"Research question: {review.research_question}",
-        f"Intervention of interest: {review.pico.intervention}",
-        f"Population of interest: {review.pico.population}",
-        f"Outcome of interest: {review.pico.outcome}",
-        "",
-        f"Title: {paper.title}",
-        "",
-        "Text excerpt (up to 32000 chars):",
-        text[:32000],
-        "",
-        "Extract the following from this study:",
-        "- study_duration: Duration of the study or intervention (e.g. '8 weeks', '6 months', 'unknown')",
-        "- setting: Study setting as free text (e.g. 'hospital ward', 'community clinic', 'outpatient pharmacy')",
-        "- participant_count: Total participants as a plain number string (e.g. '120', '45').",
-        "  Use 'not reported' only if truly absent. Do NOT include units like 'patients'.",
-        "- participant_demographics: Brief description of participants (age, role, background, etc.)",
-        "- intervention_description: What the intervention/treatment was in detail",
-        "- comparator_description: What the control/comparison condition was (or 'no control' if absent)",
-        "- outcomes: List of SPECIFIC outcome measures as reported in the paper. For each outcome:",
-        "    name: the actual measured outcome name from the paper (e.g. 'medication error rate',",
-        "          'dispensing accuracy', 'infection rate', 'patient satisfaction score', 'cost per visit').",
-        "    CRITICAL: NEVER use 'primary_outcome', 'not reported', or generic placeholders as a name. "
-        "Use the real outcome name from the paper.",
-        "    If no outcomes can be identified return an empty list [].",
-        "    Also include: description, effect_size (e.g. 'OR=2.1'), se (standard error), n (sample size)",
-        "- results_summary: Plain text summary of the key findings (2-4 sentences)",
-        "- funding_source: Who funded the study (or 'not reported')",
-        "- conflicts_of_interest: Any declared COI (or 'none declared')",
-        "",
-        "Return ONLY valid JSON matching the schema.",
-    ])
+    return "\n".join(
+        [
+            "You are a systematic review data extractor.",
+            f"Research question: {review.research_question}",
+            f"Intervention of interest: {review.pico.intervention}",
+            f"Population of interest: {review.pico.population}",
+            f"Outcome of interest: {review.pico.outcome}",
+            "",
+            f"Title: {paper.title}",
+            "",
+            "Text excerpt (up to 32000 chars):",
+            text[:32000],
+            "",
+            "Extract the following from this study:",
+            "- study_duration: Duration of the study or intervention (e.g. '8 weeks', '6 months', 'unknown')",
+            "- setting: Study setting as free text (e.g. 'hospital ward', 'community clinic', 'outpatient pharmacy')",
+            "- participant_count: Total participants as a plain number string (e.g. '120', '45').",
+            "  Use 'not reported' only if truly absent. Do NOT include units like 'patients'.",
+            "- participant_demographics: Brief description of participants (age, role, background, etc.)",
+            "- intervention_description: What the intervention/treatment was in detail",
+            "- comparator_description: What the control/comparison condition was (or 'no control' if absent)",
+            "- outcomes: List of SPECIFIC outcome measures as reported in the paper. For each outcome:",
+            "    name: the actual measured outcome name from the paper (e.g. 'medication error rate',",
+            "          'dispensing accuracy', 'infection rate', 'patient satisfaction score', 'cost per visit').",
+            "    CRITICAL: NEVER use 'primary_outcome', 'not reported', or generic placeholders as a name. "
+            "Use the real outcome name from the paper.",
+            "    If no outcomes can be identified return an empty list [].",
+            "    Also include: description, effect_size (e.g. 'OR=2.1'), se (standard error), n (sample size)",
+            "- results_summary: Plain text summary of the key findings (2-4 sentences)",
+            "- funding_source: Who funded the study (or 'not reported')",
+            "- conflicts_of_interest: Any declared COI (or 'none declared')",
+            "",
+            "Return ONLY valid JSON matching the schema.",
+        ]
+    )
 
 
 class ExtractionService:
@@ -172,15 +174,22 @@ class ExtractionService:
             )
             latency_ms = int((time.monotonic() - t0) * 1000)
             cost = self.provider.estimate_cost_usd(model, tok_in, tok_out, cw, cr)
-            await self.provider.log_cost(model, tok_in, tok_out, cost, latency_ms, phase="extraction", cache_read_tokens=cr, cache_write_tokens=cw)
-        else:
-            raw = await self.llm_client.complete(
-                prompt, model=model, temperature=temperature, json_schema=schema
+            await self.provider.log_cost(
+                model,
+                tok_in,
+                tok_out,
+                cost,
+                latency_ms,
+                phase="extraction",
+                cache_read_tokens=cr,
+                cache_write_tokens=cw,
             )
+        else:
+            raw = await self.llm_client.complete(prompt, model=model, temperature=temperature, json_schema=schema)
         parsed = _ExtractionLLMResponse.model_validate_json(raw)
 
         outcomes: list[dict[str, str]] = []
-        for o in (parsed.outcomes or []):
+        for o in parsed.outcomes or []:
             name = (o.name or "").strip()
             if not name:
                 continue
@@ -199,6 +208,7 @@ class ExtractionService:
             outcomes = self._heuristic_outcomes()
 
         import re as _re
+
         participant_count: int | None = None
         raw_count = (parsed.participant_count or "").strip()
         if raw_count:

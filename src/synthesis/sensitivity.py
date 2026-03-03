@@ -108,7 +108,7 @@ def _collect_outcome_data(
                 paper_ids.append(rec.paper_id)
                 titles.append(outcome.get("title", rec.paper_id))
                 effects.append(es)
-                variances.append(se ** 2)
+                variances.append(se**2)
             except (TypeError, ValueError):
                 continue
 
@@ -129,9 +129,7 @@ def leave_one_out(
     """
     paper_ids, titles, effects, variances = _collect_outcome_data(records, outcome_name)
     if len(paper_ids) < 3:
-        _log.info(
-            "leave_one_out: fewer than 3 studies for outcome '%s'; skipping", outcome_name
-        )
+        _log.info("leave_one_out: fewer than 3 studies for outcome '%s'; skipping", outcome_name)
         return []
 
     results: list[LeaveOneOutResult] = []

@@ -79,4 +79,10 @@ def test_run_executes_single_path_orchestrator(tmp_path) -> None:
         phases = {str(row[0]) for row in cursor.fetchall()}
     finally:
         conn.close()
-    assert {"phase_2_search", "phase_3_screening", "phase_4_extraction_quality", "phase_5_synthesis", "phase_6_writing"}.issubset(phases)
+    assert {
+        "phase_2_search",
+        "phase_3_screening",
+        "phase_4_extraction_quality",
+        "phase_5_synthesis",
+        "phase_6_writing",
+    }.issubset(phases)

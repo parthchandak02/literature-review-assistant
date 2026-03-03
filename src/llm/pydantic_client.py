@@ -32,8 +32,8 @@ _GEMINI_PREFIXES = ("google-gla:", "google-vertex:")
 # Retry configuration
 # ---------------------------------------------------------------------------
 _MAX_RETRIES = 5
-_BASE_DELAY = 2.0   # seconds
-_MAX_DELAY = 90.0   # seconds cap
+_BASE_DELAY = 2.0  # seconds
+_MAX_DELAY = 90.0  # seconds cap
 
 # HTTP status codes that indicate a transient server-side problem.
 _RETRYABLE_CODES = {"429", "502", "503", "504"}
@@ -64,7 +64,7 @@ async def _run_with_retry(agent: Agent[Any, Any], prompt: str, *, model_settings
         except Exception as exc:
             if not _is_retryable(exc) or attempt == _MAX_RETRIES - 1:
                 raise
-            delay = min(_BASE_DELAY * (2 ** attempt) + random.uniform(0, 1), _MAX_DELAY)
+            delay = min(_BASE_DELAY * (2**attempt) + random.uniform(0, 1), _MAX_DELAY)
             logger.warning(
                 "LLM transient error (attempt %d/%d), retrying in %.1fs: %s",
                 attempt + 1,
@@ -113,9 +113,7 @@ class PydanticAIClient:
                 output_type = StructuredDict(json_schema)
             # output_retries=3: extraction/screening schemas are complex; LLM sometimes
             # returns malformed JSON. More retries reduce "Exceeded maximum retries" failures.
-            agent: Agent = Agent(
-                model, output_type=output_type, retries=3, output_retries=3
-            )  # type: ignore[arg-type]
+            agent: Agent = Agent(model, output_type=output_type, retries=3, output_retries=3)  # type: ignore[arg-type]
             result = await _run_with_retry(agent, prompt, model_settings=settings)
             output = result.output
             if isinstance(output, dict):
@@ -147,9 +145,7 @@ class PydanticAIClient:
                 output_type = NativeOutput(StructuredDict(json_schema))
             else:
                 output_type = StructuredDict(json_schema)
-            agent = Agent(
-                model, output_type=output_type, retries=3, output_retries=3
-            )  # type: ignore[arg-type]
+            agent = Agent(model, output_type=output_type, retries=3, output_retries=3)  # type: ignore[arg-type]
             result = await _run_with_retry(agent, prompt, model_settings=settings)
             usage = result.usage()
             text = json.dumps(result.output) if isinstance(result.output, dict) else str(result.output)

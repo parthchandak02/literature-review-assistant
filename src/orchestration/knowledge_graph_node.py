@@ -72,10 +72,7 @@ class KnowledgeGraphNode(BaseNode[ReviewState]):
                     for pid, vecs in paper_vecs.items():
                         if vecs:
                             dim = len(vecs[0])
-                            mean_vec = [
-                                sum(v[i] for v in vecs) / len(vecs)
-                                for i in range(dim)
-                            ]
+                            mean_vec = [sum(v[i] for v in vecs) / len(vecs) for i in range(dim)]
                             chunk_embeddings[pid] = mean_vec
 
                 # Build graph
@@ -149,9 +146,11 @@ class KnowledgeGraphNode(BaseNode[ReviewState]):
                 # Render figure to run directory (same level as all other figures)
                 if state.db_path:
                     import os
+
                     _run_dir = os.path.dirname(state.db_path)
                     try:
                         from src.visualization.evidence_network import render_evidence_network
+
                         await render_evidence_network(state.db_path, state.workflow_id, _run_dir)
                         state.artifacts["evidence_network"] = os.path.join(_run_dir, "fig_evidence_network.png")
                         logger.info("KnowledgeGraphNode: evidence network figure saved to %s", _run_dir)

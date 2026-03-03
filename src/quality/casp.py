@@ -44,29 +44,31 @@ class _CaspLLMResponse(BaseModel):
 def _build_casp_prompt(record: ExtractionRecord, full_text: str) -> str:
     results = record.results_summary.get("summary", "")[:2000]
     text_excerpt = full_text[:3000] if full_text.strip() else results
-    return "\n".join([
-        "You are an expert systematic review methodologist.",
-        "Assess this qualitative study using the CASP (Critical Appraisal Skills Programme) checklist.",
-        "",
-        f"Intervention / topic: {record.intervention_description[:400]}",
-        f"Results summary: {results}",
-        "",
-        "Text excerpt:",
-        text_excerpt,
-        "",
-        "Answer each CASP question as true or false:",
-        "1. design_appropriate: Was a qualitative methodology appropriate for this research question?",
-        "2. recruitment_strategy: Was the recruitment strategy appropriate to the aims of the research?",
-        "3. data_collection_rigorous: Was the data collection sufficiently rigorous?",
-        "4. reflexivity_considered: Was the relationship between researcher and participants considered?",
-        "5. ethics_considered: Have ethical issues been taken into consideration?",
-        "6. analysis_rigorous: Was the data analysis sufficiently rigorous?",
-        "7. findings_clear: Is there a clear statement of findings?",
-        "8. value_of_research: How valuable is the research?",
-        "Also provide a brief overall_summary (1-2 sentences).",
-        "",
-        "Return ONLY valid JSON matching the schema.",
-    ])
+    return "\n".join(
+        [
+            "You are an expert systematic review methodologist.",
+            "Assess this qualitative study using the CASP (Critical Appraisal Skills Programme) checklist.",
+            "",
+            f"Intervention / topic: {record.intervention_description[:400]}",
+            f"Results summary: {results}",
+            "",
+            "Text excerpt:",
+            text_excerpt,
+            "",
+            "Answer each CASP question as true or false:",
+            "1. design_appropriate: Was a qualitative methodology appropriate for this research question?",
+            "2. recruitment_strategy: Was the recruitment strategy appropriate to the aims of the research?",
+            "3. data_collection_rigorous: Was the data collection sufficiently rigorous?",
+            "4. reflexivity_considered: Was the relationship between researcher and participants considered?",
+            "5. ethics_considered: Have ethical issues been taken into consideration?",
+            "6. analysis_rigorous: Was the data analysis sufficiently rigorous?",
+            "7. findings_clear: Is there a clear statement of findings?",
+            "8. value_of_research: How valuable is the research?",
+            "Also provide a brief overall_summary (1-2 sentences).",
+            "",
+            "Return ONLY valid JSON matching the schema.",
+        ]
+    )
 
 
 class CaspAssessor:
@@ -117,7 +119,16 @@ class CaspAssessor:
                     )
                     latency_ms = int((time.monotonic() - t0) * 1000)
                     cost = self.provider.estimate_cost_usd(model, tok_in, tok_out, cw, cr)
-                    await self.provider.log_cost(model, tok_in, tok_out, cost, latency_ms, phase="quality_casp", cache_read_tokens=cr, cache_write_tokens=cw)
+                    await self.provider.log_cost(
+                        model,
+                        tok_in,
+                        tok_out,
+                        cost,
+                        latency_ms,
+                        phase="quality_casp",
+                        cache_read_tokens=cr,
+                        cache_write_tokens=cw,
+                    )
                 else:
                     raw = await self.llm_client.complete(
                         prompt, model=model, temperature=temperature, json_schema=schema

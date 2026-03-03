@@ -30,28 +30,31 @@ class NarrativeSynthesis(BaseModel):
 # LLM-based direction classification
 # ---------------------------------------------------------------------------
 
+
 class _DirectionLLMResponse(BaseModel):
     direction: Literal["positive", "negative", "mixed", "null"] = "null"
     justification: str = ""
 
 
 def _build_direction_prompt(results_summary: str, outcome_name: str) -> str:
-    return "\n".join([
-        "You are a systematic review methodologist assessing effect direction.",
-        f"Outcome being assessed: {outcome_name}",
-        "",
-        "Study findings:",
-        results_summary[:2000],
-        "",
-        "Classify the overall direction of effect for this study as EXACTLY one of:",
-        "  positive  - intervention shows improvement / benefit",
-        "  negative  - intervention shows harm / worse outcomes",
-        "  mixed     - some outcomes improved, others worsened, or results are conditional",
-        "  null      - no statistically or clinically meaningful effect, or data insufficient",
-        "",
-        "Do NOT classify as 'positive' if the text uses negation (e.g., 'did not improve').",
-        "Return ONLY valid JSON matching the schema.",
-    ])
+    return "\n".join(
+        [
+            "You are a systematic review methodologist assessing effect direction.",
+            f"Outcome being assessed: {outcome_name}",
+            "",
+            "Study findings:",
+            results_summary[:2000],
+            "",
+            "Classify the overall direction of effect for this study as EXACTLY one of:",
+            "  positive  - intervention shows improvement / benefit",
+            "  negative  - intervention shows harm / worse outcomes",
+            "  mixed     - some outcomes improved, others worsened, or results are conditional",
+            "  null      - no statistically or clinically meaningful effect, or data insufficient",
+            "",
+            "Do NOT classify as 'positive' if the text uses negation (e.g., 'did not improve').",
+            "Return ONLY valid JSON matching the schema.",
+        ]
+    )
 
 
 async def _classify_direction_llm(
@@ -74,9 +77,7 @@ async def _classify_direction_llm(
     prompt = _build_direction_prompt(results_summary, outcome_name)
     schema = _DirectionLLMResponse.model_json_schema()
     try:
-        raw = await llm_client.complete(
-            prompt, model=model, temperature=temperature, json_schema=schema
-        )
+        raw = await llm_client.complete(prompt, model=model, temperature=temperature, json_schema=schema)
         parsed = _DirectionLLMResponse.model_validate_json(raw)
         return parsed.direction
     except Exception as exc:
@@ -87,6 +88,7 @@ async def _classify_direction_llm(
 # ---------------------------------------------------------------------------
 # Keyword fallback (kept for offline / LLM-unavailable runs)
 # ---------------------------------------------------------------------------
+
 
 def _keyword_direction(
     summary: str,
@@ -106,6 +108,7 @@ def _keyword_direction(
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
+
 
 async def build_narrative_synthesis(
     outcome_name: str,
@@ -128,9 +131,7 @@ async def build_narrative_synthesis(
         summary = (record.results_summary.get("summary") or "").strip()
 
         if use_llm:
-            direction = await _classify_direction_llm(
-                summary, outcome_name, llm_client, settings
-            )
+            direction = await _classify_direction_llm(summary, outcome_name, llm_client, settings)
         else:
             direction = _keyword_direction(summary)
 

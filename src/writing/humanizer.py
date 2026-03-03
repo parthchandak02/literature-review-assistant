@@ -75,6 +75,7 @@ async def humanize_async(
         latency_ms = int((time.monotonic() - t0) * 1000)
         if provider is not None:
             from src.llm.provider import LLMProvider as _LLMProvider
+
             cost = _LLMProvider.estimate_cost_usd(model, tok_in, tok_out, cw, cr)
             await provider.log_cost(
                 model=model,
@@ -91,7 +92,5 @@ async def humanize_async(
             refined = refined + " " + text[cut:].lstrip()
         return refined
     except Exception as exc:
-        logger.warning(
-            "Humanizer LLM call failed (%s); returning original text.", type(exc).__name__
-        )
+        logger.warning("Humanizer LLM call failed (%s); returning original text.", type(exc).__name__)
         return text

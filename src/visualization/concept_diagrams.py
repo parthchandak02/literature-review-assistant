@@ -43,6 +43,7 @@ _KROKI_TIMEOUT_S = 30
 # Internal: LLM helpers
 # ---------------------------------------------------------------------------
 
+
 def _extract_code_block(text: str, language: str) -> str:
     """Extract fenced code block content, falling back to raw text."""
     pattern = rf"```{language}\s*(.*?)```"
@@ -64,6 +65,7 @@ async def _llm_generate(prompt: str, model: str = _LLM_MODEL) -> str:
 # Internal: Graphviz renderer
 # ---------------------------------------------------------------------------
 
+
 def _render_dot_to_svg(dot_source: str, out_path: Path) -> Path:
     """Render a DOT string to SVG via the graphviz Python library."""
     import graphviz  # type: ignore[import-untyped]
@@ -78,6 +80,7 @@ def _render_dot_to_svg(dot_source: str, out_path: Path) -> Path:
 # ---------------------------------------------------------------------------
 # Internal: Kroki renderer (Mermaid -> SVG via REST API)
 # ---------------------------------------------------------------------------
+
 
 async def _render_mermaid_via_kroki(mermaid_source: str, out_path: Path) -> Path | None:
     """POST Mermaid source to Kroki and write the SVG response to out_path.
@@ -108,15 +111,14 @@ async def _render_mermaid_via_kroki(mermaid_source: str, out_path: Path) -> Path
 # Taxonomy tree renderer
 # ---------------------------------------------------------------------------
 
+
 def _build_taxonomy_dot_prompt(spec: TaxonomyDiagramInput) -> str:
     categories_text = []
     for cat in spec.categories:
         items_str = ", ".join(f'"{it}"' for it in cat.items) if cat.items else "(none)"
         sub_str = ""
         if cat.subcategories:
-            sub_str = " subcategories: " + ", ".join(
-                f'"{s.label}"' for s in cat.subcategories
-            )
+            sub_str = " subcategories: " + ", ".join(f'"{s.label}"' for s in cat.subcategories)
         categories_text.append(f'  - "{cat.label}": items=[{items_str}]{sub_str}')
 
     categories_block = "\n".join(categories_text)
@@ -148,9 +150,7 @@ def _build_taxonomy_dot_prompt(spec: TaxonomyDiagramInput) -> str:
     """).strip()
 
 
-async def render_taxonomy_diagram(
-    spec: TaxonomyDiagramInput, out_path: Path, model: str = _LLM_MODEL
-) -> Path | None:
+async def render_taxonomy_diagram(spec: TaxonomyDiagramInput, out_path: Path, model: str = _LLM_MODEL) -> Path | None:
     """Generate a taxonomy tree SVG via LLM -> DOT -> Graphviz."""
     prompt = _build_taxonomy_dot_prompt(spec)
     try:
@@ -160,9 +160,7 @@ async def render_taxonomy_diagram(
             logger.warning("LLM taxonomy DOT output does not look like DOT; skipping.")
             return None
         loop = asyncio.get_event_loop()
-        return await loop.run_in_executor(
-            None, _render_dot_to_svg, dot_source, out_path
-        )
+        return await loop.run_in_executor(None, _render_dot_to_svg, dot_source, out_path)
     except Exception as exc:  # noqa: BLE001
         logger.warning("Taxonomy diagram generation failed (%s); skipping.", exc)
         return None
@@ -172,14 +170,11 @@ async def render_taxonomy_diagram(
 # Conceptual framework renderer
 # ---------------------------------------------------------------------------
 
+
 def _build_framework_dot_prompt(spec: FrameworkDiagramInput) -> str:
     interventions = "\n".join(f"  - {i}" for i in spec.interventions)
     outcomes = "\n".join(f"  - {o}" for o in spec.outcomes)
-    themes = (
-        "\n".join(f"  - {t}" for t in spec.key_themes)
-        if spec.key_themes
-        else "  - (none identified)"
-    )
+    themes = "\n".join(f"  - {t}" for t in spec.key_themes) if spec.key_themes else "  - (none identified)"
     comparator_line = f"Comparator: {spec.comparator}" if spec.comparator else ""
 
     return textwrap.dedent(f"""
@@ -218,9 +213,7 @@ def _build_framework_dot_prompt(spec: FrameworkDiagramInput) -> str:
     """).strip()
 
 
-async def render_framework_diagram(
-    spec: FrameworkDiagramInput, out_path: Path, model: str = _LLM_MODEL
-) -> Path | None:
+async def render_framework_diagram(spec: FrameworkDiagramInput, out_path: Path, model: str = _LLM_MODEL) -> Path | None:
     """Generate a PICO conceptual framework SVG via LLM -> DOT -> Graphviz."""
     prompt = _build_framework_dot_prompt(spec)
     try:
@@ -230,9 +223,7 @@ async def render_framework_diagram(
             logger.warning("LLM framework DOT output does not look like DOT; skipping.")
             return None
         loop = asyncio.get_event_loop()
-        return await loop.run_in_executor(
-            None, _render_dot_to_svg, dot_source, out_path
-        )
+        return await loop.run_in_executor(None, _render_dot_to_svg, dot_source, out_path)
     except Exception as exc:  # noqa: BLE001
         logger.warning("Framework diagram generation failed (%s); skipping.", exc)
         return None
@@ -241,6 +232,7 @@ async def render_framework_diagram(
 # ---------------------------------------------------------------------------
 # Methodology flowchart renderer
 # ---------------------------------------------------------------------------
+
 
 def _build_flowchart_mermaid_prompt(spec: FlowchartDiagramInput) -> str:
     phases_text = []
@@ -273,9 +265,7 @@ def _build_flowchart_mermaid_prompt(spec: FlowchartDiagramInput) -> str:
     """).strip()
 
 
-async def render_flowchart_diagram(
-    spec: FlowchartDiagramInput, out_path: Path, model: str = _LLM_MODEL
-) -> Path | None:
+async def render_flowchart_diagram(spec: FlowchartDiagramInput, out_path: Path, model: str = _LLM_MODEL) -> Path | None:
     """Generate a methodology flowchart SVG via LLM -> Mermaid -> Kroki API."""
     prompt = _build_flowchart_mermaid_prompt(spec)
     try:
@@ -293,6 +283,7 @@ async def render_flowchart_diagram(
 # ---------------------------------------------------------------------------
 # Public API: render all concept diagrams
 # ---------------------------------------------------------------------------
+
 
 async def render_concept_diagrams(
     taxonomy_spec: TaxonomyDiagramInput | None,
@@ -319,24 +310,16 @@ async def render_concept_diagrams(
         return None
 
     taxonomy_coro = (
-        render_taxonomy_diagram(taxonomy_spec, taxonomy_path, model=model)
-        if taxonomy_spec is not None
-        else _noop()
+        render_taxonomy_diagram(taxonomy_spec, taxonomy_path, model=model) if taxonomy_spec is not None else _noop()
     )
     framework_coro = (
-        render_framework_diagram(framework_spec, framework_path, model=model)
-        if framework_spec is not None
-        else _noop()
+        render_framework_diagram(framework_spec, framework_path, model=model) if framework_spec is not None else _noop()
     )
     flowchart_coro = (
-        render_flowchart_diagram(flowchart_spec, flowchart_path, model=model)
-        if flowchart_spec is not None
-        else _noop()
+        render_flowchart_diagram(flowchart_spec, flowchart_path, model=model) if flowchart_spec is not None else _noop()
     )
 
-    raw = await asyncio.gather(
-        taxonomy_coro, framework_coro, flowchart_coro, return_exceptions=True
-    )
+    raw = await asyncio.gather(taxonomy_coro, framework_coro, flowchart_coro, return_exceptions=True)
 
     def _to_path(result: object) -> Path | None:
         if isinstance(result, BaseException):

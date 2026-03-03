@@ -126,7 +126,10 @@ async def calibrate_threshold(
         kappa = reliability.cohens_kappa
         logger.info(
             "calibrate_threshold iter=%d threshold=%.3f kappa=%.4f (target=%.2f)",
-            iteration, current, kappa, target_kappa,
+            iteration,
+            current,
+            kappa,
+            target_kappa,
         )
 
         if kappa > best_kappa:
@@ -151,8 +154,10 @@ async def calibrate_threshold(
     )
     logger.info(
         "calibrate_threshold: final include=%.3f exclude=%.3f kappa=%.4f after %d iter",
-        result.include_threshold, result.exclude_threshold,
-        result.achieved_kappa, result.iterations,
+        result.include_threshold,
+        result.exclude_threshold,
+        result.achieved_kappa,
+        result.iterations,
     )
     return result
 

@@ -45,13 +45,13 @@ class LLMProvider:
 
     # Maps pydantic-ai model-string prefix -> genai-prices provider_id.
     _PROVIDER_ID_MAP: dict[str, str] = {
-        "google-gla:":    "google",
+        "google-gla:": "google",
         "google-vertex:": "google",
-        "anthropic:":     "anthropic",
-        "openai:":        "openai",
-        "groq:":          "groq",
-        "mistral:":       "mistral",
-        "cohere:":        "cohere",
+        "anthropic:": "anthropic",
+        "openai:": "openai",
+        "groq:": "groq",
+        "mistral:": "mistral",
+        "cohere:": "cohere",
     }
 
     @classmethod
@@ -63,7 +63,7 @@ class LLMProvider:
         """
         for prefix, provider_id in cls._PROVIDER_ID_MAP.items():
             if model.startswith(prefix):
-                return model[len(prefix):], provider_id
+                return model[len(prefix) :], provider_id
         return model, None
 
     @classmethod

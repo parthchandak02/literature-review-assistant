@@ -92,10 +92,7 @@ def parse_masterlist_csv(csv_path: str, workflow_id: str) -> SearchResult:
     with path.open(encoding="utf-8-sig", newline="") as fh:
         reader = csv.DictReader(fh)
         if reader.fieldnames is None or _COL_TITLE not in reader.fieldnames:
-            raise ValueError(
-                f"CSV has no '{_COL_TITLE}' column. "
-                f"Found columns: {list(reader.fieldnames or [])}"
-            )
+            raise ValueError(f"CSV has no '{_COL_TITLE}' column. Found columns: {list(reader.fieldnames or [])}")
 
         for i, row in enumerate(reader, start=2):  # row 1 is header
             title = (row.get(_COL_TITLE) or "").strip()

@@ -166,11 +166,7 @@ class CitationChaser:
             title = str(citing.get("title") or "").strip()
             if not title:
                 continue
-            authors = [
-                str(a.get("name") or "")
-                for a in citing.get("authors") or []
-                if a.get("name")
-            ]
+            authors = [str(a.get("name") or "") for a in citing.get("authors") or [] if a.get("name")]
             year = citing.get("year")
             oa_pdf = (citing.get("openAccessPdf") or {}).get("url")
             candidate = CandidatePaper(
@@ -205,9 +201,7 @@ class CitationChaser:
         }
         try:
             timeout = aiohttp.ClientTimeout(total=self.timeout_seconds)
-            async with aiohttp.ClientSession(
-                timeout=timeout, connector=tcp_connector_with_certifi()
-            ) as session:
+            async with aiohttp.ClientSession(timeout=timeout, connector=tcp_connector_with_certifi()) as session:
                 async with session.get(_OA_CITES_URL, params=params) as response:
                     if response.status != 200:
                         return []

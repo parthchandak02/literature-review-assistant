@@ -13,7 +13,9 @@ from src.screening.reliability import (
 )
 
 
-def _result(paper_id: str, a: ScreeningDecisionType, b: ScreeningDecisionType, final: ScreeningDecisionType) -> DualScreeningResult:
+def _result(
+    paper_id: str, a: ScreeningDecisionType, b: ScreeningDecisionType, final: ScreeningDecisionType
+) -> DualScreeningResult:
     return DualScreeningResult(
         paper_id=paper_id,
         reviewer_a=ScreeningDecision(
@@ -50,7 +52,9 @@ def test_compute_cohens_kappa_and_report(tmp_path) -> None:
 
 @pytest.mark.asyncio
 async def test_log_reliability_to_decision_log(tmp_path) -> None:
-    results = [_result("p1", ScreeningDecisionType.INCLUDE, ScreeningDecisionType.EXCLUDE, ScreeningDecisionType.INCLUDE)]
+    results = [
+        _result("p1", ScreeningDecisionType.INCLUDE, ScreeningDecisionType.EXCLUDE, ScreeningDecisionType.INCLUDE)
+    ]
     reliability = compute_cohens_kappa(results, stage="title_abstract")
     async with get_db(str(tmp_path / "reliability.db")) as db:
         repo = WorkflowRepository(db)
@@ -66,6 +70,7 @@ async def test_log_reliability_to_decision_log(tmp_path) -> None:
 def test_calibrate_threshold_imported() -> None:
     """Smoke test: calibrate_threshold and CalibratedThresholds are importable."""
     from src.screening.reliability import CalibratedThresholds, calibrate_threshold  # noqa: F401
+
     assert callable(calibrate_threshold)
     ct = CalibratedThresholds(
         include_threshold=0.8,

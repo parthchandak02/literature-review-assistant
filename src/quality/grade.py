@@ -52,11 +52,7 @@ class GradeAssessor:
         dose_response_upgrade: int = 0,
         residual_confounding_upgrade: int = 0,
     ) -> GRADEOutcomeAssessment:
-        starting = (
-            GRADECertainty.HIGH
-            if study_design == StudyDesign.RCT
-            else GRADECertainty.LOW
-        )
+        starting = GRADECertainty.HIGH if study_design == StudyDesign.RCT else GRADECertainty.LOW
         score = _certainty_to_score(starting)
         score -= risk_of_bias_downgrade
         score -= inconsistency_downgrade
@@ -129,10 +125,7 @@ class GradeAssessor:
         rob_downgrade = min(rob_downgrade, 2)
 
         # -- Imprecision downgrade --
-        total_n = sum(
-            getattr(r, "participant_count", None) or 0
-            for r in extraction_records
-        )
+        total_n = sum(getattr(r, "participant_count", None) or 0 for r in extraction_records)
         imprecision_downgrade = 1 if total_n > 0 and total_n < 300 else 0
 
         n_studies = len(extraction_records)
@@ -167,9 +160,15 @@ _UPGRADE_LABEL: dict[int, str] = {
 }
 
 
-_PLACEHOLDER_OUTCOME_NAMES = frozenset({
-    "", "primary_outcome", "secondary_outcome", "not reported", "not_reported",
-})
+_PLACEHOLDER_OUTCOME_NAMES = frozenset(
+    {
+        "",
+        "primary_outcome",
+        "secondary_outcome",
+        "not reported",
+        "not_reported",
+    }
+)
 
 
 def _outcome_display_name(raw_name: str, placeholder_index: int) -> str:
@@ -252,9 +251,7 @@ def sof_table_to_markdown(table: GradeSoFTable) -> str:
     rows: list[str] = []
     for r in table.rows:
         certainty_str = (
-            r.certainty.value.upper().replace("_", " ")
-            if hasattr(r.certainty, "value")
-            else str(r.certainty).upper()
+            r.certainty.value.upper().replace("_", " ") if hasattr(r.certainty, "value") else str(r.certainty).upper()
         )
         effect = (r.effect_summary or "").replace("|", "/").replace("\n", " ")[:120]
         rows.append(

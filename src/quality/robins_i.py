@@ -62,31 +62,33 @@ def _worst(values: list[RobinsIJudgment]) -> RobinsIJudgment:
 def _build_robins_prompt(record: ExtractionRecord, full_text: str) -> str:
     results = record.results_summary.get("summary", "")[:2000]
     text_excerpt = full_text[:3000] if full_text.strip() else results
-    return "\n".join([
-        "You are an expert systematic review methodologist.",
-        "Assess Risk of Bias using ROBINS-I for the following non-randomized study.",
-        "",
-        f"Intervention: {record.intervention_description[:400]}",
-        f"Comparator: {record.comparator_description or 'not reported'}",
-        f"Setting: {record.setting or 'not reported'}",
-        f"Participants: {record.participant_count or 'not reported'}",
-        f"Results summary: {results}",
-        "",
-        "Text excerpt:",
-        text_excerpt,
-        "",
-        "ROBINS-I Domains - assign 'low', 'moderate', 'serious', 'critical', or 'no_information':",
-        "D1 - Confounding: Were confounders controlled? Are there major unmeasured confounders?",
-        "D2 - Selection of participants: Is the selected sample representative?",
-        "D3 - Classification of interventions: Were interventions classified consistently?",
-        "D4 - Deviations from intended interventions: Were there protocol deviations?",
-        "D5 - Missing data: Are there missing outcome or exposure data?",
-        "D6 - Measurement of outcomes: Was the outcome measured without knowledge of intervention?",
-        "D7 - Selection of the reported result: Was there selective reporting of outcomes?",
-        "Overall: apply worst-domain logic.",
-        "",
-        "Return ONLY valid JSON matching the schema. Provide a 1-2 sentence rationale per domain.",
-    ])
+    return "\n".join(
+        [
+            "You are an expert systematic review methodologist.",
+            "Assess Risk of Bias using ROBINS-I for the following non-randomized study.",
+            "",
+            f"Intervention: {record.intervention_description[:400]}",
+            f"Comparator: {record.comparator_description or 'not reported'}",
+            f"Setting: {record.setting or 'not reported'}",
+            f"Participants: {record.participant_count or 'not reported'}",
+            f"Results summary: {results}",
+            "",
+            "Text excerpt:",
+            text_excerpt,
+            "",
+            "ROBINS-I Domains - assign 'low', 'moderate', 'serious', 'critical', or 'no_information':",
+            "D1 - Confounding: Were confounders controlled? Are there major unmeasured confounders?",
+            "D2 - Selection of participants: Is the selected sample representative?",
+            "D3 - Classification of interventions: Were interventions classified consistently?",
+            "D4 - Deviations from intended interventions: Were there protocol deviations?",
+            "D5 - Missing data: Are there missing outcome or exposure data?",
+            "D6 - Measurement of outcomes: Was the outcome measured without knowledge of intervention?",
+            "D7 - Selection of the reported result: Was there selective reporting of outcomes?",
+            "Overall: apply worst-domain logic.",
+            "",
+            "Return ONLY valid JSON matching the schema. Provide a 1-2 sentence rationale per domain.",
+        ]
+    )
 
 
 class RobinsIAssessor:
@@ -145,7 +147,16 @@ class RobinsIAssessor:
                     )
                     latency_ms = int((time.monotonic() - t0) * 1000)
                     cost = self.provider.estimate_cost_usd(model, tok_in, tok_out, cw, cr)
-                    await self.provider.log_cost(model, tok_in, tok_out, cost, latency_ms, phase="quality_robins_i", cache_read_tokens=cr, cache_write_tokens=cw)
+                    await self.provider.log_cost(
+                        model,
+                        tok_in,
+                        tok_out,
+                        cost,
+                        latency_ms,
+                        phase="quality_robins_i",
+                        cache_read_tokens=cr,
+                        cache_write_tokens=cw,
+                    )
                 else:
                     raw = await self.llm_client.complete(
                         prompt, model=model, temperature=temperature, json_schema=schema

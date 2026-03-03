@@ -10,6 +10,7 @@ zero new package dependencies.
 Design: listwise reranking (single call, all chunks ranked together) is more
 accurate than pointwise (per-chunk scores) and cheaper than pairwise.
 """
+
 from __future__ import annotations
 
 import json
@@ -80,10 +81,7 @@ async def rerank_chunks(
         return chunks[:top_k]
 
     # Truncate each chunk to 400 chars so the prompt stays within token budget.
-    chunk_lines = "\n".join(
-        f"[{i}] {c.content[:400].replace(chr(10), ' ')}"
-        for i, c in enumerate(chunks)
-    )
+    chunk_lines = "\n".join(f"[{i}] {c.content[:400].replace(chr(10), ' ')}" for i, c in enumerate(chunks))
     prompt = _RERANK_PROMPT.format(
         query=query[:500],
         n=len(chunks),
@@ -93,9 +91,7 @@ async def rerank_chunks(
     t0 = time.monotonic()
     try:
         agent: Agent[None, str] = Agent(model, output_type=str)
-        result = await _run_with_retry(
-            agent, prompt, model_settings=ModelSettings(temperature=0.0)
-        )
+        result = await _run_with_retry(agent, prompt, model_settings=ModelSettings(temperature=0.0))
         raw = result.output.strip()
 
         # Extract JSON array from the response (handle prose wrapping).

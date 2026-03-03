@@ -53,9 +53,7 @@ def _generate_paragraph_sync(flags: list[ContradictionFlag], model_name: str, ap
         return _fallback_paragraph(flags)
 
     genai.configure(api_key=api_key)
-    prompt = _RESOLVER_PROMPT_TEMPLATE.format(
-        contradiction_list=_format_contradiction_list(flags)
-    )
+    prompt = _RESOLVER_PROMPT_TEMPLATE.format(contradiction_list=_format_contradiction_list(flags))
 
     try:
         model = genai.GenerativeModel(model_name)
@@ -98,10 +96,9 @@ async def generate_contradiction_paragraph(
     raw_model = model_name.replace("google-gla:", "").replace("google-vertex:", "")
 
     import asyncio
+
     loop = asyncio.get_event_loop()
-    return await loop.run_in_executor(
-        None, _generate_paragraph_sync, flags, raw_model, key
-    )
+    return await loop.run_in_executor(None, _generate_paragraph_sync, flags, raw_model, key)
 
 
 def build_conflicting_evidence_section(flags: list[ContradictionFlag]) -> str:
@@ -131,8 +128,7 @@ def build_conflicting_evidence_section(flags: list[ContradictionFlag]) -> str:
             f"- **{flag.outcome_name}**: "
             f"Study `{flag.paper_id_a[:12]}` reported a *{flag.direction_a}* direction, "
             f"while Study `{flag.paper_id_b[:12]}` reported a *{flag.direction_b}* direction "
-            f"(outcome similarity: {flag.similarity:.2f})."
-            + (f" Note: {flag.note}" if flag.note else "")
+            f"(outcome similarity: {flag.similarity:.2f})." + (f" Note: {flag.note}" if flag.note else "")
         )
 
     lines.append("")

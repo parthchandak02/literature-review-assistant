@@ -20,7 +20,9 @@ def _make_paper(paper_id: str) -> CandidatePaper:
     )
 
 
-def _make_result(paper_id: str, decision_a: ScreeningDecisionType, decision_b: ScreeningDecisionType) -> DualScreeningResult:
+def _make_result(
+    paper_id: str, decision_a: ScreeningDecisionType, decision_b: ScreeningDecisionType
+) -> DualScreeningResult:
     return DualScreeningResult(
         paper_id=paper_id,
         reviewer_a=ScreeningDecision(

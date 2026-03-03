@@ -332,6 +332,13 @@ uv run pytest tests/unit -q
 uv run pytest tests/integration -q
 ```
 
+**Lint and fix:**
+
+```bash
+uv run ruff check . --fix && uv run ruff format .
+cd frontend && pnpm fix && pnpm typecheck
+```
+
 **Project layout:**
 
 | Directory | What's in it |
