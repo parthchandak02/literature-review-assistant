@@ -30,7 +30,7 @@ function fmtTs(ts: string | null | undefined): string {
 // Event -> log line conversion
 // ---------------------------------------------------------------------------
 
-function eventToLogLine(ev: ReviewEvent): { text: string; level: "info" | "warn" | "error" | "dim" } {
+export function eventToLogLine(ev: ReviewEvent): { text: string; level: "info" | "warn" | "error" | "dim" } {
   switch (ev.type) {
     case "phase_start":
       return {
@@ -51,11 +51,14 @@ function eventToLogLine(ev: ReviewEvent): { text: string; level: "info" | "warn"
         text: `[${fmtTs(ev.ts)}] SEARCH ${ev.status === "success" ? "OK     " : "FAIL   "} ${ev.name}: ${ev.status === "success" ? ev.records + " records" : (ev.error ?? "unknown error")}`,
         level: ev.status === "success" ? "dim" : "warn",
       }
-    case "screening_decision":
+    case "screening_decision": {
+      const conf = (ev as { confidence?: number }).confidence
+      const confStr = conf != null ? ` (${conf.toFixed(2)})` : ""
       return {
-        text: `[${fmtTs(ev.ts)}] SCREEN ${String(ev.decision).toUpperCase().padEnd(7)} ${ev.stage} | ${ev.paper_id?.slice(0, 16) ?? ""}`,
+        text: `[${fmtTs(ev.ts)}] SCREEN ${String(ev.decision).toUpperCase().padEnd(7)} ${ev.stage} | ${ev.paper_id?.slice(0, 16) ?? ""}${confStr}`,
         level: ev.decision === "include" ? "info" : "dim",
       }
+    }
     case "extraction_paper":
       return {
         text: `[${fmtTs(ev.ts)}] EXTRACT        ${ev.paper_id?.slice(0, 16) ?? ""} design=${ev.design} rob=${ev.rob_judgment}`,

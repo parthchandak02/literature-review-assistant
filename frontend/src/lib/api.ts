@@ -37,7 +37,7 @@ export type ReviewEvent =
   | { type: "progress"; phase: string; current: number; total: number; ts: string }
   | { type: "api_call"; source: string; status: string; phase: string; call_type: string; model: string | null; paper_id: string | null; latency_ms: number | null; tokens_in: number | null; tokens_out: number | null; cost_usd: number | null; records: number | null; details: string | null; section_name: string | null; word_count: number | null; ts: string }
   | { type: "connector_result"; name: string; status: string; records: number; error: string | null; ts: string }
-  | { type: "screening_decision"; paper_id: string; stage: string; decision: string; ts: string }
+  | { type: "screening_decision"; paper_id: string; stage: string; decision: string; confidence?: number; ts: string }
   | { type: "extraction_paper"; paper_id: string; design: string; rob_judgment: string; ts: string }
   | { type: "synthesis"; feasible: boolean; groups: number; n_studies: number; direction: string; ts: string }
   | { type: "rate_limit_wait"; tier: string; slots_used: number; limit: number; ts: string }
@@ -677,7 +677,10 @@ export async function attachHistory(entry: HistoryEntry): Promise<RunResponse> {
   return res.json() as Promise<RunResponse>
 }
 
-export async function resumeRun(entry: HistoryEntry): Promise<RunResponse> {
+export async function resumeRun(
+  entry: HistoryEntry,
+  fromPhase?: string | null,
+): Promise<RunResponse> {
   const res = await fetch(`${BASE}/history/resume`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -685,6 +688,7 @@ export async function resumeRun(entry: HistoryEntry): Promise<RunResponse> {
       workflow_id: entry.workflow_id,
       db_path: entry.db_path,
       topic: entry.topic,
+      ...(fromPhase != null && fromPhase !== "" && { from_phase: fromPhase }),
     }),
   })
   if (!res.ok) {
@@ -692,4 +696,15 @@ export async function resumeRun(entry: HistoryEntry): Promise<RunResponse> {
     throw new Error(`Failed to resume run: ${text}`)
   }
   return res.json() as Promise<RunResponse>
+}
+
+export async function deleteRun(workflowId: string, runRoot = "runs"): Promise<void> {
+  const params = new URLSearchParams({ run_root: runRoot })
+  const res = await fetch(`${BASE}/history/${workflowId}?${params}`, {
+    method: "DELETE",
+  })
+  if (!res.ok) {
+    const text = await res.text()
+    throw new Error(`Failed to delete run: ${text}`)
+  }
 }

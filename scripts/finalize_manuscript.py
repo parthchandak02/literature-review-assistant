@@ -32,6 +32,8 @@ import asyncio
 import pathlib
 import re
 import sys
+from types import SimpleNamespace
+import yaml
 
 sys.path.insert(0, str(pathlib.Path(__file__).parent.parent))
 
@@ -148,6 +150,7 @@ async def main(run_dir: str) -> int:
         extraction_records = []
         grade_assessments = []
 
+        robins_i_assessments = []
         if workflow_id:
             extraction_records = await repo.load_extraction_records(workflow_id)
             included_ids = {r.paper_id for r in extraction_records}
@@ -156,6 +159,9 @@ async def main(run_dir: str) -> int:
             papers = await repo.load_papers_by_ids(included_ids)
 
             grade_assessments = await repo.load_grade_assessments(workflow_id)
+            _rob2_rows, robins_i_assessments = await repo.load_rob_assessments(
+                workflow_id
+            )
 
     # Quality gate: exclude extraction records with only placeholder data
     clean_records = [r for r in extraction_records if not is_extraction_failed(r)]
@@ -175,6 +181,27 @@ async def main(run_dir: str) -> int:
         )
 
     _search_appendix_path = run_path / "doc_search_strategies_appendix.md"
+    research_question = ""
+    review_config = None
+    review_yaml_path = run_path / "review.yaml"
+    if review_yaml_path.exists():
+        try:
+            config_data = yaml.safe_load(review_yaml_path.read_text(encoding="utf-8")) or {}
+            research_question = config_data.get("research_question", "") or ""
+            pico_data = config_data.get("pico") or {}
+            review_config = SimpleNamespace(
+                pico=SimpleNamespace(
+                    population=pico_data.get("population", ""),
+                    intervention=pico_data.get("intervention", ""),
+                    comparison=pico_data.get("comparison", ""),
+                    outcome=pico_data.get("outcome", ""),
+                ),
+                inclusion_criteria=config_data.get("inclusion_criteria", []),
+                exclusion_criteria=config_data.get("exclusion_criteria", []),
+            )
+        except Exception:
+            pass
+
     full_manuscript = assemble_submission_manuscript(
         body=body,
         manuscript_path=manuscript_path,
@@ -183,8 +210,12 @@ async def main(run_dir: str) -> int:
         papers=clean_papers,
         extraction_records=clean_records,
         grade_assessments=grade_assessments if grade_assessments else None,
+        robins_i_assessments=robins_i_assessments if robins_i_assessments else None,
+        review_config=review_config,
         failed_count=failed_count,
         search_appendix_path=_search_appendix_path if _search_appendix_path.exists() else None,
+        research_question=research_question,
+        title=None,
     )
 
     # Strip any surviving unresolved [AuthorYear] citekeys (hallucinated or ledger gaps)
@@ -200,13 +231,6 @@ if __name__ == "__main__":
         description="Regenerate appended sections in an existing doc_manuscript.md"
     )
     parser.add_argument(
-        "--run-dir",
-        required=True,
-        help="Path to the run directory containing doc_manuscript.md and runtime.db",
-    )
-    args = parser.parse_args()
-    sys.exit(asyncio.run(main(args.run_dir)))
-arser.add_argument(
         "--run-dir",
         required=True,
         help="Path to the run directory containing doc_manuscript.md and runtime.db",

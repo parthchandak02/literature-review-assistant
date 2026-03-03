@@ -5,13 +5,15 @@ import {
   Circle,
   Loader,
   Loader2,
+  Search,
   XCircle,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
-import { LogStream } from "@/components/LogStream"
+import { Input } from "@/components/ui/input"
+import { LogStream, eventToLogLine } from "@/components/LogStream"
 import { FetchError } from "@/components/ui/feedback"
 import { Skeleton } from "@/components/ui/skeleton"
-import { fetchRunEvents } from "@/lib/api"
+import { fetchRunEvents, fetchWorkflowEvents } from "@/lib/api"
 import { PHASE_ORDER, PHASE_LABELS } from "@/lib/constants"
 import type { ReviewEvent } from "@/lib/api"
 import { cn } from "@/lib/utils"
@@ -29,7 +31,7 @@ interface PhaseState {
   doneTss?: string
 }
 
-function buildPhaseStates(events: ReviewEvent[]): Record<string, PhaseState> {
+function buildPhaseStates(events: ReviewEvent[], isRunComplete: boolean): Record<string, PhaseState> {
   const states: Record<string, PhaseState> = {}
   for (const ev of events) {
     if (ev.type === "phase_start") {
@@ -51,6 +53,27 @@ function buildPhaseStates(events: ReviewEvent[]): Record<string, PhaseState> {
       states[ev.phase] = {
         ...states[ev.phase],
         progress: { current: ev.current, total: ev.total },
+      }
+    }
+  }
+  // When the run is complete, any phase with phase_start but no phase_done must have
+  // completed (we can't reach finalize otherwise). Infer "done" to fix event log
+  // truncation, lost phase_done, or prefetch races.
+  if (isRunComplete) {
+    const hasTerminal =
+      events.some(
+        (e) => e.type === "done" || e.type === "error" || e.type === "cancelled",
+      ) || Boolean(states.finalize?.status === "done")
+    if (hasTerminal) {
+      for (const phase of PHASE_ORDER) {
+        const s = states[phase]
+        if (s?.status === "running") {
+          states[phase] = {
+            ...s,
+            status: "done",
+            doneTss: s.doneTss ?? s.startedTs,
+          }
+        }
       }
     }
   }
@@ -157,7 +180,7 @@ function PhaseRow({ phase, state, isLast }: PhaseRowProps) {
 // Event log filter
 // ---------------------------------------------------------------------------
 
-type EventFilter = "all" | "phases" | "llm" | "search" | "screening"
+type EventFilter = "all" | "phases" | "llm" | "search" | "screening" | "extraction" | "errors"
 
 const FILTERS: { id: EventFilter; label: string }[] = [
   { id: "all", label: "All" },
@@ -165,6 +188,8 @@ const FILTERS: { id: EventFilter; label: string }[] = [
   { id: "llm", label: "LLM Calls" },
   { id: "search", label: "Search" },
   { id: "screening", label: "Screening" },
+  { id: "extraction", label: "Extraction" },
+  { id: "errors", label: "Errors" },
 ]
 
 function filterEvents(events: ReviewEvent[], filter: EventFilter): ReviewEvent[] {
@@ -174,6 +199,13 @@ function filterEvents(events: ReviewEvent[], filter: EventFilter): ReviewEvent[]
   if (filter === "llm") return events.filter((e) => e.type === "api_call")
   if (filter === "search") return events.filter((e) => e.type === "connector_result")
   if (filter === "screening") return events.filter((e) => e.type === "screening_decision")
+  if (filter === "extraction") return events.filter((e) => e.type === "extraction_paper")
+  if (filter === "errors")
+    return events.filter(
+      (e) =>
+        e.type === "error" ||
+        (e.type === "connector_result" && (e as { status?: string }).status !== "success"),
+    )
   return events
 }
 
@@ -185,6 +217,8 @@ export interface ActivityViewProps {
   events: ReviewEvent[]
   status: string
   runId: string
+  /** workflow_id for fetchWorkflowEvents fallback when fetchRunEvents 404s (e.g. after refresh). */
+  workflowId?: string | null
   isDone: boolean
   onCancel: () => void
 }
@@ -193,6 +227,7 @@ export function ActivityView({
   events,
   status,
   runId,
+  workflowId,
   isDone,
   onCancel,
 }: ActivityViewProps) {
@@ -203,24 +238,31 @@ export function ActivityView({
 
   const isHistoricalMode = isDone && events.length === 0 && Boolean(runId)
 
-  const loadHistoricalEvents = useCallback(async (id: string) => {
-    setLoadingHistory(true)
-    setFetchError(null)
-    try {
-      const evs = await fetchRunEvents(id)
-      setHistoricalEvents(evs)
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e)
-      setFetchError(
-        msg.toLowerCase().includes("failed to fetch")
-          ? "Cannot reach backend. Start the server and try again."
-          : msg,
-      )
-      setHistoricalEvents([])
-    } finally {
-      setLoadingHistory(false)
-    }
-  }, [])
+  const loadHistoricalEvents = useCallback(
+    async (id: string, wfId: string | null | undefined) => {
+      setLoadingHistory(true)
+      setFetchError(null)
+      try {
+        let evs = await fetchRunEvents(id)
+        // Fallback: when attach is gone (e.g. after refresh), fetch by workflow_id
+        if (evs.length === 0 && wfId && wfId !== id) {
+          evs = await fetchWorkflowEvents(wfId)
+        }
+        setHistoricalEvents(evs)
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e)
+        setFetchError(
+          msg.toLowerCase().includes("failed to fetch")
+            ? "Cannot reach backend. Start the server and try again."
+            : msg,
+        )
+        setHistoricalEvents([])
+      } finally {
+        setLoadingHistory(false)
+      }
+    },
+    [],
+  )
 
   useEffect(() => {
     if (!isHistoricalMode || !runId) {
@@ -228,13 +270,24 @@ export function ActivityView({
       setFetchError(null)
       return
     }
-    void loadHistoricalEvents(runId)
-  }, [isHistoricalMode, runId, loadHistoricalEvents])
+    void loadHistoricalEvents(runId, workflowId)
+  }, [isHistoricalMode, runId, workflowId, loadHistoricalEvents])
 
+  const [searchQuery, setSearchQuery] = useState("")
   const activeEvents = isHistoricalMode ? historicalEvents : events
-  const phaseStates = useMemo(() => buildPhaseStates(activeEvents), [activeEvents])
+  const phaseStates = useMemo(
+    () => buildPhaseStates(activeEvents, isDone),
+    [activeEvents, isDone],
+  )
   const isRunning = status === "streaming" || status === "connecting"
-  const filtered = filterEvents(activeEvents, activeFilter)
+  const categoryFiltered = filterEvents(activeEvents, activeFilter)
+  const filtered = useMemo(() => {
+    if (!searchQuery.trim()) return categoryFiltered
+    const q = searchQuery.trim().toLowerCase()
+    return categoryFiltered.filter((ev) =>
+      eventToLogLine(ev).text.toLowerCase().includes(q),
+    )
+  }, [categoryFiltered, searchQuery])
 
   return (
     <div className="flex flex-col gap-5">
@@ -311,6 +364,18 @@ export function ActivityView({
           />
         )}
 
+        {/* Free-text search */}
+        <div className="relative">
+          <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-zinc-500" />
+          <Input
+            type="text"
+            placeholder="Search log..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="pl-8 h-8 text-sm bg-zinc-900 border-zinc-800"
+          />
+        </div>
+
         {/* Filter chips */}
         <div className="flex items-center gap-2 flex-wrap">
           <div
@@ -341,6 +406,8 @@ export function ActivityView({
                 <Loader2 className="h-3 w-3 animate-spin" />
                 Loading event log...
               </span>
+            ) : searchQuery.trim() ? (
+              `${filtered.length} of ${categoryFiltered.length} events`
             ) : activeFilter === "all" ? (
               `${filtered.length} events${isHistoricalMode ? " (historical)" : ""}`
             ) : (

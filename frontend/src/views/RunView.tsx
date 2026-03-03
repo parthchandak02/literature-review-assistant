@@ -1,5 +1,5 @@
 import { Suspense, lazy, useState } from "react"
-import { Activity, BarChart3, Database, FileText, ClipboardCheck, RefreshCw } from "lucide-react"
+import { Activity, BarChart3, ChevronRight, Database, FileText, FileCode2, ClipboardCheck, RefreshCw } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { formatRunDate, formatWorkflowId } from "@/lib/format"
 import { Spinner } from "@/components/ui/feedback"
@@ -15,6 +15,9 @@ const DatabaseView = lazy(() =>
 const ResultsView = lazy(() =>
   import("@/views/ResultsView").then((m) => ({ default: m.ResultsView })),
 )
+const ConfigView = lazy(() =>
+  import("@/views/ConfigView").then((m) => ({ default: m.ConfigView })),
+)
 const ScreeningReviewView = lazy(() =>
   import("@/views/ScreeningReviewView").then((m) => ({ default: m.ScreeningReviewView })),
 )
@@ -23,7 +26,7 @@ const ScreeningReviewView = lazy(() =>
 // Types
 // ---------------------------------------------------------------------------
 
-export type RunTab = "activity" | "results" | "database" | "cost" | "review-screening"
+export type RunTab = "activity" | "results" | "database" | "cost" | "config" | "review-screening"
 
 /** A run that is currently being viewed (live or historical). */
 export interface SelectedRun {
@@ -44,11 +47,13 @@ export interface SelectedRun {
   historicalStatus?: string | null
 }
 
-const TAB_ITEMS: { id: RunTab; label: string; icon: React.ElementType }[] = [
-  { id: "activity", label: "Activity", icon: Activity },
-  { id: "results", label: "Results", icon: FileText },
-  { id: "database", label: "Data", icon: Database },
-  { id: "cost", label: "Cost", icon: BarChart3 },
+/** Tab order follows the review workflow: Config (YAML) -> Activity -> Data -> Cost -> Results */
+const TAB_ITEMS: { id: RunTab; label: string; icon: React.ElementType; step: number }[] = [
+  { id: "config", label: "Config", icon: FileCode2, step: 1 },
+  { id: "activity", label: "Activity", icon: Activity, step: 2 },
+  { id: "database", label: "Data", icon: Database, step: 3 },
+  { id: "cost", label: "Cost", icon: BarChart3, step: 4 },
+  { id: "results", label: "Results", icon: FileText, step: 5 },
 ]
 
 function ViewLoader() {
@@ -117,6 +122,7 @@ export function RunView({
   onLivingRefresh,
 }: RunViewProps) {
   const [refreshing, setRefreshing] = useState(false)
+  const [wfIdCopied, setWfIdCopied] = useState(false)
   const isDone = run.isDone || status === "done"
   const isRunning = status === "streaming" || status === "connecting"
   // A live run is awaiting human review when a phase_start("human_review_checkpoint")
@@ -188,7 +194,7 @@ export function RunView({
   return (
     <div className="flex flex-col gap-0 h-full">
       {/* Run info strip */}
-      <div className="flex items-center gap-2 px-6 py-2 border-b border-zinc-800/60 bg-zinc-900/30 shrink-0 overflow-x-auto scrollbar-none text-[11px] font-mono">
+      <div className="flex items-center gap-2 px-6 py-2 border-b border-zinc-800/60 bg-zinc-900/30 shrink-0 overflow-x-auto scrollbar-none text-meta">
         <span className={cn("font-semibold shrink-0", statusClass)}>
           {statusLabel}
         </span>
@@ -201,13 +207,19 @@ export function RunView({
         {displayPapersFound != null && displayPapersFound > 0 && (
           <>
             <InfoPill dim>|</InfoPill>
-            <InfoPill>{displayPapersFound.toLocaleString()} found</InfoPill>
+            <InfoPill>
+              <span className="text-blue-400">{displayPapersFound.toLocaleString()}</span>
+              <span> found</span>
+            </InfoPill>
           </>
         )}
         {displayIncluded != null && displayIncluded > 0 && (
           <>
             <InfoPill dim>|</InfoPill>
-            <InfoPill>{displayIncluded.toLocaleString()} included</InfoPill>
+            <InfoPill>
+              <span className="text-emerald-400">{displayIncluded.toLocaleString()}</span>
+              <span> included</span>
+            </InfoPill>
           </>
         )}
         {displayCost != null && displayCost > 0 && (
@@ -216,7 +228,7 @@ export function RunView({
             <InfoPill>
               <button
                 onClick={() => onTabChange("cost")}
-                className="hover:text-violet-400 transition-colors"
+                className="text-amber-400 hover:text-amber-300 transition-colors"
               >
                 ${displayCost.toFixed(3)}
               </button>
@@ -226,7 +238,23 @@ export function RunView({
         {(run.workflowId ?? run.runId) && (
           <>
             <InfoPill dim>|</InfoPill>
-            <InfoPill dim>{formatWorkflowId(run.workflowId ?? run.runId)}</InfoPill>
+            <InfoPill dim>
+              <button
+                type="button"
+                onClick={async () => {
+                  const id = run.workflowId ?? run.runId
+                  if (id) {
+                    await navigator.clipboard.writeText(id)
+                    setWfIdCopied(true)
+                    setTimeout(() => setWfIdCopied(false), 1500)
+                  }
+                }}
+                className="hover:text-zinc-400 transition-colors cursor-pointer"
+                title="Copy workflow ID"
+              >
+                {wfIdCopied ? "Copied!" : formatWorkflowId(run.workflowId ?? run.runId)}
+              </button>
+            </InfoPill>
           </>
         )}
         {/* Living review refresh button -- only shown for completed runs */}
@@ -246,37 +274,54 @@ export function RunView({
         )}
       </div>
 
-      {/* Tab bar */}
-      <div className="flex items-center gap-1 px-6 pt-4 pb-0 border-b border-zinc-800 shrink-0">
-        {TAB_ITEMS.map((tab) => (
-          <button
-            key={tab.id}
-            onClick={() => onTabChange(tab.id)}
-            className={cn(
-              "flex items-center gap-1.5 px-4 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors",
-              activeTab === tab.id
-                ? "border-violet-500 text-white"
-                : "border-transparent text-zinc-500 hover:text-zinc-300",
+      {/* Tab bar -- workflow order: Config -> Activity -> Data -> Cost -> Results */}
+      <div className="flex items-center gap-0 px-6 pt-4 pb-0 border-b border-zinc-800 shrink-0">
+        {TAB_ITEMS.map((tab, idx) => (
+          <div key={tab.id} className="flex items-center">
+            {idx > 0 && (
+              <ChevronRight
+                className={cn(
+                  "h-3.5 w-3.5 mx-0.5 shrink-0",
+                  activeTab === tab.id ? "text-violet-500" : "text-zinc-600",
+                )}
+                aria-hidden
+              />
             )}
-          >
-            <tab.icon className="h-3.5 w-3.5" />
-            {tab.label}
-          </button>
+            <button
+              onClick={() => onTabChange(tab.id)}
+              className={cn(
+                "flex items-center gap-1.5 px-3 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors",
+                activeTab === tab.id
+                  ? "border-violet-500 text-white"
+                  : "border-transparent text-zinc-500 hover:text-zinc-300",
+              )}
+              title={`Step ${tab.step}: ${tab.label}`}
+            >
+              <span className="text-[10px] font-mono tabular-nums text-zinc-600 w-3.5 shrink-0">
+                {tab.step}
+              </span>
+              <tab.icon className="h-3.5 w-3.5" />
+              {tab.label}
+            </button>
+          </div>
         ))}
-        {/* Show "Review Screening" tab when run is awaiting human review (live or historical) */}
+        {/* Review Screening: conditional HITL step, shown when awaiting human approval */}
         {isAwaitingReview && (
-          <button
-            onClick={() => onTabChange("review-screening")}
-            className={cn(
-              "flex items-center gap-1.5 px-4 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors",
-              activeTab === "review-screening"
-                ? "border-amber-500 text-amber-400"
-                : "border-amber-700 text-amber-600 hover:text-amber-400",
-            )}
-          >
-            <ClipboardCheck className="h-3.5 w-3.5" />
-            Review Screening
-          </button>
+          <>
+            <span className="text-zinc-600 mx-2" aria-hidden>|</span>
+            <button
+              onClick={() => onTabChange("review-screening")}
+              className={cn(
+                "flex items-center gap-1.5 px-3 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors",
+                activeTab === "review-screening"
+                  ? "border-amber-500 text-amber-400"
+                  : "border-amber-700 text-amber-600 hover:text-amber-400",
+              )}
+            >
+              <ClipboardCheck className="h-3.5 w-3.5" />
+              Review Screening
+            </button>
+          </>
         )}
       </div>
 
@@ -288,6 +333,7 @@ export function RunView({
               events={events}
               status={status}
               runId={run.runId}
+              workflowId={run.workflowId}
               isDone={isDone}
               onCancel={onCancel}
             />
@@ -315,6 +361,14 @@ export function RunView({
             <CostView
               costStats={costStats}
               dbRunId={run.runId}
+            />
+          )}
+
+          {activeTab === "config" && (
+            <ConfigView
+              workflowId={run.workflowId ?? run.runId}
+              topic={run.topic}
+              createdAt={run.createdAt}
             />
           )}
 

@@ -26,17 +26,43 @@ function friendlyError(err: unknown): string {
   return msg
 }
 
+function eventKey(ev: ReviewEvent, i: number): string {
+  const ts = "ts" in ev ? (ev as { ts?: string }).ts ?? "" : ""
+  const base = `${ev.type}|${ts}`
+  switch (ev.type) {
+    case "phase_start":
+    case "phase_done":
+      return `${base}|${(ev as { phase?: string }).phase ?? ""}`
+    case "screening_decision":
+      return `${base}|${(ev as { paper_id?: string }).paper_id ?? ""}|${(ev as { stage?: string }).stage ?? ""}`
+    case "progress":
+      return `${base}|${(ev as { phase?: string }).phase ?? ""}|${(ev as { current?: number }).current ?? ""}|${(ev as { total?: number }).total ?? ""}`
+    case "connector_result":
+      return `${base}|${(ev as { name?: string }).name ?? ""}`
+    case "db_ready":
+      return base
+    case "extraction_paper":
+      return `${base}|${(ev as { paper_id?: string }).paper_id ?? ""}`
+    case "synthesis":
+      return `${base}|${(ev as { feasible?: boolean }).feasible ?? ""}|${(ev as { n_studies?: number }).n_studies ?? ""}`
+    case "api_call":
+      return `${base}|${(ev as { paper_id?: string }).paper_id ?? ""}|${(ev as { section_name?: string }).section_name ?? ""}|${i}`
+    default:
+      return `${base}|${i}`
+  }
+}
+
 /**
- * Deduplicate an event list by (type, ts, index). Events without ts use
- * the positional index so they are never incorrectly dropped.
+ * Deduplicate an event list by content-based keys. Events with identical
+ * content (phase, paper_id, etc.) are collapsed to handle prefetch + SSE
+ * overlap and effect re-runs.
  */
 function dedup(events: ReviewEvent[]): ReviewEvent[] {
   const seen = new Set<string>()
   const out: ReviewEvent[] = []
   for (let i = 0; i < events.length; i++) {
     const ev = events[i]
-    const ts = "ts" in ev ? (ev as { ts?: string }).ts ?? "" : ""
-    const key = `${ev.type}|${ts}|${i}`
+    const key = eventKey(ev, i)
     if (!seen.has(key)) {
       seen.add(key)
       out.push(ev)

@@ -416,14 +416,16 @@ class RunContext:
         stage: str,
         decision: str,
         reason: str | None = None,
+        confidence: float | None = None,
     ) -> None:
         """Log a screening decision when verbose."""
         structured_log.log_screening_decision(paper_id=paper_id, stage=stage, decision=decision, rationale=reason)
         if not self.verbose:
             return
         reason_snippet = (reason or "")[:60]
+        conf_str = f" ({confidence:.2f})" if confidence is not None else ""
         self.console.print(
-            f"  [dim]{paper_id[:12]}...[/] {stage} -> [bold]{decision}[/] {reason_snippet}"
+            f"  [dim]{paper_id[:12]}...[/] {stage} -> [bold]{decision}[/]{conf_str} {reason_snippet}"
         )
 
     def advance_screening(self, phase_name: str, current: int, total: int) -> None:
@@ -503,7 +505,10 @@ class WebRunContext:
 
     def _emit(self, event: dict[str, Any]) -> None:
         import datetime
-        event.setdefault("ts", datetime.datetime.utcnow().isoformat() + "Z")
+        event.setdefault(
+            "ts",
+            datetime.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z",
+        )
         if self.on_event is not None:
             try:
                 self.on_event(event)
@@ -670,14 +675,18 @@ class WebRunContext:
         stage: str,
         decision: str,
         reason: str | None = None,
+        confidence: float | None = None,
     ) -> None:
         structured_log.log_screening_decision(paper_id=paper_id, stage=stage, decision=decision, rationale=reason)
-        self._emit({
+        payload: dict[str, Any] = {
             "type": "screening_decision",
             "paper_id": paper_id,
             "stage": stage,
             "decision": decision,
-        })
+        }
+        if confidence is not None:
+            payload["confidence"] = confidence
+        self._emit(payload)
 
     def advance_screening(self, phase_name: str, current: int, total: int) -> None:
         self._emit({

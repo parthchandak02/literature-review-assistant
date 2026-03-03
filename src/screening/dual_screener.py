@@ -119,7 +119,7 @@ class DualReviewerScreener:
         on_progress: Callable[[str, int, int], None] | None = None,
         on_prompt: Callable[[str, str, str | None], None] | None = None,
         should_proceed_with_partial: Callable[[], bool] | None = None,
-        on_screening_decision: Callable[[str, str, str], None] | None = None,
+        on_screening_decision: Callable[[str, str, str, float | None], None] | None = None,
     ):
         self.repository = repository
         self.provider = provider
@@ -423,7 +423,7 @@ class DualReviewerScreener:
                 )
             )
             if self.on_screening_decision:
-                self.on_screening_decision(paper.paper_id, "exclude", "protocol_only_heuristic")
+                self.on_screening_decision(paper.paper_id, "exclude", "protocol_only_heuristic", 1.0)
             return proto_decision
 
         # Title-only / insufficient-content heuristic: papers with no extractable abstract
@@ -452,7 +452,7 @@ class DualReviewerScreener:
                 )
             )
             if self.on_screening_decision:
-                self.on_screening_decision(paper.paper_id, "exclude", "insufficient_content_heuristic")
+                self.on_screening_decision(paper.paper_id, "exclude", "insufficient_content_heuristic", 1.0)
             return insuf_decision
 
         include_thresh = self.settings.screening.stage1_include_threshold
@@ -541,7 +541,9 @@ class DualReviewerScreener:
             )
         )
         if self.on_screening_decision is not None:
-            self.on_screening_decision(paper.paper_id, stage, final_decision.decision.value)
+            self.on_screening_decision(
+                paper.paper_id, stage, final_decision.decision.value, final_decision.confidence
+            )
         return final_decision
 
     async def _run_reviewer(

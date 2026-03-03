@@ -63,3 +63,44 @@ async def test_load_resume_state_phase3(tmp_path) -> None:
     assert len(state.deduped_papers) >= 1
     assert len(state.included_papers) == 1
     assert state.included_papers[0].paper_id == "p1"
+
+
+@pytest.mark.asyncio
+async def test_load_resume_state_from_phase(tmp_path) -> None:
+    """Resume from a specific phase clears checkpoints for that phase and later."""
+    run_dir = tmp_path / "2026-02-16" / "topic" / "run_01-00-00PM"
+    run_dir.mkdir(parents=True, exist_ok=True)
+    db_path = run_dir / "runtime.db"
+    async with get_db(str(db_path)) as db:
+        await db.executescript(Path("src/db/schema.sql").read_text())
+        await db.commit()
+        repo = WorkflowRepository(db)
+        await repo.save_paper(
+            CandidatePaper(
+                paper_id="p1",
+                title="Paper 1",
+                authors=["A"],
+                source_database="openalex",
+                source_category=SourceCategory.DATABASE,
+            )
+        )
+        await repo.create_workflow("wf-from-phase", "Test topic", "abc123")
+        await repo.save_checkpoint("wf-from-phase", "phase_2_search", papers_processed=1)
+        await repo.save_checkpoint("wf-from-phase", "phase_3_screening", papers_processed=1)
+
+    state, next_phase = await load_resume_state(
+        db_path=str(db_path),
+        workflow_id="wf-from-phase",
+        review_path="config/review.yaml",
+        settings_path="config/settings.yaml",
+        run_root=str(tmp_path),
+        from_phase="phase_3_screening",
+    )
+    assert next_phase == "phase_3_screening"
+    assert isinstance(state, ReviewState)
+
+    async with get_db(str(db_path)) as db:
+        repo = WorkflowRepository(db)
+        checkpoints = await repo.get_checkpoints("wf-from-phase")
+    assert "phase_2_search" in checkpoints
+    assert "phase_3_screening" not in checkpoints

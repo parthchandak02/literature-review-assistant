@@ -92,6 +92,9 @@
   .label-muted {
     @apply text-xs text-zinc-600;
   }
+  .text-meta {
+    @apply text-[11px] font-mono tabular-nums;
+  }
 
   /* Interactive row hover */
   .row-hover {

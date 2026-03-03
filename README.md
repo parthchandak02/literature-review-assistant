@@ -79,7 +79,7 @@ A secondary "Paste YAML directly" link is also available for pasting a raw confi
 
 Your Gemini API key is required and is pre-filled from localStorage on return visits. All keys are saved locally in your browser and never sent anywhere except your local backend.
 
-The sidebar shows all your runs (live and historical) with status colors (emerald = completed, violet = running, red = error, amber = cancelled) and a stats strip (papers found, papers included, artifacts, cost). Selecting a run opens its dashboard with up to 5 tabs: Activity (phase timeline + event log), Results, Database, Cost, and Review Screening (appears only when the run pauses for human-in-the-loop screening approval). The selected tab persists when you switch between runs.
+The sidebar shows all your runs (live and historical) with status colors (emerald = completed, violet = running, red = error, amber = cancelled) and a stats strip (papers found, papers included, artifacts, cost). Selecting a run opens its dashboard with 6 tabs: Config (research question + review.yaml), Activity (phase timeline + event log), Data, Cost, Results, and Review Screening (appears only when the run pauses for human-in-the-loop screening approval). You can resume from a specific phase (e.g. re-run synthesis after changing criteria) or delete completed runs from the sidebar.
 
 **Tip -- reuse a past config:** Click "+" to open the form, then use the "Load from past run" dropdown to pre-populate the form from any previous run's config. Useful for iterating on the same research question with different parameters.
 

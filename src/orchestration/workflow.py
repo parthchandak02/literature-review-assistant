@@ -592,8 +592,10 @@ class ScreeningNode(BaseNode[ReviewState]):
             )
             on_screening_decision = None
             if rc and hasattr(rc, "log_screening_decision"):
-                def _on_screening_decision(pid: object, stg: object, dec: object) -> None:
-                    rc.log_screening_decision(pid, stg, dec)  # type: ignore[union-attr]
+                def _on_screening_decision(
+                    pid: object, stg: object, dec: object, conf: float | None = None
+                ) -> None:
+                    rc.log_screening_decision(pid, stg, dec, conf)  # type: ignore[union-attr]
                 on_screening_decision = _on_screening_decision
             screener = DualReviewerScreener(
                 repository=repository,
@@ -1063,7 +1065,7 @@ class ExtractionQualityNode(BaseNode[ReviewState]):
 
                 # --- 3-tier full-text retrieval (replaces abstract-only) ---
                 ft_result = None
-                if use_real_client and extraction_cfg is not None:
+                if use_llm and extraction_cfg is not None:
                     try:
                         from src.extraction.table_extraction import fetch_full_text
                         ft_result = await fetch_full_text(
@@ -1114,7 +1116,7 @@ class ExtractionQualityNode(BaseNode[ReviewState]):
 
                     # --- PDF vision table extraction ---
                     use_vision = (
-                        use_real_client
+                        use_llm
                         and extraction_cfg is not None
                         and getattr(extraction_cfg, "use_pdf_vision", True)
                         and ft_result is not None
@@ -2036,6 +2038,7 @@ class WritingNode(BaseNode[ReviewState]):
         async with get_db(state.db_path) as _grade_db:
             _grade_repo = WorkflowRepository(_grade_db)
             _grade_assessments = await _grade_repo.load_grade_assessments(state.workflow_id)
+            _rob2_rows, _robins_i_rows = await _grade_repo.load_rob_assessments(state.workflow_id)
 
         _search_appendix_path = (
             Path(state.artifacts["search_appendix"])
@@ -2050,8 +2053,12 @@ class WritingNode(BaseNode[ReviewState]):
             papers=included_papers_for_table,
             extraction_records=extraction_records_for_table,
             grade_assessments=_grade_assessments if _grade_assessments else None,
+            robins_i_assessments=_robins_i_rows if _robins_i_rows else None,
+            review_config=state.review,
             failed_count=_failed_extraction_count,
             search_appendix_path=_search_appendix_path,
+            research_question=state.review.research_question if state.review else "",
+            title=None,
         )
         manuscript_path.write_text(full_manuscript, encoding="utf-8")
 
@@ -2288,6 +2295,7 @@ async def run_workflow_resume(
     settings_path: str = "config/settings.yaml",
     run_root: str = "runs",
     run_context: RunContext | None = None,
+    from_phase: str | None = None,
 ) -> dict[str, str | int | dict[str, int] | dict[str, str]]:
     """Resume a workflow from its last checkpoint."""
     if workflow_id is None and topic is None:
@@ -2323,6 +2331,7 @@ async def run_workflow_resume(
         review_path=review_path,
         settings_path=settings_path,
         run_root=run_root,
+        from_phase=from_phase,
     )
     state.run_context = run_context
     state.run_id = _now_utc()

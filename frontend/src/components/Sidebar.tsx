@@ -7,9 +7,10 @@ import {
   Play,
   Plus,
   RefreshCw,
+  Trash2,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
-import { formatShortDate, formatWorkflowId } from "@/lib/format"
+import { formatRunDate, formatWorkflowId } from "@/lib/format"
 import { fetchHistory } from "@/lib/api"
 import type { HistoryEntry } from "@/lib/api"
 import {
@@ -18,12 +19,12 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip"
+import { ResumeFromPhaseModal } from "@/components/ResumeFromPhaseModal"
 import {
   type RunStatus,
   STATUS_LABEL,
   STATUS_DOT,
   STATUS_TEXT,
-  STATUS_BORDER,
   resolveRunStatus,
 } from "@/lib/constants"
 
@@ -34,12 +35,22 @@ function fmtNum(n: number): string {
   return n.toLocaleString()
 }
 
+export interface PhaseProgress {
+  value: number
+  completedPhases: number
+  currentPhaseFraction?: number
+}
+
 export interface LiveRun {
   runId: string
   topic: string
   status: RunStatus
   cost: number
   workflowId?: string | null
+  phaseProgress?: PhaseProgress
+  startedAt?: string | null
+  papersFound?: number | null
+  papersIncluded?: number | null
 }
 
 interface SidebarProps {
@@ -51,7 +62,9 @@ interface SidebarProps {
   onSelectLiveRun: () => void
   onSelectHistory: (entry: HistoryEntry) => void
   onNewReview: () => void
-  onResume?: (entry: HistoryEntry) => Promise<void>
+  onResume?: (entry: HistoryEntry, fromPhase?: string) => Promise<void>
+  onDelete?: (workflowId: string) => Promise<void>
+  onGoHome?: () => void
   collapsed: boolean
   onToggle: () => void
   width: number
@@ -62,6 +75,16 @@ interface SidebarProps {
 // Sidebar
 // ---------------------------------------------------------------------------
 
+const PROGRESS_BAR_COLOR: Record<RunStatus, string> = {
+  idle: "bg-zinc-600",
+  connecting: "bg-violet-500",
+  streaming: "bg-violet-500",
+  done: "bg-emerald-500",
+  error: "bg-red-500",
+  cancelled: "bg-amber-500",
+  stale: "bg-amber-600",
+}
+
 export function Sidebar({
   liveRun,
   selectedWorkflowId,
@@ -70,6 +93,8 @@ export function Sidebar({
   onSelectHistory,
   onNewReview,
   onResume,
+  onDelete,
+  onGoHome,
   collapsed,
   onToggle,
   width,
@@ -80,6 +105,9 @@ export function Sidebar({
   const [historyError, setHistoryError] = useState<string | null>(null)
   const [openingId, setOpeningId] = useState<string | null>(null)
   const [resumingId, setResumingId] = useState<string | null>(null)
+  const [deletingId, setDeletingId] = useState<string | null>(null)
+  const [resumeModalEntry, setResumeModalEntry] = useState<HistoryEntry | null>(null)
+  const [wfIdCopied, setWfIdCopied] = useState<string | null>(null)
   const [isDragging, setIsDragging] = useState(false)
   const dragStartX = useRef(0)
   const dragStartWidth = useRef(0)
@@ -151,14 +179,32 @@ export function Sidebar({
     }
   }
 
-  async function handleResume(e: React.MouseEvent, entry: HistoryEntry) {
+  function handleResumeClick(e: React.MouseEvent, entry: HistoryEntry) {
     e.stopPropagation()
+    if (!onResume) return
+    setResumeModalEntry(entry)
+  }
+
+  async function handleResumeFromModal(entry: HistoryEntry, fromPhase?: string) {
     if (!onResume) return
     setResumingId(entry.workflow_id)
     try {
-      await onResume(entry)
+      await onResume(entry, fromPhase)
     } finally {
       setResumingId(null)
+    }
+  }
+
+  async function handleDelete(e: React.MouseEvent, workflowId: string) {
+    e.stopPropagation()
+    if (!onDelete) return
+    if (!window.confirm("Delete this review and all its data? This cannot be undone.")) return
+    setDeletingId(workflowId)
+    try {
+      await onDelete(workflowId)
+      await loadHistory()
+    } finally {
+      setDeletingId(null)
     }
   }
 
@@ -178,8 +224,15 @@ export function Sidebar({
         )}
         style={{ width: collapsed ? 56 : width }}
       >
-        {/* Logo row */}
-        <div className="flex items-center h-14 border-b border-zinc-800 shrink-0 px-3.5 gap-2">
+        {/* Logo row - clickable to go home */}
+        <button
+          type="button"
+          onClick={() => onGoHome?.()}
+          className={cn(
+            "flex items-center h-14 border-b border-zinc-800 shrink-0 px-3.5 gap-2 w-full text-left",
+            "hover:bg-zinc-800/50 transition-colors cursor-pointer",
+          )}
+        >
           <div className="flex items-center justify-center w-7 h-7 rounded-lg bg-violet-600 shrink-0">
             <BookMarked className="h-3.5 w-3.5 text-white" />
           </div>
@@ -196,7 +249,7 @@ export function Sidebar({
               BETA
             </span>
           </div>
-        </div>
+        </button>
 
         {/* New Review button */}
         <div className={cn("px-2.5 pt-3 pb-2 shrink-0", collapsed && "px-2")}>
@@ -256,62 +309,140 @@ export function Sidebar({
               </div>
             )}
 
-            <div className="space-y-1">
-              {/* Live run floats to the top with pulsing dot and "Now" badge */}
-              {liveRun && (
-                <SidebarTooltip label={liveRun.topic} collapsed={collapsed} side="right">
-                  <button
-                    onClick={onSelectLiveRun}
-                    className={cn(
-                      "w-full transition-colors text-left",
-                      collapsed
-                        ? "flex justify-center items-center h-9 w-9 mx-auto rounded-lg"
-                        : cn(
-                            "border-l-2 pl-2.5 pr-2 py-2.5 rounded-r-md",
-                            STATUS_BORDER[liveRun.status],
-                          ),
-                      isLiveRunSelected
-                        ? "bg-zinc-800"
-                        : "hover:bg-zinc-800/60",
-                    )}
-                  >
-                    {collapsed ? (
-                      <RunDot status={liveRun.status} animate={isRunning} />
-                    ) : (
-                      <div className="flex flex-col gap-0.5 min-w-0">
-                        <div className="flex items-center gap-1.5 min-w-0">
-                          <RunDot status={liveRun.status} animate={isRunning} />
-                          <span
-                            className={cn(
-                              "text-[10px] font-semibold uppercase tracking-wide shrink-0",
-                              STATUS_TEXT[liveRun.status],
-                            )}
-                          >
-                            {STATUS_LABEL[liveRun.status]}
+            {/* Running section - only when liveRun exists and expanded */}
+            {liveRun && !collapsed && (
+              <>
+                <div className="label-caps font-semibold text-violet-400 px-1 mt-2 mb-1.5">
+                  Running
+                </div>
+                <div className="space-y-1.5">
+                  <SidebarTooltip label={liveRun.topic} collapsed={collapsed} side="right">
+                  <div className={cn(
+                    "rounded-r-md overflow-hidden",
+                    !collapsed && "rounded-b-none",
+                    isLiveRunSelected && "border-l-2 border-l-violet-500",
+                  )}>
+                    <div className="relative">
+                      <button
+                        onClick={onSelectLiveRun}
+                        className={cn(
+                          "w-full transition-colors text-left",
+                          collapsed
+                            ? "flex justify-center items-center h-9 w-9 mx-auto rounded-lg"
+                            : "pl-2.5 pr-2 py-2.5",
+                          isLiveRunSelected
+                            ? "bg-zinc-800"
+                            : "hover:bg-zinc-800/60",
+                        )}
+                      >
+                      {collapsed ? (
+                        <RunDot status={liveRun.status} animate={isRunning} />
+                      ) : (
+                        <div
+                          className={cn(
+                            "flex flex-col gap-1 min-w-0",
+                            onDelete && liveRun.workflowId && !isRunning && "pr-12",
+                          )}
+                        >
+                          <span className="text-xs text-zinc-300 line-clamp-2 leading-snug">
+                            {liveRun.topic}
                           </span>
-                          <span className="ml-auto text-[10px] text-zinc-500 shrink-0">
-                            Now
-                          </span>
+                          <RunCardMetrics
+                            papersFound={liveRun.papersFound}
+                            papersIncluded={liveRun.papersIncluded}
+                            cost={liveRun.cost}
+                            workflowId={liveRun.workflowId}
+                            copiedWorkflowId={wfIdCopied}
+                            onCopyWorkflowId={async (id) => {
+                              if (id) {
+                                await navigator.clipboard.writeText(id)
+                                setWfIdCopied(id)
+                                setTimeout(() => setWfIdCopied(null), 1500)
+                              }
+                            }}
+                          />
+                          <div className="flex items-center gap-2 min-w-0 flex-wrap text-meta">
+                            <div className="flex items-center gap-1.5 shrink-0">
+                              <RunDot status={liveRun.status} animate={isRunning} />
+                              <span
+                                className={cn(
+                                  "font-semibold uppercase tracking-wide",
+                                  STATUS_TEXT[liveRun.status],
+                                )}
+                              >
+                                {STATUS_LABEL[liveRun.status]}
+                              </span>
+                            </div>
+                            <span className="text-white font-medium tabular-nums">
+                              {liveRun.startedAt ? formatRunDate(liveRun.startedAt) : "Now"}
+                            </span>
+                          </div>
                         </div>
-                        {liveRun.workflowId && (
-                          <span className="font-mono text-[9px] text-zinc-700 leading-none">
-                            {formatWorkflowId(liveRun.workflowId)}
-                          </span>
+                      )}
+                    </button>
+                    {!collapsed && onDelete && liveRun.workflowId && !isRunning && (
+                      <button
+                        onClick={(e) => void handleDelete(e, liveRun.workflowId!)}
+                        disabled={deletingId === liveRun.workflowId}
+                        aria-label="Delete run"
+                        title="Delete run"
+                        className={cn(
+                          "absolute top-1.5 right-1.5 flex items-center justify-center h-5 w-5 rounded",
+                          "text-zinc-500 hover:text-red-400 hover:bg-red-500/10 transition-colors",
+                          deletingId === liveRun.workflowId && "opacity-50 cursor-wait",
                         )}
-                        <span className="text-xs text-zinc-300 line-clamp-2 leading-snug">
-                          {liveRun.topic}
-                        </span>
-                        {liveRun.cost > 0 && (
-                          <span className="text-[10px] font-mono text-zinc-500 mt-0.5">
-                            ${liveRun.cost.toFixed(3)}
-                          </span>
+                      >
+                        {deletingId === liveRun.workflowId ? (
+                          <div className="h-2.5 w-2.5 border border-zinc-500 border-t-zinc-300 rounded-full animate-spin" />
+                        ) : (
+                          <Trash2 className="h-3 w-3" />
                         )}
-                      </div>
+                      </button>
                     )}
-                  </button>
+                    </div>
+                    {!collapsed && (
+                      <CardProgressBar
+                        status={liveRun.status}
+                        progress={liveRun.phaseProgress?.value}
+                      />
+                    )}
+                  </div>
+                </SidebarTooltip>
+                </div>
+              </>
+            )}
+
+            {/* Recent section - when expanded */}
+            {!collapsed && (
+              <div
+                className={cn(
+                  "label-caps font-semibold text-zinc-600 px-1 mb-1.5",
+                  liveRun && "mt-3",
+                )}
+              >
+                Recent
+              </div>
+            )}
+
+            <div className="space-y-1.5">
+              {/* Live run when collapsed - in same list as history, no section header */}
+              {liveRun && collapsed && (
+                <SidebarTooltip label={liveRun.topic} collapsed={collapsed} side="right">
+                  <div className="rounded-r-md overflow-hidden">
+                    <div className="relative">
+                      <button
+                        onClick={onSelectLiveRun}
+                        className={cn(
+                          "w-full transition-colors text-left flex justify-center items-center h-9 w-9 mx-auto rounded-lg",
+                          isLiveRunSelected ? "bg-zinc-800" : "hover:bg-zinc-800/60",
+                        )}
+                      >
+                        <RunDot status={liveRun.status} animate={isRunning} />
+                      </button>
+                    </div>
+                  </div>
                 </SidebarTooltip>
               )}
-
               {(liveRun?.workflowId
                 ? history.filter((e) => e.workflow_id !== liveRun.workflowId)
                 : history
@@ -320,27 +451,14 @@ export function Sidebar({
                 const isSelected = selectedWorkflowId === entry.workflow_id
                 const isOpening = openingId === entry.workflow_id
                 const canOpen = Boolean(entry.db_path)
-                const borderColor = STATUS_BORDER[statusKey]
 
-                // Build stat chips { value, label, color }
-                interface StatChip { value: string; label: string; valColor: string }
-                const statChips: StatChip[] = []
-                if (entry.papers_found != null && entry.papers_found > 0) {
-                  statChips.push({ value: fmtNum(entry.papers_found), label: "found", valColor: "text-blue-400" })
-                }
-                if (entry.papers_included != null) {
-                  statChips.push({ value: fmtNum(entry.papers_included), label: "incl.", valColor: "text-emerald-400" })
-                }
-                if (entry.artifacts_count != null && entry.artifacts_count > 0) {
-                  statChips.push({ value: String(entry.artifacts_count), label: "out", valColor: "text-violet-400" })
-                }
-                if (entry.total_cost != null && entry.total_cost > 0) {
-                  statChips.push({ value: `$${entry.total_cost.toFixed(2)}`, label: "", valColor: "text-amber-400" })
-                }
+                // Metadata in run info strip order: Status, Time, Found, Included, Cost, WF ID (omit "out")
 
                 const isResumable = onResume !== undefined &&
                   ["streaming", "cancelled", "error", "stale"].includes(statusKey)
                 const isResuming = resumingId === entry.workflow_id
+
+                const progressValue = statusKey === "done" ? 1 : undefined
 
                 return (
                   <SidebarTooltip
@@ -349,96 +467,124 @@ export function Sidebar({
                     collapsed={collapsed}
                     side="right"
                   >
-                    <div className="relative group">
-                      <button
-                        onClick={() => canOpen && void handleSelectHistory(entry)}
-                        disabled={!canOpen}
-                        className={cn(
-                          "w-full transition-colors text-left",
-                          collapsed
-                            ? "flex justify-center items-center h-9 w-9 mx-auto rounded-lg"
-                            : cn(
-                          "border-l-2 pl-2.5 pr-2 py-2.5 rounded-r-md",
-                            borderColor,
-                          ),
-                          isSelected
-                            ? "bg-zinc-800"
-                            : canOpen
-                              ? "hover:bg-zinc-800/50"
-                              : "opacity-40 cursor-not-allowed",
-                        )}
-                      >
-                        {collapsed ? (
-                          <RunDot status={statusKey} />
-                        ) : (
-                          <div className="flex flex-col gap-0.5 min-w-0">
-                            <div className="flex items-center gap-1.5 min-w-0">
-                              {isOpening ? (
-                                <div className="h-1.5 w-1.5 rounded-full border border-zinc-500 animate-spin shrink-0" />
-                              ) : (
-                                <RunDot status={statusKey} />
+                    <div className={cn(
+                      "rounded-r-md overflow-hidden",
+                      !collapsed && "rounded-b-none",
+                      isSelected && "border-l-2 border-l-violet-500",
+                    )}>
+                      <div className="relative">
+                        <button
+                          onClick={() => canOpen && void handleSelectHistory(entry)}
+                          disabled={!canOpen}
+                          className={cn(
+                            "w-full transition-colors text-left",
+                            collapsed
+                              ? "flex justify-center items-center h-9 w-9 mx-auto rounded-lg"
+                              : "pl-2.5 pr-2 py-2.5",
+                            isSelected
+                              ? "bg-zinc-800"
+                              : canOpen
+                                ? "hover:bg-zinc-800/50"
+                                : "opacity-40 cursor-not-allowed",
+                          )}
+                        >
+                          {collapsed ? (
+                            <RunDot status={statusKey} />
+                          ) : (
+                            <div
+                              className={cn(
+                                "flex flex-col gap-1 min-w-0",
+                                (onDelete || isResumable) && "pr-12",
                               )}
-                              <span
+                            >
+                              <span className="text-xs text-zinc-300 line-clamp-2 leading-snug">
+                                {entry.topic}
+                              </span>
+                              <RunCardMetrics
+                                papersFound={entry.papers_found}
+                                papersIncluded={entry.papers_included}
+                                cost={entry.total_cost}
+                                workflowId={entry.workflow_id}
+                                copiedWorkflowId={wfIdCopied}
+                                onCopyWorkflowId={async (id) => {
+                                  if (id) {
+                                    await navigator.clipboard.writeText(id)
+                                    setWfIdCopied(id)
+                                    setTimeout(() => setWfIdCopied(null), 1500)
+                                  }
+                                }}
+                              />
+                              <div className="flex items-center gap-2 min-w-0 flex-wrap text-meta">
+                                <div className="flex items-center gap-1.5 shrink-0">
+                                  {isOpening ? (
+                                    <div className="h-1.5 w-1.5 rounded-full border border-zinc-500 animate-spin" />
+                                  ) : (
+                                    <RunDot status={statusKey} />
+                                  )}
+                                  <span
+                                    className={cn(
+                                      "font-semibold uppercase tracking-wide",
+                                      STATUS_TEXT[statusKey],
+                                    )}
+                                  >
+                                    {STATUS_LABEL[statusKey]}
+                                  </span>
+                                </div>
+                                {entry.created_at && (
+                                  <span className="text-white font-medium tabular-nums">
+                                    {formatRunDate(entry.created_at)}
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                          )}
+                        </button>
+
+                        {/* Action buttons: trash (all) + resume (resumable only) */}
+                        {!collapsed && (
+                          <div className="absolute top-1.5 right-1.5 flex items-center gap-1">
+                            {onDelete && (
+                              <button
+                                onClick={(e) => void handleDelete(e, entry.workflow_id)}
+                                disabled={deletingId === entry.workflow_id}
+                                aria-label="Delete run"
+                                title="Delete run"
                                 className={cn(
-                                  "text-[10px] font-semibold uppercase tracking-wide shrink-0",
-                                  STATUS_TEXT[statusKey],
+                                  "flex items-center justify-center h-5 w-5 rounded",
+                                  "text-zinc-500 hover:text-red-400 hover:bg-red-500/10 transition-colors",
+                                  deletingId === entry.workflow_id && "opacity-50 cursor-wait",
                                 )}
                               >
-                                {STATUS_LABEL[statusKey]}
-                              </span>
-                            <span className="ml-auto text-[10px] text-zinc-600 shrink-0 tabular-nums">
-                              {formatShortDate(entry.created_at)}
-                            </span>
-                          </div>
-                          <span className="font-mono text-[9px] text-zinc-700 leading-none mb-0.5">
-                            {formatWorkflowId(entry.workflow_id)}
-                          </span>
-                          <span className="text-xs text-zinc-300 line-clamp-2 leading-snug">
-                            {entry.topic}
-                          </span>
-                            {statChips.length > 0 && (
-                              <div className="flex flex-wrap gap-x-2 gap-y-0.5 mt-1">
-                                {statChips.map((chip, idx) => (
-                                  <span
-                                    key={`${chip.label}-${chip.valColor}-${idx}`}
-                                    className="flex items-baseline gap-0.5 tabular-nums leading-none"
-                                  >
-                                    <span className={`text-[10px] font-semibold ${chip.valColor}`}>
-                                      {chip.value}
-                                    </span>
-                                    {chip.label && (
-                                      <span className="text-[9px] text-zinc-600 font-normal">
-                                        {chip.label}
-                                      </span>
-                                    )}
-                                  </span>
-                                ))}
-                              </div>
+                                {deletingId === entry.workflow_id ? (
+                                  <div className="h-2.5 w-2.5 border border-zinc-500 border-t-zinc-300 rounded-full animate-spin" />
+                                ) : (
+                                  <Trash2 className="h-3 w-3" />
+                                )}
+                              </button>
+                            )}
+                            {isResumable && (
+                              <button
+                                onClick={(e) => handleResumeClick(e, entry)}
+                                disabled={isResuming}
+                                aria-label="Resume run"
+                                title="Resume run"
+                                className={cn(
+                                  "flex items-center justify-center h-5 w-5 rounded bg-violet-600 hover:bg-violet-500 text-white",
+                                  isResuming && "opacity-80 cursor-wait",
+                                )}
+                              >
+                                {isResuming ? (
+                                  <div className="h-2.5 w-2.5 border border-white/60 border-t-white rounded-full animate-spin" />
+                                ) : (
+                                  <Play className="h-2.5 w-2.5 fill-white" />
+                                )}
+                              </button>
                             )}
                           </div>
                         )}
-                      </button>
-
-                      {/* Inline Resume button -- shown on hover for resumable runs */}
-                      {isResumable && !collapsed && (
-                        <button
-                          onClick={(e) => void handleResume(e, entry)}
-                          disabled={isResuming}
-                          aria-label="Resume run"
-                          title="Resume run"
-                          className={cn(
-                            "absolute top-1.5 right-1.5 flex items-center justify-center",
-                            "h-5 w-5 rounded bg-violet-600 hover:bg-violet-500 text-white",
-                            "opacity-0 group-hover:opacity-100 transition-opacity duration-150",
-                            isResuming && "opacity-100 cursor-wait",
-                          )}
-                        >
-                          {isResuming ? (
-                            <div className="h-2.5 w-2.5 border border-white/60 border-t-white rounded-full animate-spin" />
-                          ) : (
-                            <Play className="h-2.5 w-2.5 fill-white" />
-                          )}
-                        </button>
+                      </div>
+                      {!collapsed && (
+                        <CardProgressBar status={statusKey} progress={progressValue} />
                       )}
                     </div>
                   </SidebarTooltip>
@@ -446,7 +592,7 @@ export function Sidebar({
               })}
             </div>
 
-            {!collapsed && history.length === 0 && !loadingHistory && !liveRun && (
+            {!collapsed && !loadingHistory && (liveRun?.workflowId ? history.filter((e) => e.workflow_id !== liveRun.workflowId).length === 0 : history.length === 0) && (
               <div className="flex flex-col items-center py-6 gap-2">
                 <Clock className="h-6 w-6 text-zinc-700" />
                 <p className="label-muted text-center">
@@ -485,6 +631,15 @@ export function Sidebar({
           />
         )}
       </aside>
+
+      {resumeModalEntry && onResume && (
+        <ResumeFromPhaseModal
+          open={Boolean(resumeModalEntry)}
+          onOpenChange={(open: boolean) => !open && setResumeModalEntry(null)}
+          entry={resumeModalEntry}
+          onResume={(fromPhase?: string) => handleResumeFromModal(resumeModalEntry, fromPhase)}
+        />
+      )}
     </TooltipProvider>
   )
 }
@@ -492,6 +647,113 @@ export function Sidebar({
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+function RunCardMetrics({
+  papersFound,
+  papersIncluded,
+  cost,
+  workflowId,
+  copiedWorkflowId,
+  onCopyWorkflowId,
+}: {
+  papersFound?: number | null
+  papersIncluded?: number | null
+  cost?: number | null
+  workflowId?: string | null
+  copiedWorkflowId?: string | null
+  onCopyWorkflowId?: (id: string) => void | Promise<void>
+}) {
+  const hasStats =
+    (papersFound != null && papersFound > 0) ||
+    (papersIncluded != null && papersIncluded > 0) ||
+    (cost != null && cost > 0)
+  const hasWfId = workflowId != null && workflowId.length > 0
+
+  if (!hasStats && !hasWfId) return null
+
+  return (
+    <div className="flex items-baseline justify-between gap-x-3 min-w-0 text-meta">
+      {hasStats && (
+        <div className="flex items-baseline gap-x-3 flex-wrap gap-y-0.5 min-w-0">
+        {papersFound != null && papersFound > 0 && (
+          <span className="flex items-baseline gap-0.5 leading-none shrink-0">
+            <span className="font-semibold text-blue-400">{fmtNum(papersFound)}</span>
+            <span className="text-zinc-600 font-normal">found</span>
+          </span>
+        )}
+        {papersIncluded != null && papersIncluded > 0 && (
+          <span className="flex items-baseline gap-0.5 leading-none shrink-0">
+            <span className="font-semibold text-emerald-400">{fmtNum(papersIncluded)}</span>
+            <span className="text-zinc-600 font-normal">included</span>
+          </span>
+        )}
+        {cost != null && cost > 0 && (
+          <span className="font-semibold text-amber-400 shrink-0">
+            ${cost.toFixed(3)}
+          </span>
+        )}
+        </div>
+      )}
+      {hasWfId && (
+        onCopyWorkflowId ? (
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation()
+              void onCopyWorkflowId(workflowId!)
+            }}
+            className={cn(
+              "text-zinc-600 shrink-0 whitespace-nowrap hover:text-zinc-400 transition-colors cursor-pointer",
+              !hasStats && "ml-auto",
+            )}
+            title="Copy workflow ID"
+          >
+            {copiedWorkflowId === workflowId ? "Copied!" : formatWorkflowId(workflowId!)}
+          </button>
+        ) : (
+          <span
+            className={cn(
+              "text-zinc-600 shrink-0 whitespace-nowrap",
+              !hasStats && "ml-auto",
+            )}
+            title={workflowId ?? undefined}
+          >
+            {formatWorkflowId(workflowId!)}
+          </span>
+        )
+      )}
+    </div>
+  )
+}
+
+function CardProgressBar({
+  status,
+  progress,
+}: {
+  status: RunStatus
+  progress?: number
+}) {
+  const colorClass = PROGRESS_BAR_COLOR[status] ?? "bg-zinc-600"
+  const showFill =
+    status === "streaming" || status === "connecting" || status === "done"
+  const fillPercent = showFill ? (progress != null ? progress * 100 : status === "done" ? 100 : 0) : 0
+
+  return (
+    <div
+      className={cn(
+        "h-1 rounded-b-md overflow-hidden",
+        showFill ? "bg-zinc-800" : colorClass,
+      )}
+    >
+      {showFill && (
+        <div
+          className={cn("h-full transition-all duration-300", colorClass)}
+          style={{ width: `${fillPercent}%` }}
+        />
+      )}
+    </div>
+  )
+}
 
 function RunDot({
   status,

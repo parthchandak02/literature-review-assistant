@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 
 from src.config.loader import load_configs
-from src.db.database import get_db
+from src.db.database import get_db, repair_foreign_key_integrity
+
+logger = logging.getLogger(__name__)
 from src.db.repositories import WorkflowRepository
 from src.models import ExtractionRecord
 from src.orchestration.state import ReviewState
@@ -31,17 +34,31 @@ def _next_phase(checkpoints: dict[str, str]) -> str:
     return "finalize"
 
 
+def _phases_from(from_phase: str) -> list[str]:
+    """Return from_phase and all later phases in PHASE_ORDER."""
+    try:
+        idx = PHASE_ORDER.index(from_phase)
+        return list(PHASE_ORDER[idx:])
+    except ValueError:
+        return []
+
+
 async def load_resume_state(
     db_path: str,
     workflow_id: str,
     review_path: str,
     settings_path: str,
     run_root: str,
+    from_phase: str | None = None,
 ) -> tuple[ReviewState, str]:
     """Load ReviewState from existing db and determine next phase to run.
 
     Returns (state, next_phase). next_phase is one of PHASE_ORDER or 'finalize'.
     All artifacts (log files and output documents) now live in the same run dir.
+
+    When from_phase is provided: validate it is in PHASE_ORDER, ensure all prior
+    phases have checkpoints, clear checkpoints for from_phase and later, and
+    return next_phase=from_phase.
     """
     review, settings = load_configs(review_path, settings_path)
     run_dir = Path(db_path).resolve().parent
@@ -50,6 +67,7 @@ async def load_resume_state(
     output_dir = log_dir  # same directory
 
     async with get_db(db_path) as db:
+        await repair_foreign_key_integrity(db)
         repo = WorkflowRepository(db)
         checkpoints = await repo.get_checkpoints(workflow_id)
         search_counts = await repo.get_search_counts(workflow_id)
@@ -73,7 +91,33 @@ async def load_resume_state(
         if "phase_4_extraction_quality" in checkpoints:
             extraction_records_list = await repo.load_extraction_records(workflow_id)
 
-    next_phase = _next_phase(checkpoints)
+        if from_phase is not None:
+            if from_phase not in PHASE_ORDER:
+                raise ValueError(
+                    f"from_phase must be one of {PHASE_ORDER!r}, got {from_phase!r}"
+                )
+            from_idx = PHASE_ORDER.index(from_phase)
+            prior_phases = PHASE_ORDER[:from_idx]
+            for p in prior_phases:
+                if p not in checkpoints:
+                    # Auto-fallback: user selected invalid phase (e.g. frontend/backend
+                    # mismatch). Resume from first incomplete instead.
+                    fallback = _next_phase(checkpoints)
+                    logger.warning(
+                        "Cannot resume from %s: phase %s has no checkpoint. "
+                        "Falling back to %s.",
+                        from_phase,
+                        p,
+                        fallback,
+                    )
+                    next_phase = fallback
+                    break
+            else:
+                phases_to_clear = _phases_from(from_phase)
+                await repo.delete_checkpoints_for_phases(workflow_id, phases_to_clear)
+                next_phase = from_phase
+        else:
+            next_phase = _next_phase(checkpoints)
 
     artifacts = {
         "run_summary": str(run_dir / "run_summary.json"),

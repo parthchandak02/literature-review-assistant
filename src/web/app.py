@@ -18,6 +18,7 @@ import io
 import json as _json
 import os
 import pathlib
+import shutil
 import tempfile
 import time
 import uuid
@@ -333,6 +334,13 @@ async def _run_wrapper(record: _RunRecord, review_path: str, req: RunRequest) ->
 
     def _on_db_ready(path: str) -> None:
         record.db_path = path
+        # Save review.yaml immediately so Config tab shows it while run is active.
+        if record.review_yaml:
+            try:
+                yaml_dest = pathlib.Path(path).parent / "review.yaml"
+                yaml_dest.write_text(record.review_yaml, encoding="utf-8")
+            except Exception:
+                pass
 
     def _on_workflow_id_ready(workflow_id: str, run_root: str) -> None:
         record.workflow_id = workflow_id
@@ -379,10 +387,11 @@ async def _run_wrapper(record: _RunRecord, review_path: str, req: RunRequest) ->
                 except Exception:
                     pass
 
-        await record.queue.put({
-            "type": "done",
-            "outputs": record.outputs,
-        })
+        # Append "done" to event_log so final flush persists it (avoids Search stuck
+        # as "running" when event_log is replayed for historical view).
+        _done_evt: dict[str, Any] = {"type": "done", "outputs": record.outputs}
+        record.event_log.append(_done_evt)
+        await record.queue.put(_done_evt)
     except asyncio.CancelledError:
         record.done = True
         record.error = "Cancelled"
@@ -546,6 +555,14 @@ async def stream_run(run_id: str, request: Request) -> EventSourceResponse:
             if idx < resume_from:
                 continue
             yield {"id": str(idx), "data": _json_safe(event)}
+
+        # Discard events from queue that were already replayed. _emit writes to
+        # both event_log and queue; without this we send each event twice.
+        for _ in range(len(snapshot)):
+            try:
+                record.queue.get_nowait()
+            except asyncio.QueueEmpty:
+                break
 
         replay_index = len(snapshot)
 
@@ -898,9 +915,15 @@ class ResumeRequest(BaseModel):
     workflow_id: str
     db_path: str
     topic: str
+    from_phase: str | None = None  # e.g. "phase_3_screening" to resume from that phase
 
 
-async def _resume_wrapper(record: _RunRecord, workflow_id: str, db_path: str) -> None:
+async def _resume_wrapper(
+    record: _RunRecord,
+    workflow_id: str,
+    db_path: str,
+    from_phase: str | None = None,
+) -> None:
     """Async task that resumes an interrupted workflow from its last checkpoint."""
     run_root = str(pathlib.Path(db_path).parent.parent.parent.parent)
     record.run_root = run_root
@@ -924,6 +947,8 @@ async def _resume_wrapper(record: _RunRecord, workflow_id: str, db_path: str) ->
     # run segment but whose phase_done event was never flushed to SQLite (e.g.
     # a server crash between checkpoint write and phase_done emit).  Without
     # these, the UI phase timeline shows those phases as still "running".
+    # Insert before the first terminal event (done/error/cancelled) so they
+    # appear in correct chronological order in the Activity log.
     try:
         from src.orchestration.resume import PHASE_ORDER as _PHASE_ORDER
         from src.db.database import get_db as _get_db
@@ -935,16 +960,36 @@ async def _resume_wrapper(record: _RunRecord, workflow_id: str, db_path: str) ->
             for e in record.event_log
             if isinstance(e, dict) and e.get("type") == "phase_done"
         }
+        # Find index of first terminal event to insert synthetic events before it.
+        _insert_index = len(record.event_log)
+        for _i, _e in enumerate(record.event_log):
+            if isinstance(_e, dict) and _e.get("type") in ("done", "error", "cancelled"):
+                _insert_index = _i
+                break
+        # Use ts from last event before terminal for proper display ordering.
+        _synthetic_ts = None
+        if _insert_index > 0:
+            _prev = record.event_log[_insert_index - 1]
+            if isinstance(_prev, dict) and "ts" in _prev:
+                _synthetic_ts = _prev["ts"]
+        if _synthetic_ts is None:
+            _synthetic_ts = datetime.datetime.now(tz=datetime.timezone.utc).strftime(
+                "%Y-%m-%dT%H:%M:%S.%f"
+            )[:-3] + "Z"
+        _synthetic_events: list[dict[str, Any]] = []
         for _phase in _PHASE_ORDER:
             if _phase in _checkpoints and _phase not in _phases_with_done:
-                record.event_log.append({
+                _synthetic_events.append({
                     "type": "phase_done",
                     "phase": _phase,
                     "summary": {},
                     "total": None,
                     "completed": None,
                     "synthetic": True,
+                    "ts": _synthetic_ts,
                 })
+        for _ev in reversed(_synthetic_events):
+            record.event_log.insert(_insert_index, _ev)
     except Exception:
         pass
 
@@ -979,12 +1024,15 @@ async def _resume_wrapper(record: _RunRecord, workflow_id: str, db_path: str) ->
             settings_path="config/settings.yaml",
             run_root=run_root,
             run_context=ctx,
+            from_phase=from_phase,
         )
         record.outputs = outputs if isinstance(outputs, dict) else {}
         record.workflow_id = workflow_id
         record.db_path = db_path
         record.done = True
-        await record.queue.put({"type": "done", "outputs": record.outputs})
+        _done_resume_evt: dict[str, Any] = {"type": "done", "outputs": record.outputs}
+        record.event_log.append(_done_resume_evt)
+        await record.queue.put(_done_resume_evt)
     except asyncio.CancelledError:
         record.done = True
         record.error = "Cancelled"
@@ -1016,6 +1064,18 @@ async def _resume_wrapper(record: _RunRecord, workflow_id: str, db_path: str) ->
                 await _persist_event_log(record.db_path, record.workflow_id, remaining)
 
 
+_RESUME_PHASE_ORDER = [
+    "phase_2_search",
+    "phase_3_screening",
+    "phase_4_extraction_quality",
+    "phase_4b_embedding",
+    "phase_5_synthesis",
+    "phase_5b_knowledge_graph",
+    "phase_6_writing",
+    "finalize",
+]
+
+
 @app.post("/api/history/resume", response_model=RunResponse)
 async def resume_run(req: ResumeRequest) -> RunResponse:
     """Resume an interrupted workflow from its last checkpoint.
@@ -1025,7 +1085,15 @@ async def resume_run(req: ResumeRequest) -> RunResponse:
 
     If the same workflow_id is already being actively resumed, returns the
     existing run_id instead of spawning a second concurrent task.
+
+    When from_phase is provided, resumes from that phase (and later) instead of
+    the first incomplete phase. Prior phases must have checkpoints.
     """
+    if req.from_phase is not None and req.from_phase not in _RESUME_PHASE_ORDER:
+        raise HTTPException(
+            status_code=400,
+            detail=f"from_phase must be one of {_RESUME_PHASE_ORDER}",
+        )
     # Guard: prevent double-resume of the same workflow (e.g. user clicks twice).
     for existing in _active_runs.values():
         if existing.workflow_id == req.workflow_id and not existing.done:
@@ -1036,9 +1104,55 @@ async def resume_run(req: ResumeRequest) -> RunResponse:
     record.db_path = req.db_path
     record.workflow_id = req.workflow_id
     _active_runs[run_id] = record
-    task = asyncio.create_task(_resume_wrapper(record, req.workflow_id, req.db_path))
+    task = asyncio.create_task(
+        _resume_wrapper(record, req.workflow_id, req.db_path, req.from_phase)
+    )
     record.task = task
     return RunResponse(run_id=run_id, topic=req.topic)
+
+
+@app.delete("/api/history/{workflow_id}")
+async def delete_run(workflow_id: str, run_root: str = "runs") -> dict[str, bool]:
+    """Delete a run from the registry and remove its run directory.
+
+    Cannot delete a run that is actively running (in _active_runs).
+    Returns 404 if workflow not found in registry.
+    """
+    # Guard: do not delete if run is actively running
+    for record in _active_runs.values():
+        if record.workflow_id == workflow_id and not record.done:
+            raise HTTPException(
+                status_code=409,
+                detail="Cannot delete a run that is currently in progress",
+            )
+
+    db_path = await _resolve_db_path(run_root, workflow_id)
+    if not db_path:
+        raise HTTPException(status_code=404, detail="Workflow not found in registry")
+
+    run_dir = pathlib.Path(db_path).parent
+    registry = pathlib.Path(run_root) / "workflows_registry.db"
+
+    # Delete from registry first so the run disappears from history immediately
+    try:
+        async with aiosqlite.connect(str(registry)) as db:
+            await db.execute(
+                "DELETE FROM workflows_registry WHERE workflow_id = ?",
+                (workflow_id,),
+            )
+            await db.commit()
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+    # Delete run directory (runtime.db, review.yaml, run_summary.json, etc.)
+    try:
+        if run_dir.exists():
+            shutil.rmtree(run_dir)
+    except OSError as exc:
+        # Log but do not fail - registry row is already removed
+        pass
+
+    return {"ok": True}
 
 
 @app.post("/api/history/attach", response_model=RunResponse)

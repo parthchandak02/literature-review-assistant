@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import AsyncIterator
@@ -9,6 +10,7 @@ from typing import AsyncIterator
 import aiosqlite
 
 SCHEMA_PATH = Path(__file__).with_name("schema.sql")
+_logger = logging.getLogger(__name__)
 
 
 async def _init_connection(db: aiosqlite.Connection) -> None:
@@ -162,6 +164,56 @@ async def run_migrations(db: aiosqlite.Connection) -> None:
         await db.commit()
     except Exception:
         pass
+
+
+async def repair_foreign_key_integrity(db: aiosqlite.Connection) -> int:
+    """Insert stub papers for orphaned paper_id references. Returns count of stubs inserted.
+
+    Old DBs may have screening_decisions, extraction_records, etc. referencing
+    paper_ids not in papers (e.g. from migration or corruption). This causes
+    FOREIGN KEY constraint failed on INSERT. We insert minimal stub rows.
+    """
+    cursor = await db.execute("SELECT paper_id FROM papers")
+    existing = {str(row[0]) for row in await cursor.fetchall()}
+    missing: set[str] = set()
+
+    async def collect_paper_ids(query: str, col_idx: int = 0) -> None:
+        try:
+            cur = await db.execute(query)
+            for row in await cur.fetchall():
+                pid = str(row[col_idx]) if row else None
+                if pid and pid not in existing:
+                    missing.add(pid)
+        except Exception as e:
+            _logger.debug("repair_foreign_key_integrity: skip query %s: %s", query[:50], e)
+
+    await collect_paper_ids("SELECT DISTINCT paper_id FROM screening_decisions")
+    await collect_paper_ids("SELECT DISTINCT paper_id FROM dual_screening_results")
+    await collect_paper_ids("SELECT DISTINCT paper_id FROM extraction_records")
+    await collect_paper_ids("SELECT DISTINCT paper_id FROM paper_chunks_meta")
+    await collect_paper_ids("SELECT DISTINCT paper_id FROM screening_corrections")
+    await collect_paper_ids("SELECT DISTINCT paper_id FROM rob_assessments")
+    await collect_paper_ids("SELECT DISTINCT source_paper_id FROM paper_relationships", 0)
+    await collect_paper_ids("SELECT DISTINCT target_paper_id FROM paper_relationships", 0)
+
+    inserted = 0
+    for pid in missing:
+        try:
+            await db.execute(
+                """
+                INSERT OR IGNORE INTO papers
+                (paper_id, title, authors, source_database, source_category)
+                VALUES (?, '[Recovered]', '[]', 'integrity_repair', 'database')
+                """,
+                (pid,),
+            )
+            inserted += 1
+        except Exception as e:
+            _logger.warning("repair_foreign_key_integrity: could not insert stub for %s: %s", pid, e)
+    if inserted:
+        await db.commit()
+        _logger.info("repair_foreign_key_integrity: inserted %d stub papers for orphaned refs", inserted)
+    return inserted
 
 
 @asynccontextmanager

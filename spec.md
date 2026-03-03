@@ -532,7 +532,7 @@ Each run creates its own `runtime.db`. Schema defined in `src/db/schema.sql`.
 | `event_log` | Persisted SSE event log for replay; loaded by history/attach endpoint |
 | `paper_chunks_meta` | RAG chunk store: chunk_id, paper_id, chunk_index, content (text), embedding (JSON float array, 768-dim); indexed by workflow_id and paper_id |
 
-SQLite connection settings: WAL journal mode (concurrent reads + single writer), NORMAL synchronous (~2-3x faster writes), foreign keys ON (SQLite does NOT enforce FKs by default), 40MB cache, temp tables in memory.
+SQLite connection settings: WAL journal mode (concurrent reads + single writer), NORMAL synchronous (~2-3x faster writes), foreign keys ON (SQLite does NOT enforce FKs by default), 40MB cache, temp tables in memory. On open, `repair_foreign_key_integrity()` inserts stub papers for orphaned paper_id refs (e.g. from migration) to avoid FOREIGN KEY constraint failures.
 
 All per-run file paths (runtime.db, app log, run_summary.json, output documents, figures) are resolved via `create_run_paths(run_root, workflow_description)` in `src/utils/logging_paths.py`, which returns a frozen `RunPaths` dataclass. Every log and output artifact lives under a single `run_dir` -- there is no separate log directory or output directory.
 
@@ -671,12 +671,13 @@ Heartbeat events are sent every 15 seconds of inactivity to keep the connection 
 
 ### 9.3 View Model
 
-The frontend is run-centric. The sidebar is a run list, not a navigation menu. Selecting a run sets `selectedRun` in App state. `RunView` renders four fixed tabs: Activity, Results, Database, Cost. The selected tab is persisted in localStorage.
+The frontend is run-centric. The sidebar is a run list, not a navigation menu. Selecting a run sets `selectedRun` in App state. `RunView` renders 6 tabs in workflow order: Config, Activity, Data, Cost, Results (plus Review Screening when awaiting_review). The selected tab is persisted in localStorage.
 
 | View | Purpose |
 |------|---------|
 | SetupView | Structured PICO form + keyword/criteria tag inputs + database checkboxes + YAML builder; "Load from past run" dropdown reuses a stored config via `GET /api/history/{workflow_id}/config` |
-| RunView | 4-tab shell (Activity, Results, Database, Cost) for a selected run |
+| RunView | 6-tab shell (Config, Activity, Data, Cost, Results; Review Screening when awaiting_review) for a selected run |
+| ConfigView | Shows research question and timestamped review.yaml for the run; used by agents and for copy-to-clipboard |
 | ActivityView | Phase timeline + stats strip + filter chips + event log; works for live SSE runs and historical fetched runs |
 | CostView | Recharts bar chart grouped by model/phase + sortable cost/token tables; computed client-side from api_call events |
 | ResultsView | Download links for all output artifacts (available when run is done) |
@@ -744,7 +745,8 @@ Run card status border (2px left): emerald = completed, violet = running/connect
 | GET | /api/history | Past runs from workflows_registry.db |
 | GET | /api/history/{workflow_id}/config | Original review.yaml written at run completion |
 | POST | /api/history/attach | Attach historical run for DB explorer; loads event_log from DB |
-| POST | /api/history/resume | Resume a historical run by workflow_id; re-registers it as active |
+| POST | /api/history/resume | Resume a historical run by workflow_id; body may include from_phase (e.g. phase_3_screening) to re-run from that phase onward |
+| DELETE | /api/history/{workflow_id} | Delete run directory from disk; cannot delete if run is actively in progress |
 | GET | /api/db/{run_id}/papers | Paginated + searchable papers from runtime.db |
 | GET | /api/db/{run_id}/papers-all | All papers with optional text filters (year, source, decisions) |
 | GET | /api/db/{run_id}/papers-facets | Distinct facet values (sources, decisions) for filter UI |
@@ -770,7 +772,7 @@ All events carry a `ts` field (UTC ISO-8601). `ReviewEvent` discriminated union 
 | progress | phase, current, total | Progress within a phase |
 | api_call | source, status, phase, call_type, model, paper_id, latency_ms, tokens_in, tokens_out, cost_usd, records, section_name, word_count | One LLM call completed; used for client-side cost aggregation |
 | connector_result | name, status, records, error | One search connector returned results |
-| screening_decision | paper_id, stage, decision | One paper screening outcome |
+| screening_decision | paper_id, stage, decision, confidence | One paper screening outcome; confidence (0-1) when available |
 | extraction_paper | paper_id, design, rob_judgment | One paper extracted |
 | synthesis | feasible, groups, n_studies, direction | Meta-analysis summary |
 | rate_limit_wait | tier, slots_used, limit | Rate limiter pausing |
@@ -897,6 +899,8 @@ The tool enforces these academic standards structurally -- via typed data models
 
 **LLMs write prose about what the structured data shows. They do not compute or invent the data itself.**
 
+**Benchmark reference:** `reference/benchmark-systematic-reviews-pharmacy-automation.md` summarizes 6 published systematic/scoping reviews (Jeffrey et al. 2024, Batson et al. 2020, Zheng et al. 2021, Jung et al. 2025, Osman et al. 2026, Abimanyu et al. 2025) on pharmacy automation and medication dispensing. Use for validating manuscript structure (IMRaD sections, PRISMA flow, GRADE SoF), methodology (databases, dual screening, RoB tools), and reporting completeness.
+
 ---
 
 ## 13. Implementation Status
@@ -913,10 +917,10 @@ Living section -- update as work completes.
 | Phase 6: Writing | DONE | Section writer, humanizer, citation validation, style extractor, naturalness scorer, per-section checkpoint, WritingGroundingData (includes kappa, sensitivity_results, n_studies_reporting_count, separated search sources), GRADE table injected into manuscript |
 | Phase 7: PRISMA + Viz | DONE | PRISMA diagram (prisma-flow-diagram + fallback), timeline, geographic, ROBINS-I in RoB figure, uniform artifact naming |
 | Phase 8: Export + Orchestration | DONE | Run/resume, IEEE LaTeX, BibTeX, validators, Word DOCX export (pypandoc + python-docx), submission packager, pdflatex, CLI subcommands |
-| Web UI | DONE | FastAPI SSE backend (30+ endpoints incl. screening-summary, approve-screening, living-refresh, prisma-checklist), React/Vite/TypeScript frontend, structured Setup form, run-centric sidebar, 5-tab RunView (Activity/Results/Data/Cost + Review Screening when awaiting_review), DB explorer with heuristic RoB filter, cost tracking, grouped Results panel with PRISMA checklist panel, ScreeningReviewView for HITL approval, living refresh button |
+| Web UI | DONE | FastAPI SSE backend (30+ endpoints incl. screening-summary, approve-screening, living-refresh, prisma-checklist), React/Vite/TypeScript frontend, structured Setup form, run-centric sidebar, 6-tab RunView in workflow order (Config -> Activity -> Data -> Cost -> Results, with step numbers and chevron connectors; Review Screening when awaiting_review), Config tab shows research question and timestamped review.yaml for agent reference, DB explorer with heuristic RoB filter, cost tracking, grouped Results panel with PRISMA checklist panel, ScreeningReviewView for HITL approval, living refresh button |
 | Human-in-the-Loop | DONE | HumanReviewCheckpointNode pauses run at awaiting_review status; approve-screening API resumes; frontend shows Review Screening tab with AI decisions + confidence |
 | Living Review | DONE | living_review + last_search_date in review.yaml; SearchNode skips previously-screened DOIs; POST /api/run/{id}/living-refresh creates incremental re-run |
-| Resume | DONE | Central registry, topic auto-resume, mid-phase resume, fallback scan of run_summary.json |
+| Resume | DONE | Central registry, topic auto-resume, mid-phase resume, resume-from-phase (UI modal picks phase; clears checkpoints and re-runs from that phase), fallback scan of run_summary.json |
 | Post-build improvements | DONE | display_label (single source of truth in papers table), synthesis_results table, dedup_count column, SearchConfig per-connector limits, BM25 cap with LOW_RELEVANCE_SCORE exclusions |
 | Post-build: Hybrid RAG + PRISMA fixes | DONE | Hybrid BM25+dense RAG (RRF) in WritingNode, PydanticAI Embedder replacing google-generativeai SDK, PRISMA endpoint registry fallback, duplicate Discussion heading dedup, PRISMACounts field name fixes |
 | Post-build: HyDE + Gemini listwise reranker | DONE | HyDE (hypothetical doc embeddings, Gao et al. 2022) for rich dense query vectors; Gemini Flash listwise reranker (single LLM call ranks 20 candidates to top 8); removed sentence-transformers/torch (382 MB) in favour of zero-new-dep PydanticAI calls |

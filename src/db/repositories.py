@@ -3,9 +3,13 @@
 from __future__ import annotations
 
 import json
+import logging
 from typing import Any, List, Optional, Set, Tuple
 
 import aiosqlite
+from pydantic import ValidationError
+
+_logger = logging.getLogger(__name__)
 
 
 def _row_to_candidate_paper(row: Tuple[Any, ...]) -> CandidatePaper:
@@ -418,18 +422,30 @@ class WorkflowRepository:
         return {str(row[0]) for row in rows}
 
     async def load_extraction_records(self, workflow_id: str) -> List[ExtractionRecord]:
-        """Load all extraction records for a workflow."""
+        """Load all extraction records for a workflow.
+
+        Skips malformed or legacy records (ValidationError) to allow resume of
+        old runs with schema changes.
+        """
         cursor = await self.db.execute(
             """
-            SELECT data FROM extraction_records WHERE workflow_id = ?
+            SELECT paper_id, data FROM extraction_records WHERE workflow_id = ?
             """,
             (workflow_id,),
         )
         rows = await cursor.fetchall()
         records: List[ExtractionRecord] = []
         for row in rows:
-            data_json = str(row[0])
-            records.append(ExtractionRecord.model_validate_json(data_json))
+            paper_id = str(row[0]) if row else "unknown"
+            data_json = str(row[1]) if len(row) > 1 else str(row[0])
+            try:
+                records.append(ExtractionRecord.model_validate_json(data_json))
+            except (ValidationError, Exception) as exc:
+                _logger.warning(
+                    "Skipping malformed extraction record for paper %s: %s",
+                    paper_id,
+                    exc,
+                )
         return records
 
     async def get_completed_sections(self, workflow_id: str) -> Set[str]:
@@ -667,6 +683,22 @@ class WorkflowRepository:
                 papers_processed=excluded.papers_processed
             """,
             (workflow_id, phase, status, papers_processed),
+        )
+        await self.db.commit()
+
+    async def delete_checkpoints_for_phases(
+        self, workflow_id: str, phases: list[str]
+    ) -> None:
+        """Delete checkpoints for the given phases. Used when resuming from a specific phase."""
+        if not phases:
+            return
+        placeholders = ",".join("?" * len(phases))
+        await self.db.execute(
+            f"""
+            DELETE FROM checkpoints
+            WHERE workflow_id = ? AND phase IN ({placeholders})
+            """,
+            (workflow_id, *phases),
         )
         await self.db.commit()
 

@@ -111,7 +111,11 @@ class PydanticAIClient:
             else:
                 # Other providers: ToolOutput (default) enforces schema via tool call.
                 output_type = StructuredDict(json_schema)
-            agent: Agent = Agent(model, output_type=output_type)  # type: ignore[arg-type]
+            # output_retries=3: extraction/screening schemas are complex; LLM sometimes
+            # returns malformed JSON. More retries reduce "Exceeded maximum retries" failures.
+            agent: Agent = Agent(
+                model, output_type=output_type, retries=3, output_retries=3
+            )  # type: ignore[arg-type]
             result = await _run_with_retry(agent, prompt, model_settings=settings)
             output = result.output
             if isinstance(output, dict):
@@ -143,7 +147,9 @@ class PydanticAIClient:
                 output_type = NativeOutput(StructuredDict(json_schema))
             else:
                 output_type = StructuredDict(json_schema)
-            agent = Agent(model, output_type=output_type)  # type: ignore[arg-type]
+            agent = Agent(
+                model, output_type=output_type, retries=3, output_retries=3
+            )  # type: ignore[arg-type]
             result = await _run_with_retry(agent, prompt, model_settings=settings)
             usage = result.usage()
             text = json.dumps(result.output) if isinstance(result.output, dict) else str(result.output)

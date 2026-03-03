@@ -18,10 +18,24 @@ export const PHASE_LABELS: Record<string, string> = {
   phase_2_search: "Search",
   phase_3_screening: "Screening",
   phase_4_extraction_quality: "Extraction & Quality",
+  phase_4b_embedding: "Embedding",
   phase_5_synthesis: "Synthesis",
+  phase_5b_knowledge_graph: "Knowledge Graph",
   phase_6_writing: "Writing",
   finalize: "Finalize",
 }
+
+/** Phase order for resume-from-phase (matches backend PHASE_ORDER). */
+export const RESUME_PHASE_ORDER = [
+  "phase_2_search",
+  "phase_3_screening",
+  "phase_4_extraction_quality",
+  "phase_4b_embedding",
+  "phase_5_synthesis",
+  "phase_5b_knowledge_graph",
+  "phase_6_writing",
+  "finalize",
+] as const
 
 // ---------------------------------------------------------------------------
 // Run status

@@ -1,15 +1,17 @@
 import { useEffect, useMemo, useRef, useState, Suspense, lazy } from "react"
 import { useNavigate, useLocation } from "react-router-dom"
+import { Toaster, toast } from "sonner"
 import { AlertTriangle } from "lucide-react"
 import { Sidebar } from "@/components/Sidebar"
 import type { LiveRun } from "@/components/Sidebar"
-import { formatWorkflowId } from "@/lib/format"
+import { computePhaseProgress } from "@/lib/phaseProgress"
 import { useSSEStream } from "@/hooks/useSSEStream"
 import { useCostStats } from "@/hooks/useCostStats"
 import { useBackendHealth } from "@/hooks/useBackendHealth"
 import {
   attachHistory,
   cancelRun,
+  deleteRun,
   fetchArtifacts,
   fetchHistory,
   getDefaultReviewConfig,
@@ -21,13 +23,19 @@ import {
   startRunWithMasterlist,
 } from "@/lib/api"
 import { Spinner } from "@/components/ui/feedback"
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip"
 import type { HistoryEntry, RunRequest, RunResponse, StoredApiKeys } from "@/lib/api"
 import { RunView } from "@/views/RunView"
 import type { RunTab, SelectedRun } from "@/views/RunView"
 
 const SetupView = lazy(() => import("@/views/SetupView").then((m) => ({ default: m.SetupView })))
 
-const VALID_TABS = new Set<RunTab>(["activity", "results", "database", "cost", "review-screening"])
+const VALID_TABS = new Set<RunTab>(["activity", "results", "database", "cost", "config", "review-screening"])
 
 function parseRunUrl(pathname: string): { workflowId: string; tab: RunTab } | null {
   const match = pathname.match(/^\/run\/([^/]+)(?:\/([^/]+))?$/)
@@ -75,7 +83,7 @@ export default function App() {
   // Track the last workflowId we pushed to the URL (avoid duplicate navigations).
   const liveRunNavigatedRef = useRef<string | null>(null)
 
-  const { events, status, error, abort, reset } = useSSEStream(liveRunId, liveWorkflowId)
+  const { events, status, abort, reset } = useSSEStream(liveRunId, liveWorkflowId)
   const costStats = useCostStats(events)
   const { isOnline } = useBackendHealth()
 
@@ -104,6 +112,13 @@ export default function App() {
   const viewEvents = isViewingLiveRun ? events : []
 
   // Sidebar live run descriptor
+  const livePapersFound = events
+    .filter((e) => e.type === "connector_result" && e.status === "success")
+    .reduce((acc, e) => acc + (e.type === "connector_result" ? (e.records ?? 0) : 0), 0)
+  const liveIncluded = events.filter(
+    (e) => e.type === "screening_decision" && e.decision === "include",
+  ).length
+
   const liveRunForSidebar: LiveRun | null = liveRunId
     ? {
         runId: liveRunId,
@@ -111,6 +126,10 @@ export default function App() {
         status,
         cost: costStats.total_cost,
         workflowId: liveWorkflowId,
+        phaseProgress: computePhaseProgress(events),
+        startedAt: liveStartedAt?.toISOString() ?? null,
+        papersFound: livePapersFound > 0 ? livePapersFound : null,
+        papersIncluded: liveIncluded > 0 ? liveIncluded : null,
       }
     : null
 
@@ -441,9 +460,17 @@ export default function App() {
     navigate(`/run/${workflowId}/activity`, { replace: true })
   }
 
-  async function handleSidebarResume(entry: HistoryEntry) {
-    const res = await resumeRun(entry)
+  async function handleSidebarResume(entry: HistoryEntry, fromPhase?: string) {
+    const res = await resumeRun(entry, fromPhase)
     handleResumeRun(res, entry.workflow_id)
+  }
+
+  async function handleSidebarDelete(workflowId: string) {
+    await deleteRun(workflowId)
+    if (selectedRun?.workflowId === workflowId) {
+      setSelectedRun(null)
+      navigate("/", { replace: true })
+    }
   }
 
   function handleSidebarWidthChange(w: number) {
@@ -488,7 +515,7 @@ export default function App() {
       if (s === "stale") return "error"
       if (s === "failed" || s === "error") return "error"
       if (s === "cancelled" || s === "canceled") return "cancelled"
-      if (s === "interrupted") return "error"
+      if (s === "interrupted") return "cancelled"
       return "done"
     })()
 
@@ -516,8 +543,19 @@ export default function App() {
     ? activeRunTab.charAt(0).toUpperCase() + activeRunTab.slice(1)
     : "New Review"
 
+  async function handleCopyTopic() {
+    if (!breadcrumbTopic) return
+    try {
+      await navigator.clipboard.writeText(breadcrumbTopic)
+      toast.success("Copied!")
+    } catch {
+      toast.error("Failed to copy")
+    }
+  }
+
   return (
     <div className="flex h-screen bg-background text-zinc-100 overflow-hidden">
+      <Toaster position="top-center" richColors closeButton />
       <Sidebar
         liveRun={liveRunForSidebar}
         selectedWorkflowId={selectedRun?.workflowId ?? null}
@@ -526,6 +564,8 @@ export default function App() {
         onSelectHistory={(entry) => void handleSelectHistory(entry)}
         onNewReview={handleNewReview}
         onResume={handleSidebarResume}
+        onDelete={handleSidebarDelete}
+        onGoHome={handleGoHome}
         collapsed={sidebarCollapsed}
         onToggle={() => setSidebarCollapsed((v) => !v)}
         width={sidebarWidth}
@@ -539,71 +579,41 @@ export default function App() {
         {/* Top bar */}
         <header className="sticky top-0 z-10 bg-background/80 backdrop-blur-sm border-b border-zinc-800 h-14 flex items-center px-6 gap-4 shrink-0">
           {/* Breadcrumb */}
-          <div className="flex items-center gap-1.5 text-sm flex-1 min-w-0">
-            <button
-              onClick={handleGoHome}
-              className="text-zinc-600 font-medium shrink-0 hover:text-zinc-400 transition-colors cursor-pointer"
-            >
-              LitReview
-            </button>
-            {breadcrumbTopic && (
-              <>
-                <span className="text-zinc-700 shrink-0">/</span>
-                <span
-                  className="text-zinc-500 font-medium truncate max-w-[220px] shrink-0"
-                  title={breadcrumbTopic}
-                >
-                  {breadcrumbTopic.length > 45
-                    ? breadcrumbTopic.slice(0, 45) + "..."
-                    : breadcrumbTopic}
-                </span>
-              </>
-            )}
-            <span className="text-zinc-700 shrink-0">/</span>
-            <span className="text-zinc-300 font-medium truncate">{breadcrumbTab}</span>
-          </div>
-
-          {/* Workflow ID chip */}
-          {selectedRun?.workflowId && (
-            <span className="font-mono text-[11px] text-zinc-600 hidden sm:block shrink-0">
-              {formatWorkflowId(selectedRun.workflowId)}
-            </span>
-          )}
-
-          {/* Live cost pill */}
-          {isViewingLiveRun && costStats.total_cost > 0 && (
-            <button
-              onClick={() => handleTabChange("cost")}
-              className="flex items-center gap-1.5 bg-emerald-500/10 border border-emerald-500/20 rounded-full px-3 py-1 hover:bg-emerald-500/15 transition-colors"
-            >
-              <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
-              <span className="text-xs font-mono font-medium text-emerald-400">
-                ${costStats.total_cost.toFixed(4)}
-              </span>
-            </button>
-          )}
-
-          {/* Status badge */}
-          {isViewingLiveRun && isRunning && (
-            <div className="flex items-center gap-1.5 text-xs text-violet-400">
-              <span className="relative flex h-2 w-2">
-                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-violet-400 opacity-75" />
-                <span className="relative inline-flex rounded-full h-2 w-2 bg-violet-500" />
-              </span>
-              Running
+          <TooltipProvider delayDuration={0}>
+            <div className="flex items-center gap-1.5 text-sm flex-1 min-w-0">
+              <button
+                onClick={handleGoHome}
+                className="text-zinc-600 font-medium shrink-0 hover:text-zinc-400 transition-colors cursor-pointer"
+              >
+                LitReview
+              </button>
+              {breadcrumbTopic && (
+                <>
+                  <span className="text-zinc-700 shrink-0">/</span>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <button
+                        onClick={() => void handleCopyTopic()}
+                        className="text-zinc-500 font-medium truncate max-w-[220px] shrink-0 text-left hover:text-zinc-300 transition-colors cursor-pointer"
+                      >
+                        {breadcrumbTopic.length > 45
+                          ? breadcrumbTopic.slice(0, 45) + "..."
+                          : breadcrumbTopic}
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent
+                      side="bottom"
+                      className="max-w-md break-words bg-zinc-800 border-zinc-700 text-zinc-200"
+                    >
+                      {breadcrumbTopic}
+                    </TooltipContent>
+                  </Tooltip>
+                </>
+              )}
+              <span className="text-zinc-700 shrink-0">/</span>
+              <span className="text-zinc-300 font-medium truncate">{breadcrumbTab}</span>
             </div>
-          )}
-          {isViewingLiveRun && status === "done" && (
-            <span className="text-xs text-emerald-400 font-medium">Complete</span>
-          )}
-          {isViewingLiveRun && status === "error" && (
-            <span className="text-xs text-red-400 font-medium" title={error ?? ""}>
-              {error?.includes("Backend") ? "Backend offline" : "Error"}
-            </span>
-          )}
-          {isViewingLiveRun && status === "cancelled" && (
-            <span className="text-xs text-amber-400 font-medium">Cancelled</span>
-          )}
+          </TooltipProvider>
         </header>
 
         {/* Backend offline banner */}
