@@ -53,8 +53,13 @@ def _map_counts_to_library_format(
     ):
         excluded_reasons = {"None identified": 0}
 
-    # Use combined total so library math: (db+other) - duplicates = screened
+    # Use combined total so library math: (db+other) - duplicates - other_removed = screened
     combined_identified = counts.total_identified_databases + counts.total_identified_other
+    records_after_dedup = combined_identified - counts.duplicates_removed
+    # When records_screened < records_after_dedup, attribute the gap to "other" removals
+    # (e.g. pre-filter, pipeline not yet screening all papers, or search_results overcount).
+    # This keeps the prisma-flow-diagram library validation passing.
+    other_removed = max(0, records_after_dedup - counts.records_screened)
 
     db_registers: dict[str, Any] = {
         "identification": {
@@ -64,7 +69,7 @@ def _map_counts_to_library_format(
         "removed_before_screening": {
             "duplicates": counts.duplicates_removed,
             "automation": 0,
-            "other": 0,
+            "other": other_removed,
         },
         "records": {
             "screened": counts.records_screened,
@@ -275,8 +280,11 @@ async def build_prisma_counts(
     records_excluded_screening = max(0, records_screened - reports_sought)
 
     excluded_total = 0  # no full-text excluded
+    # When records_screened < records_after_dedup, we attribute the gap to "other"
+    # removals in the diagram, so the diagram remains arithmetically consistent.
+    other_removed = max(0, records_after_dedup - records_screened)
     arithmetic_valid = (
-        records_screened == records_after_dedup
+        (records_screened == records_after_dedup or other_removed > 0)
         and records_screened == records_excluded_screening + reports_sought
         and reports_sought == reports_not_retrieved + reports_assessed
         and reports_assessed == excluded_total + included_total

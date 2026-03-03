@@ -262,6 +262,66 @@ class DualReviewerScreener:
 
         return False
 
+    async def screen_batch_for_calibration(
+        self,
+        workflow_id: str,
+        papers: Sequence[CandidatePaper],
+    ) -> list:
+        """Screen papers for calibration, always running both reviewers.
+
+        Unlike screen_batch, this method bypasses the fast-path (single-reviewer
+        shortcut) to ensure both reviewers produce a decision for every paper.
+        Returns list[DualScreeningResult] so calibrate_threshold can compute
+        Cohen's kappa correctly.
+
+        Uses an in-memory DB no-op repository to avoid polluting the real
+        workflow's decision log with calibration passes.
+        """
+        from src.models import DualScreeningResult
+
+        results: list[DualScreeningResult] = []
+        sem = asyncio.Semaphore(self.settings.screening.screening_concurrency)
+
+        async def _calibrate_one(paper: CandidatePaper) -> DualScreeningResult | None:
+            async with sem:
+                await self.repository.save_paper(paper)
+                # Skip heuristic pre-exclusions: calibration needs both reviewers.
+                reviewer_a = await self._run_reviewer(
+                    workflow_id=workflow_id,
+                    paper=paper,
+                    stage="title_abstract",
+                    full_text=None,
+                    spec=ReviewerSpec(
+                        agent_name="screening_reviewer_a",
+                        reviewer_type=ReviewerType.REVIEWER_A,
+                    ),
+                )
+                reviewer_b = await self._run_reviewer(
+                    workflow_id=workflow_id,
+                    paper=paper,
+                    stage="title_abstract",
+                    full_text=None,
+                    spec=ReviewerSpec(
+                        agent_name="screening_reviewer_b",
+                        reviewer_type=ReviewerType.REVIEWER_B,
+                    ),
+                    other_reviewer_decision=reviewer_a.decision,
+                )
+                agreement = reviewer_a.decision == reviewer_b.decision
+                return DualScreeningResult(
+                    paper_id=paper.paper_id,
+                    reviewer_a=reviewer_a,
+                    reviewer_b=reviewer_b,
+                    agreement=agreement,
+                    final_decision=reviewer_a.decision if agreement else reviewer_b.decision,
+                )
+
+        raw = await asyncio.gather(*[_calibrate_one(p) for p in papers], return_exceptions=True)
+        for item in raw:
+            if isinstance(item, DualScreeningResult):
+                results.append(item)
+        return results
+
     async def screen_batch(
         self,
         workflow_id: str,

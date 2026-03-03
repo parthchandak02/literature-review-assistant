@@ -19,6 +19,8 @@ import {
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
+import { PageSection } from "@/components/ui/section"
+import { YamlEditor } from "@/components/YamlEditor"
 import {
   fetchHistory,
   fetchRunConfig,
@@ -58,10 +60,10 @@ const GEN_STEPS: { key: string; label: string; detail: string }[] = [
 
 function GeneratingScreen({ activeStepKey }: { activeStepKey: string }) {
   const activeIdx = GEN_STEPS.findIndex((s) => s.key === activeStepKey)
-  const activeStep = activeIdx === -1 ? 0 : activeIdx
+  const activeStep = activeIdx === -1 ? GEN_STEPS.length - 1 : activeIdx
 
   return (
-    <div className="flex flex-col items-center py-8 gap-6">
+    <div className="flex flex-col items-center py-8 gap-6 max-w-md mx-auto w-full">
       <div className="relative flex items-center justify-center">
         <div className="absolute w-16 h-16 rounded-full bg-violet-500/10 animate-ping" />
         <div className="absolute w-12 h-12 rounded-full bg-violet-500/15 animate-pulse" />
@@ -82,12 +84,12 @@ function GeneratingScreen({ activeStepKey }: { activeStepKey: string }) {
           return (
             <div
               key={step.key}
-              className={`flex items-start gap-3 px-3 py-2.5 rounded-lg border transition-all duration-500 ${
+              className={`flex items-start gap-3 px-3 py-2.5 rounded-xl border transition-all duration-500 ${
                 done
                   ? "bg-emerald-500/8 border-emerald-500/20"
                   : active
                   ? "bg-violet-500/10 border-violet-500/30"
-                  : "bg-zinc-900/40 border-zinc-800/60"
+                  : "bg-zinc-900/40 border-zinc-800"
               }`}
             >
               <div className="flex-shrink-0 mt-0.5">
@@ -143,9 +145,11 @@ function GeneratingScreen({ activeStepKey }: { activeStepKey: string }) {
 interface ApiKeysProps {
   keys: StoredApiKeys
   onChange: (k: StoredApiKeys) => void
+  /** When true, render only form content (no card wrapper); parent uses PageSection. */
+  embedded?: boolean
 }
 
-function ApiKeysSection({ keys, onChange }: ApiKeysProps) {
+function ApiKeysSection({ keys, onChange, embedded }: ApiKeysProps) {
   const [expanded, setExpanded] = useState(false)
   const [showGemini, setShowGemini] = useState(false)
 
@@ -163,8 +167,66 @@ function ApiKeysSection({ keys, onChange }: ApiKeysProps) {
   const primaryField = fields[0]
   const extraFields = fields.slice(1)
 
+  const formContent = (
+    <div className={embedded ? "space-y-3" : "px-4 py-4 space-y-3"}>
+      {/* Gemini key -- always shown */}
+      <div>
+        <label className="block text-xs font-medium text-zinc-400 mb-1.5">
+          {primaryField.label} <span className="text-red-500">*</span>
+        </label>
+        <div className="relative">
+          <Input
+            type={showGemini ? "text" : "password"}
+            value={keys.gemini}
+            onChange={(e) => onChange({ ...keys, gemini: e.target.value })}
+            placeholder={primaryField.placeholder}
+            autoComplete="off"
+            className="pr-9 h-9 text-xs bg-zinc-950 border-zinc-700 text-zinc-200 placeholder:text-zinc-600 focus-visible:ring-violet-500/50"
+          />
+          <button
+            type="button"
+            onClick={() => setShowGemini((v) => !v)}
+            className="absolute right-2.5 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-zinc-300 transition-colors"
+          >
+            {showGemini ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+          </button>
+        </div>
+      </div>
+
+      {/* Optional keys toggle */}
+      <button
+        type="button"
+        onClick={() => setExpanded((v) => !v)}
+        className="flex items-center gap-1.5 text-xs text-zinc-500 hover:text-zinc-300 transition-colors"
+      >
+        <ChevronDown className={`h-3.5 w-3.5 transition-transform ${expanded ? "rotate-180" : ""}`} />
+        {expanded ? "Hide optional API keys" : "Add optional API keys (OpenAlex, PubMed, IEEE...)"}
+      </button>
+
+      {expanded && extraFields.map((f) => (
+        <div key={f.id}>
+          <label className="block text-xs font-medium text-zinc-500 mb-1">
+            {f.label}
+          </label>
+          <Input
+            type="text"
+            value={keys[f.id]}
+            onChange={(e) => onChange({ ...keys, [f.id]: e.target.value })}
+            placeholder={f.placeholder}
+            autoComplete="off"
+            className="h-9 text-xs bg-zinc-950 border-zinc-700 text-zinc-200 placeholder:text-zinc-600 focus-visible:ring-violet-500/50"
+          />
+        </div>
+      ))}
+    </div>
+  )
+
+  if (embedded) {
+    return formContent
+  }
+
   return (
-    <div className="rounded-xl border border-zinc-800 bg-zinc-900/50 overflow-hidden">
+    <div className="card-surface overflow-hidden">
       <div className="flex items-center gap-2 px-4 py-3 border-b border-zinc-800">
         <Key className="h-3.5 w-3.5 text-zinc-500 shrink-0" />
         <span className="text-xs font-semibold text-zinc-300 flex-1">API Keys</span>
@@ -172,58 +234,7 @@ function ApiKeysSection({ keys, onChange }: ApiKeysProps) {
           <span className="text-xs text-red-400 font-medium">Gemini key required</span>
         )}
       </div>
-
-      <div className="px-4 py-4 space-y-3">
-        {/* Gemini key -- always shown */}
-        <div>
-          <label className="block text-xs font-medium text-zinc-400 mb-1.5">
-            {primaryField.label} <span className="text-red-500">*</span>
-          </label>
-          <div className="relative">
-            <Input
-              type={showGemini ? "text" : "password"}
-              value={keys.gemini}
-              onChange={(e) => onChange({ ...keys, gemini: e.target.value })}
-              placeholder={primaryField.placeholder}
-              autoComplete="off"
-              className="pr-9 h-9 text-xs bg-zinc-950 border-zinc-700 text-zinc-200 placeholder:text-zinc-600 focus-visible:ring-violet-500/50"
-            />
-            <button
-              type="button"
-              onClick={() => setShowGemini((v) => !v)}
-              className="absolute right-2.5 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-zinc-300 transition-colors"
-            >
-              {showGemini ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
-            </button>
-          </div>
-        </div>
-
-        {/* Optional keys toggle */}
-        <button
-          type="button"
-          onClick={() => setExpanded((v) => !v)}
-          className="flex items-center gap-1.5 text-xs text-zinc-500 hover:text-zinc-300 transition-colors"
-        >
-          <ChevronDown className={`h-3.5 w-3.5 transition-transform ${expanded ? "rotate-180" : ""}`} />
-          {expanded ? "Hide optional API keys" : "Add optional API keys (OpenAlex, PubMed, IEEE...)"}
-        </button>
-
-        {expanded && extraFields.map((f) => (
-          <div key={f.id}>
-            <label className="block text-xs font-medium text-zinc-500 mb-1">
-              {f.label}
-            </label>
-            <Input
-              type="text"
-              value={keys[f.id]}
-              onChange={(e) => onChange({ ...keys, [f.id]: e.target.value })}
-              placeholder={f.placeholder}
-              autoComplete="off"
-              className="h-9 text-xs bg-zinc-950 border-zinc-700 text-zinc-200 placeholder:text-zinc-600 focus-visible:ring-violet-500/50"
-            />
-          </div>
-        ))}
-      </div>
+      {formContent}
     </div>
   )
 }
@@ -827,21 +838,31 @@ function ConfigReviewStage({
   const isMasterlist = !!csvFile
 
   return (
-    <div className="flex flex-col gap-5">
-      {/* Header */}
-      <div className="flex items-center gap-3">
-        <button
-          type="button"
-          onClick={onBack}
-          className="flex items-center gap-1 text-xs text-zinc-500 hover:text-zinc-300 transition-colors"
-        >
-          <ChevronLeft className="h-3.5 w-3.5" />
-          Back
-        </button>
-        <div className="flex-1">
+    <div className="flex flex-col gap-6">
+      {/* Breadcrumb + Back */}
+      <div className="flex flex-col gap-2">
+        <div className="flex items-center gap-2">
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            onClick={onBack}
+            className="text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800/50 shrink-0 -ml-2"
+          >
+            <ChevronLeft className="h-3.5 w-3.5" />
+            Back
+          </Button>
+          <span className="text-zinc-600">|</span>
+          <span className="text-xs text-zinc-500">
+            <span className="text-emerald-500/80 font-medium">1. Question</span>
+            <span className="text-zinc-600 mx-1.5">/</span>
+            <span className="text-violet-300 font-medium">2. Config</span>
+          </span>
+        </div>
+        <div>
           <h2 className="text-base font-semibold text-zinc-100">Review Configuration</h2>
           {question && (
-            <p className="text-xs text-zinc-500 mt-0.5 leading-relaxed truncate max-w-md" title={question}>
+            <p className="text-xs text-zinc-500 mt-0.5 leading-relaxed truncate max-w-xl" title={question}>
               Generated for: {question}
             </p>
           )}
@@ -878,28 +899,30 @@ function ConfigReviewStage({
       )}
 
       {/* YAML editor */}
-      <div>
-        <div className="flex items-center gap-2 mb-2">
-          <FileCode2 className="h-3.5 w-3.5 text-zinc-500" />
-          <label className="label-caps font-semibold">
-            Review Config (YAML)
-          </label>
-        </div>
-        <Textarea
+      <PageSection
+        icon={FileCode2}
+        title="Review Config (YAML)"
+        description="Edit any field before launching"
+      >
+        <YamlEditor
           value={yaml}
-          onChange={(e) => onYamlChange(e.target.value)}
-          rows={16}
+          onChange={onYamlChange}
           placeholder="Paste your review.yaml content here..."
-          className="resize-none text-xs font-mono bg-zinc-950 border-zinc-800 text-zinc-300 placeholder:text-zinc-600 focus-visible:ring-violet-500/50 leading-relaxed"
-          spellCheck={false}
+          rows={16}
         />
-        <p className="text-xs text-zinc-600 mt-1.5">
-          Edit any field before launching. The YAML drives all phases of the review.
+        <p className="label-muted mt-1.5">
+          The YAML drives all phases of the review.
         </p>
-      </div>
+      </PageSection>
 
       {/* API Keys */}
-      <ApiKeysSection keys={keys} onChange={setKeys} />
+      <PageSection
+        icon={Key}
+        title="API Keys"
+        description={!keys.gemini ? "Gemini key required" : undefined}
+      >
+        <ApiKeysSection keys={keys} onChange={setKeys} embedded />
+      </PageSection>
 
       {/* Error */}
       {error && <FetchError message={error} onRetry={() => setError(null)} />}
@@ -981,7 +1004,7 @@ export function SetupView({ defaultReviewYaml, onSubmit, onSubmitWithCsv, disabl
   }
 
   return (
-    <div className="max-w-xl mx-auto pt-4 pb-16">
+    <div className="max-w-xl mx-auto pt-6 pb-16 px-4">
       {stage === "question" ? (
         <QuestionStage
           onGenerated={handleGenerated}

@@ -744,14 +744,16 @@ class ScreeningNode(BaseNode[ReviewState]):
                     sample_papers: list[CandidatePaper],  # noqa: F821
                     threshold: float,
                 ) -> list[DualScreeningResult]:  # noqa: F821
-                    # Temporarily override threshold on screener for calibration pass.
+                    # Use screen_batch_for_calibration so both reviewers always run.
+                    # This returns DualScreeningResult objects with reviewer_a and
+                    # reviewer_b populated, which compute_cohens_kappa requires.
+                    # Temporarily override threshold to reflect the bisection attempt.
                     original_include = getattr(screener.settings.screening, "stage1_include_threshold", 0.85)
                     try:
                         screener.settings.screening.stage1_include_threshold = threshold
                         screener.settings.screening.stage1_exclude_threshold = max(0.0, threshold - 0.05)
-                        results = await screener.screen_batch(
+                        results = await screener.screen_batch_for_calibration(
                             workflow_id=f"{state.workflow_id}_calib",
-                            stage="calibration",
                             papers=sample_papers,
                         )
                         return list(results)

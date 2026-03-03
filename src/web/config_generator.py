@@ -28,11 +28,20 @@ import datetime
 import json
 import logging
 from collections.abc import Callable
+from pathlib import Path
+from typing import Any
 
+import yaml
 from pydantic import BaseModel, Field
 from pydantic_ai import Agent, NativeOutput, StructuredDict, WebFetchTool, WebSearchTool
 
+from src.models import ReviewConfig
+
 logger = logging.getLogger(__name__)
+
+# Lightweight defaults struct: extracted from review.yaml with safe fallbacks.
+# Used when full ReviewConfig validation fails (schema drift, partial YAML).
+_DefaultConfigDict = dict[str, Any]
 
 # Fallback model used only when settings.yaml cannot be loaded.
 # In production the model is resolved from agents.search in settings.yaml.
@@ -72,6 +81,119 @@ _DEFAULT_SECTIONS = [
     "discussion",
     "conclusion",
 ]
+
+
+def _extract_defaults_from_review(review: ReviewConfig) -> _DefaultConfigDict:
+    """Convert ReviewConfig to a dict for safe, schema-agnostic access."""
+    return {
+        "target_databases": list(review.target_databases),
+        "target_sections": list(review.target_sections),
+        "date_range_start": review.date_range_start,
+        "date_range_end": review.date_range_end,
+        "living_review": review.living_review,
+        "last_search_date": review.last_search_date,
+        "search_limitation": review.search_limitation,
+        "protocol": {
+            "registered": review.protocol.registered,
+            "registry": review.protocol.registry,
+            "registration_number": review.protocol.registration_number,
+            "url": review.protocol.url,
+        },
+        "funding": {
+            "source": review.funding.source,
+            "grant_number": review.funding.grant_number,
+            "funder": review.funding.funder,
+        },
+        "conflicts_of_interest": review.conflicts_of_interest,
+        "search_overrides": dict(review.search_overrides) if review.search_overrides else None,
+    }
+
+
+def _extract_defaults_from_raw(raw: dict[str, Any]) -> _DefaultConfigDict:
+    """Extract structural fields from raw YAML dict. Tolerates missing/odd types."""
+
+    def _list(val: Any, default: list[str]) -> list[str]:
+        if not isinstance(val, list):
+            return default
+        out = [str(x) for x in val if x]
+        return out if out else default
+
+    def _int(val: Any, default: int) -> int:
+        if isinstance(val, int):
+            return val
+        try:
+            return int(val) if val is not None else default
+        except (TypeError, ValueError):
+            return default
+
+    def _str(val: Any, default: str = "") -> str:
+        return str(val).strip() if val is not None and str(val).strip() else default
+
+    def _dict(val: Any) -> dict[str, str] | None:
+        if not isinstance(val, dict):
+            return None
+        return {str(k): str(v) for k, v in val.items() if v}
+
+    protocol_raw = raw.get("protocol") or {}
+    funding_raw = raw.get("funding") or {}
+
+    return {
+        "target_databases": _list(raw.get("target_databases"), _DEFAULT_DATABASES),
+        "target_sections": _list(raw.get("target_sections"), _DEFAULT_SECTIONS),
+        "date_range_start": _int(raw.get("date_range_start"), _DEFAULT_DATE_START),
+        "date_range_end": _int(raw.get("date_range_end"), _DEFAULT_DATE_END),
+        "living_review": bool(raw.get("living_review", False)),
+        "last_search_date": raw.get("last_search_date") if raw.get("last_search_date") else None,
+        "search_limitation": _str(raw.get("search_limitation")) or None,
+        "protocol": {
+            "registered": bool(protocol_raw.get("registered", False)),
+            "registry": _str(protocol_raw.get("registry"), "PROSPERO"),
+            "registration_number": _str(protocol_raw.get("registration_number")),
+            "url": _str(protocol_raw.get("url")),
+        },
+        "funding": {
+            "source": _str(funding_raw.get("source"), "No funding received"),
+            "grant_number": _str(funding_raw.get("grant_number")),
+            "funder": _str(funding_raw.get("funder")),
+        },
+        "conflicts_of_interest": _str(
+            raw.get("conflicts_of_interest"), "The authors declare no conflicts of interest."
+        ),
+        "search_overrides": _dict(raw.get("search_overrides")),
+    }
+
+
+def _load_default_config(review_path: str = "config/review.yaml") -> _DefaultConfigDict | None:
+    """Load config/review.yaml as source of truth for structural settings.
+
+    Tries full ReviewConfig validation first. If that fails (schema drift,
+    new required fields, etc.), falls back to raw YAML extraction with
+    safe defaults. Returns None only if the file does not exist.
+    """
+    path = Path(review_path)
+    if not path.exists():
+        return None
+
+    # Path 1: full validation
+    try:
+        from src.config.loader import load_configs
+
+        review, _ = load_configs(review_path=review_path, settings_path="config/settings.yaml")
+        return _extract_defaults_from_review(review)
+    except Exception as exc:
+        logger.debug("Full config validation failed, trying raw YAML: %s", exc)
+
+    # Path 2: raw YAML extraction (schema-agnostic)
+    try:
+        with path.open("r", encoding="utf-8") as f:
+            raw = yaml.safe_load(f)
+        if not isinstance(raw, dict):
+            logger.warning("review.yaml root is not a dict, using hardcoded defaults")
+            return None
+        return _extract_defaults_from_raw(raw)
+    except Exception as exc:
+        logger.warning("Could not load default config from %s: %s", review_path, exc)
+        return None
 
 
 # ---------------------------------------------------------------------------
@@ -121,23 +243,51 @@ def _yaml_str(s: str) -> str:
     return '"' + s.replace("\\", "\\\\").replace('"', '\\"') + '"'
 
 
-def _build_yaml(cfg: _GeneratedConfig) -> str:
+def _build_yaml(cfg: _GeneratedConfig, defaults: _DefaultConfigDict | None = None) -> str:
+    """Build YAML from LLM output, using defaults for structural settings when provided."""
+    if defaults is not None:
+        date_start = defaults.get("date_range_start", _DEFAULT_DATE_START)
+        date_end = defaults.get("date_range_end", _DEFAULT_DATE_END)
+        databases = defaults.get("target_databases") or _DEFAULT_DATABASES
+        sections = defaults.get("target_sections") or _DEFAULT_SECTIONS
+    else:
+        date_start = _DEFAULT_DATE_START
+        date_end = _DEFAULT_DATE_END
+        databases = _DEFAULT_DATABASES
+        sections = _DEFAULT_SECTIONS
+
+    # Ensure lists are non-empty (defensive)
+    if not databases:
+        databases = _DEFAULT_DATABASES
+    if not sections:
+        sections = _DEFAULT_SECTIONS
+
     lines: list[str] = []
     lines.append(f"research_question: {_yaml_str(cfg.research_question)}")
     lines.append(f"review_type: {_yaml_str(cfg.review_type)}")
     lines.append("")
+
+    if defaults is not None:
+        lines.append("# Living review settings (optional)")
+        lines.append("# Set living_review: true to enable incremental updates.")
+        lines.append("# last_search_date is updated automatically after each run.")
+        lines.append(f"living_review: {str(defaults.get('living_review', False)).lower()}")
+        last_date = defaults.get("last_search_date")
+        lines.append(f"last_search_date: {last_date!r}" if last_date else "last_search_date: null")
+        lines.append("")
+
     lines.append("pico:")
     lines.append(f"  population: {_yaml_str(cfg.pico.population)}")
     lines.append(f"  intervention: {_yaml_str(cfg.pico.intervention)}")
     lines.append(f"  comparison: {_yaml_str(cfg.pico.comparison)}")
     lines.append(f"  outcome: {_yaml_str(cfg.pico.outcome)}")
     lines.append("")
-    lines.append(f"domain: {_yaml_str(cfg.domain)}")
-    lines.append(f"scope: {_yaml_str(cfg.scope)}")
-    lines.append("")
     lines.append("keywords:")
     for kw in cfg.keywords:
         lines.append(f"  - {_yaml_str(kw)}")
+    lines.append("")
+    lines.append(f"domain: {_yaml_str(cfg.domain)}")
+    lines.append(f"scope: {_yaml_str(cfg.scope)}")
     lines.append("")
     lines.append("inclusion_criteria:")
     for c in cfg.inclusion_criteria:
@@ -147,16 +297,51 @@ def _build_yaml(cfg: _GeneratedConfig) -> str:
     for c in cfg.exclusion_criteria:
         lines.append(f"  - {_yaml_str(c)}")
     lines.append("")
-    lines.append(f"date_range_start: {_DEFAULT_DATE_START}")
-    lines.append(f"date_range_end: {_DEFAULT_DATE_END}")
+    lines.append(f"date_range_start: {date_start}")
+    lines.append(f"date_range_end: {date_end}")
     lines.append("")
+
+    search_limitation = defaults.get("search_limitation") if defaults else None
+    if search_limitation:
+        lines.append("# Research limitation: institutional access, etc.")
+        lines.append(f"search_limitation: {_yaml_str(search_limitation)}")
+        lines.append("")
+
     lines.append("target_databases:")
-    for db in _DEFAULT_DATABASES:
+    for db in databases:
         lines.append(f"  - {db}")
     lines.append("")
     lines.append("target_sections:")
-    for s in _DEFAULT_SECTIONS:
+    for s in sections:
         lines.append(f"  - {s}")
+    lines.append("")
+
+    if defaults is not None:
+        protocol = defaults.get("protocol") or {}
+        funding = defaults.get("funding") or {}
+        lines.append("protocol:")
+        lines.append(f"  registered: {str(protocol.get('registered', False)).lower()}")
+        lines.append(f"  registry: {_yaml_str(protocol.get('registry', 'PROSPERO'))}")
+        lines.append(f"  registration_number: {_yaml_str(protocol.get('registration_number', ''))}")
+        lines.append(f"  url: {_yaml_str(protocol.get('url', ''))}")
+        lines.append("")
+        lines.append("funding:")
+        lines.append(f"  source: {_yaml_str(funding.get('source', 'No funding received'))}")
+        lines.append(f"  grant_number: {_yaml_str(funding.get('grant_number', ''))}")
+        lines.append(f"  funder: {_yaml_str(funding.get('funder', ''))}")
+        lines.append("")
+        lines.append(
+            f"conflicts_of_interest: {_yaml_str(defaults.get('conflicts_of_interest', 'The authors declare no conflicts of interest.'))}"
+        )
+        search_overrides = defaults.get("search_overrides")
+        if search_overrides and isinstance(search_overrides, dict):
+            lines.append("")
+            lines.append("# Optional: override auto-generated queries per database. Omit a database to use default.")
+            lines.append("search_overrides:")
+            for key, val in search_overrides.items():
+                if isinstance(val, str):
+                    lines.append(f"  {key}: {_yaml_str(val)}")
+
     return "\n".join(lines)
 
 
@@ -218,6 +403,15 @@ _STRUCTURE_PROMPT = (
     "- Generate 6-8 inclusion criteria as complete, specific sentences covering:\n"
     "  study type, setting, intervention specificity, outcome reporting, language, and\n"
     "  publication type.\n"
+    "  IMPORTANT -- recall vs. precision balance: if the research question targets a\n"
+    "  narrow or niche setting (e.g. 'university health center pharmacy'), broaden the\n"
+    "  setting criterion to capture related literature that addresses the same\n"
+    "  intervention and outcomes in adjacent settings (e.g. 'outpatient or ambulatory\n"
+    "  pharmacy', 'community pharmacy', or 'non-inpatient pharmacy settings'). Use\n"
+    "  exclusion criteria to filter out clearly irrelevant contexts (e.g. inpatient\n"
+    "  hospital wards) rather than restricting inclusion to a single institution type.\n"
+    "  A systematic review with zero included studies is less useful than one with a\n"
+    "  broader but well-bounded scope.\n"
     "- Generate 5-7 exclusion criteria as complete, specific sentences. Include\n"
     "  adjacent technologies identified in the research brief that should be excluded.\n"
     "- Generate a one-line domain description and a 2-4 sentence scope statement.\n"
@@ -317,4 +511,5 @@ async def generate_config_yaml(
             raise RuntimeError(f"Generated config failed schema validation: {exc}") from exc
 
     parsed = parsed.model_copy(update={"review_type": "systematic"})
-    return _build_yaml(parsed)
+    defaults = _load_default_config()
+    return _build_yaml(parsed, defaults)

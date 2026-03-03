@@ -51,15 +51,18 @@ def build_database_query(config: ReviewConfig, database_name: str) -> str:
         return short_query
     if name == "scopus":
         # Use Scopus field-code syntax: TITLE-ABS-KEY covers title, abstract, and author keywords.
-        # Take up to 8 keywords to keep the query within Scopus length limits.
-        kw_terms = (
-            " OR ".join(f'"{k}"' for k in config.keywords[:8]) if config.keywords else f'"{config.pico.intervention}"'
-        )
+        # Split keywords into two groups to build two AND-joined TITLE-ABS-KEY clauses.
+        # Using full PICO strings as phrases produces 0 results because Scopus phrase
+        # matching is strict and long PICO sentences never appear verbatim in papers.
+        kws = config.keywords or []
+        kw_part1 = " OR ".join(f'"{k}"' for k in kws[:8]) if kws else f'"{config.pico.intervention[:60]}"'
+        # Second clause: use keywords[8:16] for broader coverage; fall back to first group.
+        kw_part2 = " OR ".join(f'"{k}"' for k in kws[8:16]) if len(kws) > 8 else kw_part1
         date_s = config.date_range_start or 2009
         date_e = config.date_range_end or 2027
         return (
-            f"TITLE-ABS-KEY({kw_terms}) AND "
-            f'TITLE-ABS-KEY("{config.pico.intervention}" OR "{config.pico.outcome}") '
+            f"TITLE-ABS-KEY({kw_part1}) AND "
+            f"TITLE-ABS-KEY({kw_part2}) "
             f"AND PUBYEAR > {date_s - 1} AND PUBYEAR < {date_e + 1}"
         )
     return base

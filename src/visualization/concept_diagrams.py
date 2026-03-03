@@ -237,7 +237,9 @@ async def render_framework_diagram(spec: FrameworkDiagramInput, out_path: Path, 
 def _build_flowchart_mermaid_prompt(spec: FlowchartDiagramInput) -> str:
     phases_text = []
     for i, phase in enumerate(spec.phases):
-        count_str = f" (n={phase.count})" if phase.count is not None else ""
+        # Use "n: N" not "(n=N)" - parentheses in Mermaid node labels can trigger
+        # stadium-shape parsing and cause Kroki SyntaxError.
+        count_str = f" n: {phase.count}" if phase.count is not None else ""
         sub_str = f" -- {phase.sublabel}" if phase.sublabel else ""
         phases_text.append(f"  Phase {i + 1}: {phase.label}{count_str}{sub_str}")
     phases_block = "\n".join(phases_text)
@@ -254,11 +256,12 @@ def _build_flowchart_mermaid_prompt(spec: FlowchartDiagramInput) -> str:
 
         Requirements:
         - Use "flowchart TD" (top-down)
-        - Each phase is a rectangle node with a short label (include count if present)
+        - Each phase is a rectangle node with a short label (include count as "n: N" if present)
         - Connect phases sequentially with arrows
         - Use descriptive node IDs (no spaces, e.g. A, B, step1)
         - The first node should use a stadium shape for the title: title(["{spec.title}"])
         - Wrap labels longer than 30 chars using <br/> inside the node label
+        - Do NOT use parentheses in node labels (use "n: 2000" not "(n=2000)")
         - Do NOT include any styling, classDef, or style blocks
 
         Return ONLY the Mermaid code inside a ```mermaid code block. No explanation.

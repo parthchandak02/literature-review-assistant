@@ -143,8 +143,10 @@ class KnowledgeGraphNode(BaseNode[ReviewState]):
                     len(gaps),
                 )
 
-                # Render figure to run directory (same level as all other figures)
-                if state.db_path:
+                # Render figure to run directory (same level as all other figures).
+                # Skip silently when there are no edges (e.g. zero included papers):
+                # raising through render_evidence_network just produces a noisy warning.
+                if state.db_path and graph.edges:
                     import os
 
                     _run_dir = os.path.dirname(state.db_path)
@@ -156,6 +158,8 @@ class KnowledgeGraphNode(BaseNode[ReviewState]):
                         logger.info("KnowledgeGraphNode: evidence network figure saved to %s", _run_dir)
                     except Exception as _ev_err:
                         logger.warning("KnowledgeGraphNode: evidence network figure failed (non-fatal): %s", _ev_err)
+                elif state.db_path and not graph.edges:
+                    logger.debug("KnowledgeGraphNode: no edges in graph -- skipping evidence network figure")
 
             await repo.save_checkpoint(
                 state.workflow_id,
