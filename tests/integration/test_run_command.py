@@ -41,7 +41,10 @@ def _write_settings_yaml(path: Path) -> None:
             "search": {"model": "google-gla:gemini-2.5-flash", "temperature": 0.1},
             "extraction": {"model": "google-gla:gemini-2.5-pro", "temperature": 0.1},
             "writing": {"model": "google-gla:gemini-2.5-pro", "temperature": 0.2},
-        }
+        },
+        # warning mode so search_volume_gate doesn't hard-fail on 0 results
+        # (unsupported_db connector returns 0 papers) -- lets all phases run.
+        "gates": {"profile": "warning"},
     }
     path.write_text(yaml.safe_dump(payload, sort_keys=False), encoding="utf-8")
 

@@ -375,6 +375,9 @@ class DualReviewerScreener:
                     text = (full_text_by_paper or {}).get(paper.paper_id, "")
                     skip_no_pdf = getattr(self.settings.screening, "skip_fulltext_if_no_pdf", False)
                     if skip_no_pdf and not text.strip():
+                        # Ensure FK integrity: papers table must have a row before
+                        # screening_decisions (which has a FK on papers.paper_id).
+                        await self.repository.save_paper(paper)
                         no_ft_decision = ScreeningDecision(
                             paper_id=paper.paper_id,
                             decision=ScreeningDecisionType.EXCLUDE,

@@ -68,8 +68,18 @@ def _settings() -> SettingsConfig:
 @pytest.mark.asyncio
 async def test_dual_screening_pipeline_with_reliability(tmp_path) -> None:
     papers = [
-        CandidatePaper(title="Paper 1", authors=["A"], source_database="openalex", abstract="A"),
-        CandidatePaper(title="Paper 2", authors=["B"], source_database="openalex", abstract="B"),
+        CandidatePaper(
+            title="Paper 1",
+            authors=["A"],
+            source_database="openalex",
+            abstract="This study evaluates the impact of AI tutoring on student learning outcomes in university settings.",
+        ),
+        CandidatePaper(
+            title="Paper 2",
+            authors=["B"],
+            source_database="openalex",
+            abstract="An observational study of automated educational interventions and their effect on academic performance.",
+        ),
     ]
     responses = [
         {"decision": "include", "confidence": 0.9, "reasoning": "keep"},

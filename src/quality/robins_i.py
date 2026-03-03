@@ -104,31 +104,49 @@ class RobinsIAssessor:
         self.settings = settings
         self.provider = provider
 
+    _CONFOUNDING_SERIOUS_SIGNALS = ("confounding present", "unmeasured confound", "major confound")
+    _MISSING_DATA_SERIOUS_SIGNALS = ("missing data", "missing outcome", "loss to follow-up", "high attrition")
+    _REPORTING_SERIOUS_SIGNALS = ("selective reporting", "selective outcome", "outcome switching", "reporting bias")
+
     def _heuristic(self, record: ExtractionRecord) -> RobinsIAssessment:
         """Conservative heuristic fallback when LLM call fails.
 
-        All domains default to MODERATE (not LOW) and the assessment is
-        flagged as heuristic so downstream consumers can identify these entries.
+        Defaults to MODERATE but escalates individual domains to SERIOUS when
+        the results summary contains well-known risk-of-bias signal phrases.
         """
+        corpus = " ".join([
+            record.results_summary.get("summary", ""),
+            record.intervention_description or "",
+            record.setting or "",
+        ]).lower()
+
+        def _judge(signals: tuple) -> RobinsIJudgment:
+            return RobinsIJudgment.SERIOUS if any(s in corpus for s in signals) else RobinsIJudgment.MODERATE
+
+        d1 = _judge(self._CONFOUNDING_SERIOUS_SIGNALS)
+        d5 = _judge(self._MISSING_DATA_SERIOUS_SIGNALS)
+        d7 = _judge(self._REPORTING_SERIOUS_SIGNALS)
         mod = RobinsIJudgment.MODERATE
+        overall = _worst([d1, d5, d7, mod])
+
         return RobinsIAssessment(
             paper_id=record.paper_id,
-            domain_1_confounding=mod,
-            domain_1_rationale="Heuristic fallback: LLM unavailable; conservative default applied.",
+            domain_1_confounding=d1,
+            domain_1_rationale="Heuristic fallback: LLM unavailable; signal-based estimate applied.",
             domain_2_selection=mod,
             domain_2_rationale="Heuristic fallback: LLM unavailable; conservative default applied.",
             domain_3_classification=mod,
             domain_3_rationale="Heuristic fallback: LLM unavailable; conservative default applied.",
             domain_4_deviations=mod,
             domain_4_rationale="Heuristic fallback: LLM unavailable; conservative default applied.",
-            domain_5_missing_data=mod,
-            domain_5_rationale="Heuristic fallback: LLM unavailable; conservative default applied.",
+            domain_5_missing_data=d5,
+            domain_5_rationale="Heuristic fallback: LLM unavailable; signal-based estimate applied.",
             domain_6_measurement=mod,
             domain_6_rationale="Heuristic fallback: LLM unavailable; conservative default applied.",
-            domain_7_reported_result=mod,
-            domain_7_rationale="Heuristic fallback: LLM unavailable; conservative default applied.",
-            overall_judgment=mod,
-            overall_rationale="Heuristic fallback: conservative overall judgment.",
+            domain_7_reported_result=d7,
+            domain_7_rationale="Heuristic fallback: LLM unavailable; signal-based estimate applied.",
+            overall_judgment=overall,
+            overall_rationale="Heuristic fallback: worst-domain logic applied to signal-based estimates.",
             assessment_source="heuristic",
         )
 
