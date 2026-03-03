@@ -557,6 +557,34 @@ class WorkflowRepository:
         )
         await self.db.commit()
 
+    async def get_latest_gate_result(
+        self, workflow_id: str, phase: str, gate_name: str
+    ) -> GateResult | None:
+        """Return the most recent gate result for the given workflow, phase, and gate."""
+        cursor = await self.db.execute(
+            """
+            SELECT workflow_id, gate_name, phase, status, details, threshold, actual_value
+            FROM gate_results
+            WHERE workflow_id = ? AND phase = ? AND gate_name = ?
+            ORDER BY created_at DESC
+            LIMIT 1
+            """,
+            (workflow_id, phase, gate_name),
+        )
+        row = await cursor.fetchone()
+        if not row:
+            return None
+        from src.models.enums import GateStatus
+        return GateResult(
+            workflow_id=str(row[0]),
+            gate_name=str(row[1]),
+            phase=str(row[2]),
+            status=GateStatus(str(row[3])),
+            details=str(row[4]),
+            threshold=str(row[5]) if row[5] is not None else None,
+            actual_value=str(row[6]) if row[6] is not None else None,
+        )
+
     async def get_screening_summary(
         self, workflow_id: str
     ) -> list[tuple[str, str, str, str]]:
@@ -760,6 +788,10 @@ class WorkflowRepository:
         papers_processed: int = 0,
         status: str = "completed",
     ) -> None:
+        _logger.debug(
+            "save_checkpoint: workflow_id=%s, phase=%s, papers_processed=%s",
+            workflow_id, phase, papers_processed,
+        )
         await self.db.execute(
             """
             INSERT INTO checkpoints (workflow_id, phase, status, papers_processed)
@@ -1036,8 +1068,7 @@ async def merge_papers_from_parent(
             try:
                 async with src_db.execute(
                     "SELECT paper_id, title, abstract, authors, year, doi, url, source_database, "
-                    "       display_label, openalex_id "
-                    "FROM papers"
+                    "       display_label, openalex_id FROM papers"
                 ) as cur:
                     parent_papers = await cur.fetchall()
             except Exception:
@@ -1063,12 +1094,13 @@ async def merge_papers_from_parent(
             await dst_db.execute(
                 """INSERT OR IGNORE INTO papers
                    (paper_id, title, abstract, authors, year, doi, url, source_database,
-                    display_label, openalex_id)
-                   VALUES (?,?,?,?,?,?,?,?,?,?)""",
+                    source_category, display_label, openalex_id)
+                   VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
                 (
                     row["paper_id"], row["title"], row["abstract"], row["authors"],
                     row["year"], row["doi"], row["url"],
                     "merged_from_parent",  # mark as carrying over from a parent run
+                    "database",  # source_category (required; merged papers are database-sourced)
                     row["display_label"], row["openalex_id"],
                 ),
             )

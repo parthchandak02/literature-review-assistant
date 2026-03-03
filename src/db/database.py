@@ -167,23 +167,25 @@ async def run_migrations(db: aiosqlite.Connection) -> None:
 
 
 async def repair_foreign_key_integrity(db: aiosqlite.Connection) -> int:
-    """Insert stub papers for orphaned paper_id references. Returns count of stubs inserted.
+    """Insert stub papers for orphaned paper_id references and stub workflows for
+    orphaned workflow_id references. Returns count of stubs inserted.
 
-    Old DBs may have screening_decisions, extraction_records, etc. referencing
-    paper_ids not in papers (e.g. from migration or corruption). This causes
-    FOREIGN KEY constraint failed on INSERT. We insert minimal stub rows.
+    Old DBs may have screening_decisions, extraction_records, checkpoints, etc.
+    referencing paper_ids or workflow_ids not in papers/workflows (e.g. from
+    migration or corruption). This causes FOREIGN KEY constraint failed on INSERT.
+    We insert minimal stub rows.
     """
     cursor = await db.execute("SELECT paper_id FROM papers")
-    existing = {str(row[0]) for row in await cursor.fetchall()}
-    missing: set[str] = set()
+    existing_papers = {str(row[0]) for row in await cursor.fetchall()}
+    missing_papers: set[str] = set()
 
     async def collect_paper_ids(query: str, col_idx: int = 0) -> None:
         try:
             cur = await db.execute(query)
             for row in await cur.fetchall():
                 pid = str(row[col_idx]) if row else None
-                if pid and pid not in existing:
-                    missing.add(pid)
+                if pid and pid not in existing_papers:
+                    missing_papers.add(pid)
         except Exception as e:
             _logger.debug("repair_foreign_key_integrity: skip query %s: %s", query[:50], e)
 
@@ -197,7 +199,7 @@ async def repair_foreign_key_integrity(db: aiosqlite.Connection) -> int:
     await collect_paper_ids("SELECT DISTINCT target_paper_id FROM paper_relationships", 0)
 
     inserted = 0
-    for pid in missing:
+    for pid in missing_papers:
         try:
             await db.execute(
                 """
@@ -209,10 +211,41 @@ async def repair_foreign_key_integrity(db: aiosqlite.Connection) -> int:
             )
             inserted += 1
         except Exception as e:
-            _logger.warning("repair_foreign_key_integrity: could not insert stub for %s: %s", pid, e)
+            _logger.warning("repair_foreign_key_integrity: could not insert stub paper %s: %s", pid, e)
+
+    # Stub workflows for orphaned workflow_id refs (e.g. checkpoints referencing
+    # workflows that were never created or were deleted).
+    try:
+        cur = await db.execute("SELECT workflow_id FROM workflows")
+        existing_workflows = {str(row[0]) for row in await cur.fetchall()}
+        missing_workflows: set[str] = set()
+        for (table, col) in [("checkpoints", "workflow_id")]:
+            try:
+                cur = await db.execute(f"SELECT DISTINCT {col} FROM {table}")
+                for row in await cur.fetchall():
+                    wid = str(row[0]) if row else None
+                    if wid and wid not in existing_workflows:
+                        missing_workflows.add(wid)
+            except Exception as e:
+                _logger.debug("repair_foreign_key_integrity: skip %s.%s: %s", table, col, e)
+        for wid in missing_workflows:
+            try:
+                await db.execute(
+                    """
+                    INSERT OR IGNORE INTO workflows (workflow_id, topic, config_hash, status)
+                    VALUES (?, '[Recovered]', '', 'running')
+                    """,
+                    (wid,),
+                )
+                inserted += 1
+            except Exception as e:
+                _logger.warning("repair_foreign_key_integrity: could not insert stub workflow %s: %s", wid, e)
+    except Exception as e:
+        _logger.debug("repair_foreign_key_integrity: workflow stub phase skipped: %s", e)
+
     if inserted:
         await db.commit()
-        _logger.info("repair_foreign_key_integrity: inserted %d stub papers for orphaned refs", inserted)
+        _logger.info("repair_foreign_key_integrity: inserted %d stub rows for orphaned refs", inserted)
     return inserted
 
 

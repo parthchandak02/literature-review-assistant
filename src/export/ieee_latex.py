@@ -23,18 +23,30 @@ def _escape_latex(s: str) -> str:
     return s
 
 
-def _convert_citations(text: str, citekeys: set[str]) -> str:
-    """Convert [citekey] to \\cite{citekey} when citekey is valid."""
+def _convert_citations(
+    text: str,
+    citekeys: set[str],
+    num_to_citekey: dict[str, str] | None = None,
+) -> str:
+    """Convert [citekey] or [N] to \\cite{citekey} when valid."""
+    num_to_citekey = num_to_citekey or {}
+
     def repl(m: re.Match) -> str:
         key = m.group(1)
         if key in citekeys:
             return f"\\cite{{{key}}}"
+        if key in num_to_citekey:
+            return f"\\cite{{{num_to_citekey[key]}}}"
         return m.group(0)
 
     return re.sub(r"\[([A-Za-z0-9_]+)\]", repl, text)
 
 
-def _convert_inline_formatting(text: str, citekeys: set[str]) -> str:
+def _convert_inline_formatting(
+    text: str,
+    citekeys: set[str],
+    num_to_citekey: dict[str, str] | None = None,
+) -> str:
     """Convert **bold** and *italic* to LaTeX. Citations already converted."""
     def bold_repl(m: re.Match) -> str:
         inner = m.group(1)
@@ -50,7 +62,13 @@ def _convert_inline_formatting(text: str, citekeys: set[str]) -> str:
 
 
 def _extract_title_and_abstract(md: str) -> tuple[str | None, str | None, str]:
-    """Extract title and abstract, return (title, abstract, rest)."""
+    """Extract title and abstract, return (title, abstract, rest).
+
+    Supports two formats:
+    1. **Title:** and **Abstract** markers (legacy)
+    2. Structured abstract: first # line as title, **Objectives:** through **Keywords:**
+       before first ## heading (e.g. ## Introduction)
+    """
     title = None
     abstract_lines: list[str] = []
     rest_lines: list[str] = []
@@ -83,11 +101,48 @@ def _extract_title_and_abstract(md: str) -> tuple[str | None, str | None, str]:
 
     abstract = "\n".join(abstract_lines).strip() if abstract_lines else None
     rest = "\n".join(rest_lines) if rest_lines else md
+
+    # Fallback: structured abstract format (Objectives: ... Keywords: before ## Introduction)
+    if abstract is None or title is None:
+        fallback_lines = md.split("\n")
+        fallback_title = None
+        fallback_abstract_start = -1
+        fallback_abstract_end = -1
+        first_h2_idx = -1
+        for idx, ln in enumerate(fallback_lines):
+            if ln.strip().startswith("# ") and not ln.strip().startswith("## "):
+                fallback_title = ln.strip()[2:].strip()
+                if fallback_title.endswith("..."):
+                    fallback_title = fallback_title[:-3].strip()
+            if "**Objectives:**" in ln or ln.strip() == "**Objectives:**":
+                fallback_abstract_start = idx
+            if "**Keywords:**" in ln or ln.strip().startswith("**Keywords:**"):
+                fallback_abstract_end = idx
+            if ln.strip().startswith("## ") and first_h2_idx < 0:
+                first_h2_idx = idx
+        if fallback_title and title is None:
+            title = fallback_title
+        if (
+            fallback_abstract_start >= 0
+            and fallback_abstract_end >= fallback_abstract_start
+            and abstract is None
+        ):
+            abstract = "\n".join(
+                fallback_lines[fallback_abstract_start : fallback_abstract_end + 1]
+            ).strip()
+        if abstract and first_h2_idx >= 0 and rest == md:
+            rest = "\n".join(fallback_lines[first_h2_idx:])
+
     return title, abstract, rest
 
 
-def _md_section_to_latex(rest: str, citekeys: set[str]) -> str:
+def _md_section_to_latex(
+    rest: str,
+    citekeys: set[str],
+    num_to_citekey: dict[str, str] | None = None,
+) -> str:
     """Convert markdown body to LaTeX sections."""
+    num_to_citekey = num_to_citekey or {}
     parts: list[str] = []
     lines = rest.split("\n")
     i = 0
@@ -99,7 +154,9 @@ def _md_section_to_latex(rest: str, citekeys: set[str]) -> str:
             parts.append("\\begin{itemize}")
             for item in list_items:
                 item_conv = _convert_inline_formatting(
-                    _convert_citations(item.strip(), citekeys), citekeys
+                    _convert_citations(item.strip(), citekeys, num_to_citekey),
+                    citekeys,
+                    num_to_citekey,
                 )
                 parts.append(f"  \\item {_escape_latex(item_conv)}")
             parts.append("\\end{itemize}")
@@ -136,10 +193,16 @@ def _md_section_to_latex(rest: str, citekeys: set[str]) -> str:
                 parts.append("")
         else:
             flush_list()
-            conv = _convert_inline_formatting(
-                _convert_citations(stripped, citekeys), citekeys
-            )
-            parts.append(_escape_latex(conv))
+            # Skip citation conversion for References section lines ([1] Author, "Title"...)
+            if re.match(r"^\[\d+\]\s+[A-Za-z]", stripped):
+                parts.append(_escape_latex(stripped))
+            else:
+                conv = _convert_inline_formatting(
+                    _convert_citations(stripped, citekeys, num_to_citekey),
+                    citekeys,
+                    num_to_citekey,
+                )
+                parts.append(_escape_latex(conv))
         i += 1
 
     flush_list()
@@ -150,6 +213,7 @@ def markdown_to_latex(
     md_content: str,
     citekeys: set[str] | None = None,
     figure_paths: list[str] | None = None,
+    num_to_citekey: dict[str, str] | None = None,
 ) -> str:
     """Convert markdown manuscript to IEEE LaTeX.
 
@@ -177,12 +241,14 @@ def markdown_to_latex(
     preamble += "\\maketitle\n\n"
 
     if abstract:
-        abstract_esc = _escape_latex(abstract)
+        abstract_conv = _convert_citations(abstract, citekeys, num_to_citekey)
+        abstract_conv = _convert_inline_formatting(abstract_conv, citekeys, num_to_citekey)
+        abstract_esc = _escape_latex(abstract_conv)
         preamble += "\\begin{abstract}\n"
         preamble += abstract_esc + "\n"
         preamble += "\\end{abstract}\n\n"
 
-    body = _md_section_to_latex(rest, citekeys)
+    body = _md_section_to_latex(rest, citekeys, num_to_citekey)
 
     _FIGURE_CAPTIONS: dict[str, str] = {
         "fig_prisma_flow": "PRISMA 2020 flow diagram illustrating the systematic search and screening process.",

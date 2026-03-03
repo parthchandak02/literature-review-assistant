@@ -84,6 +84,14 @@ class ReviewConfig(BaseModel):
             "but is unused when this field is set."
         ),
     )
+    search_limitation: str | None = Field(
+        default=None,
+        description=(
+            "Optional statement of search/source limitation (e.g. 'Searches were limited "
+            "to Scopus to align with institutional access.'). Injected into Methods section "
+            "when present."
+        ),
+    )
 
 
 class AgentConfig(BaseModel):
@@ -256,6 +264,27 @@ class ExtractionConfig(BaseModel):
             "(https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi). "
             "Covers NIH-funded open-access papers. No API key required. "
             "Used as fallback when ScienceDirect and Unpaywall return no content."
+        ),
+    )
+    core_full_text: bool = Field(
+        default=True,
+        description=(
+            "Fetch full text from CORE (institutional repos, ~43M hosted). "
+            "Requires CORE_API_KEY. Helps papers with no Unpaywall OA location."
+        ),
+    )
+    europepmc_full_text: bool = Field(
+        default=True,
+        description=(
+            "Fetch full text from Europe PMC fullTextXML (OA subset, 6.5M articles). "
+            "No API key required."
+        ),
+    )
+    semanticscholar_full_text: bool = Field(
+        default=True,
+        description=(
+            "Fetch PDF from Semantic Scholar openAccessPdf URL. "
+            "Optional SEMANTIC_SCHOLAR_API_KEY for higher rate limits."
         ),
     )
     use_pdf_vision: bool = Field(

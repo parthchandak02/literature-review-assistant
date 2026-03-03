@@ -33,27 +33,32 @@ def _ft(text: str = "", source: str = "abstract", pdf_bytes: bytes | None = None
 # ---------------------------------------------------------------------------
 
 @pytest.mark.asyncio
-async def test_fetch_full_text_uses_sciencedirect_first(monkeypatch):
-    """Tier 1 success: should return ScienceDirect result without trying lower tiers."""
+async def test_fetch_full_text_uses_unpaywall_first_then_sciencedirect(monkeypatch):
+    """Tier 1 (Unpaywall) miss -> Tier 2 (ScienceDirect) hit for Elsevier DOI."""
     sd_result = _ft(text="A" * 600, source="sciencedirect")
 
     monkeypatch.setenv("SCOPUS_API_KEY", "test-key")
     with (
         patch(
+            "src.extraction.table_extraction._fetch_unpaywall",
+            new=AsyncMock(return_value=None),
+        ) as mock_uw,
+        patch(
             "src.extraction.table_extraction._fetch_sciencedirect",
             new=AsyncMock(return_value=sd_result),
         ) as mock_sd,
         patch(
-            "src.extraction.table_extraction._fetch_unpaywall",
+            "src.extraction.table_extraction._fetch_pmc",
             new=AsyncMock(return_value=None),
-        ) as mock_uw,
+        ) as mock_pmc,
     ):
-        result = await fetch_full_text(doi="10.1000/test")
+        result = await fetch_full_text(doi="10.1016/j.test.2024.01.001")
 
     assert result.source == "sciencedirect"
     assert len(result.text) == 600
+    mock_uw.assert_called_once()
     mock_sd.assert_called_once()
-    mock_uw.assert_not_called()
+    mock_pmc.assert_not_called()
 
 
 @pytest.mark.asyncio

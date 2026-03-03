@@ -102,6 +102,9 @@ class WritingGroundingData(BaseModel):
     meta_analysis_ran: bool = False
     poolable_outcomes: list[str] = []
 
+    # Search/source limitation (e.g. Scopus-only for institutional access)
+    search_limitation: str | None = None
+
 
 def build_writing_grounding(
     prisma_counts: PRISMACounts,
@@ -113,6 +116,7 @@ def build_writing_grounding(
     kappa_stage: str | None = None,
     kappa_n: int = 0,
     sensitivity_results: list[str] | None = None,
+    search_limitation: str | None = None,
 ) -> WritingGroundingData:
     """Aggregate real pipeline outputs into a WritingGroundingData instance."""
 
@@ -258,6 +262,7 @@ def build_writing_grounding(
         protocol_registered=False,
         meta_analysis_ran=meta_ran,
         poolable_outcomes=poolable_outcomes,
+        search_limitation=search_limitation,
     )
 
 
@@ -267,13 +272,27 @@ def format_grounding_block(data: WritingGroundingData) -> str:
     The LLM is instructed to use these numbers verbatim and is forbidden
     from inventing any statistic or count outside this block.
     """
-    lines = [
+    lines: list[str] = []
+    if data.total_included == 0:
+        lines.extend([
+            "CRITICAL - ZERO STUDIES: No studies met the eligibility criteria. You MUST:",
+            "1. State the exact PRISMA numbers from the FACTUAL DATA BLOCK (records identified, screened, excluded).",
+            "2. Write ONLY that no studies were included and no synthesis was performed.",
+            "3. Do NOT write findings, recommendations, or synthesis as if studies existed.",
+            "4. Do NOT invent or imply the existence of any study.",
+            "",
+        ])
+    lines.extend([
         "FACTUAL DATA BLOCK - You MUST use these exact numbers verbatim.",
         "Do NOT invent or fabricate any counts, statistics, or study characteristics",
         "that are not present in this block or the citation catalog below.",
         "---",
         f"Bibliographic databases searched: {', '.join(data.databases_searched) if data.databases_searched else 'see search appendix'}",
         f"Other methods (NOT databases - list separately as supplementary search): {', '.join(data.other_methods_searched) if data.other_methods_searched else 'none'}",
+    ])
+    if data.search_limitation:
+        lines.append(f"Search limitation: {data.search_limitation}")
+    lines += [
         "IMPORTANT: Do NOT list 'perplexity_web' or AI search tools as bibliographic databases. List them only under 'Other Methods' per PRISMA 2020 item 7.",
         f"Search date: {data.search_date}",
         f"Records identified: {data.total_identified}",

@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import csv
 import json
+import re
 import shutil
 import subprocess
 from pathlib import Path
@@ -91,6 +92,76 @@ async def _export_extraction_records(db_path: str, workflow_id: str, out_path: P
             results = (data.get("results_summary") or {}).get("summary") or ""
             results = str(results).replace("\n", " ")[:500]
             writer.writerow([paper_id, study_design, intervention, results])
+
+
+def _generate_search_appendix_pdf(md_path: Path, pdf_path: Path) -> None:
+    """Convert doc_search_strategies_appendix.md to PDF. Uses pdflatex if available, else md->html->weasyprint.
+    If both fail, copies the markdown to supplementary so user can convert manually."""
+    try:
+        import pypandoc
+
+        pypandoc.convert_file(
+            str(md_path.resolve()),
+            "pdf",
+            outputfile=str(pdf_path),
+            extra_args=["--pdf-engine=pdflatex"],
+        )
+        return
+    except Exception:
+        pass
+    try:
+        import pypandoc
+        from weasyprint import HTML
+
+        html_path = pdf_path.with_suffix(".html")
+        pypandoc.convert_file(str(md_path.resolve()), "html", outputfile=str(html_path))
+        HTML(filename=str(html_path)).write_pdf(str(pdf_path))
+        html_path.unlink(missing_ok=True)
+        return
+    except Exception:
+        pass
+    md_copy = pdf_path.with_suffix(".md")
+    shutil.copy2(md_path, md_copy)
+    if pdf_path.exists() and pdf_path.stat().st_size == 0:
+        pdf_path.unlink()
+
+
+def _build_number_to_citekey(
+    md_content: str,
+    citations: list[tuple],
+) -> dict[str, str]:
+    """Build mapping from [N] to citekey by parsing References section.
+
+    Manuscripts use numbered refs [1], [2]. References section lists [N] Author... doi: URL.
+    Match by DOI to get ordered citekeys, then return {str(N): citekey}.
+    """
+    doi_to_citekey: dict[str, str] = {}
+    for row in citations:
+        citekey = str(row[1])
+        doi = row[2]
+        if doi:
+            norm = doi.replace("https://doi.org/", "").replace("http://doi.org/", "").strip()
+            doi_to_citekey[norm] = citekey
+    in_refs = False
+    num_to_citekey: dict[str, str] = {}
+    ref_num_re = re.compile(r"^\[(\d+)\]\s+")
+    doi_re = re.compile(r"doi:\s*(https?://doi\.org/)?([^\s\)\]]+)")
+    for line in md_content.split("\n"):
+        if line.strip().startswith("## References") or line.strip() == "## References":
+            in_refs = True
+            continue
+        if in_refs and line.strip().startswith("## "):
+            break
+        if in_refs:
+            m = ref_num_re.match(line)
+            if m:
+                num = m.group(1)
+                doi_match = doi_re.search(line)
+                if doi_match:
+                    norm_doi = doi_match.group(2).rstrip(".,")
+                    if norm_doi in doi_to_citekey:
+                        num_to_citekey[num] = doi_to_citekey[norm_doi]
+    return num_to_citekey
 
 
 def _run_pdflatex(tex_path: Path, cwd: Path) -> bool:
@@ -187,7 +258,13 @@ async def package_submission(
             figure_paths.append(fig_name)
 
     md_content = manuscript_md.read_text(encoding="utf-8")
-    latex_content = markdown_to_latex(md_content, citekeys=citekeys, figure_paths=figure_paths)
+    num_to_citekey = _build_number_to_citekey(md_content, citations)
+    latex_content = markdown_to_latex(
+        md_content,
+        citekeys=citekeys,
+        figure_paths=figure_paths,
+        num_to_citekey=num_to_citekey,
+    )
     manuscript_tex = submission_dir / "manuscript.tex"
     manuscript_tex.write_text(latex_content, encoding="utf-8")
 
@@ -198,7 +275,11 @@ async def package_submission(
         "# Cover Letter\n\n[Add cover letter content here.]\n",
         encoding="utf-8",
     )
-    (supp_dir / "search_strategies_appendix.pdf").write_bytes(b"")
+    search_appendix_md = output_path / "doc_search_strategies_appendix.md"
+    if search_appendix_md.exists():
+        _generate_search_appendix_pdf(search_appendix_md, supp_dir / "search_strategies_appendix.pdf")
+    else:
+        (supp_dir / "search_strategies_appendix.pdf").write_bytes(b"")
     (supp_dir / "prisma_checklist.pdf").write_bytes(b"")
 
     if _run_pdflatex(manuscript_tex, submission_dir):

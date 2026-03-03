@@ -1,6 +1,6 @@
 """Multimodal PDF table extraction and full-text retrieval.
 
-Full-text retrieval uses a 3-tier chain:
+Full-text retrieval uses a tiered resolver (Unpaywall first, then publisher APIs):
   1. ScienceDirect Article Retrieval API -- confirmed returning 100KB+ full text
      for Elsevier open-access papers using the standard SCOPUS_API_KEY.
   2. Unpaywall open-access PDF -- covers ~50% of recent papers, no auth needed.
@@ -21,6 +21,7 @@ import logging
 import os
 import re
 from dataclasses import dataclass
+from urllib.parse import quote
 
 import aiohttp
 
@@ -33,9 +34,36 @@ _SD_BASE = "https://api.elsevier.com/content/article/doi"
 _UNPAYWALL_BASE = "https://api.unpaywall.org/v2"
 _PMC_FETCH_URL = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi"
 _PMC_SEARCH_URL = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi"
+_CORE_SEARCH_URL = "https://api.core.ac.uk/v3/search/outputs"
+_CORE_OUTPUT_URL = "https://api.core.ac.uk/v3/outputs"
+_EUROPEPMC_SEARCH_URL = "https://www.ebi.ac.uk/europepmc/webservices/rest/search"
+_EUROPEPMC_FULLTEXT_URL = "https://www.ebi.ac.uk/europepmc/webservices/rest/articles"
+_S2_PAPER_URL = "https://api.semanticscholar.org/graph/v1/paper/DOI:"
 _FT_TIMEOUT = 20  # seconds per tier
 # ScienceDirect returns non-OA papers as <500 chars -- treat as miss.
 _SD_MIN_CHARS = 500
+
+# Elsevier/ScienceDirect DOI prefixes. Article API only works for these;
+# non-Elsevier DOIs return 403/404. Skip to preserve API quota.
+_ELSEVIER_PREFIXES = frozenset({
+    "10.1016", "10.1006", "10.1067", "10.1053", "10.1054", "10.1078",
+    "10.4065", "10.1383", "10.1580", "10.1197", "10.1240", "10.1205",
+    "10.3182", "10.3921", "10.1157", "10.1602", "10.2353", "10.1529",
+    "10.3816", "10.1367",
+})
+
+
+def _is_elsevier_doi(doi: str) -> bool:
+    """True if DOI is likely Elsevier/ScienceDirect (Article API will work)."""
+    if not doi:
+        return False
+    s = doi.strip().lower()
+    if "doi.org/" in s:
+        s = s.split("doi.org/")[-1]
+    if "/" not in s:
+        return False
+    prefix = s.split("/")[0]
+    return prefix in _ELSEVIER_PREFIXES
 
 
 @dataclass
@@ -51,29 +79,111 @@ class FullTextResult:
 # Tier 1: ScienceDirect Article Retrieval API
 # ---------------------------------------------------------------------------
 
-async def _fetch_sciencedirect(doi: str, api_key: str) -> FullTextResult | None:
-    """Fetch full text from ScienceDirect using the Elsevier Article Retrieval API.
+def _append_diag(diagnostics: list[str] | None, tier: str, msg: str) -> None:
+    """Append diagnostic message when diagnostics list is provided."""
+    if diagnostics is not None:
+        diagnostics.append(f"{tier}: {msg}")
 
-    Returns None when: API key missing, DOI missing, response too small (non-OA),
-    or any network/parse error.
+
+async def _fetch_sciencedirect_pdf(
+    doi: str,
+    api_key: str,
+    insttoken: str | None = None,
+    ams_redirect: bool = True,
+    diagnostics: list[str] | None = None,
+) -> FullTextResult | None:
+    """Fetch PDF from Article (Full Text) Retrieval API.
+
+    Per Elsevier docs: request Accept: application/pdf. For subscribed content
+    may need X-ELS-Insttoken. Use amsRedirect=true to get author-manuscript
+    when not entitled to full PDF.
+    Handles 303/307 redirects to the actual PDF URL.
     """
     if not doi or not api_key:
         return None
     url = f"{_SD_BASE}/{doi}"
+    params = {"amsRedirect": "true"} if ams_redirect else {}
+    headers = {
+        "X-ELS-APIKey": api_key,
+        "Accept": "application/pdf",
+    }
+    if insttoken:
+        headers["X-ELS-Insttoken"] = insttoken
+    try:
+        async with aiohttp.ClientSession(headers=headers) as session:
+            async with session.get(
+                url,
+                params=params,
+                timeout=aiohttp.ClientTimeout(total=_FT_TIMEOUT),
+                allow_redirects=True,
+            ) as resp:
+                if resp.status in (303, 307):
+                    redirect_url = resp.headers.get("Location")
+                    if redirect_url and redirect_url.startswith("http"):
+                        async with session.get(
+                            redirect_url,
+                            timeout=aiohttp.ClientTimeout(total=30),
+                        ) as r2:
+                            if r2.status == 200:
+                                body = await r2.read()
+                                if body and len(body) > 1000:
+                                    return FullTextResult(
+                                        text="",
+                                        source="sciencedirect_pdf",
+                                        pdf_bytes=body,
+                                    )
+                    _append_diag(diagnostics, "ScienceDirect PDF", "redirect followed but no PDF")
+                    return None
+                if resp.status != 200:
+                    _append_diag(diagnostics, "ScienceDirect PDF", f"HTTP {resp.status}")
+                    logger.debug("ScienceDirect PDF: HTTP %d for doi=%s", resp.status, doi)
+                    return None
+                body = await resp.read()
+        if body and len(body) > 1000:
+            return FullTextResult(text="", source="sciencedirect_pdf", pdf_bytes=body)
+        _append_diag(diagnostics, "ScienceDirect PDF", "response too small (<1KB)")
+        return None
+    except Exception as exc:
+        _append_diag(diagnostics, "ScienceDirect PDF", str(exc))
+        logger.debug("ScienceDirect PDF fetch error for doi=%s: %s", doi, exc)
+        return None
+
+
+async def _fetch_sciencedirect(doi: str, api_key: str, insttoken: str | None = None, diagnostics: list[str] | None = None) -> FullTextResult | None:
+    """Fetch full text from ScienceDirect using the Article (Full Text) Retrieval API.
+
+    Workflow per Elsevier docs: try PDF first (Accept: application/pdf), then
+    fall back to JSON originalText. PDF may work for OA or with insttoken;
+    amsRedirect=true requests author-manuscript when not entitled to full PDF.
+    """
+    if not doi or not api_key:
+        return None
+
+    # Try PDF first (API key only; insttoken if available)
+    result = await _fetch_sciencedirect_pdf(doi, api_key, insttoken, ams_redirect=True, diagnostics=diagnostics)
+    if result:
+        return result
+
+    # Fall back to JSON originalText (Elsevier OA papers)
+    url = f"{_SD_BASE}/{doi}"
     headers = {"X-ELS-APIKey": api_key, "Accept": "application/json"}
+    if insttoken:
+        headers["X-ELS-Insttoken"] = insttoken
     try:
         async with aiohttp.ClientSession(headers=headers) as session:
             async with session.get(url, timeout=aiohttp.ClientTimeout(total=_FT_TIMEOUT)) as resp:
                 if resp.status != 200:
+                    _append_diag(diagnostics, "ScienceDirect JSON", f"HTTP {resp.status}")
                     logger.debug("ScienceDirect: HTTP %d for doi=%s", resp.status, doi)
                     return None
                 payload = await resp.json(content_type=None)
         orig = payload.get("full-text-retrieval-response", {}).get("originalText", "")
         if isinstance(orig, str) and len(orig) >= _SD_MIN_CHARS:
             return FullTextResult(text=orig, source="sciencedirect")
-        # dict form means non-OA metadata stub -- treat as miss
+        _append_diag(diagnostics, "ScienceDirect JSON", f"originalText < {_SD_MIN_CHARS} chars")
         return None
     except Exception as exc:
+        _append_diag(diagnostics, "ScienceDirect JSON", str(exc))
         logger.debug("ScienceDirect fetch error for doi=%s: %s", doi, exc)
         return None
 
@@ -82,7 +192,7 @@ async def _fetch_sciencedirect(doi: str, api_key: str) -> FullTextResult | None:
 # Tier 2: Unpaywall open-access PDF
 # ---------------------------------------------------------------------------
 
-async def _fetch_unpaywall(doi: str) -> FullTextResult | None:
+async def _fetch_unpaywall(doi: str, diagnostics: list[str] | None = None) -> FullTextResult | None:
     """Fetch open-access PDF bytes via Unpaywall.
 
     Returns None when: DOI missing, no OA PDF found, or network error.
@@ -97,51 +207,275 @@ async def _fetch_unpaywall(doi: str) -> FullTextResult | None:
                 meta_url, timeout=aiohttp.ClientTimeout(total=_FT_TIMEOUT)
             ) as resp:
                 if resp.status != 200:
+                    _append_diag(diagnostics, "Unpaywall", f"HTTP {resp.status}")
                     return None
                 meta = await resp.json(content_type=None)
 
+            # Collect candidate PDF URLs: best first, then oa_locations (some hosts less strict)
+            candidates: list[str] = []
             best = meta.get("best_oa_location") or {}
-            pdf_url = best.get("url_for_pdf") or best.get("url") or ""
-            if not pdf_url or not pdf_url.startswith("http"):
-                # Try first OA location
-                for loc in meta.get("oa_locations", []):
-                    candidate = loc.get("url_for_pdf") or ""
-                    if candidate.startswith("http"):
-                        pdf_url = candidate
-                        break
-            if not pdf_url:
+            for key in ("url_for_pdf", "url"):
+                u = best.get(key) or ""
+                if u.startswith("http") and u not in candidates:
+                    candidates.append(u)
+            for loc in meta.get("oa_locations", []):
+                for key in ("url_for_pdf", "url"):
+                    u = loc.get(key) or ""
+                    if u.startswith("http") and u not in candidates:
+                        candidates.append(u)
+            if not candidates:
+                _append_diag(diagnostics, "Unpaywall", "no OA location")
                 return None
 
-            async with session.get(
-                pdf_url, timeout=aiohttp.ClientTimeout(total=30)
-            ) as presp:
-                if presp.status != 200:
-                    return None
-                ct = presp.headers.get("Content-Type", "")
-                pdf_bytes = await presp.read()
-                if not pdf_bytes:
-                    return None
-                if "pdf" in ct.lower() or pdf_url.endswith(".pdf"):
-                    return FullTextResult(
-                        text="",
-                        source="unpaywall_pdf",
-                        pdf_bytes=pdf_bytes,
-                    )
-                # HTML/text response -- use as plain text
-                text = pdf_bytes.decode("utf-8", errors="replace")
-                if len(text) >= _SD_MIN_CHARS:
-                    return FullTextResult(text=text, source="unpaywall_text")
-                return None
+            # Browser-like headers reduce 403 from publishers (JAMA, MDPI, etc.) that block scripts
+            pdf_headers = {
+                "User-Agent": (
+                    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
+                    "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+                ),
+                "Accept": "application/pdf,*/*",
+            }
+            last_err = ""
+            for pdf_url in candidates:
+                try:
+                    async with session.get(
+                        pdf_url, timeout=aiohttp.ClientTimeout(total=30), headers=pdf_headers
+                    ) as presp:
+                        if presp.status != 200:
+                            last_err = f"PDF fetch HTTP {presp.status}"
+                            continue
+                        ct = presp.headers.get("Content-Type", "")
+                        pdf_bytes = await presp.read()
+                        if not pdf_bytes:
+                            last_err = "no PDF bytes"
+                            continue
+                        if "pdf" in ct.lower() or pdf_url.endswith(".pdf"):
+                            return FullTextResult(
+                                text="",
+                                source="unpaywall_pdf",
+                                pdf_bytes=pdf_bytes,
+                            )
+                        # HTML/text response -- use as plain text
+                        text = pdf_bytes.decode("utf-8", errors="replace")
+                        if len(text) >= _SD_MIN_CHARS:
+                            return FullTextResult(text=text, source="unpaywall_text")
+                        last_err = "text response < 500 chars"
+                except Exception as e:
+                    last_err = str(e)
+            _append_diag(diagnostics, "Unpaywall", last_err or "all locations failed")
+            return None
     except Exception as exc:
+        _append_diag(diagnostics, "Unpaywall", str(exc))
         logger.debug("Unpaywall fetch error for doi=%s: %s", doi, exc)
         return None
 
 
 # ---------------------------------------------------------------------------
-# Tier 3: PubMed Central full text
+# Tier 2a: Semantic Scholar (openAccessPdf URL, optional API key)
 # ---------------------------------------------------------------------------
 
-async def _fetch_pmc(doi: str, pmid: str | None = None) -> FullTextResult | None:
+async def _fetch_semanticscholar(doi: str, diagnostics: list[str] | None = None) -> FullTextResult | None:
+    """Fetch full text from Semantic Scholar openAccessPdf URL.
+
+    Gets PDF URL from S2 API, fetches and returns pdf_bytes for caller to parse.
+    """
+    if not doi:
+        return None
+    bare_doi = _normalize_doi(doi)
+    if not bare_doi:
+        return None
+    s2_key = os.environ.get("SEMANTIC_SCHOLAR_API_KEY", "").strip()
+    headers: dict[str, str] = {}
+    if s2_key:
+        headers["x-api-key"] = s2_key
+    try:
+        async with aiohttp.ClientSession() as session:
+            url = f"{_S2_PAPER_URL}{quote(bare_doi)}"
+            async with session.get(
+                url,
+                params={"fields": "openAccessPdf"},
+                headers=headers,
+                timeout=aiohttp.ClientTimeout(total=_FT_TIMEOUT),
+            ) as resp:
+                if resp.status != 200:
+                    _append_diag(diagnostics, "SemanticScholar", f"API HTTP {resp.status}")
+                    return None
+                payload = await resp.json(content_type=None)
+            oa = payload.get("openAccessPdf") or {}
+            pdf_url = oa.get("url")
+            if not pdf_url or not str(pdf_url).startswith("http"):
+                _append_diag(diagnostics, "SemanticScholar", "no openAccessPdf URL")
+                return None
+
+            pdf_headers = {
+                "User-Agent": (
+                    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
+                    "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+                ),
+                "Accept": "application/pdf,*/*",
+            }
+            async with session.get(
+                pdf_url,
+                headers=pdf_headers,
+                timeout=aiohttp.ClientTimeout(total=30),
+            ) as presp:
+                if presp.status != 200:
+                    _append_diag(diagnostics, "SemanticScholar", f"PDF fetch HTTP {presp.status}")
+                    return None
+                pdf_bytes = await presp.read()
+            if not pdf_bytes or len(pdf_bytes) < 1000:
+                _append_diag(diagnostics, "SemanticScholar", "PDF too small or empty")
+                return None
+            return FullTextResult(text="", source="semanticscholar_pdf", pdf_bytes=pdf_bytes)
+    except Exception as exc:
+        _append_diag(diagnostics, "SemanticScholar", str(exc))
+        logger.debug("Semantic Scholar fetch error for doi=%s: %s", doi, exc)
+        return None
+
+
+# ---------------------------------------------------------------------------
+# Tier 2b: CORE (institutional repos, ~43M hosted full texts)
+# ---------------------------------------------------------------------------
+
+def _normalize_doi(doi: str) -> str:
+    """Return bare DOI (e.g. 10.1016/j.test.2024.01.001) for API queries."""
+    if not doi:
+        return ""
+    s = doi.strip()
+    if "doi.org/" in s.lower():
+        s = s.split("doi.org/")[-1]
+    return s
+
+
+async def _fetch_core(doi: str, api_key: str, diagnostics: list[str] | None = None) -> FullTextResult | None:
+    """Fetch full text from CORE (institutional repos, different coverage than Unpaywall).
+
+    Search by DOI, get output with full_text or download PDF. Requires CORE_API_KEY.
+    """
+    if not doi or not api_key:
+        return None
+    bare_doi = _normalize_doi(doi)
+    if not bare_doi:
+        return None
+    try:
+        headers = {"Authorization": f"Bearer {api_key}"}
+        async with aiohttp.ClientSession() as session:
+            # Search by DOI
+            async with session.get(
+                _CORE_SEARCH_URL,
+                params={"q": f'doi:"{bare_doi}"', "limit": 1},
+                headers=headers,
+                timeout=aiohttp.ClientTimeout(total=_FT_TIMEOUT),
+            ) as resp:
+                if resp.status != 200:
+                    _append_diag(diagnostics, "CORE", f"search HTTP {resp.status}")
+                    return None
+                data = await resp.json(content_type=None)
+            results = data.get("results") or []
+            if not results:
+                _append_diag(diagnostics, "CORE", "no output for DOI")
+                return None
+            out_id = results[0].get("id")
+            if not out_id:
+                _append_diag(diagnostics, "CORE", "no output id")
+                return None
+
+            # Get output (includes full_text, download_url)
+            async with session.get(
+                f"{_CORE_OUTPUT_URL}/{out_id}",
+                headers=headers,
+                timeout=aiohttp.ClientTimeout(total=_FT_TIMEOUT),
+            ) as oresp:
+                if oresp.status != 200:
+                    _append_diag(diagnostics, "CORE", f"output HTTP {oresp.status}")
+                    return None
+                output = await oresp.json(content_type=None)
+
+            full_text = output.get("full_text") or output.get("fullText") or ""
+            if isinstance(full_text, str) and len(full_text) >= _SD_MIN_CHARS:
+                return FullTextResult(text=full_text, source="core")
+
+            # Try PDF download via CORE API if full_text not available
+            async with session.get(
+                f"{_CORE_OUTPUT_URL}/{out_id}/download",
+                headers=headers,
+                timeout=aiohttp.ClientTimeout(total=30),
+            ) as dresp:
+                if dresp.status == 200:
+                    body = await dresp.read()
+                    if body and len(body) > 1000:
+                        return FullTextResult(text="", source="core_pdf", pdf_bytes=body)
+            _append_diag(diagnostics, "CORE", "no full text or PDF")
+            return None
+    except Exception as exc:
+        _append_diag(diagnostics, "CORE", str(exc))
+        logger.debug("CORE fetch error for doi=%s: %s", doi, exc)
+        return None
+
+
+# ---------------------------------------------------------------------------
+# Tier 2c: Europe PMC (OA subset, 6.5M articles, no auth)
+# ---------------------------------------------------------------------------
+
+async def _fetch_europepmc(doi: str, pmid: str | None = None, diagnostics: list[str] | None = None) -> FullTextResult | None:
+    """Fetch full text from Europe PMC Open Access subset via fullTextXML.
+
+    Resolves DOI/PMID to PMCID via search, then fetches fullTextXML.
+    """
+    if not doi and not pmid:
+        return None
+    bare_doi = _normalize_doi(doi) if doi else ""
+    query = f'DOI:{bare_doi}' if bare_doi else f'EXT_ID:{pmid}'
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(
+                _EUROPEPMC_SEARCH_URL,
+                params={"query": query, "format": "json", "resultType": "core", "pageSize": 1},
+                timeout=aiohttp.ClientTimeout(total=_FT_TIMEOUT),
+            ) as resp:
+                if resp.status != 200:
+                    _append_diag(diagnostics, "EuropePMC", f"search HTTP {resp.status}")
+                    return None
+                data = await resp.json(content_type=None)
+            hits = data.get("resultList", {}).get("result") or []
+            if not hits:
+                _append_diag(diagnostics, "EuropePMC", "no result for DOI/PMID")
+                return None
+            hit = hits[0] if isinstance(hits[0], dict) else {}
+            pmcid = hit.get("pmcid") or hit.get("id")
+            if not pmcid:
+                _append_diag(diagnostics, "EuropePMC", "no pmcid in result")
+                return None
+            pmcid_str = str(pmcid).strip()
+            if not pmcid_str.upper().startswith("PMC"):
+                pmcid_str = f"PMC{pmcid_str}"
+
+            async with session.get(
+                f"{_EUROPEPMC_FULLTEXT_URL}/{pmcid_str}/fullTextXML",
+                timeout=aiohttp.ClientTimeout(total=_FT_TIMEOUT),
+            ) as ft_resp:
+                if ft_resp.status != 200:
+                    _append_diag(diagnostics, "EuropePMC", f"fullTextXML HTTP {ft_resp.status}")
+                    return None
+                xml_bytes = await ft_resp.read()
+        xml_text = xml_bytes.decode("utf-8", errors="replace")
+        plain = re.sub(r"<[^>]+>", " ", xml_text)
+        plain = re.sub(r"\s{2,}", " ", plain).strip()
+        if len(plain) >= _SD_MIN_CHARS:
+            return FullTextResult(text=plain, source="europepmc")
+        _append_diag(diagnostics, "EuropePMC", "parsed text < 500 chars")
+        return None
+    except Exception as exc:
+        _append_diag(diagnostics, "EuropePMC", str(exc))
+        logger.debug("Europe PMC fetch error for doi=%s: %s", doi, exc)
+        return None
+
+
+# ---------------------------------------------------------------------------
+# Tier 4: PubMed Central full text
+# ---------------------------------------------------------------------------
+
+async def _fetch_pmc(doi: str, pmid: str | None = None, diagnostics: list[str] | None = None) -> FullTextResult | None:
     """Fetch full text from PubMed Central via NCBI E-utilities.
 
     First resolves DOI to PMCID via esearch, then fetches XML via efetch.
@@ -165,10 +499,12 @@ async def _fetch_pmc(doi: str, pmid: str | None = None) -> FullTextResult | None
                 timeout=aiohttp.ClientTimeout(total=_FT_TIMEOUT),
             ) as resp:
                 if resp.status != 200:
+                    _append_diag(diagnostics, "PMC", f"esearch HTTP {resp.status}")
                     return None
                 data = await resp.json(content_type=None)
             ids = data.get("esearchresult", {}).get("idlist", [])
             if not ids:
+                _append_diag(diagnostics, "PMC", "no PMCID for DOI")
                 return None
             pmcid = ids[0]
 
@@ -185,6 +521,7 @@ async def _fetch_pmc(doi: str, pmid: str | None = None) -> FullTextResult | None
                 timeout=aiohttp.ClientTimeout(total=_FT_TIMEOUT),
             ) as fresp:
                 if fresp.status != 200:
+                    _append_diag(diagnostics, "PMC", f"efetch HTTP {fresp.status}")
                     return None
                 xml_bytes = await fresp.read()
 
@@ -194,8 +531,10 @@ async def _fetch_pmc(doi: str, pmid: str | None = None) -> FullTextResult | None
         plain = re.sub(r"\s{2,}", " ", plain).strip()
         if len(plain) >= _SD_MIN_CHARS:
             return FullTextResult(text=plain, source="pmc")
+        _append_diag(diagnostics, "PMC", "parsed text < 500 chars")
         return None
     except Exception as exc:
+        _append_diag(diagnostics, "PMC", str(exc))
         logger.debug("PMC fetch error for doi=%s pmid=%s: %s", doi, pmid, exc)
         return None
 
@@ -209,56 +548,99 @@ async def fetch_full_text(
     url: str | None = None,
     pmid: str | None = None,
     scopus_api_key: str | None = None,
+    scopus_insttoken: str | None = None,
     use_sciencedirect: bool = True,
     use_unpaywall: bool = True,
     use_pmc: bool = True,
+    use_core: bool = True,
+    use_europepmc: bool = True,
+    use_semanticscholar: bool = True,
+    diagnostics: list[str] | None = None,
 ) -> FullTextResult:
-    """Retrieve full text for a paper using a 3-tier priority chain.
+    """Retrieve full text using a tiered resolver.
 
     Priority:
-      1. ScienceDirect API (Elsevier OA papers, requires SCOPUS_API_KEY)
-      2. Unpaywall open-access PDF (~50% of recent papers, no key needed)
-      3. PubMed Central XML (NIH-funded OA papers, no key needed)
-      Fallback: empty FullTextResult(text="", source="abstract")
+      1. Unpaywall -- OA PDFs/text, no auth, ~50% of recent papers
+      2. CORE -- institutional repos (~43M hosted), requires CORE_API_KEY
+      3. ScienceDirect -- Elsevier DOIs only (10.1016, etc.); skip non-Elsevier
+      4. PubMed Central -- NIH-funded OA XML
+      Fallback: abstract
 
     Args:
         doi: Paper DOI (preferred identifier for all tiers).
         url: Paper URL (used as DOI source if doi missing and url is DOI-like).
         pmid: PubMed ID (fallback for PMC lookup when DOI is absent).
         scopus_api_key: Elsevier API key. Falls back to SCOPUS_API_KEY env var.
-        use_sciencedirect: Enable tier 1 (ScienceDirect).
-        use_unpaywall: Enable tier 2 (Unpaywall).
+        scopus_insttoken: Institutional token for ScienceDirect PDF. Falls back to
+            SCOPUS_INSTTOKEN env var. Contact Elsevier support to request one.
+        use_sciencedirect: Enable tier 2 (ScienceDirect, Elsevier DOIs only).
+        use_unpaywall: Enable tier 1 (Unpaywall).
         use_pmc: Enable tier 3 (PMC).
 
     Returns:
-        FullTextResult with text (and optionally pdf_bytes for Unpaywall PDFs).
+        FullTextResult with text (and optionally pdf_bytes for Unpaywall/Elsevier PDFs).
     """
     key = scopus_api_key or os.environ.get("SCOPUS_API_KEY", "")
+    insttoken = (scopus_insttoken or os.environ.get("SCOPUS_INSTTOKEN", "")).strip() or None
     effective_doi = doi or ""
 
-    # Tier 1: ScienceDirect
-    if use_sciencedirect and effective_doi and key:
-        result = await _fetch_sciencedirect(effective_doi, key)
-        if result:
-            logger.info(
-                "fetch_full_text: tier 1 ScienceDirect success for doi=%s (%d chars)",
-                effective_doi, len(result.text),
-            )
-            return result
-
-    # Tier 2: Unpaywall
+    # Tier 1: Unpaywall (OA first, no API key, no quota)
     if use_unpaywall and effective_doi:
-        result = await _fetch_unpaywall(effective_doi)
+        result = await _fetch_unpaywall(effective_doi, diagnostics=diagnostics)
         if result:
             logger.info(
-                "fetch_full_text: tier 2 Unpaywall success for doi=%s source=%s",
+                "fetch_full_text: tier 1 Unpaywall success for doi=%s source=%s",
                 effective_doi, result.source,
             )
             return result
 
-    # Tier 3: PMC
+    # Tier 2a: Semantic Scholar (openAccessPdf, optional API key)
+    if use_semanticscholar and effective_doi:
+        result = await _fetch_semanticscholar(effective_doi, diagnostics=diagnostics)
+        if result:
+            logger.info(
+                "fetch_full_text: tier 2a Semantic Scholar success for doi=%s source=%s",
+                effective_doi, result.source,
+            )
+            return result
+
+    # Tier 2: CORE (institutional repos; helps "no OA location" papers)
+    core_key = os.environ.get("CORE_API_KEY", "").strip()
+    if use_core and core_key and effective_doi:
+        result = await _fetch_core(effective_doi, core_key, diagnostics=diagnostics)
+        if result:
+            logger.info(
+                "fetch_full_text: tier 2 CORE success for doi=%s source=%s",
+                effective_doi, result.source,
+            )
+            return result
+
+    # Tier 2d: Europe PMC (OA subset, no auth)
+    if use_europepmc and (effective_doi or pmid):
+        result = await _fetch_europepmc(effective_doi, pmid, diagnostics=diagnostics)
+        if result:
+            logger.info(
+                "fetch_full_text: tier Europe PMC success for doi=%s source=%s",
+                effective_doi, result.source,
+            )
+            return result
+
+    # Tier 3: ScienceDirect (Elsevier DOIs only; skip non-Elsevier to save quota)
+    if use_sciencedirect and effective_doi and key:
+        if not _is_elsevier_doi(effective_doi):
+            _append_diag(diagnostics, "ScienceDirect", "skipped (non-Elsevier DOI)")
+        else:
+            result = await _fetch_sciencedirect(effective_doi, key, insttoken, diagnostics=diagnostics)
+            if result:
+                logger.info(
+                    "fetch_full_text: tier 2 ScienceDirect success for doi=%s",
+                    effective_doi,
+                )
+                return result
+
+    # Tier 4: PMC
     if use_pmc and (effective_doi or pmid):
-        result = await _fetch_pmc(effective_doi, pmid)
+        result = await _fetch_pmc(effective_doi, pmid, diagnostics=diagnostics)
         if result:
             logger.info(
                 "fetch_full_text: tier 3 PMC success for doi=%s (%d chars)",

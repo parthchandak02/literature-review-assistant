@@ -62,6 +62,37 @@ class PDFRetriever:
         self.timeout_seconds = timeout_seconds
 
     async def retrieve(self, paper: CandidatePaper) -> PDFRetrievalResult:
+        # Primary: use unified fetch_full_text (Unpaywall, Semantic Scholar, CORE,
+        # Europe PMC, ScienceDirect, PMC) for papers with DOI
+        if paper.doi:
+            try:
+                from src.extraction.table_extraction import fetch_full_text
+
+                ft_result = await fetch_full_text(
+                    doi=paper.doi,
+                    url=paper.url,
+                    pmid=getattr(paper, "pmid", None),
+                )
+                if ft_result and ft_result.source != "abstract":
+                    if ft_result.text and len(ft_result.text) >= 500:
+                        return PDFRetrievalResult(
+                            paper_id=paper.paper_id,
+                            resolved_url=paper.url,
+                            full_text=ft_result.text[:_PDF_MAX_CHARS],
+                            success=True,
+                        )
+                    if ft_result.pdf_bytes and len(ft_result.pdf_bytes) > 1000:
+                        parsed = _parse_pdf_bytes(ft_result.pdf_bytes)
+                        return PDFRetrievalResult(
+                            paper_id=paper.paper_id,
+                            resolved_url=paper.url,
+                            full_text=parsed,
+                            success=True,
+                        )
+            except Exception as exc:
+                logger.debug("PDFRetriever: fetch_full_text failed for %s: %s", paper.paper_id, exc)
+
+        # Fallback: legacy URL-based retrieval (paper.url, Unpaywall, Semantic Scholar)
         candidate_urls = await self._candidate_urls(paper)
         if not candidate_urls:
             return PDFRetrievalResult(

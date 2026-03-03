@@ -364,6 +364,10 @@ def build_study_characteristics_table(
                 summary = rec.results_summary
             outcomes_str = summary[:80].rstrip() + "..." if len(summary) > 80 else summary or "NR"
 
+        # Full text retrieved: Yes when extraction_source is not "text" (abstract-only)
+        extraction_source = getattr(rec, "extraction_source", None) or "text"
+        full_text_retrieved = "Yes" if extraction_source != "text" else "No"
+
         rows.append({
             "author_year": author_year,
             "design": design_str,
@@ -371,6 +375,7 @@ def build_study_characteristics_table(
             "country": country_str,
             "setting": setting_str,
             "outcomes": outcomes_str,
+            "full_text_retrieved": full_text_retrieved,
         })
 
     if not rows:
@@ -378,15 +383,15 @@ def build_study_characteristics_table(
 
     rows.sort(key=lambda r: r["author_year"])
 
-    header = "| Author(s), Year | Study Design | Sample Size | Country | Setting | Key Outcomes |"
-    sep = "|----------------|------------|------------|-------|----------------------------|------------------------------------|"
+    header = "| Author(s), Year | Study Design | Sample Size | Country | Setting | Full Text Retrieved | Key Outcomes |"
+    sep = "|----------------|------------|------------|-------|----------------------------|---------------------|------------------------------------|"
     data_rows = [
-        f"| {r['author_year']} | {r['design']} | {r['n']} | {r['country']} | {r['setting']} | {r['outcomes']} |"
+        f"| {r['author_year']} | {r['design']} | {r['n']} | {r['country']} | {r['setting']} | {r['full_text_retrieved']} | {r['outcomes']} |"
         for r in rows
     ]
 
     total_records = len(rows) + excluded_count
-    footnote = "_NR = Not Reported; n.d. = no publication date available._"
+    footnote = "_NR = Not Reported; n.d. = no publication date available. Full Text Retrieved: Yes = full text was obtained for extraction; No = abstract/title only._"
     if excluded_count:
         footnote += (
             f" _{excluded_count} of {total_records} included studies omitted from "

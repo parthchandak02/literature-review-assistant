@@ -229,6 +229,7 @@ Change rarely. Values are tuned from real runs.
 | `ieee_export.*` | `template` (IEEEtran), `max_abstract_words` (250), `target_page_range` ([7, 10]) |
 | `citation_lineage.*` | `block_export_on_unresolved` (true), `minimum_evidence_score` (0.5) |
 | `search.*` | `max_results_per_db` (global default: 500), `per_database_limits` (per-connector overrides), `citation_chasing_enabled` (false -- PRISMA 2020 snowball forward citation chasing) |
+| `extraction.*` | `core_full_text`, `europepmc_full_text`, `semanticscholar_full_text` (toggles for full-text tiers), `sciencedirect_full_text`, `unpaywall_full_text`, `pmc_full_text`, `use_pdf_vision`, `full_text_min_chars` |
 | `rag.*` | `use_hyde` (true -- HyDE query expansion before dense embed), `hyde_model` (gemini-2.0-flash), `rerank` (true -- Gemini listwise reranking), `reranker_model` (gemini-2.0-flash) |
 
 Both YAML files are validated into Pydantic models at startup via `src/config/loader.py`. Invalid config fails fast with a clear error message.
@@ -344,7 +345,7 @@ Stage 0 (pre-filter): The keyword filter auto-excludes papers with zero interven
 
 Stage 1 (title/abstract): Two independent AI reviewers process each paper concurrently via `asyncio.Semaphore`. Reviewer A uses an inclusion-emphasis prompt (temperature 0.1). Reviewer B uses an exclusion-emphasis prompt (temperature 0.3). Both use Gemini Flash-Lite. Agreement yields the final decision. Disagreement triggers Adjudicator (Gemini Pro) that sees both decisions.
 
-Stage 2 (full-text): Papers passing Stage 1 get PDFs retrieved via Unpaywall and open-access URLs. Papers without a retrievable PDF are excluded with `NO_FULL_TEXT` when `skip_fulltext_if_no_pdf` is true. Full-text screening follows the same dual-reviewer pattern.
+Stage 2 (full-text): Papers passing Stage 1 get full text via a unified resolver (Unpaywall, Semantic Scholar, CORE, Europe PMC, ScienceDirect, PMC). Papers without retrievable full text are excluded with `NO_FULL_TEXT` when `skip_fulltext_if_no_pdf` is true. Full-text screening follows the same dual-reviewer pattern.
 
 **Ctrl+C behavior:** First Ctrl+C sets proceed-with-partial flag; the screening loop exits after the current paper and saves a checkpoint with `status='partial'`. Second Ctrl+C raises `KeyboardInterrupt` (hard abort). The SIGINT handler is registered via `asyncio.add_signal_handler` (skipped on Windows where it is not supported).
 
@@ -358,7 +359,7 @@ Stage 2 (full-text): Papers passing Stage 1 get PDFs retrieved via Unpaywall and
 
 ### 6.4 Phase 4: Extraction and Quality Assessment
 
-**What happens:** For each included paper, the study design classifier (Gemini Pro, confidence threshold 0.70) routes the paper to the correct risk-of-bias tool. Classifiers with confidence < 0.70 fall back to `StudyDesign.NON_RANDOMIZED`. Every classification decision is written to the decision log with confidence, threshold, and rationale.
+**What happens:** For each included paper, full text is fetched via a 6-tier resolver (Unpaywall, Semantic Scholar, CORE, Europe PMC, ScienceDirect, PMC) before extraction. The study design classifier (Gemini Pro, confidence threshold 0.70) routes the paper to the correct risk-of-bias tool. Classifiers with confidence < 0.70 fall back to `StudyDesign.NON_RANDOMIZED`. Every classification decision is written to the decision log with confidence, threshold, and rationale.
 
 Structured extraction (Gemini Pro) populates `ExtractionRecord` fields including `outcomes[].effect_size` and `outcomes[].se` for downstream statistical pooling. Heuristic fallback activates on API error.
 
@@ -928,14 +929,14 @@ Living section -- update as work completes.
 | Enhancement #4: Semantic Chunking | DONE | Sentence-boundary chunker (nltk sent_tokenize) replaces fixed 512-word windows; chunks stay under ~400 words, 2-sentence overlap; fallback to regex split if nltk unavailable; settings: CHUNK_MAX_WORDS, OVERLAP_SENTENCES in chunker.py |
 | Enhancement #5: PICO-Aware Retrieval | DONE | PICO terms from review.yaml injected into HyDE prompt and BM25 query string; controlled by rag.pico_query_boost in settings.yaml |
 | Enhancement #6: Living Review Auto-Refresh | DONE | Delta pipeline: search from last_search_date, screen/embed new papers only, merge into previous DB, re-run synthesis+writing only if new evidence added |
-| Enhancement #7: Multi-Modal Evidence | DONE | 3-tier full-text retrieval (ScienceDirect OA API -> Unpaywall PDF -> PMC XML -> abstract fallback); Gemini vision extracts quantitative outcome rows from PDFs; vision+text outcomes merged; table rows chunked as separate embeddings; GET /api/db/{run_id}/tables endpoint; Scopus abstract gap fixed via enrich_scopus_abstracts() |
+| Enhancement #7: Multi-Modal Evidence | DONE | 6-tier full-text retrieval (Unpaywall, Semantic Scholar, CORE, Europe PMC, ScienceDirect, PMC -> abstract fallback); unified resolver used by extraction and screening; Gemini vision extracts quantitative outcome rows from PDFs; vision+text outcomes merged; table rows chunked as separate embeddings; GET /api/db/{run_id}/tables endpoint; Scopus abstract gap fixed via enrich_scopus_abstracts() |
 | Enhancement #8: Contradiction-Aware Synthesis | DONE | contradiction_detector.py surfaces conflict pairs; WritingNode injects "Conflicting Evidence" subsection into Discussion with citation keys and reconciliation hypothesis |
 | Enhancement #9: Adaptive Screening Threshold | DONE | Active-learning calibration loop: 30-paper sample, kappa computed, thresholds adjusted via bisection until kappa > 0.7 or 3 iterations; settings: screening.calibration_sample_size |
 | Enhancement #10: GRADE Evidence Profile | DONE | Full GRADE Summary of Findings table (studies, participants, effect estimate, certainty, reason); build_sof_table() in grade.py; GradeSoFTable + GradeSoFRow models; LaTeX longtable export; GET /api/run/{run_id}/grade-sof endpoint |
 | Search quality sprint | DONE | Scopus connector (src/search/scopus.py, TITLE-ABS-KEY field codes, 5 req/sec limit, 429 back-off); default target_databases updated to openalex + pubmed + scopus + semantic_scholar + ieee_xplore; perplexity_search + crossref + arxiv removed from default pipeline |
 | Manuscript quality sprint | DONE | Root causes fixed in pipeline: assemble_submission_manuscript() includes GRADE SoF table, search appendix, excluded-studies footnote; abstract prompt includes kappa framing; semicolon parsing in citation extraction; IMRaD heading prompts tightened. finalize_manuscript.py is a thin regeneration utility for historical runs; _strip_unresolved_citekeys() is the only remaining safety net. Citation lineage gate: FinalizeNode validates manuscript; block_export_on_unresolved respected. |
 
-**Test status:** 104 unit tests + 13 integration tests passing (`uv run pytest tests/unit tests/integration -q`).
+**Test status:** 105 unit tests, 13 integration tests (`uv run pytest tests/unit tests/integration -q`).
 
 ---
 

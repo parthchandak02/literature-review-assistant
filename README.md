@@ -170,6 +170,8 @@ Your `submission/` folder is ready.
 | `PERPLEXITY_SEARCH_API_KEY` | [docs.perplexity.ai](https://docs.perplexity.ai) | No |
 | `SEMANTIC_SCHOLAR_API_KEY` | [api.semanticscholar.org](https://api.semanticscholar.org) | No (higher rate limits) |
 | `CROSSREF_EMAIL` | Any email address | No (polite Crossref crawling) |
+| `CORE_API_KEY` | [core.ac.uk/api-keys/register](https://core.ac.uk/api-keys/register) | No (full-text from institutional repos) |
+| `SCOPUS_API_KEY` | Elsevier API (institutional) | No (ScienceDirect full-text for Elsevier OA) |
 
 The free Gemini tier (Flash-Lite / Flash / Pro) is sufficient for most reviews. A full run typically costs under $5.
 
@@ -252,7 +254,7 @@ Phase 3: Dual-reviewer screening -- Reviewer A (gemini-2.5-flash-lite) + Reviewe
          (gemini-2.0-flash, cross-model validation), adjudicator on disagreement;
          protocol-only studies auto-excluded; Cohen's kappa logged
          [Optional pause: human review checkpoint when human_in_the_loop.enabled=true]
-Phase 4: Data extraction (full-text via PyMuPDF, 32K char context) + risk of bias
+Phase 4: Data extraction (full-text via 6-tier resolver: Unpaywall, Semantic Scholar, CORE, Europe PMC, ScienceDirect, PMC; PyMuPDF 32K char context) + risk of bias
          (RoB 2 / ROBINS-I / CASP / GRADE, heuristic fallback tagged by source)
 Phase 5: Meta-analysis or narrative synthesis + sensitivity analysis (leave-one-out,
          subgroup by study_design)
@@ -365,6 +367,8 @@ uv run pytest tests/integration -q
 | `scripts/migrate_to_runs.py` | One-time migration to move legacy run artifacts into the current `runs/<date>/<topic>/` directory structure. |
 | `scripts/re_extract.py` | Targeted re-extraction for studies with low-quality data (placeholder outcomes, missing authors). Usage: `uv run python scripts/re_extract.py --run-dir runs/<date>/<topic>/run_<time>` |
 | `scripts/benchmark.py` | Validate tool outputs against a gold-standard corpus: measures screening recall, extraction field accuracy, and RoB Cohen's kappa vs. published review. Usage: `uv run python scripts/benchmark.py --run-dir runs/<date>/<topic>/run_<time> --gold gold.json` |
+| `scripts/test_fulltext_retrieval.py` | Test full-text retrieval for included papers from a workflow. Reports coverage by tier (Unpaywall, Semantic Scholar, CORE, Europe PMC, ScienceDirect, PMC). Usage: `uv run python scripts/test_fulltext_retrieval.py --workflow-id wf-xxx` or `--run-dir runs/<path>` |
+| `scripts/validate_scopus_key.py` | Validate SCOPUS_API_KEY against Elsevier API. Usage: `uv run python scripts/validate_scopus_key.py` |
 
 ---
 

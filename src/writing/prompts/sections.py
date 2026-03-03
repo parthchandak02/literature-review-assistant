@@ -159,6 +159,8 @@ def get_methods_prompt_context(
         "PRISMA Items 3-16: "
         "(1) Eligibility criteria using explicit PICO framework, "
         "(2) Information sources: list the 'Bibliographic databases searched' from the block. "
+        "If the block includes a 'Search limitation' line, incorporate that statement verbatim "
+        "(e.g. 'Searches were limited to Scopus to align with institutional access.'). "
         "If multiple databases were searched but only one returned records, state explicitly: "
         "'We searched X, Y, Z; only [database name] returned records.' "
         "Any sources listed under 'Other methods' (e.g. perplexity_web, AI discovery tools) must be "

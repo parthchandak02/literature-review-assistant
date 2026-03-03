@@ -687,8 +687,8 @@ function RunCardMetrics({
   onCopyWorkflowId?: (id: string) => void | Promise<void>
 }) {
   const hasStats =
-    (papersFound != null && papersFound > 0) ||
-    (papersIncluded != null && papersIncluded > 0) ||
+    papersFound != null ||
+    papersIncluded != null ||
     (cost != null && cost > 0)
   const hasWfId = workflowId != null && workflowId.length > 0
 
@@ -698,13 +698,13 @@ function RunCardMetrics({
     <div className="flex items-baseline justify-between gap-x-3 min-w-0 text-meta">
       {hasStats && (
         <div className="flex items-baseline gap-x-3 flex-wrap gap-y-0.5 min-w-0">
-        {papersFound != null && papersFound > 0 && (
+        {papersFound != null && (
           <span className="flex items-baseline gap-0.5 leading-none shrink-0">
             <span className="font-semibold text-blue-400">{fmtNum(papersFound)}</span>
             <span className="text-zinc-600 font-normal">found</span>
           </span>
         )}
-        {papersIncluded != null && papersIncluded > 0 && (
+        {papersIncluded != null && (
           <span className="flex items-baseline gap-0.5 leading-none shrink-0">
             <span className="font-semibold text-emerald-400">{fmtNum(papersIncluded)}</span>
             <span className="text-zinc-600 font-normal">included</span>

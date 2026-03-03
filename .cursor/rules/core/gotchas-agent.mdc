@@ -39,3 +39,9 @@ all "FOREIGN KEY constraint failed" errors on resume. Always use
 SQLite `OR IGNORE` only suppresses UNIQUE, NOT NULL, and CHECK constraint errors.
 Foreign key violations always raise IntegrityError regardless of the conflict clause.
 When bulk-inserting rows with FK references, verify the parent rows exist first.
+
+## CLI Resume vs Web Resume
+When the API is running, `uv run python -m src.main resume` delegates to POST /api/history/resume
+so the frontend shows live progress. If the API is down, the CLI runs locally (no live UI).
+Use `--no-api` to force local run even when the API is up. Local-only runs appear in RECENT
+but without heartbeat they may show as "stale" after 5 min.

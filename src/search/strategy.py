@@ -3,11 +3,14 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
 from src.db.repositories import WorkflowRepository
+
+_logger = logging.getLogger(__name__)
 from src.models import DecisionLogEntry, ReviewConfig, SearchResult
 from src.orchestration.gates import GateRunner
 from src.search.base import SearchConnector
@@ -147,7 +150,16 @@ class SearchStrategyCoordinator:
                     None,
                 )
             for r in result_list:
-                await self.repository.save_search_result(r)
+                try:
+                    await self.repository.save_search_result(r)
+                except Exception as exc:
+                    _logger.exception(
+                        "save_search_result failed: workflow_id=%s, papers=%d, first_paper=%s",
+                        self.workflow_id,
+                        len(r.papers),
+                        r.papers[0].paper_id if r.papers else None,
+                    )
+                    raise
                 results.append(r)
 
         all_papers = [paper for result in results for paper in result.papers]

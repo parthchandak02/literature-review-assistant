@@ -39,7 +39,7 @@ from src.export.markdown_refs import assemble_submission_manuscript, is_extracti
 from src.extraction import ExtractionService, StudyClassifier
 from src.llm.provider import LLMProvider
 from src.llm.pydantic_client import PydanticAIClient
-from src.models import DecisionLogEntry, ExtractionRecord, SectionDraft, StudyDesign
+from src.models import DecisionLogEntry, ExtractionRecord, GateStatus, SectionDraft, StudyDesign
 from src.models.diagrams import (
     FlowchartDiagramInput,
     FlowchartPhase,
@@ -335,6 +335,30 @@ class SearchNode(BaseNode[ReviewState]):
                 await gate_runner.run_search_volume_gate(
                     state.workflow_id, "phase_2_search", csv_result.records_retrieved
                 )
+                if state.settings.gates.profile == "strict":
+                    gr = await repository.get_latest_gate_result(
+                        state.workflow_id, "phase_2_search", "search_volume"
+                    )
+                    if gr and gr.status == GateStatus.FAILED:
+                        err_msg = (
+                            f"Search volume gate failed: {gr.actual_value or 0} records "
+                            f"(minimum {gr.threshold or '?'}). Cannot proceed."
+                        )
+                        summary = {
+                            "workflow_id": state.workflow_id,
+                            "status": "failed",
+                            "error": err_msg,
+                            "gate": "search_volume",
+                            "phase": "phase_2_search",
+                        }
+                        Path(state.artifacts["run_summary"]).write_text(
+                            json.dumps(summary, indent=2), encoding="utf-8"
+                        )
+                        await repository.update_workflow_status(state.workflow_id, "failed")
+                        await update_registry_status(state.run_root, state.workflow_id, "failed")
+                        if rc:
+                            rc.emit_phase_done("phase_2_search", {"error": err_msg})
+                        return End(summary)
 
                 deduped, dedup_count = deduplicate_papers(csv_result.papers)
                 state.deduped_papers = deduped
@@ -347,6 +371,10 @@ class SearchNode(BaseNode[ReviewState]):
                 protocol = protocol_generator.generate(state.workflow_id, state.review)
                 protocol_markdown = protocol_generator.render_markdown(protocol, state.review)
                 protocol_generator.write_markdown(state.workflow_id, protocol_markdown)
+                if not await repository.has_checkpoint_integrity(state.workflow_id):
+                    await repository.create_workflow(
+                        state.workflow_id, state.review.research_question, config_hash
+                    )
                 await repository.save_checkpoint(
                     state.workflow_id, "phase_2_search", papers_processed=len(deduped)
                 )
@@ -464,6 +492,31 @@ class SearchNode(BaseNode[ReviewState]):
                 max_results=search_cfg.max_results_per_db,
                 per_database_limits=search_cfg.per_database_limits or None,
             )
+            if state.settings.gates.profile == "strict":
+                gr = await repository.get_latest_gate_result(
+                    state.workflow_id, "phase_2_search", "search_volume"
+                )
+                if gr and gr.status == GateStatus.FAILED:
+                    err_msg = (
+                        f"Search volume gate failed: {gr.actual_value or 0} records "
+                        f"(minimum {gr.threshold or '?'}). Cannot proceed."
+                    )
+                    summary = {
+                        "workflow_id": state.workflow_id,
+                        "status": "failed",
+                        "error": err_msg,
+                        "gate": "search_volume",
+                        "phase": "phase_2_search",
+                    }
+                    Path(state.artifacts["run_summary"]).write_text(
+                        json.dumps(summary, indent=2), encoding="utf-8"
+                    )
+                    await repository.update_workflow_status(state.workflow_id, "failed")
+                    await update_registry_status(state.run_root, state.workflow_id, "failed")
+                    if rc:
+                        rc.emit_phase_done("phase_2_search", {"error": err_msg})
+                    return End(summary)
+
             all_papers = [paper for result in results for paper in result.papers]
 
             # Living review: skip papers whose DOIs were already screened in a prior run.
@@ -519,6 +572,10 @@ class SearchNode(BaseNode[ReviewState]):
             protocol = protocol_generator.generate(state.workflow_id, state.review)
             protocol_markdown = protocol_generator.render_markdown(protocol, state.review)
             protocol_generator.write_markdown(state.workflow_id, protocol_markdown)
+            if not await repository.has_checkpoint_integrity(state.workflow_id):
+                await repository.create_workflow(
+                    state.workflow_id, state.review.research_question, config_hash
+                )
             await repository.save_checkpoint(state.workflow_id, "phase_2_search", papers_processed=len(deduped))
         if rc:
             total = sum(state.search_counts.values())
@@ -807,6 +864,31 @@ class ScreeningNode(BaseNode[ReviewState]):
                 phase="phase_3_screening",
                 passed_screening=len(state.included_papers),
             )
+            if state.settings.gates.profile == "strict":
+                gr = await repository.get_latest_gate_result(
+                    state.workflow_id, "phase_3_screening", "screening_safeguard"
+                )
+                if gr and gr.status == GateStatus.FAILED:
+                    err_msg = (
+                        f"Screening safeguard gate failed: {gr.actual_value or 0} studies "
+                        f"included (minimum {gr.threshold or '?'}). Cannot proceed."
+                    )
+                    summary = {
+                        "workflow_id": state.workflow_id,
+                        "status": "failed",
+                        "error": err_msg,
+                        "gate": "screening_safeguard",
+                        "phase": "phase_3_screening",
+                    }
+                    Path(state.artifacts["run_summary"]).write_text(
+                        json.dumps(summary, indent=2), encoding="utf-8"
+                    )
+                    await repository.update_workflow_status(state.workflow_id, "failed")
+                    await update_registry_status(state.run_root, state.workflow_id, "failed")
+                    if rc:
+                        rc.emit_phase_done("phase_3_screening", {"error": err_msg})
+                    return End(summary)
+
             pre_filter_method = "bm25_rank_and_cap" if cap is not None else "keyword_prefilter"
             await repository.append_decision_log(
                 DecisionLogEntry(
@@ -1070,10 +1152,13 @@ class ExtractionQualityNode(BaseNode[ReviewState]):
                         ft_result = await fetch_full_text(
                             doi=paper.doi,
                             url=paper.url,
-                            pmid=None,
+                            pmid=getattr(paper, "pmid", None),
                             use_sciencedirect=getattr(extraction_cfg, "sciencedirect_full_text", True),
                             use_unpaywall=getattr(extraction_cfg, "unpaywall_full_text", True),
                             use_pmc=getattr(extraction_cfg, "pmc_full_text", True),
+                            use_core=getattr(extraction_cfg, "core_full_text", True),
+                            use_europepmc=getattr(extraction_cfg, "europepmc_full_text", True),
+                            use_semanticscholar=getattr(extraction_cfg, "semanticscholar_full_text", True),
                         )
                     except Exception as _ft_err:
                         logger.warning(
@@ -1082,12 +1167,24 @@ class ExtractionQualityNode(BaseNode[ReviewState]):
                         )
 
                 # Use fetched full text if substantial; fall back to abstract
-                if ft_result and ft_result.text and len(ft_result.text) >= getattr(extraction_cfg, "full_text_min_chars", 500):
+                min_chars = getattr(extraction_cfg, "full_text_min_chars", 500)
+                if ft_result and ft_result.text and len(ft_result.text) >= min_chars:
                     full_text = ft_result.text
                     if rc and rc.verbose:
                         rc.console.print(
                             f"    [dim]full-text via {ft_result.source} ({len(full_text)} chars)[/]"
                         )
+                elif ft_result and ft_result.pdf_bytes and len(ft_result.pdf_bytes) > 1000:
+                    # PDF-only (e.g. sciencedirect_pdf): parse to text for LLM extraction
+                    try:
+                        from src.search.pdf_retrieval import _parse_pdf_bytes
+                        full_text = _parse_pdf_bytes(ft_result.pdf_bytes)
+                        if rc and rc.verbose:
+                            rc.console.print(
+                                f"    [dim]full-text via {ft_result.source} PDF ({len(full_text)} chars)[/]"
+                            )
+                    except Exception:
+                        full_text = (paper.abstract or paper.title or "").strip()
                 else:
                     full_text = (paper.abstract or paper.title or "").strip()
 
@@ -1626,6 +1723,56 @@ def _reconcile_manuscript_consistency(body: str, state: ReviewState) -> str:  # 
     return body
 
 
+def _build_minimal_sections_for_zero_papers(
+    research_question: str,
+    minimal_paragraph: str,
+    sections: list[str],
+) -> list[str]:
+    """Build minimal section content when no studies were included.
+
+    Avoids LLM calls; produces factual, non-hallucinated manuscript.
+    """
+    rq = research_question or "the research question"
+    result: list[str] = []
+    for s in sections:
+        if s == "abstract":
+            content = (
+                f"**Objectives:** This systematic review addressed {rq}. "
+                "**Methods:** Bibliographic databases were searched per protocol. "
+                "**Results:** The search identified records as reported; 0 studies "
+                "met the eligibility criteria. **Conclusion:** No synthesis was "
+                "performed. **Keywords:** systematic review, empty result."
+            )
+        elif s == "introduction":
+            content = (
+                f"This systematic review aimed to address {rq}. "
+                "No studies met the eligibility criteria after screening."
+            )
+        elif s == "methods":
+            content = (
+                "Searches were conducted in bibliographic databases per the "
+                "registered protocol. Eligibility criteria were applied by "
+                "independent reviewers. No studies were included."
+            )
+        elif s == "results":
+            content = minimal_paragraph
+        elif s == "discussion":
+            content = (
+                "With no studies meeting eligibility criteria, no synthesis or "
+                "findings can be reported. This may reflect a narrow search scope, "
+                "restrictive eligibility criteria, or a genuine evidence gap."
+            )
+        elif s == "conclusion":
+            content = (
+                "No conclusions can be drawn from this review. No studies met "
+                "the eligibility criteria."
+            )
+        else:
+            content = minimal_paragraph
+        result.append(content)
+    return result
+
+
 class WritingNode(BaseNode[ReviewState]):
     """Write manuscript sections, validate citations, save drafts."""
 
@@ -1692,198 +1839,238 @@ class WritingNode(BaseNode[ReviewState]):
 
             await register_citations_from_papers(citation_repo, state.included_papers)
 
-            # Build grounding data from real pipeline outputs so the writing LLM
-            # cannot hallucinate counts, statistics, or citation keys.
-            grounding = build_writing_grounding(
-                prisma_counts=prisma_counts,
-                extraction_records=state.extraction_records,
-                included_papers=state.included_papers,
-                narrative=narrative,
-                citation_catalog=citation_catalog,
-                cohens_kappa=state.cohens_kappa,
-                kappa_stage=state.kappa_stage,
-                kappa_n=state.kappa_n,
-                sensitivity_results=state.sensitivity_results,
-            )
-
-            def _on_write(**kw):
-                if rc:
-                    rc.log_api_call(**kw)
-
-            # Pre-generate HyDE hypothetical documents for all sections in
-            # parallel before the writing loop. Abstract always returns "".
-            rag_cfg = getattr(state.settings, "rag", None)
-            use_hyde = getattr(rag_cfg, "use_hyde", True)
-            hyde_model = getattr(rag_cfg, "hyde_model", "google-gla:gemini-2.0-flash")
-
-            _pico_cfg = getattr(state.review, "pico", None) if state.review else None
-
-            hyde_docs: dict[str, str] = {}
-            if use_hyde and state.review:
-                try:
-                    import asyncio as _asyncio
-                    _hyde_results = await _asyncio.gather(
-                        *[
-                            generate_hyde_document(
-                                section=s,
-                                research_question=state.review.research_question,
-                                model=hyde_model,
-                                pico=_pico_cfg,
-                                repository=repository,
-                            )
-                            for s in SECTIONS
-                        ],
-                        return_exceptions=True,
+            if len(state.included_papers) == 0:
+                # Zero-papers guard: produce minimal manuscript without LLM calls
+                total_id = (
+                    prisma_counts.total_identified_databases
+                    + prisma_counts.total_identified_other
+                )
+                dbs = list(prisma_counts.databases_records.keys()) or ["searched databases"]
+                db_str = ", ".join(dbs) if dbs else "the specified databases"
+                minimal_para = (
+                    f"The search identified {total_id} records from {db_str}. "
+                    "After screening, 0 studies met the eligibility criteria. "
+                    "No synthesis or findings are reported."
+                )
+                rq = state.review.research_question or "the research question"
+                _minimal_contents = _build_minimal_sections_for_zero_papers(
+                    rq, minimal_para, SECTIONS
+                )
+                for i, content in enumerate(_minimal_contents):
+                    draft = SectionDraft(
+                        workflow_id=state.workflow_id,
+                        section=SECTIONS[i],
+                        version=1,
+                        content=content,
+                        claims_used=[],
+                        citations_used=[],
+                        word_count=len(content.split()),
                     )
-                    for s, res in zip(SECTIONS, _hyde_results):
-                        if isinstance(res, str) and res:
-                            hyde_docs[s] = res
-                    logger.info(
-                        "HyDE pre-generated %d/%d section docs (PICO=%s)",
-                        len(hyde_docs), len(SECTIONS), _pico_cfg is not None,
-                    )
-                except Exception as _hyde_err:
-                    logger.warning(
-                        "HyDE batch failed: %s -- falling back to bare embed_query", _hyde_err
-                    )
-
-            for i, section in enumerate(SECTIONS):
-                if section in completed:
-                    if rc and rc.verbose:
-                        rc.console.print(f"  Skipping {section} (already done)")
-                    cursor = await db.execute(
-                        """
-                        SELECT content FROM section_drafts
-                        WHERE workflow_id = ? AND section = ?
-                        ORDER BY version DESC LIMIT 1
-                        """,
-                        (state.workflow_id, section),
-                    )
-                    row = await cursor.fetchone()
-                    if row:
-                        sections_written.append(row[0])
+                    await repository.save_section_draft(draft)
+                    sections_written.append(content)
                     if rc:
                         rc.advance_screening("phase_6_writing", i + 1, len(SECTIONS))
-                    continue
-
-                if rc and rc.verbose:
-                    rc.console.print(f"  Writing section: {section}...")
-                context = get_section_context(section)
-                word_limit = get_section_word_limit(section)
-
-                # Retrieve semantically relevant evidence chunks for this section
-                # using hybrid BM25 + dense retrieval with Reciprocal Rank Fusion,
-                # followed by optional cross-encoder reranking.
-                rag_context = ""
-                try:
-                    retriever = RAGRetriever(db, state.workflow_id)
-                    chunk_count = await retriever.chunk_count()
-                    if chunk_count > 0:
-                        # HyDE: embed the hypothetical doc if available, else
-                        # fall back to bare section name. BM25 always uses the
-                        # factual query (not hypothetical) to avoid hallucinated
-                        # corpus-drift.
-                        hyde_text = hyde_docs.get(section, "")
-                        query_vec = await rag_embed_query(hyde_text if hyde_text else section)
-                        if hyde_text:
-                            logger.debug("RAG: HyDE embedding used for section '%s'", section)
-                        # PICO enrichment: appending PICO terms gives BM25
-                        # domain-specific keywords beyond the bare section name.
-                        _pico_terms = " ".join(filter(None, [
-                            getattr(_pico_cfg, "population", "") or "",
-                            getattr(_pico_cfg, "intervention", "") or "",
-                            getattr(_pico_cfg, "comparison", "") or "",
-                            getattr(_pico_cfg, "outcome", "") or "",
-                        ])).strip() if _pico_cfg else ""
-                        bm25_query = " ".join(filter(None, [
-                            state.review.research_question,
-                            _pico_terms,
-                            section,
-                        ]))
-
-                        # Retrieve wider candidate set (top_k=20) for reranker;
-                        # fall back to top_k=8 when reranking is disabled.
-                        use_rerank = getattr(rag_cfg, "rerank", True)
-                        candidate_k = 20 if use_rerank else 8
-                        chunks = await retriever.search(
-                            query_vec, top_k=candidate_k, query_text=bm25_query
-                        )
-
-                        # Listwise reranking: single Gemini Flash call orders
-                        # all candidates by relevance, keeping the best 8.
-                        if use_rerank and chunks:
-                            reranker_model = getattr(
-                                rag_cfg,
-                                "reranker_model",
-                                "google-gla:gemini-2.0-flash",
-                            )
-                            rerank_query = hyde_text if hyde_text else bm25_query
-                            chunks = await rerank_chunks(
-                                rerank_query, chunks, top_k=8, model=reranker_model,
-                                repository=repository,
-                            )
-
-                        if chunks:
-                            rag_context = "\n\n".join(
-                                f"[Paper {c.paper_id} | score {c.score:.4f}]\n{c.content}"
-                                for c in chunks
-                            )
-                except Exception as _rag_exc:
-                    logger.warning("RAG retrieval failed for section '%s': %s", section, _rag_exc)
-
-                content = await write_section_with_validation(
-                    section=section,
-                    context=context,
-                    workflow_id=state.workflow_id,
-                    review=state.review,
-                    settings=state.settings,
-                    citation_repo=citation_repo,
+                await repository.save_checkpoint(
+                    state.workflow_id, "phase_6_writing", papers_processed=len(SECTIONS)
+                )
+                logger.info(
+                    "WritingNode: 0 included papers; produced minimal manuscript without LLM calls"
+                )
+            else:
+                # Build grounding data from real pipeline outputs so the writing LLM
+                # cannot hallucinate counts, statistics, or citation keys.
+                grounding = build_writing_grounding(
+                    prisma_counts=prisma_counts,
+                    extraction_records=state.extraction_records,
+                    included_papers=state.included_papers,
+                    narrative=narrative,
                     citation_catalog=citation_catalog,
-                    style_patterns=style_patterns,
-                    word_limit=word_limit,
-                    on_llm_call=_on_write if rc else None,
-                    provider=provider,
-                    grounding=grounding,
-                    rag_context=rag_context,
+                    cohens_kappa=state.cohens_kappa,
+                    kappa_stage=state.kappa_stage,
+                    kappa_n=state.kappa_n,
+                    sensitivity_results=state.sensitivity_results,
+                    search_limitation=getattr(state.review, "search_limitation", None) if state.review else None,
                 )
 
-                # Humanization pass: apply configured number of iterations
-                writing_cfg = getattr(state.settings, "writing", None)
-                do_humanize = getattr(writing_cfg, "humanization", False)
-                humanize_iters = getattr(writing_cfg, "humanization_iterations", 1)
-                use_llm_write = _llm_available(settings_cfg=state.settings) and (rc is None or not rc.offline)
-                if do_humanize and use_llm_write:
-                    humanizer_agent = state.settings.agents.get("humanizer")
-                    h_model = humanizer_agent.model if humanizer_agent else "google-gla:gemini-2.5-pro"
-                    h_temp = humanizer_agent.temperature if humanizer_agent else 0.3
+                def _on_write(**kw):
+                    if rc:
+                        rc.log_api_call(**kw)
+
+                # Pre-generate HyDE hypothetical documents for all sections in
+                # parallel before the writing loop. Abstract always returns "".
+                rag_cfg = getattr(state.settings, "rag", None)
+                use_hyde = getattr(rag_cfg, "use_hyde", True)
+                hyde_model = getattr(rag_cfg, "hyde_model", "google-gla:gemini-2.0-flash")
+
+                _pico_cfg = getattr(state.review, "pico", None) if state.review else None
+
+                hyde_docs: dict[str, str] = {}
+                if use_hyde and state.review:
+                    try:
+                        import asyncio as _asyncio
+                        _hyde_results = await _asyncio.gather(
+                            *[
+                                generate_hyde_document(
+                                    section=s,
+                                    research_question=state.review.research_question,
+                                    model=hyde_model,
+                                    pico=_pico_cfg,
+                                    repository=repository,
+                                )
+                                for s in SECTIONS
+                            ],
+                            return_exceptions=True,
+                        )
+                        for s, res in zip(SECTIONS, _hyde_results):
+                            if isinstance(res, str) and res:
+                                hyde_docs[s] = res
+                        logger.info(
+                            "HyDE pre-generated %d/%d section docs (PICO=%s)",
+                            len(hyde_docs), len(SECTIONS), _pico_cfg is not None,
+                        )
+                    except Exception as _hyde_err:
+                        logger.warning(
+                            "HyDE batch failed: %s -- falling back to bare embed_query", _hyde_err
+                        )
+
+                for i, section in enumerate(SECTIONS):
+                    if section in completed:
+                        if rc and rc.verbose:
+                            rc.console.print(f"  Skipping {section} (already done)")
+                        cursor = await db.execute(
+                            """
+                            SELECT content FROM section_drafts
+                            WHERE workflow_id = ? AND section = ?
+                            ORDER BY version DESC LIMIT 1
+                            """,
+                            (state.workflow_id, section),
+                        )
+                        row = await cursor.fetchone()
+                        if row:
+                            sections_written.append(row[0])
+                        if rc:
+                            rc.advance_screening("phase_6_writing", i + 1, len(SECTIONS))
+                        continue
+
                     if rc and rc.verbose:
-                        rc.console.print(
-                            f"    Humanizing {section} ({humanize_iters} pass(es))..."
-                        )
-                    for _ in range(humanize_iters):
-                        content = await humanize_async(
-                            content, model=h_model, temperature=h_temp, max_chars=12000,
-                            provider=provider if use_llm_write else None,
-                        )
+                        rc.console.print(f"  Writing section: {section}...")
+                    context = get_section_context(section)
+                    word_limit = get_section_word_limit(section)
 
-                word_count = len(content.split())
-                draft = SectionDraft(
-                    workflow_id=state.workflow_id,
-                    section=section,
-                    version=1,
-                    content=content,
-                    claims_used=[],
-                    citations_used=[],
-                    word_count=word_count,
+                    # Retrieve semantically relevant evidence chunks for this section
+                    # using hybrid BM25 + dense retrieval with Reciprocal Rank Fusion,
+                    # followed by optional cross-encoder reranking.
+                    rag_context = ""
+                    try:
+                        retriever = RAGRetriever(db, state.workflow_id)
+                        chunk_count = await retriever.chunk_count()
+                        if chunk_count > 0:
+                            # HyDE: embed the hypothetical doc if available, else
+                            # fall back to bare section name. BM25 always uses the
+                            # factual query (not hypothetical) to avoid hallucinated
+                            # corpus-drift.
+                            hyde_text = hyde_docs.get(section, "")
+                            query_vec = await rag_embed_query(hyde_text if hyde_text else section)
+                            if hyde_text:
+                                logger.debug("RAG: HyDE embedding used for section '%s'", section)
+                            # PICO enrichment: appending PICO terms gives BM25
+                            # domain-specific keywords beyond the bare section name.
+                            _pico_terms = " ".join(filter(None, [
+                                getattr(_pico_cfg, "population", "") or "",
+                                getattr(_pico_cfg, "intervention", "") or "",
+                                getattr(_pico_cfg, "comparison", "") or "",
+                                getattr(_pico_cfg, "outcome", "") or "",
+                            ])).strip() if _pico_cfg else ""
+                            bm25_query = " ".join(filter(None, [
+                                state.review.research_question,
+                                _pico_terms,
+                                section,
+                            ]))
+
+                            # Retrieve wider candidate set (top_k=20) for reranker;
+                            # fall back to top_k=8 when reranking is disabled.
+                            use_rerank = getattr(rag_cfg, "rerank", True)
+                            candidate_k = 20 if use_rerank else 8
+                            chunks = await retriever.search(
+                                query_vec, top_k=candidate_k, query_text=bm25_query
+                            )
+
+                            # Listwise reranking: single Gemini Flash call orders
+                            # all candidates by relevance, keeping the best 8.
+                            if use_rerank and chunks:
+                                reranker_model = getattr(
+                                    rag_cfg,
+                                    "reranker_model",
+                                    "google-gla:gemini-2.0-flash",
+                                )
+                                rerank_query = hyde_text if hyde_text else bm25_query
+                                chunks = await rerank_chunks(
+                                    rerank_query, chunks, top_k=8, model=reranker_model,
+                                    repository=repository,
+                                )
+
+                            if chunks:
+                                rag_context = "\n\n".join(
+                                    f"[Paper {c.paper_id} | score {c.score:.4f}]\n{c.content}"
+                                    for c in chunks
+                                )
+                    except Exception as _rag_exc:
+                        logger.warning("RAG retrieval failed for section '%s': %s", section, _rag_exc)
+
+                    content = await write_section_with_validation(
+                        section=section,
+                        context=context,
+                        workflow_id=state.workflow_id,
+                        review=state.review,
+                        settings=state.settings,
+                        citation_repo=citation_repo,
+                        citation_catalog=citation_catalog,
+                        style_patterns=style_patterns,
+                        word_limit=word_limit,
+                        on_llm_call=_on_write if rc else None,
+                        provider=provider,
+                        grounding=grounding,
+                        rag_context=rag_context,
+                    )
+
+                    # Humanization pass: apply configured number of iterations
+                    writing_cfg = getattr(state.settings, "writing", None)
+                    do_humanize = getattr(writing_cfg, "humanization", False)
+                    humanize_iters = getattr(writing_cfg, "humanization_iterations", 1)
+                    use_llm_write = _llm_available(settings_cfg=state.settings) and (rc is None or not rc.offline)
+                    if do_humanize and use_llm_write:
+                        humanizer_agent = state.settings.agents.get("humanizer")
+                        h_model = humanizer_agent.model if humanizer_agent else "google-gla:gemini-2.5-pro"
+                        h_temp = humanizer_agent.temperature if humanizer_agent else 0.3
+                        if rc and rc.verbose:
+                            rc.console.print(
+                                f"    Humanizing {section} ({humanize_iters} pass(es))..."
+                            )
+                        for _ in range(humanize_iters):
+                            content = await humanize_async(
+                                content, model=h_model, temperature=h_temp, max_chars=12000,
+                                provider=provider if use_llm_write else None,
+                            )
+
+                    word_count = len(content.split())
+                    draft = SectionDraft(
+                        workflow_id=state.workflow_id,
+                        section=section,
+                        version=1,
+                        content=content,
+                        claims_used=[],
+                        citations_used=[],
+                        word_count=word_count,
+                    )
+                    await repository.save_section_draft(draft)
+                    sections_written.append(content)
+                    if rc:
+                        rc.advance_screening("phase_6_writing", i + 1, len(SECTIONS))
+
+                await repository.save_checkpoint(
+                    state.workflow_id, "phase_6_writing", papers_processed=len(SECTIONS)
                 )
-                await repository.save_section_draft(draft)
-                sections_written.append(content)
-                if rc:
-                    rc.advance_screening("phase_6_writing", i + 1, len(SECTIONS))
 
-            await repository.save_checkpoint(
-                state.workflow_id, "phase_6_writing", papers_processed=len(SECTIONS)
-            )
             citation_rows = await CitationRepository(db).get_all_citations_for_export()
             # Load papers + extraction records for the study characteristics table.
             # Derive included_ids from extraction_records first (not from fulltext

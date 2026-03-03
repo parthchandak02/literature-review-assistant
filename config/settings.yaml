@@ -101,14 +101,15 @@ citation_lineage:
   minimum_evidence_score: 0.5
 
 # Full-text retrieval and multi-modal extraction settings.
-# Tier 1: ScienceDirect API (Elsevier OA papers, ~100KB full text)
-# Tier 2: Unpaywall open-access PDF (~50% of recent papers)
-# Tier 3: PubMed Central XML (NIH-funded OA papers)
-# Fallback: abstract text (no regression from current behavior)
+# Tiers: Unpaywall, Semantic Scholar, CORE, Europe PMC, ScienceDirect, PMC
+# Fallback: abstract text
 extraction:
   sciencedirect_full_text: true
   unpaywall_full_text: true
   pmc_full_text: true
+  core_full_text: true
+  europepmc_full_text: true
+  semanticscholar_full_text: true
   use_pdf_vision: true
   pdf_vision_model: "google-gla:gemini-2.5-flash"
   full_text_min_chars: 500

@@ -28,14 +28,19 @@ class ExtractionRecord(BaseModel):
         description="LLM self-reported confidence in the extraction (0.0-1.0).",
     )
     extraction_source: Optional[Literal[
-        "text",           # abstract / title text only (baseline)
-        "sciencedirect",  # full text from ScienceDirect Article Retrieval API
-        "unpaywall_text", # full text from Unpaywall (HTML/text response)
-        "pmc",            # full text from PubMed Central XML
-        "unpaywall_pdf",  # PDF obtained from Unpaywall (used for vision extraction)
-        "pdf_vision",     # table data extracted via Gemini vision from PDF
-        "hybrid",         # merge of text-LLM and PDF-vision outcomes
-        "heuristic",      # rule-based extraction fallback
+        "text",             # abstract / title text only (baseline)
+        "sciencedirect",    # full text from ScienceDirect Article Retrieval API
+        "sciencedirect_pdf",  # PDF from ScienceDirect (requires SCOPUS_INSTTOKEN)
+        "unpaywall_text",   # full text from Unpaywall (HTML/text response)
+        "unpaywall_pdf",    # PDF obtained from Unpaywall (used for vision extraction)
+        "core",             # full text from CORE (institutional repos)
+        "core_pdf",         # PDF from CORE download API
+        "europepmc",        # full text from Europe PMC fullTextXML
+        "semanticscholar_pdf",  # PDF from Semantic Scholar openAccessPdf
+        "pmc",              # full text from PubMed Central XML
+        "pdf_vision",       # table data extracted via Gemini vision from PDF
+        "hybrid",           # merge of text-LLM and PDF-vision outcomes
+        "heuristic",        # rule-based extraction fallback
     ]] = Field(
         default="text",
         description=(

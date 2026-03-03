@@ -12,18 +12,25 @@ os.environ.setdefault("REQUESTS_CA_BUNDLE", certifi.where())
 
 import argparse
 import asyncio
+import os
 import sys
 from collections.abc import Sequence
 from pathlib import Path
 
+import aiohttp
 import aiosqlite
 from rich.console import Console
 from rich.table import Table
 
-from src.db.workflow_registry import find_by_workflow_id, find_by_workflow_id_fallback
+from src.db.workflow_registry import (
+    find_by_topic,
+    find_by_workflow_id,
+    find_by_workflow_id_fallback,
+)
 from src.export import package_submission, validate_ieee, validate_prisma
 from src.orchestration import run_workflow_resume, run_workflow_sync
 from src.orchestration.context import RunContext, create_progress
+from src.orchestration.workflow import _hash_config
 from src.utils.structured_log import load_events_from_jsonl
 
 
@@ -184,6 +191,11 @@ def build_parser() -> argparse.ArgumentParser:
     resume.add_argument("--config", default="config/review.yaml")
     resume.add_argument("--settings", default="config/settings.yaml")
     resume.add_argument("--run-root", default="runs")
+    resume.add_argument(
+        "--no-api",
+        action="store_true",
+        help="Run locally even if API is up (no live progress in frontend)",
+    )
     resume.add_argument("--verbose", "-v", action="store_true")
     resume.add_argument("--debug", "-d", action="store_true")
 
@@ -200,6 +212,50 @@ def build_parser() -> argparse.ArgumentParser:
     status.add_argument("--run-root", default="runs")
 
     return parser
+
+
+async def _try_resume_via_api(
+    workflow_id: str | None,
+    topic: str | None,
+    run_root: str,
+    review_path: str,
+    from_phase: str | None,
+) -> tuple[str, str] | None:
+    """If the API is running, delegate resume to it and return (run_id, topic). Else return None."""
+    entry = None
+    if workflow_id:
+        entry = await find_by_workflow_id(run_root, workflow_id)
+        if entry is None:
+            entry = await find_by_workflow_id_fallback(run_root, workflow_id)
+    else:
+        config_hash = _hash_config(review_path)
+        matches = await find_by_topic(run_root, topic or "", config_hash)
+        entry = matches[0] if matches else None
+    if entry is None:
+        return None
+
+    port = os.environ.get("PORT", "8001")
+    base = f"http://127.0.0.1:{port}"
+    timeout = aiohttp.ClientTimeout(total=5)
+
+    try:
+        async with aiohttp.ClientSession(timeout=timeout) as session:
+            r = await session.get(f"{base}/api/health")
+            if r.status != 200:
+                return None
+            payload = {
+                "workflow_id": entry.workflow_id,
+                "db_path": entry.db_path,
+                "topic": entry.topic,
+                "from_phase": from_phase,
+            }
+            r2 = await session.post(f"{base}/api/history/resume", json=payload)
+            if r2.status not in (200, 201):
+                return None
+            data = await r2.json()
+            return (data["run_id"], data["topic"])
+    except (aiohttp.ClientError, asyncio.TimeoutError, KeyError):
+        return None
 
 
 async def _backfill_event_log(log_dir: str, workflow_id: str) -> None:
@@ -278,6 +334,26 @@ def main(argv: Sequence[str] | None = None) -> int:
         if debug:
             verbose = True
         try:
+            # Delegate to API when available so the frontend shows live progress
+            if not getattr(args, "no_api", False):
+                result = asyncio.run(
+                    _try_resume_via_api(
+                        workflow_id=getattr(args, "workflow_id", None),
+                        topic=getattr(args, "topic", None),
+                        run_root=args.run_root,
+                        review_path=args.config,
+                        from_phase=getattr(args, "from_phase", None),
+                    )
+                )
+                if result is not None:
+                    run_id, topic = result
+                    console.print(
+                        "[green]Resume started via API.[/] Open http://localhost:5173 to watch live progress."
+                    )
+                    topic_preview = f"{topic[:60]}..." if len(topic) > 60 else topic
+                    console.print(f"  Run ID: {run_id}  |  Topic: {topic_preview}")
+                    return 0
+
             with create_progress(console) as progress:
                 run_context = RunContext(
                     console=console,
