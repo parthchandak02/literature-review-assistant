@@ -418,6 +418,8 @@ The citation ledger validates after each section: every in-text citekey must res
 
 Each completed section is saved to the `section_drafts` table immediately. On resume after a crash, the writing node loads completed sections from the DB and skips them.
 
+**Zero-papers guard:** When 0 papers are included (e.g. gates.profile=warning allows continuation past screening_safeguard), WritingNode produces a minimal manuscript without LLM calls via `_build_minimal_sections_for_zero_papers()`. No style extraction, HyDE, or section-writing LLM calls run.
+
 **Gate:** `citation_lineage` -- blocks export if `block_export_on_unresolved` is true and any claim has an unresolved citation.
 
 **Outputs:** `SectionDraft` per section (6 total), `doc_manuscript.md`.
@@ -935,6 +937,7 @@ Living section -- update as work completes.
 | Enhancement #10: GRADE Evidence Profile | DONE | Full GRADE Summary of Findings table (studies, participants, effect estimate, certainty, reason); build_sof_table() in grade.py; GradeSoFTable + GradeSoFRow models; LaTeX longtable export; GET /api/run/{run_id}/grade-sof endpoint |
 | Search quality sprint | DONE | Scopus connector (src/search/scopus.py, TITLE-ABS-KEY field codes, 5 req/sec limit, 429 back-off); default target_databases updated to openalex + pubmed + scopus + semantic_scholar + ieee_xplore; perplexity_search + crossref + arxiv removed from default pipeline |
 | Manuscript quality sprint | DONE | Root causes fixed in pipeline: assemble_submission_manuscript() includes GRADE SoF table, search appendix, excluded-studies footnote; abstract prompt includes kappa framing; semicolon parsing in citation extraction; IMRaD heading prompts tightened. finalize_manuscript.py is a thin regeneration utility for historical runs; _strip_unresolved_citekeys() is the only remaining safety net. Citation lineage gate: FinalizeNode validates manuscript; block_export_on_unresolved respected. |
+| Zero-papers manuscript | DONE | WritingNode guard: when 0 papers included (gates.profile=warning allows continuation past screening_safeguard), produces minimal manuscript without LLM calls via _build_minimal_sections_for_zero_papers(). Appendix B (Characteristics of Included Studies) includes Full Text Retrieved column. Sidebar RunCardMetrics displays 0/0 for found/included. |
 
 **Test status:** 105 unit tests, 13 integration tests (`uv run pytest tests/unit tests/integration -q`).
 

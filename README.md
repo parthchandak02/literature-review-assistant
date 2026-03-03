@@ -345,6 +345,7 @@ uv run pytest tests/integration -q
 | `src/quality/` | RoB 2, ROBINS-I, CASP, GRADE |
 | `src/synthesis/` | Feasibility checker, meta-analysis, narrative synthesis |
 | `src/rag/` | RAG pipeline: chunker, embedder (PydanticAI), hybrid BM25+dense retriever (RRF), HyDE query expansion, Gemini listwise reranker |
+| `src/knowledge_graph/` | Builder, community (Louvain), gap detector |
 | `src/writing/` | Section writer, humanizer, style extractor, grounding |
 | `src/citation/` | Citation ledger -- claim-to-evidence-to-BibTeX lineage |
 | `src/export/` | IEEE LaTeX exporter, Word DOCX exporter, BibTeX builder, PRISMA validator |
