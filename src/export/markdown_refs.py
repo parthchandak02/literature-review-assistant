@@ -63,7 +63,16 @@ def _sanitize_body(text: str) -> str:
     - Lines that are purely orphaned citation fragments starting with a comma
       (e.g. ', Katharina2025, Importancend].' with no preceding prose)
     - Lines that consist only of bracketed citekey lists with no prose
+
+    Also normalizes reviewer wording: replaces 'human reviewer' or 'AI reviewer'
+    with 'reviewer' (and plural forms) to keep neutral language.
     """
+    # Normalize reviewer wording: use neutral 'reviewer(s)' only (no human/AI)
+    text = re.sub(r"\bhuman\s+reviewers\b", "reviewers", text, flags=re.IGNORECASE)
+    text = re.sub(r"\bhuman\s+reviewer\b", "reviewer", text, flags=re.IGNORECASE)
+    text = re.sub(r"\bAI\s+reviewers\b", "reviewers", text, flags=re.IGNORECASE)
+    text = re.sub(r"\bAI\s+reviewer\b", "reviewer", text, flags=re.IGNORECASE)
+
     lines = text.split("\n")
     clean: List[str] = []
     # Orphaned fragment: line starts with optional whitespace then a comma then citekey tokens
@@ -223,7 +232,10 @@ def build_markdown_declarations_section(
     if protocol_registered and registration_id:
         reg_text = f"The protocol was prospectively registered (ID: {registration_id})."
     else:
-        reg_text = "The protocol was not prospectively registered."
+        reg_text = (
+            "TODO: Register protocol at PROSPERO before submission "
+            "(https://www.crd.york.ac.uk/prospero/) - CRD420XXXXXXXX"
+        )
     return (
         "## Declarations\n\n"
         f"**Funding:** {funding_text}\n\n"
@@ -383,7 +395,118 @@ def build_study_characteristics_table(
             f"not reported). These studies are cited in the narrative synthesis above._"
         )
     table_md = "\n".join([header, sep] + data_rows) + "\n\n" + footnote
-    return "## Appendix A: Characteristics of Included Studies\n\n" + table_md
+    return "## Appendix B: Characteristics of Included Studies\n\n" + table_md
+
+
+_ROBINS_I_DOMAINS = [
+    ("D1", "domain_1_confounding", "Confounding"),
+    ("D2", "domain_2_selection", "Selection"),
+    ("D3", "domain_3_classification", "Classification"),
+    ("D4", "domain_4_deviations", "Deviations"),
+    ("D5", "domain_5_missing_data", "Missing data"),
+    ("D6", "domain_6_measurement", "Measurement"),
+    ("D7", "domain_7_reported_result", "Reported result"),
+]
+
+
+def _robins_judgment_display(value: Any) -> str:
+    """Format RobinsIJudgment for table display (Low, Moderate, Serious, etc.)."""
+    if value is None:
+        return "NR"
+    raw = getattr(value, "value", None) or str(value)
+    return raw.replace("_", " ").title()
+
+
+def _paper_author_year(paper: Any) -> str:
+    """Return 'Author et al., Year' for a paper."""
+    if paper.authors:
+        first_author_raw = str(paper.authors[0])
+        first_author = first_author_raw.split()[-1] if first_author_raw.split() else first_author_raw
+        author_str = f"{first_author} et al." if len(paper.authors) > 1 else first_author_raw
+    else:
+        author_str = "NR"
+    year_str = str(paper.year) if paper.year else "n.d."
+    return f"{author_str}, {year_str}"
+
+
+def build_robins_i_domain_table(
+    papers: List[Any],
+    robins_i_assessments: List[Any],
+) -> str:
+    """Build a markdown table of ROBINS-I bias assessment (7 domains per study).
+
+    Similar to Jeffrey et al. (2024) Table 3. One row per study; columns for
+    D1-D7 and Overall. Returns empty string if no ROBINS-I assessments.
+    """
+    if not robins_i_assessments:
+        return ""
+
+    paper_map: Dict[str, Any] = {p.paper_id: p for p in papers}
+    # Build rows: (author_year, assessment) sorted by author_year
+    rows_data: List[Tuple[str, Any]] = []
+    for a in robins_i_assessments:
+        paper = paper_map.get(a.paper_id)
+        label = _paper_author_year(paper) if paper else a.paper_id[:12]
+        rows_data.append((label, a))
+    rows_data.sort(key=lambda x: x[0])
+
+    domain_cols = [f"{short} ({name})" for short, attr, name in _ROBINS_I_DOMAINS]
+    header = "| Study | " + " | ".join(domain_cols) + " | Overall |"
+    sep = "|" + "|".join(["-------"] * (len(_ROBINS_I_DOMAINS) + 2)) + "|"
+
+    data_rows: List[str] = []
+    for label, a in rows_data:
+        cells = [label]
+        for _short, attr, _name in _ROBINS_I_DOMAINS:
+            val = getattr(a, attr, None)
+            cells.append(_robins_judgment_display(val))
+        cells.append(_robins_judgment_display(getattr(a, "overall_judgment", None)))
+        data_rows.append("| " + " | ".join(cells) + " |")
+
+    footnote = (
+        "_ROBINS-I domains: D1 Confounding, D2 Selection of participants, "
+        "D3 Classification of interventions, D4 Deviations from interventions, "
+        "D5 Missing data, D6 Measurement of outcomes, D7 Selection of reported result. "
+        "Judgments: Low, Moderate, Serious, Critical, No Information._"
+    )
+    table_md = "\n".join([header, sep] + data_rows) + "\n\n" + footnote
+    return "## ROBINS-I Risk of Bias Assessment\n\n" + table_md
+
+
+def build_picos_table(review_config: Any) -> str:
+    """Build a markdown table of eligibility criteria (PICOS) from review config.
+
+    Similar to benchmark Table 1: Inclusion/exclusion criteria (PICOS).
+    Uses PICO elements plus inclusion and exclusion criteria from review.yaml.
+    """
+    pico = getattr(review_config, "pico", None)
+    if not pico:
+        return ""
+
+    inclusion = getattr(review_config, "inclusion_criteria", []) or []
+    exclusion = getattr(review_config, "exclusion_criteria", []) or []
+    inc_str = "; ".join(str(c) for c in inclusion) if inclusion else "NR"
+    exc_str = "; ".join(str(c) for c in exclusion) if exclusion else "NR"
+
+    rows = [
+        ("Population", getattr(pico, "population", "") or "NR"),
+        ("Intervention", getattr(pico, "intervention", "") or "NR"),
+        ("Comparison", getattr(pico, "comparison", "") or "NR"),
+        ("Outcome", getattr(pico, "outcome", "") or "NR"),
+        ("Inclusion criteria", inc_str),
+        ("Exclusion criteria", exc_str),
+    ]
+    header = "| Element | Description |"
+    sep = "|---------|-------------|"
+    data_rows = [f"| {label} | {_escape_table_cell(desc)} |" for label, desc in rows]
+    footnote = "_PICOS = Population, Intervention, Comparison, Outcome, Study design. Eligibility criteria from protocol._"
+    table_md = "\n".join([header, sep] + data_rows) + "\n\n" + footnote
+    return "## Appendix A: Eligibility Criteria (PICOS)\n\n" + table_md
+
+
+def _escape_table_cell(text: str) -> str:
+    """Escape pipe characters in table cell to avoid breaking markdown."""
+    return text.replace("|", "\\|").replace("\n", " ")
 
 
 _CERTAINTY_ORDER = {"high": 0, "moderate": 1, "low": 2, "very_low": 3}
@@ -547,14 +670,20 @@ def assemble_submission_manuscript(
     funding: str = "",
     coi: str = "",
     grade_assessments: Optional[List[Any]] = None,
+    robins_i_assessments: Optional[List[Any]] = None,
+    review_config: Optional[Any] = None,
     failed_count: int = 0,
     search_appendix_path: Optional[Path] = None,
+    research_question: str = "",
+    title: Optional[str] = None,
 ) -> str:
     """Combine all manuscript sections with HR separators.
 
     Assembly order:
-      body -> Declarations -> GRADE Evidence Profile -> GRADE SoF Table ->
-      Study Table -> Figures -> References -> Search Strategies Appendix
+      [Title + Research Question block if provided] -> body -> Declarations ->
+      Eligibility Criteria (PICOS) -> GRADE Evidence Profile -> GRADE SoF Table ->
+      ROBINS-I domain table -> Study Table -> Figures -> References ->
+      Search Strategies Appendix
 
     The body is sanitized to remove LLM text artifacts and author-year
     citation keys are converted to sequential [N] numbered format.
@@ -565,13 +694,43 @@ def assemble_submission_manuscript(
 
     search_appendix_path: optional path to doc_search_strategies_appendix.md written
     by SearchStrategyCoordinator in Phase 2. When present it is appended as Appendix B.
+
+    research_question: from review.yaml; prepended at top with title when provided.
+    title: optional manuscript title; if None and research_question given, derived as
+    "A Systematic Review: " + research_question (truncated to ~80 chars for IEEE).
     """
     clean_body = _sanitize_body(body)
 
     # Convert [AuthorYear] -> [N] numbered citations
     numbered_body, ordered_citation_rows = convert_to_numbered_citations(clean_body, citation_rows)
 
+    # Prepend title and research question block when provided
+    header_block = ""
+    if research_question or title:
+        # Strip any existing title block to avoid duplication when re-running finalize
+        _title_block_re = re.compile(
+            r"^# .+?\n\n\*\*Research Question:\*\* .+?\n\n---\n\n",
+            re.DOTALL,
+        )
+        numbered_body = _title_block_re.sub("", numbered_body)
+
+        _title = title
+        if _title is None and research_question:
+            _title = f"A Systematic Review: {research_question}"
+            if len(_title) > 100:
+                _title = _title[:97] + "..."
+        if _title:
+            header_block = f"# {_title}\n\n"
+        if research_question:
+            header_block += f"**Research Question:** {research_question}\n\n---\n\n"
+        if header_block:
+            numbered_body = header_block + numbered_body
+
     declarations_section = build_markdown_declarations_section(funding=funding, coi=coi)
+
+    picos_section = ""
+    if review_config:
+        picos_section = build_picos_table(review_config)
 
     grade_section = ""
     sof_section = ""
@@ -581,6 +740,10 @@ def assemble_submission_manuscript(
         # appended after the simplified Evidence Profile
         sof_table = build_sof_table(grade_assessments)
         sof_section = sof_table_to_markdown(sof_table)
+
+    robins_section = ""
+    if papers and robins_i_assessments:
+        robins_section = build_robins_i_domain_table(papers, robins_i_assessments)
 
     study_table_section = ""
     if papers and extraction_records:
@@ -600,17 +763,21 @@ def assemble_submission_manuscript(
         # Normalize the top-level heading to fit as an appendix
         raw = raw.replace(
             "# Search Strategies Appendix",
-            "## Appendix B: Search Strategies",
+            "## Appendix C: Search Strategies",
         )
         search_appendix_section = raw
 
     parts = [numbered_body]
     if declarations_section:
         parts.append(declarations_section)
+    if picos_section:
+        parts.append(picos_section)
     if grade_section:
         parts.append(grade_section)
     if sof_section:
         parts.append(sof_section)
+    if robins_section:
+        parts.append(robins_section)
     if study_table_section:
         parts.append(study_table_section)
     if figures_section:
@@ -630,8 +797,12 @@ def strip_appended_sections(text: str) -> str:
         "\n\n## Declarations",
         "\n\n---\n\n## GRADE Evidence Profile",
         "\n\n## GRADE Evidence Profile",
-        "\n\n---\n\n## Appendix A",
-        "\n\n## Appendix A",
+        "\n\n---\n\n## Appendix A: Eligibility Criteria",
+        "\n\n## Appendix A: Eligibility Criteria",
+        "\n\n---\n\n## ROBINS-I Risk of Bias Assessment",
+        "\n\n## ROBINS-I Risk of Bias Assessment",
+        "\n\n---\n\n## Appendix B",
+        "\n\n## Appendix B",
         "\n\n---\n\n## Figures",
         "\n\n## Figures",
         "\n\n---\n\n## References",

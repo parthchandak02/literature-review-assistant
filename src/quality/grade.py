@@ -168,6 +168,21 @@ _UPGRADE_LABEL: dict[int, str] = {
 }
 
 
+_PLACEHOLDER_OUTCOME_NAMES = frozenset({
+    "", "primary_outcome", "secondary_outcome", "not reported", "not_reported",
+})
+
+
+def _outcome_display_name(raw_name: str, placeholder_index: int) -> str:
+    """Return display name for SoF table; use fallback for placeholder names."""
+    if not raw_name or not raw_name.strip():
+        return f"Outcome from included studies ({placeholder_index})"
+    name_norm = raw_name.lower().strip().replace(" ", "_")
+    if name_norm in _PLACEHOLDER_OUTCOME_NAMES:
+        return f"Outcome from included studies ({placeholder_index})"
+    return raw_name.replace("_", " ").strip()
+
+
 def build_sof_table(
     assessments: list[GRADEOutcomeAssessment],
     topic: str = "Systematic Review",
@@ -176,9 +191,19 @@ def build_sof_table(
 
     Each GRADEOutcomeAssessment becomes one row with human-readable downgrade
     and upgrade labels so the table can be rendered as LaTeX or JSON.
+    Placeholder outcome names (e.g. 'not reported', 'primary_outcome') are
+    replaced with 'Outcome from included studies (N)' fallback labels.
     """
     rows: list[GradeSoFRow] = []
+    placeholder_counter = 0
     for a in assessments:
+        raw_name = getattr(a, "outcome_name", None) or ""
+        name_norm = raw_name.lower().strip().replace(" ", "_")
+        if name_norm in _PLACEHOLDER_OUTCOME_NAMES or not raw_name.strip():
+            placeholder_counter += 1
+            display_name = _outcome_display_name(raw_name, placeholder_counter)
+        else:
+            display_name = raw_name.replace("_", " ").strip()
         other: list[str] = []
         if a.large_effect_upgrade:
             other.append(_UPGRADE_LABEL.get(a.large_effect_upgrade, "upgrade"))
@@ -191,7 +216,7 @@ def build_sof_table(
 
         rows.append(
             GradeSoFRow(
-                outcome_name=a.outcome_name,
+                outcome_name=display_name,
                 n_studies=a.number_of_studies,
                 study_design=a.study_designs,
                 risk_of_bias=_DOWNGRADE_LABEL.get(a.risk_of_bias_downgrade, "not serious"),

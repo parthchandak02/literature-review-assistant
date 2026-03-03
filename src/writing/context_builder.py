@@ -117,12 +117,12 @@ def build_writing_grounding(
 ) -> WritingGroundingData:
     """Aggregate real pipeline outputs into a WritingGroundingData instance."""
 
-    # Bibliographic databases actually used (non-zero counts from databases_records)
+    # All bibliographic databases searched (including those with 0 records, for multi-database narrative)
     _OTHER_METHOD_NAMES = frozenset({"perplexity_web", "perplexity_search", "perplexity"})
     active_dbs = sorted(
         db
-        for db, cnt in prisma_counts.databases_records.items()
-        if cnt > 0 and db not in _OTHER_METHOD_NAMES
+        for db in prisma_counts.databases_records
+        if db not in _OTHER_METHOD_NAMES
     )
     # Other methods (grey lit, AI discovery tools -- not bibliographic databases)
     active_other = sorted(
@@ -349,13 +349,16 @@ def format_grounding_block(data: WritingGroundingData) -> str:
             "'meta-analysis showed', or any phrase implying quantitative pooling was performed. "
             "Write ONLY that narrative synthesis was conducted."
         )
-    reg_status = "YES (ID on file)" if data.protocol_registered else "NO - not prospectively registered"
+    reg_status = (
+        "YES (ID on file)" if data.protocol_registered
+        else "TODO: Register protocol at PROSPERO before submission - CRD420XXXXXXXX"
+    )
     lines.append(f"Protocol registration: {reg_status}")
     lines.append(
         "CRITICAL: The 'Protocol Registration' field above is the authoritative source. "
         "Every section (Methods AND Declarations) MUST use identical wording. "
-        "If registration=NO, Methods must say 'The protocol was not prospectively registered' "
-        "and Declarations must say 'The protocol was not prospectively registered.' "
+        "If registration shows TODO, Methods and Declarations must include that TODO "
+        "so the author can fill in the PROSPERO ID before submission. "
         "NEVER write 'registered prospectively' unless registration=YES."
     )
     lines.append(f"Synthesis direction: {data.synthesis_direction}")

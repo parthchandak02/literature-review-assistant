@@ -66,7 +66,8 @@ def _build_extraction_prompt(
         "- outcomes: List of SPECIFIC outcome measures as reported in the paper. For each outcome:",
         "    name: the actual measured outcome name from the paper (e.g. 'medication error rate',",
         "          'dispensing accuracy', 'infection rate', 'patient satisfaction score', 'cost per visit').",
-        "    CRITICAL: NEVER use 'primary_outcome' as a name. Use the real outcome name.",
+        "    CRITICAL: NEVER use 'primary_outcome', 'not reported', or generic placeholders as a name. "
+        "Use the real outcome name from the paper.",
         "    If no outcomes can be identified return an empty list [].",
         "    Also include: description, effect_size (e.g. 'OR=2.1'), se (standard error), n (sample size)",
         "- results_summary: Plain text summary of the key findings (2-4 sentences)",
