@@ -15,8 +15,7 @@ from __future__ import annotations
 
 import logging
 import math
-from dataclasses import dataclass, field
-from typing import Optional
+from dataclasses import dataclass
 
 from src.models import ExtractionRecord
 
@@ -84,10 +83,10 @@ def _cosine_similarity(a: list[float], b: list[float]) -> float:
 
 
 def _ci_overlap(
-    lo_a: Optional[float],
-    hi_a: Optional[float],
-    lo_b: Optional[float],
-    hi_b: Optional[float],
+    lo_a: float | None,
+    hi_a: float | None,
+    lo_b: float | None,
+    hi_b: float | None,
 ) -> bool:
     """Return True if confidence intervals overlap."""
     if lo_a is None or hi_a is None or lo_b is None or hi_b is None:
@@ -95,7 +94,7 @@ def _ci_overlap(
     return not (hi_a < lo_b or hi_b < lo_a)
 
 
-def _parse_ci(outcome: dict) -> tuple[Optional[float], Optional[float]]:
+def _parse_ci(outcome: dict) -> tuple[float | None, float | None]:
     """Parse ci_lower and ci_upper from outcome dict."""
     try:
         lo = float(outcome.get("ci_lower", ""))

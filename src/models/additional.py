@@ -2,8 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
-from typing import Dict, List, Optional
+from datetime import UTC, datetime
 
 from pydantic import BaseModel, Field
 
@@ -18,7 +17,7 @@ class InterRaterReliability(BaseModel):
     total_disagreements: int
     cohens_kappa: float
     percent_agreement: float
-    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
 
 class MetaAnalysisResult(BaseModel):
@@ -30,17 +29,17 @@ class MetaAnalysisResult(BaseModel):
     ci_upper: float
     p_value: float
     model: str
-    method_re: Optional[str] = None
+    method_re: str | None = None
     cochrans_q: float
     i_squared: float
-    tau_squared: Optional[float] = None
-    forest_plot_path: Optional[str] = None
-    funnel_plot_path: Optional[str] = None
+    tau_squared: float | None = None
+    forest_plot_path: str | None = None
+    funnel_plot_path: str | None = None
 
 
 class PRISMACounts(BaseModel):
-    databases_records: Dict[str, int]
-    other_sources_records: Dict[str, int]
+    databases_records: dict[str, int]
+    other_sources_records: dict[str, int]
     total_identified_databases: int
     total_identified_other: int
     duplicates_removed: int
@@ -49,7 +48,7 @@ class PRISMACounts(BaseModel):
     reports_sought: int
     reports_not_retrieved: int
     reports_assessed: int
-    reports_excluded_with_reasons: Dict[str, int]
+    reports_excluded_with_reasons: dict[str, int]
     studies_included_qualitative: int
     studies_included_quantitative: int
     arithmetic_valid: bool
@@ -59,22 +58,22 @@ class ProtocolDocument(BaseModel):
     workflow_id: str
     research_question: str
     pico: PICOConfig
-    eligibility_criteria: List[str]
-    planned_databases: List[str]
+    eligibility_criteria: list[str]
+    planned_databases: list[str]
     planned_screening_method: str
-    planned_rob_tools: List[str]
+    planned_rob_tools: list[str]
     planned_synthesis_method: str
-    prospero_id: Optional[str] = None
-    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    prospero_id: str | None = None
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
 
 class SummaryOfFindingsRow(BaseModel):
     outcome: str
     participants_studies: str
     certainty: GRADECertainty
-    relative_effect: Optional[str] = None
-    absolute_effect_control: Optional[str] = None
-    absolute_effect_intervention: Optional[str] = None
+    relative_effect: str | None = None
+    absolute_effect_control: str | None = None
+    absolute_effect_intervention: str | None = None
     plain_language: str
 
 
@@ -87,4 +86,4 @@ class CostRecord(BaseModel):
     phase: str
     cache_read_tokens: int = 0
     cache_write_tokens: int = 0
-    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(UTC))

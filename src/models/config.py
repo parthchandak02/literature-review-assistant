@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import uuid
-from typing import Dict, List, Optional
 
 from pydantic import BaseModel, Field
 
@@ -35,15 +34,15 @@ class ReviewConfig(BaseModel):
     research_question: str
     review_type: ReviewType
     pico: PICOConfig
-    keywords: List[str] = Field(min_length=1)
+    keywords: list[str] = Field(min_length=1)
     domain: str
     scope: str
-    inclusion_criteria: List[str] = Field(min_length=1)
-    exclusion_criteria: List[str] = Field(min_length=1)
+    inclusion_criteria: list[str] = Field(min_length=1)
+    exclusion_criteria: list[str] = Field(min_length=1)
     date_range_start: int
     date_range_end: int
-    target_databases: List[str] = Field(min_length=1)
-    target_sections: List[str] = Field(
+    target_databases: list[str] = Field(min_length=1)
+    target_sections: list[str] = Field(
         default_factory=lambda: [
             "abstract",
             "introduction",
@@ -56,7 +55,7 @@ class ReviewConfig(BaseModel):
     protocol: ProtocolRegistration = Field(default_factory=ProtocolRegistration)
     funding: FundingInfo = Field(default_factory=FundingInfo)
     conflicts_of_interest: str = "The authors declare no conflicts of interest."
-    search_overrides: Optional[Dict[str, str]] = Field(
+    search_overrides: dict[str, str] | None = Field(
         default=None,
         description="Optional per-database query overrides. Keys: openalex, pubmed, arxiv, ieee_xplore, semantic_scholar, crossref, perplexity_search. Omit a database to use auto-generated query.",
     )
@@ -68,7 +67,7 @@ class ReviewConfig(BaseModel):
             "prior run are skipped automatically."
         ),
     )
-    last_search_date: Optional[str] = Field(
+    last_search_date: str | None = Field(
         default=None,
         description=(
             "ISO date string (YYYY-MM-DD) of the most recent completed search. "
@@ -76,7 +75,7 @@ class ReviewConfig(BaseModel):
             "Used as the from_date filter when living_review is true."
         ),
     )
-    masterlist_csv_path: Optional[str] = Field(
+    masterlist_csv_path: str | None = Field(
         default=None,
         description=(
             "Absolute path to a pre-assembled master list CSV (Scopus export format). "
@@ -98,7 +97,7 @@ class ScreeningConfig(BaseModel):
     keyword_filter_min_matches: int = Field(ge=0, default=1, description="Minimum keyword hits required to send a paper to LLM screening; 0 disables pre-filter.")
     skip_fulltext_if_no_pdf: bool = Field(default=True, description="Skip stage 2 when no real PDFs are retrieved; treats stage-1 survivors as included.")
     screening_concurrency: int = Field(ge=1, le=20, default=5, description="Number of papers screened concurrently by the LLM dual-reviewer.")
-    max_llm_screen: Optional[int] = Field(
+    max_llm_screen: int | None = Field(
         default=None,
         ge=1,
         description=(
@@ -185,7 +184,7 @@ class IEEEExportConfig(BaseModel):
     template: str = "IEEEtran"
     bibliography_style: str = "IEEEtran"
     max_abstract_words: int = 250
-    target_page_range: List[int] = Field(default_factory=lambda: [7, 10])
+    target_page_range: list[int] = Field(default_factory=lambda: [7, 10])
 
 
 class CitationLineageConfig(BaseModel):
@@ -209,7 +208,7 @@ class SearchConfig(BaseModel):
     """
 
     max_results_per_db: int = Field(ge=1, le=10000, default=500)
-    per_database_limits: Dict[str, int] = Field(
+    per_database_limits: dict[str, int] = Field(
         default_factory=dict,
         description=(
             "Per-connector record limits. Keys must match connector names: "
@@ -319,7 +318,7 @@ class HumanInTheLoopConfig(BaseModel):
 
 
 class SettingsConfig(BaseModel):
-    agents: Dict[str, AgentConfig]
+    agents: dict[str, AgentConfig]
     screening: ScreeningConfig = Field(default_factory=ScreeningConfig)
     dual_review: DualReviewConfig = Field(default_factory=DualReviewConfig)
     gates: GatesConfig = Field(default_factory=GatesConfig)

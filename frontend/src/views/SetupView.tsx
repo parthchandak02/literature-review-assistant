@@ -350,6 +350,7 @@ function CsvDropZone({ file, onFile }: CsvDropZoneProps) {
   const inputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- resetting derived state when file prop clears is intentional
     if (!file) { setAnalysis(null); return }
     setAnalysing(true)
     analyzeCsvFile(file).then((result) => {
@@ -528,7 +529,7 @@ function QuestionStage({
 }: Stage1Props) {
   const [mode, setMode] = useState<SetupMode>("search")
   const [question, setQuestion] = useState("")
-  const [geminiKey, setGeminiKey] = useState("")
+  const [geminiKey, setGeminiKey] = useState(() => loadApiKeys()?.gemini ?? "")
   const [showKey, setShowKey] = useState(false)
   const [generating, setGenerating] = useState(false)
   const [activeGenStep, setActiveGenStep] = useState("start")
@@ -536,11 +537,6 @@ function QuestionStage({
   const [showHistory, setShowHistory] = useState(false)
   const [csvFile, setCsvFile] = useState<File | null>(null)
   const dropdownRef = useRef<HTMLDivElement>(null)
-
-  useEffect(() => {
-    const stored = loadApiKeys()
-    if (stored?.gemini) setGeminiKey(stored.gemini)
-  }, [])
 
   useEffect(() => {
     function handler(e: MouseEvent) {
@@ -784,7 +780,7 @@ function ConfigReviewStage({
   disabled,
   defaultYaml,
 }: Stage2Props) {
-  const [keys, setKeys] = useState<StoredApiKeys>({
+  const [keys, setKeys] = useState<StoredApiKeys>(() => loadApiKeys() ?? {
     gemini: "",
     openalex: "",
     ieee: "",
@@ -796,11 +792,6 @@ function ConfigReviewStage({
   })
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
-
-  useEffect(() => {
-    const stored = loadApiKeys()
-    if (stored) setKeys(stored)
-  }, [])
 
   async function handleLaunch() {
     if (!keys.gemini.trim()) {

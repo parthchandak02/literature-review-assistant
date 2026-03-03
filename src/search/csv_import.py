@@ -11,7 +11,6 @@ import logging
 import uuid
 from datetime import date
 from pathlib import Path
-from typing import List, Optional
 
 from src.models.enums import SourceCategory
 from src.models.papers import CandidatePaper, SearchResult
@@ -30,7 +29,7 @@ _COL_ABSTRACT = "Abstract"
 _COL_KEYWORDS = "Author Keywords"
 
 
-def _parse_authors(raw: str) -> List[str]:
+def _parse_authors(raw: str) -> list[str]:
     """Split Scopus author field on '; ' delimiter.
 
     Scopus format: "Last, F.I.; Last2, F.I.; ..."
@@ -41,7 +40,7 @@ def _parse_authors(raw: str) -> List[str]:
     return [a.strip() for a in raw.split(";") if a.strip()]
 
 
-def _parse_keywords(raw: str) -> Optional[List[str]]:
+def _parse_keywords(raw: str) -> list[str] | None:
     """Split Scopus keyword field on '; ' delimiter."""
     if not raw or not raw.strip():
         return None
@@ -49,7 +48,7 @@ def _parse_keywords(raw: str) -> Optional[List[str]]:
     return parts if parts else None
 
 
-def _parse_year(raw: str) -> Optional[int]:
+def _parse_year(raw: str) -> int | None:
     """Convert year string to int, returning None on failure."""
     if not raw or not raw.strip():
         return None
@@ -59,7 +58,7 @@ def _parse_year(raw: str) -> Optional[int]:
         return None
 
 
-def _clean_doi(raw: str) -> Optional[str]:
+def _clean_doi(raw: str) -> str | None:
     """Strip whitespace from DOI; return None if empty."""
     cleaned = raw.strip() if raw else ""
     return cleaned if cleaned else None
@@ -87,7 +86,7 @@ def parse_masterlist_csv(csv_path: str, workflow_id: str) -> SearchResult:
     if not path.exists():
         raise FileNotFoundError(f"Master list CSV not found: {csv_path}")
 
-    papers: List[CandidatePaper] = []
+    papers: list[CandidatePaper] = []
     skipped = 0
 
     with path.open(encoding="utf-8-sig", newline="") as fh:

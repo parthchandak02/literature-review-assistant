@@ -9,7 +9,6 @@ extraction records), ensuring GRADE is data-driven and not hard-coded to zero.
 from __future__ import annotations
 
 from collections.abc import Sequence
-from typing import Union
 
 from src.models import GRADECertainty, GRADEOutcomeAssessment, StudyDesign
 from src.models.quality import GradeSoFRow, GradeSoFTable

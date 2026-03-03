@@ -211,7 +211,7 @@ def render_prisma_diagram(counts: PRISMACounts, output_path: str) -> Path:
 
 
 async def build_prisma_counts(
-    repo: "WorkflowRepository",
+    repo: WorkflowRepository,
     workflow_id: str,
     dedup_count: int,
     included_qualitative: int = 0,

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import List
 
 from src.models import ProtocolDocument, ReviewConfig
 
@@ -26,7 +25,7 @@ class ProtocolGenerator:
         )
 
     def render_markdown(self, protocol: ProtocolDocument, config: ReviewConfig) -> str:
-        sections: List[tuple[str, str]] = [
+        sections: list[tuple[str, str]] = [
             ("1. Review title", config.research_question),
             ("2. Original language title", config.research_question),
             ("3. Anticipated start date", "TBD"),

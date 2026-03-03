@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 import re
 from collections.abc import Callable
-from typing import TYPE_CHECKING, List, Optional, Set, Tuple
+from typing import TYPE_CHECKING
 
 from src.citation.ledger import CitationLedger
 from src.db.repositories import CitationRepository
@@ -107,10 +107,10 @@ def _make_citekey_base(paper: CandidatePaper, index: int) -> str:
     return f"{author_token}{year_str}"[:20]
 
 
-def _citation_entries_from_papers(papers: List[CandidatePaper]) -> List[Tuple[str, CandidatePaper]]:
+def _citation_entries_from_papers(papers: list[CandidatePaper]) -> list[tuple[str, CandidatePaper]]:
     """Build (citekey, paper) pairs with unique, human-readable citekeys."""
-    seen: Set[str] = set()
-    result: List[Tuple[str, CandidatePaper]] = []
+    seen: set[str] = set()
+    result: list[tuple[str, CandidatePaper]] = []
     for i, p in enumerate(papers):
         base = _make_citekey_base(p, i)
         citekey = base
@@ -123,14 +123,14 @@ def _citation_entries_from_papers(papers: List[CandidatePaper]) -> List[Tuple[st
     return result
 
 
-def build_citation_catalog_from_papers(papers: List[CandidatePaper]) -> str:
+def build_citation_catalog_from_papers(papers: list[CandidatePaper]) -> str:
     """Build a simple citation catalog string from included papers for prompts."""
     entries = _citation_entries_from_papers(papers)
     lines = [f"[{citekey}] {p.title} ({p.year or 'n.d.'})" for citekey, p in entries]
     return "\n".join(lines) if lines else "(No papers yet)"
 
 
-async def register_citations_from_papers(repo: CitationRepository, papers: List[CandidatePaper]) -> None:
+async def register_citations_from_papers(repo: CitationRepository, papers: list[CandidatePaper]) -> None:
     """Pre-register citations for included papers so validate_section passes.
     Skips citekeys already in DB (idempotent for resume)."""
     existing = set(await repo.get_citekeys())
@@ -160,11 +160,11 @@ async def write_section_with_validation(
     settings: SettingsConfig,
     citation_repo: CitationRepository,
     citation_catalog: str = "",
-    style_patterns: Optional[StylePatterns] = None,
-    word_limit: Optional[int] = None,
-    on_llm_call: Optional[Callable[..., None]] = None,
+    style_patterns: StylePatterns | None = None,
+    word_limit: int | None = None,
+    on_llm_call: Callable[..., None] | None = None,
     provider=None,
-    grounding: Optional["WritingGroundingData"] = None,
+    grounding: WritingGroundingData | None = None,
     rag_context: str = "",
 ) -> str:
     """Write a section, validate with citation ledger, return content.
@@ -258,8 +258,8 @@ async def write_section_with_validation(
 
 
 def prepare_writing_context(
-    included_papers: List[CandidatePaper],
-    narrative_synthesis: Optional[dict],
+    included_papers: list[CandidatePaper],
+    narrative_synthesis: dict | None,
     settings: SettingsConfig,
 ) -> tuple[StylePatterns, str]:
     """Prepare style patterns and citation catalog for writing phase."""

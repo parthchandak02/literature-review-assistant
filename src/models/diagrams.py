@@ -7,7 +7,7 @@ ReviewConfig) before being passed to the diagram renderers.
 
 from __future__ import annotations
 
-from typing import Literal, Optional
+from typing import Literal
 
 from pydantic import BaseModel, Field
 
@@ -17,7 +17,7 @@ class TaxonomyCategory(BaseModel):
 
     label: str = Field(..., min_length=1)
     items: list[str] = Field(default_factory=list)
-    subcategories: list["TaxonomyCategory"] = Field(default_factory=list)
+    subcategories: list[TaxonomyCategory] = Field(default_factory=list)
 
 
 class TaxonomyDiagramInput(BaseModel):
@@ -47,7 +47,7 @@ class FrameworkEdge(BaseModel):
 
     source_id: str
     target_id: str
-    label: Optional[str] = None
+    label: str | None = None
 
 
 class FrameworkDiagramInput(BaseModel):
@@ -62,7 +62,7 @@ class FrameworkDiagramInput(BaseModel):
     interventions: list[str] = Field(..., min_length=1)
     outcomes: list[str] = Field(..., min_length=1)
     key_themes: list[str] = Field(default_factory=list)
-    comparator: Optional[str] = None
+    comparator: str | None = None
     study_count: int = Field(..., ge=1)
     review_topic: str
     diagram_type: Literal["framework"] = "framework"
@@ -72,8 +72,8 @@ class FlowchartPhase(BaseModel):
     """A single phase box in a methodology flowchart."""
 
     label: str
-    count: Optional[int] = None
-    sublabel: Optional[str] = None
+    count: int | None = None
+    sublabel: str | None = None
 
 
 class FlowchartDiagramInput(BaseModel):

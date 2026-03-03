@@ -11,7 +11,6 @@ from __future__ import annotations
 
 import logging
 import os
-from typing import Optional
 
 from src.synthesis.contradiction_detector import ContradictionFlag
 
@@ -86,7 +85,7 @@ def _fallback_paragraph(flags: list[ContradictionFlag]) -> str:
 async def generate_contradiction_paragraph(
     flags: list[ContradictionFlag],
     model_name: str = "gemini-2.5-pro",
-    api_key: Optional[str] = None,
+    api_key: str | None = None,
 ) -> str:
     """Generate a Discussion paragraph addressing contradictions.
 

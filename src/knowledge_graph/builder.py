@@ -5,7 +5,6 @@ from __future__ import annotations
 import logging
 import math
 from dataclasses import dataclass, field
-from typing import Optional
 
 from src.models import CandidatePaper, ExtractionRecord
 
@@ -20,7 +19,7 @@ _SIMILARITY_THRESHOLD = 0.6
 class PaperNode:
     paper_id: str
     title: str
-    year: Optional[int]
+    year: int | None
     study_design: str
     community_id: int = -1
 
@@ -58,7 +57,7 @@ def _cosine_sim(a: list[float], b: list[float]) -> float:
     return dot / (norm_a * norm_b)
 
 
-def _extract_keyword_set(text: Optional[str]) -> set[str]:
+def _extract_keyword_set(text: str | None) -> set[str]:
     if not text:
         return set()
     words = text.lower().split()
@@ -73,7 +72,7 @@ def build_paper_graph(
 ) -> PaperGraph:
     """Build the paper relationship graph from extraction records."""
     try:
-        import networkx as nx  # type: ignore[import-untyped]
+        import networkx as nx  # type: ignore[import-untyped]  # noqa: F401
     except ImportError:
         logger.warning("networkx not installed; returning empty graph")
         return PaperGraph()

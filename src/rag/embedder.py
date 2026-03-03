@@ -4,39 +4,38 @@ Replaces the previous google-generativeai direct SDK calls with the
 pydantic_ai.embeddings.Embedder abstraction, which is natively async and
 consistent with the rest of the PydanticAI agent stack.
 
-Model: google-gla:text-embedding-004 (768-dim, matching paper_chunks_meta schema).
+Model: google-gla:gemini-embedding-001 (768-dim via MRL, matching paper_chunks_meta schema).
 Auth: GEMINI_API_KEY env var -- read automatically by PydanticAI, no manual wiring.
 """
 
 from __future__ import annotations
 
 import logging
-from typing import Optional
 
 from pydantic_ai.embeddings import Embedder
 
 logger = logging.getLogger(__name__)
 
-_EMBED_MODEL = "google-gla:text-embedding-004"
+_EMBED_MODEL = "google-gla:gemini-embedding-001"
 _EMBED_DIM = 768
 
-_embedder: Optional[Embedder] = None
+_embedder: Embedder | None = None
 
 
 def _get_embedder() -> Embedder:
     """Return a lazily constructed singleton Embedder."""
     global _embedder
     if _embedder is None:
-        _embedder = Embedder(_EMBED_MODEL)
+        _embedder = Embedder(_EMBED_MODEL, settings={"dimensions": _EMBED_DIM})
     return _embedder
 
 
 async def embed_texts(
     texts: list[str],
-    api_key: Optional[str] = None,  # kept for backward compat; PydanticAI reads GEMINI_API_KEY
+    api_key: str | None = None,  # kept for backward compat; PydanticAI reads GEMINI_API_KEY
     batch_size: int = 20,
 ) -> list[list[float]]:
-    """Embed a list of documents using PydanticAI Embedder (Gemini text-embedding-004).
+    """Embed a list of documents using PydanticAI Embedder (Gemini gemini-embedding-001).
 
     Batches calls to stay within rate limits. Returns a list of 768-dim float
     vectors. Falls back to zero vectors on API failure so the workflow never
@@ -62,7 +61,7 @@ async def embed_texts(
 
 async def embed_query(
     text: str,
-    api_key: Optional[str] = None,  # kept for backward compat
+    api_key: str | None = None,  # kept for backward compat
 ) -> list[float]:
     """Embed a single query string for similarity search (input_type=query).
 

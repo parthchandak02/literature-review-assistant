@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from typing import List
 
 from src.db.repositories import CitationRepository
 from src.models import CitationEntryRecord, ClaimRecord, EvidenceLinkRecord
@@ -12,8 +11,8 @@ from src.models import CitationEntryRecord, ClaimRecord, EvidenceLinkRecord
 
 @dataclass
 class ManuscriptValidationResult:
-    unresolved_claims: List[str]
-    unresolved_citations: List[str]
+    unresolved_claims: list[str]
+    unresolved_citations: list[str]
 
 
 class CitationLedger:

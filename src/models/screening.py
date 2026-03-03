@@ -2,8 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
-from typing import Optional
+from datetime import UTC, datetime
 
 from pydantic import BaseModel, Field
 
@@ -13,11 +12,11 @@ from src.models.enums import ExclusionReason, ReviewerType, ScreeningDecisionTyp
 class ScreeningDecision(BaseModel):
     paper_id: str
     decision: ScreeningDecisionType
-    reason: Optional[str] = None
-    exclusion_reason: Optional[ExclusionReason] = None
+    reason: str | None = None
+    exclusion_reason: ExclusionReason | None = None
     reviewer_type: ReviewerType
     confidence: float = Field(ge=0.0, le=1.0)
-    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
 
 class DualScreeningResult(BaseModel):
@@ -26,4 +25,4 @@ class DualScreeningResult(BaseModel):
     reviewer_b: ScreeningDecision
     agreement: bool
     final_decision: ScreeningDecisionType
-    adjudication: Optional[ScreeningDecision] = None
+    adjudication: ScreeningDecision | None = None

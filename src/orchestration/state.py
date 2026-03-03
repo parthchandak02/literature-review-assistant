@@ -37,5 +37,5 @@ class ReviewState:
     kappa_stage: str | None = None
     kappa_n: int = 0  # number of papers in the uncertain-paper subset used for kappa
     sensitivity_results: list[str] = field(default_factory=list)
-    contradiction_flags: list["ContradictionFlag"] = field(default_factory=list)
+    contradiction_flags: list[ContradictionFlag] = field(default_factory=list)
     parent_db_path: str | None = None  # set for living-review delta runs

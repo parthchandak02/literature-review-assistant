@@ -9,9 +9,7 @@ Covers:
 
 from __future__ import annotations
 
-import asyncio
-from typing import Optional
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
@@ -20,14 +18,13 @@ from src.extraction.table_extraction import (
     fetch_full_text,
     merge_outcomes,
 )
-from src.rag.chunker import TextChunk, chunk_table_outcomes
-
+from src.rag.chunker import chunk_table_outcomes
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _ft(text: str = "", source: str = "abstract", pdf_bytes: Optional[bytes] = None) -> FullTextResult:
+def _ft(text: str = "", source: str = "abstract", pdf_bytes: bytes | None = None) -> FullTextResult:
     return FullTextResult(text=text, source=source, pdf_bytes=pdf_bytes)
 
 
@@ -296,7 +293,7 @@ def test_chunk_table_outcomes_empty_outcomes_returns_empty():
 
 @pytest.mark.asyncio
 async def test_enrich_scopus_abstracts_skips_papers_with_no_doi():
-    from src.models.papers import CandidatePaper, SourceCategory
+    from src.models.papers import CandidatePaper
 
     papers = [
         CandidatePaper(

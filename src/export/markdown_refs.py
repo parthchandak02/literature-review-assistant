@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import re
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 from src.quality.grade import build_sof_table, sof_table_to_markdown
 
@@ -18,7 +18,7 @@ def _fmt_authors(authors_json: str) -> str:
         return "Unknown"
     if not isinstance(authors, list) or not authors:
         return "Unknown"
-    parts: List[str] = []
+    parts: list[str] = []
     for a in authors:
         if isinstance(a, str):
             parts.append(a)
@@ -36,7 +36,7 @@ def _fmt_authors(authors_json: str) -> str:
     return " and ".join(parts)
 
 
-def extract_citekeys_in_order(text: str) -> List[str]:
+def extract_citekeys_in_order(text: str) -> list[str]:
     """Return unique citekeys in order of first appearance in text.
 
     Handles both single [Smith2023] and multi-key [Smith2023, Jones2024] or
@@ -44,7 +44,7 @@ def extract_citekeys_in_order(text: str) -> List[str]:
     and validating each token.
     """
     seen: set[str] = set()
-    keys: List[str] = []
+    keys: list[str] = []
     _valid_key = re.compile(r"^[A-Za-z][A-Za-z0-9_:-]*$")
     for bracket_content in re.findall(r"\[([^\]]+)\]", text):
         # Split on both commas and semicolons to handle both citation styles
@@ -74,7 +74,7 @@ def _sanitize_body(text: str) -> str:
     text = re.sub(r"\bAI\s+reviewer\b", "reviewer", text, flags=re.IGNORECASE)
 
     lines = text.split("\n")
-    clean: List[str] = []
+    clean: list[str] = []
     # Orphaned fragment: line starts with optional whitespace then a comma then citekey tokens
     orphan_re = re.compile(r"^\s*,\s*[A-Za-z][A-Za-z0-9_:-]*")
     # Pure citekey line: entire line is one or more [Citekey] groups with no prose
@@ -90,8 +90,8 @@ def _sanitize_body(text: str) -> str:
 
 def convert_to_numbered_citations(
     body: str,
-    citation_rows: List[Tuple],
-) -> Tuple[str, List[Tuple]]:
+    citation_rows: list[tuple],
+) -> tuple[str, list[tuple]]:
     """Replace [AuthorYear] citekeys in body with [N] sequential numbers.
 
     Handles both single [Smith2023] and multi-key [Smith2023, Jones2024] groups.
@@ -99,10 +99,10 @@ def convert_to_numbered_citations(
     Returns (new_body, ordered_rows) where ordered_rows lists citation_rows
     in order of first appearance.  Unknown keys are left unchanged.
     """
-    citekey_map: Dict[str, Tuple] = {row[1]: row for row in citation_rows}
+    citekey_map: dict[str, tuple] = {row[1]: row for row in citation_rows}
     ordered_keys = extract_citekeys_in_order(body)
-    key_to_number: Dict[str, int] = {}
-    ordered_rows: List[Tuple] = []
+    key_to_number: dict[str, int] = {}
+    ordered_rows: list[tuple] = []
     n = 1
     for key in ordered_keys:
         if key in citekey_map and key not in key_to_number:
@@ -134,7 +134,7 @@ def convert_to_numbered_citations(
 # by counting only figures whose artifact file actually exists on disk.
 # This prevents gaps (e.g. Fig 1, 2, 4, 5) when optional figures like
 # rob2_traffic_light or forest plots are absent.
-FIGURE_DEFS: List[Tuple[str, str]] = [
+FIGURE_DEFS: list[tuple[str, str]] = [
     (
         "prisma_diagram",
         "PRISMA 2020 flow diagram showing the study selection process.",
@@ -186,7 +186,7 @@ FIGURE_DEFS: List[Tuple[str, str]] = [
 
 def build_markdown_figures_section(
     manuscript_path: Path,
-    artifacts: Dict[str, str],
+    artifacts: dict[str, str],
 ) -> str:
     """Build a Figures section with relative-path image embeds and IEEE captions.
 
@@ -196,7 +196,7 @@ def build_markdown_figures_section(
     (e.g. RoB 2 traffic light, forest plot) are absent.
     Returns an empty string if no figures are available.
     """
-    lines: List[str] = ["## Figures", ""]
+    lines: list[str] = ["## Figures", ""]
     seq = 1
     for artifact_key, caption in FIGURE_DEFS:
         fig_path_str = artifacts.get(artifact_key, "")
@@ -287,8 +287,8 @@ def is_extraction_failed(rec: Any) -> bool:
 
 
 def build_study_characteristics_table(
-    papers: List[Any],
-    extraction_records: List[Any],
+    papers: list[Any],
+    extraction_records: list[Any],
     pre_filtered_count: int = 0,
 ) -> str:
     """Build a GFM markdown table of included study characteristics.
@@ -302,10 +302,10 @@ def build_study_characteristics_table(
     caller before passing this list. Added to the footnote so the total
     omission count is accurate even when the caller pre-filters.
     """
-    paper_map: Dict[str, Any] = {p.paper_id: p for p in papers}
-    extraction_map: Dict[str, Any] = {r.paper_id: r for r in extraction_records}
+    paper_map: dict[str, Any] = {p.paper_id: p for p in papers}
+    extraction_map: dict[str, Any] = {r.paper_id: r for r in extraction_records}
 
-    rows: List[Dict[str, str]] = []
+    rows: list[dict[str, str]] = []
     excluded_count = pre_filtered_count
     for paper_id, paper in paper_map.items():
         rec = extraction_map.get(paper_id)
@@ -430,8 +430,8 @@ def _paper_author_year(paper: Any) -> str:
 
 
 def build_robins_i_domain_table(
-    papers: List[Any],
-    robins_i_assessments: List[Any],
+    papers: list[Any],
+    robins_i_assessments: list[Any],
 ) -> str:
     """Build a markdown table of ROBINS-I bias assessment (7 domains per study).
 
@@ -441,9 +441,9 @@ def build_robins_i_domain_table(
     if not robins_i_assessments:
         return ""
 
-    paper_map: Dict[str, Any] = {p.paper_id: p for p in papers}
+    paper_map: dict[str, Any] = {p.paper_id: p for p in papers}
     # Build rows: (author_year, assessment) sorted by author_year
-    rows_data: List[Tuple[str, Any]] = []
+    rows_data: list[tuple[str, Any]] = []
     for a in robins_i_assessments:
         paper = paper_map.get(a.paper_id)
         label = _paper_author_year(paper) if paper else a.paper_id[:12]
@@ -454,7 +454,7 @@ def build_robins_i_domain_table(
     header = "| Study | " + " | ".join(domain_cols) + " | Overall |"
     sep = "|" + "|".join(["-------"] * (len(_ROBINS_I_DOMAINS) + 2)) + "|"
 
-    data_rows: List[str] = []
+    data_rows: list[str] = []
     for label, a in rows_data:
         cells = [label]
         for _short, attr, _name in _ROBINS_I_DOMAINS:
@@ -512,7 +512,7 @@ def _escape_table_cell(text: str) -> str:
 _CERTAINTY_ORDER = {"high": 0, "moderate": 1, "low": 2, "very_low": 3}
 
 
-def generate_grade_table(grade_assessments: List[Any]) -> str:
+def generate_grade_table(grade_assessments: list[Any]) -> str:
     """Generate a GRADE evidence profile table in Markdown from a list of GRADEOutcomeAssessment objects.
 
     Assessments are grouped by outcome_name. Per group we report the count of
@@ -540,7 +540,7 @@ def generate_grade_table(grade_assessments: List[Any]) -> str:
             continue
         groups[outcome].append(g)
 
-    rows: List[str] = []
+    rows: list[str] = []
     header = (
         "| Outcome | Studies (N) | Study Design | Max RoB Downgrade | "
         "Max Imprecision Downgrade | Certainty (worst case) |"
@@ -594,7 +594,7 @@ def generate_grade_table(grade_assessments: List[Any]) -> str:
 
 def build_markdown_references_section(
     manuscript_text: str,
-    citation_rows: List[Tuple],
+    citation_rows: list[tuple],
     numbered: bool = True,
 ) -> str:
     """Build a References section for citekeys used in the manuscript body.
@@ -607,8 +607,8 @@ def build_markdown_references_section(
     Entries with no author, no DOI, and no year are omitted with a footer note.
     Returns an empty string if no citations are found.
     """
-    entries: List[str] = []
-    omitted: List[str] = []
+    entries: list[str] = []
+    omitted: list[str] = []
 
     if numbered:
         for idx, row in enumerate(citation_rows, start=1):
@@ -626,7 +626,7 @@ def build_markdown_references_section(
                 entry += f" doi: {doi}"
             entries.append(entry)
     else:
-        citekey_map: Dict[str, Tuple] = {row[1]: row for row in citation_rows}
+        citekey_map: dict[str, tuple] = {row[1]: row for row in citation_rows}
         ordered_keys = extract_citekeys_in_order(manuscript_text)
         for key in ordered_keys:
             row = citekey_map.get(key)
@@ -663,19 +663,19 @@ def build_markdown_references_section(
 def assemble_submission_manuscript(
     body: str,
     manuscript_path: Path,
-    artifacts: Dict[str, str],
-    citation_rows: List[Tuple],
-    papers: Optional[List[Any]] = None,
-    extraction_records: Optional[List[Any]] = None,
+    artifacts: dict[str, str],
+    citation_rows: list[tuple],
+    papers: list[Any] | None = None,
+    extraction_records: list[Any] | None = None,
     funding: str = "",
     coi: str = "",
-    grade_assessments: Optional[List[Any]] = None,
-    robins_i_assessments: Optional[List[Any]] = None,
-    review_config: Optional[Any] = None,
+    grade_assessments: list[Any] | None = None,
+    robins_i_assessments: list[Any] | None = None,
+    review_config: Any | None = None,
     failed_count: int = 0,
-    search_appendix_path: Optional[Path] = None,
+    search_appendix_path: Path | None = None,
     research_question: str = "",
-    title: Optional[str] = None,
+    title: str | None = None,
 ) -> str:
     """Combine all manuscript sections with HR separators.
 

@@ -3,11 +3,10 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Optional
 
 import pytest
 
-from src.rag.hyde import _build_pico_block, _HYDE_PROMPT, generate_hyde_document
+from src.rag.hyde import _HYDE_PROMPT, _build_pico_block, generate_hyde_document
 
 
 @dataclass

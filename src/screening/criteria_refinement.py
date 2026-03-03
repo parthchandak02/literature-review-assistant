@@ -17,7 +17,6 @@ import logging
 import os
 import re
 from dataclasses import dataclass
-from typing import Optional
 
 import aiosqlite
 
@@ -53,7 +52,7 @@ class ScreeningCorrection:
     paper_id: str
     ai_decision: str
     human_decision: str
-    human_reason: Optional[str] = None
+    human_reason: str | None = None
 
 
 @dataclass
@@ -147,7 +146,7 @@ async def refine_criteria_from_corrections(
     corrections: list[ScreeningCorrection],
     papers: dict[str, str],
     model_name: str = "gemini-2.5-pro",
-    api_key: Optional[str] = None,
+    api_key: str | None = None,
 ) -> list[LearnedCriterion]:
     """Generate refined screening criteria from human corrections.
 

@@ -81,9 +81,15 @@ async def register(
     async with aiosqlite.connect(path) as db:
         await db.execute(
             """
-            INSERT OR REPLACE INTO workflows_registry
+            INSERT INTO workflows_registry
             (workflow_id, topic, config_hash, db_path, status, updated_at)
             VALUES (?, ?, ?, ?, ?, datetime('now'))
+            ON CONFLICT(workflow_id) DO UPDATE SET
+                topic = excluded.topic,
+                config_hash = excluded.config_hash,
+                db_path = excluded.db_path,
+                status = excluded.status,
+                updated_at = datetime('now')
             """,
             (workflow_id, topic, config_hash, abs_db_path, status),
         )

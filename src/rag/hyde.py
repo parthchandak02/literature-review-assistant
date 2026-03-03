@@ -12,13 +12,13 @@ from __future__ import annotations
 
 import logging
 import time
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING
 
 from pydantic_ai import Agent
 from pydantic_ai.settings import ModelSettings
 
-from src.llm.pydantic_client import _run_with_retry
 from src.llm.provider import LLMProvider
+from src.llm.pydantic_client import _run_with_retry
 from src.models.additional import CostRecord
 
 if TYPE_CHECKING:
@@ -48,7 +48,7 @@ _SECTION_CONTEXT: dict[str, str] = {
 }
 
 
-def _build_pico_block(pico: Optional[object]) -> str:
+def _build_pico_block(pico: object | None) -> str:
     """Build a PICO context block to inject into the HyDE prompt.
 
     Returns "" when pico is None or all fields are empty.
@@ -74,9 +74,9 @@ async def generate_hyde_document(
     section: str,
     research_question: str,
     model: str = "google-gla:gemini-2.0-flash",
-    pico: Optional[object] = None,
-    provider: Optional[object] = None,
-    repository: Optional["WorkflowRepository"] = None,
+    pico: object | None = None,
+    provider: object | None = None,
+    repository: WorkflowRepository | None = None,
 ) -> str:
     """Generate a hypothetical document excerpt for use as a RAG query vector.
 
@@ -105,7 +105,7 @@ async def generate_hyde_document(
 
     try:
         t0 = time.monotonic()
-        agent: Agent[None, str] = Agent(model, result_type=str)
+        agent: Agent[None, str] = Agent(model, output_type=str)
         result = await _run_with_retry(
             agent, prompt, model_settings=ModelSettings(temperature=0.7)
         )

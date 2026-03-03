@@ -3,21 +3,20 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import List
 
 
 @dataclass
 class StylePatterns:
     """Writing patterns extracted from included papers for style matching."""
 
-    sentence_openings: List[str]
-    vocabulary: List[str]
-    citation_patterns: List[str]
-    transitions: List[str]
+    sentence_openings: list[str]
+    vocabulary: list[str]
+    citation_patterns: list[str]
+    transitions: list[str]
 
 
 def extract_style_patterns(
-    paper_texts: List[str],
+    paper_texts: list[str],
     max_chars_per_paper: int = 50_000,
 ) -> StylePatterns:
     """Extract writing patterns from included paper texts.

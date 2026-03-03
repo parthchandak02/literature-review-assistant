@@ -7,6 +7,7 @@ import {
   Play,
   Plus,
   RefreshCw,
+  Square,
   Trash2,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
@@ -19,7 +20,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip"
-import { ResumeFromPhaseModal } from "@/components/ResumeFromPhaseModal"
+import { DeleteConfirmDialog } from "@/components/DeleteConfirmDialog"
 import {
   type RunStatus,
   STATUS_LABEL,
@@ -62,8 +63,10 @@ interface SidebarProps {
   onSelectLiveRun: () => void
   onSelectHistory: (entry: HistoryEntry) => void
   onNewReview: () => void
-  onResume?: (entry: HistoryEntry, fromPhase?: string) => Promise<void>
+  onResume?: (entry: HistoryEntry) => Promise<void>
   onDelete?: (workflowId: string) => Promise<void>
+  onCancel?: () => void
+  isRunning?: boolean
   onGoHome?: () => void
   collapsed: boolean
   onToggle: () => void
@@ -94,6 +97,8 @@ export function Sidebar({
   onNewReview,
   onResume,
   onDelete,
+  onCancel,
+  isRunning: isRunningProp,
   onGoHome,
   collapsed,
   onToggle,
@@ -106,7 +111,8 @@ export function Sidebar({
   const [openingId, setOpeningId] = useState<string | null>(null)
   const [resumingId, setResumingId] = useState<string | null>(null)
   const [deletingId, setDeletingId] = useState<string | null>(null)
-  const [resumeModalEntry, setResumeModalEntry] = useState<HistoryEntry | null>(null)
+  const [deleteConfirmWorkflowId, setDeleteConfirmWorkflowId] =
+    useState<string | null>(null)
   const [wfIdCopied, setWfIdCopied] = useState<string | null>(null)
   const [isDragging, setIsDragging] = useState(false)
   const dragStartX = useRef(0)
@@ -168,7 +174,7 @@ export function Sidebar({
   }, [isDragging, onWidthChange])
 
   const isRunning =
-    liveRun?.status === "streaming" || liveRun?.status === "connecting"
+    isRunningProp ?? (liveRun?.status === "streaming" || liveRun?.status === "connecting")
 
   async function handleSelectHistory(entry: HistoryEntry) {
     setOpeningId(entry.workflow_id)
@@ -182,23 +188,27 @@ export function Sidebar({
   function handleResumeClick(e: React.MouseEvent, entry: HistoryEntry) {
     e.stopPropagation()
     if (!onResume) return
-    setResumeModalEntry(entry)
+    void handleResumeFromModal(entry)
   }
 
-  async function handleResumeFromModal(entry: HistoryEntry, fromPhase?: string) {
+  async function handleResumeFromModal(entry: HistoryEntry) {
     if (!onResume) return
     setResumingId(entry.workflow_id)
     try {
-      await onResume(entry, fromPhase)
+      await onResume(entry)
     } finally {
       setResumingId(null)
     }
   }
 
-  async function handleDelete(e: React.MouseEvent, workflowId: string) {
+  function handleDeleteClick(e: React.MouseEvent, workflowId: string) {
     e.stopPropagation()
     if (!onDelete) return
-    if (!window.confirm("Delete this review and all its data? This cannot be undone.")) return
+    setDeleteConfirmWorkflowId(workflowId)
+  }
+
+  async function handleDeleteConfirm(workflowId: string) {
+    if (!onDelete) return
     setDeletingId(workflowId)
     try {
       await onDelete(workflowId)
@@ -320,7 +330,7 @@ export function Sidebar({
                   <div className={cn(
                     "rounded-r-md overflow-hidden",
                     !collapsed && "rounded-b-none",
-                    isLiveRunSelected && "border-l-2 border-l-violet-500",
+                    isLiveRunSelected && "bg-zinc-800",
                   )}>
                     <div className="relative">
                       <button
@@ -341,7 +351,7 @@ export function Sidebar({
                         <div
                           className={cn(
                             "flex flex-col gap-1 min-w-0",
-                            onDelete && liveRun.workflowId && !isRunning && "pr-12",
+                            ((onDelete && liveRun.workflowId && !isRunning) || (isRunning && onCancel)) && "pr-12",
                           )}
                         >
                           <span className="text-xs text-zinc-300 line-clamp-2 leading-snug">
@@ -380,9 +390,22 @@ export function Sidebar({
                         </div>
                       )}
                     </button>
+                    {!collapsed && isRunning && onCancel && (
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          onCancel()
+                        }}
+                        aria-label="Stop run"
+                        title="Stop run"
+                        className="absolute top-1.5 right-1.5 flex items-center justify-center h-5 w-5 rounded bg-red-600 hover:bg-red-500 text-white transition-colors"
+                      >
+                        <Square className="h-2.5 w-2.5 fill-white" />
+                      </button>
+                    )}
                     {!collapsed && onDelete && liveRun.workflowId && !isRunning && (
                       <button
-                        onClick={(e) => void handleDelete(e, liveRun.workflowId!)}
+                        onClick={(e) => handleDeleteClick(e, liveRun.workflowId!)}
                         disabled={deletingId === liveRun.workflowId}
                         aria-label="Delete run"
                         title="Delete run"
@@ -470,7 +493,7 @@ export function Sidebar({
                     <div className={cn(
                       "rounded-r-md overflow-hidden",
                       !collapsed && "rounded-b-none",
-                      isSelected && "border-l-2 border-l-violet-500",
+                      isSelected && "bg-zinc-800",
                     )}>
                       <div className="relative">
                         <button
@@ -545,7 +568,7 @@ export function Sidebar({
                           <div className="absolute top-1.5 right-1.5 flex items-center gap-1">
                             {onDelete && (
                               <button
-                                onClick={(e) => void handleDelete(e, entry.workflow_id)}
+                                onClick={(e) => handleDeleteClick(e, entry.workflow_id)}
                                 disabled={deletingId === entry.workflow_id}
                                 aria-label="Delete run"
                                 title="Delete run"
@@ -632,12 +655,12 @@ export function Sidebar({
         )}
       </aside>
 
-      {resumeModalEntry && onResume && (
-        <ResumeFromPhaseModal
-          open={Boolean(resumeModalEntry)}
-          onOpenChange={(open: boolean) => !open && setResumeModalEntry(null)}
-          entry={resumeModalEntry}
-          onResume={(fromPhase?: string) => handleResumeFromModal(resumeModalEntry, fromPhase)}
+      {onDelete && (
+        <DeleteConfirmDialog
+          open={deleteConfirmWorkflowId !== null}
+          onOpenChange={(open) => !open && setDeleteConfirmWorkflowId(null)}
+          workflowId={deleteConfirmWorkflowId}
+          onConfirm={handleDeleteConfirm}
         />
       )}
     </TooltipProvider>

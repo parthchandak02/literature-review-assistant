@@ -27,7 +27,7 @@ logger = logging.getLogger(__name__)
 class KnowledgeGraphNode(BaseNode[ReviewState]):
     """Build and persist the paper evidence knowledge graph."""
 
-    async def run(self, ctx: GraphRunContext[ReviewState]) -> "WritingNode":  # type: ignore[name-defined]
+    async def run(self, ctx: GraphRunContext[ReviewState]) -> WritingNode:  # type: ignore[name-defined]  # noqa: F821
         from src.orchestration.workflow import WritingNode  # local import to avoid circular
 
         state = ctx.state

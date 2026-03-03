@@ -13,8 +13,8 @@ os.environ.setdefault("REQUESTS_CA_BUNDLE", certifi.where())
 import argparse
 import asyncio
 import sys
+from collections.abc import Sequence
 from pathlib import Path
-from typing import Sequence
 
 import aiosqlite
 from rich.console import Console
@@ -176,6 +176,11 @@ def build_parser() -> argparse.ArgumentParser:
     resume = sub.add_parser("resume")
     resume.add_argument("--topic", help="Resume by topic (research question, case-insensitive)")
     resume.add_argument("--workflow-id", help="Resume by workflow ID (e.g. wf-abc123)")
+    resume.add_argument(
+        "--from-phase",
+        help="Resume from a specific phase (e.g. phase_2_search, phase_3_screening). "
+        "Prior phases must have checkpoints. Omit to resume from first incomplete.",
+    )
     resume.add_argument("--config", default="config/review.yaml")
     resume.add_argument("--settings", default="config/settings.yaml")
     resume.add_argument("--run-root", default="runs")
@@ -289,6 +294,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                         settings_path=args.settings,
                         run_root=args.run_root,
                         run_context=run_context,
+                        from_phase=getattr(args, "from_phase", None),
                     )
                 )
             _print_run_summary(console, summary)

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Dict, List, Literal, Optional
+from typing import Literal, Optional
 
 from pydantic import BaseModel, Field
 
@@ -12,18 +12,18 @@ from src.models.enums import StudyDesign
 class ExtractionRecord(BaseModel):
     paper_id: str
     study_design: StudyDesign
-    study_duration: Optional[str] = None
-    setting: Optional[str] = None
-    participant_count: Optional[int] = None
-    participant_demographics: Optional[str] = None
+    study_duration: str | None = None
+    setting: str | None = None
+    participant_count: int | None = None
+    participant_demographics: str | None = None
     intervention_description: str
-    comparator_description: Optional[str] = None
-    outcomes: List[Dict[str, str]] = Field(default_factory=list)
-    results_summary: Dict[str, str] = Field(default_factory=dict)
-    funding_source: Optional[str] = None
-    conflicts_of_interest: Optional[str] = None
-    source_spans: Dict[str, str] = Field(default_factory=dict)
-    extraction_confidence: Optional[float] = Field(
+    comparator_description: str | None = None
+    outcomes: list[dict[str, str]] = Field(default_factory=list)
+    results_summary: dict[str, str] = Field(default_factory=dict)
+    funding_source: str | None = None
+    conflicts_of_interest: str | None = None
+    source_spans: dict[str, str] = Field(default_factory=dict)
+    extraction_confidence: float | None = Field(
         default=None,
         description="LLM self-reported confidence in the extraction (0.0-1.0).",
     )

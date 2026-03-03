@@ -16,13 +16,11 @@ Every LLM call is the caller's responsibility for cost tracking.
 
 from __future__ import annotations
 
-import asyncio
 import json
 import logging
 import os
 import re
 from dataclasses import dataclass
-from typing import Any, Optional
 
 import aiohttp
 
@@ -46,14 +44,14 @@ class FullTextResult:
 
     text: str
     source: str  # "sciencedirect" | "unpaywall_text" | "pmc" | "abstract"
-    pdf_bytes: Optional[bytes] = None  # set only when Unpaywall returns a PDF
+    pdf_bytes: bytes | None = None  # set only when Unpaywall returns a PDF
 
 
 # ---------------------------------------------------------------------------
 # Tier 1: ScienceDirect Article Retrieval API
 # ---------------------------------------------------------------------------
 
-async def _fetch_sciencedirect(doi: str, api_key: str) -> Optional[FullTextResult]:
+async def _fetch_sciencedirect(doi: str, api_key: str) -> FullTextResult | None:
     """Fetch full text from ScienceDirect using the Elsevier Article Retrieval API.
 
     Returns None when: API key missing, DOI missing, response too small (non-OA),
@@ -84,7 +82,7 @@ async def _fetch_sciencedirect(doi: str, api_key: str) -> Optional[FullTextResul
 # Tier 2: Unpaywall open-access PDF
 # ---------------------------------------------------------------------------
 
-async def _fetch_unpaywall(doi: str) -> Optional[FullTextResult]:
+async def _fetch_unpaywall(doi: str) -> FullTextResult | None:
     """Fetch open-access PDF bytes via Unpaywall.
 
     Returns None when: DOI missing, no OA PDF found, or network error.
@@ -143,7 +141,7 @@ async def _fetch_unpaywall(doi: str) -> Optional[FullTextResult]:
 # Tier 3: PubMed Central full text
 # ---------------------------------------------------------------------------
 
-async def _fetch_pmc(doi: str, pmid: Optional[str] = None) -> Optional[FullTextResult]:
+async def _fetch_pmc(doi: str, pmid: str | None = None) -> FullTextResult | None:
     """Fetch full text from PubMed Central via NCBI E-utilities.
 
     First resolves DOI to PMCID via esearch, then fetches XML via efetch.
@@ -151,7 +149,7 @@ async def _fetch_pmc(doi: str, pmid: Optional[str] = None) -> Optional[FullTextR
     """
     if not doi and not pmid:
         return None
-    pmcid: Optional[str] = None
+    pmcid: str | None = None
     try:
         async with aiohttp.ClientSession() as session:
             # Resolve DOI -> PMCID
@@ -207,10 +205,10 @@ async def _fetch_pmc(doi: str, pmid: Optional[str] = None) -> Optional[FullTextR
 # ---------------------------------------------------------------------------
 
 async def fetch_full_text(
-    doi: Optional[str] = None,
-    url: Optional[str] = None,
-    pmid: Optional[str] = None,
-    scopus_api_key: Optional[str] = None,
+    doi: str | None = None,
+    url: str | None = None,
+    pmid: str | None = None,
+    scopus_api_key: str | None = None,
     use_sciencedirect: bool = True,
     use_unpaywall: bool = True,
     use_pmc: bool = True,
@@ -294,64 +292,37 @@ Return ONLY valid JSON -- no markdown, no explanation.
 """
 
 
-def _extract_tables_sync(
-    pdf_bytes: bytes,
-    model_name: str,
-    api_key: str,
-) -> list[dict[str, str]]:
-    """Synchronous Gemini vision call -- run in executor."""
-    try:
-        import google.generativeai as genai  # type: ignore[import-untyped]
-    except ImportError:
-        logger.warning("google-generativeai not installed; skipping table extraction")
-        return []
-
-    if not api_key:
-        logger.warning("No GEMINI_API_KEY; skipping table extraction")
-        return []
-
-    genai.configure(api_key=api_key)
-
-    try:
-        model = genai.GenerativeModel(model_name)
-        response = model.generate_content(
-            [
-                {"mime_type": "application/pdf", "data": pdf_bytes},
-                _TABLE_EXTRACTION_PROMPT,
-            ]
-        )
-        raw = response.text.strip()
-        # Strip markdown fences if present
-        if raw.startswith("```"):
-            raw = raw.split("```")[1]
-            if raw.startswith("json"):
-                raw = raw[4:]
-        data = json.loads(raw)
-        if isinstance(data, list):
-            return [
-                {k: str(v) for k, v in item.items() if isinstance(v, (str, int, float))}
-                for item in data
-                if isinstance(item, dict)
-            ]
-    except json.JSONDecodeError as exc:
-        logger.warning("Table extraction: JSON parse error: %s", exc)
-    except Exception as exc:
-        logger.warning("Table extraction: vision API error: %s", exc)
-
+def _parse_table_json(raw: str) -> list[dict[str, str]]:
+    """Parse JSON array from LLM output, stripping markdown fences if present."""
+    text = raw.strip()
+    if text.startswith("```"):
+        text = text.split("```")[1]
+        if text.startswith("json"):
+            text = text[4:]
+    data = json.loads(text)
+    if isinstance(data, list):
+        return [
+            {k: str(v) for k, v in item.items() if isinstance(v, (str, int, float))}
+            for item in data
+            if isinstance(item, dict)
+        ]
     return []
 
 
 async def extract_tables_from_pdf(
-    pdf_bytes: Optional[bytes],
+    pdf_bytes: bytes | None,
     model_name: str = "gemini-2.5-flash",
-    api_key: Optional[str] = None,
+    api_key: str | None = None,
 ) -> list[dict[str, str]]:
-    """Extract quantitative outcome tables from PDF bytes via Gemini vision.
+    """Extract quantitative outcome tables from PDF bytes via PydanticAI multimodal.
+
+    Uses PydanticAI BinaryContent to pass raw PDF bytes to Gemini vision
+    natively (no deprecated google-generativeai SDK, no run_in_executor).
 
     Args:
         pdf_bytes: Raw PDF bytes. If None, returns empty list.
-        model_name: Gemini model to use for vision extraction.
-        api_key: Gemini API key. Falls back to GEMINI_API_KEY env var.
+        model_name: Gemini model to use for vision extraction (without provider prefix).
+        api_key: Unused; kept for backward compat. PydanticAI reads GEMINI_API_KEY.
 
     Returns:
         List of outcome dicts with keys: name, description, effect_size,
@@ -360,15 +331,26 @@ async def extract_tables_from_pdf(
     if not pdf_bytes:
         return []
 
-    key = api_key or os.environ.get("GEMINI_API_KEY", "")
-    if not key:
-        return []
+    from pydantic_ai import Agent
+    from pydantic_ai.messages import BinaryContent
+    from pydantic_ai.settings import ModelSettings
 
-    import asyncio
-    loop = asyncio.get_event_loop()
-    return await loop.run_in_executor(
-        None, _extract_tables_sync, pdf_bytes, model_name, key
-    )
+    full_model = model_name if ":" in model_name else f"google-gla:{model_name}"
+
+    try:
+        agent: Agent[None, str] = Agent(full_model, output_type=str)
+        pdf_part = BinaryContent(data=pdf_bytes, media_type="application/pdf")
+        result = await agent.run(
+            [pdf_part, _TABLE_EXTRACTION_PROMPT],
+            model_settings=ModelSettings(temperature=0.1),
+        )
+        return _parse_table_json(result.output)
+    except json.JSONDecodeError as exc:
+        logger.warning("Table extraction: JSON parse error: %s", exc)
+    except Exception as exc:
+        logger.warning("Table extraction: vision API error: %s", exc)
+
+    return []
 
 
 def merge_outcomes(

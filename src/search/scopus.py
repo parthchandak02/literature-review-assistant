@@ -236,7 +236,7 @@ _ABSTRACT_BATCH_SIZE = 50   # enrich up to 50 papers per call to avoid long bloc
 
 
 async def enrich_scopus_abstracts(
-    papers: list["CandidatePaper"],
+    papers: list[CandidatePaper],
     api_key: str | None = None,
     batch_size: int = _ABSTRACT_BATCH_SIZE,
 ) -> int:

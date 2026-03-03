@@ -15,14 +15,14 @@ from __future__ import annotations
 import json
 import logging
 import time
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING
 
 from pydantic import BaseModel
 from pydantic_ai import Agent
 from pydantic_ai.settings import ModelSettings
 
-from src.llm.pydantic_client import _run_with_retry
 from src.llm.provider import LLMProvider
+from src.llm.pydantic_client import _run_with_retry
 from src.models.additional import CostRecord
 
 if TYPE_CHECKING:
@@ -54,11 +54,11 @@ class _RerankOutput(BaseModel):
 
 async def rerank_chunks(
     query: str,
-    chunks: "list[RetrievedChunk]",
+    chunks: list[RetrievedChunk],
     top_k: int = 8,
     model: str = _DEFAULT_MODEL,
-    repository: Optional["WorkflowRepository"] = None,
-) -> "list[RetrievedChunk]":
+    repository: WorkflowRepository | None = None,
+) -> list[RetrievedChunk]:
     """Rerank chunks by relevance using Gemini listwise ranking.
 
     A single LLM call receives all candidate chunks and returns their indices
@@ -92,7 +92,7 @@ async def rerank_chunks(
 
     t0 = time.monotonic()
     try:
-        agent: Agent[None, str] = Agent(model, result_type=str)
+        agent: Agent[None, str] = Agent(model, output_type=str)
         result = await _run_with_retry(
             agent, prompt, model_settings=ModelSettings(temperature=0.0)
         )

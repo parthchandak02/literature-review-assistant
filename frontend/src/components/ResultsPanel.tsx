@@ -296,7 +296,6 @@ function LatexViewer({ content, isLatex }: { content: string; isLatex: boolean }
   return (
     <div className="overflow-auto max-h-[70vh]">
       <pre className="hljs text-xs p-4 font-mono leading-relaxed whitespace-pre-wrap">
-        {/* eslint-disable-next-line react/no-danger */}
         <code dangerouslySetInnerHTML={{ __html: highlighted }} />
       </pre>
     </div>

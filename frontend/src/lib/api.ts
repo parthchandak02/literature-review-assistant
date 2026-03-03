@@ -44,7 +44,7 @@ export type ReviewEvent =
   | { type: "db_ready"; ts: string }
   | { type: "workflow_id_ready"; workflow_id: string }
   | { type: "done"; outputs: Record<string, unknown>; ts?: string }
-  | { type: "error"; msg: string; ts?: string }
+  | { type: "error"; msg: string; traceback?: string; ts?: string }
   | { type: "cancelled"; ts?: string }
 
 // Database explorer types

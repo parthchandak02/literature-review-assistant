@@ -16,6 +16,7 @@ import asyncio
 import datetime
 import io
 import json as _json
+import logging
 import os
 import pathlib
 import shutil
@@ -23,17 +24,18 @@ import tempfile
 import time
 import uuid
 import zipfile
+from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
-from typing import Any, AsyncGenerator
+from typing import Any
 
 import aiofiles
 import aiosqlite
+import pydantic
 import yaml
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
-import pydantic
 from pydantic import BaseModel
 from sse_starlette.sse import EventSourceResponse
 
@@ -43,6 +45,8 @@ from src.export.submission_packager import package_submission
 from src.orchestration.context import WebRunContext
 from src.orchestration.workflow import run_workflow, run_workflow_resume
 from src.utils.structured_log import load_events_from_jsonl
+
+_logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # State: in-process registry of active runs
@@ -404,9 +408,16 @@ async def _run_wrapper(record: _RunRecord, review_path: str, req: RunRequest) ->
             except Exception:
                 pass
     except Exception as exc:
+        import traceback
         record.done = True
         record.error = str(exc)
-        _error_evt: dict[str, Any] = {"type": "error", "msg": str(exc)}
+        _tb = traceback.format_exc()
+        _logger.exception("Run failed: %s", exc)
+        _error_evt: dict[str, Any] = {
+            "type": "error",
+            "msg": str(exc),
+            "traceback": _tb,
+        }
         record.event_log.append(_error_evt)
         await record.queue.put(_error_evt)
         if record.workflow_id and record.run_root:
@@ -584,7 +595,7 @@ async def stream_run(run_id: str, request: Request) -> EventSourceResponse:
                 replay_index += 1
                 if event.get("type") in ("done", "error", "cancelled"):
                     break
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 yield {"event": "heartbeat", "data": "{}"}
                 if record.done:
                     break
@@ -718,7 +729,7 @@ async def generate_config_stream(req: _GenerateConfigRequest) -> StreamingRespon
             while True:
                 try:
                     msg = await asyncio.wait_for(queue.get(), timeout=180.0)
-                except asyncio.TimeoutError:
+                except TimeoutError:
                     yield f"data: {_json.dumps({'type': 'error', 'detail': 'Generation timed out after 3 minutes'})}\n\n"
                     break
                 if msg is None:
@@ -793,8 +804,8 @@ def _is_stale(row: aiosqlite.Row) -> bool:
         ts = datetime.datetime.fromisoformat(str(heartbeat))
         # SQLite datetime() produces naive UTC strings; treat them as UTC.
         if ts.tzinfo is None:
-            ts = ts.replace(tzinfo=datetime.timezone.utc)
-        age = (datetime.datetime.now(datetime.timezone.utc) - ts).total_seconds()
+            ts = ts.replace(tzinfo=datetime.UTC)
+        age = (datetime.datetime.now(datetime.UTC) - ts).total_seconds()
         return age > _STALE_THRESHOLD_SECONDS
     except Exception:
         return True
@@ -950,9 +961,9 @@ async def _resume_wrapper(
     # Insert before the first terminal event (done/error/cancelled) so they
     # appear in correct chronological order in the Activity log.
     try:
-        from src.orchestration.resume import PHASE_ORDER as _PHASE_ORDER
         from src.db.database import get_db as _get_db
         from src.db.repositories import WorkflowRepository as _WorkflowRepository
+        from src.orchestration.resume import PHASE_ORDER as _PHASE_ORDER
         async with _get_db(db_path) as _chk_db:
             _checkpoints = await _WorkflowRepository(_chk_db).get_checkpoints(workflow_id)
         _phases_with_done = {
@@ -973,7 +984,7 @@ async def _resume_wrapper(
             if isinstance(_prev, dict) and "ts" in _prev:
                 _synthetic_ts = _prev["ts"]
         if _synthetic_ts is None:
-            _synthetic_ts = datetime.datetime.now(tz=datetime.timezone.utc).strftime(
+            _synthetic_ts = datetime.datetime.now(tz=datetime.UTC).strftime(
                 "%Y-%m-%dT%H:%M:%S.%f"
             )[:-3] + "Z"
         _synthetic_events: list[dict[str, Any]] = []
@@ -1044,9 +1055,16 @@ async def _resume_wrapper(
         except Exception:
             pass
     except Exception as exc:
+        import traceback
         record.done = True
         record.error = str(exc)
-        _error_resume_evt: dict[str, Any] = {"type": "error", "msg": str(exc)}
+        _tb = traceback.format_exc()
+        _logger.exception("Resume failed: %s", exc)
+        _error_resume_evt: dict[str, Any] = {
+            "type": "error",
+            "msg": str(exc),
+            "traceback": _tb,
+        }
         record.event_log.append(_error_resume_evt)
         await record.queue.put(_error_resume_evt)
         try:
@@ -1148,7 +1166,7 @@ async def delete_run(workflow_id: str, run_root: str = "runs") -> dict[str, bool
     try:
         if run_dir.exists():
             shutil.rmtree(run_dir)
-    except OSError as exc:
+    except OSError:
         # Log but do not fail - registry row is already removed
         pass
 
@@ -1189,7 +1207,7 @@ async def attach_history(req: AttachRequest) -> RunResponse:
             record.event_log.append({
                 "type": "error",
                 "msg": f"Run ended with status: {req.status}",
-                "ts": datetime.datetime.now(tz=datetime.timezone.utc).isoformat(),
+                "ts": datetime.datetime.now(tz=datetime.UTC).isoformat(),
             })
     _active_runs[run_id] = record
     # Refresh allowed download roots to include the newly attached run's location.
@@ -1923,9 +1941,10 @@ async def approve_screening(
     if not pathlib.Path(db_path).exists():
         raise HTTPException(status_code=404, detail="Run database not found")
 
-    from src.db.workflow_registry import find_by_workflow_id_fallback, update_status as _update_status
-
     import aiosqlite
+
+    from src.db.workflow_registry import find_by_workflow_id_fallback
+    from src.db.workflow_registry import update_status as _update_status
     async with aiosqlite.connect(db_path) as _raw_db:
         cursor = await _raw_db.execute("SELECT workflow_id FROM workflows LIMIT 1")
         row = await cursor.fetchone()
@@ -1988,6 +2007,7 @@ async def approve_screening(
                 # Generate refined criteria via LLM (non-blocking; failures are silent)
                 try:
                     import os as _os
+
                     from src.config.loader import load_configs as _load_cfgs
                     _refine_model = "google-gla:gemini-2.5-pro"
                     try:
@@ -2296,8 +2316,9 @@ async def living_refresh(run_id: str) -> RunResponse:
 
     Only allowed when the source run is in a completed (done) state.
     """
-    import yaml as _yaml
     from datetime import date as _date
+
+    import yaml as _yaml
 
     record = _active_runs.get(run_id)
     if record is None:
@@ -2423,7 +2444,7 @@ async def _log_stream_generator(
 
     # Emit historical tail first
     if log_path.exists():
-        async with aiofiles.open(log_path, "r", errors="replace") as fh:
+        async with aiofiles.open(log_path, errors="replace") as fh:
             raw = await fh.read()
         tail = raw.splitlines()[-_TAIL_LINES:]
         for line in tail:
@@ -2447,7 +2468,7 @@ async def _log_stream_generator(
         if current_size <= last_pos:
             last_pos = current_size  # truncated -- reset
             continue
-        async with aiofiles.open(log_path, "r", errors="replace") as fh:
+        async with aiofiles.open(log_path, errors="replace") as fh:
             await fh.seek(last_pos)
             new_content = await fh.read()
         last_pos = last_pos + len(new_content.encode("utf-8", errors="replace"))

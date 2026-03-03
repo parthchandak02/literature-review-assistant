@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import logging
 import random
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Callable, Sequence
+from typing import TYPE_CHECKING
 
 from sklearn.metrics import cohen_kappa_score
 
@@ -83,8 +84,8 @@ class CalibratedThresholds:
 
 
 async def calibrate_threshold(
-    papers: "list[CandidatePaper]",
-    screener_fn: Callable[["list[CandidatePaper]", float], "Sequence[DualScreeningResult]"],
+    papers: list[CandidatePaper],
+    screener_fn: Callable[[list[CandidatePaper], float], Sequence[DualScreeningResult]],
     target_kappa: float = 0.7,
     max_iterations: int = 3,
     sample_size: int = 30,

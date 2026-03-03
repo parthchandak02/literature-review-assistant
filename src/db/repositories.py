@@ -4,15 +4,38 @@ from __future__ import annotations
 
 import json
 import logging
-from typing import Any, List, Optional, Set, Tuple
+import sqlite3
+from typing import Any
 
 import aiosqlite
 from pydantic import ValidationError
 
+from src.models import (
+    CandidatePaper,
+    CitationEntryRecord,
+    ClaimRecord,
+    CostRecord,
+    DecisionLogEntry,
+    EvidenceLinkRecord,
+    ExtractionRecord,
+    GateResult,
+    GRADEOutcomeAssessment,
+    RoB2Assessment,
+    RobinsIAssessment,
+    ScreeningDecision,
+    ScreeningDecisionType,
+    SearchResult,
+    SectionDraft,
+)
+from src.models.enums import SourceCategory
+from src.models.papers import compute_display_label
+from src.synthesis.feasibility import SynthesisFeasibility
+from src.synthesis.narrative import NarrativeSynthesis
+
 _logger = logging.getLogger(__name__)
 
 
-def _row_to_candidate_paper(row: Tuple[Any, ...]) -> CandidatePaper:
+def _row_to_candidate_paper(row: tuple[Any, ...]) -> CandidatePaper:
     """Convert a papers table row to CandidatePaper.
 
     Expected column order (matches all SELECT queries in this module):
@@ -45,28 +68,6 @@ def _row_to_candidate_paper(row: Tuple[Any, ...]) -> CandidatePaper:
         country=country,
         display_label=display_label,
     )
-
-from src.models import (
-    CandidatePaper,
-    CitationEntryRecord,
-    ClaimRecord,
-    CostRecord,
-    DecisionLogEntry,
-    EvidenceLinkRecord,
-    ExtractionRecord,
-    GateResult,
-    GRADEOutcomeAssessment,
-    RoB2Assessment,
-    RobinsIAssessment,
-    ScreeningDecision,
-    ScreeningDecisionType,
-    SearchResult,
-    SectionDraft,
-)
-from src.models.enums import SourceCategory
-from src.models.papers import compute_display_label
-from src.synthesis.feasibility import SynthesisFeasibility
-from src.synthesis.narrative import NarrativeSynthesis
 
 
 class WorkflowRepository:
@@ -111,13 +112,38 @@ class WorkflowRepository:
         Writes one row per paper to screening_decisions (individual reviewer
         record) and one row to dual_screening_results (PRISMA aggregate), all
         in a single commit. Saves each paper to the papers table first to
-        satisfy the foreign-key constraint.
+        satisfy the foreign-key constraint, then filters decisions to only
+        those whose paper_id actually exists in the DB.
         """
         paper_by_id = {p.paper_id: p for p in papers}
         for decision in decisions:
             paper = paper_by_id.get(decision.paper_id)
             if paper is not None:
                 await self.save_paper(paper)
+
+        all_decision_ids = [d.paper_id for d in decisions]
+        if all_decision_ids:
+            placeholders = ",".join("?" * len(all_decision_ids))
+            cursor = await self.db.execute(
+                f"SELECT paper_id FROM papers WHERE paper_id IN ({placeholders})",
+                all_decision_ids,
+            )
+            existing_ids = {str(row[0]) for row in await cursor.fetchall()}
+        else:
+            existing_ids = set()
+
+        valid = [d for d in decisions if d.paper_id in existing_ids]
+        skipped = len(decisions) - len(valid)
+        if skipped:
+            _logger.warning(
+                "bulk_save_screening_decisions: skipped %d decisions "
+                "for non-existent paper_ids",
+                skipped,
+            )
+
+        if not valid:
+            return
+
         await self.db.executemany(
             """
             INSERT OR IGNORE INTO screening_decisions (
@@ -136,7 +162,7 @@ class WorkflowRepository:
                     d.reviewer_type.value,
                     d.confidence,
                 )
-                for d in decisions
+                for d in valid
             ],
         )
         await self.db.executemany(
@@ -147,7 +173,7 @@ class WorkflowRepository:
             """,
             [
                 (workflow_id, d.paper_id, stage, 1, d.decision.value, 0)
-                for d in decisions
+                for d in valid
             ],
         )
         await self.db.commit()
@@ -206,29 +232,58 @@ class WorkflowRepository:
 
     async def save_paper(self, paper: CandidatePaper) -> None:
         label = paper.display_label or compute_display_label(paper)
-        await self.db.execute(
-            """
-            INSERT OR REPLACE INTO papers (
+        params = (
+            paper.paper_id,
+            paper.title,
+            json.dumps(paper.authors),
+            paper.year,
+            paper.source_database,
+            paper.doi,
+            paper.abstract,
+            paper.url,
+            json.dumps(paper.keywords or []),
+            paper.source_category.value,
+            paper.openalex_id,
+            paper.country,
+            label,
+        )
+        upsert_sql = """
+            INSERT INTO papers (
                 paper_id, title, authors, year, source_database, doi, abstract, url,
                 keywords, source_category, openalex_id, country, display_label
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            (
-                paper.paper_id,
-                paper.title,
-                json.dumps(paper.authors),
-                paper.year,
-                paper.source_database,
-                paper.doi,
-                paper.abstract,
-                paper.url,
-                json.dumps(paper.keywords or []),
-                paper.source_category.value,
-                paper.openalex_id,
-                paper.country,
-                label,
-            ),
-        )
+            ON CONFLICT(paper_id) DO UPDATE SET
+                title = excluded.title,
+                authors = excluded.authors,
+                year = excluded.year,
+                source_database = excluded.source_database,
+                doi = excluded.doi,
+                abstract = excluded.abstract,
+                url = excluded.url,
+                keywords = excluded.keywords,
+                source_category = excluded.source_category,
+                openalex_id = excluded.openalex_id,
+                country = excluded.country,
+                display_label = excluded.display_label
+            """
+        try:
+            await self.db.execute(upsert_sql, params)
+        except (sqlite3.IntegrityError, Exception) as exc:
+            if paper.doi is not None:
+                _logger.debug(
+                    "DOI conflict for paper %s (doi=%s), retrying with NULL DOI: %s",
+                    paper.paper_id, paper.doi, exc,
+                )
+                params_no_doi = list(params)
+                params_no_doi[5] = None
+                try:
+                    await self.db.execute(upsert_sql, tuple(params_no_doi))
+                except Exception:
+                    _logger.warning(
+                        "Could not save paper %s even with NULL DOI", paper.paper_id,
+                    )
+            else:
+                _logger.warning("Could not save paper %s: %s", paper.paper_id, exc)
 
     async def get_search_counts(self, workflow_id: str) -> dict[str, int]:
         cursor = await self.db.execute(
@@ -318,7 +373,7 @@ class WorkflowRepository:
         reports_not_retrieved = 0  # no retrieval failures in abstract-only pipeline
         return ta_screened, ta_excluded, ft_sought, reports_not_retrieved, ft_assessed, exclusion_reasons
 
-    async def get_processed_paper_ids(self, workflow_id: str, stage: str) -> Set[str]:
+    async def get_processed_paper_ids(self, workflow_id: str, stage: str) -> set[str]:
         cursor = await self.db.execute(
             """
             SELECT DISTINCT paper_id
@@ -330,7 +385,7 @@ class WorkflowRepository:
         rows = await cursor.fetchall()
         return {str(row[0]) for row in rows}
 
-    async def get_all_papers(self) -> List[CandidatePaper]:
+    async def get_all_papers(self) -> list[CandidatePaper]:
         """Load all papers from the papers table (for resume state reconstruction)."""
         cursor = await self.db.execute(
             """
@@ -342,7 +397,7 @@ class WorkflowRepository:
         rows = await cursor.fetchall()
         return [_row_to_candidate_paper(row) for row in rows]
 
-    async def load_papers_by_ids(self, paper_ids: Set[str]) -> List[CandidatePaper]:
+    async def load_papers_by_ids(self, paper_ids: set[str]) -> list[CandidatePaper]:
         """Load papers by paper_id set."""
         if not paper_ids:
             return []
@@ -370,7 +425,7 @@ class WorkflowRepository:
         rows = await cursor.fetchall()
         return {str(row[0]): str(row[1]) for row in rows}
 
-    async def get_included_paper_ids(self, workflow_id: str) -> Set[str]:
+    async def get_included_paper_ids(self, workflow_id: str) -> set[str]:
         """Paper IDs that passed fulltext screening with include or uncertain decision."""
         cursor = await self.db.execute(
             """
@@ -382,7 +437,7 @@ class WorkflowRepository:
         rows = await cursor.fetchall()
         return {str(row[0]) for row in rows}
 
-    async def get_title_abstract_include_ids(self, workflow_id: str) -> Set[str]:
+    async def get_title_abstract_include_ids(self, workflow_id: str) -> set[str]:
         """Paper IDs that passed title/abstract screening (include or uncertain).
 
         Used on resume to recover pre-crash screening decisions that were persisted
@@ -399,7 +454,7 @@ class WorkflowRepository:
         rows = await cursor.fetchall()
         return {str(row[0]) for row in rows}
 
-    async def get_extraction_record_ids(self, workflow_id: str) -> Set[str]:
+    async def get_extraction_record_ids(self, workflow_id: str) -> set[str]:
         """Paper IDs already in extraction_records."""
         cursor = await self.db.execute(
             """
@@ -410,7 +465,7 @@ class WorkflowRepository:
         rows = await cursor.fetchall()
         return {str(row[0]) for row in rows}
 
-    async def get_rob_assessment_ids(self, workflow_id: str) -> Set[str]:
+    async def get_rob_assessment_ids(self, workflow_id: str) -> set[str]:
         """Paper IDs that already have a row in rob_assessments for this workflow."""
         cursor = await self.db.execute(
             """
@@ -421,7 +476,7 @@ class WorkflowRepository:
         rows = await cursor.fetchall()
         return {str(row[0]) for row in rows}
 
-    async def load_extraction_records(self, workflow_id: str) -> List[ExtractionRecord]:
+    async def load_extraction_records(self, workflow_id: str) -> list[ExtractionRecord]:
         """Load all extraction records for a workflow.
 
         Skips malformed or legacy records (ValidationError) to allow resume of
@@ -434,7 +489,7 @@ class WorkflowRepository:
             (workflow_id,),
         )
         rows = await cursor.fetchall()
-        records: List[ExtractionRecord] = []
+        records: list[ExtractionRecord] = []
         for row in rows:
             paper_id = str(row[0]) if row else "unknown"
             data_json = str(row[1]) if len(row) > 1 else str(row[0])
@@ -448,7 +503,7 @@ class WorkflowRepository:
                 )
         return records
 
-    async def get_completed_sections(self, workflow_id: str) -> Set[str]:
+    async def get_completed_sections(self, workflow_id: str) -> set[str]:
         """Section names that have at least one draft (for writing phase resume)."""
         cursor = await self.db.execute(
             """
@@ -463,8 +518,13 @@ class WorkflowRepository:
         """Persist a section draft for checkpoint/resume."""
         await self.db.execute(
             """
-            INSERT OR REPLACE INTO section_drafts (workflow_id, section, version, content, claims_used, citations_used, word_count)
+            INSERT INTO section_drafts (workflow_id, section, version, content, claims_used, citations_used, word_count)
             VALUES (?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(workflow_id, section, version) DO UPDATE SET
+                content = excluded.content,
+                claims_used = excluded.claims_used,
+                citations_used = excluded.citations_used,
+                word_count = excluded.word_count
             """,
             (
                 draft.workflow_id,
@@ -499,7 +559,7 @@ class WorkflowRepository:
 
     async def get_screening_summary(
         self, workflow_id: str
-    ) -> List[Tuple[str, str, str, str]]:
+    ) -> list[tuple[str, str, str, str]]:
         """Return (paper_id, stage, final_decision, rationale) for screening summary table."""
         cursor = await self.db.execute(
             """
@@ -568,8 +628,11 @@ class WorkflowRepository:
     async def save_extraction_record(self, workflow_id: str, record: ExtractionRecord) -> None:
         await self.db.execute(
             """
-            INSERT OR REPLACE INTO extraction_records (workflow_id, paper_id, study_design, data)
+            INSERT INTO extraction_records (workflow_id, paper_id, study_design, data)
             VALUES (?, ?, ?, ?)
+            ON CONFLICT(workflow_id, paper_id) DO UPDATE SET
+                study_design = excluded.study_design,
+                data = excluded.data
             """,
             (
                 workflow_id,
@@ -583,8 +646,12 @@ class WorkflowRepository:
     async def save_rob2_assessment(self, workflow_id: str, assessment: RoB2Assessment) -> None:
         await self.db.execute(
             """
-            INSERT OR REPLACE INTO rob_assessments (workflow_id, paper_id, tool_used, assessment_data, overall_judgment)
+            INSERT INTO rob_assessments (workflow_id, paper_id, tool_used, assessment_data, overall_judgment)
             VALUES (?, ?, 'rob2', ?, ?)
+            ON CONFLICT(workflow_id, paper_id) DO UPDATE SET
+                tool_used = 'rob2',
+                assessment_data = excluded.assessment_data,
+                overall_judgment = excluded.overall_judgment
             """,
             (
                 workflow_id,
@@ -598,8 +665,12 @@ class WorkflowRepository:
     async def save_robins_i_assessment(self, workflow_id: str, assessment: RobinsIAssessment) -> None:
         await self.db.execute(
             """
-            INSERT OR REPLACE INTO rob_assessments (workflow_id, paper_id, tool_used, assessment_data, overall_judgment)
+            INSERT INTO rob_assessments (workflow_id, paper_id, tool_used, assessment_data, overall_judgment)
             VALUES (?, ?, 'robins_i', ?, ?)
+            ON CONFLICT(workflow_id, paper_id) DO UPDATE SET
+                tool_used = 'robins_i',
+                assessment_data = excluded.assessment_data,
+                overall_judgment = excluded.overall_judgment
             """,
             (
                 workflow_id,
@@ -638,18 +709,33 @@ class WorkflowRepository:
         return rob2_list, robins_i_list
 
     async def save_grade_assessment(self, workflow_id: str, assessment: GRADEOutcomeAssessment) -> None:
-        await self.db.execute(
-            """
-            INSERT OR REPLACE INTO grade_assessments (workflow_id, outcome_name, assessment_data, final_certainty)
-            VALUES (?, ?, ?, ?)
-            """,
-            (
-                workflow_id,
-                assessment.outcome_name,
-                assessment.model_dump_json(),
-                assessment.final_certainty.value,
-            ),
+        cursor = await self.db.execute(
+            "SELECT id FROM grade_assessments WHERE workflow_id = ? AND outcome_name = ?",
+            (workflow_id, assessment.outcome_name),
         )
+        existing = await cursor.fetchone()
+        if existing:
+            await self.db.execute(
+                """
+                UPDATE grade_assessments
+                SET assessment_data = ?, final_certainty = ?
+                WHERE id = ?
+                """,
+                (assessment.model_dump_json(), assessment.final_certainty.value, existing[0]),
+            )
+        else:
+            await self.db.execute(
+                """
+                INSERT INTO grade_assessments (workflow_id, outcome_name, assessment_data, final_certainty)
+                VALUES (?, ?, ?, ?)
+                """,
+                (
+                    workflow_id,
+                    assessment.outcome_name,
+                    assessment.model_dump_json(),
+                    assessment.final_certainty.value,
+                ),
+            )
         await self.db.commit()
 
     async def load_grade_assessments(self, workflow_id: str) -> list[GRADEOutcomeAssessment]:
@@ -721,9 +807,12 @@ class WorkflowRepository:
         """Persist synthesis results to DB as the canonical typed source of truth."""
         await self.db.execute(
             """
-            INSERT OR REPLACE INTO synthesis_results (
+            INSERT INTO synthesis_results (
                 workflow_id, outcome_name, feasibility_data, narrative_data
             ) VALUES (?, ?, ?, ?)
+            ON CONFLICT(workflow_id, outcome_name) DO UPDATE SET
+                feasibility_data = excluded.feasibility_data,
+                narrative_data = excluded.narrative_data
             """,
             (
                 workflow_id,
@@ -736,7 +825,7 @@ class WorkflowRepository:
 
     async def load_synthesis_result(
         self, workflow_id: str
-    ) -> Optional[Tuple[SynthesisFeasibility, NarrativeSynthesis]]:
+    ) -> tuple[SynthesisFeasibility, NarrativeSynthesis] | None:
         """Load the most recent synthesis result for a workflow.
 
         Returns a typed (SynthesisFeasibility, NarrativeSynthesis) pair, or None
@@ -773,7 +862,7 @@ class WorkflowRepository:
         )
         await self.db.commit()
 
-    async def get_dedup_count(self, workflow_id: str) -> Optional[int]:
+    async def get_dedup_count(self, workflow_id: str) -> int | None:
         """Return stored dedup count, or None if not yet persisted."""
         cursor = await self.db.execute(
             "SELECT dedup_count FROM workflows WHERE workflow_id = ?",
@@ -787,8 +876,13 @@ class WorkflowRepository:
     async def create_workflow(self, workflow_id: str, topic: str, config_hash: str) -> None:
         await self.db.execute(
             """
-            INSERT OR REPLACE INTO workflows (workflow_id, topic, config_hash, status)
+            INSERT INTO workflows (workflow_id, topic, config_hash, status)
             VALUES (?, ?, ?, 'running')
+            ON CONFLICT(workflow_id) DO UPDATE SET
+                topic = excluded.topic,
+                config_hash = excluded.config_hash,
+                status = 'running',
+                updated_at = CURRENT_TIMESTAMP
             """,
             (workflow_id, topic, config_hash),
         )
@@ -856,7 +950,7 @@ class CitationRepository:
         )
         await self.db.commit()
 
-    async def get_unlinked_claim_ids(self) -> List[str]:
+    async def get_unlinked_claim_ids(self) -> list[str]:
         cursor = await self.db.execute(
             """
             SELECT c.claim_id
@@ -868,17 +962,17 @@ class CitationRepository:
         rows = await cursor.fetchall()
         return [str(row[0]) for row in rows]
 
-    async def get_unresolved_citation_ids(self) -> List[str]:
+    async def get_unresolved_citation_ids(self) -> list[str]:
         cursor = await self.db.execute("SELECT citation_id FROM citations WHERE resolved = 0")
         rows = await cursor.fetchall()
         return [str(row[0]) for row in rows]
 
-    async def get_citekeys(self) -> List[str]:
+    async def get_citekeys(self) -> list[str]:
         cursor = await self.db.execute("SELECT citekey FROM citations")
         rows = await cursor.fetchall()
         return [str(row[0]) for row in rows]
 
-    async def get_claim_citation_pairs(self) -> List[Tuple[str, str]]:
+    async def get_claim_citation_pairs(self) -> list[tuple[str, str]]:
         cursor = await self.db.execute(
             """
             SELECT c.claim_id, cit.citekey
@@ -890,7 +984,7 @@ class CitationRepository:
         rows = await cursor.fetchall()
         return [(str(row[0]), str(row[1])) for row in rows]
 
-    async def get_all_citations_for_export(self) -> List[Tuple[str, str, str | None, str, str, int | None, str | None, str | None]]:
+    async def get_all_citations_for_export(self) -> list[tuple[str, str, str | None, str, str, int | None, str | None, str | None]]:
         """Return (citation_id, citekey, doi, title, authors_json, year, journal, bibtex) for BibTeX export."""
         cursor = await self.db.execute(
             """
@@ -917,7 +1011,7 @@ class CitationRepository:
 
 async def merge_papers_from_parent(
     parent_db_path: str,
-    dst_db: "aiosqlite.Connection",
+    dst_db: aiosqlite.Connection,
 ) -> int:
     """Copy included papers and their screening decisions from a parent run DB.
 
@@ -995,3 +1089,4 @@ async def merge_papers_from_parent(
     await dst_db.commit()
     _logger.info("merge_papers_from_parent: merged %d papers from %s", merged, parent_db_path)
     return merged
+

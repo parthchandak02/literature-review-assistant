@@ -4,6 +4,10 @@ from __future__ import annotations
 
 import re
 from pathlib import Path
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from src.models.quality import GradeSoFTable
 
 
 def _escape_latex(s: str) -> str:
@@ -214,13 +218,12 @@ def markdown_to_latex(
     return preamble + body + fig_section + bib_section + "\n\\end{document}\n"
 
 
-def render_grade_sof_latex(table: "GradeSoFTable") -> str:
+def render_grade_sof_latex(table: GradeSoFTable) -> str:
     """Render a GradeSoFTable as a LaTeX longtable appendix section.
 
     The returned string is self-contained and can be appended to the IEEE
     LaTeX document before the bibliography.
     """
-    from src.models.quality import GradeSoFTable  # noqa: PLC0415 -- local to avoid circular import
 
     _CERT_SYMBOL: dict[str, str] = {
         "high": "HIGH",

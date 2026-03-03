@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import logging
 import time
-from typing import List
 
 from pydantic import BaseModel, Field
 
@@ -32,7 +31,7 @@ class _ExtractionLLMResponse(BaseModel):
     participant_demographics: str = ""
     intervention_description: str = ""
     comparator_description: str = ""
-    outcomes: List[_OutcomeItem] = Field(default_factory=list)
+    outcomes: list[_OutcomeItem] = Field(default_factory=list)
     results_summary: str = ""
     funding_source: str = ""
     conflicts_of_interest: str = ""

@@ -64,8 +64,8 @@ async def main(run_dir: str, config_override: str | None) -> int:
         config_path = "config/review.yaml"
         console.print(
             "[yellow]Warning: no config_snapshot.yaml found in run dir. "
-            f"Using current config/review.yaml. If this does not match the original "
-            f"run topic, results may still be wrong.[/]"
+            "Using current config/review.yaml. If this does not match the original "
+            "run topic, results may still be wrong.[/]"
         )
 
     review, settings = load_configs(review_path=config_path)

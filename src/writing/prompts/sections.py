@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from src.writing.context_builder import WritingGroundingData
@@ -53,7 +53,7 @@ _PROSE_QUALITY_RULE = (
 )
 
 
-def _grounding_prefix(grounding: Optional["WritingGroundingData"]) -> str:
+def _grounding_prefix(grounding: WritingGroundingData | None) -> str:
     """Return the formatted grounding block if available, else empty string."""
     if grounding is None:
         return ""
@@ -62,7 +62,7 @@ def _grounding_prefix(grounding: Optional["WritingGroundingData"]) -> str:
 
 
 def get_abstract_prompt_context(
-    grounding: Optional["WritingGroundingData"] = None,
+    grounding: WritingGroundingData | None = None,
 ) -> str:
     """Context for abstract. Must cover 12 PRISMA abstract items."""
     prefix = _grounding_prefix(grounding)
@@ -129,7 +129,7 @@ def get_abstract_prompt_context(
 
 
 def get_introduction_prompt_context(
-    grounding: Optional["WritingGroundingData"] = None,
+    grounding: WritingGroundingData | None = None,
 ) -> str:
     """Context for introduction."""
     prefix = _grounding_prefix(grounding)
@@ -146,7 +146,7 @@ def get_introduction_prompt_context(
 
 
 def get_methods_prompt_context(
-    grounding: Optional["WritingGroundingData"] = None,
+    grounding: WritingGroundingData | None = None,
 ) -> str:
     """Context for methods. PRISMA Items 3-16."""
     prefix = _grounding_prefix(grounding)
@@ -189,7 +189,7 @@ def get_methods_prompt_context(
 
 
 def get_results_prompt_context(
-    grounding: Optional["WritingGroundingData"] = None,
+    grounding: WritingGroundingData | None = None,
 ) -> str:
     """Context for results."""
     prefix = _grounding_prefix(grounding)
@@ -220,7 +220,7 @@ def get_results_prompt_context(
 
 
 def get_discussion_prompt_context(
-    grounding: Optional["WritingGroundingData"] = None,
+    grounding: WritingGroundingData | None = None,
 ) -> str:
     """Context for discussion."""
     prefix = _grounding_prefix(grounding)
@@ -246,7 +246,7 @@ def get_discussion_prompt_context(
 
 
 def get_conclusion_prompt_context(
-    grounding: Optional["WritingGroundingData"] = None,
+    grounding: WritingGroundingData | None = None,
 ) -> str:
     """Context for conclusion."""
     prefix = _grounding_prefix(grounding)
@@ -262,7 +262,7 @@ def get_conclusion_prompt_context(
 
 def get_section_context(
     section: str,
-    grounding: Optional["WritingGroundingData"] = None,
+    grounding: WritingGroundingData | None = None,
 ) -> str:
     """Return prompt context for section, optionally injecting grounding data."""
     lookup = {

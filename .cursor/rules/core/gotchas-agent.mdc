@@ -28,3 +28,14 @@ The Vite dev server on localhost:5173 picks up changes automatically.
 ## Backend Module Reload
 Python loads all modules at startup. Any change to `src/` is invisible until `pm2 restart litreview-api`.
 The running process uses the pre-edit bytecode even after the file is saved.
+
+## INSERT OR REPLACE Is Destructive
+SQLite `INSERT OR REPLACE` performs DELETE + INSERT. With `PRAGMA foreign_keys = ON`
+the DELETE step fails if child tables reference the row. This was the root cause of
+all "FOREIGN KEY constraint failed" errors on resume. Always use
+`INSERT ... ON CONFLICT(pk) DO UPDATE SET ...` instead. See sqlite-patterns-auto.mdc.
+
+## INSERT OR IGNORE Does Not Suppress FK Violations
+SQLite `OR IGNORE` only suppresses UNIQUE, NOT NULL, and CHECK constraint errors.
+Foreign key violations always raise IntegrityError regardless of the conflict clause.
+When bulk-inserting rows with FK references, verify the parent rows exist first.

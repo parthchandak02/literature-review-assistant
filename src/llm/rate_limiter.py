@@ -6,7 +6,6 @@ import asyncio
 import time
 from collections import deque
 from collections.abc import Callable
-from typing import Deque, Dict
 
 
 class RateLimiter:
@@ -22,10 +21,10 @@ class RateLimiter:
             "flash": flash_rpm,
             "pro": pro_rpm,
         }
-        self._calls: Dict[str, Deque[float]] = {tier: deque() for tier in self._limits}
-        self._last_request_time: Dict[str, float] = {tier: 0.0 for tier in self._limits}
+        self._calls: dict[str, deque[float]] = {tier: deque() for tier in self._limits}
+        self._last_request_time: dict[str, float] = {tier: 0.0 for tier in self._limits}
         self._on_waiting = on_waiting
-        self._last_wait_log: Dict[str, float] = {}
+        self._last_wait_log: dict[str, float] = {}
         self._wait_log_interval = 30.0
 
     async def acquire(self, tier: str) -> None:

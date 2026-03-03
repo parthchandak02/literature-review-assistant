@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
-from typing import Tuple
 
 import yaml
 from dotenv import load_dotenv
@@ -55,7 +54,7 @@ def get_required_env_keys(settings: SettingsConfig) -> list[str]:
 def load_configs(
     review_path: str = "config/review.yaml",
     settings_path: str = "config/settings.yaml",
-) -> Tuple[ReviewConfig, SettingsConfig]:
+) -> tuple[ReviewConfig, SettingsConfig]:
     load_dotenv()
     review = ReviewConfig.model_validate(_read_yaml(review_path))
     settings = SettingsConfig.model_validate(_read_yaml(settings_path))

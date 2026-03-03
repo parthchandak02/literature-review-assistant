@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import re
 import uuid
-from typing import List, Optional
 
 from nameparser import HumanName
 from pydantic import BaseModel, Field
@@ -66,17 +65,17 @@ class CandidatePaper(BaseModel):
 
     paper_id: str = Field(default_factory=lambda: str(uuid.uuid4())[:12])
     title: str
-    authors: List[str]
-    year: Optional[int] = None
+    authors: list[str]
+    year: int | None = None
     source_database: str
-    doi: Optional[str] = None
-    abstract: Optional[str] = None
-    url: Optional[str] = None
-    keywords: Optional[List[str]] = None
+    doi: str | None = None
+    abstract: str | None = None
+    url: str | None = None
+    keywords: list[str] | None = None
     source_category: SourceCategory = SourceCategory.DATABASE
-    openalex_id: Optional[str] = None
-    country: Optional[str] = None
-    display_label: Optional[str] = None
+    openalex_id: str | None = None
+    country: str | None = None
+    display_label: str | None = None
 
 
 def compute_display_label(paper: CandidatePaper) -> str:
@@ -144,6 +143,6 @@ class SearchResult(BaseModel):
     source_category: SourceCategory
     search_date: str
     search_query: str
-    limits_applied: Optional[str] = None
+    limits_applied: str | None = None
     records_retrieved: int
-    papers: List[CandidatePaper]
+    papers: list[CandidatePaper]

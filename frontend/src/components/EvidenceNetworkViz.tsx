@@ -138,6 +138,7 @@ function useForceLayout(
       }
     }
 
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- computing layout positions synchronously in effect is intentional
     setPositions(new Map(pos))
   }, [nodes, edges, width, height])
 
@@ -401,6 +402,7 @@ export function EvidenceNetworkViz({ runId }: EvidenceNetworkVizProps) {
       .finally(() => setLoading(false))
   }, [runId])
 
+  // eslint-disable-next-line react-hooks/set-state-in-effect -- loadGraph is a useCallback that triggers data fetching; setState inside is indirect
   useEffect(() => { loadGraph() }, [loadGraph])
 
   const handleDownloadSvg = useCallback(() => {

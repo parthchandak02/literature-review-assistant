@@ -7,9 +7,9 @@ Falls back to a trivial single-community assignment if the library is unavailabl
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
-from src.knowledge_graph.builder import PaperEdge, PaperGraph, PaperNode
+from src.knowledge_graph.builder import PaperGraph, PaperNode
 
 logger = logging.getLogger(__name__)
 
@@ -36,8 +36,8 @@ def detect_communities(graph: PaperGraph) -> tuple[list[PaperNode], list[Communi
         return [], []
 
     try:
-        import networkx as nx  # type: ignore[import-untyped]
         import community as community_louvain  # type: ignore[import-untyped]
+        import networkx as nx  # type: ignore[import-untyped]
 
         G = nx.Graph()
         for node in graph.nodes:

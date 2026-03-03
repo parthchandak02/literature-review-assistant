@@ -11,7 +11,6 @@ import logging
 from dataclasses import dataclass, field
 from typing import Any
 
-import numpy as np
 from src.models import ExtractionRecord
 from src.synthesis.meta_analysis import pool_effects
 

@@ -90,6 +90,7 @@ export function CostView({ costStats, dbRunId }: CostViewProps) {
 
   // When browsing a completed historical run with no live SSE costs, load from DB.
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- loadDbCosts is a useCallback that fetches and sets state; indirect setState is intentional
     loadDbCosts()
   }, [loadDbCosts])
 

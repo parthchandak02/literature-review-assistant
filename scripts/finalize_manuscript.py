@@ -33,6 +33,7 @@ import pathlib
 import re
 import sys
 from types import SimpleNamespace
+
 import yaml
 
 sys.path.insert(0, str(pathlib.Path(__file__).parent.parent))
@@ -44,7 +45,6 @@ from src.export.markdown_refs import (
     is_extraction_failed,
     strip_appended_sections,
 )
-
 
 # ---------------------------------------------------------------------------
 # Unresolved citekey cleanup (Fix 1)

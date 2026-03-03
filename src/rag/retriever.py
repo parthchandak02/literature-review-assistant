@@ -1,7 +1,7 @@
 """Hybrid semantic + BM25 retriever for the RAG writing phase.
 
 Two retrieval signals are combined via Reciprocal Rank Fusion (RRF):
-  - Dense cosine similarity over Gemini text-embedding-004 vectors (768-dim)
+  - Dense cosine similarity over Gemini gemini-embedding-001 vectors (768-dim)
   - BM25 lexical matching via bm25s (already a project dependency)
 
 RRF formula (Cormack et al., 2009):
@@ -18,7 +18,6 @@ from __future__ import annotations
 import json
 import logging
 from dataclasses import dataclass
-from typing import Optional
 
 import aiosqlite
 
@@ -80,7 +79,7 @@ class RAGRetriever:
         self,
         query_text: str,
         contents: list[str],
-    ) -> "list[float]":
+    ) -> list[float]:
         """Return per-chunk BM25 scores in original corpus order (higher = better).
 
         Uses bm25s with sorted=False so that result indices map back to the
@@ -120,10 +119,10 @@ class RAGRetriever:
 
     @staticmethod
     def _rrf_scores(
-        dense_scores: "list[float]",
-        bm25_scores: "list[float]",
+        dense_scores: list[float],
+        bm25_scores: list[float],
         k: int = _RRF_K,
-    ) -> "list[float]":
+    ) -> list[float]:
         """Combine dense and BM25 scores via Reciprocal Rank Fusion.
 
         rank_dense[i] and rank_bm25[i] are 0-based positions in each ranking
@@ -170,8 +169,8 @@ class RAGRetriever:
         self,
         query_embedding: list[float],
         top_k: int = 10,
-        paper_id_filter: Optional[list[str]] = None,
-        query_text: Optional[str] = None,
+        paper_id_filter: list[str] | None = None,
+        query_text: str | None = None,
     ) -> list[RetrievedChunk]:
         """Return top-K chunks using hybrid BM25 + dense retrieval with RRF.
 

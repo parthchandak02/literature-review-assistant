@@ -134,6 +134,40 @@ export default function App() {
     : null
 
   // ---------------------------------------------------------------------------
+  // Restore a historical run from the URL (direct navigation / refresh)
+  // ---------------------------------------------------------------------------
+  async function restoreRunFromUrl(workflowId: string, tab: RunTab) {
+    try {
+      const history = await fetchHistory()
+      const entry = history.find((e) => e.workflow_id === workflowId)
+      if (!entry) {
+        navigate("/", { replace: true })
+        return
+      }
+      const res = await attachHistory(entry)
+      const isCompleted = ["completed", "done", "stale", "interrupted"].includes(
+        entry.status.toLowerCase(),
+      )
+      setSelectedRun({
+        runId: res.run_id,
+        workflowId: entry.workflow_id,
+        topic: entry.topic,
+        dbPath: entry.db_path,
+        isDone: isCompleted,
+        historicalStatus: entry.status,
+        startedAt: null,
+        createdAt: entry.created_at,
+        papersFound: entry.papers_found ?? null,
+        papersIncluded: entry.papers_included ?? null,
+        historicalCost: entry.total_cost ?? null,
+      })
+      setActiveRunTab(tab)
+    } catch {
+      navigate("/", { replace: true })
+    }
+  }
+
+  // ---------------------------------------------------------------------------
   // Mount: restore live SSE state from localStorage AND restore selectedRun from URL
   // ---------------------------------------------------------------------------
   useEffect(() => {
@@ -216,6 +250,7 @@ export default function App() {
         navigate(`/run/${liveWorkflowId}/${activeRunTab}`, { replace: true })
       }
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- activeRunTab and navigate are stable; intentionally excluded
   }, [liveWorkflowId, liveRunId, selectedRun?.runId, selectedRun?.workflowId])
 
   // ---------------------------------------------------------------------------
@@ -268,40 +303,6 @@ export default function App() {
     window.addEventListener("keydown", handleKey)
     return () => window.removeEventListener("keydown", handleKey)
   }, [])
-
-  // ---------------------------------------------------------------------------
-  // Restore a historical run from the URL (direct navigation / refresh)
-  // ---------------------------------------------------------------------------
-  async function restoreRunFromUrl(workflowId: string, tab: RunTab) {
-    try {
-      const history = await fetchHistory()
-      const entry = history.find((e) => e.workflow_id === workflowId)
-      if (!entry) {
-        navigate("/", { replace: true })
-        return
-      }
-      const res = await attachHistory(entry)
-      const isCompleted = ["completed", "done", "stale", "interrupted"].includes(
-        entry.status.toLowerCase(),
-      )
-      setSelectedRun({
-        runId: res.run_id,
-        workflowId: entry.workflow_id,
-        topic: entry.topic,
-        dbPath: entry.db_path,
-        isDone: isCompleted,
-        historicalStatus: entry.status,
-        startedAt: null,
-        createdAt: entry.created_at,
-        papersFound: entry.papers_found ?? null,
-        papersIncluded: entry.papers_included ?? null,
-        historicalCost: entry.total_cost ?? null,
-      })
-      setActiveRunTab(tab)
-    } catch {
-      navigate("/", { replace: true })
-    }
-  }
 
   // ---------------------------------------------------------------------------
   // Handlers
@@ -460,8 +461,8 @@ export default function App() {
     navigate(`/run/${workflowId}/activity`, { replace: true })
   }
 
-  async function handleSidebarResume(entry: HistoryEntry, fromPhase?: string) {
-    const res = await resumeRun(entry, fromPhase)
+  async function handleSidebarResume(entry: HistoryEntry) {
+    const res = await resumeRun(entry)
     handleResumeRun(res, entry.workflow_id)
   }
 
@@ -565,6 +566,8 @@ export default function App() {
         onNewReview={handleNewReview}
         onResume={handleSidebarResume}
         onDelete={handleSidebarDelete}
+        onCancel={handleCancel}
+        isRunning={isRunning}
         onGoHome={handleGoHome}
         collapsed={sidebarCollapsed}
         onToggle={() => setSidebarCollapsed((v) => !v)}

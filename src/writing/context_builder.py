@@ -8,7 +8,6 @@ prompt, preventing hallucination of statistics, counts, and citation keys.
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Dict, List, Optional
 
 from pydantic import BaseModel
 
@@ -31,9 +30,9 @@ class StudySummary(BaseModel):
 
     paper_id: str
     title: str
-    year: Optional[int]
+    year: int | None
     study_design: str
-    participant_count: Optional[int]
+    participant_count: int | None
     key_finding: str
 
 
@@ -45,8 +44,8 @@ class WritingGroundingData(BaseModel):
     """
 
     # Search
-    databases_searched: List[str]
-    other_methods_searched: List[str]
+    databases_searched: list[str]
+    other_methods_searched: list[str]
     search_date: str
 
     # PRISMA counts
@@ -56,25 +55,25 @@ class WritingGroundingData(BaseModel):
     fulltext_assessed: int
     total_included: int
     fulltext_excluded: int  # derived: fulltext_assessed - total_included
-    excluded_fulltext_reasons: Dict[str, int]
+    excluded_fulltext_reasons: dict[str, int]
 
     # Study characteristics
-    study_design_counts: Dict[str, int]
-    total_participants: Optional[int]
-    year_range: Optional[str]
+    study_design_counts: dict[str, int]
+    total_participants: int | None
+    year_range: str | None
 
     # Synthesis
     meta_analysis_feasible: bool
     synthesis_direction: str
     n_studies_synthesized: int
     narrative_text: str
-    key_themes: List[str]
+    key_themes: list[str]
 
     # Per-study summaries (for results section)
-    study_summaries: List[StudySummary]
+    study_summaries: list[StudySummary]
 
     # Citation keys (the ONLY keys the LLM is allowed to use)
-    valid_citekeys: List[str]
+    valid_citekeys: list[str]
 
     # Inter-rater reliability (from dual-reviewer screening phase).
     # kappa_n is the number of papers in the uncertain-paper subset on which
@@ -82,8 +81,8 @@ class WritingGroundingData(BaseModel):
     # (Reviewer B not called), so kappa_n < total_screened. This context
     # must be reported alongside the kappa value so the LLM can write an
     # accurate Methods statement rather than just citing a raw negative number.
-    cohens_kappa: Optional[float] = None
-    kappa_stage: Optional[str] = None
+    cohens_kappa: float | None = None
+    kappa_stage: str | None = None
     kappa_n: int = 0
 
     # Participant count provenance
@@ -91,7 +90,7 @@ class WritingGroundingData(BaseModel):
     n_total_studies: int = 0
 
     # Sensitivity analysis (leave-one-out + subgroup) -- only present when meta-analysis ran
-    sensitivity_results: List[str] = []
+    sensitivity_results: list[str] = []
 
     # Protocol registration: always False unless the tool registers on PROSPERO (not yet implemented)
     protocol_registered: bool = False
@@ -101,19 +100,19 @@ class WritingGroundingData(BaseModel):
     # meta_analysis_ran=True means pooling actually succeeded and produced a result
     # When feasible=True but ran=False, the LLM MUST NOT claim meta-analysis was conducted
     meta_analysis_ran: bool = False
-    poolable_outcomes: List[str] = []
+    poolable_outcomes: list[str] = []
 
 
 def build_writing_grounding(
     prisma_counts: PRISMACounts,
-    extraction_records: List[ExtractionRecord],
-    included_papers: List[CandidatePaper],
-    narrative: Optional[dict],
+    extraction_records: list[ExtractionRecord],
+    included_papers: list[CandidatePaper],
+    narrative: dict | None,
     citation_catalog: str = "",
-    cohens_kappa: Optional[float] = None,
-    kappa_stage: Optional[str] = None,
+    cohens_kappa: float | None = None,
+    kappa_stage: str | None = None,
     kappa_n: int = 0,
-    sensitivity_results: Optional[List[str]] = None,
+    sensitivity_results: list[str] | None = None,
 ) -> WritingGroundingData:
     """Aggregate real pipeline outputs into a WritingGroundingData instance."""
 
@@ -137,7 +136,7 @@ def build_writing_grounding(
     })
 
     # Study design breakdown -- normalize enum value to readable label at source
-    design_counts: Dict[str, int] = {}
+    design_counts: dict[str, int] = {}
     for rec in extraction_records:
         key = _normalize_label(rec.study_design.value)
         design_counts[key] = design_counts.get(key, 0) + 1
@@ -148,7 +147,7 @@ def build_writing_grounding(
         for rec in extraction_records
         if rec.participant_count is not None and rec.participant_count > 0
     ]
-    total_participants: Optional[int] = (
+    total_participants: int | None = (
         sum(participant_counts) if participant_counts else None
     )
     n_studies_reporting_count = len(participant_counts)
@@ -156,18 +155,18 @@ def build_writing_grounding(
 
     # Year range from included papers
     years = [p.year for p in included_papers if p.year is not None]
-    year_range: Optional[str] = (
+    year_range: str | None = (
         f"{min(years)}-{max(years)}" if years else None
     )
 
     # Synthesis direction from narrative JSON or defaults
     meta_feasible = False
     meta_ran = False
-    poolable_outcomes: List[str] = []
+    poolable_outcomes: list[str] = []
     direction = "mixed"
     n_synth = len(extraction_records)
     narr_text = f"Narrative synthesis of {n_synth} studies."
-    themes: List[str] = []
+    themes: list[str] = []
 
     _GENERIC_GROUPINGS = frozenset({"primary_outcome", "secondary_outcome"})
 
@@ -192,7 +191,7 @@ def build_writing_grounding(
 
     # Per-study summaries
     paper_map = {p.paper_id: p for p in included_papers}
-    study_summaries: List[StudySummary] = []
+    study_summaries: list[StudySummary] = []
     for rec in extraction_records:
         paper = paper_map.get(rec.paper_id)
         title = paper.title or rec.paper_id if paper else rec.paper_id
@@ -212,7 +211,7 @@ def build_writing_grounding(
         )
 
     # Extract valid citekeys from the citation catalog
-    valid_citekeys: List[str] = []
+    valid_citekeys: list[str] = []
     for line in citation_catalog.splitlines():
         line = line.strip()
         if line.startswith("[") and "]" in line:

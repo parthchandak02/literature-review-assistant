@@ -12,7 +12,6 @@ from __future__ import annotations
 
 import logging
 from datetime import date
-from typing import Optional
 
 import aiohttp
 
@@ -40,13 +39,13 @@ class ClinicalTrialsConnector:
         self.workflow_id = workflow_id
 
     @staticmethod
-    def _to_candidate(study: dict) -> Optional[CandidatePaper]:
+    def _to_candidate(study: dict) -> CandidatePaper | None:
         """Convert a ClinicalTrials.gov study JSON object to a CandidatePaper."""
         proto = study.get("protocolSection") or {}
         id_module = proto.get("identificationModule") or {}
         desc_module = proto.get("descriptionModule") or {}
         status_module = proto.get("statusModule") or {}
-        contacts_module = proto.get("contactsLocationsModule") or {}
+        _contacts_module = proto.get("contactsLocationsModule") or {}
 
         nct_id = id_module.get("nctId", "")
         title = (
@@ -60,7 +59,7 @@ class ClinicalTrialsConnector:
 
         brief_summary = (desc_module.get("briefSummary") or "").strip()[:4000]
         start_date = (status_module.get("startDateStruct") or {}).get("date") or ""
-        year: Optional[int] = None
+        year: int | None = None
         if start_date and len(start_date) >= 4:
             try:
                 year = int(start_date[:4])
@@ -90,8 +89,8 @@ class ClinicalTrialsConnector:
         self,
         query: str,
         max_results: int = 50,
-        date_start: Optional[int] = None,
-        date_end: Optional[int] = None,
+        date_start: int | None = None,
+        date_end: int | None = None,
     ) -> list[SearchResult]:
         """Search ClinicalTrials.gov using the v2 API."""
         page_size = min(max_results, 25)

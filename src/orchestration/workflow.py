@@ -11,7 +11,7 @@ import re
 import signal
 
 _log = logging.getLogger(__name__)
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from uuid import uuid4
 
@@ -35,6 +35,7 @@ from src.db.workflow_registry import (
 from src.db.workflow_registry import (
     update_status as update_registry_status,
 )
+from src.export.markdown_refs import assemble_submission_manuscript, is_extraction_failed
 from src.extraction import ExtractionService, StudyClassifier
 from src.llm.provider import LLMProvider
 from src.llm.pydantic_client import PydanticAIClient
@@ -47,7 +48,9 @@ from src.models.diagrams import (
     TaxonomyDiagramInput,
 )
 from src.orchestration.context import RunContext
+from src.orchestration.embedding_node import EmbeddingNode
 from src.orchestration.gates import GateRunner
+from src.orchestration.knowledge_graph_node import KnowledgeGraphNode
 from src.orchestration.resume import load_resume_state
 from src.orchestration.state import ReviewState
 from src.prisma import build_prisma_counts, render_prisma_diagram
@@ -59,16 +62,20 @@ from src.quality import (
     RobinsIAssessor,
     StudyRouter,
 )
+from src.rag.embedder import embed_query as rag_embed_query
+from src.rag.hyde import generate_hyde_document
+from src.rag.reranker import rerank_chunks
+from src.rag.retriever import RAGRetriever
 from src.screening.dual_screener import DualReviewerScreener
 from src.screening.gemini_client import PydanticAIScreeningClient
 from src.screening.keyword_filter import bm25_rank_and_cap, keyword_prefilter, metadata_prefilter
 from src.screening.reliability import compute_cohens_kappa, log_reliability_to_decision_log
-from src.search.citation_chasing import CitationChaser
 from src.search.arxiv import ArxivConnector
 from src.search.base import SearchConnector
 from src.search.citation_chasing import CitationChaser
 from src.search.clinicaltrials import ClinicalTrialsConnector
 from src.search.crossref import CrossrefConnector
+from src.search.csv_import import parse_masterlist_csv
 from src.search.deduplication import deduplicate_papers
 from src.search.ieee_xplore import IEEEXploreConnector
 from src.search.openalex import OpenAlexConnector
@@ -76,9 +83,9 @@ from src.search.perplexity_search import PerplexitySearchConnector
 from src.search.pubmed import PubMedConnector
 from src.search.scopus import ScopusConnector
 from src.search.semantic_scholar import SemanticScholarConnector
-from src.search.csv_import import parse_masterlist_csv
 from src.search.strategy import SearchStrategyCoordinator
 from src.synthesis import assess_meta_analysis_feasibility, build_narrative_synthesis
+from src.synthesis.contradiction_detector import detect_contradictions
 from src.synthesis.meta_analysis import pool_effects
 from src.synthesis.sensitivity import run_sensitivity_analysis
 from src.utils import structured_log
@@ -91,20 +98,12 @@ from src.visualization import (
 from src.visualization.concept_diagrams import render_concept_diagrams
 from src.visualization.forest_plot import render_forest_plot
 from src.visualization.funnel_plot import render_funnel_plot
-from src.export.markdown_refs import assemble_submission_manuscript, is_extraction_failed
-from src.orchestration.embedding_node import EmbeddingNode
-from src.orchestration.knowledge_graph_node import KnowledgeGraphNode
-from src.rag.embedder import embed_query as rag_embed_query
-from src.rag.hyde import generate_hyde_document
-from src.rag.reranker import rerank_chunks
-from src.rag.retriever import RAGRetriever
-from src.synthesis.contradiction_detector import detect_contradictions
-from src.writing.citation_grounding import verify_citation_grounding, repair_hallucinated_citekeys
+from src.writing.citation_grounding import repair_hallucinated_citekeys, verify_citation_grounding
+from src.writing.context_builder import build_writing_grounding
 from src.writing.contradiction_resolver import (
     build_conflicting_evidence_section,
     generate_contradiction_paragraph,
 )
-from src.writing.context_builder import build_writing_grounding
 from src.writing.humanizer import humanize_async
 from src.writing.orchestration import (
     prepare_writing_context,
@@ -119,7 +118,7 @@ from src.writing.prompts.sections import (
 
 
 def _now_utc() -> str:
-    return datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
+    return datetime.now(UTC).strftime("%Y%m%d-%H%M%S")
 
 
 def _hash_config(path: str) -> str:
@@ -137,7 +136,7 @@ _PREFIX_TO_ENV: dict[str, str] = {
 }
 
 
-def _llm_available(settings: "ReviewState | None" = None, settings_cfg: "SettingsConfig | None" = None) -> bool:
+def _llm_available(settings: ReviewState | None = None, settings_cfg: SettingsConfig | None = None) -> bool:  # noqa: F821
     """Return True if at least one LLM API key is set for the configured model prefixes.
 
     Accepts either a ReviewState (for workflow nodes that have state) or a
@@ -690,9 +689,9 @@ class ScreeningNode(BaseNode[ReviewState]):
                 from src.screening.reliability import calibrate_threshold as _calibrate_threshold
 
                 async def _calibration_screener(
-                    sample_papers: "list[CandidatePaper]",
+                    sample_papers: list[CandidatePaper],  # noqa: F821
                     threshold: float,
-                ) -> "list[DualScreeningResult]":
+                ) -> list[DualScreeningResult]:  # noqa: F821
                     # Temporarily override threshold on screener for calibration pass.
                     original_include = getattr(
                         screener.settings.screening, "stage1_include_threshold", 0.85
@@ -1538,7 +1537,7 @@ class SynthesisNode(BaseNode[ReviewState]):
         return KnowledgeGraphNode()
 
 
-def _reconcile_manuscript_consistency(body: str, state: "ReviewState") -> str:  # type: ignore[name-defined]
+def _reconcile_manuscript_consistency(body: str, state: ReviewState) -> str:  # type: ignore[name-defined]
     """Detect and repair cross-section contradictions in the assembled manuscript body.
 
     Sections are written independently by the LLM, which can produce factual
@@ -2173,7 +2172,7 @@ class WritingNode(BaseNode[ReviewState]):
                 for _key, _path in _concept_results.items():
                     if _path:
                         rc.console.print(f"  Concept diagram ({_key}): {_path.name}")
-        except asyncio.TimeoutError:
+        except TimeoutError:
             logger.warning("Concept diagram generation timed out after 180s -- skipping")
         except asyncio.CancelledError:
             logger.warning("Concept diagram generation cancelled -- skipping")

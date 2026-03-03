@@ -147,7 +147,6 @@ export function DatabaseView({ runId, isDone, dbAvailable, isLive }: DatabaseVie
       .catch((e) => { if (!cancelled) handleFetchError(e) })
       .finally(() => { if (!cancelled) setLoading(false) })
     return () => { cancelled = true }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [runId, titleFilter, authorFilter, taFilter, ftFilter, yearFilter, sourceFilter, countryFilter, dbAvailable])
 
   // Effect 2: pagination only (page > 0).
@@ -167,7 +166,6 @@ export function DatabaseView({ runId, isDone, dbAvailable, isLive }: DatabaseVie
       .catch((e) => { if (!cancelled) handleFetchError(e) })
       .finally(() => { if (!cancelled) setLoading(false) })
     return () => { cancelled = true }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [page, dbAvailable])
 
   // Auto-refresh every LIVE_REFRESH_MS while run is in progress

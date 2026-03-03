@@ -195,9 +195,12 @@ uv run python -m src.main run --config config/review.yaml
 # Run with verbose output (shows each LLM call)
 uv run python -m src.main run --config config/review.yaml --verbose
 
-# Resume after a crash or Ctrl+C
+# Resume after a crash or Ctrl+C (auto-detects first incomplete phase)
 uv run python -m src.main resume --topic "your research question"
 uv run python -m src.main resume --workflow-id abc123
+
+# Resume from a specific phase (prior phases must have checkpoints)
+uv run python -m src.main resume --workflow-id abc123 --from-phase phase_3_screening
 
 # Export submission package
 uv run python -m src.main export --workflow-id abc123

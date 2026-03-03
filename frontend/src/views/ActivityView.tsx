@@ -6,11 +6,12 @@ import {
   Loader,
   Loader2,
   Search,
-  XCircle,
+  Square,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { LogStream, eventToLogLine } from "@/components/LogStream"
+import { LogStream } from "@/components/LogStream"
+import { eventToLogLine } from "@/lib/logLine"
 import { FetchError } from "@/components/ui/feedback"
 import { Skeleton } from "@/components/ui/skeleton"
 import { fetchRunEvents, fetchWorkflowEvents } from "@/lib/api"
@@ -304,12 +305,11 @@ export function ActivityView({
           )}
           <Button
             size="sm"
-            variant="outline"
             onClick={onCancel}
-            className="border-zinc-700 text-zinc-300 hover:text-red-400 hover:border-red-500/40 gap-1.5"
+            className="bg-red-600 hover:bg-red-500 text-white gap-1.5"
           >
-            <XCircle className="h-3.5 w-3.5" />
-            Cancel Run
+            <Square className="h-3.5 w-3.5 fill-white" />
+            Stop
           </Button>
         </div>
       )}
@@ -360,7 +360,7 @@ export function ActivityView({
         {fetchError && (
           <FetchError
             message={fetchError}
-            onRetry={runId ? () => void loadHistoricalEvents(runId) : undefined}
+            onRetry={runId ? () => void loadHistoricalEvents(runId, workflowId) : undefined}
           />
         )}
 

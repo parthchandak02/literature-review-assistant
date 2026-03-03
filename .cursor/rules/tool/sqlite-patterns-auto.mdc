@@ -25,6 +25,34 @@ await db.execute("PRAGMA temp_store = MEMORY")
 - All writes commit explicitly
 - decision_log table is append-only -- never UPDATE or DELETE
 
+## Upsert Pattern (CRITICAL)
+NEVER use `INSERT OR REPLACE` -- SQLite implements REPLACE as DELETE + INSERT.
+With `PRAGMA foreign_keys = ON`, the implicit DELETE fails when child tables
+reference the row (screening_decisions, extraction_records, rob_assessments,
+paper_chunks_meta, paper_relationships all reference papers(paper_id);
+checkpoints references workflows(workflow_id)).
+
+Use `INSERT ... ON CONFLICT(pk) DO UPDATE SET ...` instead:
+
+```python
+# CORRECT -- updates in place, no delete
+await db.execute("""
+    INSERT INTO papers (...) VALUES (?, ?, ...)
+    ON CONFLICT(paper_id) DO UPDATE SET
+        title = excluded.title,
+        authors = excluded.authors,
+        ...
+""", params)
+
+# WRONG -- triggers DELETE then INSERT, breaks FK constraints on resume
+await db.execute("INSERT OR REPLACE INTO papers (...) VALUES (?,...)", params)
+```
+
+For tables with a DOI unique index (papers), catch IntegrityError on DOI
+conflict and retry with NULL DOI. For bulk inserts referencing a FK
+(e.g. screening_decisions -> papers), verify referenced rows exist before
+inserting to avoid FK violations that INSERT OR IGNORE cannot suppress.
+
 ## Checkpoint Pattern (UPDATED)
 - Per-run `workflows` table (in runtime.db): one row per review run, keyed by topic + config_hash
 - Central `workflows_registry` (in `{run_root}/workflows_registry.db`): maps topic+config_hash to db_path for resume discovery

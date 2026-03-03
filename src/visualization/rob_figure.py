@@ -19,7 +19,6 @@ from __future__ import annotations
 
 import re
 from pathlib import Path
-from typing import Dict, List, Optional
 
 import matplotlib.gridspec as gridspec
 import matplotlib.patches as mpatches
@@ -81,7 +80,7 @@ _GENERIC_TITLE_WORDS = frozenset({
 })
 
 
-def _paper_label(paper_id: str, paper_lookup: Dict[str, CandidatePaper], index: int) -> str:
+def _paper_label(paper_id: str, paper_lookup: dict[str, CandidatePaper], index: int) -> str:
     paper = paper_lookup.get(paper_id)
     if paper is None:
         return f"Paper{index + 1}"
@@ -192,7 +191,7 @@ def _render_single_tool_figure(
 
     # --- Panel 0: Dot matrix ---
     y_labels = [label for label, _ in row_data]
-    domain_colors_per_col: List[List[str]] = [[] for _ in range(n_domains)]
+    domain_colors_per_col: list[list[str]] = [[] for _ in range(n_domains)]
 
     for row_idx, (label, color_keys) in enumerate(row_data):
         for col_idx, (hex_color, key) in enumerate(zip(dot_colors[row_idx], color_keys)):
@@ -301,12 +300,12 @@ def _render_single_tool_figure(
 # ---------------------------------------------------------------------------
 
 def render_rob_traffic_light(
-    rob2: List[RoB2Assessment],
-    robins_i: List[RobinsIAssessment],
+    rob2: list[RoB2Assessment],
+    robins_i: list[RobinsIAssessment],
     output_path: str,
-    paper_lookup: Optional[Dict[str, CandidatePaper]] = None,
+    paper_lookup: dict[str, CandidatePaper] | None = None,
     not_applicable_count: int = 0,
-    rob2_output_path: Optional[str] = None,
+    rob2_output_path: str | None = None,
 ) -> Path:
     """Render separate ROBINS-I and RoB2 traffic-light figures.
 

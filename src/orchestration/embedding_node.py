@@ -2,7 +2,7 @@
 
 Runs after ExtractionQualityNode, before SynthesisNode.
 Idempotent on resume: skips papers already in paper_chunks_meta.
-Embedding calls go through pydantic_ai.embeddings.Embedder (Gemini text-embedding-004).
+Embedding calls go through pydantic_ai.embeddings.Embedder (Gemini gemini-embedding-001).
 Auth is handled by PydanticAI via the GEMINI_API_KEY environment variable.
 """
 
@@ -26,7 +26,7 @@ _BATCH_SIZE = 20
 class EmbeddingNode(BaseNode[ReviewState]):
     """Chunk and embed all extracted papers for semantic retrieval in WritingNode."""
 
-    async def run(self, ctx: GraphRunContext[ReviewState]) -> "SynthesisNode":  # type: ignore[name-defined]
+    async def run(self, ctx: GraphRunContext[ReviewState]) -> SynthesisNode:  # type: ignore[name-defined]  # noqa: F821
         from src.orchestration.workflow import SynthesisNode  # local import to avoid circular
 
         state = ctx.state

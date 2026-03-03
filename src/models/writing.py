@@ -2,8 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
-from typing import List
+from datetime import UTC, datetime
 
 from pydantic import BaseModel, Field
 
@@ -13,7 +12,7 @@ class SectionDraft(BaseModel):
     section: str
     version: int
     content: str
-    claims_used: List[str] = Field(default_factory=list)
-    citations_used: List[str] = Field(default_factory=list)
+    claims_used: list[str] = Field(default_factory=list)
+    citations_used: list[str] = Field(default_factory=list)
     word_count: int
-    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(UTC))

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import os
 from datetime import date
-from typing import Any, List
+from typing import Any
 
 import aiohttp
 
@@ -39,7 +39,7 @@ class OpenAlexConnector:
     @staticmethod
     def _to_candidate(work: dict[str, Any]) -> CandidatePaper:
         authorships = work.get("authorships") or []
-        authors: List[str] = []
+        authors: list[str] = []
         country: str | None = None
         for item in authorships:
             author = item.get("author") or {}

@@ -14,7 +14,7 @@ O(n^2) to approximately O(n log n) with no recall loss at the chosen threshold.
 from __future__ import annotations
 
 import re
-from typing import Iterable
+from collections.abc import Iterable
 
 from thefuzz import fuzz
 

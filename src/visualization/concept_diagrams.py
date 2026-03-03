@@ -21,7 +21,6 @@ import logging
 import re
 import textwrap
 from pathlib import Path
-from typing import Optional
 
 import aiohttp
 
@@ -80,7 +79,7 @@ def _render_dot_to_svg(dot_source: str, out_path: Path) -> Path:
 # Internal: Kroki renderer (Mermaid -> SVG via REST API)
 # ---------------------------------------------------------------------------
 
-async def _render_mermaid_via_kroki(mermaid_source: str, out_path: Path) -> Optional[Path]:
+async def _render_mermaid_via_kroki(mermaid_source: str, out_path: Path) -> Path | None:
     """POST Mermaid source to Kroki and write the SVG response to out_path.
 
     Returns None on network failure so the caller can skip without crashing.
@@ -151,7 +150,7 @@ def _build_taxonomy_dot_prompt(spec: TaxonomyDiagramInput) -> str:
 
 async def render_taxonomy_diagram(
     spec: TaxonomyDiagramInput, out_path: Path, model: str = _LLM_MODEL
-) -> Optional[Path]:
+) -> Path | None:
     """Generate a taxonomy tree SVG via LLM -> DOT -> Graphviz."""
     prompt = _build_taxonomy_dot_prompt(spec)
     try:
@@ -221,7 +220,7 @@ def _build_framework_dot_prompt(spec: FrameworkDiagramInput) -> str:
 
 async def render_framework_diagram(
     spec: FrameworkDiagramInput, out_path: Path, model: str = _LLM_MODEL
-) -> Optional[Path]:
+) -> Path | None:
     """Generate a PICO conceptual framework SVG via LLM -> DOT -> Graphviz."""
     prompt = _build_framework_dot_prompt(spec)
     try:
@@ -276,7 +275,7 @@ def _build_flowchart_mermaid_prompt(spec: FlowchartDiagramInput) -> str:
 
 async def render_flowchart_diagram(
     spec: FlowchartDiagramInput, out_path: Path, model: str = _LLM_MODEL
-) -> Optional[Path]:
+) -> Path | None:
     """Generate a methodology flowchart SVG via LLM -> Mermaid -> Kroki API."""
     prompt = _build_flowchart_mermaid_prompt(spec)
     try:
@@ -296,12 +295,12 @@ async def render_flowchart_diagram(
 # ---------------------------------------------------------------------------
 
 async def render_concept_diagrams(
-    taxonomy_spec: Optional[TaxonomyDiagramInput],
-    framework_spec: Optional[FrameworkDiagramInput],
-    flowchart_spec: Optional[FlowchartDiagramInput],
+    taxonomy_spec: TaxonomyDiagramInput | None,
+    framework_spec: FrameworkDiagramInput | None,
+    flowchart_spec: FlowchartDiagramInput | None,
     out_dir: Path,
     model: str = _LLM_MODEL,
-) -> dict[str, Optional[Path]]:
+) -> dict[str, Path | None]:
     """Render all three concept diagrams concurrently.
 
     Each renderer fails gracefully: if generation fails, the corresponding
@@ -339,7 +338,7 @@ async def render_concept_diagrams(
         taxonomy_coro, framework_coro, flowchart_coro, return_exceptions=True
     )
 
-    def _to_path(result: object) -> Optional[Path]:
+    def _to_path(result: object) -> Path | None:
         if isinstance(result, BaseException):
             logger.warning("Concept sub-diagram failed: %s", result)
             return None

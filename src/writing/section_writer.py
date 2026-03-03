@@ -5,7 +5,6 @@ from __future__ import annotations
 import re
 import time
 from dataclasses import dataclass
-from typing import Optional, Tuple
 
 from src.llm.provider import LLMProvider
 from src.llm.pydantic_client import PydanticAIClient
@@ -35,7 +34,7 @@ class SectionWriter:
         review: ReviewConfig,
         settings: SettingsConfig,
         citation_catalog: str = "",
-        style_patterns: Optional[object] = None,
+        style_patterns: object | None = None,
     ):
         self.review = review
         self.settings = settings
@@ -46,7 +45,7 @@ class SectionWriter:
         self,
         section: str,
         context: str,
-        word_limit: Optional[int] = None,
+        word_limit: int | None = None,
     ) -> str:
         """Build prompt for a section."""
         parts = [
@@ -70,9 +69,9 @@ class SectionWriter:
         self,
         section: str,
         context: str,
-        word_limit: Optional[int] = None,
+        word_limit: int | None = None,
         agent_name: str = "writing",
-    ) -> Tuple[str, SectionWriteMetadata]:
+    ) -> tuple[str, SectionWriteMetadata]:
         """Generate section content via LLM. Returns (content, metadata) for logging."""
         prompt = self._build_section_prompt(section, context, word_limit)
         agent_cfg = (
@@ -117,7 +116,7 @@ def write_section(
     review: ReviewConfig,
     settings: SettingsConfig,
     citation_catalog: str = "",
-    word_limit: Optional[int] = None,
+    word_limit: int | None = None,
 ) -> SectionDraft:
     """Synchronous wrapper for section writing. Returns SectionDraft.
 

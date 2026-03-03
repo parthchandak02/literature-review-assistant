@@ -46,6 +46,7 @@ dependencies = [
 dev = [
   "pytest>=8.0",
   "pytest-asyncio>=0.23",
+  "ruff>=0.9.0",
 ]
 
 [tool.pytest.ini_options]
@@ -58,3 +59,23 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP"]
+# E501: line-too-long -- codebase uses 120-char lines throughout; reformatting all is out of scope
+# UP042: StrEnum -- converting str+Enum to StrEnum is a refactor beyond a lint pass; kept for now
+ignore = ["E501", "UP042", "UP045"]
+
+[tool.ruff.lint.per-file-ignores]
+# Scripts do sys.path manipulation before imports (standard pattern for standalone scripts)
+"scripts/*.py" = ["E402"]
+# These modules set up logging early before imports (intentional early-logger pattern)
+"src/orchestration/*.py" = ["E402"]
+"src/screening/dual_screener.py" = ["E402"]
+"src/writing/section_writer.py" = ["E402"]
+# Tests commonly assign results without reading them to assert "no exception raised"
+"tests/**/*.py" = ["F841", "E741"]
