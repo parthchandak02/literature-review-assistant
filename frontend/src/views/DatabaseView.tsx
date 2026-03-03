@@ -82,6 +82,7 @@ export function DatabaseView({ runId, isDone, dbAvailable, isLive }: DatabaseVie
   // Keep a ref with current filter values so pagination effect can read them
   // without needing them in its dependency array.
   const filtersRef = useRef({ runId, titleFilter, authorFilter, taFilter, ftFilter, yearFilter, sourceFilter, countryFilter })
+  // eslint-disable-next-line react-hooks/refs -- intentional mutable-ref-sync pattern; ref is only read inside effects, not during render
   filtersRef.current = { runId, titleFilter, authorFilter, taFilter, ftFilter, yearFilter, sourceFilter, countryFilter }
 
   function handleFetchError(e: unknown) {

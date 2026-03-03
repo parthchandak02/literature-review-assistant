@@ -40,10 +40,10 @@ alwaysApply: true
 - `config/` -- review.yaml (per-review topic config) + settings.yaml (agent model tiers + thresholds -- source of truth for all LLM model names)
 
 ## Key Directories -- Frontend
-- `frontend/src/views/` -- RunView (tabs: Activity, Results, Data, Cost; + Review Screening tab when status=awaiting_review), ActivityView (sub-view within RunView), DatabaseView, CostView, HistoryView, SetupView (2-mode: AI Search / Master List CSV; YAML paste as secondary action), ResultsView (PRISMA checklist panel), ScreeningReviewView (human-in-the-loop approval UI)
-- `frontend/src/components/` -- Sidebar (drag-resize, resume), ResultsPanel (artifact links, download), LogStream (live log display), EvidenceNetworkViz (force-directed knowledge graph), ui/ primitives (command.tsx, status-badge.tsx, skeleton.tsx, table.tsx, feedback.tsx, section.tsx, badge.tsx, button.tsx, card.tsx, input.tsx, progress.tsx, scroll-area.tsx, separator.tsx, textarea.tsx, tooltip.tsx)
+- `frontend/src/views/` -- RunView (tabs: Activity, Results, Data, Cost, Config; + Review Screening tab when status=awaiting_review), ActivityView (sub-view within RunView), DatabaseView, CostView, HistoryView, SetupView (2-mode: AI Search / Master List CSV; YAML paste as secondary action), ResultsView (PRISMA checklist panel), ScreeningReviewView (human-in-the-loop approval UI), ConfigView (displays run YAML config)
+- `frontend/src/components/` -- Sidebar (drag-resize, resume), ResultsPanel (artifact links, download), LogStream (live log display), EvidenceNetworkViz (force-directed knowledge graph), DeleteConfirmDialog (confirm-before-delete modal), ui/ primitives (command.tsx, status-badge.tsx, skeleton.tsx, table.tsx, feedback.tsx, section.tsx, badge.tsx, button.tsx, card.tsx, input.tsx, progress.tsx, scroll-area.tsx, separator.tsx, textarea.tsx, tooltip.tsx)
 - `frontend/src/hooks/` -- useSSEStream (run events + SQLite replay fallback), useBackendHealth, useCostStats
-- `frontend/src/lib/` -- api.ts (typed API layer), format.ts (date/duration helpers), constants.ts (shared constants), utils.ts (utility helpers)
+- `frontend/src/lib/` -- api.ts (typed API layer), format.ts (date/duration helpers), constants.ts (shared constants), utils.ts (utility helpers), logLine.ts (ReviewEvent -> log text/level conversion), phaseProgress.ts (phase progress 0-1 from SSE events)
 
 ## Key Tables
 - `workflows` (per-run runtime.db) -- topic, config_hash, status

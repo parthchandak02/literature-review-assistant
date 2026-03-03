@@ -4,8 +4,6 @@ import { PHASE_LABELS } from "@/lib/constants"
 import type { ReviewEvent } from "@/lib/api"
 import { eventToLogLine, fmtTs } from "@/lib/logLine"
 
-export { eventToLogLine } from "@/lib/logLine"
-
 // Event types that produce no meaningful user-facing log line and should be
 // filtered out of the rendered output (infrastructure / plumbing events).
 const SKIP_EVENT_TYPES = new Set(["workflow_id_ready", "heartbeat"])

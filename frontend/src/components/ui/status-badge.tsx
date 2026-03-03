@@ -7,7 +7,6 @@ import {
 } from "@/lib/constants"
 
 // Re-export shared types and helpers for backwards compatibility.
-// eslint-disable-next-line react-refresh/only-export-components
 export type { RunStatus }
 // eslint-disable-next-line react-refresh/only-export-components
 export { resolveRunStatus, STATUS_LABEL }

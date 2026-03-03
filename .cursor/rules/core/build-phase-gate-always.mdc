@@ -19,4 +19,11 @@ uv run pytest tests/integration -q
 uv run python -m src.main --help
 ```
 
+## Lint Commands
+```bash
+uv run ruff check .          # Python linting (ruff>=0.9 configured in pyproject.toml)
+cd frontend && pnpm lint     # ESLint
+cd frontend && pnpm typecheck  # TypeScript type check
+```
+
 New work should extend existing phases, not introduce new phase ordering constraints.
