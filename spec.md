@@ -219,7 +219,7 @@ Change rarely. Values are tuned from real runs.
 | Section | Key Fields |
 |---------|-----------|
 | `llm.*` | `flash_rpm`, `flash_lite_rpm`, `pro_rpm` -- free-tier rate limits enforced by rate limiter |
-| `agents.*` | Per-agent model string (e.g. `google-gla:gemini-2.5-flash-lite`) and temperature. Changing a model requires only a YAML edit. |
+| `agents.*` | Per-agent model string (e.g. `google-gla:gemini-3.1-flash-lite-preview`) and temperature. Changing a model requires only a YAML edit. |
 | `screening.*` | `stage1_include_threshold` (0.85), `stage1_exclude_threshold` (0.80), `screening_concurrency` (asyncio.Semaphore), `max_llm_screen` (optional BM25 cap), `skip_fulltext_if_no_pdf` |
 | `dual_review.*` | `enabled`, `kappa_warning_threshold` (0.4) |
 | `gates.*` | `profile` (strict / warning), `search_volume_minimum` (50), `screening_minimum` (5), `extraction_completeness_threshold` (0.80), `cost_budget_max` (USD) |
@@ -951,6 +951,10 @@ Living section -- update as work completes.
 | OpenAlex query fix + config generator | DONE | OpenAlex received the broad boolean OR fallback causing ~500 off-topic results. Fix: (1) strategy.py added openalex branch returning short_query (same pattern as semantic_scholar); (2) config_generator.py added openalex field to _SearchOverrides model and updated _STRUCTURE_PROMPT to generate all six database overrides; all descriptions and examples made domain-agnostic so generator works for any topic. |
 | Manuscript quality sprint | DONE | Root causes fixed in pipeline: assemble_submission_manuscript() includes GRADE SoF table, search appendix, excluded-studies footnote; abstract prompt includes kappa framing; semicolon parsing in citation extraction; IMRaD heading prompts tightened. finalize_manuscript.py is a thin regeneration utility for historical runs; _strip_unresolved_citekeys() is the only remaining safety net. Citation lineage gate: FinalizeNode validates manuscript; block_export_on_unresolved respected. |
 | Zero-papers manuscript | DONE | WritingNode guard: when 0 papers included (gates.profile=warning allows continuation past screening_safeguard), produces minimal manuscript without LLM calls via _build_minimal_sections_for_zero_papers(). Appendix B (Characteristics of Included Studies) includes Full Text Retrieved column. Sidebar RunCardMetrics displays 0/0 for found/included. |
+| Web of Science connector | DONE | src/search/web_of_science.py -- Clarivate WoS Starter API (X-ApiKey header, TS/TI/PY query fields, 50 records/page, 300 req/day free tier); WOS_API_KEY env var; sourced as DATABASE category |
+| Gemini 3.x model upgrade | DONE | All agents updated to Gemini 3.x preview models in settings.yaml: gemini-3.1-flash-lite-preview (bulk + RAG), gemini-3-flash-preview (reviewer_b), gemini-3.1-pro-preview (quality). UpdatePrices live auto-updater + static fallback price map added to provider.py for accurate cost tracking. |
+| Cost tab DB-first fix | DONE | CostView now polls /api/db/{run_id}/costs every 5s as primary source; removed guard that skipped DB when SSE had any events (caused earlier-phase costs to disappear once writing phase started streaming 2 events). |
+| RAG config from settings.yaml | DONE | embed_model, embed_dim, embed_batch_size, chunk_max_words, chunk_overlap_sentences moved to settings.yaml rag.* section; embedder.py caches Embedder instances per (model, dim) key; embedding_node.py and workflow.py read all values from config instead of hardcoded constants. |
 
 **Test status:** 105 unit tests, 13 integration tests (`uv run pytest tests/unit tests/integration -q`).
 
