@@ -155,6 +155,8 @@ function ApiKeysSection({ keys, onChange, embedded }: ApiKeysProps) {
 
   const fields: { id: keyof StoredApiKeys; label: string; placeholder: string; required?: boolean }[] = [
     { id: "gemini", label: "Gemini API Key", placeholder: "AIza...", required: true },
+    { id: "scopus", label: "Scopus API Key", placeholder: "optional -- Elsevier Scopus search" },
+    { id: "wos", label: "Web of Science API Key", placeholder: "optional -- Clarivate WoS Starter API" },
     { id: "openalex", label: "OpenAlex Email", placeholder: "user@example.com" },
     { id: "pubmedEmail", label: "PubMed Email", placeholder: "user@example.com" },
     { id: "pubmedApiKey", label: "PubMed API Key", placeholder: "optional -- increases rate limits" },
@@ -800,6 +802,8 @@ function ConfigReviewStage({
     perplexity: "",
     semanticScholar: "",
     crossrefEmail: "",
+    wos: "",
+    scopus: "",
   })
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -823,6 +827,8 @@ function ConfigReviewStage({
         perplexity_api_key: keys.perplexity || undefined,
         semantic_scholar_api_key: keys.semanticScholar || undefined,
         crossref_email: keys.crossrefEmail || undefined,
+        wos_api_key: keys.wos || undefined,
+        scopus_api_key: keys.scopus || undefined,
       }
       if (csvFile && onSubmitWithCsv) {
         await onSubmitWithCsv(csvFile, req)

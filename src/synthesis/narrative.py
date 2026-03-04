@@ -71,7 +71,7 @@ async def _classify_direction_llm(
         return _keyword_direction(results_summary)
 
     agent_cfg = settings.agents.get("extraction")
-    model = agent_cfg.model if agent_cfg else "google-gla:gemini-2.0-flash-lite"
+    model = agent_cfg.model if agent_cfg else "google-gla:gemini-3.1-flash-lite-preview"
     temperature = 0.0
 
     prompt = _build_direction_prompt(results_summary, outcome_name)

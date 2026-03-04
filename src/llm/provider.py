@@ -8,12 +8,30 @@ from dataclasses import dataclass
 
 from genai_prices import Usage as GPUsage
 from genai_prices import calc_price
+from genai_prices.update_prices import UpdatePrices
 
 from src.db.repositories import WorkflowRepository
 from src.llm.rate_limiter import RateLimiter
 from src.models import CostRecord, SettingsConfig
 
 _log = logging.getLogger(__name__)
+
+# Start a background thread that refreshes the genai-prices snapshot from GitHub
+# every hour. This ensures newly-launched models (e.g. Gemini 3.1 Flash-Lite
+# released the same day) get accurate pricing as soon as the library's data.json
+# is updated upstream -- without requiring a pip upgrade.
+_price_updater = UpdatePrices(update_interval=3600)
+_price_updater.start(wait=False)
+
+# Static fallback prices (USD per 1M tokens) for models that were released so
+# recently that neither the bundled nor the live genai-prices snapshot knows
+# them yet. Keyed by the bare model ref after stripping the provider prefix.
+# Remove entries here once genai-prices upstream adds the model.
+# Prices sourced from: https://ai.google.dev/gemini-api/docs/pricing
+_PRICE_FALLBACK_PER_MTOK: dict[str, tuple[float, float]] = {
+    # (input_per_mtok, output_per_mtok)
+    "gemini-3.1-flash-lite-preview": (0.25, 1.50),
+}
 
 
 @dataclass
@@ -75,9 +93,13 @@ class LLMProvider:
         cache_write: int = 0,
         cache_read: int = 0,
     ) -> float:
-        """Return accurate cost (USD) using genai-prices for any supported model.
+        """Return accurate cost (USD) for any supported model.
 
-        Falls back to 0.0 (no crash) for unknown models so callers are safe.
+        Resolution order:
+        1. genai-prices (bundled snapshot, then live-updated snapshot from GitHub).
+        2. _PRICE_FALLBACK_PER_MTOK static table for models too new for the library.
+        3. 0.0 with a debug log -- callers are safe, but cost tracking will be inaccurate.
+
         Cache tokens are passed through to genai-prices when non-zero.
         """
         model_ref, provider_id = cls._parse_model_ref(model)
@@ -93,8 +115,24 @@ class LLMProvider:
                 provider_id=provider_id,
             )
             return float(price.total_price)
+        except LookupError:
+            # Model not yet in genai-prices; try the static fallback table.
+            if model_ref in _PRICE_FALLBACK_PER_MTOK:
+                in_rate, out_rate = _PRICE_FALLBACK_PER_MTOK[model_ref]
+                cost = (tokens_in * in_rate + tokens_out * out_rate) / 1_000_000
+                if cache_read:
+                    # Cache reads are typically 25% of input price for Google models.
+                    cost += cache_read * (in_rate * 0.1) / 1_000_000
+                _log.debug("genai-prices: used static fallback for %r -> $%.6f", model_ref, cost)
+                return cost
+            _log.warning(
+                "genai-prices: unknown model %r, no fallback price -- cost logged as 0.0. "
+                "Add to _PRICE_FALLBACK_PER_MTOK in src/llm/provider.py.",
+                model_ref,
+            )
+            return 0.0
         except Exception as exc:
-            _log.debug("genai-prices: unknown model %r (%s) - cost set to 0.0", model, exc)
+            _log.debug("genai-prices: error pricing %r (%s) - cost set to 0.0", model, exc)
             return 0.0
 
     @staticmethod

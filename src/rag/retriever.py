@@ -1,7 +1,7 @@
 """Hybrid semantic + BM25 retriever for the RAG writing phase.
 
 Two retrieval signals are combined via Reciprocal Rank Fusion (RRF):
-  - Dense cosine similarity over Gemini gemini-embedding-001 vectors (768-dim)
+  - Dense cosine similarity over embedding model vectors (model/dim from settings.yaml rag.*)
   - BM25 lexical matching via bm25s (already a project dependency)
 
 RRF formula (Cormack et al., 2009):
@@ -173,7 +173,7 @@ class RAGRetriever:
         """Return top-K chunks using hybrid BM25 + dense retrieval with RRF.
 
         Args:
-            query_embedding: Query vector of length 768 (from embed_query).
+            query_embedding: Query vector from embed_query (length must match rag.embed_dim).
             top_k: Number of results to return.
             paper_id_filter: If provided, restrict results to these paper_ids.
             query_text: If provided, enables BM25 retrieval and RRF fusion.

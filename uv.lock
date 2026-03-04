@@ -1453,15 +1453,15 @@ wheels = [
 
 [[package]]
 name = "genai-prices"
-version = "0.0.53"
+version = "0.0.55"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "httpx" },
     { name = "pydantic" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/a6/95/f7d61df3b0c42dcad3e3ab9327aa466c556a2b24f9aea6b48e4fe4ab19ca/genai_prices-0.0.53.tar.gz", hash = "sha256:0afe7595d77dbcd80473ad168385c7500c7fbc6c2b370840ffdbfea9e0902544", size = 59235 }
+sdist = { url = "https://files.pythonhosted.org/packages/77/67/de9d9be180db6d80b298c281dff71502095c0776d7cc9286f486f667f61a/genai_prices-0.0.55.tar.gz", hash = "sha256:8692c65d0deefe2ad0680d71841eb12822a35945a6060d2b6adbcbdf4945e1cb", size = 59987 }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/ae/1c/d544657381270fe21afc2a4dc560e1607e28d7115555cef148271cb25522/genai_prices-0.0.53-py3-none-any.whl", hash = "sha256:5a5dfd92089e9e8a174f7097a1521e36f4e75c74cfbdfb1ec56283bae3c0c96e", size = 61850 },
+    { url = "https://files.pythonhosted.org/packages/c4/98/66a06b82a5c840f896490d5ef9c7691776b147589f2e8d2fa66c67a3db9c/genai_prices-0.0.55-py3-none-any.whl", hash = "sha256:ccd795c90c926b3c71066bf5656f14c67fc11fdba6d71e072c7fb4fa311e1b12", size = 62603 },
 ]
 
 [[package]]
@@ -4476,6 +4476,7 @@ dependencies = [
     { name = "colrev" },
     { name = "datasketch" },
     { name = "fastapi" },
+    { name = "genai-prices" },
     { name = "graphviz" },
     { name = "matplotlib" },
     { name = "nameparser" },
@@ -4523,6 +4524,7 @@ requires-dist = [
     { name = "colrev", specifier = ">=0.16.0" },
     { name = "datasketch", specifier = ">=1.9.0" },
     { name = "fastapi", specifier = ">=0.129.0" },
+    { name = "genai-prices", specifier = ">=0.0.55" },
     { name = "graphviz", specifier = ">=0.21" },
     { name = "matplotlib", specifier = ">=3.8" },
     { name = "nameparser", specifier = ">=1.1" },

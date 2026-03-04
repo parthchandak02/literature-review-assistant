@@ -74,7 +74,7 @@ def _build_pico_block(pico: object | None) -> str:
 async def generate_hyde_document(
     section: str,
     research_question: str,
-    model: str = "google-gla:gemini-2.0-flash",
+    model: str = "google-gla:gemini-3.1-flash-lite-preview",
     pico: object | None = None,
     provider: object | None = None,
     repository: WorkflowRepository | None = None,

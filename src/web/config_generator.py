@@ -67,11 +67,11 @@ def _resolve_model() -> str:
 _DEFAULT_DATE_START = 2010
 _DEFAULT_DATE_END = datetime.datetime.now().year
 _DEFAULT_DATABASES = [
+    "scopus",
+    "web_of_science",
     "openalex",
     "pubmed",
-    "scopus",
     "semantic_scholar",
-    "ieee_xplore",
 ]
 _DEFAULT_SECTIONS = [
     "abstract",
@@ -208,6 +208,64 @@ class _Pico(BaseModel):
     outcome: str = Field(description="Outcomes measured (efficacy, safety, efficiency, cost, etc.)")
 
 
+class _SearchOverrides(BaseModel):
+    pubmed: str | None = Field(
+        default=None,
+        description=(
+            "PubMed-optimized query using MeSH terms and [Title/Abstract] field codes. "
+            "Use the actual MeSH terms and keywords specific to this review's topic. "
+            "Pattern: (MeSHTerm[MeSH Terms] OR keyword[Title/Abstract] OR ...) AND "
+            "(MeSHTerm2[MeSH Terms] OR keyword2[Title/Abstract] OR ...)"
+        ),
+    )
+    scopus: str | None = Field(
+        default=None,
+        description=(
+            "Scopus TITLE-ABS-KEY query. Use two AND-joined TITLE-ABS-KEY clauses with "
+            "quoted keyword groups (max 8 keywords each) plus PUBYEAR filter. "
+            "Clause 1: core intervention/technology terms. Clause 2: outcome/setting terms. "
+            "Pattern: TITLE-ABS-KEY(\"term1\" OR \"term2\") AND TITLE-ABS-KEY(\"term3\" OR \"term4\") "
+            "AND PUBYEAR > YYYY AND PUBYEAR < YYYY"
+        ),
+    )
+    web_of_science: str | None = Field(
+        default=None,
+        description=(
+            "Web of Science Starter API query. Each keyword needs its own TS= prefix. "
+            "Group terms in parenthesized OR blocks, join groups with AND. Year: PY=YYYY-YYYY. "
+            "CORRECT: (TS=\"term1\" OR TS=\"term2\") AND (TS=\"term3\" OR TS=\"term4\") AND PY=2010-2026. "
+            "WRONG (causes 512 error): TS=(\"term1\" OR \"term2\")."
+        ),
+    )
+    ieee_xplore: str | None = Field(
+        default=None,
+        description=(
+            "IEEE Xplore query using parenthesized OR groups joined with AND. "
+            "Use short quoted keyword phrases -- not full sentences, not field codes. "
+            "Pattern: (\"core term1\" OR \"core term2\" OR \"synonym\") AND "
+            "(\"outcome term1\" OR \"outcome term2\" OR \"setting term\")"
+        ),
+    )
+    semantic_scholar: str | None = Field(
+        default=None,
+        description=(
+            "Semantic Scholar query: 5-8 space-separated keywords specific to this review -- "
+            "no quotes, no boolean operators, no long sentences. "
+            "Include the core intervention term, setting/population term, and key outcome term."
+        ),
+    )
+    openalex: str | None = Field(
+        default=None,
+        description=(
+            "OpenAlex full-text relevance search query: 5-10 space-separated specific keywords "
+            "focused on this review's intervention + setting + outcome. "
+            "NO quotes, NO boolean operators. Must be highly specific to this topic -- "
+            "broad terms like 'efficiency' or 'safety' alone will match unrelated industries. "
+            "Include the core technology/intervention term AND the domain/setting term."
+        ),
+    )
+
+
 class _GeneratedConfig(BaseModel):
     research_question: str = Field(description="Refined, precise systematic review research question")
     review_type: str = Field(description="Always 'systematic'")
@@ -230,6 +288,14 @@ class _GeneratedConfig(BaseModel):
         description="5-7 specific exclusion criteria as full sentences",
         min_length=3,
         max_length=8,
+    )
+    search_overrides: _SearchOverrides | None = Field(
+        default=None,
+        description=(
+            "Database-specific search queries optimized for each database's query syntax. "
+            "Generate all six fields (pubmed, scopus, web_of_science, ieee_xplore, semantic_scholar, openalex) "
+            "using the keywords and PICO above."
+        ),
     )
 
 
@@ -333,14 +399,27 @@ def _build_yaml(cfg: _GeneratedConfig, defaults: _DefaultConfigDict | None = Non
         lines.append(
             f"conflicts_of_interest: {_yaml_str(defaults.get('conflicts_of_interest', 'The authors declare no conflicts of interest.'))}"
         )
-        search_overrides = defaults.get("search_overrides")
-        if search_overrides and isinstance(search_overrides, dict):
+        # Merge search_overrides: LLM-generated wins, config/review.yaml fills missing keys.
+        llm_overrides: dict[str, str] = {}
+        if cfg.search_overrides:
+            for db_name in ("pubmed", "scopus", "web_of_science", "ieee_xplore", "semantic_scholar", "openalex"):
+                val = getattr(cfg.search_overrides, db_name, None)
+                if val and isinstance(val, str):
+                    llm_overrides[db_name] = val
+        default_overrides: dict[str, str] = {}
+        if defaults:
+            raw_default = defaults.get("search_overrides") or {}
+            if isinstance(raw_default, dict):
+                for k, v in raw_default.items():
+                    if isinstance(v, str) and k not in llm_overrides:
+                        default_overrides[k] = v
+        merged_overrides = {**default_overrides, **llm_overrides}
+        if merged_overrides:
             lines.append("")
             lines.append("# Optional: override auto-generated queries per database. Omit a database to use default.")
             lines.append("search_overrides:")
-            for key, val in search_overrides.items():
-                if isinstance(val, str):
-                    lines.append(f"  {key}: {_yaml_str(val)}")
+            for key, val in merged_overrides.items():
+                lines.append(f"  {key}: {_yaml_str(val)}")
 
     return "\n".join(lines)
 
@@ -404,18 +483,43 @@ _STRUCTURE_PROMPT = (
     "  study type, setting, intervention specificity, outcome reporting, language, and\n"
     "  publication type.\n"
     "  IMPORTANT -- recall vs. precision balance: if the research question targets a\n"
-    "  narrow or niche setting (e.g. 'university health center pharmacy'), broaden the\n"
-    "  setting criterion to capture related literature that addresses the same\n"
-    "  intervention and outcomes in adjacent settings (e.g. 'outpatient or ambulatory\n"
-    "  pharmacy', 'community pharmacy', or 'non-inpatient pharmacy settings'). Use\n"
-    "  exclusion criteria to filter out clearly irrelevant contexts (e.g. inpatient\n"
-    "  hospital wards) rather than restricting inclusion to a single institution type.\n"
+    "  narrow or niche setting, broaden the setting criterion to capture related\n"
+    "  literature that addresses the same intervention and outcomes in adjacent settings.\n"
+    "  Use exclusion criteria to filter out clearly irrelevant contexts rather than\n"
+    "  restricting inclusion to a single institution type or sub-population.\n"
     "  A systematic review with zero included studies is less useful than one with a\n"
     "  broader but well-bounded scope.\n"
     "- Generate 5-7 exclusion criteria as complete, specific sentences. Include\n"
     "  adjacent technologies identified in the research brief that should be excluded.\n"
     "- Generate a one-line domain description and a 2-4 sentence scope statement.\n"
-    "- Set review_type to exactly 'systematic'.\n\n"
+    "- Set review_type to exactly 'systematic'.\n"
+    "- Generate search_overrides with database-optimized queries for ALL six databases.\n"
+    "  Use the actual keywords and terms from this review's topic -- do NOT use generic\n"
+    "  placeholder keywords. Tailor every query to the specific intervention, population,\n"
+    "  and outcomes identified in the research brief above.\n"
+    "  * pubmed: Use MeSH terms where available plus [Title/Abstract] field codes.\n"
+    "    Pattern: (MeSHTerm[MeSH Terms] OR keyword[Title/Abstract] OR ...) AND\n"
+    "    (MeSHTerm2[MeSH Terms] OR keyword2[Title/Abstract] OR ...)\n"
+    "  * scopus: Use TITLE-ABS-KEY field code with two AND-joined clauses of quoted keywords.\n"
+    "    Clause 1: core intervention terms (up to 8). Clause 2: outcome/setting terms (up to 8).\n"
+    "    Add: AND PUBYEAR > YYYY AND PUBYEAR < YYYY using the date range.\n"
+    "    Pattern: TITLE-ABS-KEY(\"kw1\" OR \"kw2\") AND TITLE-ABS-KEY(\"kw3\" OR \"kw4\")\n"
+    "    AND PUBYEAR > 2009 AND PUBYEAR < 2027\n"
+    "  * web_of_science: Each keyword needs its own TS= prefix. Group in parenthesized OR\n"
+    "    blocks joined with AND. Use PY=YYYY-YYYY (no parentheses around year range).\n"
+    "    CORRECT: (TS=\"kw1\" OR TS=\"kw2\") AND (TS=\"kw3\" OR TS=\"kw4\") AND PY=2010-2026\n"
+    "    WRONG (causes 512 server error): TS=(\"kw1\" OR \"kw2\")\n"
+    "  * ieee_xplore: Two OR-groups joined with AND, using parentheses (not field codes).\n"
+    "    Pattern: (\"kw1\" OR \"kw2\" OR \"kw3\") AND (\"kw4\" OR \"kw5\" OR \"kw6\")\n"
+    "  * semantic_scholar: 5-8 space-separated keywords ONLY. No quotes, no boolean operators.\n"
+    "    Use the most specific terms for this topic's intervention, setting, and outcome.\n"
+    "  * openalex: 5-10 space-separated keywords ONLY. No quotes, no boolean operators.\n"
+    "    CRITICAL: Must include the core technology/intervention term AND a specific\n"
+    "    domain/setting term. Broad terms like 'efficiency' or 'safety' used alone will\n"
+    "    match unrelated industries -- anchor the query with domain-specific terminology.\n"
+    "  CRITICAL for all databases: Use only short quoted keyword phrases -- NEVER full\n"
+    "  sentences or PICO descriptions as search terms. Full PICO strings never appear\n"
+    "  verbatim in papers and will always return zero results.\n\n"
     "Return the response as a JSON object matching the schema exactly. All text fields\n"
     "must be in English. Do not truncate or omit any field."
 )

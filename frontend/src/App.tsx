@@ -384,6 +384,8 @@ export default function App() {
       perplexity: req.perplexity_api_key ?? "",
       semanticScholar: req.semantic_scholar_api_key ?? "",
       crossrefEmail: req.crossref_email ?? "",
+      wos: req.wos_api_key ?? "",
+      scopus: req.scopus_api_key ?? "",
     }
     const res = await startRunWithMasterlist(csvFile, req.review_yaml, keys, req.run_root)
     setLiveRunId(res.run_id)

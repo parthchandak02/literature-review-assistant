@@ -27,6 +27,7 @@ class ReviewState:
     output_dir: str = ""
     connector_init_failures: dict[str, str] = field(default_factory=dict)
     search_counts: dict[str, int] = field(default_factory=dict)
+    search_queries: dict[str, str] = field(default_factory=dict)
     dedup_count: int = 0
     deduped_papers: list[CandidatePaper] = field(default_factory=list)
     included_papers: list[CandidatePaper] = field(default_factory=list)

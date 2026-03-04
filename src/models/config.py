@@ -155,7 +155,7 @@ class DualReviewConfig(BaseModel):
     enabled: bool = True
     kappa_warning_threshold: float = Field(ge=0.0, le=1.0, default=0.4)
     reviewer_b_model: str = Field(
-        default="gemini-2.0-flash",
+        default="gemini-3-flash-preview",
         description=(
             "Model used for Reviewer B. Using a different model than Reviewer A "
             "enables genuine cross-model validation rather than intra-model disagreement."
@@ -325,7 +325,7 @@ class ExtractionConfig(BaseModel):
         ),
     )
     pdf_vision_model: str = Field(
-        default="google-gla:gemini-2.5-flash",
+        default="google-gla:gemini-3.1-flash-lite-preview",
         description="Gemini model used for PDF table vision extraction.",
     )
     full_text_min_chars: int = Field(
@@ -339,14 +339,42 @@ class ExtractionConfig(BaseModel):
 
 
 class RagConfig(BaseModel):
-    """RAG retrieval configuration including HyDE and cross-encoder reranking settings."""
+    """RAG retrieval configuration including embedding, chunking, HyDE and reranking settings."""
 
+    embed_model: str = Field(
+        default="google-gla:gemini-embedding-001",
+        description="Embedding model used to embed paper chunks and queries.",
+    )
+    embed_dim: int = Field(
+        default=768,
+        ge=64,
+        description=(
+            "MRL output dimension requested from the embedding model. "
+            "Changing this requires wiping paper_chunks_meta and re-running the embedding phase."
+        ),
+    )
+    embed_batch_size: int = Field(
+        default=20,
+        ge=1,
+        le=100,
+        description="Number of texts sent to the embedding API in a single batch call.",
+    )
+    chunk_max_words: int = Field(
+        default=400,
+        ge=50,
+        description="Target word budget per text chunk before splitting at sentence boundaries.",
+    )
+    chunk_overlap_sentences: int = Field(
+        default=2,
+        ge=0,
+        description="Number of trailing sentences from the previous chunk included at the start of the next.",
+    )
     use_hyde: bool = Field(
         default=True,
         description="Use HyDE (Hypothetical Document Embeddings) for RAG section retrieval.",
     )
     hyde_model: str = Field(
-        default="google-gla:gemini-2.0-flash",
+        default="google-gla:gemini-3.1-flash-lite-preview",
         description="Fast LLM model used to generate hypothetical document excerpts for RAG queries.",
     )
     rerank: bool = Field(
@@ -354,7 +382,7 @@ class RagConfig(BaseModel):
         description="Use cross-encoder reranking on hybrid retrieval candidates before WritingNode.",
     )
     reranker_model: str = Field(
-        default="google-gla:gemini-2.0-flash",
+        default="google-gla:gemini-3.1-flash-lite-preview",
         description="LLM model used for listwise reranking of retrieved chunks (Gemini Flash recommended).",
     )
 

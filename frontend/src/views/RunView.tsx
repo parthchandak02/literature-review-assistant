@@ -361,6 +361,7 @@ export function RunView({
             <CostView
               costStats={costStats}
               dbRunId={run.runId}
+              isLive={isLive}
             />
           )}
 

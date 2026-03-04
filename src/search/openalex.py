@@ -11,6 +11,15 @@ import aiohttp
 from src.models import CandidatePaper, SearchResult, SourceCategory
 from src.utils.ssl_context import tcp_connector_with_certifi
 
+_BASE_URL = "https://api.openalex.org/works"
+
+# Fields requested via select= to reduce payload size and avoid unnecessary data transfer.
+# abstract is returned as abstract_inverted_index; abstract plain text is not a selectable field.
+_SELECT_FIELDS = (
+    "id,display_name,doi,publication_year,abstract_inverted_index,"
+    "authorships,primary_location,cited_by_count,is_retracted"
+)
+
 
 def _inverted_index_to_text(idx: dict[str, list[int]] | None) -> str | None:
     """Convert OpenAlex abstract_inverted_index to plaintext."""
@@ -27,7 +36,7 @@ def _inverted_index_to_text(idx: dict[str, list[int]] | None) -> str | None:
 class OpenAlexConnector:
     name = "openalex"
     source_category = SourceCategory.DATABASE
-    base_url = "https://api.openalex.org/works"
+    base_url = _BASE_URL
 
     def __init__(self, workflow_id: str):
         self.workflow_id = workflow_id
@@ -60,6 +69,9 @@ class OpenAlexConnector:
         abstract = work.get("abstract")
         if abstract is None:
             abstract = _inverted_index_to_text(work.get("abstract_inverted_index"))
+        primary_location = work.get("primary_location") or {}
+        source = primary_location.get("source") or {}
+        journal = source.get("display_name") or None
         return CandidatePaper(
             title=str(work.get("display_name") or "Untitled"),
             authors=authors or ["Unknown"],
@@ -67,10 +79,11 @@ class OpenAlexConnector:
             source_database="openalex",
             doi=work.get("doi"),
             abstract=abstract,
-            url=work.get("primary_location", {}).get("landing_page_url"),
+            url=primary_location.get("landing_page_url"),
             source_category=SourceCategory.DATABASE,
             openalex_id=work.get("id"),
             country=country,
+            journal=journal,
         )
 
     # OpenAlex caps per_page at 200; cursor pagination is used for deep paging.
@@ -83,7 +96,17 @@ class OpenAlexConnector:
         date_start: int | None = None,
         date_end: int | None = None,
     ) -> SearchResult:
-        filter_parts: list[str] = ["type:article"]
+        # Quality filters:
+        # - type:article            -- journal articles only (excludes books, datasets, preprints)
+        # - primary_location.source.type:journal  -- venue must be a journal (excludes repos/proceedings)
+        # - primary_location.source.is_core:true  -- CWTS core list, closely aligned with Scopus/WoS coverage
+        # - is_retracted:false      -- exclude retracted papers
+        filter_parts: list[str] = [
+            "type:article",
+            "primary_location.source.type:journal",
+            "primary_location.source.is_core:true",
+            "is_retracted:false",
+        ]
         if date_start:
             filter_parts.append(f"from_publication_date:{date_start}-01-01")
         if date_end:
@@ -99,6 +122,7 @@ class OpenAlexConnector:
                     "search": query,
                     "per_page": str(page_limit),
                     "filter": filter_str,
+                    "select": _SELECT_FIELDS,
                     "cursor": cursor,
                     "api_key": self._api_key,
                 }
@@ -125,7 +149,29 @@ class OpenAlexConnector:
             source_category=self.source_category,
             search_date=date.today().isoformat(),
             search_query=query,
-            limits_applied=f"max_results={max_results}",
+            limits_applied=f"max_results={max_results},is_core=true,type=article,source_type=journal",
             records_retrieved=len(papers),
             papers=papers,
         )
+
+
+async def lookup_doi_venue(doi: str, api_key: str) -> dict[str, Any] | None:
+    """Return the primary_location block for a known DOI via OpenAlex.
+
+    Useful for post-search enrichment: given a DOI from any source (Scopus, PubMed, etc.),
+    this call returns the journal name, is_core flag, publisher, and ISSN from OpenAlex.
+
+    Returns None if the DOI is not found or the API returns an error.
+    """
+    clean_doi = doi.lstrip("https://doi.org/").lstrip("http://doi.org/")
+    url = f"{_BASE_URL}/https://doi.org/{clean_doi}"
+    params: dict[str, str] = {
+        "select": "primary_location,cited_by_count",
+        "api_key": api_key,
+    }
+    async with aiohttp.ClientSession(connector=tcp_connector_with_certifi()) as session:
+        async with session.get(url, params=params, timeout=aiohttp.ClientTimeout(total=15)) as r:
+            if r.status != 200:
+                return None
+            data = await r.json()
+            return data.get("primary_location")

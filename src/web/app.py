@@ -172,6 +172,8 @@ class RunRequest(BaseModel):
     perplexity_api_key: str | None = None
     semantic_scholar_api_key: str | None = None
     crossref_email: str | None = None
+    wos_api_key: str | None = None
+    scopus_api_key: str | None = None
     run_root: str = "runs"
     parent_db_path: str | None = None
 
@@ -230,6 +232,10 @@ def _inject_env(req: RunRequest) -> None:
         os.environ["SEMANTIC_SCHOLAR_API_KEY"] = req.semantic_scholar_api_key
     if req.crossref_email:
         os.environ["CROSSREF_EMAIL"] = req.crossref_email
+    if req.wos_api_key:
+        os.environ["WOS_API_KEY"] = req.wos_api_key
+    if req.scopus_api_key:
+        os.environ["SCOPUS_API_KEY"] = req.scopus_api_key
 
 
 def _extract_topic(review_yaml: str) -> str:
@@ -488,6 +494,8 @@ async def start_run_with_masterlist(
     perplexity_api_key: str | None = Form(default=None),
     semantic_scholar_api_key: str | None = Form(default=None),
     crossref_email: str | None = Form(default=None),
+    wos_api_key: str | None = Form(default=None),
+    scopus_api_key: str | None = Form(default=None),
     run_root: str = Form(default="runs"),
 ) -> RunResponse:
     """Start a review run using a pre-assembled master list CSV instead of running connectors.
@@ -526,6 +534,8 @@ async def start_run_with_masterlist(
         perplexity_api_key=perplexity_api_key,
         semantic_scholar_api_key=semantic_scholar_api_key,
         crossref_email=crossref_email,
+        wos_api_key=wos_api_key,
+        scopus_api_key=scopus_api_key,
         run_root=run_root,
     )
     _inject_env(req)
@@ -2426,6 +2436,8 @@ async def living_refresh(run_id: str) -> RunResponse:
         perplexity_api_key=os.environ.get("PERPLEXITY_API_KEY"),
         semantic_scholar_api_key=os.environ.get("SEMANTIC_SCHOLAR_API_KEY"),
         crossref_email=os.environ.get("CROSSREF_EMAIL"),
+        wos_api_key=os.environ.get("WOS_API_KEY"),
+        scopus_api_key=os.environ.get("SCOPUS_API_KEY"),
         run_root=prior_run_root,
         parent_db_path=parent_db_path_value,
     )

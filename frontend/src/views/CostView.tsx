@@ -63,17 +63,19 @@ function formatPhaseName(phase: string): string {
 interface CostViewProps {
   costStats: CostStats
   dbRunId?: string | null
+  isLive?: boolean
 }
 
-export function CostView({ costStats, dbRunId }: CostViewProps) {
+export function CostView({ costStats, dbRunId, isLive }: CostViewProps) {
   const [dbRows, setDbRows] = useState<DbCostRow[]>([])
   const [dbTotalCost, setDbTotalCost] = useState(0)
   const [loadingDb, setLoadingDb] = useState(false)
   const [dbError, setDbError] = useState<string | null>(null)
 
   const loadDbCosts = useCallback(() => {
-    if (!dbRunId || costStats.total_calls > 0) return
-    setLoadingDb(true)
+    if (!dbRunId) return
+    // Only show the loading skeleton on the very first fetch (no rows yet).
+    if (!dbRows.length) setLoadingDb(true)
     setDbError(null)
     fetchDbCosts(dbRunId)
       .then((d) => { setDbRows(d.records); setDbTotalCost(d.total_cost) })
@@ -86,13 +88,23 @@ export function CostView({ costStats, dbRunId }: CostViewProps) {
         )
       })
       .finally(() => setLoadingDb(false))
-  }, [dbRunId, costStats.total_calls])
+  }, [dbRunId, dbRows.length])
 
-  // When browsing a completed historical run with no live SSE costs, load from DB.
+  // Always load from DB on mount, and poll every 5 s while the run is active
+  // so costs from all phases (screening, extraction, writing, etc.) stay accurate.
+  // Previously the DB was skipped whenever SSE had any events, which caused
+  // earlier phase costs to disappear once the writing phase started streaming.
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect -- loadDbCosts is a useCallback that fetches and sets state; indirect setState is intentional
     loadDbCosts()
   }, [loadDbCosts])
+
+  useEffect(() => {
+    if (!isLive || !dbRunId) return
+    const id = setInterval(loadDbCosts, 5000)
+    return () => clearInterval(id)
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- loadDbCosts identity changes on dbRows.length; use stable refs via interval
+  }, [isLive, dbRunId])
 
   // Aggregate DbCostRow[] into the same CostStats shape the rendering already uses.
   const dbCostStats = useMemo<CostStats | null>(() => {
@@ -129,8 +141,11 @@ export function CostView({ costStats, dbRunId }: CostViewProps) {
     }
   }, [dbRows, dbTotalCost])
 
-  // Live SSE data takes priority; fall back to DB aggregation for historical runs.
-  const activeCostStats = costStats.total_calls > 0 ? costStats : (dbCostStats ?? costStats)
+  // DB data is always the primary source -- it captures every LLM call across
+  // all phases regardless of whether the SSE event was buffered in event_log.
+  // SSE-derived stats are only used as a last resort when the DB hasn't been
+  // queried yet (e.g., before the first poll completes).
+  const activeCostStats = dbCostStats ?? (costStats.total_calls > 0 ? costStats : costStats)
 
   const { total_cost, total_tokens_in, total_tokens_out, total_calls, by_model, by_phase } = activeCostStats
 

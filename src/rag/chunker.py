@@ -131,8 +131,18 @@ def _sentence_window_chunks(
     return chunks
 
 
-def chunk_extraction_record(record: ExtractionRecord) -> list[TextChunk]:
+def chunk_extraction_record(
+    record: ExtractionRecord,
+    max_words: int = CHUNK_MAX_WORDS,
+    overlap_sentences: int = OVERLAP_SENTENCES,
+) -> list[TextChunk]:
     """Split one ExtractionRecord into sentence-boundary-aware overlapping chunks.
+
+    Args:
+        record: The extraction record to chunk.
+        max_words: Target word budget per chunk (read from settings.yaml rag.chunk_max_words).
+        overlap_sentences: Trailing sentences carried into the next chunk
+            (read from settings.yaml rag.chunk_overlap_sentences).
 
     Returns an empty list if there is no informative text to chunk.
     """
@@ -144,7 +154,7 @@ def chunk_extraction_record(record: ExtractionRecord) -> list[TextChunk]:
     if not sentences:
         return []
 
-    chunks = _sentence_window_chunks(sentences, record.paper_id)
+    chunks = _sentence_window_chunks(sentences, record.paper_id, max_words=max_words, overlap=overlap_sentences)
     logger.debug(
         "chunker: paper_id=%s produced %d chunks from %d sentences",
         record.paper_id,

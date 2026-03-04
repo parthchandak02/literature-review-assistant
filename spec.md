@@ -133,7 +133,7 @@ research-article-writer/
 | Language | Python | 3.11+ | Type hints, async/await, mature ecosystem |
 | Package manager | uv | latest | Fast; single tool for venv + install + run |
 | Orchestration | PydanticAI Graph (BaseNode API) | latest | Built by Pydantic team; typed state, model-agnostic; avoids LangChain ecosystem weight; native Pydantic integration |
-| LLM provider | Google Gemini 2.5 (3 tiers) | 2.5 | 1M token context window; cost-tiered by task volume; free tier sufficient for a single review run |
+| LLM provider | Google Gemini 3.x (3 tiers) | 3.x | 1M token context window; cost-tiered by task volume; free tier sufficient for a single review run |
 | Persistence | SQLite via aiosqlite | latest | Single-user local tool; zero deployment; trivially portable; paper-level write durability |
 | CLI output | rich | 13+ | Progress bars, tables, status panels |
 | Search (primary) | OpenAlex REST API | direct aiohttp | 250M+ works; CC0 licensed; free API key; api_key in URL required since Feb 2026 |
@@ -230,7 +230,7 @@ Change rarely. Values are tuned from real runs.
 | `citation_lineage.*` | `block_export_on_unresolved` (true), `minimum_evidence_score` (0.5) |
 | `search.*` | `max_results_per_db` (global default: 500), `per_database_limits` (per-connector overrides), `citation_chasing_enabled` (false -- PRISMA 2020 snowball forward citation chasing) |
 | `extraction.*` | `core_full_text`, `europepmc_full_text`, `semanticscholar_full_text` (toggles for full-text tiers), `sciencedirect_full_text`, `unpaywall_full_text`, `pmc_full_text`, `use_pdf_vision`, `full_text_min_chars` |
-| `rag.*` | `use_hyde` (true -- HyDE query expansion before dense embed), `hyde_model` (gemini-2.0-flash), `rerank` (true -- Gemini listwise reranking), `reranker_model` (gemini-2.0-flash) |
+| `rag.*` | `embed_model` (gemini-embedding-001), `embed_dim` (768 -- MRL dimension, changing requires re-embedding), `embed_batch_size` (20), `chunk_max_words` (400), `chunk_overlap_sentences` (2), `use_hyde` (true -- HyDE query expansion before dense embed), `hyde_model` (gemini-3.1-flash-lite-preview), `rerank` (true -- Gemini listwise reranking), `reranker_model` (gemini-3.1-flash-lite-preview) |
 
 Both YAML files are validated into Pydantic models at startup via `src/config/loader.py`. Invalid config fails fast with a clear error message.
 
@@ -317,21 +317,32 @@ Finalize                   -> writes run_summary.json + registry status = "compl
 
 ### 6.2 Phase 2: Search
 
-**What happens:** Seven connectors run concurrently via asyncio. Each builds a Boolean query from `ReviewConfig` (or uses `search_overrides`). Results map to `CandidatePaper` objects. Two-stage deduplication: exact DOI match, then fuzzy title match (thefuzz >= 90% similarity). Per-database counts are recorded for the PRISMA diagram. A PROSPERO-format protocol document is generated.
+**What happens:** Connectors run concurrently via asyncio. Each builds a query from `ReviewConfig` (or uses `search_overrides`). Results map to `CandidatePaper` objects. Two-stage deduplication: exact DOI match, then fuzzy title match (thefuzz >= 90% similarity). Per-database counts are recorded for the PRISMA diagram. A PROSPERO-format protocol document is generated.
 
-**Connectors:**
+**Default connectors (active unless overridden by target_databases):**
 
 | Connector | Protocol | Source Category |
 |-----------|---------|----------------|
-| OpenAlex | Direct aiohttp REST, api_key in URL | DATABASE |
-| PubMed | Biopython Entrez | DATABASE |
-| arXiv | arxiv Python library | DATABASE |
+| Scopus | Elsevier Scopus Search API, TITLE-ABS-KEY field codes | DATABASE |
+| Web of Science | Clarivate WoS Starter API, TS= prefix syntax | DATABASE |
+| OpenAlex | Direct aiohttp REST, api_key in URL, relevance search | DATABASE |
+| PubMed | Biopython Entrez, MeSH + field codes | DATABASE |
+| Semantic Scholar | Academic Graph API, keyword search | DATABASE |
+
+**Opt-in connectors (add to target_databases in review.yaml to enable):**
+
+| Connector | Protocol | Source Category |
+|-----------|---------|----------------|
 | IEEE Xplore | Direct REST with API key | DATABASE |
-| Semantic Scholar | Academic Graph API | DATABASE |
+| ClinicalTrials.gov | CT.gov v2 API, query.term | OTHER_SOURCE |
+| arXiv | arxiv Python library | DATABASE |
 | Crossref | Works API, polite email | DATABASE |
 | Perplexity | Perplexity Search API, cap 20 | OTHER_SOURCE |
+| Web of Science | Clarivate WoS Starter API (X-ApiKey header, 300 req/day free tier, 50 records/page) | DATABASE |
 
-Perplexity items tagged `SourceCategory.OTHER_SOURCE` count toward the PRISMA right-hand column (other sources). URL-based source inference (`_infer_source_from_url()`) attributes Perplexity-discovered papers to academic databases when they link to PubMed, arXiv, etc.
+Perplexity and ClinicalTrials items tagged `SourceCategory.OTHER_SOURCE` count toward the PRISMA right-hand column (other sources). URL-based source inference (`_infer_source_from_url()`) attributes Perplexity-discovered papers to academic databases when they link to PubMed, arXiv, etc.
+
+**Query generation:** `src/search/strategy.py` `build_database_query()` applies database-specific query syntax. Scopus uses TITLE-ABS-KEY field codes; WoS uses TS= prefix groups; PubMed uses MeSH + [Title/Abstract] field codes; OpenAlex and Semantic Scholar use a short relevance-search phrase (5-10 keywords) because their APIs are relevance-ranked, not boolean-filter. A `search_overrides` key in `review.yaml` takes precedence for any database. The AI config generator (`src/web/config_generator.py`) generates database-specific overrides for all six primary databases (including openalex) in a single two-stage Gemini pipeline.
 
 **Gate:** `search_volume` -- fails if deduplicated records < 50.
 
@@ -468,12 +479,11 @@ Registry status updated to "completed". `run_summary.json` written to log dir wi
 
 | Tier | Model | Input / Output per 1M tokens | Agent Assignments |
 |------|-------|------------------------------|-------------------|
-| Bulk | gemini-2.5-flash-lite | $0.10 / $0.40 | screening_reviewer_a |
-| Balanced | gemini-2.5-flash | $0.30 / $2.50 | search, study_type_detection, abstract_generation |
-| Fast | gemini-2.0-flash | lower cost | screening_reviewer_b, hyde generation, rag reranker |
-| Quality | gemini-2.5-pro | $1.25 / $10.00 | screening_adjudicator, extraction, quality_assessment, writing, humanizer, style_extraction |
+| Bulk | gemini-3.1-flash-lite-preview | $0.25 / $1.50 | screening_reviewer_a, search, study_type_detection, abstract_generation, hyde generation, rag reranker |
+| Fast | gemini-3-flash-preview | lower cost | screening_reviewer_b |
+| Quality | gemini-3.1-pro-preview | $1.25 / $10.00 | screening_adjudicator, extraction, quality_assessment, writing, humanizer, style_extraction |
 
-Reviewer A (flash-lite) and Reviewer B (gemini-2.0-flash) use different models intentionally -- this provides genuine cross-model validation rather than intra-model temperature variation. Flash-Lite is optimal for bulk classification at scale; gemini-2.0-flash is used for Reviewer B, HyDE generation, and listwise reranking where speed and cost matter more than peak quality.
+Reviewer A (gemini-3.1-flash-lite-preview) and Reviewer B (gemini-3-flash-preview) use different models intentionally -- this provides genuine cross-model validation rather than intra-model temperature variation. Flash-Lite-Preview is optimal for bulk classification at scale; gemini-3-flash-preview provides a different model perspective for Reviewer B without the cost of Pro. HyDE generation and listwise reranking also use flash-lite-preview for speed and cost efficiency.
 
 Model assignments per agent are in `settings.yaml` under `agents.*`. Changing a model requires only a YAML edit -- no code changes.
 
@@ -488,7 +498,7 @@ A token-bucket rate limiter in `src/llm/rate_limiter.py` enforces free-tier Gemi
 
 ### 7.3 Cost Tracking
 
-Every LLM call records a `CostRecord` to the `cost_records` table immediately after the call completes. The `cost_budget` gate queries the cumulative total at the end of each phase. The web UI aggregates `api_call` SSE events client-side in the `useCostStats` hook -- no extra API calls required.
+Every LLM call records a `CostRecord` to the `cost_records` table immediately after the call completes. The `cost_budget` gate queries the cumulative total at the end of each phase. The web UI `CostView` reads cost data from the `cost_records` table via `GET /api/db/{run_id}/costs` (DB polling every 5s for active runs), which is the complete and authoritative source across all phases. SSE `api_call` events are used as a last-resort fallback only if the DB has not yet responded. The `useCostStats` hook aggregates SSE events for the sidebar badge display only.
 
 ### 7.4 GeminiClient (Shared)
 
@@ -682,7 +692,7 @@ The frontend is run-centric. The sidebar is a run list, not a navigation menu. S
 | RunView | 6-tab shell (Config, Activity, Data, Cost, Results; Review Screening when awaiting_review) for a selected run |
 | ConfigView | Shows research question and timestamped review.yaml for the run; used by agents and for copy-to-clipboard |
 | ActivityView | Phase timeline + stats strip + filter chips + event log; works for live SSE runs and historical fetched runs |
-| CostView | Recharts bar chart grouped by model/phase + sortable cost/token tables; computed client-side from api_call events |
+| CostView | Recharts bar chart grouped by model/phase + sortable cost/token tables; reads from cost_records DB via /api/db/{run_id}/costs (primary, polls every 5s while active); SSE api_call events used as fallback before first DB response |
 | ResultsView | Download links for all output artifacts (available when run is done) |
 | DatabaseView | Paginated papers (with search), filterable screening decisions, cost records from runtime.db |
 | HistoryView | Past runs from workflows_registry; "Open" button attaches any run to the DB explorer |
@@ -937,7 +947,8 @@ Living section -- update as work completes.
 | Enhancement #8: Contradiction-Aware Synthesis | DONE | contradiction_detector.py surfaces conflict pairs; WritingNode injects "Conflicting Evidence" subsection into Discussion with citation keys and reconciliation hypothesis |
 | Enhancement #9: Adaptive Screening Threshold | DONE | Active-learning calibration loop: 30-paper sample, kappa computed, thresholds adjusted via bisection until kappa > 0.7 or 3 iterations; settings: screening.calibration_sample_size |
 | Enhancement #10: GRADE Evidence Profile | DONE | Full GRADE Summary of Findings table (studies, participants, effect estimate, certainty, reason); build_sof_table() in grade.py; GradeSoFTable + GradeSoFRow models; LaTeX longtable export; GET /api/run/{run_id}/grade-sof endpoint |
-| Search quality sprint | DONE | Scopus connector (src/search/scopus.py, TITLE-ABS-KEY field codes, 5 req/sec limit, 429 back-off); default target_databases updated to openalex + pubmed + scopus + semantic_scholar + ieee_xplore; perplexity_search + crossref + arxiv removed from default pipeline |
+| Search quality sprint | DONE | Scopus connector (src/search/scopus.py, TITLE-ABS-KEY field codes, 5 req/sec limit, 429 back-off); Web of Science connector (src/search/web_of_science.py, TS= prefix syntax, Starter API); default target_databases updated to scopus + web_of_science + openalex + pubmed + semantic_scholar; ieee_xplore + perplexity_search + crossref + arxiv moved to opt-in |
+| OpenAlex query fix + config generator | DONE | OpenAlex received the broad boolean OR fallback causing ~500 off-topic results. Fix: (1) strategy.py added openalex branch returning short_query (same pattern as semantic_scholar); (2) config_generator.py added openalex field to _SearchOverrides model and updated _STRUCTURE_PROMPT to generate all six database overrides; all descriptions and examples made domain-agnostic so generator works for any topic. |
 | Manuscript quality sprint | DONE | Root causes fixed in pipeline: assemble_submission_manuscript() includes GRADE SoF table, search appendix, excluded-studies footnote; abstract prompt includes kappa framing; semicolon parsing in citation extraction; IMRaD heading prompts tightened. finalize_manuscript.py is a thin regeneration utility for historical runs; _strip_unresolved_citekeys() is the only remaining safety net. Citation lineage gate: FinalizeNode validates manuscript; block_export_on_unresolved respected. |
 | Zero-papers manuscript | DONE | WritingNode guard: when 0 papers included (gates.profile=warning allows continuation past screening_safeguard), produces minimal manuscript without LLM calls via _build_minimal_sections_for_zero_papers(). Appendix B (Characteristics of Included Studies) includes Full Text Retrieved column. Sidebar RunCardMetrics displays 0/0 for found/included. |
 

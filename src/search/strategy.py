@@ -42,13 +42,31 @@ def build_database_query(config: ReviewConfig, database_name: str) -> str:
     if name == "arxiv":
         return f'all:("{config.research_question}") OR all:("{config.pico.intervention}")'
     if name == "ieee_xplore":
-        return f'("{config.pico.intervention}") AND ("{config.pico.outcome}")'
+        kws = config.keywords or []
+        kw_part1 = " OR ".join(f'"{k}"' for k in kws[:8]) if kws else f'"{config.pico.intervention[:60]}"'
+        kw_part2 = " OR ".join(f'"{k}"' for k in kws[8:16]) if len(kws) > 8 else kw_part1
+        return f"({kw_part1}) AND ({kw_part2})"
     if name == "semantic_scholar":
+        return short_query
+    if name == "openalex":
+        # OpenAlex uses relevance-ranked full-text search via the search= param.
+        # A short, focused phrase (5-10 keywords) gives far better precision than
+        # the broad boolean OR fallback. Mirror the Semantic Scholar approach.
         return short_query
     if name == "crossref":
         return f'"{config.research_question}" OR ({base})'
     if name == "perplexity_search":
         return short_query
+    if name in {"web_of_science", "wos"}:
+        # WoS Starter API: each term needs own TS= prefix inside parenthesized OR groups.
+        # WRONG: TS=("term1" OR "term2") -- causes 512 server error
+        # CORRECT: (TS="term1" OR TS="term2") AND (TS="term3" OR TS="term4")
+        kws = config.keywords or []
+        wos_part1 = " OR ".join(f'TS="{k}"' for k in kws[:8]) if kws else f'TS="{config.pico.intervention[:60]}"'
+        wos_part2 = " OR ".join(f'TS="{k}"' for k in kws[8:16]) if len(kws) > 8 else wos_part1
+        date_s = config.date_range_start or 2010
+        date_e = config.date_range_end or 2026
+        return f"({wos_part1}) AND ({wos_part2}) AND PY={date_s}-{date_e}"
     if name == "scopus":
         # Use Scopus field-code syntax: TITLE-ABS-KEY covers title, abstract, and author keywords.
         # Split keywords into two groups to build two AND-joined TITLE-ABS-KEY clauses.
@@ -86,6 +104,8 @@ class SearchStrategyCoordinator:
         self.gate_runner = gate_runner
         self.output_dir = Path(output_dir)
         self.on_connector_done = on_connector_done
+        # Populated after run() completes; maps connector name -> query string used.
+        self.query_map: dict[str, str] = {}
 
     async def run(
         self,
@@ -162,6 +182,7 @@ class SearchStrategyCoordinator:
         all_papers = [paper for result in results for paper in result.papers]
         _, dedup_count = deduplicate_papers(all_papers)
         query_map = {connector.name: query for connector, query, _ in tasks}
+        self.query_map = query_map
         await self._write_search_appendix(query_map, connector_results, errors, dedup_count)
         await self.gate_runner.run_search_volume_gate(
             workflow_id=self.workflow_id,

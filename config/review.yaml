@@ -1,4 +1,4 @@
-research_question: "What is the impact of robotic medication dispensing systems on dispensing accuracy, medication error rates, operational efficiency, and patient safety in university and college health center pharmacy settings, and what are the implementation barriers and facilitators?"
+research_question: "What is the impact of robotic medication dispensing systems on dispensing accuracy, medication error rates, operational efficiency, and patient safety in outpatient, ambulatory, community, university, or college pharmacy settings, and what are the implementation barriers and facilitators?"
 review_type: "systematic"
 
 # Living review settings (optional)
@@ -10,7 +10,7 @@ living_review: false
 last_search_date: null
 
 pico:
-  population: "Pharmacists, pharmacy technicians, and patients served by university or college health center pharmacies"
+  population: "Pharmacists, pharmacy technicians, and patients served by outpatient, ambulatory, community, university, or college health center pharmacies"
   intervention: "Robotic or automated medication dispensing systems, including robotic prescription filling systems and automated dispensing cabinets (ADCs)"
   comparison: "Manual or traditional pharmacy dispensing workflows, human-operated dispensing processes, or pre-implementation baselines"
   outcome: "Dispensing accuracy, medication error rates, operational efficiency, prescription turnaround time, cost-effectiveness, staff workload and satisfaction, and patient safety outcomes"
@@ -30,19 +30,21 @@ keywords:
   - "university health center"
   - "college health"
   - "campus pharmacy"
-  - "student health pharmacy"
   - "ambulatory pharmacy"
-  - "outpatient pharmacy automation"
+  - "outpatient pharmacy"
+  - "community pharmacy"
   - "ScriptPro"
   - "Pyxis"
+  - "Omnicell"
+  - "patient safety"
   - "pharmacy workflow"
 
-domain: "Pharmacy automation and robotic dispensing in university and college health settings"
-scope: "Focus on robotic and automated medication dispensing systems deployed in university health centers, college health pharmacies, and ambulatory outpatient pharmacy settings with a student or campus population. Includes legacy automated dispensing cabinets (e.g., Pyxis, Omnicell) and modern robotic prescription filling systems (e.g., ScriptPro, RxMedic). Covers outcomes related to dispensing accuracy, medication errors, efficiency, cost, and staff and patient experience."
+domain: "Pharmacy automation and robotic dispensing in outpatient and ambulatory pharmacy settings"
+scope: "Focus on robotic and automated medication dispensing systems deployed in outpatient, ambulatory, community, university, and college health pharmacy settings. Includes automated dispensing cabinets (e.g., Pyxis, Omnicell) and modern robotic prescription filling systems (e.g., ScriptPro, RxMedic, Parata). Covers outcomes related to dispensing accuracy, medication errors, efficiency, cost, and staff and patient experience, including implementation barriers and facilitators."
 
 inclusion_criteria:
-  - "Studies evaluating robotic or automated medication dispensing systems in university, college, or campus health center pharmacies"
-  - "Studies evaluating automated dispensing cabinets or robotic prescription filling in ambulatory or outpatient pharmacy settings applicable to university health populations"
+  - "Studies evaluating robotic or automated medication dispensing systems in outpatient, ambulatory, community, university, or college pharmacy settings"
+  - "Studies comparing automated dispensing to manual dispensing or reporting outcomes after implementation of automated systems"
   - "Studies reporting dispensing accuracy, medication error rates, turnaround time, operational efficiency, or cost outcomes"
   - "Studies reporting staff satisfaction, workload, or implementation experience with pharmacy automation"
   - "Studies reporting patient safety outcomes related to automated dispensing"
@@ -50,9 +52,9 @@ inclusion_criteria:
   - "Implementation reports, quality improvement studies, or controlled trials with empirical outcome data"
 
 exclusion_criteria:
-  - "Studies exclusively focused on inpatient hospital pharmacy dispensing with no ambulatory or outpatient applicability"
+  - "Studies exclusively focused on inpatient hospital ward dispensing with no outpatient or ambulatory applicability"
   - "Studies on medication administration devices (e.g., infusion pumps, insulin pens) not involving dispensing workflow automation"
-  - "Studies without empirical outcome data (e.g., opinion pieces, editorials, purely descriptive technology overviews without evaluation)"
+  - "Studies without empirical outcome data (e.g., opinion pieces, editorials, purely descriptive technology overviews)"
   - "Non-peer-reviewed sources, conference-only abstracts lacking a full-length peer-reviewed paper"
   - "Studies on inventory management or procurement systems without a dispensing accuracy or patient safety outcome"
   - "Non-English publications"
@@ -61,17 +63,14 @@ date_range_start: 2010
 date_range_end: 2026
 
 target_databases:
+  - scopus
+  - web_of_science
   - openalex
   - pubmed
-  - scopus
   - semantic_scholar
-  - ieee_xplore
-  # Grey literature (opt-in):
+  # Additional connectors (opt-in):
+  # - ieee_xplore
   # - clinicaltrials_gov
-  # Legacy connectors removed from default -- not standard systematic review sources:
-  # - arxiv          (preprints; no peer-reviewed clinical pharmacy content)
-  # - crossref       (DOI resolver, not a searchable bibliographic database)
-  # - perplexity_search  (web AI -- flagged by peer reviewers)
 
 target_sections:
   - abstract
@@ -96,30 +95,30 @@ conflicts_of_interest: "The authors declare no conflicts of interest."
 
 # Optional: override auto-generated queries per database. Omit a database to use default.
 search_overrides:
-  crossref: >-
-    ("robotic dispensing" OR "automated dispensing" OR "pharmacy automation"
-    OR "automated dispensing cabinet" OR "robotic pharmacy" OR "prescription dispensing automation"
-    OR "pharmacy robotics" OR "ScriptPro" OR "Pyxis" OR "Omnicell" OR "RxMedic")
-    AND
-    ("university health" OR "college health" OR "campus pharmacy" OR "student health"
-    OR "ambulatory pharmacy" OR "outpatient pharmacy" OR "dispensing accuracy"
-    OR "medication error" OR "pharmacy workflow" OR "patient safety")
+  scopus: >-
+    TITLE-ABS-KEY("robotic dispensing" OR "automated dispensing" OR "pharmacy automation"
+    OR "automated dispensing cabinet" OR "robotic pharmacy" OR "ScriptPro" OR "Pyxis" OR "Omnicell")
+    AND TITLE-ABS-KEY("dispensing accuracy" OR "medication error" OR "patient safety"
+    OR "outpatient pharmacy" OR "ambulatory pharmacy" OR "community pharmacy" OR "pharmacy workflow")
+    AND PUBYEAR > 2009 AND PUBYEAR < 2027
+  web_of_science: >-
+    (TS="robotic dispensing" OR TS="automated dispensing" OR TS="pharmacy automation"
+    OR TS="automated dispensing cabinet" OR TS="robotic pharmacy" OR TS="ScriptPro"
+    OR TS="Pyxis" OR TS="Omnicell")
+    AND (TS="dispensing accuracy" OR TS="medication error" OR TS="patient safety"
+    OR TS="outpatient pharmacy" OR TS="ambulatory pharmacy" OR TS="community pharmacy")
+    AND PY=2010-2026
   pubmed: >-
     ("Automation"[MeSH Terms] OR "Robotics"[MeSH Terms]
     OR "robotic dispensing"[Title/Abstract] OR "automated dispensing"[Title/Abstract]
     OR "pharmacy automation"[Title/Abstract] OR "automated dispensing cabinet"[Title/Abstract]
     OR "robotic pharmacy"[Title/Abstract] OR "ScriptPro"[Title/Abstract]
-    OR "Pyxis"[Title/Abstract] OR "Omnicell"[Title/Abstract] OR "RxMedic"[Title/Abstract]
-    OR "prescription dispensing automation"[Title/Abstract])
+    OR "Pyxis"[Title/Abstract] OR "Omnicell"[Title/Abstract] OR "RxMedic"[Title/Abstract])
     AND
-    ("Pharmacy Service, Hospital"[MeSH Terms] OR "Medication Errors"[MeSH Terms]
-    OR "Students"[MeSH Terms] OR "Universities"[MeSH Terms]
-    OR "university health"[Title/Abstract] OR "college health"[Title/Abstract]
-    OR "campus pharmacy"[Title/Abstract] OR "student health"[Title/Abstract]
-    OR "ambulatory pharmacy"[Title/Abstract] OR "outpatient pharmacy"[Title/Abstract]
+    ("Medication Errors"[MeSH Terms] OR "Pharmacy Service, Hospital"[MeSH Terms]
     OR "dispensing accuracy"[Title/Abstract] OR "medication error*"[Title/Abstract]
-    OR "pharmacy workflow"[Title/Abstract] OR "patient safety"[Title/Abstract])
-  semantic_scholar: >-
-    robotic medication dispensing automated dispensing cabinet pharmacy automation
-    university health center college health campus pharmacy dispensing accuracy
-    medication error patient safety outpatient ambulatory ScriptPro Pyxis Omnicell
+    OR "outpatient pharmacy"[Title/Abstract] OR "ambulatory pharmacy"[Title/Abstract]
+    OR "community pharmacy"[Title/Abstract] OR "pharmacy workflow"[Title/Abstract]
+    OR "patient safety"[Title/Abstract])
+  semantic_scholar: "robotic dispensing pharmacy automation medication error dispensing accuracy outpatient ambulatory"
+  openalex: "robotic dispensing pharmacy automation medication error dispensing accuracy outpatient ambulatory"

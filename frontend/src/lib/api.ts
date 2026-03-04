@@ -10,6 +10,8 @@ export interface RunRequest {
   perplexity_api_key?: string
   semantic_scholar_api_key?: string
   crossref_email?: string
+  wos_api_key?: string
+  scopus_api_key?: string
   run_root?: string
 }
 
@@ -142,6 +144,8 @@ export async function startRunWithMasterlist(
   if (keys.perplexity) form.append("perplexity_api_key", keys.perplexity)
   if (keys.semanticScholar) form.append("semantic_scholar_api_key", keys.semanticScholar)
   if (keys.crossrefEmail) form.append("crossref_email", keys.crossrefEmail)
+  if (keys.wos) form.append("wos_api_key", keys.wos)
+  if (keys.scopus) form.append("scopus_api_key", keys.scopus)
   if (runRoot) form.append("run_root", runRoot)
   const res = await fetch(`${BASE}/run-with-masterlist`, {
     method: "POST",
@@ -485,6 +489,8 @@ export interface StoredApiKeys {
   perplexity: string
   semanticScholar: string
   crossrefEmail: string
+  wos: string
+  scopus: string
 }
 
 const API_KEYS_KEY = "litreview_api_keys"

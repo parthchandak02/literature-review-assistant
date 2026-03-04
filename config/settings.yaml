@@ -1,41 +1,44 @@
 llm:
+  # Conservative limits suitable for Gemini 3.x preview models (Tier 1 paid).
+  # 3-flash-preview and 3.1-flash-lite preview quotas may be tighter than GA.
+  # Raise flash_rpm to 30-60 and pro_rpm to 15-30 once models reach GA.
   flash_rpm: 10
   flash_lite_rpm: 15
   pro_rpm: 5
 
 agents:
   screening_reviewer_a:
-    model: "google-gla:gemini-2.5-flash-lite"
+    model: "google-gla:gemini-3.1-flash-lite-preview"
     temperature: 0.1
   screening_reviewer_b:
-    model: "google-gla:gemini-2.0-flash"
+    model: "google-gla:gemini-3-flash-preview"
     temperature: 0.1
   screening_adjudicator:
-    model: "google-gla:gemini-2.5-pro"
+    model: "google-gla:gemini-3.1-pro-preview"
     temperature: 0.2
   search:
-    model: "google-gla:gemini-2.5-flash"
+    model: "google-gla:gemini-3.1-flash-lite-preview"
     temperature: 0.1
   extraction:
-    model: "google-gla:gemini-2.5-pro"
+    model: "google-gla:gemini-3.1-pro-preview"
     temperature: 0.1
   quality_assessment:
-    model: "google-gla:gemini-2.5-pro"
+    model: "google-gla:gemini-3.1-pro-preview"
     temperature: 0.2
   study_type_detection:
-    model: "google-gla:gemini-2.5-flash"
+    model: "google-gla:gemini-3.1-flash-lite-preview"
     temperature: 0.2
   writing:
-    model: "google-gla:gemini-2.5-pro"
+    model: "google-gla:gemini-3.1-pro-preview"
     temperature: 0.2
   abstract_generation:
-    model: "google-gla:gemini-2.5-flash"
+    model: "google-gla:gemini-3.1-flash-lite-preview"
     temperature: 0.2
   humanizer:
-    model: "google-gla:gemini-2.5-pro"
+    model: "google-gla:gemini-3.1-pro-preview"
     temperature: 0.3
   style_extraction:
-    model: "google-gla:gemini-2.5-pro"
+    model: "google-gla:gemini-3.1-pro-preview"
     temperature: 0.2
 
 screening:
@@ -53,7 +56,7 @@ dual_review:
   enabled: true
   kappa_warning_threshold: 0.4
   # reviewer_b_model: overridden via agents.screening_reviewer_b.model above.
-  # Reviewer A uses gemini-2.5-flash-lite; Reviewer B uses gemini-2.0-flash
+  # Reviewer A uses gemini-3.1-flash-lite-preview; Reviewer B uses gemini-3-flash-preview
   # for genuine cross-model validation (not just temperature variation).
 
 gates:
@@ -62,7 +65,7 @@ gates:
   screening_minimum: 5
   extraction_completeness_threshold: 0.8
   extraction_max_empty_rate: 0.35
-  cost_budget_max: 20.0
+  cost_budget_max: 30.0
 
 writing:
   style_extraction: true
@@ -73,10 +76,15 @@ writing:
   llm_timeout: 120
 
 rag:
+  embed_model: "google-gla:gemini-embedding-001"
+  embed_dim: 768       # MRL output dimension; changing requires wiping paper_chunks_meta and re-embedding
+  embed_batch_size: 20
+  chunk_max_words: 400
+  chunk_overlap_sentences: 2
   use_hyde: true
-  hyde_model: "google-gla:gemini-2.0-flash"
+  hyde_model: "google-gla:gemini-3.1-flash-lite-preview"
   rerank: true
-  reranker_model: "google-gla:gemini-2.0-flash"
+  reranker_model: "google-gla:gemini-3.1-flash-lite-preview"
 
 risk_of_bias:
   rct_tool: "rob2"
@@ -118,7 +126,7 @@ extraction:
   openalex_content_full_text: false  # opt-in; $0.01/file
   crossref_links_full_text: true
   use_pdf_vision: true
-  pdf_vision_model: "google-gla:gemini-2.5-flash"
+  pdf_vision_model: "google-gla:gemini-3.1-flash-lite-preview"
   full_text_min_chars: 500
 
 # Search depth: how many records to fetch per database connector.

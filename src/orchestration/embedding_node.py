@@ -39,6 +39,13 @@ class EmbeddingNode(BaseNode[ReviewState]):
                 total=len(state.extraction_records),
             )
 
+        rag_cfg = getattr(state.settings, "rag", None)
+        embed_model = getattr(rag_cfg, "embed_model", "google-gla:gemini-embedding-001")
+        embed_dim = getattr(rag_cfg, "embed_dim", 768)
+        embed_batch_size = getattr(rag_cfg, "embed_batch_size", _BATCH_SIZE)
+        chunk_max_words = getattr(rag_cfg, "chunk_max_words", 400)
+        chunk_overlap_sentences = getattr(rag_cfg, "chunk_overlap_sentences", 2)
+
         async with get_db(state.db_path) as db:
             # Load already-embedded paper_ids for idempotent resume
             already_done: set[str] = set()
@@ -60,7 +67,11 @@ class EmbeddingNode(BaseNode[ReviewState]):
                 # Chunk all records -- text chunks + vision-extracted table rows
                 all_chunks = []
                 for record in to_embed:
-                    text_chunks = chunk_extraction_record(record)
+                    text_chunks = chunk_extraction_record(
+                        record,
+                        max_words=chunk_max_words,
+                        overlap_sentences=chunk_overlap_sentences,
+                    )
                     all_chunks.extend(text_chunks)
                     # Also embed any vision-extracted table outcomes as structured chunks
                     table_outcomes = [
@@ -83,7 +94,12 @@ class EmbeddingNode(BaseNode[ReviewState]):
 
                 if all_chunks:
                     texts = [c.content for c in all_chunks]
-                    embeddings = await embed_texts(texts, batch_size=_BATCH_SIZE)
+                    embeddings = await embed_texts(
+                        texts,
+                        batch_size=embed_batch_size,
+                        model=embed_model,
+                        dim=embed_dim,
+                    )
 
                     # Persist chunks with embeddings
                     for chunk, embedding in zip(all_chunks, embeddings):

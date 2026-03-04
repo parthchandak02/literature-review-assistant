@@ -2,7 +2,7 @@
 
 An open source tool that automates systematic literature reviews end-to-end -- from a research question to an IEEE-submission-ready manuscript.
 
-It runs a full PRISMA 2020-compliant pipeline: searches 7 academic databases (OpenAlex, PubMed, arXiv, IEEE Xplore, Semantic Scholar, Crossref, Perplexity), dual-reviews every paper with independent AI reviewers, extracts data, assesses risk of bias (RoB 2, ROBINS-I, GRADE), synthesizes evidence (meta-analysis or narrative), and writes the manuscript with citation lineage enforced throughout.
+It runs a full PRISMA 2020-compliant pipeline: searches academic databases (default: Scopus, Web of Science, OpenAlex, PubMed, Semantic Scholar; opt-in: IEEE Xplore, ClinicalTrials.gov, arXiv, Crossref, Perplexity), dual-reviews every paper with independent AI reviewers, extracts data, assesses risk of bias (RoB 2, ROBINS-I, GRADE), synthesizes evidence (meta-analysis or narrative), and writes the manuscript with citation lineage enforced throughout.
 
 **Use it via browser (web UI) or terminal (CLI).**
 
@@ -172,6 +172,7 @@ Your `submission/` folder is ready.
 | `CROSSREF_EMAIL` | Any email address | No (polite Crossref crawling) |
 | `CORE_API_KEY` | [core.ac.uk/api-keys/register](https://core.ac.uk/api-keys/register) | No (full-text from institutional repos) |
 | `SCOPUS_API_KEY` | Elsevier API (institutional) | No (ScienceDirect full-text for Elsevier OA) |
+| `WOS_API_KEY` | [Clarivate developer portal](https://developer.clarivate.com) | No (Web of Science Starter API, 300 req/day free) |
 
 The free Gemini tier (Flash-Lite / Flash / Pro) is sufficient for most reviews. A full run typically costs under $5.
 
@@ -226,12 +227,13 @@ Two config files control behavior:
 - `research_question`, `pico`, `keywords`, `domain`
 - `inclusion_criteria`, `exclusion_criteria`
 - `date_range_start`, `date_range_end`
-- `target_databases` (openalex, pubmed, arxiv, ieee_xplore, semantic_scholar, crossref, perplexity, clinicaltrials_gov)
+- `target_databases` (defaults: scopus, web_of_science, openalex, pubmed, semantic_scholar; opt-in: ieee_xplore, clinicaltrials_gov, arxiv, crossref, perplexity_search)
+- `search_overrides` (per-database query overrides; the AI config generator produces these for all six primary databases automatically; omit a key to use the auto-generated fallback)
 - `living_review: false` -- set to `true` + set `last_search_date` to re-run only from that date forward
 
 **`config/settings.yaml`** -- change this rarely:
 - LLM model assignments (which Gemini tier handles screening vs. writing)
-- `dual_review.reviewer_b_model` -- second reviewer model for cross-model validation (default: gemini-2.0-flash)
+- `dual_review.reviewer_b_model` -- second reviewer model for cross-model validation (default: gemini-3-flash-preview)
 - Screening thresholds (include/exclude confidence cutoffs)
 - `max_llm_screen` -- hard cap on LLM screening volume (cost control)
 - `human_in_the_loop.enabled` -- pause after screening for manual review of AI decisions
@@ -250,8 +252,8 @@ The pipeline runs as an 8-phase PydanticAI graph. Each phase writes its results 
 Phase 1: Load config, initialize DB, set up LLM provider
 Phase 2: Search 7+ databases (incl. ClinicalTrials.gov grey lit), deduplicate (MinHash LSH),
          run forward citation chasing, generate PROSPERO protocol
-Phase 3: Dual-reviewer screening -- Reviewer A (gemini-2.5-flash-lite) + Reviewer B
-         (gemini-2.0-flash, cross-model validation), adjudicator on disagreement;
+Phase 3: Dual-reviewer screening -- Reviewer A (gemini-3.1-flash-lite-preview) + Reviewer B
+         (gemini-3-flash-preview, cross-model validation), adjudicator on disagreement;
          protocol-only studies auto-excluded; Cohen's kappa logged
          [Optional pause: human review checkpoint when human_in_the_loop.enabled=true]
 Phase 4: Data extraction (full-text via 6-tier resolver: Unpaywall, Semantic Scholar, CORE, Europe PMC, ScienceDirect, PMC; PyMuPDF 32K char context) + risk of bias

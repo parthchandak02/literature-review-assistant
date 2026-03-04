@@ -85,6 +85,7 @@ from src.search.pubmed import PubMedConnector
 from src.search.scopus import ScopusConnector
 from src.search.semantic_scholar import SemanticScholarConnector
 from src.search.strategy import SearchStrategyCoordinator
+from src.search.web_of_science import WebOfScienceConnector
 from src.synthesis import assess_meta_analysis_feasibility, build_narrative_synthesis
 from src.synthesis.contradiction_detector import detect_contradictions
 from src.synthesis.meta_analysis import pool_effects
@@ -182,6 +183,8 @@ def _build_connectors(workflow_id: str, target_databases: list[str]) -> tuple[li
                 connectors.append(PerplexitySearchConnector(workflow_id))
             elif normalized == "scopus":
                 connectors.append(ScopusConnector(workflow_id))
+            elif normalized in {"web_of_science", "wos"}:
+                connectors.append(WebOfScienceConnector(workflow_id))
             elif normalized in {"clinicaltrials", "clinicaltrials_gov"}:
                 connectors.append(ClinicalTrialsConnector(workflow_id))
             else:
@@ -494,6 +497,7 @@ class SearchNode(BaseNode[ReviewState]):
                 max_results=search_cfg.max_results_per_db,
                 per_database_limits=search_cfg.per_database_limits or None,
             )
+            state.search_queries = coordinator.query_map
             if state.settings.gates.profile == "strict":
                 gr = await repository.get_latest_gate_result(state.workflow_id, "phase_2_search", "search_volume")
                 if gr and gr.status == GateStatus.FAILED:
@@ -1213,7 +1217,7 @@ class ExtractionQualityNode(BaseNode[ReviewState]):
                                 merge_outcomes,
                             )
 
-                            vision_model = getattr(extraction_cfg, "pdf_vision_model", "gemini-2.5-flash").replace(
+                            vision_model = getattr(extraction_cfg, "pdf_vision_model", "gemini-3.1-flash-lite-preview").replace(
                                 "google-gla:", ""
                             )
                             vision_outcomes = await extract_tables_from_pdf(
@@ -1864,7 +1868,9 @@ class WritingNode(BaseNode[ReviewState]):
                 # parallel before the writing loop. Abstract always returns "".
                 rag_cfg = getattr(state.settings, "rag", None)
                 use_hyde = getattr(rag_cfg, "use_hyde", True)
-                hyde_model = getattr(rag_cfg, "hyde_model", "google-gla:gemini-2.0-flash")
+                hyde_model = getattr(rag_cfg, "hyde_model", "google-gla:gemini-3.1-flash-lite-preview")
+                embed_model = getattr(rag_cfg, "embed_model", "google-gla:gemini-embedding-001")
+                embed_dim = getattr(rag_cfg, "embed_dim", 768)
 
                 _pico_cfg = getattr(state.review, "pico", None) if state.review else None
 
@@ -1935,7 +1941,11 @@ class WritingNode(BaseNode[ReviewState]):
                             # factual query (not hypothetical) to avoid hallucinated
                             # corpus-drift.
                             hyde_text = hyde_docs.get(section, "")
-                            query_vec = await rag_embed_query(hyde_text if hyde_text else section)
+                            query_vec = await rag_embed_query(
+                                hyde_text if hyde_text else section,
+                                model=embed_model,
+                                dim=embed_dim,
+                            )
                             if hyde_text:
                                 logger.debug("RAG: HyDE embedding used for section '%s'", section)
                             # PICO enrichment: appending PICO terms gives BM25
@@ -1978,7 +1988,7 @@ class WritingNode(BaseNode[ReviewState]):
                                 reranker_model = getattr(
                                     rag_cfg,
                                     "reranker_model",
-                                    "google-gla:gemini-2.0-flash",
+                                    "google-gla:gemini-3.1-flash-lite-preview",
                                 )
                                 rerank_query = hyde_text if hyde_text else bm25_query
                                 chunks = await rerank_chunks(
@@ -2358,6 +2368,7 @@ class FinalizeNode(BaseNode[ReviewState]):
             "log_dir": state.log_dir,
             "output_dir": state.output_dir,
             "search_counts": state.search_counts,
+            "search_queries": state.search_queries,
             "dedup_count": state.dedup_count,
             "connector_init_failures": state.connector_init_failures,
             "included_papers": len(state.included_papers),

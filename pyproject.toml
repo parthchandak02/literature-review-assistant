@@ -41,6 +41,7 @@ dependencies = [
   "networkx>=3.0",
   "python-louvain>=0.16",
   "nltk>=3.9.3",
+  "genai-prices>=0.0.55",
 ]
 
 [dependency-groups]

@@ -89,6 +89,7 @@ class CandidatePaper(BaseModel):
     source_category: SourceCategory = SourceCategory.DATABASE
     openalex_id: str | None = None
     country: str | None = None
+    journal: str | None = None
     display_label: str | None = None
 
 

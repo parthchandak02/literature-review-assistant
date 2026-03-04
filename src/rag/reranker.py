@@ -32,7 +32,7 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-_DEFAULT_MODEL = "google-gla:gemini-2.0-flash"
+_DEFAULT_MODEL = "google-gla:gemini-3.1-flash-lite-preview"
 
 _RERANK_PROMPT = """\
 You are a relevance-ranking assistant for a systematic literature review.
