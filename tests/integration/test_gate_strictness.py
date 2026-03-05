@@ -20,7 +20,6 @@ from src.models import GateStatus, SettingsConfig
 from src.models.config import GatesConfig
 from src.orchestration.gates import GateRunner
 
-
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------

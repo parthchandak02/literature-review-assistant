@@ -25,7 +25,6 @@ from src.export.markdown_refs import (
 from src.models import PRISMACounts
 from src.prisma.diagram import render_prisma_diagram
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -152,12 +151,7 @@ def test_assemble_manuscript_produces_document(tmp_path: Path) -> None:
 
 
 def test_extract_citekeys_preserves_order_and_deduplicates() -> None:
-    text = (
-        "First claim [Smith2023]. "
-        "Second claim [Jones2022]. "
-        "Smith again [Smith2023]. "
-        "Third new [Brown2021]."
-    )
+    text = "First claim [Smith2023]. Second claim [Jones2022]. Smith again [Smith2023]. Third new [Brown2021]."
     keys = extract_citekeys_in_order(text)
     assert keys == ["Smith2023", "Jones2022", "Brown2021"]
 
@@ -170,7 +164,16 @@ def test_extract_citekeys_preserves_order_and_deduplicates() -> None:
 def test_build_references_section_formats_entries() -> None:
     # (citation_id, citekey, doi, title, authors_json, year, journal, bibtex)
     citation_rows = [
-        ("cid-1", "Smith2023", "10.1000/s", "Robotic dispensing", '["Smith, J.", "Doe, A."]', "2023", "Journal of Pharmacy", ""),
+        (
+            "cid-1",
+            "Smith2023",
+            "10.1000/s",
+            "Robotic dispensing",
+            '["Smith, J.", "Doe, A."]',
+            "2023",
+            "Journal of Pharmacy",
+            "",
+        ),
         ("cid-2", "Jones2022", "10.1000/j", "Automation review", '["Jones, B."]', "2022", "Health Informatics", ""),
     ]
     text_with_citekeys = "Claim one [Smith2023]. Claim two [Jones2022]."
