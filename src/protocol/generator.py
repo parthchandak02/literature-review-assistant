@@ -6,6 +6,27 @@ from pathlib import Path
 
 from src.models import ProtocolDocument, ReviewConfig
 
+# Mapping from review_type enum value to a PROSPERO-appropriate study design description.
+# PROSPERO item 21 asks for the types of *primary* studies to be included, not the review type itself.
+_STUDY_DESIGN_DESCRIPTIONS: dict[str, str] = {
+    "systematic": (
+        "Non-randomized studies, cohort studies, cross-sectional studies, "
+        "quasi-experimental designs, observational studies, and usability evaluations"
+    ),
+    "scoping": (
+        "Any study design including systematic reviews, randomized and non-randomized "
+        "trials, observational studies, surveys, and grey literature"
+    ),
+    "meta_analysis": (
+        "Randomized controlled trials and non-randomized studies with quantitative "
+        "outcome data suitable for statistical pooling"
+    ),
+    "narrative": (
+        "Any study design including experimental, observational, qualitative, "
+        "and mixed-methods studies"
+    ),
+}
+
 
 class ProtocolGenerator:
     def __init__(self, output_dir: str = "runs"):
@@ -46,7 +67,13 @@ class ProtocolGenerator:
             ("18. Participants/population", config.pico.population),
             ("19. Intervention(s), exposure(s)", config.pico.intervention),
             ("20. Comparator(s)/control", config.pico.comparison),
-            ("21. Types of study to be included", config.review_type.value),
+            (
+                "21. Types of study to be included",
+                _STUDY_DESIGN_DESCRIPTIONS.get(
+                    config.review_type.value,
+                    f"Primary studies appropriate for a {config.review_type.value} review",
+                ),
+            ),
             ("22. Context", config.scope),
         ]
         lines = ["# PROSPERO Protocol Draft", ""]

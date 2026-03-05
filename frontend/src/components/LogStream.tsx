@@ -136,9 +136,19 @@ export function LogStream({ events, autoScroll = true }: LogStreamProps) {
           const { text, level } = eventToLogLine(item.ev)
           const errorEv = item.ev.type === "error" ? (item.ev as { traceback?: string }) : null
 
+          // Progress ticks -- compact dim dots shown during calibration (1/15, 2/15...)
+          if (item.ev.type === "progress") {
+            return (
+              <div key={item.key} className="text-zinc-700 text-[10px] leading-4">
+                {text.replace(/^\[\d{2}:\d{2}:\d{2}\] PROG\s+/, "")}
+              </div>
+            )
+          }
+
           // Screening decisions get a colored left-border card treatment.
-          if (level === "include" || level === "exclude") {
+          if (level === "include" || level === "exclude" || level === "exclude-heuristic") {
             const isInclude = level === "include"
+            const isHeuristic = level === "exclude-heuristic"
             return (
               <div key={item.key} className="flex flex-col gap-0.5">
                 <div
@@ -146,20 +156,22 @@ export function LogStream({ events, autoScroll = true }: LogStreamProps) {
                     "flex items-baseline gap-2 pl-2 border-l-2 rounded-r py-0.5",
                     isInclude
                       ? "border-emerald-500 bg-emerald-500/5"
-                      : "border-zinc-700",
+                      : isHeuristic
+                        ? "border-amber-800/50"
+                        : "border-zinc-700",
                   )}
                 >
                   {/* Colored INCLUDE / EXCLUDE badge */}
                   <span className={cn(
                     "shrink-0 font-bold text-[10px] tracking-wider uppercase select-none",
-                    isInclude ? "text-emerald-400" : "text-zinc-600",
+                    isInclude ? "text-emerald-400" : isHeuristic ? "text-amber-700" : "text-zinc-600",
                   )}>
                     {isInclude ? "INCLUDE" : "EXCLUDE"}
                   </span>
                   {/* Full log line (timestamp + label + conf + reason) */}
                   <span className={cn(
                     "whitespace-pre-wrap break-all min-w-0",
-                    isInclude ? "text-emerald-300" : "text-zinc-500",
+                    isInclude ? "text-emerald-300" : isHeuristic ? "text-amber-800/80" : "text-zinc-500",
                   )}>
                     {/* Strip the leading "[HH:MM:SS] INCLUDE/EXCLUDE " prefix since the badge shows it */}
                     {text.replace(/^\[\d{2}:\d{2}:\d{2}\] (?:INCLUDE|EXCLUDE)\s+/, "")}

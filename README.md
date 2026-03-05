@@ -183,7 +183,7 @@ screening:
   max_llm_screen: 200  # BM25-rank all candidates; send top 200 to LLM; exclude the rest
 ```
 
-When `max_llm_screen` is set, all candidate papers are BM25-ranked by relevance to your research question. The top N go to LLM dual-review; the remainder are excluded with their BM25 score logged to the database so the PRISMA flow diagram counts are always accurate.
+When `max_llm_screen` is set, all candidate papers are BM25-ranked by relevance to your research question. The top N go to LLM dual-review; the remainder are auto-excluded. These pre-filter exclusions are recorded as "Automation tools" in the PRISMA 2020 flow diagram and disclosed in the Methods section automatically.
 
 Remove the line (or set it to `null`) to send all candidate papers through LLM screening.
 

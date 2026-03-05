@@ -45,3 +45,25 @@ When the API is running, `uv run python -m src.main resume` delegates to POST /a
 so the frontend shows live progress. If the API is down, the CLI runs locally (no live UI).
 Use `--no-api` to force local run even when the API is up. Local-only runs appear in RECENT
 but without heartbeat they may show as "stale" after 5 min.
+
+## Citation Ledger: Numeric [N] Keys Are Valid
+The final `doc_manuscript.md` uses numbered citations [1], [2], ... after
+`convert_to_numbered_citations()` replaces author-year citekeys. The citation
+ledger's `validate_manuscript()` now accepts numeric keys as valid when N is
+in [1, count_of_known_citations]. This was a historical source of false
+`citation_lineage_valid=false` in `run_summary.json`.
+
+## PRISMA automation_excluded vs "other"
+`PRISMACounts.automation_excluded` tracks records removed by BM25/keyword
+pre-filter BEFORE LLM screening. In the PRISMA flow diagram this maps to
+"Removed before screening: Automation tools (n=X)" -- NOT to "other_removed".
+The gap `records_after_dedup - records_screened` is now captured explicitly
+in this field (backfilled to 0 for older PRISMACounts objects).
+Always check this field when PRISMA math appears incorrect.
+
+## Methodology References Pre-Registered in Citations Table
+`register_methodology_citations()` in `src/writing/orchestration.py` pre-registers
+5 fixed methodology papers (PRISMA 2020 Page2021, RoB 2 Sterne2019, ROBINS-I Sterne2016,
+GRADE Guyatt2011, Cohen1960) into the citations table before writing starts.
+These citekeys appear in the catalog and are in `valid_citekeys`, so the writing LLM
+can cite them in the Methods section. They are included in the final numbered reference list.

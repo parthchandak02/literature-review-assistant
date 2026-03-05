@@ -36,3 +36,15 @@ All prompts end with:
 - Auto-exclude if confidence >= stage1_exclude_threshold (0.80)
 - Papers between thresholds -> sent to adjudicator
 - Adaptive calibration (calibrate_threshold=true in ScreeningConfig, default true) may override these defaults via bisection before the main screening loop; final adjusted thresholds are logged at phase_done for the screening_calibration phase
+
+## Writing Grounding Block (WritingGroundingData)
+Every writing section prompt includes a FACTUAL DATA BLOCK built by `format_grounding_block()` in
+`src/writing/context_builder.py`. Key fields injected:
+- PRISMA counts: total_identified, duplicates_removed, automation_excluded (BM25/keyword pre-filter),
+  total_screened, fulltext_assessed, total_included
+- zero_yield_databases: databases searched with 0 records -- MUST be disclosed per PRISMA 2020 item 7
+- cohens_kappa: when not None, instructs LLM to report exact value; when None, explicitly instructs
+  LLM NOT to report a kappa value
+- screening_method_description: injected verbatim; states that full-text PDFs were not retrieved
+- VALID CITATION KEYS: includes both included study citekeys AND methodology citekeys
+  (Page2021, Sterne2019, Sterne2016, Guyatt2011, Cohen1960) from register_methodology_citations()

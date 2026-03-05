@@ -271,16 +271,26 @@ async def build_prisma_counts(
     if records_screened == 0 and records_after_dedup > 0:
         records_screened = records_after_dedup
 
-    # Ground-truth: every included study passed title/abstract screening.
-    # No full-text retrieval step exists, so all sought reports are assessed.
     included_total = included_qualitative + included_quantitative
-    reports_sought = included_total
     reports_not_retrieved = 0
-    reports_assessed = included_total
-    reports_excluded_with_reasons: dict[str, int] = {}  # no full-text exclusions
-    records_excluded_screening = max(0, records_screened - reports_sought)
 
-    excluded_total = 0  # no full-text excluded
+    # Use actual fulltext-stage counts from dual_screening_results when available.
+    # _reports_assessed_raw > included_total signals that real full-text exclusions
+    # occurred (papers assessed at full-text stage but not included). When this
+    # condition holds, use the DB-derived values for PRISMA accuracy. Otherwise
+    # fall back to the abstract-only pipeline assumption (assessed == included).
+    if _reports_assessed_raw > included_total:
+        reports_assessed = _reports_assessed_raw
+        reports_sought = _reports_sought_raw if _reports_sought_raw >= _reports_assessed_raw else _reports_assessed_raw
+        reports_excluded_with_reasons = _reports_excluded_with_reasons_raw
+        excluded_total = reports_assessed - included_total
+    else:
+        reports_sought = included_total
+        reports_assessed = included_total
+        reports_excluded_with_reasons = {}
+        excluded_total = 0
+
+    records_excluded_screening = max(0, records_screened - reports_sought)
     # When records_screened < records_after_dedup, the gap represents records
     # automatically excluded by the BM25 pre-filter or keyword hard-gate before
     # LLM screening. PRISMA 2020 labels these "Automation tools" removals.

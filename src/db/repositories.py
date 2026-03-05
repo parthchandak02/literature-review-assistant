@@ -359,12 +359,23 @@ class WorkflowRepository:
                 if decision == "exclude":
                     ft_excluded += c
 
-        # No full-text stage exists in this pipeline: all sought reports are
-        # directly assessed via abstract text; none are "not retrieved".
-        # ft_sought from the dual_screening_results table can undercount (e.g.
-        # papers routed to extraction via bm25 ranking may not appear there).
-        # The reconciliation to the definitive included count is deferred to
-        # build_prisma_counts which knows the ground-truth.
+        # When full-text exclusions exist, query their reasons from screening_decisions.
+        # The dual_screening_results table records counts but not per-paper exclusion reasons;
+        # the screening_decisions table has the exclusion_reason column populated by the LLM.
+        if ft_excluded > 0:
+            reason_cursor = await self.db.execute(
+                """
+                SELECT COALESCE(exclusion_reason, 'other'), COUNT(DISTINCT paper_id)
+                FROM screening_decisions
+                WHERE workflow_id = ? AND stage = 'fulltext' AND decision = 'exclude'
+                GROUP BY exclusion_reason
+                """,
+                (workflow_id,),
+            )
+            for reason, cnt in await reason_cursor.fetchall():
+                key = str(reason).strip().lower().replace(" ", "_") if reason else "other"
+                exclusion_reasons[key] = exclusion_reasons.get(key, 0) + int(cnt)
+
         reports_not_retrieved = 0  # no retrieval failures in abstract-only pipeline
         return ta_screened, ta_excluded, ft_sought, reports_not_retrieved, ft_assessed, exclusion_reasons
 

@@ -298,13 +298,36 @@ def build_markdown_figures_section(
     return "\n".join(lines)
 
 
+def build_credit_section(author_name: str = "") -> str:
+    """Build a CRediT (Contributor Roles Taxonomy) author contributions section.
+
+    CRediT is required by most Elsevier, Wiley, and MDPI journals.
+    For a tool-assisted systematic review the standard attribution separates
+    the human author's conceptual/editorial role from the automated pipeline's
+    drafting role.
+    """
+    author = author_name.strip() if author_name.strip() else "[Author name]"
+    return (
+        "## CRediT Author Contribution Statement\n\n"
+        f"**{author}:** Conceptualization; Methodology; Software; "
+        "Formal analysis; Writing -- review and editing; Supervision; "
+        "Project administration.\n\n"
+        "**Automated pipeline:** Data curation; Investigation; "
+        "Writing -- original draft.\n\n"
+        "_Note: This review was produced with the assistance of an automated "
+        "systematic review pipeline. All results were reviewed and approved "
+        "by the named author._"
+    )
+
+
 def build_markdown_declarations_section(
     funding: str = "",
     coi: str = "",
     protocol_registered: bool = False,
     registration_id: str = "",
+    author_name: str = "",
 ) -> str:
-    """Build a Declarations section with funding, COI, data availability, and registration."""
+    """Build a Declarations section with funding, COI, data availability, registration, and CRediT."""
     funding_text = funding or "No funding was received for this review."
     coi_text = coi or "The authors declare no conflicts of interest."
     if protocol_registered and registration_id:
@@ -315,6 +338,7 @@ def build_markdown_declarations_section(
             "https://www.crd.york.ac.uk/prospero/ and add the registration number "
             "to review.yaml under protocol.registration_number before submission."
         )
+    credit = build_credit_section(author_name)
     return (
         "## Declarations\n\n"
         f"**Funding:** {funding_text}\n\n"
@@ -322,7 +346,8 @@ def build_markdown_declarations_section(
         "**Data Availability:** All data used in this review are available from "
         "the public databases searched. The extracted data supporting the findings "
         "are available from the corresponding author upon reasonable request.\n\n"
-        f"**Protocol Registration:** {reg_text}"
+        f"**Protocol Registration:** {reg_text}\n\n"
+        f"{credit}"
     )
 
 

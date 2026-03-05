@@ -17,8 +17,11 @@ alwaysApply: false
 
 ## Risk of Bias Tool Routing
 - RCTs -> RoB 2 (5 domains: randomization, deviations, missing data, measurement, selection)
-- Non-randomized -> ROBINS-I (7 domains, different judgment scale: Low/Moderate/Serious/Critical/No Info)
+- Non-randomized, Cohort, Case-control -> ROBINS-I (7 domains: Low/Moderate/Serious/Critical/No Info)
+- Cross-sectional -> CASP (ROBINS-I requires a longitudinal intervention structure that cross-sectional designs lack)
+- Mixed-methods -> MMAT 2018
 - Qualitative -> CASP
+- Other (systematic reviews, narrative, technical reports) -> not_applicable
 - NEVER use summary quality scores -- always domain-based assessment
 
 ## Meta-Analysis Thresholds
