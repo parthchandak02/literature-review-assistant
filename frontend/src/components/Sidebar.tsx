@@ -151,6 +151,11 @@ export function Sidebar({
       liveRun?.status === "cancelled"
     ) {
       void loadHistory()
+      // Second refresh after 3s: the registry write lags behind the SSE "done"
+      // event, so the first call may still see the old status. The delayed
+      // call catches the final persisted status (e.g. "completed").
+      const timer = setTimeout(() => void loadHistory(), 3000)
+      return () => clearTimeout(timer)
     }
   }, [liveRun?.status, loadHistory])
 

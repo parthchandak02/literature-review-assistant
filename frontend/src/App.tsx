@@ -407,7 +407,12 @@ export default function App() {
   // ---------------------------------------------------------------------------
   useEffect(() => {
     const wfId = selectedRun?.workflowId
-    if (!wfId || isViewingLiveRun) return
+    const isTerminalHistory =
+      selectedRun?.historicalStatus != null &&
+      ["cancelled", "done", "completed", "interrupted", "stale"].includes(
+        selectedRun.historicalStatus.toLowerCase(),
+      )
+    if (!wfId || isViewingLiveRun || isTerminalHistory) return
     const workflowId = wfId
 
     let consecutiveMisses = 0
@@ -451,7 +456,7 @@ export default function App() {
     }, 800)
 
     return () => clearInterval(interval)
-  }, [selectedRun?.workflowId, isViewingLiveRun, reset, navigate])
+  }, [selectedRun?.workflowId, selectedRun?.historicalStatus, isViewingLiveRun, reset, navigate])
 
   // ---------------------------------------------------------------------------
   // Keyboard shortcut: Cmd+B / Ctrl+B to toggle sidebar
