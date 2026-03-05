@@ -474,7 +474,7 @@ class SearchNode(BaseNode[ReviewState]):
                 date_end: int | None,
                 error: str | None,
             ) -> None:
-                if rc and rc.verbose:
+                if rc:
                     rc.log_connector_result(
                         name=name,
                         status=status,
@@ -484,7 +484,8 @@ class SearchNode(BaseNode[ReviewState]):
                         date_end=date_end,
                         error=error,
                     )
-                structured_log.log_connector_result(connector=name, status=status, records=records, error=error)
+                else:
+                    structured_log.log_connector_result(connector=name, status=status, records=records, error=error)
                 connector_done_count[0] += 1
                 if rc:
                     rc.advance_screening("phase_2_search", connector_done_count[0], len(connectors))
@@ -681,6 +682,7 @@ class ScreeningNode(BaseNode[ReviewState]):
             )
             on_screening_decision = None
             if rc and hasattr(rc, "log_screening_decision"):
+                _papers_by_id = {p.paper_id: p for p in state.deduped_papers}
 
                 def _on_screening_decision(
                     pid: object,
@@ -689,7 +691,16 @@ class ScreeningNode(BaseNode[ReviewState]):
                     reason: object = None,
                     conf: float | None = None,
                 ) -> None:
-                    rc.log_screening_decision(pid, stg, dec, str(reason) if reason is not None else None, conf)  # type: ignore[union-attr]
+                    _paper = _papers_by_id.get(str(pid))
+                    _title = _paper.title if _paper else None
+                    rc.log_screening_decision(  # type: ignore[union-attr]
+                        pid,
+                        stg,
+                        dec,
+                        str(reason) if reason is not None else None,
+                        conf,
+                        title=_title,
+                    )
 
                 on_screening_decision = _on_screening_decision
             screener = DualReviewerScreener(
@@ -720,10 +731,10 @@ class ScreeningNode(BaseNode[ReviewState]):
                     papers=meta_rejected_papers,
                     decisions=meta_rejected,
                 )
-                if rc and rc.verbose:
-                    rc.console.print(
-                        f"[dim]Metadata pre-filter: {len(meta_rejected)} papers rejected "
-                        f"(missing title/abstract/year), {len(meta_acceptable)} forwarded.[/]"
+                if rc and hasattr(rc, "log_status"):
+                    rc.log_status(
+                        f"Metadata pre-filter: {len(meta_rejected)} rejected (missing title/abstract/year), "
+                        f"{len(meta_acceptable)} forwarded."
                     )
 
             # --- Pre-screening: BM25 ranking (when cap is set) or keyword filter ---
@@ -744,11 +755,11 @@ class ScreeningNode(BaseNode[ReviewState]):
                         papers=pre_excluded_papers,
                         decisions=pre_excluded,
                     )
-                if rc and rc.verbose:
-                    rc.console.print(
-                        f"[dim]BM25 ranking: {len(state.deduped_papers)} papers scored, "
-                        f"{len(papers_for_llm)} top-ranked forwarded to LLM, "
-                        f"{len(pre_excluded)} auto-excluded (low relevance score).[/]"
+                if rc and hasattr(rc, "log_status"):
+                    rc.log_status(
+                        f"BM25 ranking: {len(state.deduped_papers)} scored, "
+                        f"{len(papers_for_llm)} top-ranked to LLM, "
+                        f"{len(pre_excluded)} auto-excluded (low relevance)."
                     )
             else:
                 # Original path: keyword hard-gate -> all passers go to LLM.
@@ -763,10 +774,10 @@ class ScreeningNode(BaseNode[ReviewState]):
                         papers=pre_excluded_papers,
                         decisions=pre_excluded,
                     )
-                    if rc and rc.verbose:
-                        rc.console.print(
-                            f"[dim]Keyword pre-filter: {len(pre_excluded)} auto-excluded, "
-                            f"{len(papers_for_llm)} forwarded to LLM screening.[/]"
+                    if rc and hasattr(rc, "log_status"):
+                        rc.log_status(
+                            f"Keyword pre-filter: {len(pre_excluded)} auto-excluded, "
+                            f"{len(papers_for_llm)} forwarded to LLM screening."
                         )
 
             # --- Adaptive threshold calibration (optional) ---
@@ -975,6 +986,12 @@ class ScreeningNode(BaseNode[ReviewState]):
             # Runs after inclusion decisions; found papers re-enter as screening candidates.
             _citation_chasing = state.settings.search.citation_chasing_enabled if state.settings else False
             if state.included_papers and _citation_chasing:
+                if rc:
+                    rc.emit_phase_start(
+                        "citation_chasing",
+                        f"Following citations for {len(state.included_papers)} included papers...",
+                        total=len(state.included_papers),
+                    )
                 try:
                     known_dois = {p.doi for p in state.deduped_papers if p.doi}
                     chaser = CitationChaser(workflow_id=state.workflow_id)
@@ -983,15 +1000,16 @@ class ScreeningNode(BaseNode[ReviewState]):
                         for sr in chased_results:
                             await repository.save_search_result(sr)
                         new_papers = [p for sr in chased_results for p in sr.papers]
-                        if rc:
-                            rc.emit_phase_start(
-                                "citation_chasing",
-                                f"Citation chasing: {len(new_papers)} candidates found.",
-                                total=0,
-                            )
                         state.deduped_papers = state.deduped_papers + new_papers
+                        if rc:
+                            rc.emit_phase_done("citation_chasing", {"new_papers": len(new_papers)})
+                    else:
+                        if rc:
+                            rc.emit_phase_done("citation_chasing", {"new_papers": 0})
                 except Exception as _cc_exc:
                     logger.warning("Citation chasing failed: %s", _cc_exc)
+                    if rc:
+                        rc.emit_phase_done("citation_chasing", {"new_papers": 0, "error": str(_cc_exc)})
 
             checkpoint_status = "partial" if (rc and rc.should_proceed_with_partial()) else "completed"
             await repository.save_checkpoint(
@@ -1012,6 +1030,10 @@ class ScreeningNode(BaseNode[ReviewState]):
                         table.add_row(paper_id[:16] + "...", stage, decision, rationale)
                     rc.console.print(table)
         if rc:
+            if hasattr(rc, "log_status"):
+                rc.log_status(
+                    f"Saving checkpoint... {len(state.included_papers)} papers included of {len(state.deduped_papers)} screened."
+                )
             rc.emit_phase_done(
                 "phase_3_screening",
                 {"included": len(state.included_papers), "screened": len(state.deduped_papers)},
@@ -1081,6 +1103,9 @@ class ExtractionQualityNode(BaseNode[ReviewState]):
 
         router = StudyRouter()
         grade = GradeAssessor()
+
+        if rc and hasattr(rc, "log_status"):
+            rc.log_status(f"Loading extraction records for {len(state.included_papers)} included papers...")
 
         rob2_rows: list = []
         async with get_db(state.db_path) as db:

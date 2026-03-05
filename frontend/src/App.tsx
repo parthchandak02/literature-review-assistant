@@ -201,11 +201,14 @@ export default function App() {
   )
 
   // ---------------------------------------------------------------------------
-  // Restore a historical run from the URL (direct navigation / refresh)
+  // Restore a historical run from the URL (direct navigation / refresh).
+  // The `isAborted` callback lets the mount effect cancel stale calls when
+  // React StrictMode double-invokes the effect (mount -> cleanup -> mount).
   // ---------------------------------------------------------------------------
-  async function restoreRunFromUrl(workflowId: string, tab: RunTab) {
+  async function restoreRunFromUrl(workflowId: string, tab: RunTab, isAborted?: () => boolean) {
     try {
       const history = await fetchHistory()
+      if (isAborted?.()) return
       const entry = history.find((e) => e.workflow_id === workflowId)
       if (!entry) {
         navigate("/", { replace: true })
@@ -213,6 +216,7 @@ export default function App() {
       }
       // If the workflow has an in-process active task, connect SSE directly.
       if (entry.live_run_id) {
+        if (isAborted?.()) return
         const now = new Date()
         reset()
         liveRunNavigatedRef.current = workflowId
@@ -234,7 +238,8 @@ export default function App() {
         return
       }
       const res = await attachHistory(entry)
-      const isCompleted = ["completed", "done", "stale", "interrupted"].includes(
+      if (isAborted?.()) return
+      const isCompleted = ["completed", "done", "stale", "interrupted", "cancelled", "failed", "error"].includes(
         entry.status.toLowerCase(),
       )
       setSelectedRun({
@@ -252,7 +257,7 @@ export default function App() {
       })
       setActiveRunTab(tab)
     } catch {
-      navigate("/", { replace: true })
+      if (!isAborted?.()) navigate("/", { replace: true })
     }
   }
 
@@ -260,6 +265,12 @@ export default function App() {
   // Mount: restore live SSE state from localStorage AND restore selectedRun from URL
   // ---------------------------------------------------------------------------
   useEffect(() => {
+    // Track whether this effect invocation was superseded (React StrictMode
+    // double-invokes effects: mount -> cleanup -> mount). Setting `aborted = true`
+    // in the cleanup cancels any in-flight async work from the first invocation
+    // so the second invocation starts fresh without duplicate API calls.
+    let aborted = false
+
     const stored = loadLiveRun()
 
     // Always reconnect SSE state from localStorage if available.
@@ -293,7 +304,11 @@ export default function App() {
       })
     } else {
       // URL points to a historical run -- load from the history API.
-      void restoreRunFromUrl(urlWfId, urlTab)
+      void restoreRunFromUrl(urlWfId, urlTab, () => aborted)
+    }
+
+    return () => {
+      aborted = true
     }
   }, []) // eslint-disable-line react-hooks/exhaustive-deps -- mount only
 
@@ -417,13 +432,20 @@ export default function App() {
 
     let consecutiveMisses = 0
     const MAX_MISSES = 10
+    // Guard: stop polling as soon as we successfully switch to live mode.
+    // Without this, the interval keeps calling reset()+setLiveRunId() every
+    // 800ms even after a successful switch, causing the event log to flicker.
+    let switched = false
 
     async function checkAndSwitch() {
+      if (switched) return
       const res = await fetchActiveRun(workflowId)
       if (!res) {
         consecutiveMisses++
         return
       }
+      // Mark as switched immediately so concurrent/delayed callbacks are no-ops.
+      switched = true
       consecutiveMisses = 0
       const now = new Date()
       reset()
@@ -448,7 +470,7 @@ export default function App() {
 
     void checkAndSwitch()
     const interval = setInterval(() => {
-      if (consecutiveMisses >= MAX_MISSES) {
+      if (switched || consecutiveMisses >= MAX_MISSES) {
         clearInterval(interval)
         return
       }
@@ -614,7 +636,7 @@ export default function App() {
     }
     // Historical run: replay events from DB.
     const res = await attachHistory(entry)
-    const isCompleted = ["completed", "done", "stale", "interrupted"].includes(entry.status.toLowerCase())
+    const isCompleted = ["completed", "done", "stale", "interrupted", "cancelled", "failed", "error"].includes(entry.status.toLowerCase())
     setSelectedRun({
       runId: res.run_id,
       workflowId: entry.workflow_id,

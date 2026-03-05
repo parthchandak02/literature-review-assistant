@@ -423,6 +423,10 @@ class RunContext:
             return
         self.console.print(f"[yellow]Rate limit[/] ({tier}): {slots_used}/{limit} slots used, waiting...")
 
+    def log_status(self, message: str) -> None:
+        """Log a short status message visible even when not verbose."""
+        self.console.print(f"[dim]{message}[/]")
+
     def log_screening_decision(
         self,
         paper_id: str,
@@ -430,14 +434,16 @@ class RunContext:
         decision: str,
         reason: str | None = None,
         confidence: float | None = None,
+        title: str | None = None,
     ) -> None:
         """Log a screening decision when verbose."""
         structured_log.log_screening_decision(paper_id=paper_id, stage=stage, decision=decision, rationale=reason)
         if not self.verbose:
             return
+        label = (title[:50] if title else None) or f"{paper_id[:12]}..."
         reason_snippet = (str(reason) if reason is not None else "")[:60]
         conf_str = f" ({confidence:.2f})" if confidence is not None else ""
-        self.console.print(f"  [dim]{paper_id[:12]}...[/] {stage} -> [bold]{decision}[/]{conf_str} {reason_snippet}")
+        self.console.print(f"  [dim]{label}[/] {stage} -> [bold]{decision}[/]{conf_str} {reason_snippet}")
 
     def advance_screening(self, phase_name: str, current: int, total: int) -> None:
         """Advance screening progress bar."""
@@ -519,7 +525,7 @@ class WebRunContext:
 
         event.setdefault(
             "ts",
-            datetime.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z",
+            datetime.datetime.now(datetime.UTC).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z",
         )
         if self.on_event is not None:
             try:
@@ -700,6 +706,7 @@ class WebRunContext:
         decision: str,
         reason: str | None = None,
         confidence: float | None = None,
+        title: str | None = None,
     ) -> None:
         structured_log.log_screening_decision(paper_id=paper_id, stage=stage, decision=decision, rationale=reason)
         payload: dict[str, Any] = {
@@ -710,7 +717,15 @@ class WebRunContext:
         }
         if confidence is not None:
             payload["confidence"] = confidence
+        if title:
+            payload["title"] = title[:80]
+        if reason:
+            payload["reason"] = reason[:100]
         self._emit(payload)
+
+    def log_status(self, message: str) -> None:
+        """Emit a short status message to the SSE stream -- visible during silent gaps."""
+        self._emit({"type": "status", "message": message})
 
     def advance_screening(self, phase_name: str, current: int, total: int) -> None:
         self._emit(

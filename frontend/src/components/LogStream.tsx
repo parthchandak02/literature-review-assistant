@@ -3,13 +3,17 @@ import { cn } from "@/lib/utils"
 import { PHASE_LABELS } from "@/lib/constants"
 import type { ReviewEvent } from "@/lib/api"
 import { eventToLogLine } from "@/lib/logLine"
+import type { LogLevel } from "@/lib/logLine"
 
 // Event types that produce no meaningful user-facing log line and should be
 // filtered out of the rendered output (infrastructure / plumbing events).
-const SKIP_EVENT_TYPES = new Set(["workflow_id_ready", "heartbeat"])
+// "progress" is intentionally suppressed -- the Phase Timeline progress bar
+// already shows per-phase progress. Status events (amber "..." lines) fill in
+// the "is anything happening?" signal during silent stretches.
+const SKIP_EVENT_TYPES = new Set(["workflow_id_ready", "heartbeat", "progress"])
 
 // ---------------------------------------------------------------------------
-// Render item types (phase separators + LLM grouping)
+// Render item types (phase separators + event rows)
 // ---------------------------------------------------------------------------
 
 type RenderItem =
@@ -38,6 +42,22 @@ function buildRenderItems(events: ReviewEvent[]): RenderItem[] {
   }
 
   return items
+}
+
+// ---------------------------------------------------------------------------
+// Row styling per level
+// ---------------------------------------------------------------------------
+
+function levelClass(level: LogLevel): string {
+  switch (level) {
+    case "error":   return "text-red-400"
+    case "warn":    return "text-amber-400"
+    case "info":    return "text-zinc-200"
+    case "dim":     return "text-zinc-600"
+    case "status":  return "text-amber-500/70 italic"
+    // include/exclude handled separately
+    default:        return "text-zinc-600"
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -117,17 +137,57 @@ export function LogStream({ events, autoScroll = true }: LogStreamProps) {
 
           const { text, level } = eventToLogLine(item.ev)
           const errorEv = item.ev.type === "error" ? (item.ev as { traceback?: string }) : null
+
+          // Screening decisions get a colored left-border card treatment.
+          if (level === "include" || level === "exclude") {
+            const isInclude = level === "include"
+            return (
+              <div key={item.key} className="flex flex-col gap-0.5">
+                <div
+                  className={cn(
+                    "flex items-baseline gap-2 pl-2 border-l-2 rounded-r py-0.5",
+                    isInclude
+                      ? "border-emerald-500 bg-emerald-500/5"
+                      : "border-zinc-700",
+                  )}
+                >
+                  {/* Colored INCLUDE / EXCLUDE badge */}
+                  <span className={cn(
+                    "shrink-0 font-bold text-[10px] tracking-wider uppercase select-none",
+                    isInclude ? "text-emerald-400" : "text-zinc-600",
+                  )}>
+                    {isInclude ? "INCLUDE" : "EXCLUDE"}
+                  </span>
+                  {/* Full log line (timestamp + label + conf + reason) */}
+                  <span className={cn(
+                    "whitespace-pre-wrap break-all min-w-0",
+                    isInclude ? "text-emerald-300" : "text-zinc-500",
+                  )}>
+                    {/* Strip the leading "[HH:MM:SS] INCLUDE/EXCLUDE " prefix since the badge shows it */}
+                    {text.replace(/^\[\d{2}:\d{2}:\d{2}\] (?:INCLUDE|EXCLUDE)\s+/, "")}
+                  </span>
+                </div>
+              </div>
+            )
+          }
+
+          // Status events ("..." amber working indicator)
+          if (level === "status") {
+            return (
+              <div key={item.key} className="flex items-center gap-1.5 text-amber-500/60 italic">
+                <span className="shrink-0 text-amber-500/40">...</span>
+                <span className="whitespace-pre-wrap break-all">
+                  {/* Strip "[HH:MM:SS] ...    " prefix -- just show the message */}
+                  {text.replace(/^\[\d{2}:\d{2}:\d{2}\] \.{3}\s+/, "")}
+                </span>
+              </div>
+            )
+          }
+
+          // All other event types -- plain text with level-based color
           return (
             <div key={item.key} className="flex flex-col gap-1">
-              <div
-                className={cn(
-                  "whitespace-pre-wrap break-all",
-                  level === "error" && "text-red-400",
-                  level === "warn" && "text-amber-400",
-                  level === "info" && "text-zinc-200",
-                  level === "dim" && "text-zinc-600",
-                )}
-              >
+              <div className={cn("whitespace-pre-wrap break-all", levelClass(level))}>
                 {text}
               </div>
               {errorEv?.traceback && (

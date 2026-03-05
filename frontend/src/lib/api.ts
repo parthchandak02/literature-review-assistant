@@ -39,10 +39,12 @@ export type ReviewEvent =
   | { type: "progress"; phase: string; current: number; total: number; ts: string }
   | { type: "api_call"; source: string; status: string; phase: string; call_type: string; model: string | null; paper_id: string | null; latency_ms: number | null; tokens_in: number | null; tokens_out: number | null; cost_usd: number | null; records: number | null; details: string | null; section_name: string | null; word_count: number | null; ts: string }
   | { type: "connector_result"; name: string; status: string; records: number; error: string | null; ts: string }
-  | { type: "screening_decision"; paper_id: string; stage: string; decision: string; confidence?: number; ts: string }
+  | { type: "screening_decision"; paper_id: string; stage: string; decision: string; confidence?: number; title?: string; reason?: string; ts: string }
   | { type: "extraction_paper"; paper_id: string; design: string; rob_judgment: string; ts: string }
   | { type: "synthesis"; feasible: boolean; groups: number; n_studies: number; direction: string; ts: string }
   | { type: "rate_limit_wait"; tier: string; slots_used: number; limit: number; ts: string }
+  | { type: "status"; message: string; ts: string }
+  | { type: "screening_calibration"; include_threshold: number; exclude_threshold: number; kappa: number; iterations: number; sample_size: number; ts: string }
   | { type: "db_ready"; ts: string }
   | { type: "workflow_id_ready"; workflow_id: string }
   | { type: "done"; outputs: Record<string, unknown>; ts?: string }
