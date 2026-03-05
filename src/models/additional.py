@@ -43,6 +43,10 @@ class PRISMACounts(BaseModel):
     total_identified_databases: int
     total_identified_other: int
     duplicates_removed: int
+    # Records excluded before LLM screening by automated pre-filter (BM25 ranking
+    # auto-exclusion or keyword hard-gate). PRISMA 2020 labels this as
+    # "Records removed before screening: Automation tools (n=X)".
+    automation_excluded: int = 0
     records_screened: int
     records_excluded_screening: int
     reports_sought: int

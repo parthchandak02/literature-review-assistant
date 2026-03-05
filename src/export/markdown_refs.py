@@ -3,15 +3,90 @@
 from __future__ import annotations
 
 import json
+import logging
 import re
 from pathlib import Path
 from typing import Any
 
 from src.quality.grade import build_sof_table, sof_table_to_markdown
 
+logger = logging.getLogger(__name__)
+
+
+def _normalize_doi(doi: str | None) -> str:
+    """Normalize DOI to https://doi.org/ URL format.
+
+    Handles bare DOIs (10.X...), doi.org URLs (with or without https://),
+    and already-normalized URLs. Returns empty string for None or empty input.
+    """
+    if not doi:
+        return ""
+    doi = doi.strip()
+    if not doi:
+        return ""
+    # Already a full URL
+    if doi.lower().startswith("https://doi.org/") or doi.lower().startswith("http://doi.org/"):
+        return f"https://doi.org/{doi.split('doi.org/', 1)[-1]}"
+    # doi.org URL without scheme
+    if doi.lower().startswith("doi.org/"):
+        return f"https://{doi}"
+    # doi: prefix (e.g. "doi:10.1000/xyz")
+    if doi.lower().startswith("doi:"):
+        return f"https://doi.org/{doi[4:].lstrip('/')}"
+    # Bare DOI (starts with 10.)
+    if doi.startswith("10."):
+        return f"https://doi.org/{doi}"
+    # Unknown format -- return as-is
+    return doi
+
+
+def _capitalize_name_part(name: str) -> str:
+    """Capitalize each word in a name part, preserving hyphenated names.
+
+    Examples:
+      'han-na' -> 'Han-na'
+      'k lynette' -> 'K. Lynette'  (initial without period)
+      'mcdonald' -> 'McDonald' (naive; full de/van/von handling not implemented)
+    """
+    if not name:
+        return name
+    # Handle hyphenated names: capitalize each segment
+    segments = name.split("-")
+    capitalized = []
+    for seg in segments:
+        # Capitalize first char only; preserve rest (e.g. "na" stays "na" not "Na")
+        capitalized.append(seg[0].upper() + seg[1:] if seg else seg)
+    return "-".join(capitalized)
+
+
+def _fmt_author_str(raw: str) -> str:
+    """Capitalize and lightly normalize a raw author string (Last, F. format)."""
+    if not raw:
+        return raw
+    # If already looks properly formatted (capital start), return as-is
+    if raw[0].isupper():
+        return raw
+    # Otherwise try to capitalize the name parts
+    # Common format: "last, F." or "last first" or just "last"
+    if "," in raw:
+        parts = raw.split(",", 1)
+        last = _capitalize_name_part(parts[0].strip())
+        rest = parts[1].strip()
+        # Capitalize initials in rest (e.g. "k." -> "K.")
+        rest_parts = rest.split()
+        rest_fixed = " ".join(p[0].upper() + p[1:] if p else p for p in rest_parts)
+        return f"{last}, {rest_fixed}" if rest_fixed else last
+    # No comma - try capitalizing all words
+    words = raw.split()
+    return " ".join(_capitalize_name_part(w) for w in words)
+
 
 def _fmt_authors(authors_json: str) -> str:
-    """Return 'Last, F. and Last, F. et al.' from authors JSON."""
+    """Return 'Last, F. and Last, F. et al.' from authors JSON.
+
+    Author names are capitalized to correct for sources that store them
+    in lowercase (e.g. 'han-na Cho' -> 'Han-na Cho').
+    """
     try:
         authors = json.loads(authors_json)
     except Exception:
@@ -21,11 +96,16 @@ def _fmt_authors(authors_json: str) -> str:
     parts: list[str] = []
     for a in authors:
         if isinstance(a, str):
-            parts.append(a)
+            parts.append(_fmt_author_str(a))
         elif isinstance(a, dict):
             last = a.get("last", a.get("family", ""))
             first = a.get("first", a.get("given", ""))
-            initial = (first[0] + ".") if first else ""
+            # Capitalize last name and first initial
+            last = _capitalize_name_part(last) if last else ""
+            initial = ""
+            if first:
+                first_fixed = _capitalize_name_part(first.split()[0]) if first.split() else first
+                initial = first_fixed[0] + "."
             formatted = f"{last}, {initial}".strip(", ") if last else initial
             if formatted:
                 parts.append(formatted)
@@ -342,6 +422,14 @@ def build_study_characteristics_table(
         setting_str = _RAW_SETTING_NORMALIZE.get(raw_setting.lower(), raw_setting) or "NR"
 
         # Key outcomes - take first two real (non-placeholder) outcome names
+        _HTML_BOILERPLATE_MARKERS = (
+            "html boilerplate",
+            "metadata",
+            "text excerpt",
+            "javascript",
+            "<!doctype",
+            "<html",
+        )
         real_names = [
             o.name.strip() for o in (rec.outcomes or [])[:3] if o.name.strip().lower() not in _PLACEHOLDER_OUTCOME_NAMES
         ]
@@ -354,7 +442,17 @@ def build_study_characteristics_table(
                 summary = rec.results_summary.get("summary", "")
             elif isinstance(rec.results_summary, str):
                 summary = rec.results_summary
-            outcomes_str = summary[:80].rstrip() + "..." if len(summary) > 80 else summary or "NR"
+            # Guard: if the summary looks like HTML boilerplate or LLM error text,
+            # replace with "NR" rather than leaking extraction artifacts into the table.
+            summary_lower = summary.lower()
+            if any(marker in summary_lower for marker in _HTML_BOILERPLATE_MARKERS):
+                outcomes_str = "NR"
+                logger.warning(
+                    "HTML/boilerplate detected in results_summary for paper %s; Key Outcomes set to NR.",
+                    paper_id,
+                )
+            else:
+                outcomes_str = summary[:80].rstrip() + "..." if len(summary) > 80 else summary or "NR"
 
         # Full text retrieved: Yes when extraction_source is not "text" (abstract-only)
         extraction_source = getattr(rec, "extraction_source", None) or "text"
@@ -385,7 +483,11 @@ def build_study_characteristics_table(
     ]
 
     total_records = len(rows) + excluded_count
-    footnote = "_NR = Not Reported; n.d. = no publication date available. Full Text Retrieved: Yes = full text was obtained for extraction; No = abstract/title only._"
+    footnote = (
+        "_NR = Not Reported; n.d. = no publication date available. "
+        "Full Text Retrieved: Yes = full-text PDF was retrieved and used for data extraction; "
+        "No = extraction used abstract and extended metadata only (no full-text PDF obtained)._"
+    )
     if excluded_count:
         footnote += (
             f" _{excluded_count} of {total_records} included studies omitted from "
@@ -487,11 +589,26 @@ def build_picos_table(review_config: Any) -> str:
     inc_str = "; ".join(str(c) for c in inclusion) if inclusion else "NR"
     exc_str = "; ".join(str(c) for c in exclusion) if exclusion else "NR"
 
+    # Study design row: derive from review_type and any explicit study_design field
+    review_type = getattr(review_config, "review_type", "") or ""
+    study_design_val = getattr(pico, "study_design", None) or getattr(pico, "study_designs", None) or ""
+    if not study_design_val:
+        if review_type.lower() == "rct" or review_type.lower() == "randomized":
+            study_design_val = "Randomized controlled trials (RCTs)"
+        elif review_type.lower() in ("systematic", "sr"):
+            study_design_val = (
+                "Non-randomized studies of interventions, cohort studies, cross-sectional studies, "
+                "and observational or usability study designs"
+            )
+        else:
+            study_design_val = "All study designs considered"
+
     rows = [
         ("Population", getattr(pico, "population", "") or "NR"),
         ("Intervention", getattr(pico, "intervention", "") or "NR"),
         ("Comparison", getattr(pico, "comparison", "") or "NR"),
         ("Outcome", getattr(pico, "outcome", "") or "NR"),
+        ("Study design", study_design_val),
         ("Inclusion criteria", inc_str),
         ("Exclusion criteria", exc_str),
     ]
@@ -619,8 +736,9 @@ def build_markdown_references_section(
             if journal:
                 entry += f" *{journal}*,"
             entry += f" {year_str}."
-            if doi:
-                entry += f" doi: {doi}"
+            doi_url = _normalize_doi(doi)
+            if doi_url:
+                entry += f" doi: {doi_url}"
             entries.append(entry)
     else:
         citekey_map: dict[str, tuple] = {row[1]: row for row in citation_rows}
@@ -639,8 +757,9 @@ def build_markdown_references_section(
             if journal:
                 entry += f" *{journal}*,"
             entry += f" {year_str}."
-            if doi:
-                entry += f" doi: {doi}"
+            doi_url = _normalize_doi(doi)
+            if doi_url:
+                entry += f" doi: {doi_url}"
             entries.append(entry)
 
     if not entries:

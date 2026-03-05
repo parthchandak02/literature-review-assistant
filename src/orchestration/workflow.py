@@ -112,6 +112,7 @@ from src.writing.humanizer import humanize_async
 from src.writing.orchestration import (
     prepare_writing_context,
     register_citations_from_papers,
+    register_methodology_citations,
     write_section_with_validation,
 )
 from src.writing.prompts.sections import (
@@ -683,6 +684,8 @@ class ScreeningNode(BaseNode[ReviewState]):
             on_screening_decision = None
             if rc and hasattr(rc, "log_screening_decision"):
                 _papers_by_id = {p.paper_id: p for p in state.deduped_papers}
+                # Reasons emitted by pre-LLM heuristics (no LLM call was made).
+                _heuristic_reasons = {"insufficient_content_heuristic", "protocol_only_heuristic"}
 
                 def _on_screening_decision(
                     pid: object,
@@ -691,15 +694,18 @@ class ScreeningNode(BaseNode[ReviewState]):
                     reason: object = None,
                     conf: float | None = None,
                 ) -> None:
+                    _reason_str = str(reason) if reason is not None else None
+                    _method = "heuristic" if _reason_str in _heuristic_reasons else "llm"
                     _paper = _papers_by_id.get(str(pid))
                     _title = _paper.title if _paper else None
                     rc.log_screening_decision(  # type: ignore[union-attr]
                         pid,
                         stg,
                         dec,
-                        str(reason) if reason is not None else None,
+                        _reason_str,
                         conf,
                         title=_title,
+                        method=_method,
                     )
 
                 on_screening_decision = _on_screening_decision
@@ -1965,6 +1971,7 @@ class WritingNode(BaseNode[ReviewState]):
             provider = LLMProvider(state.settings, repository)
 
             await register_citations_from_papers(citation_repo, state.included_papers)
+            await register_methodology_citations(citation_repo)
 
             if len(state.included_papers) == 0:
                 # Zero-papers guard: produce minimal manuscript without LLM calls

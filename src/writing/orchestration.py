@@ -28,6 +28,58 @@ logger = logging.getLogger(__name__)
 
 _GENERIC_AUTHOR_TOKENS = frozenset({"unknown", "none", "na", "author", "anonymous", "anon"})
 
+# Fixed methodology references that every systematic review should be able to cite.
+# These are registered alongside the included study citations so the writing LLM
+# can cite PRISMA 2020, GRADE, and risk-of-bias tools when appropriate.
+_METHODOLOGY_REFS: list[tuple[str, str, str, list[str], int, str, str]] = [
+    # (citekey, doi, title, authors, year, journal, url)
+    (
+        "Page2021",
+        "10.1136/bmj.n71",
+        "PRISMA 2020 explanation and elaboration: updated guidance and exemplars for reporting systematic reviews",
+        ["Page MJ", "Moher D", "Bossuyt PM", "Boutron I", "Hoffmann TC", "Mulrow CD", "Shamseer L", "Tetzlaff JM", "Akl EA", "McKenzie JE"],
+        2021,
+        "BMJ",
+        "https://doi.org/10.1136/bmj.n71",
+    ),
+    (
+        "Sterne2019",
+        "10.1136/bmj.l4898",
+        "RoB 2: a revised tool for assessing risk of bias in randomised trials",
+        ["Sterne JAC", "Savovic J", "Page MJ", "Elbers RG", "Blencowe NS", "Boutron I", "Cates CJ", "Cheng HY", "Corbett MS"],
+        2019,
+        "BMJ",
+        "https://doi.org/10.1136/bmj.l4898",
+    ),
+    (
+        "Sterne2016",
+        "10.1136/bmj.i4919",
+        "ROBINS-I: a tool for assessing risk of bias in non-randomised studies of interventions",
+        ["Sterne JA", "Hernan MA", "Reeves BC", "Savovic J", "Berkman ND", "Viswanathan M", "Henry D", "Altman DG"],
+        2016,
+        "BMJ",
+        "https://doi.org/10.1136/bmj.i4919",
+    ),
+    (
+        "Guyatt2011",
+        "10.1136/bmj.d5647",
+        "GRADE guidelines: 1. Introduction-GRADE evidence profiles and summary of findings tables",
+        ["Guyatt G", "Oxman AD", "Akl EA", "Kunz R", "Vist G", "Brozek J", "Norris S", "Falck-Ytter Y", "Glasziou P", "DeBeer H"],
+        2011,
+        "J Clin Epidemiol",
+        "https://doi.org/10.1136/bmj.d5647",
+    ),
+    (
+        "Cohen1960",
+        "10.1177/001316446002000104",
+        "A coefficient of agreement for nominal scales",
+        ["Cohen J"],
+        1960,
+        "Educ Psychol Meas",
+        "https://doi.org/10.1177/001316446002000104",
+    ),
+]
+
 # Title words that are too generic to serve as a useful citekey base.
 _GENERIC_TITLE_WORDS = frozenset(
     {
@@ -264,6 +316,37 @@ async def extract_and_register_claims(
     return claims_registered
 
 
+async def register_methodology_citations(repo: CitationRepository) -> list[str]:
+    """Register fixed methodology references (PRISMA 2020, GRADE, RoB tools, etc.).
+
+    These citekeys are added to the valid_citekeys list so the writing LLM can
+    cite methodology papers alongside the included study references.
+    Returns list of newly registered (or already-existing) methodology citekeys.
+    """
+    existing = set(await repo.get_citekeys())
+    registered: list[str] = []
+    for citekey, doi, title, authors, year, journal, _url in _METHODOLOGY_REFS:
+        registered.append(citekey)
+        if citekey in existing:
+            continue
+        record = CitationEntryRecord(
+            citekey=citekey,
+            doi=doi,
+            title=title,
+            authors=authors,
+            year=year,
+            journal=journal,
+            bibtex=None,
+            resolved=True,
+        )
+        try:
+            await repo.register_citation(record)
+            existing.add(citekey)
+        except Exception as exc:
+            logger.debug("Could not register methodology citation %s: %s", citekey, exc)
+    return registered
+
+
 async def register_citations_from_papers(repo: CitationRepository, papers: list[CandidatePaper]) -> None:
     """Pre-register citations for included papers so validate_section passes.
     Skips citekeys already in DB (idempotent for resume)."""
@@ -394,12 +477,30 @@ async def write_section_with_validation(
     return content
 
 
+def build_methodology_catalog() -> str:
+    """Return a citation catalog string for the fixed methodology references.
+
+    Appended to the included-study catalog so the writing LLM can cite
+    PRISMA 2020, GRADE, and risk-of-bias tools in the Methods section.
+    """
+    lines = [
+        f"[{citekey}] {title} ({year})"
+        for citekey, _doi, title, _authors, year, _journal, _url in _METHODOLOGY_REFS
+    ]
+    return "\n".join(lines)
+
+
 def prepare_writing_context(
     included_papers: list[CandidatePaper],
     narrative_synthesis: dict | None,
     settings: SettingsConfig,
 ) -> tuple[StylePatterns, str]:
-    """Prepare style patterns and citation catalog for writing phase."""
+    """Prepare style patterns and citation catalog for writing phase.
+
+    The catalog includes both included-study citekeys and fixed methodology
+    references (PRISMA 2020, GRADE, RoB tools) so the writing LLM can cite
+    them in the Methods section.
+    """
     style_enabled = getattr(
         getattr(settings, "writing", None),
         "style_extraction",
@@ -410,6 +511,13 @@ def prepare_writing_context(
         patterns = extract_style_patterns(paper_texts)
     else:
         patterns = extract_style_patterns([])
-    catalog = build_citation_catalog_from_papers(included_papers)
+    included_catalog = build_citation_catalog_from_papers(included_papers)
+    methodology_catalog = build_methodology_catalog()
+    # Methodology refs appended after included studies; separator makes it clear
+    catalog_parts = [included_catalog]
+    if methodology_catalog:
+        catalog_parts.append("# Methodology references (cite when describing study design, PRISMA, GRADE, RoB):")
+        catalog_parts.append(methodology_catalog)
+    catalog = "\n".join(catalog_parts)
     _ = narrative_synthesis
     return patterns, catalog

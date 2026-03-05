@@ -199,15 +199,14 @@ def build_sof_table(
     replaced with 'Outcome from included studies (N)' fallback labels.
     """
     rows: list[GradeSoFRow] = []
-    placeholder_counter = 0
     for a in assessments:
         raw_name = getattr(a, "outcome_name", None) or ""
         name_norm = raw_name.lower().strip().replace(" ", "_")
+        # Skip placeholder-named outcomes entirely (consistent with Evidence Profile behavior).
+        # These carry no useful information and produce "Outcome from included studies (N)" noise.
         if name_norm in _PLACEHOLDER_OUTCOME_NAMES or not raw_name.strip():
-            placeholder_counter += 1
-            display_name = _outcome_display_name(raw_name, placeholder_counter)
-        else:
-            display_name = raw_name.replace("_", " ").strip()
+            continue
+        display_name = raw_name.replace("_", " ").strip()
         other: list[str] = []
         if a.large_effect_upgrade:
             other.append(_UPGRADE_LABEL.get(a.large_effect_upgrade, "upgrade"))
@@ -267,7 +266,15 @@ def sof_table_to_markdown(table: GradeSoFTable) -> str:
         certainty_str = (
             r.certainty.value.upper().replace("_", " ") if hasattr(r.certainty, "value") else str(r.certainty).upper()
         )
-        effect = (r.effect_summary or "").replace("|", "/").replace("\n", " ")[:120]
+        # Truncate effect summary at a word boundary to avoid mid-sentence cuts.
+        effect_raw = (r.effect_summary or "").replace("|", "/").replace("\n", " ").strip()
+        _effect_limit = 160
+        if len(effect_raw) > _effect_limit:
+            # Find last space before limit to avoid cutting mid-word
+            cutoff = effect_raw.rfind(" ", 0, _effect_limit)
+            effect = effect_raw[: cutoff if cutoff > _effect_limit // 2 else _effect_limit] + "..."
+        else:
+            effect = effect_raw
         rows.append(
             f"| {r.outcome_name} | {r.n_studies} | {r.study_design} "
             f"| {r.risk_of_bias} | {r.inconsistency} | {r.indirectness} "

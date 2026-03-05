@@ -435,6 +435,7 @@ class RunContext:
         reason: str | None = None,
         confidence: float | None = None,
         title: str | None = None,
+        method: str | None = None,
     ) -> None:
         """Log a screening decision when verbose."""
         structured_log.log_screening_decision(paper_id=paper_id, stage=stage, decision=decision, rationale=reason)
@@ -443,7 +444,8 @@ class RunContext:
         label = (title[:50] if title else None) or f"{paper_id[:12]}..."
         reason_snippet = (str(reason) if reason is not None else "")[:60]
         conf_str = f" ({confidence:.2f})" if confidence is not None else ""
-        self.console.print(f"  [dim]{label}[/] {stage} -> [bold]{decision}[/]{conf_str} {reason_snippet}")
+        method_tag = f" [{method.upper()}]" if method else ""
+        self.console.print(f"  [dim]{label}[/]{method_tag} {stage} -> [bold]{decision}[/]{conf_str} {reason_snippet}")
 
     def advance_screening(self, phase_name: str, current: int, total: int) -> None:
         """Advance screening progress bar."""
@@ -707,6 +709,7 @@ class WebRunContext:
         reason: str | None = None,
         confidence: float | None = None,
         title: str | None = None,
+        method: str | None = None,
     ) -> None:
         structured_log.log_screening_decision(paper_id=paper_id, stage=stage, decision=decision, rationale=reason)
         payload: dict[str, Any] = {
@@ -721,6 +724,8 @@ class WebRunContext:
             payload["title"] = title[:80]
         if reason:
             payload["reason"] = reason[:100]
+        if method:
+            payload["method"] = method
         self._emit(payload)
 
     def log_status(self, message: str) -> None:

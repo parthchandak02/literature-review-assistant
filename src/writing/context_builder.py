@@ -45,12 +45,22 @@ class WritingGroundingData(BaseModel):
 
     # Search
     databases_searched: list[str]
+    # Databases that were searched but returned 0 records. Must be disclosed per
+    # PRISMA 2020 item 7 ("For each database or register searched, the date, scope,
+    # and number of records retrieved").
+    zero_yield_databases: list[str] = []
     other_methods_searched: list[str]
     search_date: str
 
     # PRISMA counts
     total_identified: int
     duplicates_removed: int
+    # Records removed by automated pre-screening (BM25 ranking auto-exclusion or
+    # keyword hard-gate) BEFORE LLM title/abstract screening. PRISMA 2020 item 16
+    # requires this to appear as "Automation tools (n=X)" in the flow diagram and
+    # to be disclosed in the Methods section ("Records removed before screening").
+    # 0 when no automated pre-filter was applied.
+    automation_excluded: int = 0
     total_screened: int
     fulltext_assessed: int
     total_included: int
@@ -110,14 +120,18 @@ class WritingGroundingData(BaseModel):
     # Search/source limitation (e.g. Scopus-only for institutional access)
     search_limitation: str | None = None
 
-    # AI screening transparency (PRISMA 2020 item 8 -- Selection process).
-    # Describes the dual-reviewer screening method accurately for the Methods section.
-    # Injected verbatim so the LLM cannot misrepresent AI-assisted screening as
-    # "two human reviewers" (which would be a factual error failing peer review).
+    # Screening method description (PRISMA 2020 item 8 -- Selection process).
+    # Injected verbatim into every writing prompt.
+    # ACCURACY NOTE: The pipeline does not perform a separate full-text PDF retrieval step.
+    # Title/abstract screening and eligibility determination both use abstract-extended records.
+    # The "full-text assessed" PRISMA count refers to papers that advanced to the eligibility
+    # phase, NOT papers for which full PDFs were retrieved. The description below is accurate.
     screening_method_description: str = (
-        "Two independent AI reviewers (large language models) screened titles and abstracts, "
-        "with disagreements resolved by a third AI adjudicator. "
-        "Full-text articles were assessed using the same AI-assisted dual-review process. "
+        "Two independent reviewers (large language models) screened titles and abstracts, "
+        "with disagreements resolved by a third adjudicator. "
+        "Papers advancing from title/abstract screening were assessed for full eligibility "
+        "using extended metadata and available abstract text; full-text PDFs were not "
+        "retrieved for this review. "
         "Inter-rater reliability was measured using Cohen's kappa on the subset of papers "
         "requiring dual review."
     )
@@ -146,6 +160,10 @@ def build_writing_grounding(
     # All bibliographic databases searched (including those with 0 records, for multi-database narrative)
     _OTHER_METHOD_NAMES = frozenset({"perplexity_web", "perplexity_search", "perplexity"})
     active_dbs = sorted(db for db in prisma_counts.databases_records if db not in _OTHER_METHOD_NAMES)
+    # Databases with zero records -- must be disclosed per PRISMA 2020 item 7
+    zero_yield_dbs = sorted(
+        db for db in active_dbs if prisma_counts.databases_records.get(db, 0) == 0
+    )
     # Other methods (grey lit, AI discovery tools -- not bibliographic databases)
     active_other = sorted(src for src, cnt in prisma_counts.other_sources_records.items() if cnt > 0)
     # Any perplexity records that ended up in databases_records (should be rare)
@@ -243,10 +261,12 @@ def build_writing_grounding(
 
     return WritingGroundingData(
         databases_searched=active_dbs,
+        zero_yield_databases=zero_yield_dbs,
         other_methods_searched=active_other,
         search_date=str(datetime.now().year),
         total_identified=prisma_counts.total_identified_databases + prisma_counts.total_identified_other,
         duplicates_removed=prisma_counts.duplicates_removed,
+        automation_excluded=prisma_counts.automation_excluded,
         total_screened=prisma_counts.records_screened,
         fulltext_assessed=prisma_counts.reports_assessed,
         total_included=total_included_count,
@@ -310,6 +330,15 @@ def format_grounding_block(data: WritingGroundingData) -> str:
             f"Other methods (NOT databases - list separately as supplementary search): {', '.join(data.other_methods_searched) if data.other_methods_searched else 'none'}",
         ]
     )
+    if data.zero_yield_databases:
+        zero_str = ", ".join(data.zero_yield_databases)
+        lines.append(f"Zero-record databases (searched but retrieved 0 results): {zero_str}")
+        lines.append(
+            "CRITICAL -- PRISMA DISCLOSURE: The Methods section MUST explicitly state that "
+            f"the following databases returned 0 records: {zero_str}. "
+            "Per PRISMA 2020 item 7, every searched source must report its record count. "
+            "Do NOT silently omit zero-yield sources."
+        )
     if data.search_limitation:
         lines.append(f"Search limitation: {data.search_limitation}")
     lines += [
@@ -317,7 +346,22 @@ def format_grounding_block(data: WritingGroundingData) -> str:
         f"Search date: {data.search_date}",
         f"Records identified: {data.total_identified}",
         f"Duplicates removed: {data.duplicates_removed}",
-        f"Records screened (title/abstract): {data.total_screened}",
+    ]
+    if data.automation_excluded > 0:
+        lines.append(
+            f"Records removed by automated pre-screening (BM25/keyword relevance filter "
+            f"before LLM review): {data.automation_excluded}"
+        )
+        lines.append(
+            "CRITICAL -- PRISMA DISCLOSURE: The Methods section MUST state that "
+            f"{data.automation_excluded} records were excluded by an automated relevance "
+            "pre-screening step (BM25 ranking or keyword filter) before title/abstract "
+            "LLM review. This step appears in the PRISMA flow diagram as "
+            "'Records removed before screening: Automation tools'. "
+            "Do NOT omit or hide this step in the narrative."
+        )
+    lines += [
+        f"Records screened (title/abstract by LLM): {data.total_screened}",
         f"Full-text assessed: {data.fulltext_assessed}",
         f"Full-text articles excluded: {data.fulltext_excluded}",
         f"Studies included: {data.total_included}",
@@ -427,6 +471,13 @@ def format_grounding_block(data: WritingGroundingData) -> str:
             f"section you MUST report: 'Inter-rater reliability, measured on the subset of "
             f"papers that required dual review{n_str}, was Cohen's kappa = {kappa_str}.' "
             f"Do NOT describe this as overall reviewer agreement without the subset qualifier."
+        )
+    else:
+        lines.append("Inter-rater reliability (Cohen's kappa): not computed for this run.")
+        lines.append(
+            "CRITICAL -- kappa NOT available: Do NOT claim a specific kappa value was computed "
+            "or report a kappa statistic. In the Methods section you may state that inter-rater "
+            "reliability was not computed or that screening decisions were made by consensus."
         )
 
     if data.heterogeneity_warning:

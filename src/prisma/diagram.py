@@ -53,13 +53,14 @@ def _map_counts_to_library_format(
     ):
         excluded_reasons = {"None identified": 0}
 
-    # Use combined total so library math: (db+other) - duplicates - other_removed = screened
+    # Use combined total so library math: (db+other) - duplicates - automation - other = screened
     combined_identified = counts.total_identified_databases + counts.total_identified_other
     records_after_dedup = combined_identified - counts.duplicates_removed
-    # When records_screened < records_after_dedup, attribute the gap to "other" removals
-    # (e.g. pre-filter, pipeline not yet screening all papers, or search_results overcount).
-    # This keeps the prisma-flow-diagram library validation passing.
-    other_removed = max(0, records_after_dedup - counts.records_screened)
+    # Use the structured automation_excluded count when available; fall back to
+    # computing the gap for PRISMACounts objects built before this field existed.
+    automation_removed = counts.automation_excluded if counts.automation_excluded > 0 else max(
+        0, records_after_dedup - counts.records_screened
+    )
 
     db_registers: dict[str, Any] = {
         "identification": {
@@ -68,8 +69,8 @@ def _map_counts_to_library_format(
         },
         "removed_before_screening": {
             "duplicates": counts.duplicates_removed,
-            "automation": 0,
-            "other": other_removed,
+            "automation": automation_removed,
+            "other": 0,
         },
         "records": {
             "screened": counts.records_screened,
@@ -280,11 +281,12 @@ async def build_prisma_counts(
     records_excluded_screening = max(0, records_screened - reports_sought)
 
     excluded_total = 0  # no full-text excluded
-    # When records_screened < records_after_dedup, we attribute the gap to "other"
-    # removals in the diagram, so the diagram remains arithmetically consistent.
-    other_removed = max(0, records_after_dedup - records_screened)
+    # When records_screened < records_after_dedup, the gap represents records
+    # automatically excluded by the BM25 pre-filter or keyword hard-gate before
+    # LLM screening. PRISMA 2020 labels these "Automation tools" removals.
+    automation_excluded = max(0, records_after_dedup - records_screened)
     arithmetic_valid = (
-        (records_screened == records_after_dedup or other_removed > 0)
+        (records_screened == records_after_dedup or automation_excluded > 0)
         and records_screened == records_excluded_screening + reports_sought
         and reports_sought == reports_not_retrieved + reports_assessed
         and reports_assessed == excluded_total + included_total
@@ -296,6 +298,7 @@ async def build_prisma_counts(
         total_identified_databases=total_db,
         total_identified_other=total_other,
         duplicates_removed=dedup_count,
+        automation_excluded=automation_excluded,
         records_screened=records_screened,
         records_excluded_screening=records_excluded_screening,
         reports_sought=reports_sought,

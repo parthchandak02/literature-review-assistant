@@ -27,7 +27,7 @@ export function fmtTs(ts: string | null | undefined): string {
 // Level type
 // ---------------------------------------------------------------------------
 
-export type LogLevel = "info" | "warn" | "error" | "dim" | "include" | "exclude" | "status"
+export type LogLevel = "info" | "warn" | "error" | "dim" | "include" | "exclude" | "exclude-heuristic" | "status"
 
 // ---------------------------------------------------------------------------
 // Event -> log line conversion
@@ -86,13 +86,20 @@ export function eventToLogLine(ev: ReviewEvent): { text: string; level: LogLevel
       }
 
     case "screening_decision": {
+      const REASON_LABELS: Record<string, string> = {
+        insufficient_content_heuristic: "auto-excluded: abstract absent or too short",
+        protocol_only_heuristic: "auto-excluded: conference-only abstract",
+      }
       const conf = ev.confidence != null ? ` ${Math.round(ev.confidence * 100)}%` : ""
       const label = ev.title ?? ev.paper_id?.slice(0, 32) ?? ""
-      const reason = ev.reason ? `  -- ${ev.reason.slice(0, 90)}` : ""
+      const rawReason = ev.reason ?? ""
+      const displayReason = rawReason ? (REASON_LABELS[rawReason] ?? rawReason).slice(0, 90) : ""
+      const reasonText = displayReason ? `  -- ${displayReason}` : ""
+      const methodBadge = ev.method === "heuristic" ? "[AUTO]  " : "[LLM]   "
       const verb = ev.decision === "include" ? "INCLUDE" : "EXCLUDE"
       return {
-        text: `[${fmtTs(ev.ts)}] ${verb.padEnd(7)} ${label}${conf}${reason}`,
-        level: ev.decision === "include" ? "include" : "exclude",
+        text: `[${fmtTs(ev.ts)}] ${verb.padEnd(7)} ${methodBadge}${label}${conf}${reasonText}`,
+        level: ev.decision === "include" ? "include" : ev.method === "heuristic" ? "exclude-heuristic" : "exclude",
       }
     }
 

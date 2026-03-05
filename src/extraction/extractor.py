@@ -20,6 +20,55 @@ logger = logging.getLogger(__name__)
 # Gemini 3.1 Pro supports 1M token context; 32K chars (~8K tokens) is negligible.
 _EXTRACTION_CHAR_LIMIT = 32_000
 
+# HTML detection: if the text contains these patterns it is raw HTML markup
+# that was returned by a connector instead of article text. The LLM should
+# receive either a stripped plain-text version or an empty string so that
+# heuristic extraction fires rather than producing boilerplate responses.
+_HTML_TAG_RE = re.compile(r"<[a-zA-Z][^>]{0,200}>", re.DOTALL)
+_HTML_ENTITIES_RE = re.compile(r"&(?:amp|lt|gt|nbsp|quot|apos);", re.IGNORECASE)
+_HTML_BOILERPLATE_PHRASES = (
+    "<!DOCTYPE",
+    "<html",
+    "<head",
+    "<body",
+    "javascript",
+    "text/javascript",
+    "window.onload",
+)
+
+
+def _is_html_content(text: str) -> bool:
+    """Return True when text looks like raw HTML rather than article prose.
+
+    Checks for DOCTYPE declaration, dense HTML tags (>1% of content), or
+    known boilerplate phrases in the first 2000 characters.
+    """
+    sample = text[:2000]
+    for phrase in _HTML_BOILERPLATE_PHRASES:
+        if phrase.lower() in sample.lower():
+            return True
+    tag_matches = len(_HTML_TAG_RE.findall(text[:5000]))
+    # More than 1 HTML tag per 80 characters in the sample -> treat as HTML
+    return tag_matches > len(sample) / 80
+
+
+def _strip_html(text: str) -> str:
+    """Remove HTML tags and decode common entities; return plain text.
+
+    Falls back to empty string when stripping produces fewer than 100 chars
+    (the page was probably a redirect, 403, or empty response).
+    """
+    # Remove <script> and <style> blocks entirely
+    stripped = re.sub(r"<(?:script|style)[^>]*>.*?</(?:script|style)>", " ", text, flags=re.DOTALL | re.IGNORECASE)
+    # Remove all remaining tags
+    stripped = re.sub(r"<[^>]+>", " ", stripped)
+    # Decode common entities
+    stripped = _HTML_ENTITIES_RE.sub(lambda m: {"&amp;": "&", "&lt;": "<", "&gt;": ">", "&nbsp;": " ", "&quot;": '"', "&apos;": "'"}.get(m.group(0).lower(), m.group(0)), stripped)
+    # Collapse whitespace
+    stripped = re.sub(r"[ \t]+", " ", stripped)
+    stripped = re.sub(r"\n{3,}", "\n\n", stripped).strip()
+    return stripped if len(stripped) >= 100 else ""
+
 
 def _select_extraction_text(full_text: str, limit: int = _EXTRACTION_CHAR_LIMIT) -> str:
     """Return the most informative slice(s) of full text for extraction.
@@ -33,7 +82,22 @@ def _select_extraction_text(full_text: str, limit: int = _EXTRACTION_CHAR_LIMIT)
 
     This strategy captures ~75-80% of the quantitative content in a typical
     8-15 page research paper while staying within the budget.
+
+    HTML detection: if the raw text looks like HTML (page redirect, 403 page,
+    or publisher paywall HTML), it is stripped to plain text before slicing.
+    If stripping yields fewer than 100 chars the function returns "" so the
+    heuristic fallback fires instead of sending boilerplate to the LLM.
     """
+    if _is_html_content(full_text):
+        logger.warning(
+            "Extraction text appears to be HTML markup (%d chars); stripping tags before extraction.",
+            len(full_text),
+        )
+        full_text = _strip_html(full_text)
+        if not full_text:
+            logger.warning("HTML stripping produced empty text; heuristic extraction will be used.")
+            return ""
+
     if len(full_text) <= limit:
         return full_text
 

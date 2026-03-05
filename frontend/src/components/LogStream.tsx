@@ -7,10 +7,8 @@ import type { LogLevel } from "@/lib/logLine"
 
 // Event types that produce no meaningful user-facing log line and should be
 // filtered out of the rendered output (infrastructure / plumbing events).
-// "progress" is intentionally suppressed -- the Phase Timeline progress bar
-// already shows per-phase progress. Status events (amber "..." lines) fill in
-// the "is anything happening?" signal during silent stretches.
-const SKIP_EVENT_TYPES = new Set(["workflow_id_ready", "heartbeat", "progress"])
+// "progress" is shown as compact dim ticks so calibration steps are visible.
+const SKIP_EVENT_TYPES = new Set(["workflow_id_ready", "heartbeat"])
 
 // ---------------------------------------------------------------------------
 // Render item types (phase separators + event rows)
@@ -50,13 +48,13 @@ function buildRenderItems(events: ReviewEvent[]): RenderItem[] {
 
 function levelClass(level: LogLevel): string {
   switch (level) {
-    case "error":   return "text-red-400"
-    case "warn":    return "text-amber-400"
-    case "info":    return "text-zinc-200"
-    case "dim":     return "text-zinc-600"
-    case "status":  return "text-amber-500/70 italic"
-    // include/exclude handled separately
-    default:        return "text-zinc-600"
+    case "error":             return "text-red-400"
+    case "warn":              return "text-amber-400"
+    case "info":              return "text-zinc-200"
+    case "dim":               return "text-zinc-600"
+    case "status":            return "text-amber-500/70 italic"
+    // include/exclude/exclude-heuristic handled separately as bordered cards
+    default:                  return "text-zinc-600"
   }
 }
 

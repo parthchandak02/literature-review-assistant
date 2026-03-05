@@ -48,7 +48,9 @@ class RateLimiter:
                 queue.append(now)
                 self._last_request_time[normalized] = now
                 return
-            last = self._last_wait_log.get(normalized, 0.0)
+            # Use -inf as the sentinel for "never logged yet" so the first wait
+            # always fires immediately (0.0 would suppress for the first 30s too).
+            last = self._last_wait_log.get(normalized, float("-inf"))
             if self._on_waiting and (now - last) >= self._wait_log_interval:
                 self._on_waiting(normalized, len(queue), limit)
                 self._last_wait_log[normalized] = now
