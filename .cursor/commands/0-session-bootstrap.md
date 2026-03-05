@@ -16,9 +16,9 @@ every module's responsibility:
 Also read the project overview rule which maps every directory:
 - `.cursor/rules/core/project-overview-always.mdc`
 
-The Known Gotchas section at the bottom of `project-overview-always.mdc` contains hard-won
-session knowledge. Check it before assuming any behavior about PRISMA, run directories, or
-frontend builds.
+The Operational Gotchas are in `.cursor/rules/core/gotchas-agent.mdc` (separate file, not
+inside project-overview). Check it before assuming any behavior about PRISMA, run directories,
+or frontend builds.
 
 ---
 

@@ -693,7 +693,7 @@ def assemble_submission_manuscript(
 
     research_question: from review.yaml; prepended at top with title when provided.
     title: optional manuscript title; if None and research_question given, derived as
-    "A Systematic Review: " + research_question (truncated to ~80 chars for IEEE).
+    "A Systematic Review: " + research_question (full text, no truncation).
     """
     clean_body = _sanitize_body(body)
 
@@ -713,8 +713,6 @@ def assemble_submission_manuscript(
         _title = title
         if _title is None and research_question:
             _title = f"A Systematic Review: {research_question}"
-            if len(_title) > 100:
-                _title = _title[:97] + "..."
         if _title:
             header_block = f"# {_title}\n\n"
         if research_question:

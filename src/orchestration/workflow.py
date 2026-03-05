@@ -446,9 +446,12 @@ class SearchNode(BaseNode[ReviewState]):
                         state.parent_db_path,
                     )
                     if rc:
-                        rc.emit_event(
-                            "living_refresh_merge",
-                            {"merged_papers": n_merged, "parent_db": state.parent_db_path},
+                        rc._emit(
+                            {
+                                "type": "living_refresh_merge",
+                                "merged_papers": n_merged,
+                                "parent_db": state.parent_db_path,
+                            }
                         )
                 except Exception as _merge_err:
                     logger.warning(
@@ -744,6 +747,28 @@ class ScreeningNode(BaseNode[ReviewState]):
             ):
                 from src.screening.reliability import calibrate_threshold as _calibrate_threshold
 
+                _calib_sample_size = getattr(screening_cfg, "calibration_sample_size", 30)
+                _calib_max_iter = getattr(screening_cfg, "calibration_max_iterations", 3)
+                _calib_total = min(_calib_sample_size, len(papers_for_llm)) * _calib_max_iter
+
+                # Emit start event so the UI shows calibration is running (not frozen).
+                if rc:
+                    rc.emit_phase_start(
+                        "screening_calibration",
+                        description=(
+                            f"Calibrating screening thresholds ({_calib_sample_size} papers, "
+                            f"up to {_calib_max_iter} iterations)..."
+                        ),
+                        total=_calib_total,
+                    )
+
+                _calib_completed: list[int] = [0]
+
+                def _calib_on_progress(phase: object, current: object, total: object) -> None:
+                    _calib_completed[0] += 1
+                    if rc:
+                        rc.advance_screening("screening_calibration", _calib_completed[0], _calib_total)
+
                 async def _calibration_screener(
                     sample_papers: list[CandidatePaper],  # noqa: F821
                     threshold: float,
@@ -759,6 +784,7 @@ class ScreeningNode(BaseNode[ReviewState]):
                         results = await screener.screen_batch_for_calibration(
                             workflow_id=f"{state.workflow_id}_calib",
                             papers=sample_papers,
+                            on_progress=_calib_on_progress,
                         )
                         return list(results)
                     finally:
@@ -770,8 +796,8 @@ class ScreeningNode(BaseNode[ReviewState]):
                         papers=papers_for_llm,
                         screener_fn=_calibration_screener,
                         target_kappa=getattr(screening_cfg, "calibration_target_kappa", 0.7),
-                        max_iterations=getattr(screening_cfg, "calibration_max_iterations", 3),
-                        sample_size=getattr(screening_cfg, "calibration_sample_size", 30),
+                        max_iterations=_calib_max_iter,
+                        sample_size=_calib_sample_size,
                         initial_include_threshold=screening_cfg.stage1_include_threshold,
                     )
                     screening_cfg.stage1_include_threshold = calibrated.include_threshold
@@ -783,9 +809,9 @@ class ScreeningNode(BaseNode[ReviewState]):
                         calibrated.iterations,
                     )
                     if rc:
-                        rc.emit_event(
+                        rc.emit_phase_done(
                             "screening_calibration",
-                            {
+                            summary={
                                 "include_threshold": calibrated.include_threshold,
                                 "exclude_threshold": calibrated.exclude_threshold,
                                 "kappa": calibrated.achieved_kappa,
@@ -793,8 +819,24 @@ class ScreeningNode(BaseNode[ReviewState]):
                                 "sample_size": calibrated.sample_size,
                             },
                         )
+                        # Also emit legacy event for any consumers watching for it.
+                        rc._emit(
+                            {
+                                "type": "screening_calibration",
+                                "include_threshold": calibrated.include_threshold,
+                                "exclude_threshold": calibrated.exclude_threshold,
+                                "kappa": calibrated.achieved_kappa,
+                                "iterations": calibrated.iterations,
+                                "sample_size": calibrated.sample_size,
+                            }
+                        )
                 except Exception as _cal_err:
                     logger.warning("Screening calibration failed (%s) -- using default thresholds", _cal_err)
+                    if rc:
+                        rc.emit_phase_done(
+                            "screening_calibration",
+                            summary={"error": str(_cal_err), "using_defaults": True},
+                        )
 
             # --- Stage 1: title/abstract LLM dual-review ---
             stage1_llm = await screener.screen_batch(
@@ -1217,9 +1259,9 @@ class ExtractionQualityNode(BaseNode[ReviewState]):
                                 merge_outcomes,
                             )
 
-                            vision_model = getattr(extraction_cfg, "pdf_vision_model", "gemini-3.1-flash-lite-preview").replace(
-                                "google-gla:", ""
-                            )
+                            vision_model = getattr(
+                                extraction_cfg, "pdf_vision_model", "gemini-3.1-flash-lite-preview"
+                            ).replace("google-gla:", "")
                             vision_outcomes = await extract_tables_from_pdf(
                                 ft_result.pdf_bytes,
                                 model_name=vision_model,

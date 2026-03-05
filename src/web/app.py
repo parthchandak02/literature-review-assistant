@@ -124,6 +124,20 @@ async def _eviction_loop() -> None:
 @asynccontextmanager
 async def lifespan(_app: FastAPI) -> AsyncGenerator[None, None]:
     await _refresh_allowed_roots()
+    # On startup, mark any registry entries still showing "running" as "interrupted".
+    # Those workflows cannot be running in a fresh process -- they were orphaned by a
+    # crash or SIGKILL during the previous process lifetime.
+    try:
+        _registry_path = pathlib.Path("runs") / "workflows_registry.db"
+        if _registry_path.exists():
+            async with aiosqlite.connect(str(_registry_path)) as _reg_db:
+                await _reg_db.execute(
+                    "UPDATE workflows_registry SET status='interrupted', updated_at=datetime('now')"
+                    " WHERE status='running'"
+                )
+                await _reg_db.commit()
+    except Exception:
+        pass
     eviction = asyncio.create_task(_eviction_loop())
     yield
     # Graceful shutdown: cancel active tasks and mark workflows as 'interrupted'.
@@ -808,7 +822,7 @@ async def _fetch_run_stats(db_path: str) -> dict[str, Any]:
         return {}
 
 
-_STALE_THRESHOLD_SECONDS = 5 * 60  # 5 minutes
+_STALE_THRESHOLD_SECONDS = 2 * 60  # 2 minutes
 
 
 def _is_stale(row: aiosqlite.Row) -> bool:

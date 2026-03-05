@@ -178,39 +178,6 @@ function PhaseRow({ phase, state, isLast }: PhaseRowProps) {
 }
 
 // ---------------------------------------------------------------------------
-// Event log filter
-// ---------------------------------------------------------------------------
-
-type EventFilter = "all" | "phases" | "llm" | "search" | "screening" | "extraction" | "errors"
-
-const FILTERS: { id: EventFilter; label: string }[] = [
-  { id: "all", label: "All" },
-  { id: "phases", label: "Phases" },
-  { id: "llm", label: "LLM Calls" },
-  { id: "search", label: "Search" },
-  { id: "screening", label: "Screening" },
-  { id: "extraction", label: "Extraction" },
-  { id: "errors", label: "Errors" },
-]
-
-function filterEvents(events: ReviewEvent[], filter: EventFilter): ReviewEvent[] {
-  if (filter === "all") return events
-  if (filter === "phases")
-    return events.filter((e) => e.type === "phase_start" || e.type === "phase_done")
-  if (filter === "llm") return events.filter((e) => e.type === "api_call")
-  if (filter === "search") return events.filter((e) => e.type === "connector_result")
-  if (filter === "screening") return events.filter((e) => e.type === "screening_decision")
-  if (filter === "extraction") return events.filter((e) => e.type === "extraction_paper")
-  if (filter === "errors")
-    return events.filter(
-      (e) =>
-        e.type === "error" ||
-        (e.type === "connector_result" && (e as { status?: string }).status !== "success"),
-    )
-  return events
-}
-
-// ---------------------------------------------------------------------------
 // ActivityView
 // ---------------------------------------------------------------------------
 
@@ -232,7 +199,6 @@ export function ActivityView({
   isDone,
   onCancel,
 }: ActivityViewProps) {
-  const [activeFilter, setActiveFilter] = useState<EventFilter>("all")
   const [historicalEvents, setHistoricalEvents] = useState<ReviewEvent[]>([])
   const [loadingHistory, setLoadingHistory] = useState(false)
   const [fetchError, setFetchError] = useState<string | null>(null)
@@ -281,14 +247,13 @@ export function ActivityView({
     [activeEvents, isDone],
   )
   const isRunning = status === "streaming" || status === "connecting"
-  const categoryFiltered = filterEvents(activeEvents, activeFilter)
   const filtered = useMemo(() => {
-    if (!searchQuery.trim()) return categoryFiltered
+    if (!searchQuery.trim()) return activeEvents
     const q = searchQuery.trim().toLowerCase()
-    return categoryFiltered.filter((ev) =>
+    return activeEvents.filter((ev) =>
       eventToLogLine(ev).text.toLowerCase().includes(q),
     )
-  }, [categoryFiltered, searchQuery])
+  }, [activeEvents, searchQuery])
 
   return (
     <div className="flex flex-col gap-5">
@@ -378,45 +343,18 @@ export function ActivityView({
           />
         </div>
 
-        {/* Filter chips */}
-        <div className="flex items-center gap-2 flex-wrap">
-          <div
-            role="toolbar"
-            aria-label="Event filter"
-            className="flex items-center gap-1 bg-zinc-900 border border-zinc-800 rounded-lg p-0.5"
-          >
-            {FILTERS.map((f) => (
-              <button
-                key={f.id}
-                onClick={() => setActiveFilter(f.id)}
-                aria-pressed={activeFilter === f.id}
-                className={cn(
-                  "px-3 py-1 rounded-md text-xs font-medium transition-colors",
-                  activeFilter === f.id
-                    ? "bg-zinc-700 text-white"
-                    : "text-zinc-500 hover:text-zinc-300",
-                )}
-              >
-                {f.label}
-              </button>
-            ))}
-          </div>
-
-          <span className="text-xs text-zinc-600">
-            {loadingHistory ? (
-              <span className="flex items-center gap-1.5 text-zinc-500">
-                <Loader2 className="h-3 w-3 animate-spin" />
-                Loading event log...
-              </span>
-            ) : searchQuery.trim() ? (
-              `${filtered.length} of ${categoryFiltered.length} events`
-            ) : activeFilter === "all" ? (
-              `${filtered.length} events${isHistoricalMode ? " (historical)" : ""}`
-            ) : (
-              `${filtered.length} of ${activeEvents.length} events`
-            )}
-          </span>
-        </div>
+        <span className="text-xs text-zinc-600">
+          {loadingHistory ? (
+            <span className="flex items-center gap-1.5 text-zinc-500">
+              <Loader2 className="h-3 w-3 animate-spin" />
+              Loading event log...
+            </span>
+          ) : searchQuery.trim() ? (
+            `${filtered.length} of ${activeEvents.length} events`
+          ) : (
+            `${filtered.length} events${isHistoricalMode ? " (historical)" : ""}`
+          )}
+        </span>
 
         {!loadingHistory && filtered.length === 0 && !fetchError && (
           <div className="bg-zinc-900/60 border border-zinc-800 rounded-xl py-12 flex items-center justify-center">
@@ -425,7 +363,7 @@ export function ActivityView({
         )}
 
         {filtered.length > 0 && (
-          <LogStream events={filtered} autoScroll={activeFilter === "all"} />
+          <LogStream events={filtered} autoScroll={!searchQuery.trim()} />
         )}
       </div>
     </div>

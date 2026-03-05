@@ -82,7 +82,7 @@ FinalizeNode        (finalize -- no checkpoint; writes run_summary.json)
 ### 2.2 Directory Layout
 
 ```
-research-article-writer/
+literature-review-assistant/
 |-- pyproject.toml                  # uv-managed; Python 3.11+
 |-- spec.md                         # THIS FILE -- single source of truth (replaces docs/research-agent-v2-spec.md + docs/frontend-spec.md)
 |-- Procfile.dev                    # Overmind: api + ui processes
@@ -103,7 +103,7 @@ research-article-writer/
 |   |-- models/                     # ALL Pydantic data contracts
 |   |-- db/                         # SQLite schema, connection manager, repositories, registry
 |   |-- orchestration/              # workflow.py, context.py, state.py, resume.py, gates.py
-|   |-- search/                     # base.py (SearchConnector protocol), 7 connectors, dedup, strategy, pdf_retrieval
+|   |-- search/                     # base.py (SearchConnector protocol), 11 connectors (scopus, web_of_science, openalex, pubmed, semantic_scholar, ieee_xplore, arxiv, crossref, perplexity_search, clinicaltrials, csv_import), dedup, strategy, pdf_retrieval
 |   |-- screening/                  # dual_screener, keyword_filter, prompts.py, reliability, gemini_client
 |   |-- extraction/                 # extractor, study_classifier
 |   |-- quality/                    # rob2, robins_i, casp, grade, study_router
@@ -181,6 +181,8 @@ Never committed to git. Loaded via python-dotenv at startup before any config ac
 GEMINI_API_KEY=...              # Required
 OPENALEX_API_KEY=...            # Required since Feb 2026 (free at openalex.org)
 IEEE_API_KEY=...                # Optional; for IEEE Xplore connector
+WOS_API_KEY=...                 # Optional; for Web of Science connector (Clarivate Starter API, 300 req/day free)
+SCOPUS_API_KEY=...              # Optional; for Scopus connector (Elsevier Search API)
 PUBMED_EMAIL=...                # Required for PubMed Entrez (Biopython)
 PUBMED_API_KEY=...              # Optional; raises PubMed rate limit from 3 to 10 req/sec
 PERPLEXITY_SEARCH_API_KEY=...   # Optional; for auxiliary discovery connector
@@ -323,9 +325,9 @@ Finalize                   -> writes run_summary.json + registry status = "compl
 
 | Connector | Protocol | Source Category |
 |-----------|---------|----------------|
-| Scopus | Elsevier Scopus Search API, TITLE-ABS-KEY field codes | DATABASE |
-| Web of Science | Clarivate WoS Starter API, TS= prefix syntax | DATABASE |
-| OpenAlex | Direct aiohttp REST, api_key in URL, relevance search | DATABASE |
+| Scopus | Elsevier Scopus Search API, TITLE-ABS-KEY field codes, 5 req/sec, enrich_scopus_abstracts() backfills via ScienceDirect | DATABASE |
+| Web of Science | Clarivate WoS Starter API (X-ApiKey header, TS= prefix, 50 records/page, 300 req/day free tier) | DATABASE |
+| OpenAlex | Direct aiohttp REST, api_key in URL, relevance search (short_query, 5-10 keywords) | DATABASE |
 | PubMed | Biopython Entrez, MeSH + field codes | DATABASE |
 | Semantic Scholar | Academic Graph API, keyword search | DATABASE |
 
@@ -338,7 +340,6 @@ Finalize                   -> writes run_summary.json + registry status = "compl
 | arXiv | arxiv Python library | DATABASE |
 | Crossref | Works API, polite email | DATABASE |
 | Perplexity | Perplexity Search API, cap 20 | OTHER_SOURCE |
-| Web of Science | Clarivate WoS Starter API (X-ApiKey header, 300 req/day free tier, 50 records/page) | DATABASE |
 
 Perplexity and ClinicalTrials items tagged `SourceCategory.OTHER_SOURCE` count toward the PRISMA right-hand column (other sources). URL-based source inference (`_infer_source_from_url()`) attributes Perplexity-discovered papers to academic databases when they link to PubMed, arXiv, etc.
 
@@ -354,7 +355,7 @@ Perplexity and ClinicalTrials items tagged `SourceCategory.OTHER_SOURCE` count t
 
 Stage 0 (pre-filter): The keyword filter auto-excludes papers with zero intervention keyword matches before any LLM call (`ExclusionReason.KEYWORD_FILTER`). If `max_llm_screen` is set, BM25 (bm25s library) ranks remaining candidates by topic relevance; papers below the cap receive `LOW_RELEVANCE_SCORE` exclusions written to the DB without LLM calls. This cuts LLM costs by up to 80%.
 
-Stage 1 (title/abstract): Two independent AI reviewers process each paper concurrently via `asyncio.Semaphore`. Reviewer A uses an inclusion-emphasis prompt (temperature 0.1). Reviewer B uses an exclusion-emphasis prompt (temperature 0.3). Both use Gemini Flash-Lite. Agreement yields the final decision. Disagreement triggers Adjudicator (Gemini Pro) that sees both decisions.
+Stage 1 (title/abstract): Two independent AI reviewers process each paper concurrently via `asyncio.Semaphore`. Reviewer A uses an inclusion-emphasis prompt (temperature 0.1, gemini-3.1-flash-lite-preview). Reviewer B uses an exclusion-emphasis prompt (temperature 0.1, gemini-3-flash-preview -- different model for genuine cross-model validation). Agreement yields the final decision. Disagreement triggers Adjudicator (Gemini Pro) that sees both decisions.
 
 Stage 2 (full-text): Papers passing Stage 1 get full text via a unified resolver (Unpaywall, Semantic Scholar, CORE, Europe PMC, ScienceDirect, PMC). Papers without retrievable full text are excluded with `NO_FULL_TEXT` when `skip_fulltext_if_no_pdf` is true. Full-text screening follows the same dual-reviewer pattern.
 
@@ -691,7 +692,7 @@ The frontend is run-centric. The sidebar is a run list, not a navigation menu. S
 | SetupView | Structured PICO form + keyword/criteria tag inputs + database checkboxes + YAML builder; "Load from past run" dropdown reuses a stored config via `GET /api/history/{workflow_id}/config` |
 | RunView | 6-tab shell (Config, Activity, Data, Cost, Results; Review Screening when awaiting_review) for a selected run |
 | ConfigView | Shows research question and timestamped review.yaml for the run; used by agents and for copy-to-clipboard |
-| ActivityView | Phase timeline + stats strip + filter chips + event log; works for live SSE runs and historical fetched runs |
+| ActivityView | Phase timeline + stats strip + event log (text search); works for live SSE runs and historical fetched runs |
 | CostView | Recharts bar chart grouped by model/phase + sortable cost/token tables; reads from cost_records DB via /api/db/{run_id}/costs (primary, polls every 5s while active); SSE api_call events used as fallback before first DB response |
 | ResultsView | Download links for all output artifacts (available when run is done) |
 | DatabaseView | Paginated papers (with search), filterable screening decisions, cost records from runtime.db |
@@ -925,7 +926,7 @@ Living section -- update as work completes.
 | Component | Status | Notes |
 |-----------|--------|-------|
 | Phase 1: Foundation | DONE | Models, SQLite, 6 gates, citation ledger, LLM provider, rate limiter |
-| Phase 2: Search | DONE | All 7 connectors + ClinicalTrials.gov grey literature, MinHash LSH dedup (datasketch + thefuzz), forward citation chasing (Semantic Scholar + OpenAlex), BM25 ranking, protocol generator, SearchConfig |
+| Phase 2: Search | DONE | All 11 connectors (scopus, web_of_science, openalex, pubmed, semantic_scholar, ieee_xplore, arxiv, crossref, perplexity_search, clinicaltrials, csv_import) + ClinicalTrials.gov grey literature, MinHash LSH dedup (datasketch + thefuzz), forward citation chasing (Semantic Scholar + OpenAlex), BM25 ranking, protocol generator, SearchConfig |
 | Phase 3: Screening | DONE | Dual reviewer with cross-model validation (Reviewer A=flash-lite tier, Reviewer B=flash tier -- see config/settings.yaml), keyword filter, BM25 cap, kappa injected into writing, Ctrl+C proceed-with-partial, confidence fast-path, protocol-only auto-exclusion |
 | Phase 4: Extraction + Quality | DONE | LLM extraction with PyMuPDF full-text parsing (32K char context, up from 8K), async RoB 2 / ROBINS-I / CASP with heuristic fallback tagged by assessment_source, GRADE auto-wired from RoB data (assess_from_rob), study router, RoB traffic-light figure |
 | Phase 5: Synthesis | DONE | Hardened feasibility (requires effect_size+se in >= 2 studies), statsmodels pooling (DL), forest + funnel plots, LLM-based narrative direction classification, sensitivity analysis (leave-one-out + subgroup), synthesis_results table |
@@ -940,12 +941,12 @@ Living section -- update as work completes.
 | Post-build: Hybrid RAG + PRISMA fixes | DONE | Hybrid BM25+dense RAG (RRF) in WritingNode, PydanticAI Embedder replacing google-generativeai SDK, PRISMA endpoint registry fallback, duplicate Discussion heading dedup, PRISMACounts field name fixes |
 | Post-build: HyDE + Gemini listwise reranker | DONE | HyDE (hypothetical doc embeddings, Gao et al. 2022) for rich dense query vectors; Gemini Flash listwise reranker (single LLM call ranks 20 candidates to top 8); removed sentence-transformers/torch (382 MB) in favour of zero-new-dep PydanticAI calls |
 | Validation benchmark | DONE | scripts/benchmark.py measures screening recall, extraction field accuracy, RoB kappa vs. gold-standard corpus |
-| Enhancement #4: Semantic Chunking | DONE | Sentence-boundary chunker (nltk sent_tokenize) replaces fixed 512-word windows; chunks stay under ~400 words, 2-sentence overlap; fallback to regex split if nltk unavailable; settings: CHUNK_MAX_WORDS, OVERLAP_SENTENCES in chunker.py |
-| Enhancement #5: PICO-Aware Retrieval | DONE | PICO terms from review.yaml injected into HyDE prompt and BM25 query string; controlled by rag.pico_query_boost in settings.yaml |
+| Enhancement #4: Semantic Chunking | DONE | Sentence-boundary chunker (nltk sent_tokenize) replaces fixed 512-word windows; chunks stay under ~400 words, 2-sentence overlap; fallback to regex split if nltk unavailable; settings: rag.chunk_max_words, rag.chunk_overlap_sentences in settings.yaml (chunker.py module constants are fallbacks when called standalone) |
+| Enhancement #5: PICO-Aware Retrieval | DONE | PICO terms from review.yaml injected into HyDE prompt and BM25 query string when review.pico is populated; no separate settings.yaml toggle (pico_query_boost does not exist) |
 | Enhancement #6: Living Review Auto-Refresh | DONE | Delta pipeline: search from last_search_date, screen/embed new papers only, merge into previous DB, re-run synthesis+writing only if new evidence added |
 | Enhancement #7: Multi-Modal Evidence | DONE | 6-tier full-text retrieval (Unpaywall, Semantic Scholar, CORE, Europe PMC, ScienceDirect, PMC -> abstract fallback); unified resolver used by extraction and screening; Gemini vision extracts quantitative outcome rows from PDFs; vision+text outcomes merged; table rows chunked as separate embeddings; GET /api/db/{run_id}/tables endpoint; Scopus abstract gap fixed via enrich_scopus_abstracts() |
 | Enhancement #8: Contradiction-Aware Synthesis | DONE | contradiction_detector.py surfaces conflict pairs; WritingNode injects "Conflicting Evidence" subsection into Discussion with citation keys and reconciliation hypothesis |
-| Enhancement #9: Adaptive Screening Threshold | DONE | Active-learning calibration loop: 30-paper sample, kappa computed, thresholds adjusted via bisection until kappa > 0.7 or 3 iterations; settings: screening.calibration_sample_size |
+| Enhancement #9: Adaptive Screening Threshold | DONE | Active-learning calibration loop: 30-paper sample, kappa computed, thresholds adjusted via bisection until kappa > 0.7 or 3 iterations; settings: screening.calibration_sample_size; calibration emits phase_start/phase_done SSE events (phase="screening_calibration") for live UI progress |
 | Enhancement #10: GRADE Evidence Profile | DONE | Full GRADE Summary of Findings table (studies, participants, effect estimate, certainty, reason); build_sof_table() in grade.py; GradeSoFTable + GradeSoFRow models; LaTeX longtable export; GET /api/run/{run_id}/grade-sof endpoint |
 | Search quality sprint | DONE | Scopus connector (src/search/scopus.py, TITLE-ABS-KEY field codes, 5 req/sec limit, 429 back-off); Web of Science connector (src/search/web_of_science.py, TS= prefix syntax, Starter API); default target_databases updated to scopus + web_of_science + openalex + pubmed + semantic_scholar; ieee_xplore + perplexity_search + crossref + arxiv moved to opt-in |
 | OpenAlex query fix + config generator | DONE | OpenAlex received the broad boolean OR fallback causing ~500 off-topic results. Fix: (1) strategy.py added openalex branch returning short_query (same pattern as semantic_scholar); (2) config_generator.py added openalex field to _SearchOverrides model and updated _STRUCTURE_PROMPT to generate all six database overrides; all descriptions and examples made domain-agnostic so generator works for any topic. |

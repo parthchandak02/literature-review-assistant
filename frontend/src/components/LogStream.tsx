@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef } from "react"
 import { cn } from "@/lib/utils"
 import { PHASE_LABELS } from "@/lib/constants"
 import type { ReviewEvent } from "@/lib/api"
-import { eventToLogLine, fmtTs } from "@/lib/logLine"
+import { eventToLogLine } from "@/lib/logLine"
 
 // Event types that produce no meaningful user-facing log line and should be
 // filtered out of the rendered output (infrastructure / plumbing events).
@@ -14,26 +14,17 @@ const SKIP_EVENT_TYPES = new Set(["workflow_id_ready", "heartbeat"])
 
 type RenderItem =
   | { kind: "phase-sep"; phase: string; label: string; key: string }
-  | { kind: "llm-group"; count: number; totalCost: number; firstTs: string; phase: string; key: string }
   | { kind: "event"; ev: ReviewEvent; key: string }
-
-const LLM_GROUP_THRESHOLD = 3
 
 function buildRenderItems(events: ReviewEvent[]): RenderItem[] {
   const items: RenderItem[] = []
-  let i = 0
 
-  while (i < events.length) {
+  for (let i = 0; i < events.length; i++) {
     const ev = events[i]
     const ts = "ts" in ev ? (ev as { ts?: string }).ts ?? "" : ""
 
-    // Skip internal infrastructure events that have no user-facing meaning.
-    if (SKIP_EVENT_TYPES.has(ev.type)) {
-      i++
-      continue
-    }
+    if (SKIP_EVENT_TYPES.has(ev.type)) continue
 
-    // Inject a visual phase separator before every phase_start event.
     if (ev.type === "phase_start") {
       items.push({
         kind: "phase-sep",
@@ -41,38 +32,9 @@ function buildRenderItems(events: ReviewEvent[]): RenderItem[] {
         label: PHASE_LABELS[ev.phase] ?? ev.phase,
         key: `sep-${ev.phase}-${ts}-${i}`,
       })
-      items.push({ kind: "event", ev, key: `${ev.type}-${ts}-${i}` })
-      i++
-      continue
-    }
-
-    // Collapse runs of 3+ consecutive api_call events into a summary row.
-    if (ev.type === "api_call") {
-      let j = i
-      while (j < events.length && events[j].type === "api_call") {
-        j++
-      }
-      const runLen = j - i
-      if (runLen >= LLM_GROUP_THRESHOLD) {
-        const group = events.slice(i, j) as Array<ReviewEvent & { type: "api_call" }>
-        const totalCost = group.reduce((acc, e) => acc + (e.cost_usd ?? 0), 0)
-        const firstTs = (group[0] as { ts?: string }).ts ?? ""
-        const phase = group[0].phase
-        items.push({
-          kind: "llm-group",
-          count: runLen,
-          totalCost,
-          firstTs,
-          phase,
-          key: `llm-group-${firstTs}-${i}`,
-        })
-        i = j
-        continue
-      }
     }
 
     items.push({ kind: "event", ev, key: `${ev.type}-${ts}-${i}` })
-    i++
   }
 
   return items
@@ -149,15 +111,6 @@ export function LogStream({ events, autoScroll = true }: LogStreamProps) {
                   {item.label}
                 </span>
                 <div className="h-px flex-1 bg-zinc-800" />
-              </div>
-            )
-          }
-
-          if (item.kind === "llm-group") {
-            const costStr = item.totalCost > 0 ? ` | $${item.totalCost.toFixed(4)} total` : ""
-            return (
-              <div key={item.key} className="text-zinc-700 italic">
-                {`[${fmtTs(item.firstTs)}] LLM    ... ${item.count} calls${costStr}`}
               </div>
             )
           }

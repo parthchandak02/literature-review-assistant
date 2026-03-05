@@ -28,7 +28,7 @@ class SearchConnector(Protocol):
 ```
 
 ## Reference Implementations
-- `src/search/openalex.py`, `pubmed.py`, `arxiv.py`, `ieee_xplore.py`
+- `src/search/openalex.py`, `pubmed.py`, `arxiv.py`, `ieee_xplore.py`, `scopus.py`, `web_of_science.py`
 - `src/search/semantic_scholar.py`, `crossref.py`, `perplexity_search.py` (auxiliary)
 - `src/orchestration/workflow.py` -- connector construction/factory-style wiring in single-path run
 

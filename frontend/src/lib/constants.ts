@@ -17,6 +17,7 @@ export type PhaseKey = (typeof PHASE_ORDER)[number]
 export const PHASE_LABELS: Record<string, string> = {
   phase_2_search: "Search",
   phase_3_screening: "Screening",
+  screening_calibration: "Threshold Calibration",
   phase_4_extraction_quality: "Extraction & Quality",
   phase_4b_embedding: "Embedding",
   phase_5_synthesis: "Synthesis",
@@ -107,6 +108,7 @@ export const BADGE_STYLE: Record<RunStatus, string> = {
 export const PHASE_COLORS: Record<string, string> = {
   phase_2_search: "#3b82f6",
   phase_3_screening: "#8b5cf6",
+  screening_calibration: "#a78bfa",
   phase_4_extraction: "#f59e0b",
   phase_4_extraction_quality: "#d97706",
   phase_5_synthesis: "#10b981",
@@ -130,6 +132,7 @@ export function phaseColor(phase: string): string {
 export const PHASE_LABEL_MAP: Record<string, string> = {
   phase_2_search: "Search",
   phase_3_screening: "Screening",
+  screening_calibration: "Calibration",
   phase_4_extraction: "Extraction",
   phase_4_extraction_quality: "Ext. Quality",
   phase_5_synthesis: "Synthesis",

@@ -266,6 +266,7 @@ class DualReviewerScreener:
         self,
         workflow_id: str,
         papers: Sequence[CandidatePaper],
+        on_progress: object = None,
     ) -> list:
         """Screen papers for calibration, always running both reviewers.
 
@@ -276,11 +277,17 @@ class DualReviewerScreener:
 
         Uses an in-memory DB no-op repository to avoid polluting the real
         workflow's decision log with calibration passes.
+
+        on_progress: optional callable(phase, current, total) called after each
+        paper completes so the UI shows live calibration progress instead of
+        appearing frozen.
         """
         from src.models import DualScreeningResult
 
         results: list[DualScreeningResult] = []
         sem = asyncio.Semaphore(self.settings.screening.screening_concurrency)
+        total = len(papers)
+        completed: list[int] = [0]
 
         async def _calibrate_one(paper: CandidatePaper) -> DualScreeningResult | None:
             async with sem:
@@ -308,13 +315,17 @@ class DualReviewerScreener:
                     other_reviewer_decision=reviewer_a.decision,
                 )
                 agreement = reviewer_a.decision == reviewer_b.decision
-                return DualScreeningResult(
+                result = DualScreeningResult(
                     paper_id=paper.paper_id,
                     reviewer_a=reviewer_a,
                     reviewer_b=reviewer_b,
                     agreement=agreement,
                     final_decision=reviewer_a.decision if agreement else reviewer_b.decision,
                 )
+                completed[0] += 1
+                if callable(on_progress):
+                    on_progress("screening_calibration", completed[0], total)
+                return result
 
         raw = await asyncio.gather(*[_calibrate_one(p) for p in papers], return_exceptions=True)
         for item in raw:

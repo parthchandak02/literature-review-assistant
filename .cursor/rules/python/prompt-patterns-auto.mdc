@@ -35,3 +35,4 @@ All prompts end with:
 - Auto-include if confidence >= stage1_include_threshold (0.85)
 - Auto-exclude if confidence >= stage1_exclude_threshold (0.80)
 - Papers between thresholds -> sent to adjudicator
+- Adaptive calibration (calibrate_threshold=true in ScreeningConfig, default true) may override these defaults via bisection before the main screening loop; final adjusted thresholds are logged at phase_done for the screening_calibration phase
