@@ -192,9 +192,7 @@ def _parse_csv_file(
 
         title_col = _resolve_col(fieldnames, "title")
         if title_col is None:
-            raise ValueError(
-                f"CSV has no recognisable Title column. Found: {fieldnames}"
-            )
+            raise ValueError(f"CSV has no recognisable Title column. Found: {fieldnames}")
 
         authors_col = _resolve_col(fieldnames, "authors")
         year_col = _resolve_col(fieldnames, "year")
@@ -216,9 +214,7 @@ def _parse_csv_file(
             raw_authors = (row.get(authors_col) if authors_col else "") or ""
             authors = _parse_authors(raw_authors) or ["Unknown"]
 
-            source_database = (
-                (row.get(source_col) if source_col else "") or ""
-            ).strip() or db_name
+            source_database = ((row.get(source_col) if source_col else "") or "").strip() or db_name
 
             papers.append(
                 CandidatePaper(
@@ -228,15 +224,9 @@ def _parse_csv_file(
                     year=_parse_year((row.get(year_col) if year_col else "") or ""),
                     source_database=source_database,
                     doi=_clean_doi((row.get(doi_col) if doi_col else "") or ""),
-                    abstract=(
-                        (row.get(abstract_col) if abstract_col else "") or ""
-                    ).strip() or None,
-                    url=(
-                        (row.get(url_col) if url_col else "") or ""
-                    ).strip() or None,
-                    keywords=_parse_keywords(
-                        (row.get(keywords_col) if keywords_col else "") or ""
-                    ),
+                    abstract=((row.get(abstract_col) if abstract_col else "") or "").strip() or None,
+                    url=((row.get(url_col) if url_col else "") or "").strip() or None,
+                    keywords=_parse_keywords((row.get(keywords_col) if keywords_col else "") or ""),
                     source_category=SourceCategory.OTHER_SOURCE,
                 )
             )

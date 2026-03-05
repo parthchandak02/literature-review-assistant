@@ -73,8 +73,7 @@ def _detect_heterogeneity_warning(records: Sequence[ExtractionRecord]) -> str:
         )
     if missing_n > 0:
         warnings.append(
-            f"{missing_n} of {len(records)} studies did not report participant count; "
-            "true aggregate N is unknown."
+            f"{missing_n} of {len(records)} studies did not report participant count; true aggregate N is unknown."
         )
 
     return " ".join(warnings)

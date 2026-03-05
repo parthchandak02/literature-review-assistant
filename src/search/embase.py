@@ -131,7 +131,7 @@ class EmbaseConnector:
                 if resp.status == 200:
                     return await resp.json(content_type=None)
                 if resp.status == 429 or resp.status >= 500:
-                    wait = _RETRY_BASE_SLEEP * (2 ** attempt)
+                    wait = _RETRY_BASE_SLEEP * (2**attempt)
                     logger.warning(
                         "EmbaseConnector: HTTP %d on page start=%d (attempt %d/%d); retrying in %.0fs",
                         resp.status,
@@ -182,7 +182,7 @@ class EmbaseConnector:
         async with aiohttp.ClientSession(connector=tcp_conn) as session:
             # First page -- reveals total result count
             data = await self._fetch_page(session, query, 0, date_start, date_end)
-            results_block = (data.get("search-results") or {})
+            results_block = data.get("search-results") or {}
             total_available = int(results_block.get("opensearch:totalResults", 0))
             entries: list[dict[str, Any]] = results_block.get("entry", [])
 
@@ -215,14 +215,13 @@ class EmbaseConnector:
 
                     authors = self._parse_authors(entry)
                     abstract = (entry.get("dc:description") or "").strip() or None
-                    cover_date = (entry.get("prism:coverDate") or "")
+                    cover_date = entry.get("prism:coverDate") or ""
                     year: int | None = None
                     if cover_date and len(cover_date) >= 4:
                         try:
                             year = int(cover_date[:4])
                         except ValueError:
                             pass
-                    pub_name = (entry.get("prism:publicationName") or "").strip() or "Embase"
                     url = f"https://doi.org/{doi}" if doi else None
                     keywords = self._parse_keywords(entry)
 

@@ -77,8 +77,8 @@ from src.search.citation_chasing import CitationChaser
 from src.search.clinicaltrials import ClinicalTrialsConnector
 from src.search.crossref import CrossrefConnector
 from src.search.csv_import import parse_masterlist_csv, parse_supplementary_csvs
-from src.search.embase import EmbaseConnector
 from src.search.deduplication import deduplicate_papers
+from src.search.embase import EmbaseConnector
 from src.search.ieee_xplore import IEEEXploreConnector
 from src.search.openalex import OpenAlexConnector
 from src.search.pdf_retrieval import PDFRetriever
@@ -1456,8 +1456,7 @@ class ExtractionQualityNode(BaseNode[ReviewState]):
             rob2_rows, robins_i_rows = await repository.load_rob_assessments(state.workflow_id)
             # Count heuristic-derived assessments for Methods section transparency.
             _heuristic_count = sum(
-                1 for r in (rob2_rows + robins_i_rows)
-                if getattr(r, "assessment_source", "llm") == "heuristic"
+                1 for r in (rob2_rows + robins_i_rows) if getattr(r, "assessment_source", "llm") == "heuristic"
             )
             state.heuristic_assessment_count = _heuristic_count
             if _heuristic_count > 0:

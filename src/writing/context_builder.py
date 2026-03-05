@@ -431,9 +431,7 @@ def format_grounding_block(data: WritingGroundingData) -> str:
 
     if data.heterogeneity_warning:
         lines.append(f"Heterogeneity warning: {data.heterogeneity_warning}")
-        lines.append(
-            "CRITICAL -- report this warning in the Discussion limitations paragraph verbatim."
-        )
+        lines.append("CRITICAL -- report this warning in the Discussion limitations paragraph verbatim.")
 
     # AI screening method: always inject so the LLM uses the correct description.
     lines.append("")

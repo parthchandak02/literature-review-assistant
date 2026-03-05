@@ -223,8 +223,6 @@ class MmatAssessor:
         try:
             t0 = time.monotonic()
             if self.provider is not None and isinstance(self.llm_client, PydanticAIClient):
-                from src.llm.pydantic_client import PydanticAIClient as _PAI
-
                 raw, tok_in, tok_out, cw, cr = await self.llm_client.complete_with_usage(
                     prompt, model=model, temperature=temperature, json_schema=schema
                 )
@@ -241,9 +239,7 @@ class MmatAssessor:
                     cache_write_tokens=cw,
                 )
             else:
-                raw = await self.llm_client.complete(
-                    prompt, model=model, temperature=temperature, json_schema=schema
-                )
+                raw = await self.llm_client.complete(prompt, model=model, temperature=temperature, json_schema=schema)
             parsed = _MmatLLMResponse.model_validate_json(raw)
             score = sum(
                 [

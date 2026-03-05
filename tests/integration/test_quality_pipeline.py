@@ -5,7 +5,7 @@ import pytest
 from src.db.database import get_db
 from src.db.repositories import WorkflowRepository
 from src.models import CandidatePaper, GateStatus, SettingsConfig, StudyDesign
-from src.models.extraction import ExtractionRecord
+from src.models.extraction import ExtractionRecord, OutcomeRecord
 from src.orchestration.gates import GateRunner
 from src.quality.grade import GradeAssessor
 from src.quality.rob2 import Rob2Assessor
@@ -29,7 +29,7 @@ def _record(paper_id: str, design: StudyDesign, summary: str) -> ExtractionRecor
         paper_id=paper_id,
         study_design=design,
         intervention_description="AI tutor intervention",
-        outcomes=[{"name": "outcome_1", "description": "Exam performance"}],
+        outcomes=[OutcomeRecord(name="outcome_1", description="Exam performance")],
         results_summary={"summary": summary, "source": "metadata"},
     )
 

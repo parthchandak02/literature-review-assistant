@@ -3,6 +3,7 @@ from __future__ import annotations
 import pytest
 
 from src.models import ExtractionRecord, StudyDesign
+from src.models.extraction import OutcomeRecord
 from src.synthesis.effect_size import compute_mean_difference_effect_size
 from src.synthesis.feasibility import assess_meta_analysis_feasibility
 from src.synthesis.meta_analysis import pool_effects
@@ -17,12 +18,12 @@ def _record(paper_id: str, summary: str, effect_size: str = "0.5", se: str = "0.
         study_design=StudyDesign.RCT,
         intervention_description="AI tutoring support",
         outcomes=[
-            {
-                "name": "knowledge_retention",
-                "description": "Exam score retention",
-                "effect_size": effect_size,
-                "se": se,
-            }
+            OutcomeRecord(
+                name="knowledge_retention",
+                description="Exam score retention",
+                effect_size=effect_size,
+                se=se,
+            )
         ],
         results_summary={"summary": summary, "source": "metadata"},
     )

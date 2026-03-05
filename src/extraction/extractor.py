@@ -214,8 +214,7 @@ class ExtractionService:
         agent = self.settings.agents.get("extraction")
         if not agent:
             raise ValueError(
-                "Extraction agent not configured in settings.yaml. "
-                "Add 'extraction:' under 'agents:' with a model name."
+                "Extraction agent not configured in settings.yaml. Add 'extraction:' under 'agents:' with a model name."
             )
         model = agent.model
         temperature = agent.temperature
