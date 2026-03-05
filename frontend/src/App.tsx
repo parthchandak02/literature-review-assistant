@@ -300,14 +300,16 @@ export default function App() {
   // ---------------------------------------------------------------------------
   // Clear live run state when the run finishes. Two cases are handled:
   //
-  // 1. Run was actually streaming (wasStreamingRef = true): clear both
-  //    localStorage AND React state so the card moves to the history list.
+  // 1. Run was actually streaming (wasStreamingRef = true): clear localStorage
+  //    only. Do NOT clear React state -- the liveRun card stays at the top of
+  //    the sidebar showing the final status (Completed/Error/Cancelled). The
+  //    user sees their result immediately without a registry-update race
+  //    condition. The card is replaced when a new run starts.
   //
   // 2. Run was prefetch-detected as already-finished (wasStreamingRef = false,
-  //    e.g. page reload where localStorage points to a previously-cancelled run):
-  //    only clean up localStorage. Do NOT clear React state -- that would set
-  //    liveRunId=null, making isViewingLiveRun=false, which triggers the
-  //    CLI-resume poll and the fetchArtifacts 404 spam.
+  //    e.g. page reload where localStorage points to a previously-cancelled
+  //    run that never streamed in this session): clear both localStorage AND
+  //    React state so the zombie card is removed from the top of the sidebar.
   // ---------------------------------------------------------------------------
   useEffect(() => {
     if (status === "streaming") {
@@ -315,10 +317,13 @@ export default function App() {
     }
     if (status === "done" || status === "error" || status === "cancelled") {
       clearLiveRun()
-      if (wasStreamingRef.current) {
+      if (!wasStreamingRef.current) {
+        // Prefetch-detected terminal: remove the stale card from the UI.
         setLiveRunId(null)
         setLiveWorkflowId(null)
       }
+      // If wasStreamingRef = true (was live): keep React state so the card
+      // persists at top. wasStreamingRef resets when the next run starts.
       wasStreamingRef.current = false
     }
   }, [status])
