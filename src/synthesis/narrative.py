@@ -145,7 +145,7 @@ async def build_narrative_synthesis(
             }
         )
         for outcome in record.outcomes:
-            name = outcome.get("name", "").strip().lower().replace(" ", "_")
+            name = outcome.name.strip().lower().replace(" ", "_")
             if name and name not in {"not_reported", "primary_outcome", "secondary_outcome"}:
                 themes.append(name)
 

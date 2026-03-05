@@ -267,7 +267,7 @@ def is_extraction_failed(rec: Any) -> bool:
     Use this to exclude such records from the manuscript and study table so
     the final document contains only papers with meaningful extracted data.
     """
-    outcome_names = {(o.get("name") or "").strip().lower() for o in (rec.outcomes or []) if isinstance(o, dict)}
+    outcome_names = {o.name.strip().lower() for o in (rec.outcomes or [])}
     all_placeholder = outcome_names.issubset(_PLACEHOLDER_OUTCOME_NAMES)
     design_obj = getattr(rec, "study_design", "other")
     if hasattr(design_obj, "value"):
@@ -342,9 +342,7 @@ def build_study_characteristics_table(
 
         # Key outcomes - take first two real (non-placeholder) outcome names
         real_names = [
-            o.get("name", "").strip()
-            for o in (rec.outcomes or [])[:3]
-            if isinstance(o, dict) and (o.get("name") or "").strip().lower() not in _PLACEHOLDER_OUTCOME_NAMES
+            o.name.strip() for o in (rec.outcomes or [])[:3] if o.name.strip().lower() not in _PLACEHOLDER_OUTCOME_NAMES
         ]
         if real_names:
             outcomes_str = "; ".join(real_names[:2])

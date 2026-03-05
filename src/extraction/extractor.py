@@ -10,7 +10,7 @@ from pydantic import BaseModel, Field
 from src.db.repositories import WorkflowRepository
 from src.llm.base_client import LLMBackend
 from src.llm.pydantic_client import PydanticAIClient
-from src.models import CandidatePaper, ExtractionRecord, StudyDesign
+from src.models import CandidatePaper, ExtractionRecord, OutcomeRecord, StudyDesign
 from src.models.config import ReviewConfig, SettingsConfig
 
 logger = logging.getLogger(__name__)
@@ -110,14 +110,14 @@ class ExtractionService:
             return abstract[:1200]
         return "No summary available."
 
-    def _heuristic_outcomes(self) -> list[dict[str, str]]:
+    def _heuristic_outcomes(self) -> list[OutcomeRecord]:
         """Generic fallback when LLM extraction yields no outcomes.
 
         Uses the review's PICO outcome field as description context so the
         fallback is at least topic-aware. Never uses a hardcoded subject-area label.
         """
         topic = (self.review.pico.outcome if self.review else "") or "not reported"
-        return [{"name": "not reported", "description": topic[:200]}]
+        return [OutcomeRecord(name="not reported", description=topic[:200])]
 
     def _heuristic_extract(
         self,
@@ -188,22 +188,20 @@ class ExtractionService:
             raw = await self.llm_client.complete(prompt, model=model, temperature=temperature, json_schema=schema)
         parsed = _ExtractionLLMResponse.model_validate_json(raw)
 
-        outcomes: list[dict[str, str]] = []
+        outcomes: list[OutcomeRecord] = []
         for o in parsed.outcomes or []:
             name = (o.name or "").strip()
             if not name:
                 continue
-            entry: dict[str, str] = {
-                "name": name,
-                "description": o.description or "",
-            }
-            if o.effect_size:
-                entry["effect_size"] = o.effect_size
-            if o.se:
-                entry["se"] = o.se
-            if o.n:
-                entry["n"] = o.n
-            outcomes.append(entry)
+            outcomes.append(
+                OutcomeRecord(
+                    name=name,
+                    description=o.description or "",
+                    effect_size=o.effect_size or "",
+                    se=o.se or "",
+                    n=o.n or "",
+                )
+            )
         if not outcomes:
             outcomes = self._heuristic_outcomes()
 

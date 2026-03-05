@@ -5,6 +5,9 @@ llm:
   flash_rpm: 10
   flash_lite_rpm: 15
   pro_rpm: 5
+  # Per-request HTTP timeout in seconds. Pro-tier writing/quality calls can take
+  # 60-120s for large outputs; 504 DEADLINE_EXCEEDED errors indicate this needs raising.
+  request_timeout_seconds: 120
 
 agents:
   screening_reviewer_a:

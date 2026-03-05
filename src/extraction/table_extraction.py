@@ -25,6 +25,8 @@ from urllib.parse import quote
 
 import aiohttp
 
+from src.models.extraction import OutcomeRecord
+
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
@@ -1064,7 +1066,7 @@ async def extract_tables_from_pdf(
     pdf_bytes: bytes | None,
     model_name: str = "gemini-2.5-flash",
     api_key: str | None = None,
-) -> list[dict[str, str]]:
+) -> list[OutcomeRecord]:
     """Extract quantitative outcome tables from PDF bytes via PydanticAI multimodal.
 
     Uses PydanticAI BinaryContent to pass raw PDF bytes to Gemini vision
@@ -1076,8 +1078,8 @@ async def extract_tables_from_pdf(
         api_key: Unused; kept for backward compat. PydanticAI reads GEMINI_API_KEY.
 
     Returns:
-        List of outcome dicts with keys: name, description, effect_size,
-        se, n, p_value, ci_lower, ci_upper, group.
+        List of OutcomeRecord objects with keys: name, description, effect_size,
+        se, n, p_value, ci_lower, ci_upper.
     """
     if not pdf_bytes:
         return []
@@ -1095,7 +1097,8 @@ async def extract_tables_from_pdf(
             [pdf_part, _TABLE_EXTRACTION_PROMPT],
             model_settings=ModelSettings(temperature=0.1),
         )
-        return _parse_table_json(result.output)
+        raw_dicts = _parse_table_json(result.output)
+        return [OutcomeRecord(**{k: v for k, v in d.items() if k in OutcomeRecord.model_fields}) for d in raw_dicts]
     except json.JSONDecodeError as exc:
         logger.warning("Table extraction: JSON parse error: %s", exc)
     except Exception as exc:
@@ -1105,9 +1108,9 @@ async def extract_tables_from_pdf(
 
 
 def merge_outcomes(
-    text_outcomes: list[dict[str, str]],
-    vision_outcomes: list[dict[str, str]],
-) -> tuple[list[dict[str, str]], str]:
+    text_outcomes: list[OutcomeRecord],
+    vision_outcomes: list[OutcomeRecord],
+) -> tuple[list[OutcomeRecord], str]:
     """Merge text-extracted and vision-extracted outcomes, deduplicating by name.
 
     Returns (merged_outcomes, extraction_source) where extraction_source is one
@@ -1119,23 +1122,26 @@ def merge_outcomes(
         return vision_outcomes, "pdf_vision"
 
     # Merge: vision outcomes take precedence for numeric fields when both exist
-    name_to_outcome: dict[str, dict[str, str]] = {}
+    name_to_outcome: dict[str, OutcomeRecord] = {}
     for o in text_outcomes:
-        name = o.get("name", "").lower().strip()
+        name = o.name.lower().strip()
         if name:
-            name_to_outcome[name] = dict(o)
+            name_to_outcome[name] = o.model_copy()
 
     for o in vision_outcomes:
-        name = o.get("name", "").lower().strip()
+        name = o.name.lower().strip()
         if not name:
             continue
         if name in name_to_outcome:
             existing = name_to_outcome[name]
-            # Vision takes precedence for effect_size, se, ci_lower, ci_upper, p_value
-            for key in ("effect_size", "se", "ci_lower", "ci_upper", "p_value", "n"):
-                if o.get(key) and o[key] not in ("", "not reported"):
-                    existing[key] = o[key]
+            # Vision takes precedence for numeric fields when non-empty
+            numeric_fields = ("effect_size", "se", "ci_lower", "ci_upper", "p_value", "n")
+            updates = {
+                f: getattr(o, f) for f in numeric_fields if getattr(o, f) and getattr(o, f) not in ("", "not reported")
+            }
+            if updates:
+                name_to_outcome[name] = existing.model_copy(update=updates)
         else:
-            name_to_outcome[name] = dict(o)
+            name_to_outcome[name] = o.model_copy()
 
     return list(name_to_outcome.values()), "hybrid"

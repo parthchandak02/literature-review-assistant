@@ -428,8 +428,19 @@ class DualReviewerScreener:
                     self.on_progress("phase_3_screening", completed_count, total)
                 return result
 
-        raw_results = await asyncio.gather(*[_process_one(p) for p in to_process])
-        return [r for r in raw_results if r is not None]
+        raw_results = await asyncio.gather(*[_process_one(p) for p in to_process], return_exceptions=True)
+        decisions: list[ScreeningDecision] = []
+        for paper, outcome in zip(to_process, raw_results):
+            if isinstance(outcome, BaseException):
+                _log.warning(
+                    "Screening failed for paper %s (%s): %s -- skipping",
+                    paper.paper_id,
+                    (paper.title or "")[:60],
+                    outcome,
+                )
+            elif outcome is not None:
+                decisions.append(outcome)
+        return decisions
 
     @staticmethod
     def _coverage_from_map(

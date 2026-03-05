@@ -94,19 +94,19 @@ def _collect_outcome_data(
 
     for rec in records:
         for outcome in rec.outcomes:
-            if outcome.get("name", "") != outcome_name:
+            if outcome.name != outcome_name:
                 continue
             try:
-                es_raw = outcome.get("effect_size")
-                se_raw = outcome.get("se")
-                if es_raw is None or se_raw is None:
+                es_raw = outcome.effect_size
+                se_raw = outcome.se
+                if not es_raw or not se_raw:
                     continue
                 es = float(es_raw)
                 se = float(se_raw)
                 if se <= 0.0:
                     continue
                 paper_ids.append(rec.paper_id)
-                titles.append(outcome.get("title", rec.paper_id))
+                titles.append(outcome.title or rec.paper_id)
                 effects.append(es)
                 variances.append(se**2)
             except (TypeError, ValueError):

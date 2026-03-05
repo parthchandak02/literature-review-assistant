@@ -74,11 +74,7 @@ class EmbeddingNode(BaseNode[ReviewState]):
                     )
                     all_chunks.extend(text_chunks)
                     # Also embed any vision-extracted table outcomes as structured chunks
-                    table_outcomes = [
-                        o
-                        for o in (record.outcomes or [])
-                        if o.get("effect_size") or o.get("p_value") or o.get("ci_lower")
-                    ]
+                    table_outcomes = [o for o in (record.outcomes or []) if o.effect_size or o.p_value or o.ci_lower]
                     if table_outcomes:
                         table_chunks = chunk_table_outcomes(
                             paper_id=record.paper_id,

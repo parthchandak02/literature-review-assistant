@@ -115,12 +115,16 @@ def _ci_overlap(
     return not (hi_a < lo_b or hi_b < lo_a)
 
 
-def _parse_ci(outcome: dict) -> tuple[float | None, float | None]:
-    """Parse ci_lower and ci_upper from outcome dict."""
+def _parse_ci(outcome: object) -> tuple[float | None, float | None]:
+    """Parse ci_lower and ci_upper from an OutcomeRecord (or legacy dict)."""
     try:
-        lo = float(outcome.get("ci_lower", ""))
-        hi = float(outcome.get("ci_upper", ""))
-        return lo, hi
+        lo_raw = getattr(outcome, "ci_lower", None) or (
+            outcome.get("ci_lower", "") if isinstance(outcome, dict) else ""
+        )  # type: ignore[union-attr]
+        hi_raw = getattr(outcome, "ci_upper", None) or (
+            outcome.get("ci_upper", "") if isinstance(outcome, dict) else ""
+        )  # type: ignore[union-attr]
+        return float(lo_raw), float(hi_raw)
     except (ValueError, TypeError):
         return None, None
 
@@ -178,18 +182,18 @@ def detect_contradictions(
                 continue
 
             # Find a common outcome name if possible
-            outcome_names_a = {o.get("name", "").lower() for o in rec_a.outcomes}
-            outcome_names_b = {o.get("name", "").lower() for o in rec_b.outcomes}
+            outcome_names_a = {o.name.lower() for o in rec_a.outcomes}
+            outcome_names_b = {o.name.lower() for o in rec_b.outcomes}
             common = outcome_names_a & outcome_names_b
             outcome_name = next(iter(common)) if common else "primary_outcome"
 
             # Check CI non-overlap for the shared outcome (increases confidence)
             ci_non_overlap = False
             for oa in rec_a.outcomes:
-                if oa.get("name", "").lower() != outcome_name:
+                if oa.name.lower() != outcome_name:
                     continue
                 for ob in rec_b.outcomes:
-                    if ob.get("name", "").lower() != outcome_name:
+                    if ob.name.lower() != outcome_name:
                         continue
                     lo_a, hi_a = _parse_ci(oa)
                     lo_b, hi_b = _parse_ci(ob)

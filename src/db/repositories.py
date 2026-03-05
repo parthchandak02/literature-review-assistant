@@ -989,6 +989,12 @@ class CitationRepository:
         rows = await cursor.fetchall()
         return [str(row[0]) for row in rows]
 
+    async def get_citation_map(self) -> dict[str, str]:
+        """Return mapping of citekey -> citation_id for all registered citations."""
+        cursor = await self.db.execute("SELECT citekey, citation_id FROM citations")
+        rows = await cursor.fetchall()
+        return {str(row[0]): str(row[1]) for row in rows}
+
     async def get_claim_citation_pairs(self) -> list[tuple[str, str]]:
         cursor = await self.db.execute(
             """

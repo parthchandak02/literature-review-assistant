@@ -9,7 +9,14 @@ from typing import TYPE_CHECKING
 
 from src.citation.ledger import CitationLedger
 from src.db.repositories import CitationRepository
-from src.models import CandidatePaper, CitationEntryRecord, ReviewConfig, SettingsConfig
+from src.models import (
+    CandidatePaper,
+    CitationEntryRecord,
+    ClaimRecord,
+    EvidenceLinkRecord,
+    ReviewConfig,
+    SettingsConfig,
+)
 from src.writing.section_writer import SectionWriter
 from src.writing.style_extractor import StylePatterns, extract_style_patterns
 
@@ -191,6 +198,72 @@ def build_citation_catalog_from_papers(papers: list[CandidatePaper]) -> str:
     return "\n".join(lines) if lines else "(No papers yet)"
 
 
+_SENTENCE_SPLIT_RE = re.compile(r"(?<=[.!?])\s+(?=[A-Z\[])")
+_CITEKEY_RE = re.compile(r"\[([A-Za-z0-9_:-]+)\]")
+
+
+async def extract_and_register_claims(
+    section: str,
+    content: str,
+    citation_repo: CitationRepository,
+) -> int:
+    """Extract cited sentences from written content and register claim->evidence links.
+
+    For each sentence that contains one or more [citekey] references:
+    1. Register the sentence as a ClaimRecord in the claims table.
+    2. Look up citation_id for each citekey in the citations table.
+    3. Create an EvidenceLinkRecord linking the claim to each resolved citation.
+
+    Returns the number of claims registered. Already-registered citekeys that do
+    not appear in the citations table are silently skipped (prevents FK violations
+    from hallucinated keys that the repair step may not have caught).
+    """
+    citekey_to_id = await citation_repo.get_citation_map()
+    if not citekey_to_id:
+        return 0
+
+    # Split content into candidate sentences; fall back to line split for short texts.
+    sentences = _SENTENCE_SPLIT_RE.split(content)
+    if len(sentences) <= 1:
+        sentences = [line.strip() for line in content.splitlines() if line.strip()]
+
+    claims_registered = 0
+    for sentence in sentences:
+        keys = _CITEKEY_RE.findall(sentence)
+        if not keys:
+            continue
+        resolved_keys = [(k, citekey_to_id[k]) for k in keys if k in citekey_to_id]
+        if not resolved_keys:
+            continue
+
+        claim = ClaimRecord(
+            claim_text=sentence[:2000],
+            section=section,
+            confidence=1.0,
+        )
+        try:
+            await citation_repo.register_claim(claim)
+        except Exception as exc:
+            logger.debug("Skipping duplicate or invalid claim for section '%s': %s", section, exc)
+            continue
+
+        for citekey, citation_id in resolved_keys:
+            link = EvidenceLinkRecord(
+                claim_id=claim.claim_id,
+                citation_id=citation_id,
+                evidence_span=citekey,
+                evidence_score=1.0,
+            )
+            try:
+                await citation_repo.link_evidence(link)
+            except Exception as exc:
+                logger.debug("Failed to link evidence %s -> %s: %s", claim.claim_id, citation_id, exc)
+
+        claims_registered += 1
+
+    return claims_registered
+
+
 async def register_citations_from_papers(repo: CitationRepository, papers: list[CandidatePaper]) -> None:
     """Pre-register citations for included papers so validate_section passes.
     Skips citekeys already in DB (idempotent for resume)."""
@@ -293,6 +366,15 @@ async def write_section_with_validation(
         )
     # Safety-net: replace any leftover snake_case in prose before saving.
     content = _sanitize_prose(content)
+
+    # Register each cited sentence as a claim and link it to evidence so the
+    # citation lineage gate can verify full claim->evidence->citation coverage.
+    try:
+        n_claims = await extract_and_register_claims(section, content, citation_repo)
+        if n_claims:
+            logger.debug("Registered %d claim-evidence links for section '%s'", n_claims, section)
+    except Exception as exc:
+        logger.warning("Claim extraction failed for section '%s': %s", section, exc)
 
     ledger = CitationLedger(citation_repo)
     result = await ledger.validate_section(section, content)

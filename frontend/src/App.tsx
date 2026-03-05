@@ -112,27 +112,43 @@ export default function App() {
   // Events to pass to RunView: only provide live events when viewing the live run.
   const viewEvents = isViewingLiveRun ? events : []
 
-  // Sidebar live run descriptor
-  const livePapersFound = events
-    .filter((e) => e.type === "connector_result" && e.status === "success")
-    .reduce((acc, e) => acc + (e.type === "connector_result" ? (e.records ?? 0) : 0), 0)
-  const liveIncluded = events.filter(
-    (e) => e.type === "screening_decision" && e.decision === "include",
-  ).length
+  // Sidebar live run descriptor -- memoized to prevent Sidebar re-renders when
+  // App.tsx re-renders for unrelated reasons (e.g. selectedRun changes).
+  const livePapersFound = useMemo(
+    () =>
+      events
+        .filter((e) => e.type === "connector_result" && e.status === "success")
+        .reduce((acc, e) => acc + (e.type === "connector_result" ? (e.records ?? 0) : 0), 0),
+    [events],
+  )
+  const liveIncluded = useMemo(
+    () =>
+      events.filter(
+        (e) => e.type === "screening_decision" && e.decision === "include",
+      ).length,
+    [events],
+  )
+  const livePhaseProgress = useMemo(() => computePhaseProgress(events), [events])
 
-  const liveRunForSidebar: LiveRun | null = liveRunId
-    ? {
-        runId: liveRunId,
-        topic: liveTopic ?? "",
-        status,
-        cost: costStats.total_cost,
-        workflowId: liveWorkflowId,
-        phaseProgress: computePhaseProgress(events),
-        startedAt: liveStartedAt?.toISOString() ?? null,
-        papersFound: livePapersFound > 0 ? livePapersFound : null,
-        papersIncluded: liveIncluded > 0 ? liveIncluded : null,
-      }
-    : null
+  const liveRunForSidebar = useMemo<LiveRun | null>(
+    () =>
+      liveRunId
+        ? {
+            runId: liveRunId,
+            topic: liveTopic ?? "",
+            status,
+            cost: costStats.total_cost,
+            workflowId: liveWorkflowId,
+            phaseProgress: livePhaseProgress,
+            startedAt: liveStartedAt?.toISOString() ?? null,
+            papersFound: livePapersFound > 0 ? livePapersFound : null,
+            papersIncluded: liveIncluded > 0 ? liveIncluded : null,
+          }
+        : null,
+    // livePhaseProgress intentionally included; it memoizes computePhaseProgress(events)
+    // so the sidebar object only updates when actual values change, not on every render.
+    [liveRunId, liveTopic, status, costStats.total_cost, liveWorkflowId, livePhaseProgress, liveStartedAt, livePapersFound, liveIncluded],
+  )
 
   // ---------------------------------------------------------------------------
   // Restore a historical run from the URL (direct navigation / refresh)
@@ -319,15 +335,23 @@ export default function App() {
 
   // ---------------------------------------------------------------------------
   // Poll for CLI-initiated resume: when viewing a run, check if it became active.
+  // Stops automatically after 10 consecutive 404s (~8s) to prevent log spam.
   // ---------------------------------------------------------------------------
   useEffect(() => {
     const wfId = selectedRun?.workflowId
     if (!wfId || isViewingLiveRun) return
     const workflowId = wfId
 
+    let consecutiveMisses = 0
+    const MAX_MISSES = 10
+
     async function checkAndSwitch() {
       const res = await fetchActiveRun(workflowId)
-      if (!res) return
+      if (!res) {
+        consecutiveMisses++
+        return
+      }
+      consecutiveMisses = 0
       const now = new Date()
       reset()
       liveRunNavigatedRef.current = null
@@ -350,7 +374,13 @@ export default function App() {
     }
 
     void checkAndSwitch()
-    const interval = setInterval(() => void checkAndSwitch(), 800)
+    const interval = setInterval(() => {
+      if (consecutiveMisses >= MAX_MISSES) {
+        clearInterval(interval)
+        return
+      }
+      void checkAndSwitch()
+    }, 800)
 
     return () => clearInterval(interval)
   }, [selectedRun?.workflowId, isViewingLiveRun, reset, navigate])

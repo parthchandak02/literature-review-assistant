@@ -1084,7 +1084,8 @@ class ExtractionQualityNode(BaseNode[ReviewState]):
                 on_llm_call=on_classify,
             )
             use_llm = _llm_available(settings_cfg=state.settings) and (rc is None or not rc.offline)
-            llm_gemini = PydanticAIClient() if use_llm else None
+            _llm_timeout = float(getattr(getattr(state.settings, "llm", None), "request_timeout_seconds", 120))
+            llm_gemini = PydanticAIClient(timeout_seconds=_llm_timeout) if use_llm else None
             extractor = ExtractionService(
                 repository=repository,
                 llm_client=llm_gemini,
@@ -1127,10 +1128,10 @@ class ExtractionQualityNode(BaseNode[ReviewState]):
                     else:
                         not_applicable_paper_ids.append(qr.paper_id)
                     _qr_outcomes = [
-                        o.get("name", "").strip()
+                        o.name.strip()
                         for o in qr.outcomes
-                        if o.get("name", "").strip()
-                        and o.get("name", "").strip().lower()
+                        if o.name.strip()
+                        and o.name.strip().lower()
                         not in {
                             "primary_outcome",
                             "secondary_outcome",
@@ -1344,10 +1345,10 @@ class ExtractionQualityNode(BaseNode[ReviewState]):
 
                     # Use first named outcome from extraction record if available
                     _grade_outcomes = [
-                        o.get("name", "").strip()
+                        o.name.strip()
                         for o in record.outcomes
-                        if o.get("name", "").strip()
-                        and o.get("name", "").strip().lower()
+                        if o.name.strip()
+                        and o.name.strip().lower()
                         not in {
                             "primary_outcome",
                             "secondary_outcome",
@@ -1462,12 +1463,12 @@ def _try_meta_analysis(
 
     for record in records:
         for outcome in record.outcomes or []:
-            name = outcome.get("name", "").lower().replace(" ", "_")
+            name = outcome.name.lower().replace(" ", "_")
             if outcome_name not in name:
                 continue
-            effect_str = outcome.get("effect_size") or outcome.get("effect")
-            se_str = outcome.get("se") or outcome.get("standard_error")
-            var_str = outcome.get("variance")
+            effect_str = outcome.effect_size or ""
+            se_str = outcome.se or ""
+            var_str = outcome.variance or ""
             try:
                 # Attempt to parse the numeric part (e.g. "SMD=0.45" -> 0.45)
                 if effect_str:
@@ -1556,7 +1557,8 @@ class SynthesisNode(BaseNode[ReviewState]):
             rc.emit_phase_start("phase_5_synthesis", "Building synthesis...", total=1)
         feasibility = assess_meta_analysis_feasibility(state.extraction_records)
         _use_llm = _llm_available(settings_cfg=state.settings) and (rc is None or not rc.offline)
-        _synth_llm = PydanticAIClient() if _use_llm else None
+        _synth_timeout = float(getattr(getattr(state.settings, "llm", None), "request_timeout_seconds", 120))
+        _synth_llm = PydanticAIClient(timeout_seconds=_synth_timeout) if _use_llm else None
         narrative = await build_narrative_synthesis(
             "primary_outcome",
             state.extraction_records,

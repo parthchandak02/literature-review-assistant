@@ -87,7 +87,7 @@ def detect_research_gaps(records: list[ExtractionRecord]) -> list[ResearchGap]:
     outcome_papers: dict[str, list[str]] = {}
     for rec in records:
         for outcome in rec.outcomes:
-            name = outcome.get("name", "").lower().strip()
+            name = outcome.name.lower().strip()
             if name and name not in ("primary_outcome", "secondary_outcome", ""):
                 outcome_papers.setdefault(name, []).append(rec.paper_id)
 

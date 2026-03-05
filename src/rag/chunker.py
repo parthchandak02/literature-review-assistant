@@ -74,9 +74,9 @@ def _build_chunk_text(record: ExtractionRecord) -> str:
     if summary:
         parts.append(f"Results: {summary}")
     for outcome in record.outcomes:
-        name = outcome.get("name", "")
-        desc = outcome.get("description", "")
-        effect = outcome.get("effect_size", "")
+        name = outcome.name
+        desc = outcome.description
+        effect = outcome.effect_size
         if name:
             entry = f"Outcome: {name}"
             if desc:
@@ -166,7 +166,7 @@ def chunk_extraction_record(
 
 def chunk_table_outcomes(
     paper_id: str,
-    outcomes: list[dict[str, str]],
+    outcomes: list,
     start_index: int = 0,
 ) -> list[TextChunk]:
     """Convert vision-extracted table outcome rows into embeddable text chunks.
@@ -177,9 +177,7 @@ def chunk_table_outcomes(
 
     Args:
         paper_id: Paper identifier (used in chunk_id prefix).
-        outcomes: List of outcome dicts as produced by merge_outcomes() /
-                  extract_tables_from_pdf(). Each dict may contain: name,
-                  description, effect_size, se, n, p_value, ci_lower, ci_upper.
+        outcomes: List of OutcomeRecord objects (or legacy dicts for old DBs).
         start_index: Chunk index offset (use len(existing_chunks) to avoid
                      collisions when appending to already-chunked records).
 
@@ -188,24 +186,26 @@ def chunk_table_outcomes(
     """
     chunks: list[TextChunk] = []
     for idx, outcome in enumerate(outcomes):
-        name = outcome.get("name", "").strip()
+        name = (
+            getattr(outcome, "name", None) or outcome.get("name", "") if isinstance(outcome, dict) else outcome.name
+        ).strip()  # type: ignore[union-attr]
         if not name:
             continue
         parts: list[str] = [f"[Table outcome] {name}"]
-        desc = outcome.get("description", "").strip()
+        desc = (getattr(outcome, "description", "") or "").strip()
         if desc:
             parts.append(f"Description: {desc}")
-        effect = outcome.get("effect_size", "").strip()
+        effect = (getattr(outcome, "effect_size", "") or "").strip()
         if effect:
             parts.append(f"Effect size: {effect}")
-        ci_low = outcome.get("ci_lower", "").strip()
-        ci_high = outcome.get("ci_upper", "").strip()
+        ci_low = (getattr(outcome, "ci_lower", "") or "").strip()
+        ci_high = (getattr(outcome, "ci_upper", "") or "").strip()
         if ci_low and ci_high:
             parts.append(f"95% CI: [{ci_low}, {ci_high}]")
-        p_val = outcome.get("p_value", "").strip()
+        p_val = (getattr(outcome, "p_value", "") or "").strip()
         if p_val:
             parts.append(f"p-value: {p_val}")
-        n_val = outcome.get("n", "").strip()
+        n_val = (getattr(outcome, "n", "") or "").strip()
         if n_val:
             parts.append(f"N: {n_val}")
         content = " | ".join(parts)

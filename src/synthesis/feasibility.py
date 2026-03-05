@@ -69,11 +69,11 @@ def assess_meta_analysis_feasibility(
     outcome_data: dict[str, list[tuple[bool, bool]]] = defaultdict(list)
     for record in records:
         for outcome in record.outcomes:
-            name = outcome.get("name", "").strip().lower().replace(" ", "_")
+            name = outcome.name.strip().lower().replace(" ", "_")
             if not name or name in _GENERIC_OUTCOME_NAMES:
                 continue
-            has_es = _is_numeric(outcome.get("effect_size") or "")
-            has_se = _is_numeric(outcome.get("se") or "")
+            has_es = _is_numeric(outcome.effect_size or "")
+            has_se = _is_numeric(outcome.se or "")
             outcome_data[name].append((has_es, has_se))
 
     if not outcome_data:

@@ -9,6 +9,27 @@ from pydantic import BaseModel, Field
 from src.models.enums import StudyDesign
 
 
+class OutcomeRecord(BaseModel):
+    """Structured outcome measure extracted from a study.
+
+    All fields are optional strings so that partial LLM extractions and
+    heuristic fallbacks do not fail validation. Numeric fields (effect_size,
+    se, ci_lower, ci_upper, variance) are kept as strings to preserve the
+    exact text the LLM returned; callers convert to float as needed.
+    """
+
+    name: str = ""
+    description: str = ""
+    effect_size: str = ""
+    se: str = ""
+    n: str = ""
+    ci_lower: str = ""
+    ci_upper: str = ""
+    p_value: str = ""
+    title: str = ""
+    variance: str = ""
+
+
 class ExtractionRecord(BaseModel):
     paper_id: str
     study_design: StudyDesign
@@ -18,7 +39,7 @@ class ExtractionRecord(BaseModel):
     participant_demographics: str | None = None
     intervention_description: str
     comparator_description: str | None = None
-    outcomes: list[dict[str, str]] = Field(default_factory=list)
+    outcomes: list[OutcomeRecord] = Field(default_factory=list)
     results_summary: dict[str, str] = Field(default_factory=dict)
     funding_source: str | None = None
     conflicts_of_interest: str | None = None

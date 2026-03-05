@@ -47,7 +47,7 @@ from src.models.enums import (
     SourceCategory,
     StudyDesign,
 )
-from src.models.extraction import ExtractionRecord
+from src.models.extraction import ExtractionRecord, OutcomeRecord
 from src.models.papers import CandidatePaper, SearchResult
 from src.models.quality import GRADEOutcomeAssessment, RoB2Assessment, RobinsIAssessment
 from src.models.screening import DualScreeningResult, ScreeningDecision
@@ -75,6 +75,7 @@ __all__ = [
     "EvidenceLinkRecord",
     "ExclusionReason",
     "ExtractionRecord",
+    "OutcomeRecord",
     "FundingInfo",
     "GatesConfig",
     "GateResult",

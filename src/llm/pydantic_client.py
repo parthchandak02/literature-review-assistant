@@ -76,6 +76,9 @@ async def _run_with_retry(agent: Agent[Any, Any], prompt: str, *, model_settings
     raise RuntimeError("unreachable")  # pragma: no cover
 
 
+_DEFAULT_TIMEOUT_SECONDS = 120.0
+
+
 class PydanticAIClient:
     """Provider-agnostic LLM client backed by PydanticAI Agent.
 
@@ -83,9 +86,16 @@ class PydanticAIClient:
     one-line change in config/settings.yaml -- no code changes required.
 
     Retry behavior: transient errors (503 UNAVAILABLE, 429 RESOURCE_EXHAUSTED,
-    502/504 gateway errors) are retried up to _MAX_RETRIES times with exponential
+    802/504 gateway errors) are retried up to _MAX_RETRIES times with exponential
     backoff and jitter. Non-retryable errors propagate immediately.
+
+    timeout_seconds: Per-request HTTP timeout passed to ModelSettings.timeout.
+    Reads from config/settings.yaml llm.request_timeout_seconds at construction
+    time when provided; falls back to _DEFAULT_TIMEOUT_SECONDS (120s).
     """
+
+    def __init__(self, timeout_seconds: float = _DEFAULT_TIMEOUT_SECONDS) -> None:
+        self._timeout_seconds = timeout_seconds
 
     async def complete(
         self,
@@ -101,7 +111,7 @@ class PydanticAIClient:
         that schema. Callers should use model_validate_json() on the result.
         If no schema is provided, the response is plain text.
         """
-        settings = ModelSettings(temperature=temperature)
+        settings = ModelSettings(temperature=temperature, timeout=self._timeout_seconds)
 
         if json_schema is not None:
             if _is_gemini(model):
@@ -138,7 +148,7 @@ class PydanticAIClient:
         are no word-count heuristics.  cache_write and cache_read are 0 when
         the provider does not report them (e.g. OpenAI, Groq).
         """
-        settings = ModelSettings(temperature=temperature)
+        settings = ModelSettings(temperature=temperature, timeout=self._timeout_seconds)
 
         if json_schema is not None:
             if _is_gemini(model):

@@ -160,6 +160,12 @@ export function useSSEStream(runId: string | null, workflowId?: string | null) {
 
   const abortRef = useRef<AbortController | null>(null)
 
+  // workflowId is kept in a ref so that changes to it (e.g. workflow_id_ready
+  // firing and setting the real workflowId from null) do NOT restart the SSE
+  // connection. The ref is always current when openStream reads it.
+  const workflowIdRef = useRef(workflowId)
+  workflowIdRef.current = workflowId
+
   const reset = useCallback(() => {
     setState({ events: [], status: "idle", error: null })
   }, [])
@@ -209,20 +215,24 @@ export function useSSEStream(runId: string | null, workflowId?: string | null) {
         }
 
         // Phase 2: open live SSE stream for remaining / future events.
-        // Pass workflowId so openStream can fall back to SQLite replay on 404.
-        openStream(runId, ctrl.signal, setState, workflowId)
+        // Use the ref so the 404 fallback has the latest workflowId without
+        // this effect re-running (which would abort+restart the connection).
+        openStream(runId, ctrl.signal, setState, workflowIdRef.current)
       })
       .catch(() => {
         // fetchRunEvents failed (backend offline) -- still try opening SSE directly.
         if (!ctrl.signal.aborted) {
-          openStream(runId, ctrl.signal, setState, workflowId)
+          openStream(runId, ctrl.signal, setState, workflowIdRef.current)
         }
       })
 
     return () => {
       ctrl.abort()
     }
-  }, [runId, workflowId])
+  // workflowId intentionally excluded -- kept in workflowIdRef to avoid
+  // restarting the SSE connection when workflow_id_ready fires.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [runId])
 
   const abort = useCallback(() => {
     abortRef.current?.abort()

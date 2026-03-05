@@ -212,6 +212,17 @@ class LLMRateLimitConfig(BaseModel):
     flash_rpm: int = Field(ge=1, le=1000, default=10)
     flash_lite_rpm: int = Field(ge=1, le=1000, default=15)
     pro_rpm: int = Field(ge=1, le=500, default=5)
+    request_timeout_seconds: int = Field(
+        ge=10,
+        le=600,
+        default=120,
+        description=(
+            "Per-request HTTP timeout in seconds for all LLM calls. "
+            "Pro-tier models generating long outputs (e.g. writing sections) "
+            "may need 120-180s; flash-lite can use 60s. "
+            "Applies to PydanticAI ModelSettings.timeout."
+        ),
+    )
 
 
 class SearchConfig(BaseModel):

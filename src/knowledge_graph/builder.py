@@ -99,10 +99,9 @@ def build_paper_graph(
 
     for rec in records:
         outcome_sets[rec.paper_id] = {
-            o.get("name", "").lower().strip()
+            o.name.lower().strip()
             for o in rec.outcomes
-            if o.get("name", "").strip()
-            and o.get("name", "").lower() not in ("primary_outcome", "secondary_outcome", "")
+            if o.name.strip() and o.name.lower() not in ("primary_outcome", "secondary_outcome", "")
         }
         intervention_sets[rec.paper_id] = _extract_keyword_set(rec.intervention_description)
         population_sets[rec.paper_id] = _extract_keyword_set(rec.participant_demographics)

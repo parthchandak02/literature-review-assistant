@@ -430,7 +430,11 @@ export function Sidebar({
               )}
               {(liveRun?.workflowId
                 ? history.filter((e) => e.workflow_id !== liveRun.workflowId)
-                : history
+                // workflowId is null during the connecting window (before workflow_id_ready
+                // fires). Filter by live_run_id to prevent the active run appearing twice.
+                : liveRun?.runId
+                  ? history.filter((e) => e.live_run_id !== liveRun.runId)
+                  : history
               ).map((entry) => {
                 const statusKey = resolveStatus(entry.status)
                 const isSelected = selectedWorkflowId === entry.workflow_id
@@ -580,7 +584,13 @@ export function Sidebar({
               })}
             </div>
 
-            {!collapsed && !loadingHistory && (liveRun?.workflowId ? history.filter((e) => e.workflow_id !== liveRun.workflowId).length === 0 : history.length === 0) && (
+            {!collapsed && !loadingHistory && (
+              liveRun?.workflowId
+                ? history.filter((e) => e.workflow_id !== liveRun.workflowId).length === 0
+                : liveRun?.runId
+                  ? history.filter((e) => e.live_run_id !== liveRun.runId).length === 0
+                  : history.length === 0
+            ) && (
               <div className="flex flex-col items-center py-6 gap-2">
                 <Clock className="h-6 w-6 text-zinc-700" />
                 <p className="label-muted text-center">
