@@ -7,6 +7,8 @@ from src.models import CandidatePaper, ReviewConfig, ScreeningDecision
 
 def _topic_header(review: ReviewConfig, role: str, goal: str, backstory: str) -> str:
     keyword_block = ", ".join(review.keywords)
+    inclusion_block = "\n".join(f"  - {c}" for c in review.inclusion_criteria)
+    exclusion_block = "\n".join(f"  - {c}" for c in review.exclusion_criteria)
     return "\n".join(
         [
             f"Role: {role}",
@@ -16,6 +18,12 @@ def _topic_header(review: ReviewConfig, role: str, goal: str, backstory: str) ->
             f"Research Question: {review.research_question}",
             f"Domain: {review.domain}",
             f"Keywords: {keyword_block}",
+            "",
+            "INCLUSION CRITERIA (paper must meet at least one):",
+            inclusion_block,
+            "",
+            "EXCLUSION CRITERIA (paper must meet NONE of these -- if any applies, exclude):",
+            exclusion_block,
             "",
         ]
     )

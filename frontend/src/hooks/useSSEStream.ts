@@ -181,7 +181,9 @@ export function useSSEStream(runId: string | null, workflowId?: string | null) {
 
         if (prior.length > 0) {
           // Check if the run already has a terminal event in the buffer.
-          const terminal = prior.find(
+          // Use the LAST terminal event so resumed runs (which have an old
+          // "cancelled" event followed by new phase events) open SSE correctly.
+          const terminal = [...prior].reverse().find(
             (e) => e.type === "done" || e.type === "error" || e.type === "cancelled",
           )
           if (terminal) {

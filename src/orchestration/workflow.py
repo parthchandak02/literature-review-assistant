@@ -1238,12 +1238,16 @@ class ExtractionQualityNode(BaseNode[ReviewState]):
                     )
 
                     # --- PDF vision table extraction ---
+                    # Guard: require at least 1 KB of PDF bytes to avoid "document has no pages"
+                    # errors from the vision model when the retriever returns empty/corrupt bytes.
+                    _pdf_bytes_ok = (
+                        ft_result is not None and ft_result.pdf_bytes is not None and len(ft_result.pdf_bytes) >= 1024
+                    )
                     use_vision = (
                         use_llm
                         and extraction_cfg is not None
                         and getattr(extraction_cfg, "use_pdf_vision", True)
-                        and ft_result is not None
-                        and ft_result.pdf_bytes is not None
+                        and _pdf_bytes_ok
                     )
                     # Set extraction_source from the full-text retrieval tier
                     if ft_result and ft_result.source != "abstract":

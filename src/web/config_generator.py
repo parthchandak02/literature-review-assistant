@@ -224,7 +224,7 @@ class _SearchOverrides(BaseModel):
             "Scopus TITLE-ABS-KEY query. Use two AND-joined TITLE-ABS-KEY clauses with "
             "quoted keyword groups (max 8 keywords each) plus PUBYEAR filter. "
             "Clause 1: core intervention/technology terms. Clause 2: outcome/setting terms. "
-            "Pattern: TITLE-ABS-KEY(\"term1\" OR \"term2\") AND TITLE-ABS-KEY(\"term3\" OR \"term4\") "
+            'Pattern: TITLE-ABS-KEY("term1" OR "term2") AND TITLE-ABS-KEY("term3" OR "term4") '
             "AND PUBYEAR > YYYY AND PUBYEAR < YYYY"
         ),
     )
@@ -233,8 +233,8 @@ class _SearchOverrides(BaseModel):
         description=(
             "Web of Science Starter API query. Each keyword needs its own TS= prefix. "
             "Group terms in parenthesized OR blocks, join groups with AND. Year: PY=YYYY-YYYY. "
-            "CORRECT: (TS=\"term1\" OR TS=\"term2\") AND (TS=\"term3\" OR TS=\"term4\") AND PY=2010-2026. "
-            "WRONG (causes 512 error): TS=(\"term1\" OR \"term2\")."
+            'CORRECT: (TS="term1" OR TS="term2") AND (TS="term3" OR TS="term4") AND PY=2010-2026. '
+            'WRONG (causes 512 error): TS=("term1" OR "term2").'
         ),
     )
     ieee_xplore: str | None = Field(
@@ -242,8 +242,8 @@ class _SearchOverrides(BaseModel):
         description=(
             "IEEE Xplore query using parenthesized OR groups joined with AND. "
             "Use short quoted keyword phrases -- not full sentences, not field codes. "
-            "Pattern: (\"core term1\" OR \"core term2\" OR \"synonym\") AND "
-            "(\"outcome term1\" OR \"outcome term2\" OR \"setting term\")"
+            'Pattern: ("core term1" OR "core term2" OR "synonym") AND '
+            '("outcome term1" OR "outcome term2" OR "setting term")'
         ),
     )
     semantic_scholar: str | None = Field(
@@ -503,14 +503,14 @@ _STRUCTURE_PROMPT = (
     "  * scopus: Use TITLE-ABS-KEY field code with two AND-joined clauses of quoted keywords.\n"
     "    Clause 1: core intervention terms (up to 8). Clause 2: outcome/setting terms (up to 8).\n"
     "    Add: AND PUBYEAR > YYYY AND PUBYEAR < YYYY using the date range.\n"
-    "    Pattern: TITLE-ABS-KEY(\"kw1\" OR \"kw2\") AND TITLE-ABS-KEY(\"kw3\" OR \"kw4\")\n"
+    '    Pattern: TITLE-ABS-KEY("kw1" OR "kw2") AND TITLE-ABS-KEY("kw3" OR "kw4")\n'
     "    AND PUBYEAR > 2009 AND PUBYEAR < 2027\n"
     "  * web_of_science: Each keyword needs its own TS= prefix. Group in parenthesized OR\n"
     "    blocks joined with AND. Use PY=YYYY-YYYY (no parentheses around year range).\n"
-    "    CORRECT: (TS=\"kw1\" OR TS=\"kw2\") AND (TS=\"kw3\" OR TS=\"kw4\") AND PY=2010-2026\n"
-    "    WRONG (causes 512 server error): TS=(\"kw1\" OR \"kw2\")\n"
+    '    CORRECT: (TS="kw1" OR TS="kw2") AND (TS="kw3" OR TS="kw4") AND PY=2010-2026\n'
+    '    WRONG (causes 512 server error): TS=("kw1" OR "kw2")\n'
     "  * ieee_xplore: Two OR-groups joined with AND, using parentheses (not field codes).\n"
-    "    Pattern: (\"kw1\" OR \"kw2\" OR \"kw3\") AND (\"kw4\" OR \"kw5\" OR \"kw6\")\n"
+    '    Pattern: ("kw1" OR "kw2" OR "kw3") AND ("kw4" OR "kw5" OR "kw6")\n'
     "  * semantic_scholar: 5-8 space-separated keywords ONLY. No quotes, no boolean operators.\n"
     "    Use the most specific terms for this topic's intervention, setting, and outcome.\n"
     "  * openalex: 5-10 space-separated keywords ONLY. No quotes, no boolean operators.\n"

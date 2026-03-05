@@ -114,11 +114,13 @@ class RobinsIAssessor:
         Defaults to MODERATE but escalates individual domains to SERIOUS when
         the results summary contains well-known risk-of-bias signal phrases.
         """
-        corpus = " ".join([
-            record.results_summary.get("summary", ""),
-            record.intervention_description or "",
-            record.setting or "",
-        ]).lower()
+        corpus = " ".join(
+            [
+                record.results_summary.get("summary", ""),
+                record.intervention_description or "",
+                record.setting or "",
+            ]
+        ).lower()
 
         def _judge(signals: tuple) -> RobinsIJudgment:
             return RobinsIJudgment.SERIOUS if any(s in corpus for s in signals) else RobinsIJudgment.MODERATE
@@ -154,8 +156,10 @@ class RobinsIAssessor:
         if self.llm_client is not None and self.settings is not None:
             try:
                 agent = self.settings.agents.get("quality_assessment")
-                model = agent.model if agent else "google-gla:gemini-2.5-pro"
-                temperature = agent.temperature if agent else 0.2
+                if agent is None:
+                    raise ValueError("quality_assessment agent not configured in settings.yaml")
+                model = agent.model
+                temperature = agent.temperature
                 prompt = _build_robins_prompt(record, full_text)
                 schema = _RobinsILLMResponse.model_json_schema()
                 t0 = time.monotonic()

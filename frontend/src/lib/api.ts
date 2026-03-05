@@ -104,6 +104,9 @@ export interface HistoryEntry {
   papers_included?: number | null
   total_cost?: number | null
   artifacts_count?: number | null
+  /** Set when the workflow has an active in-process task. The frontend uses
+   *  this to connect a live SSE stream instead of replaying historical DB events. */
+  live_run_id?: string | null
 }
 
 const BASE = "/api"

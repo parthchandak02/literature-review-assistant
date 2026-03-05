@@ -95,7 +95,7 @@ export function CostView({ costStats, dbRunId, isLive }: CostViewProps) {
   // Previously the DB was skipped whenever SSE had any events, which caused
   // earlier phase costs to disappear once the writing phase started streaming.
   useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- loadDbCosts is a useCallback that fetches and sets state; indirect setState is intentional
+     
     loadDbCosts()
   }, [loadDbCosts])
 

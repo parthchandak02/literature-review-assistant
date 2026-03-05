@@ -319,14 +319,10 @@ export function Sidebar({
               </div>
             )}
 
-            {/* Running section - only when liveRun exists and expanded */}
-            {liveRun && !collapsed && (
-              <>
-                <div className="label-caps font-semibold text-violet-400 px-1 mt-2 mb-1.5">
-                  Running
-                </div>
-                <div className="space-y-1.5">
-                  <SidebarTooltip label={liveRun.topic} collapsed={collapsed} side="right">
+            <div className="space-y-1.5">
+              {/* Live run card - first in the unified list, handles both collapsed and expanded */}
+              {liveRun && (
+                <SidebarTooltip label={liveRun.topic} collapsed={collapsed} side="right">
                   <div className={cn(
                     "rounded-r-md overflow-hidden",
                     !collapsed && "rounded-b-none",
@@ -345,83 +341,83 @@ export function Sidebar({
                             : "hover:bg-zinc-800/60",
                         )}
                       >
-                      {collapsed ? (
-                        <RunDot status={liveRun.status} animate={isRunning} />
-                      ) : (
-                        <div
-                          className={cn(
-                            "flex flex-col gap-1 min-w-0",
-                            ((onDelete && liveRun.workflowId && !isRunning) || (isRunning && onCancel)) && "pr-12",
-                          )}
-                        >
-                          <span className="text-xs text-zinc-300 line-clamp-2 leading-snug">
-                            {liveRun.topic}
-                          </span>
-                          <RunCardMetrics
-                            papersFound={liveRun.papersFound}
-                            papersIncluded={liveRun.papersIncluded}
-                            cost={liveRun.cost}
-                            workflowId={liveRun.workflowId}
-                            copiedWorkflowId={wfIdCopied}
-                            onCopyWorkflowId={async (id) => {
-                              if (id) {
-                                await navigator.clipboard.writeText(id)
-                                setWfIdCopied(id)
-                                setTimeout(() => setWfIdCopied(null), 1500)
-                              }
-                            }}
-                          />
-                          <div className="flex items-center gap-2 min-w-0 flex-wrap text-meta">
-                            <div className="flex items-center gap-1.5 shrink-0">
-                              <RunDot status={liveRun.status} animate={isRunning} />
-                              <span
-                                className={cn(
-                                  "font-semibold uppercase tracking-wide",
-                                  STATUS_TEXT[liveRun.status],
-                                )}
-                              >
-                                {STATUS_LABEL[liveRun.status]}
+                        {collapsed ? (
+                          <RunDot status={liveRun.status} animate={isRunning} />
+                        ) : (
+                          <div
+                            className={cn(
+                              "flex flex-col gap-1 min-w-0",
+                              ((onDelete && liveRun.workflowId && !isRunning) || (isRunning && onCancel)) && "pr-12",
+                            )}
+                          >
+                            <span className="text-xs text-zinc-300 line-clamp-2 leading-snug">
+                              {liveRun.topic}
+                            </span>
+                            <RunCardMetrics
+                              papersFound={liveRun.papersFound}
+                              papersIncluded={liveRun.papersIncluded}
+                              cost={liveRun.cost}
+                              workflowId={liveRun.workflowId}
+                              copiedWorkflowId={wfIdCopied}
+                              onCopyWorkflowId={async (id) => {
+                                if (id) {
+                                  await navigator.clipboard.writeText(id)
+                                  setWfIdCopied(id)
+                                  setTimeout(() => setWfIdCopied(null), 1500)
+                                }
+                              }}
+                            />
+                            <div className="flex items-center gap-2 min-w-0 flex-wrap text-meta">
+                              <div className="flex items-center gap-1.5 shrink-0">
+                                <RunDot status={liveRun.status} animate={isRunning} />
+                                <span
+                                  className={cn(
+                                    "font-semibold uppercase tracking-wide",
+                                    STATUS_TEXT[liveRun.status],
+                                  )}
+                                >
+                                  {STATUS_LABEL[liveRun.status]}
+                                </span>
+                              </div>
+                              <span className="text-white font-medium tabular-nums">
+                                {liveRun.startedAt ? formatRunDate(liveRun.startedAt) : "Now"}
                               </span>
                             </div>
-                            <span className="text-white font-medium tabular-nums">
-                              {liveRun.startedAt ? formatRunDate(liveRun.startedAt) : "Now"}
-                            </span>
                           </div>
-                        </div>
+                        )}
+                      </button>
+                      {!collapsed && isRunning && onCancel && (
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            onCancel()
+                          }}
+                          aria-label="Stop run"
+                          title="Stop run"
+                          className="absolute top-1.5 right-1.5 flex items-center justify-center h-5 w-5 rounded bg-red-600 hover:bg-red-500 text-white transition-colors"
+                        >
+                          <Square className="h-2.5 w-2.5 fill-white" />
+                        </button>
                       )}
-                    </button>
-                    {!collapsed && isRunning && onCancel && (
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          onCancel()
-                        }}
-                        aria-label="Stop run"
-                        title="Stop run"
-                        className="absolute top-1.5 right-1.5 flex items-center justify-center h-5 w-5 rounded bg-red-600 hover:bg-red-500 text-white transition-colors"
-                      >
-                        <Square className="h-2.5 w-2.5 fill-white" />
-                      </button>
-                    )}
-                    {!collapsed && onDelete && liveRun.workflowId && !isRunning && (
-                      <button
-                        onClick={(e) => handleDeleteClick(e, liveRun.workflowId!)}
-                        disabled={deletingId === liveRun.workflowId}
-                        aria-label="Delete run"
-                        title="Delete run"
-                        className={cn(
-                          "absolute top-1.5 right-1.5 flex items-center justify-center h-5 w-5 rounded",
-                          "text-zinc-500 hover:text-red-400 hover:bg-red-500/10 transition-colors",
-                          deletingId === liveRun.workflowId && "opacity-50 cursor-wait",
-                        )}
-                      >
-                        {deletingId === liveRun.workflowId ? (
-                          <div className="h-2.5 w-2.5 border border-zinc-500 border-t-zinc-300 rounded-full animate-spin" />
-                        ) : (
-                          <Trash2 className="h-3 w-3" />
-                        )}
-                      </button>
-                    )}
+                      {!collapsed && onDelete && liveRun.workflowId && !isRunning && (
+                        <button
+                          onClick={(e) => handleDeleteClick(e, liveRun.workflowId!)}
+                          disabled={deletingId === liveRun.workflowId}
+                          aria-label="Delete run"
+                          title="Delete run"
+                          className={cn(
+                            "absolute top-1.5 right-1.5 flex items-center justify-center h-5 w-5 rounded",
+                            "text-zinc-500 hover:text-red-400 hover:bg-red-500/10 transition-colors",
+                            deletingId === liveRun.workflowId && "opacity-50 cursor-wait",
+                          )}
+                        >
+                          {deletingId === liveRun.workflowId ? (
+                            <div className="h-2.5 w-2.5 border border-zinc-500 border-t-zinc-300 rounded-full animate-spin" />
+                          ) : (
+                            <Trash2 className="h-3 w-3" />
+                          )}
+                        </button>
+                      )}
                     </div>
                     {!collapsed && (
                       <CardProgressBar
@@ -429,40 +425,6 @@ export function Sidebar({
                         progress={liveRun.phaseProgress?.value}
                       />
                     )}
-                  </div>
-                </SidebarTooltip>
-                </div>
-              </>
-            )}
-
-            {/* Recent section - when expanded */}
-            {!collapsed && (
-              <div
-                className={cn(
-                  "label-caps font-semibold text-zinc-600 px-1 mb-1.5",
-                  liveRun && "mt-3",
-                )}
-              >
-                Recent
-              </div>
-            )}
-
-            <div className="space-y-1.5">
-              {/* Live run when collapsed - in same list as history, no section header */}
-              {liveRun && collapsed && (
-                <SidebarTooltip label={liveRun.topic} collapsed={collapsed} side="right">
-                  <div className="rounded-r-md overflow-hidden">
-                    <div className="relative">
-                      <button
-                        onClick={onSelectLiveRun}
-                        className={cn(
-                          "w-full transition-colors text-left flex justify-center items-center h-9 w-9 mx-auto rounded-lg",
-                          isLiveRunSelected ? "bg-zinc-800" : "hover:bg-zinc-800/60",
-                        )}
-                      >
-                        <RunDot status={liveRun.status} animate={isRunning} />
-                      </button>
-                    </div>
                   </div>
                 </SidebarTooltip>
               )}
@@ -477,11 +439,14 @@ export function Sidebar({
 
                 // Metadata in run info strip order: Status, Time, Found, Included, Cost, WF ID (omit "out")
 
+                // Entries with live_run_id are actively running in-process -- clicking
+                // the card connects live SSE. They do NOT need a Resume button.
                 const isResumable = onResume !== undefined &&
+                  !entry.live_run_id &&
                   ["streaming", "cancelled", "error", "stale"].includes(statusKey)
                 const isResuming = resumingId === entry.workflow_id
 
-                const progressValue = statusKey === "done" ? 1 : undefined
+                const progressValue = statusKey === "done" ? 1 : entry.live_run_id ? -1 : undefined
 
                 return (
                   <SidebarTooltip
@@ -757,9 +722,20 @@ function CardProgressBar({
   progress?: number
 }) {
   const colorClass = PROGRESS_BAR_COLOR[status] ?? "bg-zinc-600"
+  // progress === -1 is the indeterminate sentinel: active background run with no live SSE data
+  const isIndeterminate = progress === -1
   const showFill =
-    status === "streaming" || status === "connecting" || status === "done"
+    !isIndeterminate &&
+    (status === "streaming" || status === "connecting" || status === "done")
   const fillPercent = showFill ? (progress != null ? progress * 100 : status === "done" ? 100 : 0) : 0
+
+  if (isIndeterminate) {
+    return (
+      <div className="h-1 rounded-b-md overflow-hidden bg-zinc-800">
+        <div className="h-full w-1/3 rounded-full bg-violet-500/60 animate-pulse" />
+      </div>
+    )
+  }
 
   return (
     <div

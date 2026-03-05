@@ -29,8 +29,8 @@ from rich.table import Table
 # Load .env from project root before importing any src modules.
 load_dotenv(Path(__file__).resolve().parent.parent / ".env")
 
-from src.config.loader import load_configs                        # noqa: E402
-from src.models import ReviewConfig                               # noqa: E402
+from src.config.loader import load_configs  # noqa: E402
+from src.models import ReviewConfig  # noqa: E402
 
 console = Console()
 
@@ -50,24 +50,31 @@ def _build_connector(name: str, workflow_id: str):
     try:
         if name == "scopus":
             from src.search.scopus import ScopusConnector
+
             return ScopusConnector(workflow_id)
         if name == "web_of_science":
             from src.search.web_of_science import WebOfScienceConnector
+
             return WebOfScienceConnector(workflow_id)
         if name == "pubmed":
             from src.search.pubmed import PubMedConnector
+
             return PubMedConnector(workflow_id)
         if name == "openalex":
             from src.search.openalex import OpenAlexConnector
+
             return OpenAlexConnector(workflow_id)
         if name == "semantic_scholar":
             from src.search.semantic_scholar import SemanticScholarConnector
+
             return SemanticScholarConnector(workflow_id)
         if name == "ieee_xplore":
             from src.search.ieee_xplore import IEEEXploreConnector
+
             return IEEEXploreConnector(workflow_id)
         if name == "crossref":
             from src.search.crossref import CrossrefConnector
+
             return CrossrefConnector(workflow_id)
     except ValueError as exc:
         return str(exc)  # key missing
@@ -110,7 +117,7 @@ async def main(target_dbs: list[str], max_results: int) -> int:
         settings_path="config/settings.yaml",
     )
 
-    console.print(f"\n[bold]Search Connector Smoke Test[/bold]")
+    console.print("\n[bold]Search Connector Smoke Test[/bold]")
     console.print(f"Review: [cyan]{review.research_question[:80]}...[/cyan]\n")
 
     dbs_to_test = target_dbs or _CONNECTOR_NAMES
@@ -134,7 +141,9 @@ async def main(target_dbs: list[str], max_results: int) -> int:
             date_e = config.date_range_end or 2026
             # Each term needs own TS= prefix -- NOT TS=("a" OR "b")
             wos_kws = config.keywords or []
-            wos_part1 = " OR ".join(f'TS="{k}"' for k in wos_kws[:8]) if wos_kws else f'TS="{config.pico.intervention[:60]}"'
+            wos_part1 = (
+                " OR ".join(f'TS="{k}"' for k in wos_kws[:8]) if wos_kws else f'TS="{config.pico.intervention[:60]}"'
+            )
             wos_part2 = " OR ".join(f'TS="{k}"' for k in wos_kws[8:16]) if len(wos_kws) > 8 else wos_part1
             return f"({wos_part1}) AND ({wos_part2}) AND PY={date_s}-{date_e}"
         if db == "ieee_xplore":
@@ -160,21 +169,27 @@ async def main(target_dbs: list[str], max_results: int) -> int:
 
         query = _get_query(review, db)
         result = await _probe_connector(
-            connector, query, max_results,
+            connector,
+            query,
+            max_results,
             review.date_range_start or 2010,
             review.date_range_end or 2026,
         )
-        status_str = f"[green]{result['status']}[/green]" if result["status"] == "OK" else f"[red]{result['status']}[/red]"
+        status_str = (
+            f"[green]{result['status']}[/green]" if result["status"] == "OK" else f"[red]{result['status']}[/red]"
+        )
         console.print(f" {status_str} ({result['returned']} / ~{result['count']} records)")
         if result["error"]:
             console.print(f"    [red]Error:[/red] {result['error']}")
-        rows.append((
-            db,
-            result["status"],
-            str(result["count"]),
-            str(result["returned"]),
-            result["sample"] or result.get("error") or "",
-        ))
+        rows.append(
+            (
+                db,
+                result["status"],
+                str(result["count"]),
+                str(result["returned"]),
+                result["sample"] or result.get("error") or "",
+            )
+        )
 
     # Summary table
     console.print()

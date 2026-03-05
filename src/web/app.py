@@ -215,6 +215,9 @@ class HistoryEntry(BaseModel):
     papers_included: int | None = None
     total_cost: float | None = None
     artifacts_count: int | None = None
+    # Populated when a workflow is actively running in-process.
+    # The frontend uses this to connect a live SSE stream instead of replaying DB events.
+    live_run_id: str | None = None
 
 
 class AttachRequest(BaseModel):
@@ -826,7 +829,7 @@ _STALE_THRESHOLD_SECONDS = 2 * 60  # 2 minutes
 
 
 def _is_stale(row: aiosqlite.Row) -> bool:
-    """Return True if a 'running' row has not received a heartbeat in 5 minutes.
+    """Return True if a 'running' row has not received a heartbeat in 2 minutes.
 
     Falls back to updated_at if heartbeat_at is NULL (runs that pre-date the heartbeat column).
     """
@@ -878,19 +881,21 @@ async def list_history(run_root: str = "runs") -> list[HistoryEntry]:
         return_exceptions=True,
     )
 
-    # Exclude workflow_ids that are actively running in-process to avoid showing
-    # the same run twice in the sidebar (live card + history entry).
-    active_workflow_ids = {r.workflow_id for r in _active_runs.values() if r.workflow_id and not r.done}
+    # Build a map from workflow_id -> run_id for all in-process active (not done) runs.
+    # This replaces the old "exclude active runs" logic: we now include them but tag
+    # them with live_run_id so the frontend can connect SSE instead of replaying DB events.
+    active_run_id_by_workflow: dict[str, str] = {
+        r.workflow_id: r.run_id for r in _active_runs.values() if r.workflow_id and not r.done
+    }
 
     enriched: list[HistoryEntry] = []
     for row, stats in zip(rows, stat_results):
-        if row["workflow_id"] in active_workflow_ids:
-            continue
         s = stats if isinstance(stats, dict) else {}
-        # Mark workflows that are stuck as 'running' after a crash as 'stale'.
-        # We do NOT write this back to the DB; it is a computed view-only status.
+        live_run_id = active_run_id_by_workflow.get(row["workflow_id"])
+        # For in-process active runs the registry status is already "running".
+        # For registry rows whose status is "running" but no live task exists, check stale.
         effective_status = row["status"]
-        if effective_status.lower() == "running" and _is_stale(row):
+        if effective_status.lower() == "running" and not live_run_id and _is_stale(row):
             effective_status = "stale"
         enriched.append(
             HistoryEntry(
@@ -904,6 +909,7 @@ async def list_history(run_root: str = "runs") -> list[HistoryEntry]:
                 papers_included=s.get("papers_included"),
                 total_cost=s.get("total_cost"),
                 artifacts_count=s.get("artifacts_count"),
+                live_run_id=live_run_id,
             )
         )
     return enriched
@@ -2081,7 +2087,7 @@ async def approve_screening(
 
                     from src.config.loader import load_configs as _load_cfgs
 
-                    _refine_model = "google-gla:gemini-2.5-pro"
+                    _refine_model: str | None = None
                     try:
                         _, _refine_settings = _load_cfgs(settings_path="config/settings.yaml")
                         _adjudicator_cfg = _refine_settings.agents.get("screening_adjudicator")
@@ -2089,6 +2095,8 @@ async def approve_screening(
                             _refine_model = _adjudicator_cfg.model
                     except Exception:
                         pass
+                    if not _refine_model:
+                        raise ValueError("screening_adjudicator model not resolved from settings.yaml")
                     learned = await refine_criteria_from_corrections(
                         corrections,
                         paper_titles,

@@ -37,6 +37,8 @@ logger = logging.getLogger(__name__)
 _BASE_URL = "https://api.clarivate.com/apis/wos-starter/v1/documents"
 _PAGE_SIZE = 50
 _RATE_SLEEP = 0.5  # 2 req/sec -- conservative for free Starter API tier
+_MAX_RETRIES = 3  # max retries per page on 429 or 5xx
+_RETRY_BASE_SLEEP = 5  # seconds; doubles each retry (5, 10, 20)
 
 
 class WebOfScienceConnector:
@@ -158,25 +160,69 @@ class WebOfScienceConnector:
                     "db": "WOS",
                 }
 
-                try:
-                    async with session.get(_BASE_URL, params=params, timeout=aiohttp.ClientTimeout(total=30)) as resp:
-                        if resp.status == 401:
-                            logger.error("WoS API: 401 Unauthorized -- check WOS_API_KEY")
+                data: dict[str, Any] | None = None
+                for attempt in range(_MAX_RETRIES + 1):
+                    try:
+                        async with session.get(
+                            _BASE_URL,
+                            params=params,
+                            timeout=aiohttp.ClientTimeout(total=30),
+                        ) as resp:
+                            if resp.status == 401:
+                                logger.error("WoS API: 401 Unauthorized -- check WOS_API_KEY")
+                                break
+                            if resp.status == 403:
+                                logger.error("WoS API: 403 Forbidden -- API key may lack access to WoS Core Collection")
+                                break
+                            if resp.status in (429,) or 500 <= resp.status < 600:
+                                body = await resp.text()
+                                if attempt < _MAX_RETRIES:
+                                    sleep_s = _RETRY_BASE_SLEEP * (2**attempt)
+                                    logger.warning(
+                                        "WoS API: status %d -- backing off %ds (attempt %d/%d): %s",
+                                        resp.status,
+                                        sleep_s,
+                                        attempt + 1,
+                                        _MAX_RETRIES,
+                                        body[:200],
+                                    )
+                                    await asyncio.sleep(sleep_s)
+                                    continue
+                                else:
+                                    logger.error(
+                                        "WoS API: status %d after %d retries -- skipping page %d: %s",
+                                        resp.status,
+                                        _MAX_RETRIES,
+                                        page,
+                                        body[:200],
+                                    )
+                                break
+                            if resp.status != 200:
+                                body = await resp.text()
+                                logger.warning("WoS API: status %d -- %s", resp.status, body[:200])
+                                break
+                            data = await resp.json()
                             break
-                        if resp.status == 403:
-                            logger.error("WoS API: 403 Forbidden -- API key may lack access to WoS Core Collection")
-                            break
-                        if resp.status == 429:
-                            logger.warning("WoS API: 429 rate limit -- backing off 5s")
-                            await asyncio.sleep(5)
-                            continue
-                        if resp.status != 200:
-                            body = await resp.text()
-                            logger.warning("WoS API: status %d -- %s", resp.status, body[:200])
-                            break
-                        data = await resp.json()
-                except (aiohttp.ClientError, asyncio.TimeoutError) as exc:
-                    logger.warning("WoS API request failed: %s", exc)
+                    except (TimeoutError, aiohttp.ClientError) as exc:
+                        if attempt < _MAX_RETRIES:
+                            sleep_s = _RETRY_BASE_SLEEP * (2**attempt)
+                            logger.warning(
+                                "WoS API request failed (attempt %d/%d, retry in %ds): %s",
+                                attempt + 1,
+                                _MAX_RETRIES,
+                                sleep_s,
+                                exc,
+                            )
+                            await asyncio.sleep(sleep_s)
+                        else:
+                            logger.error("WoS API request failed after %d retries: %s", _MAX_RETRIES, exc)
+                        continue
+                else:
+                    # All retries exhausted without a successful response -- stop pagination
+                    break
+
+                if data is None:
+                    # Non-retryable error (401/403/unexpected status) -- stop pagination
                     break
 
                 hits = data.get("hits", {})

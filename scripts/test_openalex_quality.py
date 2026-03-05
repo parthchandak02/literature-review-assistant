@@ -35,9 +35,7 @@ from src.utils.ssl_context import tcp_connector_with_certifi  # noqa: E402
 console = Console()
 
 _BASE_URL = "https://api.openalex.org/works"
-_SELECT = (
-    "id,display_name,doi,publication_year,primary_location,cited_by_count,is_retracted"
-)
+_SELECT = "id,display_name,doi,publication_year,primary_location,cited_by_count,is_retracted"
 
 _DEFAULT_QUERY = (
     "robotic medication dispensing automated dispensing pharmacy automation "
@@ -46,9 +44,7 @@ _DEFAULT_QUERY = (
 
 
 async def _fetch(session: aiohttp.ClientSession, params: dict) -> dict:
-    async with session.get(
-        _BASE_URL, params=params, timeout=aiohttp.ClientTimeout(total=30)
-    ) as r:
+    async with session.get(_BASE_URL, params=params, timeout=aiohttp.ClientTimeout(total=30)) as r:
         if r.status != 200:
             body = await r.text()
             console.print(f"[red]OpenAlex API error {r.status}: {body[:300]}[/red]")
@@ -92,17 +88,11 @@ async def run(query: str, max_results: int, api_key: str) -> None:
         qual_data = await _fetch(session, qual_params)
         qual_total = (qual_data.get("meta") or {}).get("count", 0)
 
-        console.print(
-            f"Baseline (type:article only):       [bold]{base_total:,}[/bold] total results"
-        )
-        console.print(
-            f"Quality-filtered (is_core:true):    [bold green]{qual_total:,}[/bold green] total results"
-        )
+        console.print(f"Baseline (type:article only):       [bold]{base_total:,}[/bold] total results")
+        console.print(f"Quality-filtered (is_core:true):    [bold green]{qual_total:,}[/bold green] total results")
         if base_total > 0:
             pct = qual_total / base_total * 100
-            console.print(
-                f"Retention rate:                     [bold]{pct:.1f}%[/bold] of baseline\n"
-            )
+            console.print(f"Retention rate:                     [bold]{pct:.1f}%[/bold] of baseline\n")
 
         # -- Fetch top results with journal details --
         top_params = {
@@ -169,9 +159,7 @@ async def run(query: str, max_results: int, api_key: str) -> None:
                 "api_key": api_key,
             }
             console.print(f"Looking up DOI: [italic]{clean}[/italic]")
-            async with session.get(
-                doi_url, params=doi_params, timeout=aiohttp.ClientTimeout(total=15)
-            ) as r:
+            async with session.get(doi_url, params=doi_params, timeout=aiohttp.ClientTimeout(total=15)) as r:
                 if r.status == 200:
                     doi_data = await r.json()
                     loc = doi_data.get("primary_location") or {}
@@ -186,12 +174,8 @@ async def run(query: str, max_results: int, api_key: str) -> None:
                     v_table.add_row("is_oa", str(src.get("is_oa")))
                     v_table.add_row("ISSN-L", src.get("issn_l") or "-")
                     v_table.add_row("Publisher", src.get("host_organization_name") or "-")
-                    v_table.add_row(
-                        "Version", loc.get("version") or "-"
-                    )
-                    v_table.add_row(
-                        "Citations", str(doi_data.get("cited_by_count") or 0)
-                    )
+                    v_table.add_row("Version", loc.get("version") or "-")
+                    v_table.add_row("Citations", str(doi_data.get("cited_by_count") or 0))
                     console.print(v_table)
                 else:
                     console.print(f"[yellow]DOI lookup returned {r.status}[/yellow]")
@@ -217,9 +201,7 @@ def main() -> None:
 
     api_key = os.getenv("OPENALEX_API_KEY", "").strip()
     if not api_key:
-        console.print(
-            "[red]OPENALEX_API_KEY not set. Add it to .env or export it.[/red]"
-        )
+        console.print("[red]OPENALEX_API_KEY not set. Add it to .env or export it.[/red]")
         sys.exit(1)
 
     asyncio.run(run(args.query, args.max_results, api_key))

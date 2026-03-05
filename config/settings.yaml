@@ -51,6 +51,11 @@ screening:
   # 200 balances cost and recall. For niche topics (few expected matches),
   # raise to 300-500 or set to null to screen all candidates (no cap).
   max_llm_screen: 200
+  # Calibration: one pass on 15 papers is enough to confirm reviewers agree.
+  # Re-screening the same sample multiple times (max_iterations > 1) does not
+  # meaningfully improve kappa for well-scoped topics and wastes LLM calls.
+  calibration_sample_size: 15
+  calibration_max_iterations: 1
 
 dual_review:
   enabled: true

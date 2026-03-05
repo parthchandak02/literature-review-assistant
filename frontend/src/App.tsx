@@ -145,6 +145,28 @@ export default function App() {
         navigate("/", { replace: true })
         return
       }
+      // If the workflow has an in-process active task, connect SSE directly.
+      if (entry.live_run_id) {
+        const now = new Date()
+        reset()
+        liveRunNavigatedRef.current = workflowId
+        setLiveRunId(entry.live_run_id)
+        setLiveTopic(entry.topic)
+        setLiveStartedAt(now)
+        setLiveWorkflowId(workflowId)
+        saveLiveRun({ runId: entry.live_run_id, topic: entry.topic, startedAt: now.toISOString(), workflowId })
+        setSelectedRun({
+          runId: entry.live_run_id,
+          workflowId,
+          topic: entry.topic,
+          dbPath: entry.db_path || null,
+          isDone: false,
+          startedAt: now,
+          createdAt: entry.created_at,
+        })
+        setActiveRunTab(tab)
+        return
+      }
       const res = await attachHistory(entry)
       const isCompleted = ["completed", "done", "stale", "interrupted"].includes(
         entry.status.toLowerCase(),
@@ -210,11 +232,15 @@ export default function App() {
   }, []) // eslint-disable-line react-hooks/exhaustive-deps -- mount only
 
   // ---------------------------------------------------------------------------
-  // Clear localStorage when the live run reaches a terminal state.
+  // Clear localStorage + in-memory live run state when the live run reaches a
+  // terminal state. This moves the completed run from the live card into the
+  // unified history list so it appears under the normal "Runs" section.
   // ---------------------------------------------------------------------------
   useEffect(() => {
     if (status === "done" || status === "error" || status === "cancelled") {
       clearLiveRun()
+      setLiveRunId(null)
+      setLiveWorkflowId(null)
     }
   }, [status])
 
@@ -456,6 +482,31 @@ export default function App() {
   }
 
   async function handleSelectHistory(entry: HistoryEntry) {
+    // If the workflow has an in-process active task, connect live SSE directly
+    // instead of replaying stale DB events.
+    if (entry.live_run_id) {
+      const now = new Date()
+      reset()
+      liveRunNavigatedRef.current = entry.workflow_id
+      setLiveRunId(entry.live_run_id)
+      setLiveTopic(entry.topic)
+      setLiveStartedAt(now)
+      setLiveWorkflowId(entry.workflow_id)
+      saveLiveRun({ runId: entry.live_run_id, topic: entry.topic, startedAt: now.toISOString(), workflowId: entry.workflow_id })
+      setSelectedRun({
+        runId: entry.live_run_id,
+        workflowId: entry.workflow_id,
+        topic: entry.topic,
+        dbPath: entry.db_path || null,
+        isDone: false,
+        startedAt: now,
+        createdAt: entry.created_at,
+      })
+      setActiveRunTab("activity")
+      navigate(`/run/${entry.workflow_id}/activity`, { replace: true })
+      return
+    }
+    // Historical run: replay events from DB.
     const res = await attachHistory(entry)
     const isCompleted = ["completed", "done", "stale", "interrupted"].includes(entry.status.toLowerCase())
     setSelectedRun({
