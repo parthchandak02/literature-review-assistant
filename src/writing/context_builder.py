@@ -92,8 +92,9 @@ class WritingGroundingData(BaseModel):
     # Sensitivity analysis (leave-one-out + subgroup) -- only present when meta-analysis ran
     sensitivity_results: list[str] = []
 
-    # Protocol registration: always False unless the tool registers on PROSPERO (not yet implemented)
+    # Protocol registration: populated from review_config.protocol when a registration number is set.
     protocol_registered: bool = False
+    protocol_registration_number: str = ""
 
     # Meta-analysis execution state:
     # meta_analysis_feasible=True means feasibility check passed (numeric effect_size+se in >=2 studies)
@@ -117,6 +118,7 @@ def build_writing_grounding(
     kappa_n: int = 0,
     sensitivity_results: list[str] | None = None,
     search_limitation: str | None = None,
+    review_config: object | None = None,
 ) -> WritingGroundingData:
     """Aggregate real pipeline outputs into a WritingGroundingData instance."""
 
@@ -243,7 +245,12 @@ def build_writing_grounding(
         n_studies_reporting_count=n_studies_reporting_count,
         n_total_studies=n_total_studies,
         sensitivity_results=sensitivity_results or [],
-        protocol_registered=False,
+        protocol_registered=bool(
+            review_config is not None and getattr(getattr(review_config, "protocol", None), "registered", False)
+        ),
+        protocol_registration_number=str(
+            getattr(getattr(review_config, "protocol", None), "registration_number", "") or ""
+        ),
         meta_analysis_ran=meta_ran,
         poolable_outcomes=poolable_outcomes,
         search_limitation=search_limitation,
@@ -345,17 +352,19 @@ def format_grounding_block(data: WritingGroundingData) -> str:
             "'meta-analysis showed', or any phrase implying quantitative pooling was performed. "
             "Write ONLY that narrative synthesis was conducted."
         )
-    reg_status = (
-        "YES (ID on file)"
-        if data.protocol_registered
-        else "TODO: Register protocol at PROSPERO before submission - CRD420XXXXXXXX"
-    )
+    if data.protocol_registered and data.protocol_registration_number:
+        reg_status = f"YES (ID: {data.protocol_registration_number})"
+    elif data.protocol_registered:
+        reg_status = "YES (registration number not on file)"
+    else:
+        reg_status = (
+            "NOT REGISTERED. Do NOT write 'registered prospectively'. "
+            "State that the protocol was not registered or that registration is pending."
+        )
     lines.append(f"Protocol registration: {reg_status}")
     lines.append(
         "CRITICAL: The 'Protocol Registration' field above is the authoritative source. "
         "Every section (Methods AND Declarations) MUST use identical wording. "
-        "If registration shows TODO, Methods and Declarations must include that TODO "
-        "so the author can fill in the PROSPERO ID before submission. "
         "NEVER write 'registered prospectively' unless registration=YES."
     )
     lines.append(f"Synthesis direction: {data.synthesis_direction}")

@@ -119,6 +119,16 @@ citation_lineage:
   block_export_on_unresolved: true
   minimum_evidence_score: 0.5
 
+web:
+  # Run record TTL: evict completed _active_runs entries older than this many seconds.
+  run_ttl_seconds: 7200
+  # How often (seconds) to check for and evict stale run records.
+  eviction_interval_seconds: 1800
+  # How often (seconds) the flusher writes buffered SSE events to SQLite.
+  event_flush_interval_seconds: 5
+  # How often (seconds) the heartbeat updates workflows_registry.
+  heartbeat_interval_seconds: 60
+
 # Full-text retrieval and multi-modal extraction settings.
 # Tiers: Unpaywall, arXiv, Semantic Scholar, CORE, Europe PMC, ScienceDirect, PMC
 # Fallback: abstract text

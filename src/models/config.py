@@ -413,6 +413,39 @@ class HumanInTheLoopConfig(BaseModel):
     )
 
 
+class WebConfig(BaseModel):
+    """FastAPI web server runtime configuration.
+
+    Controls TTL eviction, event flushing, and heartbeat intervals so they can
+    be tuned via config/settings.yaml without code changes.
+    """
+
+    run_ttl_seconds: int = Field(
+        ge=60,
+        le=86400,
+        default=7200,
+        description="Evict completed run records from memory after this many seconds.",
+    )
+    eviction_interval_seconds: int = Field(
+        ge=60,
+        le=86400,
+        default=1800,
+        description="How often (seconds) the eviction loop wakes and removes stale run records.",
+    )
+    event_flush_interval_seconds: int = Field(
+        ge=1,
+        le=300,
+        default=5,
+        description="How often (seconds) buffered SSE events are flushed to SQLite.",
+    )
+    heartbeat_interval_seconds: int = Field(
+        ge=10,
+        le=300,
+        default=60,
+        description="How often (seconds) the heartbeat updates the workflow registry.",
+    )
+
+
 class SettingsConfig(BaseModel):
     agents: dict[str, AgentConfig]
     screening: ScreeningConfig = Field(default_factory=ScreeningConfig)
@@ -428,3 +461,4 @@ class SettingsConfig(BaseModel):
     extraction: ExtractionConfig = Field(default_factory=ExtractionConfig)
     llm: LLMRateLimitConfig | None = None
     human_in_the_loop: HumanInTheLoopConfig = Field(default_factory=HumanInTheLoopConfig)
+    web: WebConfig = Field(default_factory=WebConfig)

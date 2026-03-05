@@ -231,8 +231,9 @@ def build_markdown_declarations_section(
         reg_text = f"The protocol was prospectively registered (ID: {registration_id})."
     else:
         reg_text = (
-            "TODO: Register protocol at PROSPERO before submission "
-            "(https://www.crd.york.ac.uk/prospero/) - CRD420XXXXXXXX"
+            "Protocol registration pending. To register, visit "
+            "https://www.crd.york.ac.uk/prospero/ and add the registration number "
+            "to review.yaml under protocol.registration_number before submission."
         )
     return (
         "## Declarations\n\n"
@@ -718,7 +719,18 @@ def assemble_submission_manuscript(
         if header_block:
             numbered_body = header_block + numbered_body
 
-    declarations_section = build_markdown_declarations_section(funding=funding, coi=coi)
+    _protocol_registered = False
+    _registration_id = ""
+    if review_config is not None and hasattr(review_config, "protocol"):
+        _proto = review_config.protocol
+        _protocol_registered = bool(getattr(_proto, "registered", False))
+        _registration_id = str(getattr(_proto, "registration_number", "") or "")
+    declarations_section = build_markdown_declarations_section(
+        funding=funding,
+        coi=coi,
+        protocol_registered=_protocol_registered,
+        registration_id=_registration_id,
+    )
 
     picos_section = ""
     if review_config:

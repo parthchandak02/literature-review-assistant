@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useRef, useState, Suspense, lazy } from "react"
+import { useEffect, useMemo, useRef, useState, Suspense, lazy, Component } from "react"
+import type { ReactNode, ErrorInfo } from "react"
 import { useNavigate, useLocation } from "react-router-dom"
 import { Toaster, toast } from "sonner"
 import { AlertTriangle } from "lucide-react"
@@ -37,6 +38,50 @@ import type { RunTab, SelectedRun } from "@/views/RunView"
 const SetupView = lazy(() => import("@/views/SetupView").then((m) => ({ default: m.SetupView })))
 
 const VALID_TABS = new Set<RunTab>(["activity", "results", "database", "cost", "config", "review-screening"])
+
+// ---------------------------------------------------------------------------
+// Top-level error boundary: catches render-time crashes in any child view so
+// the app shows a recoverable error UI instead of a blank white screen.
+// ---------------------------------------------------------------------------
+
+interface ErrorBoundaryState {
+  hasError: boolean
+  message: string
+}
+
+export class AppErrorBoundary extends Component<{ children: ReactNode }, ErrorBoundaryState> {
+  constructor(props: { children: ReactNode }) {
+    super(props)
+    this.state = { hasError: false, message: "" }
+  }
+
+  static getDerivedStateFromError(error: Error): ErrorBoundaryState {
+    return { hasError: true, message: error.message || "Unknown error" }
+  }
+
+  componentDidCatch(error: Error, info: ErrorInfo) {
+    console.error("[AppErrorBoundary]", error, info.componentStack)
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="flex flex-col items-center justify-center h-screen bg-background text-zinc-100 gap-4 p-8">
+          <AlertTriangle className="h-10 w-10 text-red-400" />
+          <h1 className="text-xl font-semibold text-red-400">Something went wrong</h1>
+          <p className="text-zinc-400 text-sm max-w-md text-center">{this.state.message}</p>
+          <button
+            className="mt-2 px-4 py-2 text-sm rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-100 transition-colors"
+            onClick={() => { this.setState({ hasError: false, message: "" }); window.location.href = "/" }}
+          >
+            Reload app
+          </button>
+        </div>
+      )
+    }
+    return this.props.children
+  }
+}
 
 function parseRunUrl(pathname: string): { workflowId: string; tab: RunTab } | null {
   const match = pathname.match(/^\/run\/([^/]+)(?:\/([^/]+))?$/)

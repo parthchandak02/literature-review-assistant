@@ -569,13 +569,17 @@ PHASE_ORDER = [
     "phase_2_search",
     "phase_3_screening",
     "phase_4_extraction_quality",
+    "phase_4b_embedding",
     "phase_5_synthesis",
+    "phase_5b_knowledge_graph",
     "phase_6_writing",
     "finalize",
 ]
 ```
 
 Phase 1 (Foundation) has no checkpoint -- the existence of the `workflows` row serves as the completion marker.
+
+`phase_4b_embedding` (RAG chunk embedding) and `phase_5b_knowledge_graph` (Louvain community + gap detection) run between their neighbouring phases. They are included in PHASE_ORDER for correct resume ordering but are not part of the original 8-phase specification -- they are enhancements added after Phase 4 and Phase 5 respectively.
 
 ### 8.4 Resume Flow
 

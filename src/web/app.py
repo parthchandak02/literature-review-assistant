@@ -39,6 +39,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from sse_starlette.sse import EventSourceResponse
 
+from src.config.loader import load_configs as _load_configs
 from src.db.workflow_registry import update_heartbeat as _update_registry_heartbeat
 from src.db.workflow_registry import update_status as _update_registry_status
 from src.export.submission_packager import package_submission
@@ -47,6 +48,18 @@ from src.orchestration.workflow import run_workflow, run_workflow_resume
 from src.utils.structured_log import load_events_from_jsonl
 
 _logger = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# Load web-tier config from settings.yaml at import time so the constants
+# below reflect user configuration without requiring a code change.
+# Falls back to safe defaults if settings.yaml is missing (e.g. in tests).
+# ---------------------------------------------------------------------------
+try:
+    _web_cfg = _load_configs()[1].web
+except Exception:
+    from src.models.config import WebConfig as _WebConfig
+
+    _web_cfg = _WebConfig()
 
 # ---------------------------------------------------------------------------
 # State: in-process registry of active runs
@@ -77,8 +90,8 @@ class _RunRecord:
 
 _active_runs: dict[str, _RunRecord] = {}
 
-# Evict completed run records older than 2 hours to prevent unbounded memory growth.
-_RUN_TTL_SECONDS = 7200
+# Evict completed run records older than run_ttl_seconds (from settings.yaml web.run_ttl_seconds).
+_RUN_TTL_SECONDS = _web_cfg.run_ttl_seconds
 
 # ---------------------------------------------------------------------------
 # Download security: set of allowed root directories (str of resolved paths).
@@ -114,7 +127,7 @@ async def _refresh_allowed_roots() -> None:
 
 async def _eviction_loop() -> None:
     while True:
-        await asyncio.sleep(1800)  # check every 30 minutes
+        await asyncio.sleep(_web_cfg.eviction_interval_seconds)
         cutoff = time.monotonic() - _RUN_TTL_SECONDS
         stale = [k for k, v in list(_active_runs.items()) if v.done and v.created_at < cutoff]
         for k in stale:
@@ -381,7 +394,9 @@ async def _run_wrapper(record: _RunRecord, review_path: str, req: RunRequest) ->
         record.event_log.append(event)
         nonlocal heartbeat_task
         if heartbeat_task is None or heartbeat_task.done():
-            heartbeat_task = asyncio.create_task(_heartbeat_loop(run_root, workflow_id))
+            heartbeat_task = asyncio.create_task(
+                _heartbeat_loop(run_root, workflow_id, interval=_web_cfg.heartbeat_interval_seconds)
+            )
 
     ctx = WebRunContext(
         queue=record.queue,
@@ -390,7 +405,9 @@ async def _run_wrapper(record: _RunRecord, review_path: str, req: RunRequest) ->
         on_workflow_id_ready=_on_workflow_id_ready,
     )
     # Flusher starts immediately; no-ops until db_path and workflow_id are set.
-    flusher_task: asyncio.Task[Any] = asyncio.create_task(_event_flusher_loop(record))
+    flusher_task: asyncio.Task[Any] = asyncio.create_task(
+        _event_flusher_loop(record, interval=_web_cfg.event_flush_interval_seconds)
+    )
     try:
         outputs = await run_workflow(
             review_path=review_path,
@@ -1047,8 +1064,12 @@ async def _resume_wrapper(
     record._flush_index = len(record.event_log)
 
     # Start heartbeat immediately -- workflow_id is already known for resumed runs.
-    heartbeat_task: asyncio.Task[Any] = asyncio.create_task(_heartbeat_loop(run_root, workflow_id))
-    flusher_task: asyncio.Task[Any] = asyncio.create_task(_event_flusher_loop(record))
+    heartbeat_task: asyncio.Task[Any] = asyncio.create_task(
+        _heartbeat_loop(run_root, workflow_id, interval=_web_cfg.heartbeat_interval_seconds)
+    )
+    flusher_task: asyncio.Task[Any] = asyncio.create_task(
+        _event_flusher_loop(record, interval=_web_cfg.event_flush_interval_seconds)
+    )
 
     # Use the review.yaml saved alongside runtime.db (written by the original web run).
     # Fall back to the global config if the file is absent (old CLI runs, early crashes).
