@@ -67,3 +67,23 @@ Always check this field when PRISMA math appears incorrect.
 GRADE Guyatt2011, Cohen1960) into the citations table before writing starts.
 These citekeys appear in the catalog and are in `valid_citekeys`, so the writing LLM
 can cite them in the Methods section. They are included in the final numbered reference list.
+
+## PRISMA Full-Text Count Uses Actual Fulltext Stage
+`build_prisma_counts()` in `src/prisma/diagram.py` now checks `_reports_assessed_raw`
+from `dual_screening_results`. When `_reports_assessed_raw > included_total`, real
+full-text exclusions exist and those counts are used for PRISMA accuracy. The old
+behavior (hardcode `reports_assessed = included_total`) silently dropped exclusions
+that occurred at the fulltext screening stage.
+
+## CROSS_SECTIONAL Studies Route to CASP, Not ROBINS-I
+`StudyRouter.route_tool()` in `src/quality/study_router.py` routes `CROSS_SECTIONAL`
+to `casp` (CASP cohort/cross-sectional checklist). ROBINS-I requires a defined
+intervention and comparator group; cross-sectional surveys lack this structure.
+Only NON_RANDOMIZED, COHORT, and CASE_CONTROL route to ROBINS-I.
+
+## Reviewer Language Is Neutral (No AI/Human Qualifier)
+`screening_method_description` in `WritingGroundingData` uses "Two independent reviewers"
+with no AI or human qualifier. The TRANSPARENCY RULE in `format_grounding_block()` enforces
+this: do NOT specify whether reviewers were human or AI in any section prompt.
+Prompt instructions that say "AI-assisted screening" in this repo are stale -- the
+canonical source of truth is `context_builder.py` line ~129 and `sections.py` lines ~170-173.

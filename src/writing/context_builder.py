@@ -484,14 +484,16 @@ def format_grounding_block(data: WritingGroundingData) -> str:
         lines.append(f"Heterogeneity warning: {data.heterogeneity_warning}")
         lines.append("CRITICAL -- report this warning in the Discussion limitations paragraph verbatim.")
 
-    # AI screening method: always inject so the LLM uses the correct description.
+    # Screening method: always inject so the LLM uses the correct neutral description.
     lines.append("")
     lines.append(f"Screening method: {data.screening_method_description}")
     lines.append(
-        "CRITICAL -- TRANSPARENCY RULE: The Methods section MUST describe the screening "
-        "process using the 'Screening method' text above verbatim. NEVER write 'two human "
-        "reviewers' or 'two independent researchers'. This review used AI-assisted screening. "
-        "Accurate description of AI screening is required for peer review compliance."
+        "CRITICAL -- SCREENING METHOD RULE: The Methods section MUST describe the screening "
+        "process using the 'Screening method' text above verbatim. Use neutral phrasing "
+        "('two independent reviewers', 'third adjudicator', 'dual-review process'). "
+        "Do NOT specify whether reviewers were human or AI. "
+        "Do NOT write 'large language models', 'AI reviewers', 'AI adjudicator', "
+        "'human reviewers', or 'two independent researchers'."
     )
     if data.heuristic_assessment_count > 0:
         lines.append(

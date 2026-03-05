@@ -1059,6 +1059,20 @@ async def _resume_wrapper(
     except Exception:
         pass
 
+    # Strip any terminal events (done/error/cancelled) that were written by
+    # the previous run segment.  Keeping them in the in-memory replay buffer
+    # causes useSSEStream on the frontend to think the run is already finished
+    # when it prefetches events via fetchRunEvents -- it scans the list in
+    # reverse for the last terminal, finds the old one (because new events
+    # are non-terminal and appended after it), and returns early without
+    # opening the SSE stream.  The old terminal remains safely in SQLite for
+    # historical replay after a page refresh; this resumed run will append its
+    # own fresh terminal event when it actually completes.
+    record.event_log = [
+        _e for _e in record.event_log
+        if not (isinstance(_e, dict) and _e.get("type") in ("done", "error", "cancelled"))
+    ]
+
     # Mark all pre-loaded events as already flushed so the flusher only writes
     # new events emitted during this resumed run, not the historical ones.
     record._flush_index = len(record.event_log)
