@@ -128,6 +128,11 @@ export default function App() {
 
   // Track the last workflowId we pushed to the URL (avoid duplicate navigations).
   const liveRunNavigatedRef = useRef<string | null>(null)
+  // Tracks whether the current live run reached "streaming" state at least once.
+  // Used to distinguish truly-live runs (that finished streaming) from runs
+  // restored from localStorage that were already finished (prefetch-detected
+  // as terminal). Only the former should clear liveRunId from React state.
+  const wasStreamingRef = useRef(false)
 
   const { events, status, abort, reset } = useSSEStream(liveRunId, liveWorkflowId)
   const costStats = useCostStats(events)
@@ -293,15 +298,28 @@ export default function App() {
   }, []) // eslint-disable-line react-hooks/exhaustive-deps -- mount only
 
   // ---------------------------------------------------------------------------
-  // Clear localStorage + in-memory live run state when the live run reaches a
-  // terminal state. This moves the completed run from the live card into the
-  // unified history list so it appears under the normal "Runs" section.
+  // Clear live run state when the run finishes. Two cases are handled:
+  //
+  // 1. Run was actually streaming (wasStreamingRef = true): clear both
+  //    localStorage AND React state so the card moves to the history list.
+  //
+  // 2. Run was prefetch-detected as already-finished (wasStreamingRef = false,
+  //    e.g. page reload where localStorage points to a previously-cancelled run):
+  //    only clean up localStorage. Do NOT clear React state -- that would set
+  //    liveRunId=null, making isViewingLiveRun=false, which triggers the
+  //    CLI-resume poll and the fetchArtifacts 404 spam.
   // ---------------------------------------------------------------------------
   useEffect(() => {
+    if (status === "streaming") {
+      wasStreamingRef.current = true
+    }
     if (status === "done" || status === "error" || status === "cancelled") {
       clearLiveRun()
-      setLiveRunId(null)
-      setLiveWorkflowId(null)
+      if (wasStreamingRef.current) {
+        setLiveRunId(null)
+        setLiveWorkflowId(null)
+      }
+      wasStreamingRef.current = false
     }
   }, [status])
 
@@ -450,6 +468,7 @@ export default function App() {
 
   async function handleStart(req: RunRequest) {
     reset()
+    wasStreamingRef.current = false
     liveRunNavigatedRef.current = null
     const now = new Date()
     const res = await startRun(req)
@@ -474,6 +493,7 @@ export default function App() {
 
   async function handleStartWithCsv(csvFile: File, req: RunRequest) {
     reset()
+    wasStreamingRef.current = false
     liveRunNavigatedRef.current = null
     const now = new Date()
     const keys: StoredApiKeys = {
@@ -516,6 +536,7 @@ export default function App() {
     const now = new Date()
     const topic = selectedRun?.topic ? `[Living refresh] ${selectedRun.topic}` : "Living refresh"
     reset()
+    wasStreamingRef.current = false
     liveRunNavigatedRef.current = null
     setLiveRunId(newRunId)
     setLiveTopic(topic)
@@ -608,6 +629,7 @@ export default function App() {
   function handleResumeRun(res: RunResponse, workflowId: string) {
     const now = new Date()
     reset()
+    wasStreamingRef.current = false
     liveRunNavigatedRef.current = workflowId
     setLiveRunId(res.run_id)
     setLiveTopic(res.topic)

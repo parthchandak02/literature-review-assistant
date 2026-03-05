@@ -694,11 +694,18 @@ function RunCardMetrics({
       )}
       {hasWfId && (
         onCopyWorkflowId ? (
-          <button
-            type="button"
+          <span
+            role="button"
+            tabIndex={0}
             onClick={(e) => {
               e.stopPropagation()
               void onCopyWorkflowId(workflowId!)
+            }}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" || e.key === " ") {
+                e.stopPropagation()
+                void onCopyWorkflowId(workflowId!)
+              }
             }}
             className={cn(
               "text-zinc-600 shrink-0 whitespace-nowrap hover:text-zinc-400 transition-colors cursor-pointer",
@@ -707,7 +714,7 @@ function RunCardMetrics({
             title="Copy workflow ID"
           >
             {copiedWorkflowId === workflowId ? "Copied!" : formatWorkflowId(workflowId!)}
-          </button>
+          </span>
         ) : (
           <span
             className={cn(

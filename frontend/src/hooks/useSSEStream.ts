@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react"
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react"
 import { fetchEventSource } from "@microsoft/fetch-event-source"
 import { fetchRunEvents, fetchWorkflowEvents } from "@/lib/api"
 import type { ReviewEvent } from "@/lib/api"
@@ -164,7 +164,9 @@ export function useSSEStream(runId: string | null, workflowId?: string | null) {
   // firing and setting the real workflowId from null) do NOT restart the SSE
   // connection. The ref is always current when openStream reads it.
   const workflowIdRef = useRef(workflowId)
-  workflowIdRef.current = workflowId
+  useLayoutEffect(() => {
+    workflowIdRef.current = workflowId
+  })
 
   const reset = useCallback(() => {
     setState({ events: [], status: "idle", error: null })
@@ -176,7 +178,7 @@ export function useSSEStream(runId: string | null, workflowId?: string | null) {
     const ctrl = new AbortController()
     abortRef.current = ctrl
 
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- initializes connecting status on run start
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setState((s) => ({ ...s, status: "connecting", error: null }))
 
     // Phase 1: prefetch any events already buffered on the backend (handles
@@ -231,7 +233,7 @@ export function useSSEStream(runId: string | null, workflowId?: string | null) {
     }
   // workflowId intentionally excluded -- kept in workflowIdRef to avoid
   // restarting the SSE connection when workflow_id_ready fires.
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+   
   }, [runId])
 
   const abort = useCallback(() => {

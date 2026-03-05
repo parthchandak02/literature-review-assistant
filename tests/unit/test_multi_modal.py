@@ -18,6 +18,7 @@ from src.extraction.table_extraction import (
     fetch_full_text,
     merge_outcomes,
 )
+from src.models.extraction import OutcomeRecord
 from src.rag.chunker import chunk_table_outcomes
 
 # ---------------------------------------------------------------------------
@@ -197,38 +198,38 @@ def test_merge_outcomes_returns_vision_only_when_no_text():
 
 
 def test_merge_outcomes_vision_overrides_numeric_fields():
-    text_out = [{"name": "mortality", "effect_size": "OR=1.2", "p_value": "0.1"}]
-    vision_out = [{"name": "Mortality", "effect_size": "OR=1.5 (95% CI 1.1-2.0)", "p_value": "0.01"}]
+    text_out = [OutcomeRecord(name="mortality", effect_size="OR=1.2", p_value="0.1")]
+    vision_out = [OutcomeRecord(name="Mortality", effect_size="OR=1.5 (95% CI 1.1-2.0)", p_value="0.01")]
     merged, source = merge_outcomes(text_out, vision_out)
     assert source == "hybrid"
     assert len(merged) == 1
-    assert merged[0]["effect_size"] == "OR=1.5 (95% CI 1.1-2.0)"
-    assert merged[0]["p_value"] == "0.01"
+    assert merged[0].effect_size == "OR=1.5 (95% CI 1.1-2.0)"
+    assert merged[0].p_value == "0.01"
 
 
 def test_merge_outcomes_adds_new_vision_outcome_not_in_text():
-    text_out = [{"name": "hba1c", "effect_size": "SMD=0.4"}]
-    vision_out = [{"name": "ldl", "effect_size": "MD=-0.8"}]
+    text_out = [OutcomeRecord(name="hba1c", effect_size="SMD=0.4")]
+    vision_out = [OutcomeRecord(name="ldl", effect_size="MD=-0.8")]
     merged, source = merge_outcomes(text_out, vision_out)
     assert source == "hybrid"
     assert len(merged) == 2
 
 
 def test_merge_outcomes_does_not_overwrite_with_empty_vision_values():
-    text_out = [{"name": "bp", "effect_size": "MD=-5", "p_value": "0.001"}]
-    vision_out = [{"name": "BP", "effect_size": ""}]  # empty -- should not overwrite
+    text_out = [OutcomeRecord(name="bp", effect_size="MD=-5", p_value="0.001")]
+    vision_out = [OutcomeRecord(name="BP", effect_size="")]  # empty -- should not overwrite
     merged, source = merge_outcomes(text_out, vision_out)
-    assert merged[0]["effect_size"] == "MD=-5"
-    assert merged[0]["p_value"] == "0.001"
+    assert merged[0].effect_size == "MD=-5"
+    assert merged[0].p_value == "0.001"
 
 
 def test_merge_outcomes_case_insensitive_name_matching():
-    text_out = [{"name": "30-Day Mortality", "effect_size": "RR=0.9"}]
-    vision_out = [{"name": "30-day mortality", "p_value": "<0.05"}]
+    text_out = [OutcomeRecord(name="30-Day Mortality", effect_size="RR=0.9")]
+    vision_out = [OutcomeRecord(name="30-day mortality", p_value="<0.05")]
     merged, _ = merge_outcomes(text_out, vision_out)
     assert len(merged) == 1
-    assert merged[0]["p_value"] == "<0.05"
-    assert merged[0]["effect_size"] == "RR=0.9"
+    assert merged[0].p_value == "<0.05"
+    assert merged[0].effect_size == "RR=0.9"
 
 
 # ---------------------------------------------------------------------------
@@ -263,7 +264,7 @@ def test_chunk_table_outcomes_chunk_ids_are_unique():
 
 
 def test_chunk_table_outcomes_content_includes_effect_size():
-    outcomes = [{"name": "LDL", "effect_size": "OR=2.1 (95% CI 1.3-3.4)", "p_value": "0.001"}]
+    outcomes = [OutcomeRecord(name="LDL", effect_size="OR=2.1 (95% CI 1.3-3.4)", p_value="0.001")]
     chunks = chunk_table_outcomes("paper-004", outcomes)
     assert len(chunks) == 1
     content = chunks[0].content
@@ -273,7 +274,7 @@ def test_chunk_table_outcomes_content_includes_effect_size():
 
 
 def test_chunk_table_outcomes_includes_ci_when_both_bounds_present():
-    outcomes = [{"name": "BP", "ci_lower": "1.2", "ci_upper": "3.4"}]
+    outcomes = [OutcomeRecord(name="BP", ci_lower="1.2", ci_upper="3.4")]
     chunks = chunk_table_outcomes("paper-005", outcomes)
     assert "95% CI" in chunks[0].content
     assert "1.2" in chunks[0].content
