@@ -59,7 +59,7 @@ exclusion_criteria:
   - "Studies on inventory management or procurement systems without a dispensing accuracy or patient safety outcome"
   - "Non-English publications"
 
-date_range_start: 2010
+date_range_start: 2000
 date_range_end: 2026
 
 target_databases:
@@ -68,9 +68,8 @@ target_databases:
   - openalex
   - pubmed
   - semantic_scholar
-  # Additional connectors (opt-in):
-  # - ieee_xplore
-  # - clinicaltrials_gov
+  - ieee_xplore
+  - clinicaltrials_gov
 
 target_sections:
   - abstract
@@ -100,14 +99,14 @@ search_overrides:
     OR "automated dispensing cabinet" OR "robotic pharmacy" OR "ScriptPro" OR "Pyxis" OR "Omnicell")
     AND TITLE-ABS-KEY("dispensing accuracy" OR "medication error" OR "patient safety"
     OR "outpatient pharmacy" OR "ambulatory pharmacy" OR "community pharmacy" OR "pharmacy workflow")
-    AND PUBYEAR > 2009 AND PUBYEAR < 2027
+    AND PUBYEAR > 1999 AND PUBYEAR < 2027
   web_of_science: >-
     (TS="robotic dispensing" OR TS="automated dispensing" OR TS="pharmacy automation"
     OR TS="automated dispensing cabinet" OR TS="robotic pharmacy" OR TS="ScriptPro"
     OR TS="Pyxis" OR TS="Omnicell")
     AND (TS="dispensing accuracy" OR TS="medication error" OR TS="patient safety"
     OR TS="outpatient pharmacy" OR TS="ambulatory pharmacy" OR TS="community pharmacy")
-    AND PY=2010-2026
+    AND PY=2000-2026
   pubmed: >-
     ("Automation"[MeSH Terms] OR "Robotics"[MeSH Terms]
     OR "robotic dispensing"[Title/Abstract] OR "automated dispensing"[Title/Abstract]

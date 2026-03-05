@@ -58,6 +58,7 @@ from src.protocol.generator import ProtocolGenerator
 from src.quality import (
     CaspAssessor,
     GradeAssessor,
+    MmatAssessor,
     Rob2Assessor,
     RobinsIAssessor,
     StudyRouter,
@@ -75,7 +76,8 @@ from src.search.base import SearchConnector
 from src.search.citation_chasing import CitationChaser
 from src.search.clinicaltrials import ClinicalTrialsConnector
 from src.search.crossref import CrossrefConnector
-from src.search.csv_import import parse_masterlist_csv
+from src.search.csv_import import parse_masterlist_csv, parse_supplementary_csvs
+from src.search.embase import EmbaseConnector
 from src.search.deduplication import deduplicate_papers
 from src.search.ieee_xplore import IEEEXploreConnector
 from src.search.openalex import OpenAlexConnector
@@ -187,6 +189,8 @@ def _build_connectors(workflow_id: str, target_databases: list[str]) -> tuple[li
                 connectors.append(WebOfScienceConnector(workflow_id))
             elif normalized in {"clinicaltrials", "clinicaltrials_gov"}:
                 connectors.append(ClinicalTrialsConnector(workflow_id))
+            elif normalized == "embase":
+                connectors.append(EmbaseConnector(workflow_id))
             else:
                 failures[normalized] = "unsupported_connector"
         except Exception as exc:
@@ -523,6 +527,34 @@ class SearchNode(BaseNode[ReviewState]):
                     return End(summary)
 
             all_papers = [paper for result in results for paper in result.papers]
+
+            # Supplementary CSV import: merge Embase/CINAHL/etc. exports with connector results.
+            # Each file produces its own SearchResult (for PRISMA accuracy) and its papers
+            # are appended to all_papers before deduplication.
+            supp_paths = state.review.supplementary_csv_paths if state.review else []
+            if supp_paths:
+                try:
+                    supp_results = parse_supplementary_csvs(supp_paths, state.workflow_id)
+                    for sr in supp_results:
+                        await repository.save_search_result(sr)
+                        all_papers.extend(sr.papers)
+                        if rc:
+                            rc.log_connector_result(
+                                name=sr.database_name,
+                                status="success",
+                                records=sr.records_retrieved,
+                                query=sr.search_query,
+                                date_start=None,
+                                date_end=None,
+                                error=None,
+                            )
+                        _log.info(
+                            "Supplementary CSV '%s': loaded %d papers",
+                            sr.database_name,
+                            sr.records_retrieved,
+                        )
+                except Exception as _supp_err:
+                    _log.warning("Supplementary CSV import failed: %s", _supp_err)
 
             # Living review: skip papers whose DOIs were already screened in a prior run.
             if state.review.living_review:
@@ -1098,6 +1130,7 @@ class ExtractionQualityNode(BaseNode[ReviewState]):
                 llm_client=llm_gemini, settings=state.settings, provider=provider if use_llm else None
             )
             casp = CaspAssessor(llm_client=llm_gemini, settings=state.settings, provider=provider if use_llm else None)
+            mmat = MmatAssessor(llm_client=llm_gemini, settings=state.settings, provider=provider if use_llm else None)
             not_applicable_paper_ids: list[str] = []
 
             # Quality-only pass: papers extracted before a crash but missing RoB.
@@ -1121,6 +1154,18 @@ class ExtractionQualityNode(BaseNode[ReviewState]):
                                 paper_id=qr.paper_id,
                                 decision="completed",
                                 rationale=assessment.overall_summary,
+                                actor="quality_assessment",
+                                phase="phase_4_extraction_quality",
+                            )
+                        )
+                    elif tool == "mmat":
+                        mmat_result = await mmat.assess(qr, full_text=full_text)
+                        await repository.append_decision_log(
+                            DecisionLogEntry(
+                                decision_type="mmat_assessment",
+                                paper_id=qr.paper_id,
+                                decision="completed",
+                                rationale=mmat_result.overall_summary,
                                 actor="quality_assessment",
                                 phase="phase_4_extraction_quality",
                             )
@@ -1325,6 +1370,19 @@ class ExtractionQualityNode(BaseNode[ReviewState]):
                                 phase="phase_4_extraction_quality",
                             )
                         )
+                    elif tool == "mmat":
+                        mmat_result = await mmat.assess(record, full_text=full_text)
+                        rob_judgment = f"MMAT score {mmat_result.overall_score}/5"
+                        await repository.append_decision_log(
+                            DecisionLogEntry(
+                                decision_type="mmat_assessment",
+                                paper_id=record.paper_id,
+                                decision="completed",
+                                rationale=mmat_result.overall_summary,
+                                actor="quality_assessment",
+                                phase="phase_4_extraction_quality",
+                            )
+                        )
                     else:
                         # not_applicable: systematic reviews, technical reports, narrative papers.
                         # ROBINS-I and RoB2 do not apply; record for figure disclosure.
@@ -1396,6 +1454,17 @@ class ExtractionQualityNode(BaseNode[ReviewState]):
                         rc.advance_screening("phase_4_extraction_quality", i + 1, len(to_process))
 
             rob2_rows, robins_i_rows = await repository.load_rob_assessments(state.workflow_id)
+            # Count heuristic-derived assessments for Methods section transparency.
+            _heuristic_count = sum(
+                1 for r in (rob2_rows + robins_i_rows)
+                if getattr(r, "assessment_source", "llm") == "heuristic"
+            )
+            state.heuristic_assessment_count = _heuristic_count
+            if _heuristic_count > 0:
+                logger.warning(
+                    "ExtractionQualityNode: %d quality assessment(s) used heuristic fallback",
+                    _heuristic_count,
+                )
             completeness_ratio = (
                 1.0
                 if not records
@@ -1906,6 +1975,8 @@ class WritingNode(BaseNode[ReviewState]):
                     kappa_n=state.kappa_n,
                     sensitivity_results=state.sensitivity_results,
                     search_limitation=getattr(state.review, "search_limitation", None) if state.review else None,
+                    review_config=state.review,
+                    heuristic_assessment_count=state.heuristic_assessment_count,
                 )
 
                 def _on_write(**kw):

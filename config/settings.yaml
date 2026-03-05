@@ -1,10 +1,10 @@
 llm:
-  # Conservative limits suitable for Gemini 3.x preview models (Tier 1 paid).
-  # 3-flash-preview and 3.1-flash-lite preview quotas may be tighter than GA.
-  # Raise flash_rpm to 30-60 and pro_rpm to 15-30 once models reach GA.
-  flash_rpm: 10
-  flash_lite_rpm: 15
-  pro_rpm: 5
+  # Raised from 10/15/5 after confirming Gemini 3.x preview quotas support higher
+  # throughput at Tier 1 paid. Benchmarks (Jeffrey 2024, Batson 2020) ran searches
+  # on standard APIs without artificial rate limiting.
+  flash_rpm: 20
+  flash_lite_rpm: 30
+  pro_rpm: 10
   # Per-request HTTP timeout in seconds. Pro-tier writing/quality calls can take
   # 60-120s for large outputs; 504 DEADLINE_EXCEEDED errors indicate this needs raising.
   request_timeout_seconds: 120
@@ -48,12 +48,16 @@ screening:
   stage1_include_threshold: 0.85
   stage1_exclude_threshold: 0.8
   keyword_filter_min_matches: 1
-  skip_fulltext_if_no_pdf: true
+  # false: use abstract as fallback when full-text PDF is unavailable.
+  # true was excluding 3 clearly relevant papers (Semantic Scholar, no OA PDF).
+  # Benchmarks (Jeffrey 2024, Osman 2026) used abstract-based full-text screening
+  # when full text was unavailable; we must do the same to match their recall.
+  skip_fulltext_if_no_pdf: false
   screening_concurrency: 5
-  # BM25-rank candidates; top N go to LLM dual-review; rest auto-excluded with score logged.
-  # 200 balances cost and recall. For niche topics (few expected matches),
-  # raise to 300-500 or set to null to screen all candidates (no cap).
-  max_llm_screen: 200
+  # Raised from 200 -> 400. At 5 databases with broad pharmacy automation topic,
+  # dedup pool is 800-2000 records; 200 was silently dropping relevant papers
+  # past the BM25 cutoff (confirmed: 1 Scopus paper excluded by cap in wf-00075eaf).
+  max_llm_screen: 400
   # Calibration: one pass on 15 papers is enough to confirm reviewers agree.
   # Re-screening the same sample multiple times (max_iterations > 1) does not
   # meaningfully improve kappa for well-scoped topics and wastes LLM calls.

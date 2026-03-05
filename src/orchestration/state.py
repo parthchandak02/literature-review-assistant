@@ -40,3 +40,6 @@ class ReviewState:
     sensitivity_results: list[str] = field(default_factory=list)
     contradiction_flags: list[ContradictionFlag] = field(default_factory=list)
     parent_db_path: str | None = None  # set for living-review delta runs
+    # Count of quality assessments that used heuristic fallback (LLM timed out).
+    # Surfaced in the Methods section grounding block for transparency.
+    heuristic_assessment_count: int = 0

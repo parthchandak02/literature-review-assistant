@@ -103,8 +103,28 @@ class WritingGroundingData(BaseModel):
     meta_analysis_ran: bool = False
     poolable_outcomes: list[str] = []
 
+    # Clinical/methodological heterogeneity warning from feasibility check.
+    # Empty string means no warning. Non-empty must be reported in Discussion limitations.
+    heterogeneity_warning: str = ""
+
     # Search/source limitation (e.g. Scopus-only for institutional access)
     search_limitation: str | None = None
+
+    # AI screening transparency (PRISMA 2020 item 8 -- Selection process).
+    # Describes the dual-reviewer screening method accurately for the Methods section.
+    # Injected verbatim so the LLM cannot misrepresent AI-assisted screening as
+    # "two human reviewers" (which would be a factual error failing peer review).
+    screening_method_description: str = (
+        "Two independent AI reviewers (large language models) screened titles and abstracts, "
+        "with disagreements resolved by a third AI adjudicator. "
+        "Full-text articles were assessed using the same AI-assisted dual-review process. "
+        "Inter-rater reliability was measured using Cohen's kappa on the subset of papers "
+        "requiring dual review."
+    )
+
+    # Number of quality assessments derived from heuristic fallback (LLM timed out).
+    # When > 0, the Methods section notes that some assessments used a conservative heuristic.
+    heuristic_assessment_count: int = 0
 
 
 def build_writing_grounding(
@@ -119,6 +139,7 @@ def build_writing_grounding(
     sensitivity_results: list[str] | None = None,
     search_limitation: str | None = None,
     review_config: object | None = None,
+    heuristic_assessment_count: int = 0,
 ) -> WritingGroundingData:
     """Aggregate real pipeline outputs into a WritingGroundingData instance."""
 
@@ -168,6 +189,7 @@ def build_writing_grounding(
 
     _GENERIC_GROUPINGS = frozenset({"primary_outcome", "secondary_outcome"})
 
+    heterogeneity_warning = ""
     if narrative:
         feasibility = narrative.get("feasibility", {})
         raw_feasible = bool(feasibility.get("feasible", False))
@@ -184,6 +206,7 @@ def build_writing_grounding(
         n_synth = narr_obj.get("n_studies", n_synth)
         narr_text = narr_obj.get("narrative_text", narr_text)
         themes = narr_obj.get("key_themes", [])
+        heterogeneity_warning = feasibility.get("heterogeneity_warning", "")
 
     # Per-study summaries
     paper_map = {p.paper_id: p for p in included_papers}
@@ -254,6 +277,8 @@ def build_writing_grounding(
         meta_analysis_ran=meta_ran,
         poolable_outcomes=poolable_outcomes,
         search_limitation=search_limitation,
+        heuristic_assessment_count=heuristic_assessment_count,
+        heterogeneity_warning=heterogeneity_warning,
     )
 
 
@@ -402,6 +427,30 @@ def format_grounding_block(data: WritingGroundingData) -> str:
             f"section you MUST report: 'Inter-rater reliability, measured on the subset of "
             f"papers that required dual review{n_str}, was Cohen's kappa = {kappa_str}.' "
             f"Do NOT describe this as overall reviewer agreement without the subset qualifier."
+        )
+
+    if data.heterogeneity_warning:
+        lines.append(f"Heterogeneity warning: {data.heterogeneity_warning}")
+        lines.append(
+            "CRITICAL -- report this warning in the Discussion limitations paragraph verbatim."
+        )
+
+    # AI screening method: always inject so the LLM uses the correct description.
+    lines.append("")
+    lines.append(f"Screening method: {data.screening_method_description}")
+    lines.append(
+        "CRITICAL -- TRANSPARENCY RULE: The Methods section MUST describe the screening "
+        "process using the 'Screening method' text above verbatim. NEVER write 'two human "
+        "reviewers' or 'two independent researchers'. This review used AI-assisted screening. "
+        "Accurate description of AI screening is required for peer review compliance."
+    )
+    if data.heuristic_assessment_count > 0:
+        lines.append(
+            f"Heuristic fallback assessments: {data.heuristic_assessment_count} quality "
+            "assessment(s) used a conservative heuristic fallback because the LLM call "
+            "timed out. Include this caveat in the Methods section: "
+            f"'{data.heuristic_assessment_count} risk-of-bias assessment(s) used a "
+            "conservative heuristic fallback due to LLM timeout and should be reviewed manually.'"
         )
 
     if data.sensitivity_results:

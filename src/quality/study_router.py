@@ -9,10 +9,11 @@ class StudyRouter:
     def route_tool(self, record: ExtractionRecord) -> str:
         """Return the appropriate RoB tool name for a given study design.
 
-        Routing rules (methodologically correct):
+        Routing rules (methodologically correct, aligned with MMAT 2018):
           RCT                                        -> rob2
           NON_RANDOMIZED / COHORT / CASE_CONTROL     -> robins_i
-          CROSS_SECTIONAL / MIXED_METHODS            -> robins_i (may have intervention component)
+          CROSS_SECTIONAL                            -> robins_i (observational, interventional component)
+          MIXED_METHODS                              -> mmat (MMAT 2018, per Osman 2026)
           QUALITATIVE                                -> casp
           OTHER                                      -> not_applicable
             OTHER covers: systematic reviews, literature reviews, technical
@@ -28,9 +29,10 @@ class StudyRouter:
             StudyDesign.COHORT,
             StudyDesign.CASE_CONTROL,
             StudyDesign.CROSS_SECTIONAL,
-            StudyDesign.MIXED_METHODS,
         }:
             return "robins_i"
+        if design == StudyDesign.MIXED_METHODS:
+            return "mmat"
         if design == StudyDesign.QUALITATIVE:
             return "casp"
         # OTHER: systematic reviews, technical/narrative reports -- not amenable to ROBINS-I

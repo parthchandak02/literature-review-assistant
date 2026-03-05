@@ -84,6 +84,15 @@ class ReviewConfig(BaseModel):
             "but is unused when this field is set."
         ),
     )
+    supplementary_csv_paths: list[str] = Field(
+        default_factory=list,
+        description=(
+            "List of absolute paths to supplementary CSV exports (e.g. Embase, CINAHL). "
+            "These are ADDED to connector results, not replacing them. Each file is "
+            "parsed with flexible column detection supporting Scopus, Embase, CINAHL, "
+            "and RIS-derived CSV formats. Papers are deduplicated after merge."
+        ),
+    )
     search_limitation: str | None = Field(
         default=None,
         description=(
