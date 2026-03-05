@@ -142,9 +142,15 @@ class GradeAssessor:
         justification = (
             f"RoB downgrade={rob_downgrade} (worst-case across {len(rob_assessments)} assessments). "
             f"Imprecision downgrade={imprecision_downgrade} (total N={total_n}). "
-            "Inconsistency/indirectness/publication-bias: not auto-computed; review manually."
+            "Inconsistency/indirectness: not auto-computed from pipeline data -- manual review required."
         )
-        return assessment.model_copy(update={"justification": justification})
+        return assessment.model_copy(
+            update={
+                "justification": justification,
+                "inconsistency_assessed": False,
+                "indirectness_assessed": False,
+            }
+        )
 
 
 _DOWNGRADE_LABEL: dict[int, str] = {
@@ -218,8 +224,16 @@ def build_sof_table(
                 n_studies=a.number_of_studies,
                 study_design=a.study_designs,
                 risk_of_bias=_DOWNGRADE_LABEL.get(a.risk_of_bias_downgrade, "not serious"),
-                inconsistency=_DOWNGRADE_LABEL.get(a.inconsistency_downgrade, "not serious"),
-                indirectness=_DOWNGRADE_LABEL.get(a.indirectness_downgrade, "not serious"),
+                inconsistency=(
+                    "not assessed*"
+                    if not getattr(a, "inconsistency_assessed", True)
+                    else _DOWNGRADE_LABEL.get(a.inconsistency_downgrade, "not serious")
+                ),
+                indirectness=(
+                    "not assessed*"
+                    if not getattr(a, "indirectness_assessed", True)
+                    else _DOWNGRADE_LABEL.get(a.indirectness_downgrade, "not serious")
+                ),
                 imprecision=_DOWNGRADE_LABEL.get(a.imprecision_downgrade, "not serious"),
                 other_considerations="; ".join(other) if other else "none",
                 certainty=a.final_certainty,
@@ -266,6 +280,7 @@ def sof_table_to_markdown(table: GradeSoFTable) -> str:
         "RoB/Inconsistency/Indirectness/Imprecision rated as: "
         "not serious, serious, very serious. "
         "Other considerations include upgrades for large effect, dose-response, or "
-        "residual confounding, and downgrades for suspected publication bias._\n"
+        "residual confounding, and downgrades for suspected publication bias. "
+        "* = not auto-computed from pipeline data; manual reviewer assessment required._\n"
     )
     return header + "\n".join(rows) + note

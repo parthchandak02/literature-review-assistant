@@ -62,6 +62,10 @@ class GRADEOutcomeAssessment(BaseModel):
     residual_confounding_upgrade: int = Field(ge=0, le=1)
     final_certainty: GRADECertainty
     justification: str
+    # When False, inconsistency/indirectness were not computed from pipeline
+    # data and default to 0; the SoF table will flag them as "not assessed".
+    inconsistency_assessed: bool = True
+    indirectness_assessed: bool = True
 
 
 class GradeSoFRow(BaseModel):

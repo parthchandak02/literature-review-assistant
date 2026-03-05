@@ -1537,30 +1537,39 @@ def _try_meta_analysis(
             effect_str = outcome.effect_size or ""
             se_str = outcome.se or ""
             var_str = outcome.variance or ""
-            try:
-                # Attempt to parse the numeric part (e.g. "SMD=0.45" -> 0.45)
-                if effect_str:
-                    for tok in str(effect_str).replace("=", " ").split():
-                        try:
-                            effect_val = float(tok)
-                            break
-                        except ValueError:
-                            continue
-                    else:
-                        effect_val = None
-                else:
-                    effect_val = None
 
-                if var_str:
-                    variance_val = float(str(var_str).split()[-1])
-                elif se_str:
-                    se_val = float(str(se_str).split()[-1])
-                    variance_val = se_val**2
-                else:
-                    variance_val = None
-            except (ValueError, TypeError):
-                effect_val = None
-                variance_val = None
+            def _first_float(s: str) -> float | None:
+                """Return the first token in *s* that parses as a finite float."""
+                for tok in str(s).replace("=", " ").replace(",", " ").split():
+                    try:
+                        val = float(tok)
+                        if math.isfinite(val):
+                            return val
+                    except ValueError:
+                        continue
+                return None
+
+            effect_val = _first_float(effect_str) if effect_str else None
+
+            variance_val: float | None = None
+            if var_str:
+                variance_val = _first_float(var_str)
+            elif se_str:
+                se_val = _first_float(se_str)
+                variance_val = se_val**2 if se_val is not None else None
+
+            if effect_val is None or variance_val is None:
+                logger.debug(
+                    "_try_meta_analysis: skipping outcome '%s' for paper %s "
+                    "(effect_str=%r var_str=%r se_str=%r -> effect=%s variance=%s)",
+                    outcome.name,
+                    record.paper_id[:12],
+                    effect_str,
+                    var_str,
+                    se_str,
+                    effect_val,
+                    variance_val,
+                )
 
             if effect_val is not None and variance_val is not None and variance_val > 0:
                 effects.append(effect_val)
