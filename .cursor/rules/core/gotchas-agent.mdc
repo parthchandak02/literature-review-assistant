@@ -91,27 +91,24 @@ canonical source of truth is `context_builder.py` line ~129 and `sections.py` li
 ## PubMed Search Override Phrase Sensitivity (Critical for Recall)
 The PubMed query is built from `search_overrides.pubmed` in `config/review.yaml`.
 Exact-phrase requirements in the second AND group kill recall dramatically:
-- `"outpatient pharmacy"[Title/Abstract]` (2-word exact phrase) returned 6 records
-- `"outpatient"[Title/Abstract]` (single word) returned 317 records for the same topic
-Always use single-word OR terms (`"outpatient"`, `"ambulatory"`) in the setting group,
-never multi-word exact phrases. Also avoid restrictive MeSH terms in the AND group
-(`"Medication Errors"[MeSH Terms]`, `"Pharmacy Service, Hospital"[MeSH Terms]`) -- these
-over-constrain results because many pharmacy automation papers are not indexed under them.
-The auto-generated fallback query (when no override is set) may produce better recall than a
-poorly crafted override. If a run returns fewer papers from PubMed than a prior run with the
-same topic, compare the actual queries in `doc_search_strategies_appendix.md`.
+- `"[setting phrase]"[Title/Abstract]` (2-word exact phrase) returns 10-50x fewer records
+  than `"[setting word]"[Title/Abstract]` (single word) for the same topic
+Always use single-word OR terms in the setting group, never multi-word exact phrases.
+Also avoid narrow secondary MeSH terms in the AND group -- many papers on the target topic
+are not indexed under them, causing silent exclusions. The auto-generated fallback query
+(when no override is set) may produce better recall than a poorly crafted override. If a run
+returns fewer papers from PubMed than a prior run with the same topic, compare the actual
+queries in `doc_search_strategies_appendix.md`.
 
 ## OpenAlex `is_core:true` Filter Was Removed (March 2026)
 The `is_core:true` filter was removed from `src/search/openalex.py`. It restricted results
-to CWTS Core-list journals (Scopus/WoS equivalent), causing OpenAlex to return exactly 6
-records for niche pharmacy/robotics topics regardless of query. The correct approach is:
+to CWTS Core-list journals (Scopus/WoS equivalent), causing OpenAlex to return very few
+records for specialized or niche topics regardless of query. The correct approach is:
 search broadly (without the core filter), then let the dual-LLM screeners apply inclusion
 criteria to eliminate low-quality papers. Remaining filters (`type:article`,
 `primary_location.source.type:journal`, `is_retracted:false`) are sufficient for quality.
 Do NOT add `is_core:true` back -- it is an intentional removal to support broad-search/
-tight-screen methodology. Validated on wf-f4a5df72: OpenAlex returned 28 (was 6),
-PubMed 500 (was 6), Scopus 122 (was 8), Semantic Scholar 138 (was 12), total 813 (was 32).
-`per_database_limits.openalex` in `settings.yaml` is 1000 (not 500).
+tight-screen methodology. `per_database_limits.openalex` in `settings.yaml` is 1000 (not 500).
 
 ## `build_boolean_query` Uses Keywords Only (Not PICO Descriptions)
 `build_boolean_query()` in `src/search/strategy.py` uses ONLY `config.keywords`. It does
@@ -142,3 +139,71 @@ their abstract may still contain empirical data in the full text. If you see man
 reviewer is likely over-applying this reason to borderline records. The correct title/abstract
 reasons are: `wrong_population`, `wrong_intervention`, `wrong_outcome`, `wrong_setting`,
 `wrong_study_design`, or `low_relevance_score`.
+
+## Per-Run Logging Is Only Correct For the First Run (Multi-Run API Bug)
+`configure_run_logging()` in `src/utils/structured_log.py` is guarded by a module-global
+`_configured` flag and returns early on every call after the first. In a long-lived API process
+that serves multiple sequential runs, all runs after the first write their `app.jsonl` into the
+FIRST run's log directory. This affects historical event replay and PM2 log streaming for those
+later runs. If a run's Activity tab shows events from a different topic, this is the cause.
+Work around: restart `litreview-api` between runs if accurate per-run logging matters.
+
+## Citation-Chased Papers Are Counted But NOT Re-Screened In The Same Run
+`SearchNode` in `src/orchestration/workflow.py` appends citation-chased papers to
+`state.deduped_papers` AFTER the screening phase has already written its checkpoint.
+Those papers are never sent through `ScreeningNode` in the same run. They inflate
+`search_results` rows (and therefore PRISMA identification math) while contributing
+zero rows to `dual_screening_results`. Do NOT assume citation-chased papers are
+included in the synthesized evidence unless you verify via the DB that they have
+a `fulltext` screening decision.
+
+## HITL Approval Does Not Mutate The Current Run's Inclusion Set
+`POST /api/run/{run_id}/approve-screening` stores override records in the DB and
+flips the registry status to `running`, but it does NOT update `screening_decisions`,
+`dual_screening_results`, or the paused workflow's in-memory `state.included_papers`.
+Human corrections made in the HITL UI are therefore advisory for the active run and
+only feed future criteria-refinement metadata. If you need corrections to affect the
+current run, manually edit `screening_decisions` in the DB and use
+`POST /api/history/resume` with `from_phase=phase_4_extraction_quality` after approval.
+
+## Screening Summary API Has A Column Name Bug
+`GET /api/run/{run_id}/screening-summary` joins `screening_decisions sd` and selects
+`sd.rationale`, but `src/db/schema.sql` defines the column as `reason`. This query
+will fail at runtime. If the HITL tab shows an error instead of decisions, this is
+the root cause.
+
+## CASP And MMAT Assessments Are Not Persisted As Structured DB Rows
+`src/orchestration/workflow.py` runs CASP for qualitative/cross-sectional studies
+and MMAT for mixed-methods studies, but only logs their summaries to `decision_log`.
+`save_rob2_assessment()` and `save_robins_i_assessment()` are the only structured
+persistence paths in `src/db/repositories.py`. On resume, CASP/MMAT papers are
+treated as "not yet assessed" and re-run. Downstream: CASP/MMAT studies do NOT
+appear in the RoB traffic-light figure and their quality data is absent from export
+artifacts.
+
+## GRADE Is Per-Paper, Not Per-Outcome Body-Of-Evidence
+`ExtractionQualityNode` calls GRADE once per included paper (picking the first
+non-placeholder outcome name) with `number_of_studies=1`. The repository then
+upserts by `(workflow_id, outcome_name)`, so if two papers share an outcome name,
+the second paper's GRADE assessment silently overwrites the first. The SoF table
+therefore does not represent a multi-study GRADE assessment as Cochrane methodology
+requires.
+
+## search_date In Manuscript Is Always The Current Calendar Year
+`WritingGroundingData.search_date` in `src/writing/context_builder.py` is set to
+`str(datetime.now().year)`. For resumed or historical runs this will report the
+CURRENT year rather than the year the search was actually conducted, producing
+potentially incorrect Methods section dates and PRISMA reporting.
+
+## Phase-4 Citation Lineage Gate Always Passes (Hardcoded)
+`ExtractionQualityNode` calls `run_citation_lineage_gate(... unresolved_items=0)`
+with a hardcoded zero. This gate always passes regardless of actual citation state.
+Real lineage validation only happens at `FinalizeNode` against the assembled manuscript.
+
+## PM2 Process Names Are litreview-api / litreview-ui / litreview-tunnel
+The ecosystem.config.js defines processes as `litreview-api`, `litreview-ui`, and
+`litreview-tunnel`. PM2 shorthand aliases like `api` or `ui` do NOT work unless
+you explicitly configured them. Always use the full process names:
+  pm2 logs litreview-api
+  pm2 restart litreview-api
+  pm2 restart litreview-ui

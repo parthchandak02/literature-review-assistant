@@ -82,8 +82,8 @@ Read the following files in full before starting any audit:
 5. `<run_root>/run_summary.json` -- counts and stats
 6. `<run_root>/data_narrative_synthesis.json` -- synthesis outcomes
 
-Also read the benchmark reference:
-7. `reference/benchmark-systematic-reviews-pharmacy-automation.md` -- 6 published benchmark reviews to compare against
+Also check for a topic-specific benchmark file (optional -- may not exist):
+7. List files in `reference/` matching `benchmark-*.md`. If one exists, read it -- it contains published systematic reviews on the same topic to compare against. If none exists, note this and proceed without benchmark comparison.
 
 And the prior audit for context on known tool limitations:
 8. `reference/Tool And Manuscript Audit.md` -- prior deep audit identifying tool-level gaps
@@ -180,13 +180,7 @@ sqlite3 <run_root>/runtime.db \
 
 Check the Discussion for:
 - Does it open with a summary of principal findings (not background)?
-- Does it compare findings to the 6 benchmark reviews in reference/benchmark-systematic-reviews-pharmacy-automation.md?
-  - Jeffrey et al. 2024 (omitted/delayed doses, ROBINS-I, 9 studies)
-  - Batson et al. 2020 (48 studies, EPHPP)
-  - Zheng et al. 2021 (16 studies, controlled medications)
-  - Jung et al. 2025 (scoping, 54 studies)
-  - Osman et al. 2026 (nurse-related errors, MMAT)
-  - Abimanyu et al. 2025 (digital technologies)
+- Does it compare findings to prior systematic reviews on the same topic? If a benchmark file was found in `reference/` (step 2 item 7), verify each benchmark review listed there is cited or addressed. If no benchmark file was found, check whether the Discussion at least references the absence of prior reviews or acknowledges the novelty of this review.
 - Does it address limitations with appropriate candor, including:
   - Small number of included studies
   - Predominantly observational designs
@@ -224,10 +218,8 @@ Flag any citation that:
 - Is cited with "[citation needed]" or placeholder text
 
 3. Count total references and compare to benchmark:
-   - Jeffrey et al. 2024: ~59 refs
-   - Batson et al. 2020: ~78 refs
-   - Jung et al. 2025: ~60+ refs
-   - A strong manuscript should have 40-80 references including included studies + methodological citations
+   - A strong systematic review manuscript typically has 40-80 references including included studies + methodological citations.
+   - If a topic-specific benchmark file was found in step 2, check reference counts for those reviews and use them as the comparison set.
 
 ---
 
@@ -277,17 +269,19 @@ After all 6 streams, perform a cross-stream consistency check:
 
 ## STEP 5 -- Benchmark comparison
 
-Compare this manuscript's methodology and reporting to the 6 published benchmarks:
+Compare this manuscript's methodology and reporting to published benchmarks for high-quality systematic reviews. Typical indexed systematic reviews include 10-50 studies and 40-80 references; these are reasonable baseline expectations regardless of topic.
 
-| Dimension | This manuscript | Benchmark avg | Gap |
-|-----------|----------------|---------------|-----|
-| N included studies | ? | ~25 (range 9-54) | ? |
+If a topic-specific benchmark file was found in step 2, use those reviews as the comparison set and note their specific values in the "Benchmark" column. If no benchmark file was found, use the typical indexed SR ranges as the benchmark.
+
+| Dimension | This manuscript | Benchmark | Gap |
+|-----------|----------------|-----------|-----|
+| N included studies | ? | 10-50 (typical SRs) | ? |
 | Databases searched | ? | 3-6 | ? |
-| Dual screening | ? | Yes (all 6) | ? |
-| Quality tool named | ? | Yes (4/6 specify tool) | ? |
-| PRISMA 2020 | ? | Yes (4/6 explicit) | ? |
-| Limitations section | ? | Yes (all 6) | ? |
-| Tables with study chars | ? | Yes (all 6) | ? |
+| Dual screening | ? | Yes (standard practice) | ? |
+| Quality tool named | ? | Yes (best practice) | ? |
+| PRISMA 2020 | ? | Yes (required) | ? |
+| Limitations section | ? | Yes (required) | ? |
+| Tables with study chars | ? | Yes (required) | ? |
 | Word count approx | ? | 3,500-6,500 | ? |
 
 Fill in the "This manuscript" column from your audit findings. Identify where this manuscript falls short of the benchmark minimum and where it meets or exceeds benchmarks.
@@ -314,7 +308,7 @@ Numbered list.
 Checklist of what exists and what is absent.
 
 ### Benchmark Gap Analysis
-Table comparing this manuscript to the 6 published benchmarks.
+Table comparing this manuscript to published benchmarks (topic-specific if a benchmark file was found in reference/, otherwise general indexed SR standards).
 
 ### Recommended Next Steps
 Ordered list of 5-10 concrete actions, framed as user commands (e.g., "Re-run extraction with higher context window for studies with NR sample sizes", "Add Table 1 PICOS inclusion/exclusion criteria to manuscript", "Fix Methods to say 'AI-assisted dual review' not 'human reviewers'").

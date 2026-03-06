@@ -122,8 +122,10 @@ class Rob2Assessor:
         if self.llm_client is not None and self.settings is not None:
             try:
                 agent = self.settings.agents.get("quality_assessment")
-                model = agent.model if agent else "google-gla:gemini-2.5-pro"
-                temperature = agent.temperature if agent else 0.2
+                if agent is None:
+                    raise ValueError("quality_assessment agent not configured in settings.yaml")
+                model = agent.model
+                temperature = agent.temperature
                 prompt = _build_rob2_prompt(record, full_text)
                 schema = _Rob2LLMResponse.model_json_schema()
                 t0 = time.monotonic()

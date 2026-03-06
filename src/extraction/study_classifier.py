@@ -128,8 +128,8 @@ class StudyClassifier:
                 "  mixed_methods    - Mixed quantitative + qualitative methods",
                 "  protocol         - Registered trial protocol or study design paper (no results yet)",
                 "  conference_abstract - Conference poster or abstract only (not a full peer-reviewed paper).",
-                "    Use this when: the DOI contains 'conf', 'eahp', 'ashp', 'abstract', or similar",
-                "    conference identifiers; or the title/abstract indicates this is a poster or abstract",
+                "    Use this when: the DOI contains 'conf', 'conference', 'abstract', 'supplement', 'poster',",
+                "    or similar conference identifiers; or the title/abstract indicates this is a poster or abstract",
                 "    only, not a full published article.",
                 "  narrative_review - Narrative, scoping, or umbrella review (not a primary evidence study).",
                 "    Use this when: the title or abstract explicitly says 'systematic review', 'scoping review',",
@@ -152,10 +152,9 @@ class StudyClassifier:
         except ValidationError:
             return None
 
-    # DOI fragments that reliably indicate a conference abstract (not a full paper)
+    # DOI fragments that reliably indicate a conference abstract (not a full paper).
+    # Keep entries generic -- do not add society- or journal-specific prefixes here.
     _CONFERENCE_DOI_SIGNALS = (
-        "eahpconf",
-        "ashpconf",
         "-conf.",
         "conference",
         ".meeting.",
@@ -163,7 +162,6 @@ class StudyClassifier:
         "supplement",
         "suppl.",
         "poster",
-        "ejhpharm-",
         "bmjpo-",
     )
     # Title phrases that indicate a narrative/scoping review

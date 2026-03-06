@@ -8,9 +8,8 @@ The Mixed Methods Appraisal Tool (MMAT) 2018 appraises five study types:
   5. Mixed methods
 
 Each study type has 5 type-specific criteria applied after 2 screening questions.
-The tool is used by Osman et al. (2026) and supports mixed-methods systematic reviews
-covering staff experience, patient safety, and quality improvement designs -- all
-relevant to the pharmacy automation topic.
+The tool supports mixed-methods systematic reviews covering staff experience, patient
+safety, and quality improvement designs.
 
 Reference: Hong, Q.N., Faber, G. et al. (2018). The Mixed Methods Appraisal Tool
 (MMAT) version 2018 for information professionals and researchers. Education for

@@ -48,25 +48,29 @@ screening:
   stage1_include_threshold: 0.85
   stage1_exclude_threshold: 0.8
   keyword_filter_min_matches: 1
-  # false: use abstract as fallback when full-text PDF is unavailable.
-  # true was excluding 3 clearly relevant papers (Semantic Scholar, no OA PDF).
-  # Benchmarks (Jeffrey 2024, Osman 2026) used abstract-based full-text screening
-  # when full text was unavailable; we must do the same to match their recall.
-  skip_fulltext_if_no_pdf: false
+  # true: papers without retrievable full text are auto-excluded at the full-text
+  # screening stage with ExclusionReason.NO_FULL_TEXT. PRISMA 2020 item 17 requires
+  # a "Reports not retrieved" box; without this gate that count is always 0 and
+  # papers screened on abstract alone are incorrectly included in synthesis.
+  # Note: this may exclude paywalled papers with no open-access PDF; those papers
+  # should appear in the PRISMA flow as "not retrieved" rather than as included studies.
+  skip_fulltext_if_no_pdf: true
   screening_concurrency: 5
-  # Raised from 200 -> 400. At 5 databases with broad pharmacy automation topic,
-  # dedup pool is 800-2000 records; 200 was silently dropping relevant papers
-  # past the BM25 cutoff (confirmed: 1 Scopus paper excluded by cap in wf-00075eaf).
+  # Raised from 200 -> 400. With 5+ databases on a broad topic, the dedup pool can
+  # reach 800-2000 records; 200 was silently dropping relevant papers past the BM25 cutoff.
   max_llm_screen: 400
   # Calibration: one pass on 15 papers is enough to confirm reviewers agree.
   # Re-screening the same sample multiple times (max_iterations > 1) does not
   # meaningfully improve kappa for well-scoped topics and wastes LLM calls.
   calibration_sample_size: 15
   calibration_max_iterations: 1
-  # Lowered from 12 -> 5. At 12, 322/368 papers were auto-excluded before LLM because PubMed
-  # returns many records with short/absent abstracts. At 5, borderline records reach the LLM
-  # so the reviewer can screen on title alone. Truly empty records (0 words) still auto-exclude.
-  insufficient_content_min_words: 5
+  # Lowered from 12 -> 5 -> 0. At 12, 322/368 papers were auto-excluded before LLM because
+  # databases return many records with short or absent abstracts. At 0, stub-abstract records
+  # reach the LLM dual-screener, which can exclude them on title alone. Papers with no abstract
+  # at all (empty string) still auto-exclude via the `not abstract` check in _is_insufficient_content.
+  # This allows papers with no abstract to reach the LLM screener, which can exclude
+  # them on title alone rather than the heuristic stub-abstract filter.
+  insufficient_content_min_words: 0
 
 dual_review:
   enabled: true

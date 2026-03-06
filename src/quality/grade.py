@@ -195,7 +195,6 @@ _OUTCOME_THEME_RULES: list[tuple[str, list[str]]] = [
             "error",
             "near-miss",
             "near miss",
-            "adverse drug",
             "wrong",
             "mistake",
             "failure rate",
