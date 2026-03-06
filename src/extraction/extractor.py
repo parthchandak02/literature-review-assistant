@@ -63,7 +63,12 @@ def _strip_html(text: str) -> str:
     # Remove all remaining tags
     stripped = re.sub(r"<[^>]+>", " ", stripped)
     # Decode common entities
-    stripped = _HTML_ENTITIES_RE.sub(lambda m: {"&amp;": "&", "&lt;": "<", "&gt;": ">", "&nbsp;": " ", "&quot;": '"', "&apos;": "'"}.get(m.group(0).lower(), m.group(0)), stripped)
+    stripped = _HTML_ENTITIES_RE.sub(
+        lambda m: {"&amp;": "&", "&lt;": "<", "&gt;": ">", "&nbsp;": " ", "&quot;": '"', "&apos;": "'"}.get(
+            m.group(0).lower(), m.group(0)
+        ),
+        stripped,
+    )
     # Collapse whitespace
     stripped = re.sub(r"[ \t]+", " ", stripped)
     stripped = re.sub(r"\n{3,}", "\n\n", stripped).strip()

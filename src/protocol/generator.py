@@ -21,10 +21,7 @@ _STUDY_DESIGN_DESCRIPTIONS: dict[str, str] = {
         "Randomized controlled trials and non-randomized studies with quantitative "
         "outcome data suitable for statistical pooling"
     ),
-    "narrative": (
-        "Any study design including experimental, observational, qualitative, "
-        "and mixed-methods studies"
-    ),
+    "narrative": ("Any study design including experimental, observational, qualitative, and mixed-methods studies"),
 }
 
 

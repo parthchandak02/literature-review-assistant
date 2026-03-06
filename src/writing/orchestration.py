@@ -37,7 +37,18 @@ _METHODOLOGY_REFS: list[tuple[str, str, str, list[str], int, str, str]] = [
         "Page2021",
         "10.1136/bmj.n71",
         "PRISMA 2020 explanation and elaboration: updated guidance and exemplars for reporting systematic reviews",
-        ["Page MJ", "Moher D", "Bossuyt PM", "Boutron I", "Hoffmann TC", "Mulrow CD", "Shamseer L", "Tetzlaff JM", "Akl EA", "McKenzie JE"],
+        [
+            "Page MJ",
+            "Moher D",
+            "Bossuyt PM",
+            "Boutron I",
+            "Hoffmann TC",
+            "Mulrow CD",
+            "Shamseer L",
+            "Tetzlaff JM",
+            "Akl EA",
+            "McKenzie JE",
+        ],
         2021,
         "BMJ",
         "https://doi.org/10.1136/bmj.n71",
@@ -46,7 +57,17 @@ _METHODOLOGY_REFS: list[tuple[str, str, str, list[str], int, str, str]] = [
         "Sterne2019",
         "10.1136/bmj.l4898",
         "RoB 2: a revised tool for assessing risk of bias in randomised trials",
-        ["Sterne JAC", "Savovic J", "Page MJ", "Elbers RG", "Blencowe NS", "Boutron I", "Cates CJ", "Cheng HY", "Corbett MS"],
+        [
+            "Sterne JAC",
+            "Savovic J",
+            "Page MJ",
+            "Elbers RG",
+            "Blencowe NS",
+            "Boutron I",
+            "Cates CJ",
+            "Cheng HY",
+            "Corbett MS",
+        ],
         2019,
         "BMJ",
         "https://doi.org/10.1136/bmj.l4898",
@@ -64,7 +85,18 @@ _METHODOLOGY_REFS: list[tuple[str, str, str, list[str], int, str, str]] = [
         "Guyatt2011",
         "10.1136/bmj.d5647",
         "GRADE guidelines: 1. Introduction-GRADE evidence profiles and summary of findings tables",
-        ["Guyatt G", "Oxman AD", "Akl EA", "Kunz R", "Vist G", "Brozek J", "Norris S", "Falck-Ytter Y", "Glasziou P", "DeBeer H"],
+        [
+            "Guyatt G",
+            "Oxman AD",
+            "Akl EA",
+            "Kunz R",
+            "Vist G",
+            "Brozek J",
+            "Norris S",
+            "Falck-Ytter Y",
+            "Glasziou P",
+            "DeBeer H",
+        ],
         2011,
         "J Clin Epidemiol",
         "https://doi.org/10.1136/bmj.d5647",
@@ -484,8 +516,7 @@ def build_methodology_catalog() -> str:
     PRISMA 2020, GRADE, and risk-of-bias tools in the Methods section.
     """
     lines = [
-        f"[{citekey}] {title} ({year})"
-        for citekey, _doi, title, _authors, year, _journal, _url in _METHODOLOGY_REFS
+        f"[{citekey}] {title} ({year})" for citekey, _doi, title, _authors, year, _journal, _url in _METHODOLOGY_REFS
     ]
     return "\n".join(lines)
 

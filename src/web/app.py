@@ -1069,8 +1069,7 @@ async def _resume_wrapper(
     # historical replay after a page refresh; this resumed run will append its
     # own fresh terminal event when it actually completes.
     record.event_log = [
-        _e for _e in record.event_log
-        if not (isinstance(_e, dict) and _e.get("type") in ("done", "error", "cancelled"))
+        _e for _e in record.event_log if not (isinstance(_e, dict) and _e.get("type") in ("done", "error", "cancelled"))
     ]
 
     # Mark all pre-loaded events as already flushed so the flusher only writes
@@ -2059,10 +2058,7 @@ async def fetch_pdfs_for_run(run_id: str) -> dict[str, Any]:
             "url": url,
             "source": source,
             "file_path": saved_path,
-            "file_type": (
-                "pdf" if (saved_path and saved_path.endswith(".pdf"))
-                else ("txt" if saved_path else None)
-            ),
+            "file_type": ("pdf" if (saved_path and saved_path.endswith(".pdf")) else ("txt" if saved_path else None)),
         }
         results.append(
             {

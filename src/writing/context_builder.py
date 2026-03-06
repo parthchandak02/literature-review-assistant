@@ -161,9 +161,7 @@ def build_writing_grounding(
     _OTHER_METHOD_NAMES = frozenset({"perplexity_web", "perplexity_search", "perplexity"})
     active_dbs = sorted(db for db in prisma_counts.databases_records if db not in _OTHER_METHOD_NAMES)
     # Databases with zero records -- must be disclosed per PRISMA 2020 item 7
-    zero_yield_dbs = sorted(
-        db for db in active_dbs if prisma_counts.databases_records.get(db, 0) == 0
-    )
+    zero_yield_dbs = sorted(db for db in active_dbs if prisma_counts.databases_records.get(db, 0) == 0)
     # Other methods (grey lit, AI discovery tools -- not bibliographic databases)
     active_other = sorted(src for src, cnt in prisma_counts.other_sources_records.items() if cnt > 0)
     # Any perplexity records that ended up in databases_records (should be rare)

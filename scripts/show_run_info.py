@@ -40,6 +40,7 @@ console = Console()
 # DB path resolution
 # ---------------------------------------------------------------------------
 
+
 async def _resolve_db_path(
     run_dir: str | None,
     workflow_id: str | None,
@@ -52,6 +53,7 @@ async def _resolve_db_path(
     if workflow_id:
         try:
             from src.db.workflow_registry import find_by_workflow_id, find_by_workflow_id_fallback
+
             entry = await find_by_workflow_id(run_root, workflow_id)
             if entry is None:
                 entry = await find_by_workflow_id_fallback(run_root, workflow_id)
@@ -80,6 +82,7 @@ async def _resolve_db_path(
 # ---------------------------------------------------------------------------
 # Rich table helpers
 # ---------------------------------------------------------------------------
+
 
 def _trunc(text: str | None, n: int = 70) -> str:
     if not text:
@@ -112,6 +115,7 @@ def _fmt_authors(raw: str | None, max_len: int = 28) -> str:
 # Main diagnostic function
 # ---------------------------------------------------------------------------
 
+
 async def show_run(db_path: pathlib.Path, fetch_pdfs: bool = False, run_root: str = "runs") -> None:
     run_dir = db_path.parent
     conn = sqlite3.connect(str(db_path))
@@ -132,16 +136,18 @@ async def show_run(db_path: pathlib.Path, fetch_pdfs: bool = False, run_root: st
     cost_row = conn.execute("SELECT COALESCE(SUM(cost_usd), 0) FROM cost_records").fetchone()
     total_cost = float(cost_row[0]) if cost_row else 0.0
 
-    console.print(Panel.fit(
-        f"[bold white]{topic}[/]\n"
-        f"[dim]workflow_id:[/] [cyan]{workflow_id}[/]  "
-        f"[dim]status:[/] [{'green' if status == 'completed' else 'yellow'}]{status}[/]  "
-        f"[dim]created:[/] {created_at}  "
-        f"[dim]cost:[/] [yellow]${total_cost:.3f}[/]\n"
-        f"[dim]run_dir:[/] {run_dir}",
-        title="[bold violet]LitReview Run Info[/]",
-        border_style="violet",
-    ))
+    console.print(
+        Panel.fit(
+            f"[bold white]{topic}[/]\n"
+            f"[dim]workflow_id:[/] [cyan]{workflow_id}[/]  "
+            f"[dim]status:[/] [{'green' if status == 'completed' else 'yellow'}]{status}[/]  "
+            f"[dim]created:[/] {created_at}  "
+            f"[dim]cost:[/] [yellow]${total_cost:.3f}[/]\n"
+            f"[dim]run_dir:[/] {run_dir}",
+            title="[bold violet]LitReview Run Info[/]",
+            border_style="violet",
+        )
+    )
 
     # --- Search counts table ---
     papers_by_source = conn.execute(
@@ -150,7 +156,9 @@ async def show_run(db_path: pathlib.Path, fetch_pdfs: bool = False, run_root: st
 
     search_table = Table(title="Search Counts by Database", box=box.SIMPLE_HEAVY, show_footer=True)
     search_table.add_column("Database", style="cyan")
-    search_table.add_column("Records", justify="right", style="white", footer=str(sum(r["cnt"] for r in papers_by_source)))
+    search_table.add_column(
+        "Records", justify="right", style="white", footer=str(sum(r["cnt"] for r in papers_by_source))
+    )
     for row in papers_by_source:
         search_table.add_row(row["source_database"] or "unknown", str(row["cnt"]))
     console.print(search_table)
@@ -178,9 +186,7 @@ async def show_run(db_path: pathlib.Path, fetch_pdfs: bool = False, run_root: st
         "SELECT COUNT(*) FROM dual_screening_results WHERE stage='title_abstract' AND final_decision='include'"
     ).fetchone()[0]
 
-    ft_assessed = conn.execute(
-        "SELECT COUNT(*) FROM dual_screening_results WHERE stage='fulltext'"
-    ).fetchone()[0]
+    ft_assessed = conn.execute("SELECT COUNT(*) FROM dual_screening_results WHERE stage='fulltext'").fetchone()[0]
 
     ft_included = conn.execute(
         "SELECT COUNT(*) FROM dual_screening_results WHERE stage='fulltext' AND final_decision='include'"
@@ -320,7 +326,11 @@ async def _fetch_pdfs_for_included(
                 ft = await fetch_full_text(doi=doi or None, url=url or None)
         except Exception as exc:
             fetch_table.add_row(
-                str(idx), title_short, "[red]ERROR[/]", "--", "--",
+                str(idx),
+                title_short,
+                "[red]ERROR[/]",
+                "--",
+                "--",
                 f"[red]{str(exc)[:40]}[/]",
             )
             continue
@@ -353,15 +363,10 @@ async def _fetch_pdfs_for_included(
             "url": url,
             "source": source,
             "file_path": saved_path,
-            "file_type": (
-                "pdf" if (saved_path and saved_path.endswith(".pdf"))
-                else ("txt" if saved_path else None)
-            ),
+            "file_type": ("pdf" if (saved_path and saved_path.endswith(".pdf")) else ("txt" if saved_path else None)),
         }
 
-        saved_label = (
-            f"[green]{pathlib.Path(saved_path).name}[/]" if saved_path else "[dim]--[/]"
-        )
+        saved_label = f"[green]{pathlib.Path(saved_path).name}[/]" if saved_path else "[dim]--[/]"
 
         fetch_table.add_row(
             str(idx),
@@ -382,16 +387,13 @@ async def _fetch_pdfs_for_included(
 # Entry point
 # ---------------------------------------------------------------------------
 
+
 def main() -> None:
-    parser = argparse.ArgumentParser(
-        description="Show a Rich diagnostic table for a LitReview run."
-    )
+    parser = argparse.ArgumentParser(description="Show a Rich diagnostic table for a LitReview run.")
     group = parser.add_mutually_exclusive_group(required=True)
     group.add_argument("--workflow-id", "-w", help="Workflow ID (e.g. wf-d042e90e)")
     group.add_argument("--run-dir", "-d", help="Path to run directory containing runtime.db")
-    parser.add_argument(
-        "--run-root", default="runs", help="Root directory for runs (default: runs)"
-    )
+    parser.add_argument("--run-root", default="runs", help="Root directory for runs (default: runs)")
     parser.add_argument(
         "--fetch-pdfs",
         action="store_true",

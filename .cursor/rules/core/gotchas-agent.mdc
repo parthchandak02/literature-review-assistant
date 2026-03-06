@@ -109,8 +109,9 @@ search broadly (without the core filter), then let the dual-LLM screeners apply 
 criteria to eliminate low-quality papers. Remaining filters (`type:article`,
 `primary_location.source.type:journal`, `is_retracted:false`) are sufficient for quality.
 Do NOT add `is_core:true` back -- it is an intentional removal to support broad-search/
-tight-screen methodology. Expected OpenAlex results after removal: 100-500 for niche topics
-(was consistently 6). `per_database_limits.openalex` in `settings.yaml` is 1000 (not 500).
+tight-screen methodology. Validated on wf-f4a5df72: OpenAlex returned 28 (was 6),
+PubMed 500 (was 6), Scopus 122 (was 8), Semantic Scholar 138 (was 12), total 813 (was 32).
+`per_database_limits.openalex` in `settings.yaml` is 1000 (not 500).
 
 ## `build_boolean_query` Uses Keywords Only (Not PICO Descriptions)
 `build_boolean_query()` in `src/search/strategy.py` uses ONLY `config.keywords`. It does

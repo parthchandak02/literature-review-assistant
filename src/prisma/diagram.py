@@ -58,8 +58,10 @@ def _map_counts_to_library_format(
     records_after_dedup = combined_identified - counts.duplicates_removed
     # Use the structured automation_excluded count when available; fall back to
     # computing the gap for PRISMACounts objects built before this field existed.
-    automation_removed = counts.automation_excluded if counts.automation_excluded > 0 else max(
-        0, records_after_dedup - counts.records_screened
+    automation_removed = (
+        counts.automation_excluded
+        if counts.automation_excluded > 0
+        else max(0, records_after_dedup - counts.records_screened)
     )
 
     db_registers: dict[str, Any] = {
