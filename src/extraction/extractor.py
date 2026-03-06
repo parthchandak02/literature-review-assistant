@@ -224,12 +224,11 @@ def _build_extraction_prompt(
             "",
             "Extract the following from this study:",
             "- study_duration: Duration of the study or intervention (e.g. '8 weeks', '6 months', 'unknown')",
-            "- setting: Study setting as free text (e.g. 'hospital ward', 'community clinic', 'outpatient pharmacy')",
+            "- setting: Study setting as free text (e.g. 'hospital ward', 'community clinic', 'outpatient department', 'primary care').",
             "- participant_count: Total participants as a plain number string (e.g. '120', '45').",
-            "  Search for ANY numeric count: number of patients, prescriptions, dispensing events, transactions,",
-            "  or pharmacy staff studied. E.g. '10000 prescriptions' -> '10000'. If the study says",
-            "  'dispensed 5,200 prescriptions during the study period', report '5200'. If no numeric count",
-            "  of any kind appears anywhere in the text, use 'not reported'.",
+            "  Search for ANY numeric count: number of patients, procedures, encounters, events, or participants.",
+            "  If the study reports '5,200 procedures during the study period', record '5200'.",
+            "  If no numeric count of any kind appears anywhere in the text, use 'not reported'.",
             "  Do NOT include units like 'patients' in the field -- numbers only.",
             "- country: Country or countries where the study was conducted.",
             "  IMPORTANT: Infer from ANY available clue: author affiliations, hospital/clinic name,",
@@ -242,8 +241,9 @@ def _build_extraction_prompt(
             "- intervention_description: What the intervention/treatment was in detail",
             "- comparator_description: What the control/comparison condition was (or 'no control' if absent)",
             "- outcomes: List of SPECIFIC outcome measures as reported in the paper. For each outcome:",
-            "    name: the actual measured outcome name from the paper (e.g. 'medication error rate',",
-            "          'dispensing accuracy', 'infection rate', 'patient satisfaction score', 'cost per visit').",
+            "    name: the actual measured outcome name from the paper (e.g. 'infection rate',",
+            "          'treatment success rate', 'patient satisfaction score', 'cost per visit',",
+            "          'procedure time', 'adverse event rate', 'quality of life score').",
             "    CRITICAL: NEVER use 'primary_outcome', 'not reported', or generic placeholders as a name. "
             "Use the real outcome name from the paper.",
             "    If no outcomes can be identified return an empty list [].",
@@ -398,8 +398,7 @@ class ExtractionService:
 
         # Guard against OCR artifact text in key fields. If the extracted
         # results_summary looks like garbled OCR or a raw PDF header, fall back
-        # to the heuristic summary derived from the abstract. This prevents
-        # "g p g p y y\n\npharmacy workforce." appearing in Appendix B.
+        # to the heuristic summary derived from the abstract.
         results_summary_text = parsed.results_summary or ""
         if _is_low_quality_extraction(results_summary_text):
             results_summary_text = self._heuristic_summary(paper, text)

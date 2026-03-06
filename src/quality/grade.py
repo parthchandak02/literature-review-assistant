@@ -180,24 +180,34 @@ _PLACEHOLDER_OUTCOME_NAMES = frozenset(
 # Each theme maps to a list of keyword fragments; if an outcome name (lowercased)
 # contains any of the fragments it is assigned to that theme.  Earlier themes take
 # priority (first match wins), so order matters: put most specific first.
+#
+# These themes are intentionally GENERIC -- they apply to any health intervention
+# systematic review (technology assessments, clinical treatments, public health
+# programs, etc.).  Do NOT add domain-specific or topic-specific keyword fragments
+# here.  Intervention-specific terms belong in the review.yaml config, not in this
+# shared clustering logic.
 _OUTCOME_THEME_RULES: list[tuple[str, list[str]]] = [
     (
-        "Dispensing accuracy and error rates",
+        "Accuracy and error rates",
         [
             "accuracy",
             "error rate",
             "error",
             "near-miss",
             "near miss",
-            "dispensing incident",
-            "medication incident",
             "adverse drug",
             "wrong",
             "mistake",
+            "failure rate",
+            "false positive",
+            "false negative",
+            "detection rate",
+            "sensitivity",
+            "specificity",
         ],
     ),
     (
-        "Operational efficiency",
+        "Operational efficiency and time",
         [
             "efficiency",
             "throughput",
@@ -205,19 +215,18 @@ _OUTCOME_THEME_RULES: list[tuple[str, list[str]]] = [
             "waiting time",
             "wait time",
             "processing time",
-            "fill time",
-            "prescription time",
-            "dispensing time",
-            "time-to-dispense",
-            "time to dispense",
+            "treatment time",
+            "response time",
             "workload",
             "productivity",
             "output",
             "volume",
+            "utilization",
+            "capacity",
         ],
     ),
     (
-        "Patient safety",
+        "Patient safety and clinical outcomes",
         [
             "safety",
             "harm",
@@ -227,6 +236,12 @@ _OUTCOME_THEME_RULES: list[tuple[str, list[str]]] = [
             "near-miss",
             "patient outcome",
             "clinical outcome",
+            "mortality",
+            "morbidity",
+            "complication",
+            "readmission",
+            "infection rate",
+            "survival",
         ],
     ),
     (
@@ -244,6 +259,7 @@ _OUTCOME_THEME_RULES: list[tuple[str, list[str]]] = [
             "labor",
             "workforce",
             "fte",
+            "economic",
         ],
     ),
     (
