@@ -83,7 +83,7 @@ _METHODOLOGY_REFS: list[tuple[str, str, str, list[str], int, str, str]] = [
     ),
     (
         "Guyatt2011",
-        "10.1136/bmj.d5647",
+        "10.1016/j.jclinepi.2010.04.026",
         "GRADE guidelines: 1. Introduction-GRADE evidence profiles and summary of findings tables",
         [
             "Guyatt G",
@@ -99,7 +99,7 @@ _METHODOLOGY_REFS: list[tuple[str, str, str, list[str], int, str, str]] = [
         ],
         2011,
         "J Clin Epidemiol",
-        "https://doi.org/10.1136/bmj.d5647",
+        "https://doi.org/10.1016/j.jclinepi.2010.04.026",
     ),
     (
         "Cohen1960",
@@ -376,6 +376,110 @@ async def register_methodology_citations(repo: CitationRepository) -> list[str]:
             existing.add(citekey)
         except Exception as exc:
             logger.debug("Could not register methodology citation %s: %s", citekey, exc)
+    return registered
+
+
+async def register_background_sr_citations(
+    repo: CitationRepository,
+    research_question: str,
+    keywords: list[str],
+    max_results: int = 8,
+) -> list[str]:
+    """Discover and register background systematic reviews on the same topic.
+
+    Queries Semantic Scholar for highly-cited Review-type papers matching the
+    research question keywords, then registers them as citable background references.
+    This ensures the Discussion section can cite prior systematic reviews when
+    comparing findings, which is required by PRISMA 2020 item 27.
+
+    Returns a list of registered citekeys (may be empty if search fails).
+    """
+    import os
+
+    import aiohttp
+
+    from src.utils.ssl_context import tcp_connector_with_certifi
+
+    kw_query = " ".join(keywords[:6]) if keywords else research_question[:120]
+    api_key = os.getenv("SEMANTIC_SCHOLAR_API_KEY", "")
+    headers: dict[str, str] = {}
+    if api_key:
+        headers["x-api-key"] = api_key
+
+    registered: list[str] = []
+    try:
+        params = {
+            "query": kw_query,
+            "fields": "title,authors,year,externalIds,citationCount,publicationTypes,venue",
+            "publicationTypes": "Review",
+            "limit": str(max_results * 3),  # over-fetch to allow filtering
+        }
+        async with aiohttp.ClientSession(connector=tcp_connector_with_certifi(), headers=headers) as session:
+            async with session.get(
+                "https://api.semanticscholar.org/graph/v1/paper/search",
+                params=params,
+                timeout=aiohttp.ClientTimeout(total=20),
+            ) as resp:
+                if resp.status != 200:
+                    logger.debug("Background SR search: Semantic Scholar returned %d", resp.status)
+                    return []
+                data = await resp.json()
+
+        papers_raw = data.get("data", [])
+        # Sort by citation count descending; take top max_results
+        papers_sorted = sorted(
+            papers_raw,
+            key=lambda p: p.get("citationCount") or 0,
+            reverse=True,
+        )[:max_results]
+
+        existing = set(await repo.get_citekeys())
+        for p in papers_sorted:
+            title = (p.get("title") or "").strip()
+            year = p.get("year")
+            if not title or not year:
+                continue
+            authors_raw = p.get("authors") or []
+            authors = [a.get("name", "") for a in authors_raw if a.get("name")]
+            doi = (p.get("externalIds") or {}).get("DOI")
+            venue = p.get("venue") or ""
+            # Build a citekey from first author surname + year
+            first_surname = ""
+            if authors:
+                name_parts = authors[0].split()
+                first_surname = name_parts[-1] if name_parts else "Author"
+            base_key = f"{first_surname}{year}SR" if first_surname else f"SR{year}"
+            citekey = base_key
+            suffix = 2
+            while citekey in existing:
+                citekey = f"{base_key}{suffix}"
+                suffix += 1
+            record = CitationEntryRecord(
+                citekey=citekey,
+                doi=doi,
+                title=title,
+                authors=authors,
+                year=year,
+                journal=venue or None,
+                bibtex=None,
+                resolved=True,
+            )
+            try:
+                await repo.register_citation(record)
+                existing.add(citekey)
+                registered.append(citekey)
+                logger.info(
+                    "Registered background SR: %s (%d citations) -> citekey=%s",
+                    title[:60],
+                    p.get("citationCount") or 0,
+                    citekey,
+                )
+            except Exception as exc:
+                logger.debug("Could not register background SR %s: %s", citekey, exc)
+
+    except Exception as exc:
+        logger.warning("Background SR discovery failed: %s", exc)
+
     return registered
 
 

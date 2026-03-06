@@ -52,6 +52,51 @@ def _is_html_content(text: str) -> bool:
     return tag_matches > len(sample) / 80
 
 
+# PDF header phrases that indicate we received a PDF cover page or table-of-contents
+# rather than the actual paper body. These fragments appear in the first few bytes
+# of many journal PDF retrievals when the PDF rendering failed partially.
+_PDF_HEADER_PHRASES = (
+    "Original Paper",
+    "Original Research",
+    "JMIR HUMAN FACTORS",
+    "Page 1 of",
+    "Downloaded from",
+    "This article was downloaded",
+    "Copyright (c)",
+    "doi: 10.",
+    "DOI: 10.",
+    "Volume ",
+    "Issue ",
+)
+
+
+def _is_low_quality_extraction(text: str) -> bool:
+    """Return True when extracted text appears to be an OCR artifact or PDF header.
+
+    Detects two patterns that produce garbled Key Outcomes fields:
+    1. High single-character token ratio (OCR-fragmented text like 'g p g p y y')
+    2. Raw PDF cover-page or journal header text (journal title, page number lines)
+
+    When this returns True for an extracted field, the caller should fall back
+    to using the paper abstract instead of the low-quality extracted text.
+    """
+    if not text or len(text.strip()) < 10:
+        return True
+    tokens = text.split()
+    if not tokens:
+        return True
+    # >35% single-char tokens = likely OCR noise
+    single_char_ratio = sum(1 for t in tokens if len(t) == 1) / len(tokens)
+    if single_char_ratio > 0.35:
+        return True
+    # Raw PDF header patterns at the start of the text
+    stripped_start = text.strip()
+    for marker in _PDF_HEADER_PHRASES:
+        if stripped_start.startswith(marker):
+            return True
+    return False
+
+
 def _strip_html(text: str) -> str:
     """Remove HTML tags and decode common entities; return plain text.
 
@@ -149,6 +194,7 @@ class _ExtractionLLMResponse(BaseModel):
     study_duration: str = ""
     setting: str = ""
     participant_count: str = ""
+    country: str = ""  # inferred from affiliation, institution name, or geographic reference
     participant_demographics: str = ""
     intervention_description: str = ""
     comparator_description: str = ""
@@ -180,7 +226,18 @@ def _build_extraction_prompt(
             "- study_duration: Duration of the study or intervention (e.g. '8 weeks', '6 months', 'unknown')",
             "- setting: Study setting as free text (e.g. 'hospital ward', 'community clinic', 'outpatient pharmacy')",
             "- participant_count: Total participants as a plain number string (e.g. '120', '45').",
-            "  Use 'not reported' only if truly absent. Do NOT include units like 'patients'.",
+            "  Search for ANY numeric count: number of patients, prescriptions, dispensing events, transactions,",
+            "  or pharmacy staff studied. E.g. '10000 prescriptions' -> '10000'. If the study says",
+            "  'dispensed 5,200 prescriptions during the study period', report '5200'. If no numeric count",
+            "  of any kind appears anywhere in the text, use 'not reported'.",
+            "  Do NOT include units like 'patients' in the field -- numbers only.",
+            "- country: Country or countries where the study was conducted.",
+            "  IMPORTANT: Infer from ANY available clue: author affiliations, hospital/clinic name,",
+            "  city name, regional health system, or geographic reference in the abstract.",
+            "  Examples: 'King Hamad University Hospital' -> 'Bahrain'; 'Flinders Medical Centre' -> 'Australia';",
+            "  'NHS Trust' -> 'United Kingdom'; 'VA Medical Center' -> 'United States'.",
+            "  Use ISO country name (e.g. 'Japan', 'Brazil', 'Saudi Arabia').",
+            "  Only use 'Not Reported' if truly no geographic information is available anywhere.",
             "- participant_demographics: Brief description of participants (age, role, background, etc.)",
             "- intervention_description: What the intervention/treatment was in detail",
             "- comparator_description: What the control/comparison condition was (or 'no control' if absent)",
@@ -339,6 +396,20 @@ class ExtractionService:
             if m:
                 participant_count = int(m.group())
 
+        # Guard against OCR artifact text in key fields. If the extracted
+        # results_summary looks like garbled OCR or a raw PDF header, fall back
+        # to the heuristic summary derived from the abstract. This prevents
+        # "g p g p y y\n\npharmacy workforce." appearing in Appendix B.
+        results_summary_text = parsed.results_summary or ""
+        if _is_low_quality_extraction(results_summary_text):
+            results_summary_text = self._heuristic_summary(paper, text)
+
+        # Country is a new field extracted by the improved prompt. Read it from
+        # the parsed output if present; default to paper metadata if absent.
+        country_extracted = getattr(parsed, "country", None)
+        if country_extracted and _is_low_quality_extraction(country_extracted):
+            country_extracted = None
+
         return ExtractionRecord(
             paper_id=paper.paper_id,
             study_design=study_design,
@@ -350,8 +421,9 @@ class ExtractionService:
             comparator_description=parsed.comparator_description or None,
             outcomes=outcomes,
             results_summary={
-                "summary": parsed.results_summary or self._heuristic_summary(paper, text),
+                "summary": results_summary_text or self._heuristic_summary(paper, text),
                 "source": "llm",
+                **({"country": country_extracted} if country_extracted else {}),
             },
             funding_source=parsed.funding_source or None,
             conflicts_of_interest=parsed.conflicts_of_interest or None,

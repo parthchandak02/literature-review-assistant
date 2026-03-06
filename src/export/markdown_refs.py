@@ -8,9 +8,33 @@ import re
 from pathlib import Path
 from typing import Any
 
-from src.quality.grade import build_sof_table, sof_table_to_markdown
+from src.quality.grade import build_sof_table, cluster_grade_assessments_by_theme, sof_table_to_markdown
 
 logger = logging.getLogger(__name__)
+
+
+def _validate_doi_year(doi: str | None, cited_year: int | None) -> str | None:
+    """Return a warning string when a DOI's embedded year disagrees with the cited year.
+
+    Elsevier DOIs encode the publication year: 10.1016/j.JOURNAL.YYYY.XXXXXX
+    BMJ DOIs follow 10.1136/bmj.dYYYY or 10.1136/bmj.nYYYY patterns.
+    A discrepancy of more than 1 year is flagged -- this catches cases like
+    citing a paper as 2023 when the DOI contains 2025 (ahead-of-print issue).
+    """
+    import re as _re
+
+    if not doi or not cited_year:
+        return None
+    # Elsevier: 10.1016/j.ABBREV.YEAR.ARTICLE_ID
+    m = _re.search(r"10\.1016/\S+?\.(\d{4})\.\d", doi)
+    if m:
+        doi_year = int(m.group(1))
+        if abs(doi_year - cited_year) > 1:
+            return (
+                f"DOI year mismatch: DOI encodes {doi_year} but citation year is {cited_year}. "
+                f"Verify publication year for DOI {doi[:60]}."
+            )
+    return None
 
 
 def _normalize_doi(doi: str | None) -> str:
@@ -773,6 +797,12 @@ def build_markdown_references_section(
             doi_url = _normalize_doi(doi)
             if doi_url:
                 entry += f" doi: {doi_url}"
+            # Warn on DOI/year mismatch (e.g. Elsevier ahead-of-print papers)
+            _doi_warn = _validate_doi_year(doi, year)
+            if _doi_warn:
+                import logging as _log_mod
+
+                _log_mod.getLogger(__name__).warning("Reference [%d] %s: %s", idx, citekey, _doi_warn)
             entries.append(entry)
     else:
         citekey_map: dict[str, tuple] = {row[1]: row for row in citation_rows}
@@ -893,9 +923,11 @@ def assemble_submission_manuscript(
     sof_section = ""
     if grade_assessments:
         grade_section = generate_grade_table(grade_assessments)
-        # Full GRADE Summary of Findings table (with RoB/inconsistency breakdown)
-        # appended after the simplified Evidence Profile
-        sof_table = build_sof_table(grade_assessments)
+        # Cluster per-study GRADE assessments into canonical outcome themes
+        # (accuracy, efficiency, safety, cost, implementation) so the Summary
+        # of Findings table shows 3-5 meaningful rows rather than 1-18 per-study rows.
+        clustered_grade = cluster_grade_assessments_by_theme(grade_assessments)
+        sof_table = build_sof_table(clustered_grade if clustered_grade else grade_assessments)
         sof_section = sof_table_to_markdown(sof_table)
 
     robins_section = ""

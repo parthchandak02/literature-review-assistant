@@ -76,6 +76,8 @@ class StudyDesign(str, Enum):
     MIXED_METHODS = "mixed_methods"
     CROSS_SECTIONAL = "cross_sectional"
     PROTOCOL = "protocol"  # registered trial protocol or study design paper with no results
+    CONFERENCE_ABSTRACT = "conference_abstract"  # conference poster/abstract (not full peer-reviewed paper)
+    NARRATIVE_REVIEW = "narrative_review"  # narrative or scoping review (not primary evidence)
     OTHER = "other"
 
 

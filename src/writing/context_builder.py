@@ -122,16 +122,20 @@ class WritingGroundingData(BaseModel):
 
     # Screening method description (PRISMA 2020 item 8 -- Selection process).
     # Injected verbatim into every writing prompt.
-    # ACCURACY NOTE: The pipeline does not perform a separate full-text PDF retrieval step.
-    # Title/abstract screening and eligibility determination both use abstract-extended records.
-    # The "full-text assessed" PRISMA count refers to papers that advanced to the eligibility
-    # phase, NOT papers for which full PDFs were retrieved. The description below is accurate.
+    # ACCURACY NOTE: The pipeline performs two-stage dual-reviewer screening.
+    # Stage 1: title/abstract screening by two independent LLM reviewers.
+    # Stage 2: full-text eligibility screening; full-text PDFs are retrieved via
+    # a multi-tier resolver (Unpaywall, Semantic Scholar, Europe PMC, CORE, PMC).
+    # Papers for which full text cannot be retrieved are excluded with reason
+    # "Full text not retrievable" and counted in the PRISMA "Reports not retrieved" box.
     screening_method_description: str = (
         "Two independent reviewers (large language models) screened titles and abstracts, "
         "with disagreements resolved by a third adjudicator. "
-        "Papers advancing from title/abstract screening were assessed for full eligibility "
-        "using extended metadata and available abstract text; full-text PDFs were not "
-        "retrieved for this review. "
+        "Papers advancing from title/abstract screening underwent full-text eligibility "
+        "assessment; full-text retrieval was attempted via a multi-tier open-access resolver "
+        "(Unpaywall, Semantic Scholar, Europe PMC, CORE, PubMed Central). "
+        "Papers for which full text could not be retrieved were excluded and are reported "
+        "in the PRISMA flow as 'Reports not retrieved'. "
         "Inter-rater reliability was measured using Cohen's kappa on the subset of papers "
         "requiring dual review."
     )
@@ -139,6 +143,76 @@ class WritingGroundingData(BaseModel):
     # Number of quality assessments derived from heuristic fallback (LLM timed out).
     # When > 0, the Methods section notes that some assessments used a conservative heuristic.
     heuristic_assessment_count: int = 0
+
+    # Background systematic reviews discovered by the related-literature search.
+    # These citekeys are registered in the citation catalog and should be cited
+    # in the Discussion when comparing this review's findings to prior work.
+    # (PRISMA 2020 item 27 requires comparison with existing related reviews.)
+    background_sr_citekeys: list[str] = []
+
+
+def _build_screening_method_description(
+    screening_decisions: list[object] | None,
+    total_screened: int,
+) -> str:
+    """Compute an accurate screening method description from actual decision records.
+
+    Counts decisions by actor (keyword_filter vs LLM reviewers) to describe the
+    real tiered architecture rather than a generic 'two independent reviewers' claim.
+    This ensures the Methods section accurately reflects what the pipeline did.
+    """
+    if not screening_decisions:
+        return (
+            "Two independent reviewers (large language models) screened titles and abstracts, "
+            "with disagreements resolved by a third adjudicator. "
+            "Papers advancing from title/abstract screening underwent full-text eligibility "
+            "assessment; full-text retrieval was attempted via a multi-tier open-access resolver "
+            "(Unpaywall, Semantic Scholar, Europe PMC, CORE, PubMed Central). "
+            "Inter-rater reliability was measured using Cohen's kappa on the subset of papers "
+            "requiring dual review."
+        )
+
+    # Count decisions by actor at the title_abstract stage
+    _KF_ACTORS = frozenset({"keyword_filter", "bm25", "keyword"})
+    kf_count = sum(
+        1
+        for d in screening_decisions
+        if getattr(d, "phase", "") == "phase_3_screening" and getattr(d, "actor", "") in _KF_ACTORS
+    )
+    llm_count = sum(
+        1
+        for d in screening_decisions
+        if getattr(d, "phase", "") == "phase_3_screening"
+        and getattr(d, "actor", "") not in _KF_ACTORS
+        and getattr(d, "actor", "")
+    )
+
+    if kf_count > 0 and llm_count < kf_count:
+        # Tiered architecture detected: keyword filter handled the majority
+        return (
+            f"Title and abstract screening used a tiered approach. "
+            f"First, a BM25 keyword relevance pre-filter evaluated all {total_screened} records, "
+            f"auto-excluding {kf_count} records with low relevance scores and routing {llm_count} "
+            f"records for independent dual LLM review. "
+            f"Two large language model reviewers then independently screened the {llm_count} "
+            f"pre-filtered records, with a third adjudicator resolving any disagreements. "
+            f"Papers advancing from title/abstract screening underwent full-text eligibility "
+            f"assessment; full-text retrieval was attempted via a multi-tier open-access resolver "
+            f"(Unpaywall, Semantic Scholar, Europe PMC, CORE, PubMed Central). "
+            f"Inter-rater reliability was measured using Cohen's kappa on the {llm_count} records "
+            f"evaluated by the dual LLM reviewers."
+        )
+    else:
+        # Symmetric dual-review: both reviewers assessed all (or nearly all) records
+        return (
+            "Two independent reviewers (large language models) screened titles and abstracts, "
+            "with disagreements resolved by a third adjudicator. "
+            "Papers advancing from title/abstract screening underwent full-text eligibility "
+            "assessment; full-text retrieval was attempted via a multi-tier open-access resolver "
+            "(Unpaywall, Semantic Scholar, Europe PMC, CORE, PubMed Central). "
+            "Inter-rater reliability was measured using Cohen's kappa on the subset of papers "
+            "requiring dual review."
+        )
 
 
 def build_writing_grounding(
@@ -154,6 +228,8 @@ def build_writing_grounding(
     search_limitation: str | None = None,
     review_config: object | None = None,
     heuristic_assessment_count: int = 0,
+    screening_decisions: list[object] | None = None,
+    background_sr_citekeys: list[str] | None = None,
 ) -> WritingGroundingData:
     """Aggregate real pipeline outputs into a WritingGroundingData instance."""
 
@@ -297,6 +373,10 @@ def build_writing_grounding(
         search_limitation=search_limitation,
         heuristic_assessment_count=heuristic_assessment_count,
         heterogeneity_warning=heterogeneity_warning,
+        screening_method_description=_build_screening_method_description(
+            screening_decisions, prisma_counts.records_screened
+        ),
+        background_sr_citekeys=background_sr_citekeys or [],
     )
 
 
@@ -486,12 +566,16 @@ def format_grounding_block(data: WritingGroundingData) -> str:
     lines.append("")
     lines.append(f"Screening method: {data.screening_method_description}")
     lines.append(
-        "CRITICAL -- SCREENING METHOD RULE: The Methods section MUST describe the screening "
-        "process using the 'Screening method' text above verbatim. Use neutral phrasing "
-        "('two independent reviewers', 'third adjudicator', 'dual-review process'). "
-        "Do NOT specify whether reviewers were human or AI. "
-        "Do NOT write 'large language models', 'AI reviewers', 'AI adjudicator', "
-        "'human reviewers', or 'two independent researchers'."
+        "CRITICAL -- TRANSPARENCY RULE: The Methods section MUST describe the screening "
+        "process using the 'Screening method' text above VERBATIM -- do not paraphrase, "
+        "simplify, or change the numbers. If the description mentions a 'keyword relevance "
+        "pre-filter' that processed a specific number of records, report those numbers "
+        "accurately. Do NOT write 'two independent reviewers screened all X records' if the "
+        "actual description says a keyword filter handled most records and LLM reviewers "
+        "handled fewer. Accuracy about the actual screening architecture is required for "
+        "methodological transparency (PRISMA 2020 item 8). "
+        "Also: do NOT specify whether reviewers were human or AI -- use 'reviewers' or "
+        "'dual-review process' without qualifier."
     )
     if data.heuristic_assessment_count > 0:
         lines.append(
@@ -507,6 +591,17 @@ def format_grounding_block(data: WritingGroundingData) -> str:
         lines.append("SENSITIVITY ANALYSIS RESULTS (report in Discussion if applicable):")
         for sens_text in data.sensitivity_results:
             lines.append(sens_text)
+
+    if data.background_sr_citekeys:
+        lines.append("")
+        lines.append("BACKGROUND SYSTEMATIC REVIEWS (cite these in the Discussion when comparing findings):")
+        lines.append(", ".join(data.background_sr_citekeys))
+        lines.append(
+            "CRITICAL -- PRIOR REVIEWS RULE: The Discussion section MUST compare and contrast this "
+            "review's findings against the background systematic reviews listed above. Use these "
+            "citekeys in the 'Comparison with Prior Work' subsection. PRISMA 2020 item 27 requires "
+            "this comparison. Do NOT write the Discussion without citing at least 2-3 of these reviews."
+        )
 
     if data.valid_citekeys:
         lines.append("")

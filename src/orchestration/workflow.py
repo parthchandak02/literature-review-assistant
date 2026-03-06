@@ -111,6 +111,7 @@ from src.writing.contradiction_resolver import (
 from src.writing.humanizer import humanize_async
 from src.writing.orchestration import (
     prepare_writing_context,
+    register_background_sr_citations,
     register_citations_from_papers,
     register_methodology_citations,
     write_section_with_validation,
@@ -695,8 +696,10 @@ class ScreeningNode(BaseNode[ReviewState]):
             on_screening_decision = None
             if rc and hasattr(rc, "log_screening_decision"):
                 _papers_by_id = {p.paper_id: p for p in state.deduped_papers}
-                # Reasons emitted by pre-LLM heuristics (no LLM call was made).
-                _heuristic_reasons = {"insufficient_content_heuristic", "protocol_only_heuristic"}
+                # Reason prefixes emitted by pre-LLM heuristics (no LLM call was made).
+                # Use startswith so extended reasons like "insufficient_content_heuristic|3w"
+                # (which encode word count for the UI) still classify as heuristic.
+                _heuristic_prefixes = ("insufficient_content_heuristic", "protocol_only_heuristic")
 
                 def _on_screening_decision(
                     pid: object,
@@ -706,7 +709,11 @@ class ScreeningNode(BaseNode[ReviewState]):
                     conf: float | None = None,
                 ) -> None:
                     _reason_str = str(reason) if reason is not None else None
-                    _method = "heuristic" if _reason_str in _heuristic_reasons else "llm"
+                    _method = (
+                        "heuristic"
+                        if _reason_str and any(_reason_str.startswith(p) for p in _heuristic_prefixes)
+                        else "llm"
+                    )
                     _paper = _papers_by_id.get(str(pid))
                     _title = _paper.title if _paper else None
                     rc.log_screening_decision(  # type: ignore[union-attr]
@@ -2026,6 +2033,17 @@ class WritingNode(BaseNode[ReviewState]):
 
             await register_citations_from_papers(citation_repo, state.included_papers)
             await register_methodology_citations(citation_repo)
+            # Discover and register related systematic reviews so the Discussion
+            # can compare findings to prior reviews (PRISMA 2020 item 27).
+            _bg_kws = list(state.review.keywords)[:6] if state.review else []
+            _bg_rq = state.review.research_question if state.review else ""
+            _bg_citekeys = await register_background_sr_citations(citation_repo, _bg_rq, _bg_kws, max_results=8)
+            if _bg_citekeys:
+                logger.info(
+                    "WritingNode: registered %d background SR citekeys: %s",
+                    len(_bg_citekeys),
+                    ", ".join(_bg_citekeys),
+                )
 
             if len(state.included_papers) == 0:
                 # Zero-papers guard: produce minimal manuscript without LLM calls
@@ -2058,6 +2076,26 @@ class WritingNode(BaseNode[ReviewState]):
             else:
                 # Build grounding data from real pipeline outputs so the writing LLM
                 # cannot hallucinate counts, statistics, or citation keys.
+                # Fetch screening decision log entries to compute an accurate
+                # screening architecture description (tiered vs symmetric dual-review).
+                _screening_decisions: list[object] = []
+                try:
+                    async with db.execute(
+                        "SELECT actor, phase FROM decision_log WHERE phase = 'phase_3_screening'"
+                    ) as _sdcur:
+                        _sd_rows = await _sdcur.fetchall()
+
+                    class _SDStub:
+                        __slots__ = ("actor", "phase")
+
+                        def __init__(self, _actor: str, _phase: str) -> None:
+                            self.actor = _actor
+                            self.phase = _phase
+
+                    _screening_decisions = [_SDStub(r[0], r[1]) for r in _sd_rows]
+                except Exception as _sd_err:
+                    logger.debug("WritingNode: could not fetch screening decisions: %s", _sd_err)
+
                 grounding = build_writing_grounding(
                     prisma_counts=prisma_counts,
                     extraction_records=state.extraction_records,
@@ -2071,6 +2109,8 @@ class WritingNode(BaseNode[ReviewState]):
                     search_limitation=getattr(state.review, "search_limitation", None) if state.review else None,
                     review_config=state.review,
                     heuristic_assessment_count=state.heuristic_assessment_count,
+                    screening_decisions=_screening_decisions or None,
+                    background_sr_citekeys=_bg_citekeys,
                 )
 
                 def _on_write(**kw):

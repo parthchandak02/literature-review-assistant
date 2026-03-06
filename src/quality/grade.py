@@ -176,6 +176,202 @@ _PLACEHOLDER_OUTCOME_NAMES = frozenset(
     }
 )
 
+# Canonical outcome theme clustering rules.
+# Each theme maps to a list of keyword fragments; if an outcome name (lowercased)
+# contains any of the fragments it is assigned to that theme.  Earlier themes take
+# priority (first match wins), so order matters: put most specific first.
+_OUTCOME_THEME_RULES: list[tuple[str, list[str]]] = [
+    (
+        "Dispensing accuracy and error rates",
+        [
+            "accuracy",
+            "error rate",
+            "error",
+            "near-miss",
+            "near miss",
+            "dispensing incident",
+            "medication incident",
+            "adverse drug",
+            "wrong",
+            "mistake",
+        ],
+    ),
+    (
+        "Operational efficiency",
+        [
+            "efficiency",
+            "throughput",
+            "turnaround",
+            "waiting time",
+            "wait time",
+            "processing time",
+            "fill time",
+            "prescription time",
+            "dispensing time",
+            "time-to-dispense",
+            "time to dispense",
+            "workload",
+            "productivity",
+            "output",
+            "volume",
+        ],
+    ),
+    (
+        "Patient safety",
+        [
+            "safety",
+            "harm",
+            "adverse event",
+            "incident",
+            "near miss",
+            "near-miss",
+            "patient outcome",
+            "clinical outcome",
+        ],
+    ),
+    (
+        "Cost and resource utilization",
+        [
+            "cost",
+            "roi",
+            "return on investment",
+            "savings",
+            "expenditure",
+            "budget",
+            "resource",
+            "staff",
+            "labour",
+            "labor",
+            "workforce",
+            "fte",
+        ],
+    ),
+    (
+        "Implementation barriers and facilitators",
+        [
+            "barrier",
+            "facilitator",
+            "adoption",
+            "implementation",
+            "workflow",
+            "satisfaction",
+            "perception",
+            "attitude",
+            "acceptance",
+            "training",
+            "challenge",
+        ],
+    ),
+]
+
+
+def cluster_grade_assessments_by_theme(
+    assessments: list[GRADEOutcomeAssessment],
+) -> list[GRADEOutcomeAssessment]:
+    """Cluster per-study GRADE assessments into canonical outcome themes.
+
+    Each primary study may have a unique outcome name string, making it impossible
+    to see cross-study patterns in the Summary of Findings table. This function
+    groups semantically similar outcomes into 5 canonical themes and returns one
+    aggregate GRADEOutcomeAssessment per theme (taking the worst-case downgrade
+    across all studies in that theme and the total study count).
+
+    Studies with non-placeholder, non-clusterable outcome names are returned as-is
+    (deduplicated by exact name) to preserve any domain-specific outcomes.
+    """
+    import logging as _logging
+
+    _log = _logging.getLogger(__name__)
+
+    if not assessments:
+        return []
+
+    # Map each assessment to a theme (or "other" bucket)
+    theme_buckets: dict[str, list[GRADEOutcomeAssessment]] = {theme: [] for theme, _ in _OUTCOME_THEME_RULES}
+    other_bucket: list[GRADEOutcomeAssessment] = []
+
+    for a in assessments:
+        raw_name = (getattr(a, "outcome_name", None) or "").lower().strip()
+        if raw_name.replace("_", " ").replace("-", " ").strip() in {
+            n.replace("_", " ") for n in _PLACEHOLDER_OUTCOME_NAMES
+        }:
+            # Skip true placeholders entirely -- they add no information
+            continue
+        matched = False
+        for theme_name, keywords in _OUTCOME_THEME_RULES:
+            if any(kw in raw_name for kw in keywords):
+                theme_buckets[theme_name].append(a)
+                matched = True
+                break
+        if not matched:
+            other_bucket.append(a)
+
+    # Build aggregate assessments per theme
+    result: list[GRADEOutcomeAssessment] = []
+    for theme_name, members in theme_buckets.items():
+        if not members:
+            continue
+        if len(members) < 2:
+            # Single study -- include as-is with its own outcome name
+            result.append(members[0])
+            continue
+        # Take worst-case downgrade across all members; best-case upgrade
+        worst_rob = max(m.risk_of_bias_downgrade for m in members)
+        worst_inconsistency = max(m.inconsistency_downgrade for m in members)
+        worst_indirectness = max(m.indirectness_downgrade for m in members)
+        worst_imprecision = max(m.imprecision_downgrade for m in members)
+        worst_pub_bias = max(m.publication_bias_downgrade for m in members)
+        best_large_effect = max(m.large_effect_upgrade for m in members)
+        best_dose_resp = max(m.dose_response_upgrade for m in members)
+        best_residual = max(m.residual_confounding_upgrade for m in members)
+        # Take study design from the most common design in this theme
+        from collections import Counter as _Counter
+
+        design_counts = _Counter(m.study_designs for m in members)
+        primary_design = design_counts.most_common(1)[0][0]
+        # Re-compute certainty using aggregate
+        assessor = GradeAssessor()
+        try:
+            from src.models import StudyDesign as _StudyDesign
+
+            design_enum = _StudyDesign(primary_design)
+        except Exception:
+            design_enum = None  # type: ignore[assignment]
+        if design_enum is not None:
+            agg = assessor.assess_outcome(
+                outcome_name=theme_name,
+                number_of_studies=len(members),
+                study_design=design_enum,
+                risk_of_bias_downgrade=worst_rob,
+                inconsistency_downgrade=worst_inconsistency,
+                indirectness_downgrade=worst_indirectness,
+                imprecision_downgrade=worst_imprecision,
+                publication_bias_downgrade=worst_pub_bias,
+                large_effect_upgrade=best_large_effect,
+                dose_response_upgrade=best_dose_resp,
+                residual_confounding_upgrade=best_residual,
+            )
+            _log.info(
+                "GRADE: clustered %d studies under theme '%s' -> certainty=%s",
+                len(members),
+                theme_name,
+                agg.final_certainty.value,
+            )
+            result.append(agg)
+        else:
+            # Fallback: append members as-is
+            result.extend(members)
+
+    # Add non-clustered outcomes (unique domain-specific outcomes)
+    seen_names: set[str] = set()
+    for a in other_bucket:
+        name_key = (getattr(a, "outcome_name", "") or "").lower().strip()
+        if name_key not in seen_names:
+            seen_names.add(name_key)
+            result.append(a)
+
+    return result
+
 
 def _outcome_display_name(raw_name: str, placeholder_index: int) -> str:
     """Return display name for SoF table; use fallback for placeholder names."""

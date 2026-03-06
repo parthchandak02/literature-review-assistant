@@ -43,5 +43,7 @@ class StudyRouter:
             if design == StudyDesign.MIXED_METHODS:
                 return "mmat"
             return "casp"
-        # OTHER: systematic reviews, technical/narrative reports -- not amenable to ROBINS-I
+        # CONFERENCE_ABSTRACT, NARRATIVE_REVIEW, OTHER:
+        # not primary interventional studies -- not amenable to ROBINS-I or RoB 2.
+        # Disclosed separately in the RoB figure caption and Methods transparency note.
         return "not_applicable"

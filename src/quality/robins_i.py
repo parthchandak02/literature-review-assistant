@@ -19,22 +19,27 @@ _ROBINS_JUDGMENT = Literal["low", "moderate", "serious", "critical", "no_informa
 
 
 class _RobinsILLMResponse(BaseModel):
-    domain_1_confounding: _ROBINS_JUDGMENT = "moderate"
-    domain_1_rationale: str = ""
-    domain_2_selection: _ROBINS_JUDGMENT = "moderate"
-    domain_2_rationale: str = ""
-    domain_3_classification: _ROBINS_JUDGMENT = "moderate"
-    domain_3_rationale: str = ""
-    domain_4_deviations: _ROBINS_JUDGMENT = "moderate"
-    domain_4_rationale: str = ""
-    domain_5_missing_data: _ROBINS_JUDGMENT = "moderate"
-    domain_5_rationale: str = ""
-    domain_6_measurement: _ROBINS_JUDGMENT = "moderate"
-    domain_6_rationale: str = ""
-    domain_7_reported_result: _ROBINS_JUDGMENT = "moderate"
-    domain_7_rationale: str = ""
-    overall_judgment: _ROBINS_JUDGMENT = "moderate"
-    overall_rationale: str = ""
+    # Defaults are no_information, not moderate. If the LLM cannot assess a domain
+    # from the available text, it should say so explicitly rather than silently
+    # defaulting to moderate. Uniform moderate across all 7 domains is the classic
+    # signal of insufficient data -- making no_information the default surfaces that
+    # honestly in the traffic-light figure and GRADE assessment.
+    domain_1_confounding: _ROBINS_JUDGMENT = "no_information"
+    domain_1_rationale: str = "Insufficient information available from abstract alone."
+    domain_2_selection: _ROBINS_JUDGMENT = "no_information"
+    domain_2_rationale: str = "Insufficient information available from abstract alone."
+    domain_3_classification: _ROBINS_JUDGMENT = "no_information"
+    domain_3_rationale: str = "Insufficient information available from abstract alone."
+    domain_4_deviations: _ROBINS_JUDGMENT = "no_information"
+    domain_4_rationale: str = "Insufficient information available from abstract alone."
+    domain_5_missing_data: _ROBINS_JUDGMENT = "no_information"
+    domain_5_rationale: str = "Insufficient information available from abstract alone."
+    domain_6_measurement: _ROBINS_JUDGMENT = "no_information"
+    domain_6_rationale: str = "Insufficient information available from abstract alone."
+    domain_7_reported_result: _ROBINS_JUDGMENT = "no_information"
+    domain_7_rationale: str = "Insufficient information available from abstract alone."
+    overall_judgment: _ROBINS_JUDGMENT = "no_information"
+    overall_rationale: str = "Insufficient information to assess overall risk of bias."
 
 
 def _to_robins_judgment(value: str) -> RobinsIJudgment:
@@ -61,11 +66,13 @@ def _worst(values: list[RobinsIJudgment]) -> RobinsIJudgment:
 
 def _build_robins_prompt(record: ExtractionRecord, full_text: str) -> str:
     results = record.results_summary.get("summary", "")[:2000]
-    text_excerpt = full_text[:3000] if full_text.strip() else results
+    has_full_text = bool(full_text.strip()) and len(full_text.strip()) > 200
+    text_excerpt = full_text[:3000] if has_full_text else results
+    text_source = "full text excerpt" if has_full_text else "abstract/results summary (full text unavailable)"
     return "\n".join(
         [
-            "You are an expert systematic review methodologist.",
-            "Assess Risk of Bias using ROBINS-I for the following non-randomized study.",
+            "You are an expert systematic review methodologist conducting a ROBINS-I risk-of-bias assessment.",
+            "Assess the seven ROBINS-I domains for the following non-randomized study.",
             "",
             f"Intervention: {record.intervention_description[:400]}",
             f"Comparator: {record.comparator_description or 'not reported'}",
@@ -73,20 +80,38 @@ def _build_robins_prompt(record: ExtractionRecord, full_text: str) -> str:
             f"Participants: {record.participant_count or 'not reported'}",
             f"Results summary: {results}",
             "",
-            "Text excerpt:",
+            f"Available text ({text_source}):",
             text_excerpt,
             "",
-            "ROBINS-I Domains - assign 'low', 'moderate', 'serious', 'critical', or 'no_information':",
-            "D1 - Confounding: Were confounders controlled? Are there major unmeasured confounders?",
-            "D2 - Selection of participants: Is the selected sample representative?",
-            "D3 - Classification of interventions: Were interventions classified consistently?",
-            "D4 - Deviations from intended interventions: Were there protocol deviations?",
-            "D5 - Missing data: Are there missing outcome or exposure data?",
-            "D6 - Measurement of outcomes: Was the outcome measured without knowledge of intervention?",
-            "D7 - Selection of the reported result: Was there selective reporting of outcomes?",
-            "Overall: apply worst-domain logic.",
+            "ROBINS-I Domain Assessment Rules:",
+            "- Use 'low', 'moderate', 'serious', 'critical', or 'no_information' for each domain.",
+            "- CRITICAL: use 'no_information' when you cannot assess a domain from the available text.",
+            "  Do NOT guess 'moderate' just because you have no information -- 'no_information' is the",
+            "  correct response when evidence is insufficient. Uniform 'moderate' across all domains",
+            "  is scientifically invalid and will be flagged as a pipeline error.",
+            "- Domains that CAN often be assessed from abstract text alone: D2, D6, D7.",
+            "- Domains that USUALLY require full text to assess meaningfully: D1, D3, D4.",
+            "  Use 'no_information' for these when only abstract is available.",
             "",
-            "Return ONLY valid JSON matching the schema. Provide a 1-2 sentence rationale per domain.",
+            "D1 - Bias due to Confounding: Were important confounders identified and controlled for?",
+            "  (Requires information about study design, adjustment variables -- often absent in abstracts.)",
+            "D2 - Bias in Selection of Participants: Is the participant selection method described?",
+            "  Were eligible participants excluded in ways that could bias results?",
+            "D3 - Bias in Classification of Interventions: Were intervention vs control groups classified",
+            "  consistently using reliable, pre-specified criteria?",
+            "D4 - Bias due to Deviations from Intended Interventions: Did participants receive the",
+            "  intended intervention? Were there protocol deviations or contamination?",
+            "D5 - Bias due to Missing Data: Are there missing outcome data, dropouts, or loss to follow-up?",
+            "  If sample sizes differ between enrollment and analysis, flag this.",
+            "D6 - Bias in Measurement of Outcomes: Were outcomes measured objectively and consistently?",
+            "  Was the assessor blinded to intervention status?",
+            "D7 - Bias in Selection of the Reported Result: Does the abstract/paper report all outcomes",
+            "  that were measured, or is there evidence of selective reporting or outcome switching?",
+            "Overall: apply worst-domain logic using only domains with actual information (not no_information).",
+            "  If no domain can be assessed, overall should also be 'no_information'.",
+            "",
+            "Return ONLY valid JSON matching the schema. Provide a specific 1-2 sentence rationale",
+            "for each domain explaining what evidence (or lack thereof) drove your rating.",
         ]
     )
 
@@ -184,23 +209,41 @@ class RobinsIAssessor:
                         prompt, model=model, temperature=temperature, json_schema=schema
                     )
                 parsed = _RobinsILLMResponse.model_validate_json(raw)
+                d1 = _to_robins_judgment(parsed.domain_1_confounding)
+                d2 = _to_robins_judgment(parsed.domain_2_selection)
+                d3 = _to_robins_judgment(parsed.domain_3_classification)
+                d4 = _to_robins_judgment(parsed.domain_4_deviations)
+                d5 = _to_robins_judgment(parsed.domain_5_missing_data)
+                d6 = _to_robins_judgment(parsed.domain_6_measurement)
+                d7 = _to_robins_judgment(parsed.domain_7_reported_result)
+                overall = _to_robins_judgment(parsed.overall_judgment)
+                # Uniformity check: all 7 domains identical and moderate signals LLM defaulted
+                # rather than actually assessing. Log a warning so the audit trail captures this.
+                all_domain_values = {d1, d2, d3, d4, d5, d6, d7}
+                if len(all_domain_values) == 1 and d1 == RobinsIJudgment.MODERATE:
+                    logger.warning(
+                        "ROBINS-I uniformity detected for %s: all 7 domains rated MODERATE. "
+                        "This likely means the LLM lacked sufficient text to discriminate domains. "
+                        "Consider full-text retrieval to improve domain-level assessment.",
+                        record.paper_id[:12],
+                    )
                 return RobinsIAssessment(
                     paper_id=record.paper_id,
-                    domain_1_confounding=_to_robins_judgment(parsed.domain_1_confounding),
+                    domain_1_confounding=d1,
                     domain_1_rationale=parsed.domain_1_rationale or "LLM assessment.",
-                    domain_2_selection=_to_robins_judgment(parsed.domain_2_selection),
+                    domain_2_selection=d2,
                     domain_2_rationale=parsed.domain_2_rationale or "LLM assessment.",
-                    domain_3_classification=_to_robins_judgment(parsed.domain_3_classification),
+                    domain_3_classification=d3,
                     domain_3_rationale=parsed.domain_3_rationale or "LLM assessment.",
-                    domain_4_deviations=_to_robins_judgment(parsed.domain_4_deviations),
+                    domain_4_deviations=d4,
                     domain_4_rationale=parsed.domain_4_rationale or "LLM assessment.",
-                    domain_5_missing_data=_to_robins_judgment(parsed.domain_5_missing_data),
+                    domain_5_missing_data=d5,
                     domain_5_rationale=parsed.domain_5_rationale or "LLM assessment.",
-                    domain_6_measurement=_to_robins_judgment(parsed.domain_6_measurement),
+                    domain_6_measurement=d6,
                     domain_6_rationale=parsed.domain_6_rationale or "LLM assessment.",
-                    domain_7_reported_result=_to_robins_judgment(parsed.domain_7_reported_result),
+                    domain_7_reported_result=d7,
                     domain_7_rationale=parsed.domain_7_rationale or "LLM assessment.",
-                    overall_judgment=_to_robins_judgment(parsed.overall_judgment),
+                    overall_judgment=overall,
                     overall_rationale=parsed.overall_rationale or "LLM overall judgment.",
                 )
             except Exception as exc:

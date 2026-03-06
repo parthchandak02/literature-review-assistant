@@ -118,8 +118,26 @@ class StudyClassifier:
                 f"Title: {paper.title}",
                 f"Abstract: {paper.abstract or ''}",
                 "",
+                "Classify the study design. Choose the most appropriate value:",
+                "  rct              - Randomized controlled trial",
+                "  non_randomized   - Non-randomized controlled study with an intervention and comparator",
+                "  cohort           - Cohort study (prospective or retrospective)",
+                "  case_control     - Case-control study",
+                "  cross_sectional  - Cross-sectional survey or audit",
+                "  qualitative      - Qualitative interview or focus group study",
+                "  mixed_methods    - Mixed quantitative + qualitative methods",
+                "  protocol         - Registered trial protocol or study design paper (no results yet)",
+                "  conference_abstract - Conference poster or abstract only (not a full peer-reviewed paper).",
+                "    Use this when: the DOI contains 'conf', 'eahp', 'ashp', 'abstract', or similar",
+                "    conference identifiers; or the title/abstract indicates this is a poster or abstract",
+                "    only, not a full published article.",
+                "  narrative_review - Narrative, scoping, or umbrella review (not a primary evidence study).",
+                "    Use this when: the title or abstract explicitly says 'systematic review', 'scoping review',",
+                "    'narrative review', 'meta-analysis', 'review of literature', 'overview', etc.",
+                "  other            - Other study type not covered above",
+                "",
                 "Return ONLY valid JSON matching this exact schema:",
-                '{"study_design":"rct|non_randomized|cohort|case_control|qualitative|mixed_methods|cross_sectional|other","confidence":0.0,"reasoning":"..."}',
+                '{"study_design":"rct|non_randomized|cohort|case_control|qualitative|mixed_methods|cross_sectional|protocol|conference_abstract|narrative_review|other","confidence":0.0,"reasoning":"..."}',
             ]
         )
 
@@ -134,7 +152,68 @@ class StudyClassifier:
         except ValidationError:
             return None
 
+    # DOI fragments that reliably indicate a conference abstract (not a full paper)
+    _CONFERENCE_DOI_SIGNALS = (
+        "eahpconf",
+        "ashpconf",
+        "-conf.",
+        "conference",
+        ".meeting.",
+        "abstract",
+        "supplement",
+        "suppl.",
+        "poster",
+        "ejhpharm-",
+        "bmjpo-",
+    )
+    # Title phrases that indicate a narrative/scoping review
+    _REVIEW_TITLE_SIGNALS = (
+        "systematic review",
+        "scoping review",
+        "narrative review",
+        "meta-analysis",
+        "literature review",
+        "umbrella review",
+        "overview of",
+    )
+
     async def classify(self, workflow_id: str, paper: CandidatePaper) -> StudyDesign:
+        # Heuristic pre-classification: DOI-based conference abstract detection
+        doi_lower = (paper.doi or "").lower()
+        if any(signal in doi_lower for signal in self._CONFERENCE_DOI_SIGNALS):
+            await self.repository.append_decision_log(
+                DecisionLogEntry(
+                    decision_type="study_classification",
+                    paper_id=paper.paper_id,
+                    decision=StudyDesign.CONFERENCE_ABSTRACT.value,
+                    rationale=(
+                        f"DOI pattern '{doi_lower[:80]}' matches conference abstract signals. "
+                        "Classified as conference_abstract without LLM call."
+                    ),
+                    actor="study_classifier_heuristic",
+                    phase="phase_4_extraction_quality",
+                )
+            )
+            return StudyDesign.CONFERENCE_ABSTRACT
+
+        # Title-based narrative review detection
+        title_lower = (paper.title or "").lower()
+        if any(signal in title_lower for signal in self._REVIEW_TITLE_SIGNALS):
+            await self.repository.append_decision_log(
+                DecisionLogEntry(
+                    decision_type="study_classification",
+                    paper_id=paper.paper_id,
+                    decision=StudyDesign.NARRATIVE_REVIEW.value,
+                    rationale=(
+                        f"Title '{paper.title[:80]}' matches narrative/scoping review signals. "
+                        "Classified as narrative_review without LLM call."
+                    ),
+                    actor="study_classifier_heuristic",
+                    phase="phase_4_extraction_quality",
+                )
+            )
+            return StudyDesign.NARRATIVE_REVIEW
+
         prompt = self._build_prompt(paper)
         runtime = await self.provider.reserve_call_slot(self.agent_name)
         started = time.perf_counter()
