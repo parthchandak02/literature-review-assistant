@@ -54,7 +54,13 @@ from src.export.markdown_refs import (
 # [lise2013; Tomoki2022], [Bryan2016; Hisham2021; NANDINI2023].
 # These survived numbered-citation conversion because they were not in the
 # citation ledger. We strip them to keep prose clean for journal submission.
-_AUTHOR_YEAR_KEY_RE = re.compile(r"\[[A-Za-z][A-Za-z0-9]*\d{4}(?:;\s*[A-Za-z][A-Za-z0-9]*\d{4})*\]")
+# Matches ASCII and non-ASCII author-year citekeys (e.g. [Smith2023], [Perez-Encinas2020SR]).
+# Accepts: Unicode word characters, hyphens (compound surnames), underscores, colons.
+# The \d{4} anchor ensures we only strip author-year patterns, not figure/table labels.
+_AUTHOR_YEAR_KEY_RE = re.compile(
+    r"\[[\w][\w0-9_:.-]*\d{4}[A-Za-z]*(?:;\s*[\w][\w0-9_:.-]*\d{4}[A-Za-z]*)*\]",
+    re.UNICODE,
+)
 
 
 def _strip_unresolved_citekeys(text: str) -> str:
@@ -188,6 +194,8 @@ async def main(run_dir: str) -> int:
             config_data = yaml.safe_load(review_yaml_path.read_text(encoding="utf-8")) or {}
             research_question = config_data.get("research_question", "") or ""
             pico_data = config_data.get("pico") or {}
+            protocol_data = config_data.get("protocol") or {}
+            funding_data = config_data.get("funding") or {}
             review_config = SimpleNamespace(
                 pico=SimpleNamespace(
                     population=pico_data.get("population", ""),
@@ -197,6 +205,18 @@ async def main(run_dir: str) -> int:
                 ),
                 inclusion_criteria=config_data.get("inclusion_criteria", []),
                 exclusion_criteria=config_data.get("exclusion_criteria", []),
+                date_range_start=config_data.get("date_range_start"),
+                date_range_end=config_data.get("date_range_end"),
+                review_type=config_data.get("review_type", "systematic"),
+                author_name=config_data.get("author_name", ""),
+                protocol=SimpleNamespace(
+                    registered=bool(protocol_data.get("registered", False)),
+                    registration_number=str(protocol_data.get("registration_number") or ""),
+                ),
+                funding=SimpleNamespace(
+                    source=funding_data.get("source", ""),
+                ),
+                conflicts_of_interest=config_data.get("conflicts_of_interest", ""),
             )
         except Exception:
             pass

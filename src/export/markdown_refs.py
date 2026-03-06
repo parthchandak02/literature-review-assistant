@@ -5,12 +5,24 @@ from __future__ import annotations
 import json
 import logging
 import re
+import unicodedata
 from pathlib import Path
 from typing import Any
 
 from src.quality.grade import build_sof_table, cluster_grade_assessments_by_theme, sof_table_to_markdown
 
 logger = logging.getLogger(__name__)
+
+
+def _ascii_citekey(key: str) -> str:
+    """Normalize a citekey to ASCII by stripping combining accent marks.
+
+    Citekeys containing accented characters (e.g. Perez-Encinas from Perez-Encinas)
+    are produced by the background SR discovery step when an author's surname has
+    diacritics. The citation ledger stores the ASCII-normalized form, so lookup must
+    also normalize before matching.
+    """
+    return "".join(c for c in unicodedata.normalize("NFD", key) if unicodedata.category(c) != "Mn")
 
 
 def _validate_doi_year(doi: str | None, cited_year: int | None) -> str | None:
@@ -145,16 +157,24 @@ def extract_citekeys_in_order(text: str) -> list[str]:
 
     Handles both single [Smith2023] and multi-key [Smith2023, Jones2024] or
     [Smith2023; Jones2024] citation groups, splitting on commas and semicolons
-    and validating each token.
+    and validating each token. Keys containing non-ASCII letters (e.g. accented
+    author surnames) are returned in their ASCII-normalized form so that catalog
+    lookups succeed regardless of whether the manuscript text used the accented
+    form.
     """
     seen: set[str] = set()
     keys: list[str] = []
-    _valid_key = re.compile(r"^[A-Za-z][A-Za-z0-9_:-]*$")
+    # Accept Unicode letters at the start so accented surnames are not silently skipped.
+    _valid_key = re.compile(r"^[\w][\w0-9_:-]*$", re.UNICODE)
     for bracket_content in re.findall(r"\[([^\]]+)\]", text):
         # Split on both commas and semicolons to handle both citation styles
         for part in re.split(r"[,;]", bracket_content):
-            key = part.strip()
-            if _valid_key.match(key) and key not in seen:
+            raw_key = part.strip()
+            if not _valid_key.match(raw_key):
+                continue
+            # Normalize to ASCII so lookups against the citation catalog succeed
+            key = _ascii_citekey(raw_key)
+            if key not in seen:
                 seen.add(key)
                 keys.append(key)
     return keys
@@ -171,11 +191,18 @@ def _sanitize_body(text: str) -> str:
     Also normalizes reviewer wording: replaces 'human reviewer' or 'AI reviewer'
     with 'reviewer' (and plural forms) to keep neutral language.
     """
-    # Normalize reviewer wording: use neutral 'reviewer(s)' only (no human/AI)
+    # Normalize reviewer wording: use neutral 'reviewer(s)' only (no human/AI qualifier)
     text = re.sub(r"\bhuman\s+reviewers\b", "reviewers", text, flags=re.IGNORECASE)
     text = re.sub(r"\bhuman\s+reviewer\b", "reviewer", text, flags=re.IGNORECASE)
     text = re.sub(r"\bAI\s+reviewers\b", "reviewers", text, flags=re.IGNORECASE)
     text = re.sub(r"\bAI\s+reviewer\b", "reviewer", text, flags=re.IGNORECASE)
+    # Strip "large language model" qualifier that may appear in LLM-authored sections
+    # e.g. "Two independent large language models screened" -> "Two independent reviewers screened"
+    # e.g. "two large language model reviewers" -> "two reviewers"
+    text = re.sub(r"\blarge\s+language\s+model\s+reviewers\b", "reviewers", text, flags=re.IGNORECASE)
+    text = re.sub(r"\blarge\s+language\s+model\s+reviewer\b", "reviewer", text, flags=re.IGNORECASE)
+    text = re.sub(r"\blarge\s+language\s+models\s+screened\b", "reviewers screened", text, flags=re.IGNORECASE)
+    text = re.sub(r"\bindependent\s+large\s+language\s+models\b", "independent reviewers", text, flags=re.IGNORECASE)
 
     lines = text.split("\n")
     clean: list[str] = []
@@ -202,9 +229,14 @@ def convert_to_numbered_citations(
     Multi-key groups are replaced with comma-separated numbers: [1], [2].
     Returns (new_body, ordered_rows) where ordered_rows lists citation_rows
     in order of first appearance.  Unknown keys are left unchanged.
+
+    Citekeys with non-ASCII characters (e.g. accented author surnames like
+    Perez-Encinas) are normalized to ASCII before catalog lookup so they resolve
+    correctly regardless of how they appear in the manuscript text.
     """
-    citekey_map: dict[str, tuple] = {row[1]: row for row in citation_rows}
-    ordered_keys = extract_citekeys_in_order(body)
+    # Build catalog map keyed by ASCII-normalized citekey for robust lookup
+    citekey_map: dict[str, tuple] = {_ascii_citekey(row[1]): row for row in citation_rows}
+    ordered_keys = extract_citekeys_in_order(body)  # already returns ASCII-normalized keys
     key_to_number: dict[str, int] = {}
     ordered_rows: list[tuple] = []
     n = 1
@@ -214,7 +246,8 @@ def convert_to_numbered_citations(
             ordered_rows.append(citekey_map[key])
             n += 1
 
-    _valid_key = re.compile(r"^[A-Za-z][A-Za-z0-9_:-]*$")
+    # Accept Unicode word chars so accented citekeys in the text are captured by the pattern
+    _valid_key = re.compile(r"^[\w][\w0-9_:-]*$", re.UNICODE)
 
     def _replacer(match: re.Match) -> str:  # type: ignore[type-arg]
         bracket_content = match.group(1)
@@ -223,13 +256,14 @@ def convert_to_numbered_citations(
         valid_parts = [p for p in parts if _valid_key.match(p)]
         if not valid_parts:
             return match.group(0)
-        nums = [key_to_number[p] for p in valid_parts if p in key_to_number]
+        # Normalize each part to ASCII before catalog lookup
+        nums = [key_to_number[_ascii_citekey(p)] for p in valid_parts if _ascii_citekey(p) in key_to_number]
         if not nums:
             return match.group(0)
         return ", ".join(f"[{num}]" for num in nums)
 
-    # Match bracket groups that contain citekey-like content (letters, commas, semicolons, spaces)
-    new_body = re.sub(r"\[([A-Za-z][A-Za-z0-9_,; :-]*)\]", _replacer, body)
+    # Extend outer pattern to capture Unicode letters so accented citekeys are matched
+    new_body = re.sub(r"\[([^\]\[]{1,120})\]", _replacer, body)
     return new_body, ordered_rows
 
 
@@ -339,7 +373,7 @@ def build_credit_section(author_name: str = "") -> str:
     the human author's conceptual/editorial role from the automated pipeline's
     drafting role.
     """
-    author = author_name.strip() if author_name.strip() else "[Author name]"
+    author = author_name.strip() if author_name.strip() else "Corresponding Author"
     return (
         "## CRediT Author Contribution Statement\n\n"
         f"**{author}:** Conceptualization; Methodology; Software; "
@@ -661,12 +695,25 @@ def build_picos_table(review_config: Any) -> str:
         else:
             study_design_val = "All study designs considered"
 
+    # Date range row: use the protocol eligibility window, not the publication years of
+    # included papers. This prevents the PICOS table from showing a narrower window
+    # than the protocol actually specified.
+    date_start = getattr(review_config, "date_range_start", None)
+    date_end = getattr(review_config, "date_range_end", None)
+    if date_start and date_end:
+        date_range_val = f"{date_start} to {date_end}"
+    elif date_start:
+        date_range_val = f"{date_start} to present"
+    else:
+        date_range_val = "NR"
+
     rows = [
         ("Population", getattr(pico, "population", "") or "NR"),
         ("Intervention", getattr(pico, "intervention", "") or "NR"),
         ("Comparison", getattr(pico, "comparison", "") or "NR"),
         ("Outcome", getattr(pico, "outcome", "") or "NR"),
         ("Study design", study_design_val),
+        ("Date range", date_range_val),
         ("Inclusion criteria", inc_str),
         ("Exclusion criteria", exc_str),
     ]
