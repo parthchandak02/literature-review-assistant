@@ -16,6 +16,16 @@ from src.synthesis.contradiction_detector import ContradictionFlag
 
 logger = logging.getLogger(__name__)
 
+
+def _get_model_from_settings() -> str:
+    try:
+        from src.config.loader import load_configs
+
+        _, s = load_configs(settings_path="config/settings.yaml")
+        return s.agents["contradiction_resolver"].model
+    except Exception:
+        return "google-gla:gemini-3.1-pro-preview"
+
 _RESOLVER_PROMPT_TEMPLATE = (
     "You are writing the Discussion section of a systematic review.\n"
     "The following pairs of studies report opposite findings on the same outcome.\n\n"
@@ -82,7 +92,7 @@ def _fallback_paragraph(flags: list[ContradictionFlag]) -> str:
 
 async def generate_contradiction_paragraph(
     flags: list[ContradictionFlag],
-    model_name: str = "gemini-2.5-pro",
+    model_name: str | None = None,
     api_key: str | None = None,
 ) -> str:
     """Generate a Discussion paragraph addressing contradictions.
@@ -92,6 +102,8 @@ async def generate_contradiction_paragraph(
     if not flags:
         return ""
 
+    if model_name is None:
+        model_name = _get_model_from_settings()
     key = api_key or os.environ.get("GEMINI_API_KEY", "")
     raw_model = model_name.replace("google-gla:", "").replace("google-vertex:", "")
 

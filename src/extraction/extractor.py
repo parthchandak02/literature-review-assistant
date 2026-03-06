@@ -349,6 +349,8 @@ class ExtractionService:
         prompt = _build_extraction_prompt(paper, text, self.review)
         schema = _ExtractionLLMResponse.model_json_schema()
 
+        if self.provider is not None:
+            await self.provider.reserve_call_slot("extraction")
         t0 = time.monotonic()
         if self.provider is not None and isinstance(self.llm_client, PydanticAIClient):
             raw, tok_in, tok_out, cw, cr = await self.llm_client.complete_with_usage(

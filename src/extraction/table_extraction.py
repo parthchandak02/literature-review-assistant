@@ -30,6 +30,16 @@ from src.models.extraction import OutcomeRecord
 
 logger = logging.getLogger(__name__)
 
+
+def _get_model_from_settings() -> str:
+    try:
+        from src.config.loader import load_configs
+
+        _, s = load_configs(settings_path="config/settings.yaml")
+        return s.agents["table_extraction"].model.replace("google-gla:", "").replace("google-vertex:", "")
+    except Exception:
+        return "gemini-3.1-flash-lite-preview"
+
 # ---------------------------------------------------------------------------
 # Constants for the full-text retrieval tiers
 # ---------------------------------------------------------------------------
@@ -716,12 +726,24 @@ async def _fetch_openalex_content(
 async def _fetch_pmc(doi: str, pmid: str | None = None, diagnostics: list[str] | None = None) -> FullTextResult | None:
     """Fetch full text from PubMed Central via NCBI E-utilities.
 
-    First resolves DOI to PMCID via esearch, then fetches XML via efetch.
+    Strategy:
+      1. Resolve DOI/PMID -> PMCID via esearch.
+      2. Try PDF first: GET https://pmc.ncbi.nlm.nih.gov/articles/PMC{pmcid}/pdf/
+         Returns FullTextResult with pdf_bytes + parsed text when available.
+      3. Fallback: fetch XML via efetch and strip tags (text-only, no pdf_bytes).
     Returns None when: no PMC record, parse error, or network error.
     """
     if not doi and not pmid:
         return None
     pmcid: str | None = None
+    _pmc_pdf_headers = {
+        "User-Agent": (
+            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) "
+            "Chrome/120.0.0.0 Safari/537.36"
+        ),
+        "Accept": "application/pdf,*/*",
+    }
     try:
         async with aiohttp.ClientSession() as session:
             # Resolve DOI -> PMCID
@@ -746,7 +768,36 @@ async def _fetch_pmc(doi: str, pmid: str | None = None, diagnostics: list[str] |
                 return None
             pmcid = ids[0]
 
-            # Fetch full text XML
+            # Try PDF first -- available for most NIH-funded and author-manuscript deposits.
+            pdf_url = f"https://pmc.ncbi.nlm.nih.gov/articles/PMC{pmcid}/pdf/"
+            try:
+                async with session.get(
+                    pdf_url,
+                    headers=_pmc_pdf_headers,
+                    timeout=aiohttp.ClientTimeout(total=_FT_TIMEOUT),
+                    allow_redirects=True,
+                ) as presp:
+                    if presp.status == 200:
+                        pbody = await presp.read()
+                        if pbody[:4] == b"%PDF":
+                            text = ""
+                            try:
+                                import io
+
+                                import fitz  # PyMuPDF
+                                import pymupdf4llm
+
+                                doc = fitz.open(stream=io.BytesIO(pbody), filetype="pdf")
+                                text = pymupdf4llm.to_markdown(doc)[:_LP_MAX_CHARS]
+                                doc.close()
+                            except Exception:
+                                pass
+                            logger.info("PMC: PDF retrieved for PMCID=%s", pmcid)
+                            return FullTextResult(text=text, pdf_bytes=pbody, source="pmc_pdf")
+            except Exception as pdf_exc:
+                logger.debug("PMC PDF attempt failed for PMCID=%s: %s", pmcid, pdf_exc)
+
+            # Fallback: fetch full text XML (text-only, no pdf_bytes)
             fetch_params = {
                 "db": "pmc",
                 "id": pmcid,
@@ -991,8 +1042,8 @@ async def _resolve_landing_page(
                 body = await resp.read()
                 final_url = str(resp.url)
 
-        # The landing URL itself served a PDF directly.
-        if "application/pdf" in content_type:
+        # The landing URL itself served a PDF directly (check content-type and magic bytes).
+        if "application/pdf" in content_type or body[:4] == b"%PDF":
             try:
                 import io
 
@@ -1047,7 +1098,12 @@ async def _resolve_landing_page(
                         pbody = await presp.read()
                     if not pbody or len(pbody) < 500:
                         continue
-                    if "application/pdf" in pct or pdf_url.lower().endswith(".pdf"):
+                    _is_pdf_response = (
+                        "application/pdf" in pct
+                        or pdf_url.lower().endswith(".pdf")
+                        or pbody[:4] == b"%PDF"
+                    )
+                    if _is_pdf_response:
                         text = ""
                         try:
                             import io
@@ -1317,7 +1373,7 @@ def _parse_table_json(raw: str) -> list[dict[str, str]]:
 
 async def extract_tables_from_pdf(
     pdf_bytes: bytes | None,
-    model_name: str = "gemini-2.5-flash",
+    model_name: str | None = None,
     api_key: str | None = None,
 ) -> list[OutcomeRecord]:
     """Extract quantitative outcome tables from PDF bytes via PydanticAI multimodal.
@@ -1336,6 +1392,9 @@ async def extract_tables_from_pdf(
     """
     if not pdf_bytes:
         return []
+
+    if model_name is None:
+        model_name = _get_model_from_settings()
 
     from pydantic_ai import Agent
     from pydantic_ai.messages import BinaryContent

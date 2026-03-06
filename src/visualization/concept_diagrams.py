@@ -33,7 +33,18 @@ from src.models.diagrams import (
 
 logger = logging.getLogger(__name__)
 
-_LLM_MODEL = "google-gla:gemini-2.5-flash"
+
+def _get_model_from_settings() -> str:
+    try:
+        from src.config.loader import load_configs
+
+        _, s = load_configs(settings_path="config/settings.yaml")
+        return s.agents["concept_diagrams"].model
+    except Exception:
+        return "google-gla:gemini-3.1-flash-lite-preview"
+
+
+_LLM_MODEL = _get_model_from_settings()
 _LLM_TEMPERATURE = 0.3
 _KROKI_URL = "https://kroki.io/mermaid/svg"
 _KROKI_TIMEOUT_S = 30

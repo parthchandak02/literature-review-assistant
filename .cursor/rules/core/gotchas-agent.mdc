@@ -224,6 +224,37 @@ strips accents before building the citekey. Do NOT remove this normalization.
   when blank. Used in CRediT statement. Set `author_name:` in `config/review.yaml` to
   populate correctly.
 
+## Setup Form Pre-fills API Keys From Server .env
+`GET /api/config/env-keys` returns API keys already set in the server's .env file.
+`SetupView.tsx` calls this on mount and backfills any empty form fields (localStorage
+values always take priority; server values only fill blanks). This means users running
+on the local server don't need to retype keys already configured in `.env`. Do NOT
+treat missing localStorage keys as a hard error -- the env-keys endpoint is the fallback.
+
+## PDFRetriever.retrieve() Also Works On URL-Only Papers
+`PDFRetriever.retrieve()` in `src/search/pdf_retrieval.py` now attempts retrieval
+when `paper.url` is set even if `paper.doi` is None. `PDFRetrievalResult` also carries
+`pdf_bytes` and `source` fields (source strings include `url_direct_pdf`, `url_direct_text`,
+`landing_page`, `landing_page_pdf` variants). `ReferencesView.tsx` SourceBadge handles
+all these source strings. Do NOT assume `pdf_bytes` requires a DOI.
+
+## Rate Limiter Now Covers All Major LLM Call Sites
+`provider.reserve_call_slot(agent_name)` is now called before EVERY pro/flash LLM call:
+- `extractor.py` → reserve "extraction" before each study LLM extraction
+- `writing/orchestration.py` → reserve "writing" before each section write
+- `workflow.py` → reserve "humanizer" before each humanize pass
+- `rob2.py`, `robins_i.py`, `casp.py`, `mmat.py` → reserve "quality_assessment" each
+If you add a new LLM-calling module, always add a `reserve_call_slot()` call to prevent
+silent quota exhaustion for pro-tier models like Gemini 3.1 Pro Preview.
+
+## All LLM Models Are Centralized In config/settings.yaml
+No Gemini model string is hardcoded anywhere in src/ (only the provider.py docstring
+example comment contains "gemini-2.5-flash" as an illustration). All 17 agent keys +
+rag.embed_model/hyde_model/reranker_model + extraction.pdf_vision_model live in
+`config/settings.yaml`. Module fallbacks use `_get_model_from_settings()` helpers that
+read from settings.yaml and only fall back to a current model name string when the YAML
+cannot be parsed. To change any model, edit settings.yaml only -- no Python edits needed.
+
 ## `search_eligibility_window` vs `year_range` Are Different Things
 `WritingGroundingData.year_range` = "2016-2025" (min-max publication years of included papers).
 `WritingGroundingData.search_eligibility_window` = "2000-2026" (protocol date range from YAML).

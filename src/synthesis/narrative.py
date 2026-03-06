@@ -70,7 +70,7 @@ async def _classify_direction_llm(
     if not isinstance(llm_client, PydanticAIClient) or not isinstance(settings, SettingsConfig):
         return _keyword_direction(results_summary)
 
-    agent_cfg = settings.agents.get("extraction")
+    agent_cfg = settings.agents.get("narrative") or settings.agents.get("extraction")
     model = agent_cfg.model if agent_cfg else "google-gla:gemini-3.1-flash-lite-preview"
     temperature = 0.0
 

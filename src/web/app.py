@@ -246,7 +246,10 @@ class AttachRequest(BaseModel):
 
 
 def _inject_env(req: RunRequest) -> None:
-    os.environ["GEMINI_API_KEY"] = req.gemini_api_key
+    # Only overwrite GEMINI_API_KEY when the caller actually provides a value;
+    # fall back to whatever load_dotenv() already set from .env.
+    if req.gemini_api_key:
+        os.environ["GEMINI_API_KEY"] = req.gemini_api_key
     if req.openalex_api_key:
         os.environ["OPENALEX_API_KEY"] = req.openalex_api_key
     if req.ieee_api_key:
@@ -703,6 +706,28 @@ async def get_review_config() -> dict[str, str]:
     except Exception:
         content = ""
     return {"content": content}
+
+
+@app.get("/api/config/env-keys")
+async def get_env_keys() -> dict[str, str]:
+    """Return API keys that are already set in the server environment (from .env).
+
+    Empty string for any key that is not set.  This lets the frontend pre-fill
+    the API-key form without the user having to retype values that are already
+    configured on the server.
+    """
+    return {
+        "gemini": os.environ.get("GEMINI_API_KEY", ""),
+        "openalex": os.environ.get("OPENALEX_API_KEY", ""),
+        "ieee": os.environ.get("IEEE_API_KEY", ""),
+        "pubmedEmail": os.environ.get("PUBMED_EMAIL", "") or os.environ.get("NCBI_EMAIL", ""),
+        "pubmedApiKey": os.environ.get("PUBMED_API_KEY", ""),
+        "perplexity": os.environ.get("PERPLEXITY_SEARCH_API_KEY", ""),
+        "semanticScholar": os.environ.get("SEMANTIC_SCHOLAR_API_KEY", ""),
+        "crossrefEmail": os.environ.get("CROSSREF_EMAIL", ""),
+        "wos": os.environ.get("WOS_API_KEY", ""),
+        "scopus": os.environ.get("SCOPUS_API_KEY", ""),
+    }
 
 
 class _GenerateConfigRequest(BaseModel):
@@ -1967,13 +1992,14 @@ async def get_paper_file(run_id: str, paper_id: str) -> StreamingResponse:
 async def fetch_pdfs_for_run(run_id: str) -> dict[str, Any]:
     """Retroactively fetch full-text PDFs/text for all included papers in a completed run.
 
-    Uses the same 8-tier fallback chain as the extraction node (Unpaywall, Semantic Scholar,
-    CORE, Europe PMC, ScienceDirect, PMC, arXiv, Crossref). Saves PDF bytes to
-    {run_dir}/papers/{paper_id}.pdf or full text to {paper_id}.txt, then updates
-    data_papers_manifest.json. Safe to call multiple times; skips papers that already
-    have a file saved.
+    Uses the same PDFRetriever code path as paper screening (Unpaywall, Semantic Scholar,
+    CORE, Europe PMC, ScienceDirect, PMC, arXiv, Crossref, landing-page resolver, plus
+    direct URL download fallback). Saves PDF bytes to {run_dir}/papers/{paper_id}.pdf or
+    full text to {paper_id}.txt, then updates data_papers_manifest.json. Safe to call
+    multiple times; skips papers that already have a file saved.
     """
-    from src.extraction.table_extraction import fetch_full_text
+    from src.models.papers import CandidatePaper
+    from src.search.pdf_retrieval import PDFRetriever
 
     db_path = _get_db_path(run_id)
     run_dir = pathlib.Path(db_path).parent
@@ -1997,7 +2023,8 @@ async def fetch_pdfs_for_run(run_id: str) -> dict[str, Any]:
             await db.execute("PRAGMA foreign_keys = ON")
             async with db.execute(
                 """
-                SELECT p.paper_id, p.title, p.authors, p.year, p.doi, p.url
+                SELECT p.paper_id, p.title, p.authors, p.year, p.doi, p.url,
+                       p.source_database
                 FROM papers p
                 JOIN dual_screening_results ft
                   ON p.paper_id = ft.paper_id AND ft.stage = 'fulltext'
@@ -2009,6 +2036,7 @@ async def fetch_pdfs_for_run(run_id: str) -> dict[str, Any]:
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
+    retriever = PDFRetriever()
     results: list[dict[str, Any]] = []
     succeeded = 0
     skipped = 0
@@ -2031,21 +2059,29 @@ async def fetch_pdfs_for_run(run_id: str) -> dict[str, Any]:
         error_msg: str | None = None
 
         try:
-            ft_result = await fetch_full_text(doi=doi or None, url=url or None)
-            if ft_result.pdf_bytes and len(ft_result.pdf_bytes) > 1000:
+            paper = CandidatePaper(
+                paper_id=paper_id,
+                title=row["title"] or "",
+                authors=[],
+                year=row["year"],
+                source_database=row["source_database"] or "",
+                doi=doi or None,
+                url=url or None,
+            )
+            ft_result = await retriever.retrieve(paper)
+            if ft_result.success and ft_result.pdf_bytes and len(ft_result.pdf_bytes) > 1000:
                 pdf_dest = papers_dir / f"{paper_id}.pdf"
                 pdf_dest.write_bytes(ft_result.pdf_bytes)
                 saved_path = str(pdf_dest)
                 source = ft_result.source
                 succeeded += 1
-            elif ft_result.text and ft_result.source not in ("abstract", ""):
-                txt_dest = papers_dir / f"{paper_id}.txt"
-                txt_dest.write_text(ft_result.text, encoding="utf-8")
-                saved_path = str(txt_dest)
-                source = ft_result.source
-                succeeded += 1
             else:
-                source = "abstract"
+                # Record source for badge display even when no PDF is available to save.
+                # Text-only results (PMC XML, Unpaywall text) are useful for the
+                # extraction pipeline but are not saved as downloadable files.
+                source = ft_result.source if ft_result.success else "abstract"
+                if not ft_result.success and ft_result.error:
+                    error_msg = ft_result.error
         except Exception as exc:
             error_msg = str(exc)
             _logger.warning("fetch-pdfs: failed for %s: %s", paper_id, exc)
@@ -2764,7 +2800,7 @@ async def living_refresh(run_id: str) -> RunResponse:
         ieee_api_key=os.environ.get("IEEE_API_KEY"),
         pubmed_email=os.environ.get("PUBMED_EMAIL"),
         pubmed_api_key=os.environ.get("PUBMED_API_KEY"),
-        perplexity_api_key=os.environ.get("PERPLEXITY_API_KEY"),
+        perplexity_api_key=os.environ.get("PERPLEXITY_SEARCH_API_KEY"),
         semantic_scholar_api_key=os.environ.get("SEMANTIC_SCHOLAR_API_KEY"),
         crossref_email=os.environ.get("CROSSREF_EMAIL"),
         wos_api_key=os.environ.get("WOS_API_KEY"),

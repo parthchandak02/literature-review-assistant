@@ -181,10 +181,11 @@ class DualReviewConfig(BaseModel):
     enabled: bool = True
     kappa_warning_threshold: float = Field(ge=0.0, le=1.0, default=0.4)
     reviewer_b_model: str = Field(
-        default="gemini-3-flash-preview",
+        default="google-gla:gemini-3-flash-preview",
         description=(
-            "Model used for Reviewer B. Using a different model than Reviewer A "
-            "enables genuine cross-model validation rather than intra-model disagreement."
+            "Last-resort fallback model for Reviewer B. The primary source is "
+            "agents.screening_reviewer_b.model in settings.yaml. This field is "
+            "only used if that agent key is absent."
         ),
     )
 

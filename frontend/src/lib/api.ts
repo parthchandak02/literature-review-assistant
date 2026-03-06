@@ -576,6 +576,25 @@ export function clearApiKeys(): void {
   }
 }
 
+/**
+ * Fetch API keys that are already configured in the server's environment
+ * (i.e. values set in .env).  Returns an object with empty strings for any
+ * key not present on the server.  Never throws -- returns all-empty on error.
+ */
+export async function fetchEnvKeys(): Promise<StoredApiKeys> {
+  const empty: StoredApiKeys = {
+    gemini: "", openalex: "", ieee: "", pubmedEmail: "", pubmedApiKey: "",
+    perplexity: "", semanticScholar: "", crossrefEmail: "", wos: "", scopus: "",
+  }
+  try {
+    const res = await fetch(`${BASE}/config/env-keys`)
+    if (!res.ok) return empty
+    return { ...empty, ...(await res.json() as Partial<StoredApiKeys>) }
+  } catch {
+    return empty
+  }
+}
+
 // Human-in-the-loop screening endpoints
 
 export interface ScreenedPaper {

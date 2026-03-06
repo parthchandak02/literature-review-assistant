@@ -45,7 +45,7 @@ _DefaultConfigDict = dict[str, Any]
 
 # Fallback model used only when settings.yaml cannot be loaded.
 # In production the model is resolved from agents.search in settings.yaml.
-_MODEL_FALLBACK = "google-gla:gemini-2.5-flash"
+_MODEL_FALLBACK = "google-gla:gemini-3.1-flash-lite-preview"
 _TEMPERATURE = 0.3
 
 
@@ -55,9 +55,9 @@ def _resolve_model() -> str:
         from src.config.loader import load_configs
 
         _, settings = load_configs(settings_path="config/settings.yaml")
-        search_agent = settings.agents.get("search")
-        if search_agent:
-            return search_agent.model
+        agent = settings.agents.get("config_generation") or settings.agents.get("search")
+        if agent:
+            return agent.model
     except Exception:
         pass
     return _MODEL_FALLBACK

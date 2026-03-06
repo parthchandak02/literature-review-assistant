@@ -40,6 +40,27 @@ agents:
   humanizer:
     model: "google-gla:gemini-3.1-pro-preview"
     temperature: 0.3
+  contradiction_resolver:
+    model: "google-gla:gemini-3.1-pro-preview"
+    temperature: 0.2
+  naturalness_scorer:
+    model: "google-gla:gemini-3.1-flash-lite-preview"
+    temperature: 0.1
+  criteria_refinement:
+    model: "google-gla:gemini-3.1-pro-preview"
+    temperature: 0.2
+  table_extraction:
+    model: "google-gla:gemini-3.1-flash-lite-preview"
+    temperature: 0.1
+  config_generation:
+    model: "google-gla:gemini-3.1-flash-lite-preview"
+    temperature: 0.3
+  concept_diagrams:
+    model: "google-gla:gemini-3.1-flash-lite-preview"
+    temperature: 0.3
+  narrative:
+    model: "google-gla:gemini-3.1-flash-lite-preview"
+    temperature: 0.2
   style_extraction:
     model: "google-gla:gemini-3.1-pro-preview"
     temperature: 0.2

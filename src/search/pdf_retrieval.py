@@ -45,6 +45,8 @@ class PDFRetrievalResult(BaseModel):
     paper_id: str
     resolved_url: str | None = None
     full_text: str = ""
+    pdf_bytes: bytes | None = None
+    source: str = "abstract"
     success: bool = False
     error: str | None = None
 
@@ -63,8 +65,9 @@ class PDFRetriever:
 
     async def retrieve(self, paper: CandidatePaper) -> PDFRetrievalResult:
         # Primary: use unified fetch_full_text (Unpaywall, Semantic Scholar, CORE,
-        # Europe PMC, ScienceDirect, PMC) for papers with DOI
-        if paper.doi:
+        # Europe PMC, ScienceDirect, PMC, arXiv, landing-page resolver) for papers
+        # with a DOI or URL.
+        if paper.doi or paper.url:
             try:
                 from src.extraction.table_extraction import fetch_full_text
 
@@ -79,6 +82,8 @@ class PDFRetriever:
                             paper_id=paper.paper_id,
                             resolved_url=paper.url,
                             full_text=ft_result.text[:_PDF_MAX_CHARS],
+                            pdf_bytes=ft_result.pdf_bytes if ft_result.pdf_bytes and len(ft_result.pdf_bytes) > 1000 else None,
+                            source=ft_result.source,
                             success=True,
                         )
                     if ft_result.pdf_bytes and len(ft_result.pdf_bytes) > 1000:
@@ -87,6 +92,8 @@ class PDFRetriever:
                             paper_id=paper.paper_id,
                             resolved_url=paper.url,
                             full_text=parsed,
+                            pdf_bytes=ft_result.pdf_bytes,
+                            source=ft_result.source,
                             success=True,
                         )
             except Exception as exc:
@@ -115,6 +122,8 @@ class PDFRetriever:
                         paper_id=paper.paper_id,
                         resolved_url=url,
                         full_text=parsed_text,
+                        pdf_bytes=body,
+                        source="url_direct_pdf",
                         success=True,
                     )
                 # For HTML responses use the landing-page resolver to find the
@@ -126,13 +135,16 @@ class PDFRetriever:
                     lp = await _resolve_landing_page(url)
                     if lp:
                         full_text = lp.text
-                        if not full_text and lp.pdf_bytes:
-                            full_text = _parse_pdf_bytes(lp.pdf_bytes)
+                        lp_pdf = lp.pdf_bytes if lp.pdf_bytes and len(lp.pdf_bytes) > 1000 else None
+                        if not full_text and lp_pdf:
+                            full_text = _parse_pdf_bytes(lp_pdf)
                         if full_text and len(full_text.strip()) >= 500:
                             return PDFRetrievalResult(
                                 paper_id=paper.paper_id,
                                 resolved_url=url,
                                 full_text=full_text[:_PDF_MAX_CHARS],
+                                pdf_bytes=lp_pdf,
+                                source=lp.source if lp.source else "landing_page",
                                 success=True,
                             )
                     continue  # Skip -- raw HTML is not usable article text
@@ -143,6 +155,7 @@ class PDFRetriever:
                         paper_id=paper.paper_id,
                         resolved_url=url,
                         full_text=decoded,
+                        source="url_direct_text",
                         success=True,
                     )
             except Exception:

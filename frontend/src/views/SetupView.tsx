@@ -22,6 +22,7 @@ import { Textarea } from "@/components/ui/textarea"
 import { PageSection } from "@/components/ui/section"
 import { YamlEditor } from "@/components/YamlEditor"
 import {
+  fetchEnvKeys,
   fetchHistory,
   fetchRunConfig,
   generateConfigStream,
@@ -157,7 +158,7 @@ function ApiKeysSection({ keys, onChange, embedded }: ApiKeysProps) {
     { id: "gemini", label: "Gemini API Key", placeholder: "AIza...", required: true },
     { id: "scopus", label: "Scopus API Key", placeholder: "optional -- Elsevier Scopus search" },
     { id: "wos", label: "Web of Science API Key", placeholder: "optional -- Clarivate WoS Starter API" },
-    { id: "openalex", label: "OpenAlex Email", placeholder: "user@example.com" },
+    { id: "openalex", label: "OpenAlex API Key", placeholder: "optional -- register free at openalex.org/sign-up" },
     { id: "pubmedEmail", label: "PubMed Email", placeholder: "user@example.com" },
     { id: "pubmedApiKey", label: "PubMed API Key", placeholder: "optional -- increases rate limits" },
     { id: "ieee", label: "IEEE Xplore API Key", placeholder: "optional" },
@@ -212,7 +213,7 @@ function ApiKeysSection({ keys, onChange, embedded }: ApiKeysProps) {
           </label>
           <Input
             type="text"
-            value={keys[f.id]}
+            value={keys[f.id] ?? ""}
             onChange={(e) => onChange({ ...keys, [f.id]: e.target.value })}
             placeholder={f.placeholder}
             autoComplete="off"
@@ -543,6 +544,12 @@ function QuestionStage({
   const [mode, setMode] = useState<SetupMode>("search")
   const [question, setQuestion] = useState("")
   const [geminiKey, setGeminiKey] = useState(() => loadApiKeys()?.gemini ?? "")
+
+  // Backfill Gemini key from .env if not already in localStorage
+  useEffect(() => {
+    if (geminiKey) return
+    fetchEnvKeys().then((env) => { if (env.gemini) setGeminiKey(env.gemini) })
+  }, [])
   const [showKey, setShowKey] = useState(false)
   const [generating, setGenerating] = useState(false)
   const [activeGenStep, setActiveGenStep] = useState("start")
@@ -793,20 +800,45 @@ function ConfigReviewStage({
   disabled,
   defaultYaml,
 }: Stage2Props) {
-  const [keys, setKeys] = useState<StoredApiKeys>(() => loadApiKeys() ?? {
-    gemini: "",
-    openalex: "",
-    ieee: "",
-    pubmedEmail: "",
-    pubmedApiKey: "",
-    perplexity: "",
-    semanticScholar: "",
-    crossrefEmail: "",
-    wos: "",
-    scopus: "",
+  const [keys, setKeys] = useState<StoredApiKeys>(() => {
+    const defaults: StoredApiKeys = {
+      gemini: "",
+      openalex: "",
+      ieee: "",
+      pubmedEmail: "",
+      pubmedApiKey: "",
+      perplexity: "",
+      semanticScholar: "",
+      crossrefEmail: "",
+      wos: "",
+      scopus: "",
+    }
+    const saved = loadApiKeys()
+    // Merge saved keys with defaults so that newly-added fields get empty-string
+    // values even when the persisted object predates them (avoids undefined ->
+    // uncontrolled input problem in React).
+    return saved ? { ...defaults, ...saved } : defaults
   })
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
+
+  // On mount, backfill any empty fields with values from the server's .env.
+  // localStorage always wins; env fills in blanks the user hasn't set yet.
+  // Use .trim() so whitespace-only or "undefined" string values count as blank.
+  useEffect(() => {
+    fetchEnvKeys().then((envKeys) => {
+      setKeys((prev) => {
+        const merged = { ...prev }
+        for (const k of Object.keys(envKeys) as (keyof typeof envKeys)[]) {
+          const current = String(merged[k] ?? "").trim()
+          if ((!current || current === "undefined") && envKeys[k]) {
+            merged[k] = envKeys[k]
+          }
+        }
+        return merged
+      })
+    })
+  }, [])
 
   async function handleLaunch() {
     if (!keys.gemini.trim()) {

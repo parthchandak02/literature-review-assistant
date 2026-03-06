@@ -51,12 +51,52 @@ def _is_retryable(exc: BaseException) -> bool:
     return any(c in s for c in _RETRYABLE_CODES) or any(m in s for m in _RETRYABLE_MSGS)
 
 
+def _parse_retry_after(exc: BaseException) -> float:
+    """Extract the Retry-After value (seconds) from a 429 exception, if present.
+
+    Gemini 429 responses may include a Retry-After header. PydanticAI surfaces
+    this value in the exception message or as an attribute on the underlying
+    response. Returns 0.0 when not found so callers can safely use max().
+    """
+    exc_str = str(exc)
+    # Try common patterns: "retry-after: 30", "Retry-After=30", "retry_after=30"
+    import re
+
+    patterns = [
+        r"retry[-_]after[:\s=]+(\d+(?:\.\d+)?)",
+        r'"retry-after":\s*"?(\d+(?:\.\d+)?)"?',
+    ]
+    for pattern in patterns:
+        m = re.search(pattern, exc_str, re.IGNORECASE)
+        if m:
+            try:
+                return float(m.group(1))
+            except ValueError:
+                pass
+    # Check for retry_after attribute on the exception or its cause
+    for obj in (exc, getattr(exc, "__cause__", None), getattr(exc, "__context__", None)):
+        if obj is not None and hasattr(obj, "retry_after"):
+            try:
+                return float(obj.retry_after)
+            except (TypeError, ValueError):
+                pass
+        if obj is not None and hasattr(obj, "headers"):
+            try:
+                return float(obj.headers.get("retry-after", 0))
+            except (TypeError, ValueError):
+                pass
+    return 0.0
+
+
 async def _run_with_retry(agent: Agent[Any, Any], prompt: str, *, model_settings: ModelSettings) -> Any:
     """Run *agent* with exponential-backoff retry on transient errors.
 
     Retries up to _MAX_RETRIES times on 429/502/503/504 and similar transient
     conditions. Non-retryable errors (auth failures, schema errors, etc.) are
     re-raised immediately on the first occurrence.
+
+    When a 429 response includes a Retry-After header, its value is used as the
+    minimum wait before the next attempt (honouring the server's back-pressure).
     """
     for attempt in range(_MAX_RETRIES):
         try:
@@ -64,12 +104,15 @@ async def _run_with_retry(agent: Agent[Any, Any], prompt: str, *, model_settings
         except Exception as exc:
             if not _is_retryable(exc) or attempt == _MAX_RETRIES - 1:
                 raise
-            delay = min(_BASE_DELAY * (2**attempt) + random.uniform(0, 1), _MAX_DELAY)
+            retry_after = _parse_retry_after(exc)
+            exponential_delay = min(_BASE_DELAY * (2**attempt) + random.uniform(0, 1), _MAX_DELAY)
+            delay = max(exponential_delay, retry_after)
             logger.warning(
-                "LLM transient error (attempt %d/%d), retrying in %.1fs: %s",
+                "LLM transient error (attempt %d/%d), retrying in %.1fs%s: %s",
                 attempt + 1,
                 _MAX_RETRIES,
                 delay,
+                f" (Retry-After={retry_after:.0f}s)" if retry_after > 0 else "",
                 exc,
             )
             await asyncio.sleep(delay)

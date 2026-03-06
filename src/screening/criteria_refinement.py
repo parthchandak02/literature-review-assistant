@@ -22,6 +22,16 @@ import aiosqlite
 
 logger = logging.getLogger(__name__)
 
+
+def _get_model_from_settings() -> str:
+    try:
+        from src.config.loader import load_configs
+
+        _, s = load_configs(settings_path="config/settings.yaml")
+        return s.agents["criteria_refinement"].model
+    except Exception:
+        return "google-gla:gemini-3.1-pro-preview"
+
 _MAX_CRITERION_LENGTH = 500
 _INJECTION_PATTERNS = re.compile(
     r"(ignore previous|ignore all|forget|disregard|new instruction|system prompt)",
@@ -143,7 +153,7 @@ def _call_refinement_llm_sync(
 async def refine_criteria_from_corrections(
     corrections: list[ScreeningCorrection],
     papers: dict[str, str],
-    model_name: str = "gemini-2.5-pro",
+    model_name: str | None = None,
     api_key: str | None = None,
 ) -> list[LearnedCriterion]:
     """Generate refined screening criteria from human corrections.
@@ -160,6 +170,8 @@ async def refine_criteria_from_corrections(
     if not corrections:
         return []
 
+    if model_name is None:
+        model_name = _get_model_from_settings()
     key = api_key or os.environ.get("GEMINI_API_KEY", "")
     raw_model = model_name.replace("google-gla:", "").replace("google-vertex:", "")
 

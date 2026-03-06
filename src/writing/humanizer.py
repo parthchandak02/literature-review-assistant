@@ -13,6 +13,16 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+
+def _get_model_from_settings() -> str:
+    try:
+        from src.config.loader import load_configs
+
+        _, s = load_configs(settings_path="config/settings.yaml")
+        return s.agents["humanizer"].model
+    except Exception:
+        return "google-gla:gemini-3.1-pro-preview"
+
 _HUMANIZE_PROMPT_TEMPLATE = """\
 You are an expert academic editor specialising in systematic review manuscripts.
 
@@ -46,7 +56,7 @@ def humanize(text: str, max_chars: int = 12_000) -> str:
 
 async def humanize_async(
     text: str,
-    model: str = "google-gla:gemini-2.5-pro",
+    model: str | None = None,
     temperature: float = 0.3,
     max_chars: int = 12_000,
     provider: LLMProvider | None = None,
@@ -64,6 +74,8 @@ async def humanize_async(
         cut = cut if cut > 0 else max_chars
     else:
         cut = len(text)
+    if model is None:
+        model = _get_model_from_settings()
     truncated = text[:cut]
     prompt = _HUMANIZE_PROMPT_TEMPLATE.format(text=truncated)
     client = PydanticAIClient()

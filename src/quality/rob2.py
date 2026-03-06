@@ -128,6 +128,8 @@ class Rob2Assessor:
                 temperature = agent.temperature
                 prompt = _build_rob2_prompt(record, full_text)
                 schema = _Rob2LLMResponse.model_json_schema()
+                if self.provider is not None:
+                    await self.provider.reserve_call_slot("quality_assessment")
                 t0 = time.monotonic()
                 if self.provider is not None and isinstance(self.llm_client, PydanticAIClient):
                     raw, tok_in, tok_out, cw, cr = await self.llm_client.complete_with_usage(

@@ -13,9 +13,9 @@ function SourceBadge({ source }: { source: string }) {
   const label =
     source === "abstract"
       ? "Abstract only"
-      : source === "landing_page_pdf"
+      : source === "landing_page_pdf" || source === "url_direct_pdf"
         ? "Publisher Page (PDF)"
-        : source === "landing_page_text"
+        : source === "landing_page_text" || source === "url_direct_text" || source === "landing_page"
           ? "Publisher Page (Text)"
           : source.startsWith("unpaywall")
             ? "Unpaywall"

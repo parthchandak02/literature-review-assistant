@@ -1423,9 +1423,7 @@ class ExtractionQualityNode(BaseNode[ReviewState]):
                                 merge_outcomes,
                             )
 
-                            vision_model = getattr(
-                                extraction_cfg, "pdf_vision_model", "gemini-3.1-flash-lite-preview"
-                            ).replace("google-gla:", "")
+                            vision_model = extraction_cfg.pdf_vision_model.replace("google-gla:", "")
                             vision_outcomes = await extract_tables_from_pdf(
                                 ft_result.pdf_bytes,
                                 model_name=vision_model,
@@ -1535,7 +1533,7 @@ class ExtractionQualityNode(BaseNode[ReviewState]):
                     # given outcome are aggregated together instead of overwriting each other.
                     _grade_pairs.append((record, rob_assessment_obj, _grade_outcome_name))
 
-                    if rc and rc.verbose:
+                    if rc:
                         extraction_summary = (record.results_summary.get("summary") or "")[:300]
                         rc.log_extraction_paper(
                             paper_id=paper.paper_id,
@@ -1765,10 +1763,16 @@ class SynthesisNode(BaseNode[ReviewState]):
         assert state.settings is not None
         if rc:
             rc.emit_phase_start("phase_5_synthesis", "Building synthesis...", total=1)
+        if rc:
+            rc.log_status(
+                f"Assessing meta-analysis feasibility across {len(state.extraction_records)} included papers..."
+            )
         feasibility = assess_meta_analysis_feasibility(state.extraction_records)
         _use_llm = _llm_available(settings_cfg=state.settings) and (rc is None or not rc.offline)
         _synth_timeout = float(getattr(getattr(state.settings, "llm", None), "request_timeout_seconds", 120))
         _synth_llm = PydanticAIClient(timeout_seconds=_synth_timeout) if _use_llm else None
+        if rc:
+            rc.log_status("Building narrative synthesis (LLM direction classification)...")
         narrative = await build_narrative_synthesis(
             "primary_outcome",
             state.extraction_records,
@@ -1782,6 +1786,11 @@ class SynthesisNode(BaseNode[ReviewState]):
         rendered_funnel = None
         sensitivity_texts: list[str] = []
         if feasibility.feasible and state.settings.meta_analysis.enabled:
+            if rc:
+                rc.log_status(
+                    f"Running quantitative meta-analysis and sensitivity analysis "
+                    f"({len(feasibility.groupings)} outcome group(s))..."
+                )
             het_threshold = float(state.settings.meta_analysis.heterogeneity_threshold)
             effect_measure = state.settings.meta_analysis.effect_measure_continuous
             funnel_min = state.settings.meta_analysis.funnel_plot_minimum_studies
@@ -1810,7 +1819,7 @@ class SynthesisNode(BaseNode[ReviewState]):
 
         state.sensitivity_results = sensitivity_texts
 
-        if rc and rc.verbose:
+        if rc:
             rc.log_synthesis(
                 feasible=feasibility.feasible,
                 groups=feasibility.groupings,
@@ -1818,14 +1827,15 @@ class SynthesisNode(BaseNode[ReviewState]):
                 n_studies=narrative.n_studies,
                 direction=narrative.effect_direction_summary,
             )
-            if meta_result is not None:
-                rc.console.print(
-                    f"  Meta-analysis: {meta_result.model}={meta_result.model}, "
-                    f"I2={meta_result.i_squared:.1f}%, forest={rendered_forest is not None}, "
-                    f"funnel={rendered_funnel is not None}"
-                )
-            else:
-                rc.console.print("  Meta-analysis: insufficient numeric effect data; using narrative synthesis.")
+            if rc.verbose:
+                if meta_result is not None:
+                    rc.console.print(
+                        f"  Meta-analysis: {meta_result.model}={meta_result.model}, "
+                        f"I2={meta_result.i_squared:.1f}%, forest={rendered_forest is not None}, "
+                        f"funnel={rendered_funnel is not None}"
+                    )
+                else:
+                    rc.console.print("  Meta-analysis: insufficient numeric effect data; using narrative synthesis.")
 
         synthesis_payload: dict = {
             "feasibility": feasibility.model_dump(),
@@ -2191,14 +2201,18 @@ class WritingNode(BaseNode[ReviewState]):
                 # parallel before the writing loop. Abstract always returns "".
                 rag_cfg = getattr(state.settings, "rag", None)
                 use_hyde = getattr(rag_cfg, "use_hyde", True)
-                hyde_model = getattr(rag_cfg, "hyde_model", "google-gla:gemini-3.1-flash-lite-preview")
-                embed_model = getattr(rag_cfg, "embed_model", "google-gla:gemini-embedding-001")
+                hyde_model = rag_cfg.hyde_model
+                embed_model = rag_cfg.embed_model
                 embed_dim = getattr(rag_cfg, "embed_dim", 768)
 
                 _pico_cfg = getattr(state.review, "pico", None) if state.review else None
 
                 hyde_docs: dict[str, str] = {}
                 if use_hyde and state.review:
+                    if rc:
+                        rc.log_status(
+                            f"Pre-generating HyDE retrieval documents for {len(SECTIONS)} manuscript sections (parallel)..."
+                        )
                     try:
                         import asyncio as _asyncio
 
@@ -2308,11 +2322,7 @@ class WritingNode(BaseNode[ReviewState]):
                             # Listwise reranking: single Gemini Flash call orders
                             # all candidates by relevance, keeping the best 8.
                             if use_rerank and chunks:
-                                reranker_model = getattr(
-                                    rag_cfg,
-                                    "reranker_model",
-                                    "google-gla:gemini-3.1-flash-lite-preview",
-                                )
+                                reranker_model = rag_cfg.reranker_model
                                 rerank_query = hyde_text if hyde_text else bm25_query
                                 chunks = await rerank_chunks(
                                     rerank_query,
@@ -2351,12 +2361,14 @@ class WritingNode(BaseNode[ReviewState]):
                     humanize_iters = getattr(writing_cfg, "humanization_iterations", 1)
                     use_llm_write = _llm_available(settings_cfg=state.settings) and (rc is None or not rc.offline)
                     if do_humanize and use_llm_write:
-                        humanizer_agent = state.settings.agents.get("humanizer")
-                        h_model = humanizer_agent.model if humanizer_agent else "google-gla:gemini-2.5-pro"
-                        h_temp = humanizer_agent.temperature if humanizer_agent else 0.3
+                        humanizer_agent = state.settings.agents["humanizer"]
+                        h_model = humanizer_agent.model
+                        h_temp = humanizer_agent.temperature
                         if rc and rc.verbose:
                             rc.console.print(f"    Humanizing {section} ({humanize_iters} pass(es))...")
                         for _ in range(humanize_iters):
+                            if provider is not None:
+                                await provider.reserve_call_slot("humanizer")
                             content = await humanize_async(
                                 content,
                                 model=h_model,
@@ -2468,11 +2480,9 @@ class WritingNode(BaseNode[ReviewState]):
                 if flags:
                     _use_llm_contra = _llm_available(settings_cfg=state.settings) and (rc is None or not rc.offline)
                     api_key = os.getenv("GEMINI_API_KEY", "")
-                    _contra_model = (
-                        state.settings.agents["writing"].model
-                        if state.settings and "writing" in state.settings.agents
-                        else "google-gla:gemini-2.5-pro"
-                    )
+                    _contra_model = state.settings.agents.get(
+                        "contradiction_resolver", state.settings.agents["writing"]
+                    ).model
                     contra_paragraph = await generate_contradiction_paragraph(
                         flags,
                         model_name=_contra_model,
@@ -2642,11 +2652,9 @@ class WritingNode(BaseNode[ReviewState]):
                     review_topic=_topic,
                 )
 
-            _concept_model = (
-                state.settings.agents.get("abstract_generation", state.settings.agents.get("writing")).model
-                if state.settings and state.settings.agents
-                else "google-gla:gemini-2.5-flash"
-            )
+            _concept_model = state.settings.agents.get(
+                "concept_diagrams", state.settings.agents.get("abstract_generation", state.settings.agents["writing"])
+            ).model
             _concept_results = await asyncio.wait_for(
                 render_concept_diagrams(
                     taxonomy_spec=_taxonomy_spec,

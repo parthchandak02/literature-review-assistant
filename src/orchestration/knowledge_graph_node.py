@@ -54,7 +54,11 @@ class KnowledgeGraphNode(BaseNode[ReviewState]):
 
             if already_done:
                 logger.info("KnowledgeGraphNode: already done; skipping")
+                if rc:
+                    rc.log_status("Knowledge graph already built; skipping.")
             else:
+                if rc:
+                    rc.log_status("Loading chunk embeddings for similarity edges...")
                 # Load chunk embeddings for embedding-based edges
                 chunk_embeddings: dict[str, list[float]] = {}
                 async with db.execute(
@@ -75,6 +79,11 @@ class KnowledgeGraphNode(BaseNode[ReviewState]):
                             mean_vec = [sum(v[i] for v in vecs) / len(vecs) for i in range(dim)]
                             chunk_embeddings[pid] = mean_vec
 
+                if rc:
+                    rc.log_status(
+                        f"Building paper graph ({len(state.extraction_records)} papers, "
+                        f"{len(chunk_embeddings)} with embeddings)..."
+                    )
                 # Build graph
                 graph = build_paper_graph(
                     records=state.extraction_records,
@@ -82,9 +91,17 @@ class KnowledgeGraphNode(BaseNode[ReviewState]):
                     chunk_embeddings=chunk_embeddings if chunk_embeddings else None,
                 )
 
+                if rc:
+                    rc.log_status(
+                        f"Detecting communities (Louvain) across {len(graph.edges)} edges..."
+                    )
                 # Run community detection
                 updated_nodes, communities = detect_communities(graph)
 
+                if rc:
+                    rc.log_status(
+                        f"Detecting research gaps ({len(communities)} communities found)..."
+                    )
                 # Detect research gaps
                 gaps = detect_research_gaps(state.extraction_records)
 
@@ -143,6 +160,11 @@ class KnowledgeGraphNode(BaseNode[ReviewState]):
                     len(gaps),
                 )
 
+                if rc:
+                    rc.log_status(
+                        f"Rendering evidence network figure ({len(graph.edges)} edges, "
+                        f"{len(gaps)} gaps detected)..."
+                    )
                 # Render figure to run directory (same level as all other figures).
                 # Skip silently when there are no edges (e.g. zero included papers):
                 # raising through render_evidence_network just produces a noisy warning.
