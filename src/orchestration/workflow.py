@@ -226,7 +226,17 @@ class ResumeStartNode(BaseNode[ReviewState]):
         if rc:
             rc.emit_phase_start("resume", f"Resuming from {state.next_phase}...")
         structured_log.configure_run_logging(state.log_dir)
-        structured_log.bind_run(state.workflow_id, state.run_id or "resume")
+        structured_log.bind_run(state.workflow_id, state.run_id or "resume", log_dir=state.log_dir)
+
+        # If the registry shows this run is still awaiting human review, re-enter
+        # the HITL checkpoint rather than jumping straight to extraction.
+        try:
+            _reg_entry = await find_by_workflow_id(state.run_root, state.workflow_id)
+            if _reg_entry and str(getattr(_reg_entry, "status", "")) == "awaiting_review":
+                return HumanReviewCheckpointNode()
+        except Exception as _reg_err:
+            logger.warning("ResumeStartNode: could not check registry status: %s", _reg_err)
+
         phase = state.next_phase
         if phase == "phase_2_search":
             return SearchNode()
@@ -264,7 +274,7 @@ class StartNode(BaseNode[ReviewState]):
         state.output_dir = str(run_paths.run_dir)
         state.db_path = str(run_paths.runtime_db)
         structured_log.configure_run_logging(state.log_dir)
-        structured_log.bind_run(state.workflow_id, state.run_id)
+        structured_log.bind_run(state.workflow_id, state.run_id, log_dir=state.log_dir)
         state.artifacts["run_summary"] = str(run_paths.run_summary)
         state.artifacts["search_appendix"] = str(run_paths.search_appendix)
         state.artifacts["protocol"] = str(run_paths.protocol_markdown)
@@ -1112,6 +1122,19 @@ class HumanReviewCheckpointNode(BaseNode[ReviewState]):
                 break
 
         await update_registry_status(state.run_root, state.workflow_id, "running")
+
+        # Reload included_papers so any human overrides written to dual_screening_results
+        # by approve_screening() are reflected before ExtractionQualityNode runs.
+        try:
+            async with get_db(state.db_path) as _hitl_db:
+                _repo = WorkflowRepository(_hitl_db)
+                _included_ids = await _repo.get_included_paper_ids(state.workflow_id)
+                if not _included_ids:
+                    _included_ids = await _repo.get_title_abstract_include_ids(state.workflow_id)
+                state.included_papers = [p for p in state.deduped_papers if p.paper_id in _included_ids]
+        except Exception as _reload_err:
+            logger.warning("HumanReviewCheckpointNode: could not reload included_papers: %s", _reload_err)
+
         if rc:
             rc.emit_phase_done("human_review_checkpoint", {"approved": True})
 
@@ -1181,6 +1204,9 @@ class ExtractionQualityNode(BaseNode[ReviewState]):
             casp = CaspAssessor(llm_client=llm_gemini, settings=state.settings, provider=provider if use_llm else None)
             mmat = MmatAssessor(llm_client=llm_gemini, settings=state.settings, provider=provider if use_llm else None)
             not_applicable_paper_ids: list[str] = []
+            # Accumulates (ExtractionRecord, rob_assessment_obj_or_None, outcome_name) tuples
+            # so GRADE can be aggregated once per outcome after both loops complete.
+            _grade_pairs: list[tuple] = []
 
             # Quality-only pass: papers extracted before a crash but missing RoB.
             _paper_lookup = {p.paper_id: p for p in state.included_papers}
@@ -1197,6 +1223,7 @@ class ExtractionQualityNode(BaseNode[ReviewState]):
                         await repository.save_robins_i_assessment(state.workflow_id, assessment)
                     elif tool == "casp":
                         assessment = await casp.assess(qr, full_text=full_text)
+                        await repository.save_casp_assessment(state.workflow_id, qr.paper_id, assessment)
                         await repository.append_decision_log(
                             DecisionLogEntry(
                                 decision_type="casp_assessment",
@@ -1209,6 +1236,7 @@ class ExtractionQualityNode(BaseNode[ReviewState]):
                         )
                     elif tool == "mmat":
                         mmat_result = await mmat.assess(qr, full_text=full_text)
+                        await repository.save_mmat_assessment(state.workflow_id, qr.paper_id, mmat_result)
                         await repository.append_decision_log(
                             DecisionLogEntry(
                                 decision_type="mmat_assessment",
@@ -1234,14 +1262,8 @@ class ExtractionQualityNode(BaseNode[ReviewState]):
                         }
                     ]
                     _qr_outcome_name = _qr_outcomes[0] if _qr_outcomes else "primary_outcome"
-                    grade_assessment = grade.assess_outcome(
-                        outcome_name=_qr_outcome_name,
-                        number_of_studies=1,
-                        study_design=qr.study_design,
-                    )
-                    await repository.save_grade_assessment(
-                        state.workflow_id, grade_assessment
-                    )  # quality-only retry; no fresh rob_assessment available
+                    # Defer to post-loop aggregation (no rob_assessment in quality-only retry).
+                    _grade_pairs.append((qr, None, _qr_outcome_name))
                 except Exception as exc:
                     await repository.append_decision_log(
                         DecisionLogEntry(
@@ -1452,6 +1474,7 @@ class ExtractionQualityNode(BaseNode[ReviewState]):
                     elif tool == "casp":
                         assessment = await casp.assess(record, full_text=full_text)
                         rob_judgment = getattr(assessment, "overall_summary", "completed")[:80]
+                        await repository.save_casp_assessment(state.workflow_id, record.paper_id, assessment)
                         await repository.append_decision_log(
                             DecisionLogEntry(
                                 decision_type="casp_assessment",
@@ -1465,6 +1488,7 @@ class ExtractionQualityNode(BaseNode[ReviewState]):
                     elif tool == "mmat":
                         mmat_result = await mmat.assess(record, full_text=full_text)
                         rob_judgment = f"MMAT score {mmat_result.overall_score}/5"
+                        await repository.save_mmat_assessment(state.workflow_id, record.paper_id, mmat_result)
                         await repository.append_decision_log(
                             DecisionLogEntry(
                                 decision_type="mmat_assessment",
@@ -1507,21 +1531,9 @@ class ExtractionQualityNode(BaseNode[ReviewState]):
                         }
                     ]
                     _grade_outcome_name = _grade_outcomes[0] if _grade_outcomes else "primary_outcome"
-
-                    if rob_assessment_obj is not None:
-                        grade_assessment = grade.assess_from_rob(
-                            outcome_name=_grade_outcome_name,
-                            study_design=record.study_design,
-                            rob_assessments=[rob_assessment_obj],
-                            extraction_records=[record],
-                        )
-                    else:
-                        grade_assessment = grade.assess_outcome(
-                            outcome_name=_grade_outcome_name,
-                            number_of_studies=1,
-                            study_design=record.study_design,
-                        )
-                    await repository.save_grade_assessment(state.workflow_id, grade_assessment)
+                    # Defer GRADE computation until after the loop so all studies for a
+                    # given outcome are aggregated together instead of overwriting each other.
+                    _grade_pairs.append((record, rob_assessment_obj, _grade_outcome_name))
 
                     if rc and rc.verbose:
                         extraction_summary = (record.results_summary.get("summary") or "")[:300]
@@ -1544,6 +1556,35 @@ class ExtractionQualityNode(BaseNode[ReviewState]):
                     )
                     if rc:
                         rc.advance_screening("phase_4_extraction_quality", i + 1, len(to_process))
+
+            # -- Aggregate GRADE per unique outcome across all studies --
+            # Group (record, rob_assessment_obj, outcome_name) triples by outcome_name,
+            # then call assess_from_rob() once with all records for that outcome.
+            _grade_accum: dict[str, tuple[list, list]] = {}
+            for _gp_record, _gp_rob, _gp_outcome in _grade_pairs:
+                if _gp_outcome not in _grade_accum:
+                    _grade_accum[_gp_outcome] = ([], [])
+                if _gp_rob is not None:
+                    _grade_accum[_gp_outcome][0].append(_gp_rob)
+                _grade_accum[_gp_outcome][1].append(_gp_record)
+            for _gp_outcome_name, (_gp_robs, _gp_recs) in _grade_accum.items():
+                try:
+                    if _gp_robs:
+                        _agg_grade = grade.assess_from_rob(
+                            outcome_name=_gp_outcome_name,
+                            study_design=_gp_recs[0].study_design,
+                            rob_assessments=_gp_robs,
+                            extraction_records=_gp_recs,
+                        )
+                    else:
+                        _agg_grade = grade.assess_outcome(
+                            outcome_name=_gp_outcome_name,
+                            number_of_studies=len(_gp_recs),
+                            study_design=_gp_recs[0].study_design,
+                        )
+                    await repository.save_grade_assessment(state.workflow_id, _agg_grade)
+                except Exception as _grade_err:
+                    logger.warning("ExtractionQualityNode: GRADE aggregation failed for outcome '%s': %s", _gp_outcome_name, _grade_err)
 
             rob2_rows, robins_i_rows = await repository.load_rob_assessments(state.workflow_id)
             # Count heuristic-derived assessments for Methods section transparency.
@@ -1998,6 +2039,18 @@ class WritingNode(BaseNode[ReviewState]):
             if _synthesis is not None:
                 _feas, _narr = _synthesis
                 narrative = {"feasibility": _feas.model_dump(), "narrative": _narr.model_dump()}
+            # The synthesis_results table stores feasibility + narrative only.
+            # Merge meta_analysis from the JSON artifact when available so WritingNode
+            # has the full synthesis picture (e.g. pooled effect sizes, heterogeneity).
+            if narrative is not None and "narrative_synthesis" in state.artifacts:
+                _narr_path = Path(state.artifacts["narrative_synthesis"])
+                if _narr_path.exists():
+                    try:
+                        _json_data = json.loads(_narr_path.read_text(encoding="utf-8"))
+                        if "meta_analysis" in _json_data:
+                            narrative["meta_analysis"] = _json_data["meta_analysis"]
+                    except Exception:
+                        pass
         if narrative is None:
             narrative_path = Path(state.artifacts["narrative_synthesis"])
             if narrative_path.exists():
@@ -2096,6 +2149,22 @@ class WritingNode(BaseNode[ReviewState]):
                 except Exception as _sd_err:
                     logger.debug("WritingNode: could not fetch screening decisions: %s", _sd_err)
 
+                # Resolve the actual search date from the search_results table so
+                # the manuscript Methods section reports the real date rather than
+                # always defaulting to the current calendar year.
+                _actual_search_date: str | None = None
+                try:
+                    async with db.execute(
+                        "SELECT MAX(search_date) FROM search_results WHERE workflow_id = ?",
+                        (state.workflow_id,),
+                    ) as _date_cur:
+                        _date_row = await _date_cur.fetchone()
+                    if _date_row and _date_row[0]:
+                        # search_date is stored as ISO date (YYYY-MM-DD); extract year only.
+                        _actual_search_date = str(_date_row[0])[:4]
+                except Exception as _date_err:
+                    logger.debug("WritingNode: could not fetch search_date: %s", _date_err)
+
                 grounding = build_writing_grounding(
                     prisma_counts=prisma_counts,
                     extraction_records=state.extraction_records,
@@ -2111,6 +2180,7 @@ class WritingNode(BaseNode[ReviewState]):
                     heuristic_assessment_count=state.heuristic_assessment_count,
                     screening_decisions=_screening_decisions or None,
                     background_sr_citekeys=_bg_citekeys,
+                    search_date=_actual_search_date,
                 )
 
                 def _on_write(**kw):

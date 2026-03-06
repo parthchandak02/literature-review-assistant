@@ -588,7 +588,7 @@ export interface ScreenedPaper {
   abstract: string | null
   stage: string
   decision: "include" | "uncertain" | "exclude"
-  rationale: string | null
+  reason: string | null
   confidence: number | null
 }
 

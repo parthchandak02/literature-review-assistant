@@ -292,16 +292,16 @@ Open `http://localhost:5173` (Vite dev UI, HMR) or `http://localhost:8001` (API 
 Useful PM2 commands:
 
 ```bash
-pm2 logs              # tail logs from all processes
-pm2 logs api          # tail backend logs only
-pm2 restart api       # restart backend (e.g. after adding a dependency)
-pm2 restart ui        # restart frontend dev server
-pm2 stop all          # stop all processes
-pm2 delete all        # remove all processes from PM2 registry
-pm2 status            # show process status table
+pm2 logs                    # tail logs from all processes
+pm2 logs litreview-api      # tail backend logs only
+pm2 restart litreview-api   # restart backend (e.g. after adding a dependency)
+pm2 restart litreview-ui    # restart frontend dev server
+pm2 stop all                # stop all processes
+pm2 delete all              # remove all processes from PM2 registry
+pm2 status                  # show process status table
 ```
 
-**IMPORTANT -- restart after code changes:** Python loads modules into memory at startup. If you modify any `src/` file while the server is running, the running process continues using the old code. Always run `pm2 restart api` (or restart the uvicorn process) after making backend changes before starting a new review run. Failure to restart means your run will use the pre-change code even though the files on disk are updated. The `--reload` flag handles this automatically in the plain-terminal dev workflow above, but PM2 does not hot-reload by default.
+**IMPORTANT -- restart after code changes:** Python loads modules into memory at startup. If you modify any `src/` file while the server is running, the running process continues using the old code. Always run `pm2 restart litreview-api` (or restart the uvicorn process) after making backend changes before starting a new review run. Failure to restart means your run will use the pre-change code even though the files on disk are updated. The `--reload` flag handles this automatically in the plain-terminal dev workflow above, but PM2 does not hot-reload by default.
 
 **Production deploys -- rebuild the frontend:** When running in production (FastAPI serves `frontend/dist/` as static files on port 8000), a `pnpm build` is required after every frontend code change. The Vite dev server (port 5173) picks up changes automatically, but the production URL always serves the last built `dist/`. After rebuilding, restart the API process so it serves the new assets:
 

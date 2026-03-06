@@ -4,7 +4,7 @@ Check that project documentation is accurate and aligned with the current codeba
 
 ## Steps
 
-1. **Discover project docs** -- List markdown files in the project root and any `docs/` directory. Identify which files serve as the primary user-facing README and the technical specification (commonly `README.md` and `spec.md` or similar). Read them in full.
+1. **Discover project docs** -- List markdown files in the project root and any `docs/` directory. Identify which files serve as the primary user-facing README and the technical specification (commonly `README.md` and `spec.md` or similar). Read them in full. Also read `.cursor/rules/core/project-overview-always.mdc` and `.cursor/commands/*.md` -- in this project those files encode operational truth that `README.md` and `spec.md` sometimes lag behind.
 
 2. **Survey the codebase state** -- Understand what is actually implemented:
    - List all source directories and their subdirectories
@@ -45,3 +45,4 @@ Check that project documentation is accurate and aligned with the current codeba
 - Do NOT remove spec content unless it has been explicitly cancelled or superseded by the user
 - Do NOT add verbose architecture explanations -- keep it focused on what a developer needs to get started and run the project
 - If a referenced config key or CLI flag does not exist in the codebase, mark it as stale rather than silently removing it -- ask the user for confirmation before deleting documented features
+- In this project, confirmed runtime behavior divergences from docs should also be added to `.cursor/rules/core/gotchas-agent.mdc` as new gotcha entries, not just corrected in README/spec

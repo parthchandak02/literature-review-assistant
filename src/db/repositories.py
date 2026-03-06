@@ -324,11 +324,15 @@ class WorkflowRepository:
         """Return (records_screened, records_excluded_screening, reports_sought,
         reports_not_retrieved, reports_assessed, reports_excluded_with_reasons).
 
-        This pipeline performs title/abstract screening only; there is no
-        separate full-text retrieval step.  The returned tuple therefore
-        always has reports_not_retrieved=0 and reports_assessed=reports_sought.
-        The caller (build_prisma_counts) must further reconcile reports_sought
-        with the ground-truth included count.
+        When skip_fulltext_if_no_pdf=true, papers whose full text could not be
+        retrieved are excluded with ExclusionReason.NO_FULL_TEXT at the fulltext
+        stage.  PRISMA 2020 item 17 requires these to appear in "Reports not
+        retrieved", NOT in "Reports excluded with reasons" (they were never
+        assessed for eligibility -- they were simply unreachable).
+
+        ft_assessed and ft_excluded are adjusted to exclude the not-retrieved
+        papers so the caller's PRISMA arithmetic remains consistent:
+            reports_sought == reports_not_retrieved + reports_assessed
         """
         ta_screened = 0
         ta_excluded = 0
@@ -376,7 +380,15 @@ class WorkflowRepository:
                 key = str(reason).strip().lower().replace(" ", "_") if reason else "other"
                 exclusion_reasons[key] = exclusion_reasons.get(key, 0) + int(cnt)
 
-        reports_not_retrieved = 0  # no retrieval failures in abstract-only pipeline
+        # Separate "not retrieved" from "assessed but excluded".
+        # no_full_text papers were never read -- they belong in the PRISMA
+        # "Reports not retrieved" box, not in "Reports excluded with reasons".
+        reports_not_retrieved = exclusion_reasons.pop("no_full_text", 0)
+        # Adjust ft_assessed and ft_excluded to exclude the not-retrieved papers
+        # so that: reports_sought == reports_not_retrieved + reports_assessed
+        ft_assessed = max(0, ft_assessed - reports_not_retrieved)
+        ft_excluded = max(0, ft_excluded - reports_not_retrieved)
+
         return ta_screened, ta_excluded, ft_sought, reports_not_retrieved, ft_assessed, exclusion_reasons
 
     async def get_processed_paper_ids(self, workflow_id: str, stage: str) -> set[str]:
@@ -779,6 +791,44 @@ class WorkflowRepository:
                 continue
         return assessments
 
+    async def save_casp_assessment(self, workflow_id: str, paper_id: str, assessment: Any) -> None:
+        """Persist full structured CASP assessment for a paper (upsert on paper_id)."""
+        await self.db.execute(
+            """
+            INSERT INTO casp_assessments (workflow_id, paper_id, assessment_data, overall_summary)
+            VALUES (?, ?, ?, ?)
+            ON CONFLICT(workflow_id, paper_id) DO UPDATE SET
+                assessment_data = excluded.assessment_data,
+                overall_summary = excluded.overall_summary
+            """,
+            (workflow_id, paper_id, assessment.model_dump_json(), assessment.overall_summary),
+        )
+        await self.db.commit()
+
+    async def save_mmat_assessment(self, workflow_id: str, paper_id: str, assessment: Any) -> None:
+        """Persist full structured MMAT assessment for a paper (upsert on paper_id)."""
+        await self.db.execute(
+            """
+            INSERT INTO mmat_assessments
+                (workflow_id, paper_id, assessment_data, overall_summary, study_type, overall_score)
+            VALUES (?, ?, ?, ?, ?, ?)
+            ON CONFLICT(workflow_id, paper_id) DO UPDATE SET
+                assessment_data = excluded.assessment_data,
+                overall_summary = excluded.overall_summary,
+                study_type = excluded.study_type,
+                overall_score = excluded.overall_score
+            """,
+            (
+                workflow_id,
+                paper_id,
+                assessment.model_dump_json(),
+                assessment.overall_summary,
+                str(assessment.study_type),
+                int(assessment.overall_score),
+            ),
+        )
+        await self.db.commit()
+
     async def save_checkpoint(
         self,
         workflow_id: str,
@@ -883,7 +933,11 @@ class WorkflowRepository:
             return None
 
     async def save_dedup_count(self, workflow_id: str, count: int) -> None:
-        """Persist the post-deduplication paper count so resume does not recompute it."""
+        """Persist the number of duplicate papers removed during deduplication.
+
+        Note: `count` is duplicates-removed, NOT the post-dedup paper count.
+        PRISMA diagram uses this value for the "duplicates removed" box.
+        """
         await self.db.execute(
             "UPDATE workflows SET dedup_count = ? WHERE workflow_id = ?",
             (count, workflow_id),
@@ -891,7 +945,7 @@ class WorkflowRepository:
         await self.db.commit()
 
     async def get_dedup_count(self, workflow_id: str) -> int | None:
-        """Return stored dedup count, or None if not yet persisted."""
+        """Return the number of duplicates removed, or None if not yet persisted."""
         cursor = await self.db.execute(
             "SELECT dedup_count FROM workflows WHERE workflow_id = ?",
             (workflow_id,),

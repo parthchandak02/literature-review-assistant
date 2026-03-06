@@ -209,6 +209,7 @@ def markdown_to_latex(
     citekeys: set[str] | None = None,
     figure_paths: list[str] | None = None,
     num_to_citekey: dict[str, str] | None = None,
+    author_name: str = "",
 ) -> str:
     """Convert markdown manuscript to IEEE LaTeX.
 
@@ -233,6 +234,8 @@ def markdown_to_latex(
 
     if title:
         preamble += f"\\title{{{_escape_latex(title)}}}\n"
+    if author_name:
+        preamble += f"\\author{{{_escape_latex(author_name)}}}\n"
     preamble += "\\maketitle\n\n"
 
     if abstract:

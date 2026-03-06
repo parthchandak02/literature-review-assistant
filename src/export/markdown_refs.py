@@ -904,15 +904,19 @@ def assemble_submission_manuscript(
 
     _protocol_registered = False
     _registration_id = ""
+    _author_name = ""
     if review_config is not None and hasattr(review_config, "protocol"):
         _proto = review_config.protocol
         _protocol_registered = bool(getattr(_proto, "registered", False))
         _registration_id = str(getattr(_proto, "registration_number", "") or "")
+    if review_config is not None:
+        _author_name = str(getattr(review_config, "author_name", "") or "")
     declarations_section = build_markdown_declarations_section(
         funding=funding,
         coi=coi,
         protocol_registered=_protocol_registered,
         registration_id=_registration_id,
+        author_name=_author_name,
     )
 
     picos_section = ""

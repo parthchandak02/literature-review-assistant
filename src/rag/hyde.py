@@ -41,7 +41,7 @@ Requirements:
 """
 
 _SECTION_CONTEXT: dict[str, str] = {
-    "introduction": "introducing background, clinical significance, and review objectives",
+    "introduction": "introducing background, research significance, and review objectives",
     "methods": "describing the search strategy, eligibility criteria, and data extraction approach",
     "results": "summarising included study characteristics and key outcome findings",
     "discussion": "interpreting results, comparing with prior work, and discussing limitations",

@@ -106,6 +106,26 @@ CREATE TABLE IF NOT EXISTS grade_assessments (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
+CREATE TABLE IF NOT EXISTS casp_assessments (
+    workflow_id TEXT NOT NULL,
+    paper_id TEXT NOT NULL REFERENCES papers(paper_id),
+    assessment_data TEXT NOT NULL,
+    overall_summary TEXT NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (workflow_id, paper_id)
+);
+
+CREATE TABLE IF NOT EXISTS mmat_assessments (
+    workflow_id TEXT NOT NULL,
+    paper_id TEXT NOT NULL REFERENCES papers(paper_id),
+    assessment_data TEXT NOT NULL,
+    overall_summary TEXT NOT NULL,
+    study_type TEXT NOT NULL,
+    overall_score INTEGER NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (workflow_id, paper_id)
+);
+
 CREATE TABLE IF NOT EXISTS section_drafts (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     workflow_id TEXT NOT NULL,

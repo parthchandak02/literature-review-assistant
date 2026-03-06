@@ -2246,7 +2246,7 @@ async def get_screening_summary(run_id: str) -> dict:
                 p.abstract,
                 sd.stage,
                 sd.decision,
-                sd.rationale,
+                sd.reason,
                 sd.confidence
             FROM papers p
             JOIN screening_decisions sd ON p.paper_id = sd.paper_id
@@ -2363,6 +2363,32 @@ async def approve_screening(
                         paper_titles[_t_row[0]] = _t_row[1] or ""
 
                 await save_corrections(_corr_db, workflow_id, corrections)
+
+                # Propagate human overrides to screening_decisions and dual_screening_results
+                # so that HumanReviewCheckpointNode's post-approval reload picks them up.
+                for _ov in overrides:
+                    await _corr_db.execute(
+                        """
+                        INSERT INTO screening_decisions
+                            (workflow_id, paper_id, stage, decision, reason,
+                             exclusion_reason, reviewer_type, confidence)
+                        VALUES (?, ?, 'fulltext', ?, ?, NULL, 'human_override', 1.0)
+                        """,
+                        (workflow_id, _ov.paper_id, _ov.decision, _ov.reason or "human override"),
+                    )
+                    await _corr_db.execute(
+                        """
+                        INSERT INTO dual_screening_results
+                            (workflow_id, paper_id, stage, agreement, final_decision, adjudication_needed)
+                        VALUES (?, ?, 'fulltext', 1, ?, 0)
+                        ON CONFLICT(workflow_id, paper_id, stage) DO UPDATE SET
+                            final_decision = excluded.final_decision,
+                            agreement = excluded.agreement,
+                            adjudication_needed = excluded.adjudication_needed
+                        """,
+                        (workflow_id, _ov.paper_id, _ov.decision),
+                    )
+                await _corr_db.commit()
 
                 # Generate refined criteria via LLM (non-blocking; failures are silent)
                 try:

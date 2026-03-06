@@ -426,6 +426,10 @@ class DualReviewerScreener:
                                 phase="phase_3_screening",
                             )
                         )
+                        if self.on_screening_decision:
+                            self.on_screening_decision(
+                                paper.paper_id, stage, "exclude", "fulltext_no_pdf_heuristic", 1.0
+                            )
                         result = no_ft_decision
                     else:
                         result = await self.screen_full_text(workflow_id, paper, text)
@@ -556,7 +560,13 @@ class DualReviewerScreener:
         # Title-only / insufficient-content heuristic: papers with no extractable abstract
         # cannot be meaningfully screened or have data extracted -- auto-exclude.
         if stage == "title_abstract" and self._is_insufficient_content(paper):
-            _log.info("Insufficient-content heuristic: auto-excluding %s (%s)", paper.paper_id, paper.title)
+            _abstract_word_count = len((paper.abstract or "").split())
+            _log.info(
+                "Insufficient-content heuristic: auto-excluding %s (%s) -- abstract word count: %d",
+                paper.paper_id,
+                paper.title,
+                _abstract_word_count,
+            )
             insuf_decision = ScreeningDecision(
                 paper_id=paper.paper_id,
                 decision=ScreeningDecisionType.EXCLUDE,
@@ -572,7 +582,8 @@ class DualReviewerScreener:
                     paper_id=paper.paper_id,
                     decision=ScreeningDecisionType.EXCLUDE.value,
                     rationale=(
-                        f"Title-only or stub abstract: fewer than "
+                        f"Abstract absent or stub ({_abstract_word_count} words). "
+                        f"Threshold: fewer than "
                         f"{getattr(getattr(getattr(self, 'settings', None), 'screening', None), 'insufficient_content_min_words', self._TITLE_ONLY_ABSTRACT_WORD_THRESHOLD)} "
                         f"words or explicit no-abstract marker."
                     ),
@@ -581,7 +592,15 @@ class DualReviewerScreener:
                 )
             )
             if self.on_screening_decision:
-                self.on_screening_decision(paper.paper_id, stage, "exclude", "insufficient_content_heuristic", 0.90)
+                # Encode word count in reason with pipe delimiter so the SSE consumer
+                # can display it: "insufficient_content_heuristic|3w" -> "(3w)" in UI.
+                self.on_screening_decision(
+                    paper.paper_id,
+                    stage,
+                    "exclude",
+                    f"insufficient_content_heuristic|{_abstract_word_count}w",
+                    0.90,
+                )
             return insuf_decision
 
         include_thresh = self.settings.screening.stage1_include_threshold

@@ -29,9 +29,15 @@ Audit all existing `.cursor/rules/` files against the current codebase and updat
    - `python/`, `tool/`, `testing/`, `domain/` -- language, library, test, and domain-specific rules
    - Match the suffix pattern already used in that subdirectory (e.g. `-always.mdc`, `-auto.mdc`, `-agent.mdc`)
 
-6. **Verify skill references** -- If any rule references a `.cursor/skills/` file, confirm that skill file actually exists. Remove or update broken references.
+6. **Also audit command docs** -- Check `.cursor/commands/*.md` files for the same issues:
+   - Do the PM2 process names match `ecosystem.config.js`?
+   - Do referenced file paths and module names still exist?
+   - Are there behavioral claims that contradict the current codebase or `gotchas-agent.mdc`?
+   Apply the same update/no-change threshold as for rule files.
 
-7. **Report changes** -- Produce a summary table of every rule file that was touched:
+7. **Verify skill references** -- If any rule references a `.cursor/skills/` file, confirm that skill file actually exists. Remove or update broken references.
+
+8. **Report changes** -- Produce a summary table of every rule file that was touched:
 
    | Rule File | Action | What Changed |
    |-----------|--------|--------------|

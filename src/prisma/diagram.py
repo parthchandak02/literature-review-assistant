@@ -240,18 +240,22 @@ async def build_prisma_counts(
 ) -> PRISMACounts:
     """Build PRISMACounts from repository data.
 
-    This pipeline uses abstract-only (title/abstract) screening with no
-    separate full-text retrieval step.  The PRISMA 2020 arithmetic is:
+    PRISMA 2020 arithmetic (two-stage screening with full-text gate):
 
-        records_screened = records_after_dedup
+        records_screened       = records_after_dedup - automation_excluded
         records_excluded_screening = records_screened - reports_sought
-        reports_sought = reports_assessed = studies_included
-        reports_not_retrieved = 0
-        reports_excluded_with_reasons = {} (no full-text exclusions)
+        reports_sought         = title/abstract survivors forwarded to full-text
+        reports_not_retrieved  = papers sought but full text unavailable
+                                 (excluded with ExclusionReason.NO_FULL_TEXT)
+        reports_assessed       = reports_sought - reports_not_retrieved
+        excluded_total         = reports_assessed - included_total
+
+    When no full-text stage data exists (e.g. very early in a run), the
+    function falls back to the abstract-only assumption where assessed == included.
 
     The dual_screening_results table may undercount T/A includes (e.g. papers
     forwarded to extraction via BM25 ranking).  We therefore use
-    studies_included as the ground-truth for reports_sought/assessed.
+    studies_included as the ground-truth floor for reports_sought/assessed.
     """
     databases, other = await repo.get_search_counts_by_category(workflow_id)
     (
@@ -274,18 +278,23 @@ async def build_prisma_counts(
         records_screened = records_after_dedup
 
     included_total = included_qualitative + included_quantitative
-    reports_not_retrieved = 0
+
+    # Use the actual not-retrieved count from the repository.  This is non-zero
+    # when skip_fulltext_if_no_pdf=true and some papers had no retrievable PDF.
+    reports_not_retrieved = _reports_not_retrieved_raw
 
     # Use actual fulltext-stage counts from dual_screening_results when available.
-    # _reports_assessed_raw > included_total signals that real full-text exclusions
-    # occurred (papers assessed at full-text stage but not included). When this
-    # condition holds, use the DB-derived values for PRISMA accuracy. Otherwise
-    # fall back to the abstract-only pipeline assumption (assessed == included).
-    if _reports_assessed_raw > included_total:
+    # Trigger when there are real full-text exclusions OR papers not retrieved --
+    # both indicate the full-text screening stage actually ran.
+    has_fulltext_stage = _reports_assessed_raw > included_total or reports_not_retrieved > 0
+    if has_fulltext_stage:
         reports_assessed = _reports_assessed_raw
-        reports_sought = _reports_sought_raw if _reports_sought_raw >= _reports_assessed_raw else _reports_assessed_raw
+        # reports_sought must cover both assessed and not-retrieved papers.
+        # Use the larger of: (a) raw T/A survivor count, (b) not-retrieved + assessed.
+        computed_sought = reports_not_retrieved + reports_assessed
+        reports_sought = max(_reports_sought_raw, computed_sought)
         reports_excluded_with_reasons = _reports_excluded_with_reasons_raw
-        excluded_total = reports_assessed - included_total
+        excluded_total = max(0, reports_assessed - included_total)
     else:
         reports_sought = included_total
         reports_assessed = included_total

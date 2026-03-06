@@ -1,53 +1,93 @@
-"""Structured logging for machine-parseable audit trail."""
+"""Structured logging for machine-parseable audit trail.
+
+Per-run isolation: each run writes to its own {log_dir}/app.jsonl.
+The global structlog processors are configured once; per-run routing
+is handled by reading the current run's log_dir from structlog contextvars
+and writing the JSON line to the matching open file handle.
+"""
 
 from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Any
+from typing import Any, TextIO
 
 import structlog
 from structlog.processors import JSONRenderer
-from structlog.typing import Processor
+from structlog.typing import EventDict, Processor
 
-_configured = False
-_logger: structlog.BoundLogger | None = None
+# Maps log_dir (absolute path string) -> open file handle for that run's app.jsonl.
+_file_handles: dict[str, TextIO] = {}
+
+# True once the global structlog processor chain has been configured (one-time).
+_structlog_configured = False
+
+
+def _write_to_run_file(
+    logger: Any,  # noqa: ARG001
+    method: str,  # noqa: ARG001
+    event_dict: EventDict,
+) -> EventDict:
+    """structlog processor: write JSON line to the current run's app.jsonl.
+
+    Reads log_dir from contextvars (bound by bind_run).  If no log_dir is
+    bound (e.g. during startup before any run starts) the write is silently
+    skipped so the global structlog chain continues normally.
+    """
+    ctx = structlog.contextvars.get_contextvars()
+    log_dir = ctx.get("log_dir")
+    if log_dir and log_dir in _file_handles:
+        fh = _file_handles[log_dir]
+        try:
+            line = json.dumps(event_dict) + "\n"
+            fh.write(line)
+            fh.flush()
+        except Exception:
+            pass
+    return event_dict
 
 
 def configure_run_logging(log_dir: str) -> None:
-    """One-time setup at workflow start. Writes JSON lines to {log_dir}/app.jsonl."""
-    global _configured, _logger
-    if _configured:
-        return
-    app_log_path = Path(log_dir) / "app.jsonl"
-    app_log_path.parent.mkdir(parents=True, exist_ok=True)
-    file_handle = open(app_log_path, "a", encoding="utf-8")
+    """Open a per-run app.jsonl for this log_dir and ensure structlog is configured.
 
-    def _file_logger_factory(*args: Any, **kwargs: Any) -> structlog.PrintLogger:
-        return structlog.PrintLogger(file_handle)
+    Safe to call multiple times with the same log_dir (idempotent).
+    Each distinct log_dir gets its own file handle so multiple sequential
+    runs in a long-lived API process each write to the correct file.
+    """
+    global _structlog_configured
 
-    processors: list[Processor] = [
-        structlog.contextvars.merge_contextvars,
-        structlog.processors.add_log_level,
-        structlog.processors.TimeStamper(fmt="iso"),
-        structlog.processors.StackInfoRenderer(),
-        structlog.processors.format_exc_info,
-        structlog.processors.UnicodeDecoder(),
-        JSONRenderer(),
-    ]
-    structlog.configure(
-        processors=processors,
-        context_class=dict,
-        logger_factory=_file_logger_factory,
-        cache_logger_on_first_use=True,
+    if log_dir not in _file_handles:
+        app_log_path = Path(log_dir) / "app.jsonl"
+        app_log_path.parent.mkdir(parents=True, exist_ok=True)
+        _file_handles[log_dir] = open(app_log_path, "a", encoding="utf-8")  # noqa: SIM115
+
+    if not _structlog_configured:
+        processors: list[Processor] = [
+            structlog.contextvars.merge_contextvars,
+            structlog.processors.add_log_level,
+            structlog.processors.TimeStamper(fmt="iso"),
+            structlog.processors.StackInfoRenderer(),
+            structlog.processors.format_exc_info,
+            structlog.processors.UnicodeDecoder(),
+            JSONRenderer(),
+            _write_to_run_file,
+        ]
+        structlog.configure(
+            processors=processors,
+            context_class=dict,
+            logger_factory=structlog.PrintLoggerFactory(),
+            cache_logger_on_first_use=False,
+        )
+        _structlog_configured = True
+
+
+def bind_run(workflow_id: str, run_id: str, log_dir: str = "") -> None:
+    """Bind run context so every log line includes workflow_id, run_id, and log_dir."""
+    structlog.contextvars.bind_contextvars(
+        workflow_id=workflow_id,
+        run_id=run_id,
+        log_dir=log_dir,
     )
-    _configured = True
-    _logger = structlog.get_logger()
-
-
-def bind_run(workflow_id: str, run_id: str) -> None:
-    """Bind workflow context so every log includes workflow_id and run_id."""
-    structlog.contextvars.bind_contextvars(workflow_id=workflow_id, run_id=run_id)
 
 
 def log_api_call(
@@ -90,14 +130,14 @@ def log_api_call(
         payload["tokens_out"] = tokens_out
     if cost_usd is not None:
         payload["cost_usd"] = cost_usd
-    if _logger is not None:
-        _logger.info("api_call", **payload)
+    logger = structlog.get_logger()
+    logger.info("api_call", **payload)
 
 
 def log_rate_limit_wait(tier: str, slots_used: int, limit: int) -> None:
     """Log rate limit wait event."""
-    if _logger is not None:
-        _logger.info("rate_limit_wait", tier=tier, slots_used=slots_used, limit=limit)
+    logger = structlog.get_logger()
+    logger.info("rate_limit_wait", tier=tier, slots_used=slots_used, limit=limit)
 
 
 def log_screening_decision(
@@ -110,14 +150,14 @@ def log_screening_decision(
     payload: dict[str, Any] = {"paper_id": paper_id, "stage": stage, "decision": decision}
     if rationale is not None:
         payload["rationale"] = rationale
-    if _logger is not None:
-        _logger.info("screening_decision", **payload)
+    logger = structlog.get_logger()
+    logger.info("screening_decision", **payload)
 
 
 def log_phase(phase: str, action: str, **summary: Any) -> None:
     """Log phase transition (action: start|done)."""
-    if _logger is not None:
-        _logger.info("phase", phase=phase, action=action, **summary)
+    logger = structlog.get_logger()
+    logger.info("phase", phase=phase, action=action, **summary)
 
 
 def log_connector_result(
@@ -132,8 +172,8 @@ def log_connector_result(
         payload["records"] = records
     if error is not None:
         payload["error"] = error
-    if _logger is not None:
-        _logger.info("connector_result", **payload)
+    logger = structlog.get_logger()
+    logger.info("connector_result", **payload)
 
 
 # ---------------------------------------------------------------------------
@@ -185,7 +225,7 @@ def normalize_jsonl_event(entry: dict[str, Any]) -> dict[str, Any] | None:
         }
 
     if ev in _PASSTHROUGH_EVENTS:
-        out = {k: v for k, v in entry.items() if k not in ("event", "level", "timestamp", "workflow_id", "run_id")}
+        out = {k: v for k, v in entry.items() if k not in ("event", "level", "timestamp", "workflow_id", "run_id", "log_dir")}
         out["type"] = ev
         out["ts"] = ts
         return out
@@ -208,6 +248,8 @@ def load_events_from_jsonl(path: str) -> list[dict[str, Any]]:
                 try:
                     entry = json.loads(line)
                 except json.JSONDecodeError:
+                    continue
+                if not isinstance(entry, dict):
                     continue
                 normalized = normalize_jsonl_event(entry)
                 if normalized is not None:

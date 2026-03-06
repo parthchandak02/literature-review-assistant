@@ -49,7 +49,7 @@ def _build_direction_prompt(results_summary: str, outcome_name: str) -> str:
             "  positive  - intervention shows improvement / benefit",
             "  negative  - intervention shows harm / worse outcomes",
             "  mixed     - some outcomes improved, others worsened, or results are conditional",
-            "  null      - no statistically or clinically meaningful effect, or data insufficient",
+            "  null      - no statistically or practically meaningful effect, or data insufficient",
             "",
             "Do NOT classify as 'positive' if the text uses negation (e.g., 'did not improve').",
             "Return ONLY valid JSON matching the schema.",

@@ -112,10 +112,10 @@ function PaperRow({ paper, override, onOverride }: PaperRowProps) {
 
       {expanded && (
         <div className="px-4 pb-4 border-t border-zinc-800 pt-3 space-y-3">
-          {paper.rationale && (
+          {paper.reason && (
             <div>
               <p className="text-xs font-semibold text-zinc-400 mb-1">AI Rationale</p>
-              <p className="text-sm text-zinc-300 leading-relaxed">{paper.rationale}</p>
+              <p className="text-sm text-zinc-300 leading-relaxed">{paper.reason}</p>
             </div>
           )}
           {paper.abstract && (

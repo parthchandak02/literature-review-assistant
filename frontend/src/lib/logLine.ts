@@ -89,11 +89,18 @@ export function eventToLogLine(ev: ReviewEvent): { text: string; level: LogLevel
       const REASON_LABELS: Record<string, string> = {
         insufficient_content_heuristic: "auto-excluded: abstract absent or too short",
         protocol_only_heuristic: "auto-excluded: conference-only abstract",
+        fulltext_no_pdf_heuristic: "auto-excluded: full-text PDF unavailable",
       }
       const conf = ev.confidence != null ? ` ${Math.round(ev.confidence * 100)}%` : ""
       const label = ev.title ?? ev.paper_id?.slice(0, 32) ?? ""
       const rawReason = ev.reason ?? ""
-      const displayReason = rawReason ? (REASON_LABELS[rawReason] ?? rawReason).slice(0, 90) : ""
+      // Support extended reasons like "insufficient_content_heuristic|3w" that encode
+      // the abstract word count after a pipe delimiter for auditability.
+      const pipeIdx = rawReason.indexOf("|")
+      const baseReason = pipeIdx >= 0 ? rawReason.slice(0, pipeIdx) : rawReason
+      const wcSuffix = pipeIdx >= 0 ? ` (${rawReason.slice(pipeIdx + 1)})` : ""
+      const baseLabel = REASON_LABELS[baseReason] ?? rawReason
+      const displayReason = rawReason ? (baseLabel + wcSuffix).slice(0, 95) : ""
       const reasonText = displayReason ? `  -- ${displayReason}` : ""
       const methodBadge = ev.method === "heuristic" ? "[AUTO]  " : "[LLM]   "
       const verb = ev.decision === "include" ? "INCLUDE" : "EXCLUDE"

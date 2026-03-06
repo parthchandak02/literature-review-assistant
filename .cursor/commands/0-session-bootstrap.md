@@ -7,18 +7,21 @@ Execute ALL steps below immediately -- do not skip any step even for seemingly s
 
 ## Step 1 -- Read the authoritative project docs
 
-Read these two files in full. They are the ground truth for architecture, phase status, and
-every module's responsibility:
+Read these files in full. They describe architecture, phase status, and module responsibilities.
+Cross-check them against each other -- they occasionally drift as the codebase evolves faster
+than any single doc:
 
 - `spec.md` -- full technical specification (all 8 phases, acceptance criteria, implementation status)
 - `README.md` -- quick-start, production URLs, PM2 process names
-
-Also read the project overview rule which maps every directory:
-- `.cursor/rules/core/project-overview-always.mdc`
+- `.cursor/rules/core/project-overview-always.mdc` -- maps every directory; ALWAYS-ON so it loads automatically
 
 The Operational Gotchas are in `.cursor/rules/core/gotchas-agent.mdc` (separate file, not
 inside project-overview). Check it before assuming any behavior about PRISMA, run directories,
-or frontend builds.
+frontend builds, or any runtime behavior that "should work but doesn't."
+
+NOTE: `spec.md` and `README.md` are maintained manually and may lag recent code changes.
+When they contradict the code, trust the code. When they contradict `.cursor/rules/core/project-overview-always.mdc`,
+that rule is closer to current truth. Document any confirmed drift in `gotchas-agent.mdc`.
 
 ---
 
@@ -49,6 +52,8 @@ pm2 logs litreview-api --lines 20
 ```
 
 Verify `litreview-api` (port 8001 dev / 8000 prod) and `litreview-ui` are online.
+PM2 process names are `litreview-api`, `litreview-ui`, and `litreview-tunnel`.
+Do NOT use shorthand aliases like `api` or `ui` -- those are NOT configured.
 If `litreview-api` is stopped or erroring, fix that before starting new work.
 
 ---

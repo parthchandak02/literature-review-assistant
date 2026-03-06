@@ -91,13 +91,13 @@ literature-review-assistant/
 |   |-- review.yaml                 # Per-review research config (change every review)
 |   `-- settings.yaml               # System behavior config (change rarely)
 |-- frontend/                       # React/Vite/TypeScript web UI
-|   |-- vite.config.ts              # @ alias, /api proxy to :8000
+|   |-- vite.config.ts              # @ alias, /api proxy to :8001 (PORT env var, default 8001)
 |   `-- src/
 |       |-- App.tsx                 # Root: sidebar + lazy view router
 |       |-- lib/api.ts              # All typed fetch wrappers + SSE types
 |       |-- hooks/                  # useSSEStream, useCostStats, useBackendHealth
 |       |-- components/             # Sidebar, LogStream, ResultsPanel
-|       `-- views/                  # SetupView, RunView, ActivityView, CostView, DatabaseView, ResultsView, HistoryView, ScreeningReviewView, ReferencesView (tab 6)
+|       `-- views/                  # SetupView, RunView, ActivityView, CostView, DatabaseView, ResultsView, ScreeningReviewView, ReferencesView (tab 6); history UX lives in Sidebar.tsx, not a separate view
 |-- src/
 |   |-- main.py                     # CLI entry point (run, resume, export, validate, status)
 |   |-- models/                     # ALL Pydantic data contracts
@@ -700,9 +700,9 @@ The frontend is run-centric. The sidebar is a run list, not a navigation menu. S
 | ConfigView | Shows research question and timestamped review.yaml for the run; used by agents and for copy-to-clipboard |
 | ActivityView | Phase timeline + stats strip + event log (text search); works for live SSE runs and historical fetched runs |
 | CostView | Recharts bar chart grouped by model/phase + sortable cost/token tables; reads from cost_records DB via /api/db/{run_id}/costs (primary, polls every 5s while active); SSE api_call events used as fallback before first DB response |
-| ResultsView | Download links for all output artifacts (available when run is done) |
+| ResultsView | LaTeX export trigger, DOCX download, inline manuscript viewer, collapsible artifact browser, PRISMA compliance panel, evidence network panel (available when run is done) |
 | DatabaseView | Paginated papers (with search), filterable screening decisions, cost records from runtime.db |
-| HistoryView | Past runs from workflows_registry; "Open" button attaches any run to the DB explorer |
+| Sidebar (history) | Past runs from workflows_registry shown in sidebar run list; "Open" button attaches any run to the DB explorer; no separate HistoryView file exists |
 
 ### 9.4 DB Explorer Flow
 
@@ -939,7 +939,7 @@ Living section -- update as work completes.
 | Phase 6: Writing | DONE | Section writer, humanizer, citation validation, style extractor, naturalness scorer, per-section checkpoint, WritingGroundingData (includes kappa, sensitivity_results, n_studies_reporting_count, separated search sources), GRADE table injected into manuscript |
 | Phase 7: PRISMA + Viz | DONE | PRISMA diagram (prisma-flow-diagram + fallback), timeline, geographic, ROBINS-I in RoB figure, uniform artifact naming |
 | Phase 8: Export + Orchestration | DONE | Run/resume, IEEE LaTeX, BibTeX, validators, Word DOCX export (pypandoc + python-docx), submission packager, pdflatex, CLI subcommands |
-| Web UI | DONE | FastAPI SSE backend (30+ endpoints incl. screening-summary, approve-screening, living-refresh, prisma-checklist, papers-reference, papers/{id}/file, fetch-pdfs), React/Vite/TypeScript frontend, structured Setup form, run-centric sidebar, 7-tab RunView in workflow order (Config -> Activity -> Data -> Cost -> Results -> References, with step numbers and chevron connectors; Review Screening when awaiting_review), Config tab shows research question and timestamped review.yaml for agent reference, DB explorer with heuristic RoB filter, cost tracking, grouped Results panel with PRISMA checklist panel, ScreeningReviewView for HITL approval, living refresh button, ReferencesView (tab 6) shows included papers with PDF/TXT download and retroactive "Fetch PDFs" button |
+| Web UI | DONE | FastAPI SSE backend (30+ endpoints incl. screening-summary, approve-screening, living-refresh, prisma-checklist, papers-reference, papers/{id}/file, fetch-pdfs), React/Vite/TypeScript frontend, structured Setup form, run-centric sidebar, 7-tab RunView in workflow order (Config -> Activity -> Data -> Cost -> Results -> References, with step numbers and chevron connectors; Review Screening when awaiting_review), Config tab shows research question and timestamped review.yaml for agent reference, DB explorer with heuristic RoB filter, cost tracking, grouped Results panel with PRISMA checklist panel, ScreeningReviewView for HITL approval, ReferencesView (tab 6) shows included papers with PDF/TXT download and retroactive "Fetch PDFs" button; NOTE: living-refresh backend endpoint exists but no frontend control is currently wired to it -- trigger via CLI or direct API call; history UX lives in Sidebar.tsx (not a separate HistoryView component) |
 | Human-in-the-Loop | DONE | HumanReviewCheckpointNode pauses run at awaiting_review status; approve-screening API resumes; frontend shows Review Screening tab with AI decisions + confidence |
 | Living Review | DONE | living_review + last_search_date in review.yaml; SearchNode skips previously-screened DOIs; POST /api/run/{id}/living-refresh creates incremental re-run |
 | Resume | DONE | Central registry, topic auto-resume, mid-phase resume, resume-from-phase (backend API supports from_phase param; UI phase-picker modal removed -- resume via CLI --from-phase flag or direct API call), fallback scan of run_summary.json |

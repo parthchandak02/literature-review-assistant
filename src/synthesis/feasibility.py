@@ -4,7 +4,7 @@ Feasibility requires:
 1. At least `min_studies` extraction records.
 2. At least two records sharing a named, non-generic outcome name.
 3. Both records must have effect_size AND standard error as numeric values.
-4. No severe clinical heterogeneity signal (all-different study designs with
+4. No severe methodological heterogeneity signal (all-different study designs with
    small N implies high methodological heterogeneity -- warns but does not block).
 
 Warnings (non-blocking) are surfaced via `measurement_warning` and

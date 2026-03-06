@@ -24,19 +24,91 @@ class PubMedConnector:
             Entrez.api_key = api_key
 
     @staticmethod
-    def _extract_year(record: Any) -> int | None:
-        pub_date = str(PubMedConnector._field(record, "PubDate") or "")
-        for token in pub_date.split():
+    def _extract_year_from_pubdate(pub_date: Any) -> int | None:
+        """Extract a 4-digit year from a PubDate dict or string."""
+        if isinstance(pub_date, dict):
+            year_str = str(pub_date.get("Year") or pub_date.get("MedlineDate") or "")
+        else:
+            year_str = str(pub_date or "")
+        for token in year_str.split():
             if token.isdigit() and len(token) == 4:
                 return int(token)
         return None
 
     @staticmethod
-    def _field(record: Any, key: str) -> Any:
-        if hasattr(record, "get"):
-            return record.get(key)
+    def _parse_abstract(abstract_node: Any) -> str | None:
+        """Join structured or plain abstract text into a single string."""
+        if abstract_node is None:
+            return None
+        text_node = abstract_node.get("AbstractText") if isinstance(abstract_node, dict) else abstract_node
+        if text_node is None:
+            return None
+        if isinstance(text_node, list):
+            # Structured abstract: list of labelled sections
+            parts: list[str] = []
+            for section in text_node:
+                label = getattr(section, "attributes", {}).get("Label", "") if hasattr(section, "attributes") else ""
+                content = str(section).strip()
+                if label:
+                    parts.append(f"{label}: {content}")
+                elif content:
+                    parts.append(content)
+            return " ".join(parts) if parts else None
+        return str(text_node).strip() or None
+
+    def _parse_efetch_record(self, article: Any) -> CandidatePaper | None:
+        """Convert one PubmedArticle dict from efetch XML into a CandidatePaper."""
         try:
-            return record[key]
+            medline = article.get("MedlineCitation", {})
+            art = medline.get("Article", {})
+
+            title = str(art.get("ArticleTitle") or "Untitled").strip()
+
+            # Authors
+            authors: list[str] = []
+            for au in (art.get("AuthorList") or []):
+                last = str(au.get("LastName") or "").strip()
+                fore = str(au.get("ForeName") or au.get("Initials") or "").strip()
+                name = f"{last}, {fore}" if fore else last
+                if name.strip(",").strip():
+                    authors.append(name)
+
+            # Year from journal pub date
+            journal_issue = art.get("Journal", {}).get("JournalIssue", {})
+            pub_date = journal_issue.get("PubDate", {})
+            year = self._extract_year_from_pubdate(pub_date)
+
+            # Abstract
+            abstract = self._parse_abstract(art.get("Abstract"))
+
+            # DOI and PubMed ID from PubmedData
+            doi: str | None = None
+            pmid: str | None = None
+            pubmed_data = article.get("PubmedData", {})
+            for aid in (pubmed_data.get("ArticleIdList") or []):
+                id_type = getattr(aid, "attributes", {}).get("IdType", "") if hasattr(aid, "attributes") else ""
+                val = str(aid).strip()
+                if id_type == "doi" and not doi:
+                    doi = val
+                elif id_type == "pubmed" and not pmid:
+                    pmid = val
+
+            # Fallback PMID from MedlineCitation
+            if not pmid:
+                pmid = str(medline.get("PMID") or "").strip() or None
+
+            url = f"https://pubmed.ncbi.nlm.nih.gov/{pmid}/" if pmid else "https://pubmed.ncbi.nlm.nih.gov/"
+
+            return CandidatePaper(
+                title=title,
+                authors=authors or ["Unknown"],
+                year=year,
+                source_database="pubmed",
+                doi=doi,
+                abstract=abstract,
+                url=url,
+                source_category=SourceCategory.DATABASE,
+            )
         except Exception:
             return None
 
@@ -58,34 +130,17 @@ class PubMedConnector:
         if not ids:
             return []
 
-        with Entrez.esummary(db="pubmed", id=",".join(ids), retmode="xml") as handle:
-            summary = Entrez.read(handle)
+        # efetch with rettype="xml" returns full PubmedArticleSet including AbstractText,
+        # AuthorList with LastName/ForeName, DOI, and PubDate -- replacing esummary which
+        # has no abstract field.
+        with Entrez.efetch(db="pubmed", id=",".join(ids), rettype="xml", retmode="xml") as handle:
+            records = Entrez.read(handle)
 
         papers: list[CandidatePaper] = []
-        for doc in summary:
-            title = str(self._field(doc, "Title") or "Untitled")
-            author_list = self._field(doc, "AuthorList") or []
-            authors = [str(author) for author in author_list if str(author).strip()]
-            doi = None
-            article_ids = self._field(doc, "ArticleIds") or []
-            for aid in article_ids:
-                id_type = getattr(aid, "attributes", {}).get("IdType")
-                if id_type == "doi":
-                    doi = str(aid)
-                    break
-            year = self._extract_year(doc)
-            papers.append(
-                CandidatePaper(
-                    title=title,
-                    authors=authors or ["Unknown"],
-                    year=year,
-                    source_database="pubmed",
-                    doi=doi,
-                    abstract=None,
-                    url=f"https://pubmed.ncbi.nlm.nih.gov/{self._field(doc, 'Id')}/",
-                    source_category=SourceCategory.DATABASE,
-                )
-            )
+        for article in records.get("PubmedArticle", []):
+            paper = self._parse_efetch_record(article)
+            if paper is not None:
+                papers.append(paper)
         return papers
 
     async def search(

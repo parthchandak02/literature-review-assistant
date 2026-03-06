@@ -140,13 +140,12 @@ reviewer is likely over-applying this reason to borderline records. The correct 
 reasons are: `wrong_population`, `wrong_intervention`, `wrong_outcome`, `wrong_setting`,
 `wrong_study_design`, or `low_relevance_score`.
 
-## Per-Run Logging Is Only Correct For the First Run (Multi-Run API Bug)
-`configure_run_logging()` in `src/utils/structured_log.py` is guarded by a module-global
-`_configured` flag and returns early on every call after the first. In a long-lived API process
-that serves multiple sequential runs, all runs after the first write their `app.jsonl` into the
-FIRST run's log directory. This affects historical event replay and PM2 log streaming for those
-later runs. If a run's Activity tab shows events from a different topic, this is the cause.
-Work around: restart `litreview-api` between runs if accurate per-run logging matters.
+## Per-Run Logging Uses Per-File-Handle Dict (Fixed)
+`configure_run_logging()` in `src/utils/structured_log.py` now uses a
+`_file_handles: dict[str, TextIO]` keyed by `log_dir`. Each run gets its own `app.jsonl`
+file handle regardless of how many sequential runs the API process serves. The old
+`_configured` single-flag bug (all runs writing to the first run's log dir) is gone.
+`load_events_from_jsonl()` also skips non-dict JSON values defensively.
 
 ## Citation-Chased Papers Are Counted But NOT Re-Screened In The Same Run
 `SearchNode` in `src/orchestration/workflow.py` appends citation-chased papers to
@@ -157,43 +156,38 @@ zero rows to `dual_screening_results`. Do NOT assume citation-chased papers are
 included in the synthesized evidence unless you verify via the DB that they have
 a `fulltext` screening decision.
 
-## HITL Approval Does Not Mutate The Current Run's Inclusion Set
-`POST /api/run/{run_id}/approve-screening` stores override records in the DB and
-flips the registry status to `running`, but it does NOT update `screening_decisions`,
-`dual_screening_results`, or the paused workflow's in-memory `state.included_papers`.
-Human corrections made in the HITL UI are therefore advisory for the active run and
-only feed future criteria-refinement metadata. If you need corrections to affect the
-current run, manually edit `screening_decisions` in the DB and use
-`POST /api/history/resume` with `from_phase=phase_4_extraction_quality` after approval.
+## HITL Approval Now Propagates Overrides Fully (Fixed)
+`POST /api/run/{run_id}/approve-screening` now upserts each human override into
+`screening_decisions` (reviewer_type='human_override') and updates `dual_screening_results`
+(`final_decision`). After the HITL loop completes, `HumanReviewCheckpointNode` reloads
+`state.included_papers` from the DB so extraction sees the corrected inclusion set.
+Resume also re-enters the HITL gate if the registry status is `awaiting_review`.
 
-## Screening Summary API Has A Column Name Bug
-`GET /api/run/{run_id}/screening-summary` joins `screening_decisions sd` and selects
-`sd.rationale`, but `src/db/schema.sql` defines the column as `reason`. This query
-will fail at runtime. If the HITL tab shows an error instead of decisions, this is
-the root cause.
+## Screening Summary API Uses `reason` (Not `rationale`)
+`GET /api/run/{run_id}/screening-summary` selects `sd.reason` (the correct column name).
+The frontend `ScreeningReviewView.tsx` also reads `paper.reason` (not `paper.rationale`).
+Both sides are aligned. If you see a blank "AI Rationale" panel in the HITL tab on an
+older install, the page may be reading a stale JS bundle -- run `pnpm build`.
 
-## CASP And MMAT Assessments Are Not Persisted As Structured DB Rows
-`src/orchestration/workflow.py` runs CASP for qualitative/cross-sectional studies
-and MMAT for mixed-methods studies, but only logs their summaries to `decision_log`.
-`save_rob2_assessment()` and `save_robins_i_assessment()` are the only structured
-persistence paths in `src/db/repositories.py`. On resume, CASP/MMAT papers are
-treated as "not yet assessed" and re-run. Downstream: CASP/MMAT studies do NOT
-appear in the RoB traffic-light figure and their quality data is absent from export
-artifacts.
+## CASP And MMAT Assessments Are Now Persisted (Fixed)
+`src/db/schema.sql` now has `casp_assessments` and `mmat_assessments` tables with
+`PRIMARY KEY (workflow_id, paper_id)`. `src/db/repositories.py` has `save_casp_assessment()`
+and `save_mmat_assessment()` using ON CONFLICT upsert. `ExtractionQualityNode` calls
+these at all 4 call sites (main loop + quality-retry loop for each type). On resume,
+already-assessed CASP/MMAT papers are skipped correctly.
 
-## GRADE Is Per-Paper, Not Per-Outcome Body-Of-Evidence
-`ExtractionQualityNode` calls GRADE once per included paper (picking the first
-non-placeholder outcome name) with `number_of_studies=1`. The repository then
-upserts by `(workflow_id, outcome_name)`, so if two papers share an outcome name,
-the second paper's GRADE assessment silently overwrites the first. The SoF table
-therefore does not represent a multi-study GRADE assessment as Cochrane methodology
-requires.
+## GRADE Now Aggregates Per-Outcome Across All Papers (Fixed)
+`ExtractionQualityNode` now accumulates `(record, rob_assessment, outcome_name)` tuples
+during the per-paper loop, then after both loops it groups by `outcome_name` and calls
+`grade.assess_from_rob()` (or `assess_outcome()` for CASP/MMAT studies) once per unique
+outcome with ALL relevant papers as `number_of_studies`. `save_grade_assessment()` is called
+once per outcome — the old per-paper overwrite bug is gone.
 
-## search_date In Manuscript Is Always The Current Calendar Year
-`WritingGroundingData.search_date` in `src/writing/context_builder.py` is set to
-`str(datetime.now().year)`. For resumed or historical runs this will report the
-CURRENT year rather than the year the search was actually conducted, producing
-potentially incorrect Methods section dates and PRISMA reporting.
+## search_date In Manuscript Uses Actual Search Date (Fixed)
+`WritingNode` in `src/orchestration/workflow.py` now queries `MAX(search_date)` from
+the `search_results` table and passes the result to `build_writing_grounding()`.
+The manuscript Methods section and PRISMA dates now reflect when the search was
+actually run rather than always defaulting to the current calendar year.
 
 ## Phase-4 Citation Lineage Gate Always Passes (Hardcoded)
 `ExtractionQualityNode` calls `run_citation_lineage_gate(... unresolved_items=0)`

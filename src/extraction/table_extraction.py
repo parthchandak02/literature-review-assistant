@@ -21,7 +21,8 @@ import logging
 import os
 import re
 from dataclasses import dataclass
-from urllib.parse import quote
+from html.parser import HTMLParser
+from urllib.parse import quote, urljoin
 
 import aiohttp
 
@@ -50,6 +51,8 @@ _CROSSREF_WORKS_URL = "https://api.crossref.org/works"
 _FT_TIMEOUT = 20  # seconds per tier
 # ScienceDirect returns non-OA papers as <500 chars -- treat as miss.
 _SD_MIN_CHARS = 500
+# Maximum chars returned from a landing-page HTML resolution.
+_LP_MAX_CHARS = 32_000
 
 # Elsevier/ScienceDirect DOI prefixes. Article API only works for these;
 # non-Elsevier DOIs return 403/404. Skip to preserve API quota.
@@ -856,6 +859,241 @@ async def _fetch_crossref_links(
 
 
 # ---------------------------------------------------------------------------
+# Tier 6: Landing-page HTML resolver
+# ---------------------------------------------------------------------------
+
+_PDF_HREF_RE = re.compile(
+    r"(/pdf|\.pdf(?:[?#]|$)|/download|article/download|article/view/[^\"'#]+/pdf)",
+    re.IGNORECASE,
+)
+
+_JSONLD_SCRIPT_RE = re.compile(
+    r'<script[^>]+type=["\']application/ld\+json["\'][^>]*>(.*?)</script>',
+    re.IGNORECASE | re.DOTALL,
+)
+
+_LP_BROWSER_HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/120.0.0.0 Safari/537.36"
+    ),
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+}
+
+
+class _PDFLinkParser(HTMLParser):
+    """Minimal HTML parser to extract PDF link candidates from scholarly landing pages.
+
+    Checks:
+    - <meta name="citation_pdf_url" content="...">
+    - <link rel="alternate" type="application/pdf" href="...">
+    - <a href="..."> matching .pdf / /pdf / /download / OJS-style patterns
+    """
+
+    def __init__(self, base_url: str) -> None:
+        super().__init__()
+        self.base_url = base_url
+        self.candidates: list[str] = []
+        self._seen: set[str] = set()
+
+    def _add(self, href: str | None) -> None:
+        if not href:
+            return
+        resolved = urljoin(self.base_url, href.strip())
+        if resolved.startswith("http") and resolved not in self._seen:
+            self._seen.add(resolved)
+            self.candidates.append(resolved)
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        d = dict(attrs)
+        if tag == "meta":
+            name = (d.get("name") or "").lower()
+            if name == "citation_pdf_url":
+                self._add(d.get("content"))
+        elif tag == "link":
+            rel = (d.get("rel") or "").lower()
+            type_ = (d.get("type") or "").lower()
+            if "alternate" in rel and "application/pdf" in type_:
+                self._add(d.get("href"))
+        elif tag == "a":
+            href = d.get("href") or ""
+            if _is_pdf_like_href(href):
+                self._add(href)
+
+
+def _is_pdf_like_href(href: str) -> bool:
+    """Return True if an anchor href looks like a direct or near-direct PDF link."""
+    if not href or href.startswith("#") or href.startswith("javascript"):
+        return False
+    return bool(_PDF_HREF_RE.search(href))
+
+
+def _extract_jsonld_pdf_urls(html_text: str, base_url: str) -> list[str]:
+    """Extract PDF content URLs from JSON-LD / schema.org script blocks."""
+    results: list[str] = []
+    for match in _JSONLD_SCRIPT_RE.finditer(html_text):
+        try:
+            data = json.loads(match.group(1))
+            items: list[object] = data if isinstance(data, list) else [data]
+            for item in items:
+                if not isinstance(item, dict):
+                    continue
+                for field in ("contentUrl", "url"):
+                    v = item.get(field, "")
+                    if isinstance(v, str) and "pdf" in v.lower():
+                        resolved = urljoin(base_url, v)
+                        if resolved.startswith("http"):
+                            results.append(resolved)
+                for enc in item.get("encoding", []):
+                    if not isinstance(enc, dict):
+                        continue
+                    ct = (enc.get("encodingFormat") or "").lower()
+                    v = enc.get("contentUrl") or enc.get("url") or ""
+                    if "pdf" in ct or ("pdf" in v.lower()):
+                        resolved = urljoin(base_url, v)
+                        if resolved.startswith("http"):
+                            results.append(resolved)
+        except Exception:
+            continue
+    return results
+
+
+async def _resolve_landing_page(
+    url: str,
+    diagnostics: list[str] | None = None,
+) -> FullTextResult | None:
+    """Fetch an article landing page and extract the public PDF or text.
+
+    Checks scholarly HTML metadata signals:
+    - <meta name="citation_pdf_url"> (HighWire/OJS standard)
+    - <link rel="alternate" type="application/pdf">
+    - JSON-LD schema.org contentUrl / encoding
+    - Common download anchors (.pdf, /pdf, /download, OJS article/download)
+
+    Returns None when no accessible PDF or long-text is found (e.g. paywalled).
+    Never returns raw publisher boilerplate HTML as article text.
+    """
+    if not url or not url.startswith("http"):
+        return None
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(
+                url,
+                headers=_LP_BROWSER_HEADERS,
+                timeout=aiohttp.ClientTimeout(total=_FT_TIMEOUT),
+                allow_redirects=True,
+            ) as resp:
+                if resp.status != 200:
+                    _append_diag(diagnostics, "LandingPage", f"HTTP {resp.status}")
+                    return None
+                content_type = resp.headers.get("Content-Type", "").lower()
+                body = await resp.read()
+                final_url = str(resp.url)
+
+        # The landing URL itself served a PDF directly.
+        if "application/pdf" in content_type:
+            try:
+                import io
+
+                import fitz  # PyMuPDF
+                import pymupdf4llm
+
+                doc = fitz.open(stream=io.BytesIO(body), filetype="pdf")
+                text = pymupdf4llm.to_markdown(doc)
+                doc.close()
+                if len(text.strip()) >= _SD_MIN_CHARS:
+                    return FullTextResult(text=text[:_LP_MAX_CHARS], source="landing_page_pdf", pdf_bytes=body)
+            except Exception:
+                pass
+            return FullTextResult(text="", source="landing_page_pdf", pdf_bytes=body)
+
+        if "text/html" not in content_type and "html" not in content_type:
+            _append_diag(diagnostics, "LandingPage", f"non-HTML content-type: {content_type}")
+            return None
+
+        html_text = body.decode("utf-8", errors="replace")
+
+        # Extract PDF candidates from HTML metadata and download anchors.
+        parser = _PDFLinkParser(final_url)
+        parser.feed(html_text)
+        candidates: list[str] = list(parser.candidates)
+
+        # Also scan JSON-LD blocks for schema.org contentUrl.
+        for c in _extract_jsonld_pdf_urls(html_text, final_url):
+            if c not in candidates:
+                candidates.append(c)
+
+        if not candidates:
+            _append_diag(diagnostics, "LandingPage", "no PDF signals in HTML")
+            return None
+
+        pdf_headers = {
+            "User-Agent": _LP_BROWSER_HEADERS["User-Agent"],
+            "Accept": "application/pdf,*/*",
+        }
+        async with aiohttp.ClientSession() as session:
+            for pdf_url in candidates[:5]:  # cap attempts at 5 per page
+                try:
+                    async with session.get(
+                        pdf_url,
+                        headers=pdf_headers,
+                        timeout=aiohttp.ClientTimeout(total=_FT_TIMEOUT),
+                        allow_redirects=True,
+                    ) as presp:
+                        if presp.status != 200:
+                            continue
+                        pct = presp.headers.get("Content-Type", "").lower()
+                        pbody = await presp.read()
+                    if not pbody or len(pbody) < 500:
+                        continue
+                    if "application/pdf" in pct or pdf_url.lower().endswith(".pdf"):
+                        text = ""
+                        try:
+                            import io
+
+                            import fitz  # PyMuPDF
+                            import pymupdf4llm
+
+                            doc = fitz.open(stream=io.BytesIO(pbody), filetype="pdf")
+                            text = pymupdf4llm.to_markdown(doc)
+                            doc.close()
+                        except Exception:
+                            pass
+                        logger.info(
+                            "LandingPage: PDF resolved at %s for page %s",
+                            pdf_url[:80],
+                            url[:60],
+                        )
+                        return FullTextResult(
+                            text=text[:_LP_MAX_CHARS] if text else "",
+                            source="landing_page_pdf",
+                            pdf_bytes=pbody,
+                        )
+                    # Plain-text / article-HTML response.
+                    decoded = pbody.decode("utf-8", errors="replace")
+                    if len(decoded.strip()) >= _SD_MIN_CHARS:
+                        logger.info(
+                            "LandingPage: text resolved at %s for page %s",
+                            pdf_url[:80],
+                            url[:60],
+                        )
+                        return FullTextResult(
+                            text=decoded[:_LP_MAX_CHARS],
+                            source="landing_page_text",
+                        )
+                except Exception:
+                    continue
+
+        _append_diag(diagnostics, "LandingPage", "all candidates failed")
+        return None
+    except Exception as exc:
+        _append_diag(diagnostics, "LandingPage", str(exc))
+        logger.debug("LandingPage resolver error for url=%s: %s", url, exc)
+        return None
+
+
+# ---------------------------------------------------------------------------
 # Public: tiered full-text retrieval
 # ---------------------------------------------------------------------------
 
@@ -876,6 +1114,7 @@ async def fetch_full_text(
     use_biorxiv_medrxiv: bool = True,
     use_openalex_content: bool = False,
     use_crossref_links: bool = True,
+    use_landing_page: bool = True,
     diagnostics: list[str] | None = None,
 ) -> FullTextResult:
     """Retrieve full text using a tiered resolver.
@@ -1018,6 +1257,20 @@ async def fetch_full_text(
             )
             return result
 
+    # Tier 6: Landing-page HTML resolver -- public scholarly pages that expose
+    # PDFs via citation_pdf_url meta, link[type=application/pdf], JSON-LD, or
+    # common download anchors (OJS article/download, etc.).
+    if use_landing_page and (url or effective_doi):
+        lp_url = url if url else f"https://doi.org/{quote(effective_doi)}"
+        result = await _resolve_landing_page(lp_url, diagnostics=diagnostics)
+        if result:
+            logger.info(
+                "fetch_full_text: tier 6 LandingPage success for url=%s source=%s",
+                lp_url[:60],
+                result.source,
+            )
+            return result
+
     logger.debug(
         "fetch_full_text: all tiers missed for doi=%s -- using abstract fallback",
         effective_doi,
@@ -1026,7 +1279,7 @@ async def fetch_full_text(
 
 
 _TABLE_EXTRACTION_PROMPT = """\
-You are a systematic review data extractor specializing in clinical trial result tables.
+You are a systematic review data extractor specializing in extracting quantitative results from study tables.
 
 Examine ALL tables in this document and extract structured outcome data.
 For each table row that reports a quantitative result, output one JSON object with:

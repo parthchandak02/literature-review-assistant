@@ -120,7 +120,7 @@ def test_section_prompts_exist() -> None:
     for section in SECTIONS:
         ctx = get_section_context(section)
         assert len(ctx) > 0
-    assert get_section_word_limit("abstract") == 300
+    assert get_section_word_limit("abstract") == 250  # reads from settings.ieee_export.max_abstract_words
     assert get_section_word_limit("introduction") == 700
 
 

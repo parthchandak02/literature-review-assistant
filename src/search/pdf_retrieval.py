@@ -117,12 +117,32 @@ class PDFRetriever:
                         full_text=parsed_text,
                         success=True,
                     )
-                text = body[:_PDF_MAX_CHARS].decode("utf-8", errors="ignore")
-                if text.strip():
+                # For HTML responses use the landing-page resolver to find the
+                # real PDF link.  Do NOT accept raw publisher HTML as article text
+                # -- it is typically boilerplate (paywall page, journal index, etc.)
+                if "text/html" in content_type or "html" in content_type:
+                    from src.extraction.table_extraction import _resolve_landing_page
+
+                    lp = await _resolve_landing_page(url)
+                    if lp:
+                        full_text = lp.text
+                        if not full_text and lp.pdf_bytes:
+                            full_text = _parse_pdf_bytes(lp.pdf_bytes)
+                        if full_text and len(full_text.strip()) >= 500:
+                            return PDFRetrievalResult(
+                                paper_id=paper.paper_id,
+                                resolved_url=url,
+                                full_text=full_text[:_PDF_MAX_CHARS],
+                                success=True,
+                            )
+                    continue  # Skip -- raw HTML is not usable article text
+                # Plain-text or XML response (not HTML, not PDF).
+                decoded = body[:_PDF_MAX_CHARS].decode("utf-8", errors="ignore")
+                if decoded.strip():
                     return PDFRetrievalResult(
                         paper_id=paper.paper_id,
                         resolved_url=url,
-                        full_text=text,
+                        full_text=decoded,
                         success=True,
                     )
             except Exception:

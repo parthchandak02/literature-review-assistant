@@ -7,7 +7,18 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from src.writing.context_builder import WritingGroundingData
 
-ABSTRACT_WORD_LIMIT = 300
+def _get_abstract_word_limit() -> int:
+    """Read max_abstract_words from settings.ieee_export; fall back to 250 (IEEE max)."""
+    try:
+        from src.config.loader import load_configs
+
+        _, _settings = load_configs(settings_path="config/settings.yaml")
+        return int(getattr(getattr(_settings, "ieee_export", None), "max_abstract_words", 250))
+    except Exception:
+        return 250
+
+
+ABSTRACT_WORD_LIMIT = _get_abstract_word_limit()
 
 SECTION_WORD_LIMITS: dict[str, int] = {
     "abstract": ABSTRACT_WORD_LIMIT,
@@ -138,7 +149,7 @@ def get_introduction_prompt_context(
     return (
         prefix + _NO_HEADING_RULE + "\n\n" + "Write a thorough introduction of approximately 700 words. "
         "Do not truncate findings or provide a superficial overview. "
-        "Cover: (1) Background on the topic and its clinical/educational significance, "
+        "Cover: (1) Background on the topic and its significance and relevance, "
         "(2) Current state of the literature and the evidence gap, "
         "(3) Objective of this systematic review and its scope. "
         "Ground specific study references in the INCLUDED STUDIES list above."

@@ -251,9 +251,11 @@ async def package_submission(
     _figure_names = [
         "fig_prisma_flow.png",
         "fig_rob_traffic_light.png",
+        "fig_rob2_traffic_light.png",
         "fig_publication_timeline.png",
         "fig_geographic_distribution.png",
         "fig_forest_plot.png",
+        "fig_funnel_plot.png",
         "fig_forest_plot.svg",
         "fig_publication_timeline.svg",
         "fig_geographic_distribution.svg",
@@ -270,6 +272,15 @@ async def package_submission(
             shutil.copy2(src, dst)
             figure_paths.append(fig_name)
 
+    _author_name = ""
+    try:
+        from src.config.loader import load_configs as _load_cfgs
+
+        _review_cfg, _ = _load_cfgs()
+        _author_name = str(getattr(_review_cfg, "author_name", "") or "")
+    except Exception:
+        pass
+
     md_content = manuscript_md.read_text(encoding="utf-8")
     num_to_citekey = _build_number_to_citekey(md_content, citations)
     latex_content = markdown_to_latex(
@@ -277,6 +288,7 @@ async def package_submission(
         citekeys=citekeys,
         figure_paths=figure_paths,
         num_to_citekey=num_to_citekey,
+        author_name=_author_name,
     )
     manuscript_tex = submission_dir / "manuscript.tex"
     manuscript_tex.write_text(latex_content, encoding="utf-8")

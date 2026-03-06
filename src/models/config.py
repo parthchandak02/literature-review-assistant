@@ -55,6 +55,14 @@ class ReviewConfig(BaseModel):
     protocol: ProtocolRegistration = Field(default_factory=ProtocolRegistration)
     funding: FundingInfo = Field(default_factory=FundingInfo)
     conflicts_of_interest: str = "The authors declare no conflicts of interest."
+    author_name: str = Field(
+        default="",
+        description=(
+            "Full name of the corresponding/first author. "
+            "Used in CRediT declarations and the LaTeX \\author{} command. "
+            "Leave blank to use the placeholder '[Author name]'."
+        ),
+    )
     search_overrides: dict[str, str] | None = Field(
         default=None,
         description="Optional per-database query overrides. Keys: openalex, pubmed, arxiv, ieee_xplore, semantic_scholar, crossref, perplexity_search. Omit a database to use auto-generated query.",

@@ -13,19 +13,29 @@ function SourceBadge({ source }: { source: string }) {
   const label =
     source === "abstract"
       ? "Abstract only"
-      : source.startsWith("unpaywall")
-        ? "Unpaywall"
-        : source.startsWith("semantic")
-          ? "Semantic Scholar"
-          : source.startsWith("pmc")
-            ? "PMC"
-            : source.startsWith("core")
-              ? "CORE"
-              : source.startsWith("europepmc")
-                ? "Europe PMC"
-                : source.startsWith("sciencedirect")
-                  ? "ScienceDirect"
-                  : source
+      : source === "landing_page_pdf"
+        ? "Publisher Page (PDF)"
+        : source === "landing_page_text"
+          ? "Publisher Page (Text)"
+          : source.startsWith("unpaywall")
+            ? "Unpaywall"
+            : source.startsWith("semantic")
+              ? "Semantic Scholar"
+              : source.startsWith("pmc")
+                ? "PMC"
+                : source.startsWith("core")
+                  ? "CORE"
+                  : source.startsWith("europepmc")
+                    ? "Europe PMC"
+                    : source.startsWith("sciencedirect")
+                      ? "ScienceDirect"
+                      : source.startsWith("arxiv")
+                        ? "arXiv"
+                        : source.startsWith("biorxiv") || source.startsWith("medrxiv")
+                          ? "bioRxiv/medRxiv"
+                          : source.startsWith("crossref")
+                            ? "Crossref"
+                            : source
 
   const isAbstract = source === "abstract"
   return (

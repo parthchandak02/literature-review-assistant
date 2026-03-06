@@ -230,6 +230,7 @@ def build_writing_grounding(
     heuristic_assessment_count: int = 0,
     screening_decisions: list[object] | None = None,
     background_sr_citekeys: list[str] | None = None,
+    search_date: str | None = None,
 ) -> WritingGroundingData:
     """Aggregate real pipeline outputs into a WritingGroundingData instance."""
 
@@ -337,7 +338,7 @@ def build_writing_grounding(
         databases_searched=active_dbs,
         zero_yield_databases=zero_yield_dbs,
         other_methods_searched=active_other,
-        search_date=str(datetime.now().year),
+        search_date=search_date or str(datetime.now().year),
         total_identified=prisma_counts.total_identified_databases + prisma_counts.total_identified_other,
         duplicates_removed=prisma_counts.duplicates_removed,
         automation_excluded=prisma_counts.automation_excluded,
