@@ -164,7 +164,7 @@ search:
   max_results_per_db: 500
   per_database_limits:
     pubmed: 500
-    openalex: 500
+    openalex: 1000
     scopus: 500
     semantic_scholar: 500
     ieee_xplore: 200
@@ -172,3 +172,7 @@ search:
     crossref: 500
     arxiv: 200
     perplexity_search: 20
+  # Emit a WARNING log when a database returns fewer than this many records.
+  # Surfaces over-restricted queries early so the user can fix before screening.
+  # Set to 0 to disable.
+  low_recall_warning_threshold: 10

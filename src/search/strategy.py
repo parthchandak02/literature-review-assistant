@@ -18,7 +18,11 @@ from src.search.deduplication import deduplicate_papers
 
 
 def build_boolean_query(config: ReviewConfig) -> str:
-    keyword_terms = [*config.keywords, config.pico.intervention, config.pico.outcome]
+    # Use only keywords, NOT full PICO description strings.
+    # PICO descriptions (intervention/outcome) are multi-sentence text that never
+    # appears verbatim in papers and produces zero-result queries on ClinicalTrials.gov
+    # and nonsensical queries on all other databases. Keywords are the correct input.
+    keyword_terms = list(config.keywords)
     # De-duplicate while preserving order.
     seen: set[str] = set()
     deduped_terms: list[str] = []
@@ -36,7 +40,11 @@ def build_database_query(config: ReviewConfig, database_name: str) -> str:
     if config.search_overrides and name in config.search_overrides:
         return config.search_overrides[name]
     base = build_boolean_query(config)
-    short_query = f"{config.pico.intervention} {config.pico.population} {config.pico.outcome}"
+    # short_query: first 8 keywords space-separated for relevance-ranked APIs (S2, OpenAlex).
+    # Use natural keyword terms, NOT full PICO description strings which never appear
+    # verbatim in papers and produce near-zero recall on semantic search APIs.
+    kws = config.keywords or []
+    short_query = " ".join(kws[:8]) if kws else (config.pico.intervention[:80])
     if name == "pubmed":
         return f"({base}) AND ({config.pico.population}[Title/Abstract] OR {config.pico.intervention}[Title/Abstract])"
     if name == "arxiv":
@@ -53,6 +61,12 @@ def build_database_query(config: ReviewConfig, database_name: str) -> str:
         # A short, focused phrase (5-10 keywords) gives far better precision than
         # the broad boolean OR fallback. Mirror the Semantic Scholar approach.
         return short_query
+    if name in {"clinicaltrials_gov", "clinicaltrials"}:
+        # ClinicalTrials.gov plain-text search: OR-joined quoted keywords work best.
+        # PICO descriptions never appear verbatim in trial records and always return 0.
+        # Use up to 12 keywords; quote each one so the registry treats them as phrases.
+        ct_kws = config.keywords or []
+        return " OR ".join(f'"{k}"' for k in ct_kws[:12]) if ct_kws else short_query
     if name == "crossref":
         return f'"{config.research_question}" OR ({base})'
     if name == "perplexity_search":
@@ -96,6 +110,7 @@ class SearchStrategyCoordinator:
         gate_runner: GateRunner,
         output_dir: str = "runs",
         on_connector_done: Callable[[str, str, int, str, int | None, int | None, str | None], None] | None = None,
+        low_recall_threshold: int = 10,
     ):
         self.workflow_id = workflow_id
         self.config = config
@@ -104,6 +119,7 @@ class SearchStrategyCoordinator:
         self.gate_runner = gate_runner
         self.output_dir = Path(output_dir)
         self.on_connector_done = on_connector_done
+        self.low_recall_threshold = low_recall_threshold
         # Populated after run() completes; maps connector name -> query string used.
         self.query_map: dict[str, str] = {}
 
@@ -178,6 +194,22 @@ class SearchStrategyCoordinator:
                     )
                     raise
                 results.append(r)
+
+        # Low-recall diagnostic: warn when a connector returned very few records.
+        # This surfaces over-restricted queries early so the user can fix before screening.
+        if self.low_recall_threshold > 0:
+            for db_name, result_list in connector_results.items():
+                total = sum(r.records_retrieved for r in result_list)
+                if total < self.low_recall_threshold:
+                    _logger.warning(
+                        "LOW RECALL: %s returned only %d records (threshold: %d). "
+                        "Consider broadening search_overrides.%s in config/review.yaml. "
+                        "Check doc_search_strategies_appendix.md for the exact query used.",
+                        db_name,
+                        total,
+                        self.low_recall_threshold,
+                        db_name,
+                    )
 
         all_papers = [paper for result in results for paper in result.papers]
         _, dedup_count = deduplicate_papers(all_papers)

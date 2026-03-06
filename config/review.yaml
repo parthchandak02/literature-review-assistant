@@ -119,5 +119,9 @@ search_overrides:
     OR "medication error*"[Title/Abstract] OR "dispensing error"[Title/Abstract]
     OR "pharmacy workflow"[Title/Abstract] OR "patient safety"[Title/Abstract]
     OR "pharmacy efficiency"[Title/Abstract])
-  semantic_scholar: "robotic dispensing pharmacy automation medication error dispensing accuracy outpatient ambulatory"
-  openalex: "robotic dispensing pharmacy automation medication error dispensing accuracy outpatient ambulatory"
+  semantic_scholar: "robotic pharmacy dispensing outpatient medication error implementation barriers"
+  openalex: "robotic medication dispensing pharmacy outpatient implementation dispensing accuracy"
+  clinicaltrials_gov: >-
+    "robotic dispensing" OR "pharmacy automation" OR "automated dispensing" OR "ScriptPro"
+    OR "Omnicell" OR "Parata" OR "Pyxis" OR "RxMedic" OR "outpatient pharmacy"
+    OR "dispensing accuracy" OR "medication error" OR "pharmacy robot"

@@ -291,10 +291,7 @@ class StartNode(BaseNode[ReviewState]):
         _config_src = Path("config/review.yaml")
         _snapshot_dest = run_paths.run_dir / "config_snapshot.yaml"
         _header = (
-            f"# workflow_id: {state.workflow_id}\n"
-            f"# run_dir: {run_paths.run_dir}\n"
-            f"# created_at: {state.run_id}\n"
-            f"#\n"
+            f"# workflow_id: {state.workflow_id}\n# run_dir: {run_paths.run_dir}\n# created_at: {state.run_id}\n#\n"
         )
         if _config_src.exists():
             _snapshot_dest.write_text(
@@ -513,6 +510,7 @@ class SearchNode(BaseNode[ReviewState]):
                 gate_runner=gate_runner,
                 output_dir=state.output_dir,
                 on_connector_done=on_connector_done,
+                low_recall_threshold=state.settings.search.low_recall_warning_threshold,
             )
             search_cfg = state.settings.search
             results, dedup_count = await coordinator.run(
@@ -1323,6 +1321,7 @@ class ExtractionQualityNode(BaseNode[ReviewState]):
                         # Update papers manifest JSON
                         if papers_manifest_path.name:
                             import json as _json
+
                             manifest: dict = {}
                             if papers_manifest_path.exists():
                                 try:
@@ -1338,7 +1337,8 @@ class ExtractionQualityNode(BaseNode[ReviewState]):
                                 "source": ft_result.source if ft_result else "abstract",
                                 "file_path": saved_path,
                                 "file_type": (
-                                    "pdf" if (saved_path and saved_path.endswith(".pdf"))
+                                    "pdf"
+                                    if (saved_path and saved_path.endswith(".pdf"))
                                     else ("txt" if saved_path else None)
                                 ),
                             }

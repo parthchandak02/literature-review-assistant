@@ -215,7 +215,16 @@ class _SearchOverrides(BaseModel):
             "PubMed-optimized query using MeSH terms and [Title/Abstract] field codes. "
             "Use the actual MeSH terms and keywords specific to this review's topic. "
             "Pattern: (MeSHTerm[MeSH Terms] OR keyword[Title/Abstract] OR ...) AND "
-            "(MeSHTerm2[MeSH Terms] OR keyword2[Title/Abstract] OR ...)"
+            "(setting_term[Title/Abstract] OR outcome_term[Title/Abstract] OR ...) "
+            "CRITICAL for the second AND group: each term must be a SINGLE ROOT WORD -- "
+            "not a multi-word phrase. A single broad word returns 10-50x more records than "
+            "an exact two-word phrase. Example: 'hospital'[Title/Abstract] retrieves ~500+ "
+            "records; 'hospital setting'[Title/Abstract] retrieves ~20 records (25x fewer). "
+            "Use single root words that describe the relevant setting or outcome for this topic. "
+            "Do NOT use exact multi-word phrases as [Title/Abstract] field terms -- they require "
+            "both words to appear adjacent in title/abstract and drastically cut recall. "
+            "Also avoid overly narrow secondary MeSH terms in the AND group unless they are "
+            "the primary topic -- many relevant papers are not indexed under narrow MeSH headings."
         ),
     )
     scopus: str | None = Field(
@@ -251,17 +260,34 @@ class _SearchOverrides(BaseModel):
         description=(
             "Semantic Scholar query: 5-8 space-separated keywords specific to this review -- "
             "no quotes, no boolean operators, no long sentences. "
-            "Include the core intervention term, setting/population term, and key outcome term."
+            "Use natural academic language as it appears in paper abstracts, not compound tech-speak. "
+            "Structure: [key_intervention] [condition_or_setting] [outcome] [process_term] "
+            "Good (UV-C disinfection review): 'ultraviolet disinfection hospital infection implementation' "
+            "Good (telemedicine review): 'telemedicine mental health outcomes adherence' "
+            "Bad (any topic): stacked compound nouns that read like a product spec, not a paper abstract. "
+            "Include one specific technology/intervention term, one setting term, one outcome term."
         ),
     )
     openalex: str | None = Field(
         default=None,
         description=(
-            "OpenAlex full-text relevance search query: 5-10 space-separated specific keywords "
-            "focused on this review's intervention + setting + outcome. "
-            "NO quotes, NO boolean operators. Must be highly specific to this topic -- "
-            "broad terms like 'efficiency' or 'safety' alone will match unrelated industries. "
-            "Include the core technology/intervention term AND the domain/setting term."
+            "OpenAlex full-text relevance search query: 5-8 space-separated keywords. "
+            "NO quotes, NO boolean operators. Same natural-language guidance as semantic_scholar. "
+            "CRITICAL: always pair generic outcome words ('outcomes', 'efficacy', 'barriers') with "
+            "a specific domain term from this review's topic -- alone they match unrelated industries. "
+            "Example A (UV-C disinfection review): 'ultraviolet disinfection infection hospital prevention' "
+            "Example B (robotic surgery review): 'robotic surgery laparoscopic outcomes complications' "
+            "Bad (any topic): generic adjective clusters without a domain anchor ('automated advanced system outcomes')."
+        ),
+    )
+    clinicaltrials_gov: str | None = Field(
+        default=None,
+        description=(
+            "ClinicalTrials.gov plain-text search query. Use OR-joined quoted keyword phrases "
+            "specific to the intervention and condition. No field codes, no MeSH terms. "
+            "Include specific technology names, brand names, and condition/setting terms. "
+            'Pattern: "technology term" OR "brand name" OR "condition term" OR "setting term". '
+            "Keep to 8-12 terms. Do NOT include full PICO descriptions as search terms."
         ),
     )
 
@@ -402,7 +428,15 @@ def _build_yaml(cfg: _GeneratedConfig, defaults: _DefaultConfigDict | None = Non
         # Merge search_overrides: LLM-generated wins, config/review.yaml fills missing keys.
         llm_overrides: dict[str, str] = {}
         if cfg.search_overrides:
-            for db_name in ("pubmed", "scopus", "web_of_science", "ieee_xplore", "semantic_scholar", "openalex"):
+            for db_name in (
+                "pubmed",
+                "scopus",
+                "web_of_science",
+                "ieee_xplore",
+                "semantic_scholar",
+                "openalex",
+                "clinicaltrials_gov",
+            ):
                 val = getattr(cfg.search_overrides, db_name, None)
                 if val and isinstance(val, str):
                     llm_overrides[db_name] = val
@@ -493,13 +527,23 @@ _STRUCTURE_PROMPT = (
     "  adjacent technologies identified in the research brief that should be excluded.\n"
     "- Generate a one-line domain description and a 2-4 sentence scope statement.\n"
     "- Set review_type to exactly 'systematic'.\n"
-    "- Generate search_overrides with database-optimized queries for ALL six databases.\n"
-    "  Use the actual keywords and terms from this review's topic -- do NOT use generic\n"
-    "  placeholder keywords. Tailor every query to the specific intervention, population,\n"
-    "  and outcomes identified in the research brief above.\n"
+    "- Generate search_overrides with database-optimized queries for ALL seven databases\n"
+    "  (pubmed, scopus, web_of_science, ieee_xplore, semantic_scholar, openalex,\n"
+    "  clinicaltrials_gov). Use the actual keywords and terms from this review's topic --\n"
+    "  do NOT use generic placeholder keywords. Tailor every query to the specific\n"
+    "  intervention, population, and outcomes identified in the research brief above.\n"
     "  * pubmed: Use MeSH terms where available plus [Title/Abstract] field codes.\n"
     "    Pattern: (MeSHTerm[MeSH Terms] OR keyword[Title/Abstract] OR ...) AND\n"
-    "    (MeSHTerm2[MeSH Terms] OR keyword2[Title/Abstract] OR ...)\n"
+    "    (setting_term[Title/Abstract] OR outcome_term[Title/Abstract] OR ...)\n"
+    "    CRITICAL for the second AND group: every term must be a SINGLE ROOT WORD.\n"
+    "    A single broad word captures 10-50x more records than a two-word exact phrase.\n"
+    "    Example: 'hospital'[Title/Abstract] retrieves ~500 records;\n"
+    "    'hospital setting'[Title/Abstract] retrieves ~20 records (25x fewer).\n"
+    "    Use single root words that describe settings or outcomes for this specific topic.\n"
+    "    Do NOT use multi-word exact phrases in [Title/Abstract] field codes -- they require\n"
+    "    both words to appear adjacent in title/abstract and drastically cut recall.\n"
+    "    Also avoid narrow secondary MeSH headings in the AND group unless they ARE the\n"
+    "    primary topic -- many relevant papers are not indexed under specific narrow MeSH terms.\n"
     "  * scopus: Use TITLE-ABS-KEY field code with two AND-joined clauses of quoted keywords.\n"
     "    Clause 1: core intervention terms (up to 8). Clause 2: outcome/setting terms (up to 8).\n"
     "    Add: AND PUBYEAR > YYYY AND PUBYEAR < YYYY using the date range.\n"
@@ -512,11 +556,24 @@ _STRUCTURE_PROMPT = (
     "  * ieee_xplore: Two OR-groups joined with AND, using parentheses (not field codes).\n"
     '    Pattern: ("kw1" OR "kw2" OR "kw3") AND ("kw4" OR "kw5" OR "kw6")\n'
     "  * semantic_scholar: 5-8 space-separated keywords ONLY. No quotes, no boolean operators.\n"
-    "    Use the most specific terms for this topic's intervention, setting, and outcome.\n"
-    "  * openalex: 5-10 space-separated keywords ONLY. No quotes, no boolean operators.\n"
-    "    CRITICAL: Must include the core technology/intervention term AND a specific\n"
-    "    domain/setting term. Broad terms like 'efficiency' or 'safety' used alone will\n"
-    "    match unrelated industries -- anchor the query with domain-specific terminology.\n"
+    "    Use natural academic language as it appears in paper abstracts, not compound tech-speak.\n"
+    "    Structure: [key_intervention] [condition_or_setting] [outcome] [process_term]\n"
+    "    Good (UV-C disinfection review): 'ultraviolet disinfection hospital infection implementation'\n"
+    "    Good (telemedicine review): 'telemedicine mental health outcomes adherence'\n"
+    "    Bad (any topic): stacked compound nouns that read like a product spec, not a paper abstract.\n"
+    "    Include one specific technology/intervention term, one setting term, one outcome term.\n"
+    "  * openalex: 5-8 space-separated keywords ONLY. No quotes, no boolean operators.\n"
+    "    Same natural-language guidance as semantic_scholar above.\n"
+    "    CRITICAL: always pair generic outcome words with a specific domain term from this topic.\n"
+    "    Generic words like 'efficiency', 'accuracy', 'barriers' alone match unrelated industries.\n"
+    "    Good (UV-C review): 'ultraviolet disinfection infection hospital prevention'\n"
+    "    Good (telemedicine review): 'telemedicine therapy adherence mental health outcomes'\n"
+    "    Bad (any topic): generic adjectives and nouns without a domain anchor.\n"
+    "  * clinicaltrials_gov: OR-joined quoted keyword phrases for this intervention/condition.\n"
+    "    Plain text only -- no MeSH terms, no field codes. Include technology names, brand names,\n"
+    "    and condition/setting terms. 8-12 terms maximum.\n"
+    '    Pattern: "technology term" OR "brand name" OR "condition term"\n'
+    "    Do NOT include full PICO descriptions as search terms.\n"
     "  CRITICAL for all databases: Use only short quoted keyword phrases -- NEVER full\n"
     "  sentences or PICO descriptions as search terms. Full PICO strings never appear\n"
     "  verbatim in papers and will always return zero results.\n\n"

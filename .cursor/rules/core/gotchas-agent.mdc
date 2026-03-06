@@ -101,6 +101,37 @@ The auto-generated fallback query (when no override is set) may produce better r
 poorly crafted override. If a run returns fewer papers from PubMed than a prior run with the
 same topic, compare the actual queries in `doc_search_strategies_appendix.md`.
 
+## OpenAlex `is_core:true` Filter Was Removed (March 2026)
+The `is_core:true` filter was removed from `src/search/openalex.py`. It restricted results
+to CWTS Core-list journals (Scopus/WoS equivalent), causing OpenAlex to return exactly 6
+records for niche pharmacy/robotics topics regardless of query. The correct approach is:
+search broadly (without the core filter), then let the dual-LLM screeners apply inclusion
+criteria to eliminate low-quality papers. Remaining filters (`type:article`,
+`primary_location.source.type:journal`, `is_retracted:false`) are sufficient for quality.
+Do NOT add `is_core:true` back -- it is an intentional removal to support broad-search/
+tight-screen methodology. Expected OpenAlex results after removal: 100-500 for niche topics
+(was consistently 6). `per_database_limits.openalex` in `settings.yaml` is 1000 (not 500).
+
+## `build_boolean_query` Uses Keywords Only (Not PICO Descriptions)
+`build_boolean_query()` in `src/search/strategy.py` uses ONLY `config.keywords`. It does
+NOT include `config.pico.intervention` or `config.pico.outcome`. PICO descriptions are
+multi-sentence text that never appears verbatim in papers -- adding them produces zero-result
+ClinicalTrials.gov queries and noisy results elsewhere. Do NOT add PICO description strings
+back to the `keyword_terms` list. Similarly, `short_query` uses `" ".join(config.keywords[:8])`.
+
+## ClinicalTrials.gov Uses OR-Joined Keywords (Not PICO Sentences)
+`clinicaltrials_gov` has its own case in `build_database_query()`:
+`" OR ".join(f'"{k}"' for k in config.keywords[:12])`.
+Previously it fell through to `return base` (which included full PICO sentences) and always
+returned 0 results. Use `search_overrides.clinicaltrials_gov` in `config/review.yaml` to
+provide a hand-crafted query; the fallback uses the top 12 keywords quoted with OR.
+
+## WoS Quota Exhaustion Surfaces as "FAILED" (Not Silent 0-Result Success)
+WoS Starter API has a 300 req/day free limit. After exhausting retries on 429 errors,
+`WebOfScienceConnector.search()` raises `RuntimeError`. The coordinator catches this and
+marks WoS as "failed" in the activity log SSE event. If you see "SEARCH FAILED: wos...",
+the API key quota is exhausted for the day. Wait 24h or check the Clarivate dev portal.
+
 ## "insufficient_data" Is a Full-Text-Only Exclusion Reason
 The dual screener may produce `insufficient_data` as an exclusion reason. This is only
 methodologically valid at the full-text screening stage (paper lacks empirical data).

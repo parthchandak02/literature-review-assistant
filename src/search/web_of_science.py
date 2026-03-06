@@ -17,6 +17,9 @@ Known limitations:
   - Starter API does not return full text or cited references.
   - Abstract may be missing for some records.
   - Maximum 50 records per page (API page size limit).
+  - 300 requests/day free tier -- quota exhaustion causes 429, which is raised
+    as RuntimeError so the coordinator marks the connector as "failed" (not
+    silent 0-result success).
 """
 
 from __future__ import annotations
@@ -133,7 +136,13 @@ class WebOfScienceConnector:
         date_start: int | None = None,
         date_end: int | None = None,
     ) -> SearchResult:
-        """Run a WoS search and return results up to max_results."""
+        """Run a WoS search and return results up to max_results.
+
+        Raises RuntimeError when the API returns a fatal error (401/403) or
+        exhausts all retries on 429/5xx (quota exhaustion). The SearchStrategy-
+        Coordinator catches this and marks the connector as "failed" in the
+        SSE event rather than silently returning 0 results.
+        """
         papers: list[CandidatePaper] = []
         headers = {
             "X-ApiKey": self._api_key,
@@ -142,6 +151,8 @@ class WebOfScienceConnector:
         full_query = self._build_query(query, date_start, date_end)
         page = 1
         total_records: int | None = None
+        # Track the last fatal/quota error so we can raise after all pages attempted.
+        _fatal_error: str | None = None
 
         async with aiohttp.ClientSession(
             connector=tcp_connector_with_certifi(),
@@ -169,10 +180,14 @@ class WebOfScienceConnector:
                             timeout=aiohttp.ClientTimeout(total=30),
                         ) as resp:
                             if resp.status == 401:
-                                logger.error("WoS API: 401 Unauthorized -- check WOS_API_KEY")
+                                _fatal_error = "WoS API: 401 Unauthorized -- check WOS_API_KEY"
+                                logger.error(_fatal_error)
                                 break
                             if resp.status == 403:
-                                logger.error("WoS API: 403 Forbidden -- API key may lack access to WoS Core Collection")
+                                _fatal_error = (
+                                    "WoS API: 403 Forbidden -- API key may lack access to WoS Core Collection"
+                                )
+                                logger.error(_fatal_error)
                                 break
                             if resp.status in (429,) or 500 <= resp.status < 600:
                                 body = await resp.text()
@@ -189,17 +204,18 @@ class WebOfScienceConnector:
                                     await asyncio.sleep(sleep_s)
                                     continue
                                 else:
-                                    logger.error(
-                                        "WoS API: status %d after %d retries -- skipping page %d: %s",
-                                        resp.status,
-                                        _MAX_RETRIES,
-                                        page,
-                                        body[:200],
+                                    _fatal_error = (
+                                        f"WoS API: status {resp.status} after "
+                                        f"{_MAX_RETRIES} retries -- likely quota "
+                                        f"exhaustion (WoS Starter API: 300 req/day). "
+                                        f"Response: {body[:200]}"
                                     )
+                                    logger.error(_fatal_error)
                                 break
                             if resp.status != 200:
                                 body = await resp.text()
-                                logger.warning("WoS API: status %d -- %s", resp.status, body[:200])
+                                _fatal_error = f"WoS API: unexpected status {resp.status} -- {body[:200]}"
+                                logger.warning(_fatal_error)
                                 break
                             data = await resp.json()
                             break
@@ -215,7 +231,8 @@ class WebOfScienceConnector:
                             )
                             await asyncio.sleep(sleep_s)
                         else:
-                            logger.error("WoS API request failed after %d retries: %s", _MAX_RETRIES, exc)
+                            _fatal_error = f"WoS API request failed after {_MAX_RETRIES} retries: {exc}"
+                            logger.error(_fatal_error)
                         continue
                 else:
                     # All retries exhausted without a successful response -- stop pagination
@@ -249,6 +266,11 @@ class WebOfScienceConnector:
 
                 page += 1
                 await asyncio.sleep(_RATE_SLEEP)
+
+        # If we got no papers and encountered a fatal/quota error, raise so the
+        # coordinator marks this as "failed" instead of silent 0-result success.
+        if not papers and _fatal_error:
+            raise RuntimeError(_fatal_error)
 
         logger.info("WoS: retrieved %d papers", len(papers))
         return SearchResult(

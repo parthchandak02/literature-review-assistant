@@ -268,6 +268,14 @@ class SearchConfig(BaseModel):
             "that cite included papers, adding new candidates to the screening pool."
         ),
     )
+    low_recall_warning_threshold: int = Field(
+        default=10,
+        ge=0,
+        description=(
+            "Emit a WARNING log when a database connector returns fewer than this many records. "
+            "0 disables the warning. Useful for detecting over-restricted search queries early."
+        ),
+    )
 
 
 class ExtractionConfig(BaseModel):
