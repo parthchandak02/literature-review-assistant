@@ -251,10 +251,11 @@ The pipeline runs as an 8-phase PydanticAI graph. Each phase writes its results 
 ```text
 Phase 1: Load config, initialize DB, set up LLM provider
 Phase 2: Search 7+ databases (incl. ClinicalTrials.gov grey lit), deduplicate (MinHash LSH),
-         run forward citation chasing, generate PROSPERO protocol
+         generate PROSPERO protocol
 Phase 3: Dual-reviewer screening -- Reviewer A (gemini-3.1-flash-lite-preview) + Reviewer B
          (gemini-3-flash-preview, cross-model validation), adjudicator on disagreement;
-         protocol-only studies auto-excluded; Cohen's kappa logged
+         protocol-only studies auto-excluded; Cohen's kappa logged;
+         forward citation chasing runs after inclusion decisions (PRISMA 2020 snowball)
          [Optional pause: human review checkpoint when human_in_the_loop.enabled=true]
 Phase 4: Data extraction (full-text via 6-tier resolver: Unpaywall, Semantic Scholar, CORE, Europe PMC, ScienceDirect, PMC; PyMuPDF 32K char context) + risk of bias
          (RoB 2 / ROBINS-I / CASP / GRADE, heuristic fallback tagged by source)
@@ -307,7 +308,7 @@ pm2 status                  # show process status table
 
 ```bash
 cd frontend && pnpm build && cd ..
-pm2 restart litreview-api   # or: pm2 restart api
+pm2 restart litreview-api
 ```
 
 **Alternative -- Overmind (requires tmux):**

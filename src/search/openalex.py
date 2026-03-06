@@ -152,7 +152,7 @@ class OpenAlexConnector:
             source_category=self.source_category,
             search_date=date.today().isoformat(),
             search_query=query,
-            limits_applied=f"max_results={max_results},is_core=true,type=article,source_type=journal",
+            limits_applied=f"max_results={max_results},type=article,source_type=journal,is_retracted=false",
             records_retrieved=len(papers),
             papers=papers,
         )

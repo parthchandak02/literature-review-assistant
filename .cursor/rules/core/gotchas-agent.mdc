@@ -109,6 +109,8 @@ criteria to eliminate low-quality papers. Remaining filters (`type:article`,
 `primary_location.source.type:journal`, `is_retracted:false`) are sufficient for quality.
 Do NOT add `is_core:true` back -- it is an intentional removal to support broad-search/
 tight-screen methodology. `per_database_limits.openalex` in `settings.yaml` is 1000 (not 500).
+The `limits_applied` metadata string in the `SearchResult` now correctly reflects the active
+filters (`max_results,type=article,source_type=journal,is_retracted=false`).
 
 ## `build_boolean_query` Uses Keywords Only (Not PICO Descriptions)
 `build_boolean_query()` in `src/search/strategy.py` uses ONLY `config.keywords`. It does
@@ -147,14 +149,14 @@ file handle regardless of how many sequential runs the API process serves. The o
 `_configured` single-flag bug (all runs writing to the first run's log dir) is gone.
 `load_events_from_jsonl()` also skips non-dict JSON values defensively.
 
-## Citation-Chased Papers Are Counted But NOT Re-Screened In The Same Run
-`SearchNode` in `src/orchestration/workflow.py` appends citation-chased papers to
-`state.deduped_papers` AFTER the screening phase has already written its checkpoint.
-Those papers are never sent through `ScreeningNode` in the same run. They inflate
-`search_results` rows (and therefore PRISMA identification math) while contributing
-zero rows to `dual_screening_results`. Do NOT assume citation-chased papers are
-included in the synthesized evidence unless you verify via the DB that they have
-a `fulltext` screening decision.
+## Citation-Chased Papers Are Screened In The Same Run (Fixed)
+`ScreeningNode` in `src/orchestration/workflow.py` now screens citation-chased papers
+immediately after they are fetched. After `chase_citations_to_search_results()` returns,
+the code runs the dual screener on `new_papers` (title/abstract then fulltext), updates
+`state.deduped_papers` and `state.included_papers` accordingly, and emits
+`chased_included` in the `citation_chasing` phase-done event. Chased papers contribute
+proper rows to `dual_screening_results` and PRISMA math is accurate. The
+`screen_batch` resume-skip logic ensures idempotency if the run is interrupted and resumed.
 
 ## HITL Approval Now Propagates Overrides Fully (Fixed)
 `POST /api/run/{run_id}/approve-screening` now upserts each human override into
@@ -189,10 +191,13 @@ the `search_results` table and passes the result to `build_writing_grounding()`.
 The manuscript Methods section and PRISMA dates now reflect when the search was
 actually run rather than always defaulting to the current calendar year.
 
-## Phase-4 Citation Lineage Gate Always Passes (Hardcoded)
-`ExtractionQualityNode` calls `run_citation_lineage_gate(... unresolved_items=0)`
-with a hardcoded zero. This gate always passes regardless of actual citation state.
-Real lineage validation only happens at `FinalizeNode` against the assembled manuscript.
+## Phase-4 Citation Lineage Gate Removed (Fixed)
+The stub `run_citation_lineage_gate(unresolved_items=0)` call was removed from
+`ExtractionQualityNode`. No manuscript exists at phase-4 (writing happens later in
+`WritingNode`), so there is nothing to validate at that point. Real citation lineage
+validation happens in `FinalizeNode` (lines ~2714-2738) using the actual assembled
+manuscript text and the `CitationLedger`. That check is the authoritative gate and
+respects `citation_lineage.block_export_on_unresolved` from `settings.yaml`.
 
 ## PM2 Process Names Are litreview-api / litreview-ui / litreview-tunnel
 The ecosystem.config.js defines processes as `litreview-api`, `litreview-ui`, and

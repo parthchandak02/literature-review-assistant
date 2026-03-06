@@ -1017,7 +1017,8 @@ class ScreeningNode(BaseNode[ReviewState]):
                 await log_reliability_to_decision_log(repository, reliability)
 
             # -- Forward citation chasing (PRISMA 2020 snowball supplement) --
-            # Runs after inclusion decisions; found papers re-enter as screening candidates.
+            # Chased papers are immediately screened through both stages so they contribute
+            # to dual_screening_results and PRISMA math is accurate.
             _citation_chasing = state.settings.search.citation_chasing_enabled if state.settings else False
             if state.included_papers and _citation_chasing:
                 if rc:
@@ -1034,9 +1035,39 @@ class ScreeningNode(BaseNode[ReviewState]):
                         for sr in chased_results:
                             await repository.save_search_result(sr)
                         new_papers = [p for sr in chased_results for p in sr.papers]
+                        # Screen chased papers through title/abstract then fulltext so they
+                        # appear in dual_screening_results and PRISMA counts are accurate.
+                        chased_included: list[CandidatePaper] = []
+                        if new_papers:
+                            chased_ta = await screener.screen_batch(
+                                workflow_id=state.workflow_id,
+                                stage="title_abstract",
+                                papers=new_papers,
+                            )
+                            chased_ta_include_ids = {
+                                d.paper_id for d in chased_ta if d.decision.value in ("include", "uncertain")
+                            }
+                            chased_ta_survivors = [p for p in new_papers if p.paper_id in chased_ta_include_ids]
+                            if chased_ta_survivors:
+                                chased_ft = await screener.screen_batch(
+                                    workflow_id=state.workflow_id,
+                                    stage="fulltext",
+                                    papers=chased_ta_survivors,
+                                    full_text_by_paper=None,
+                                    retriever=PDFRetriever(),
+                                    coverage_report_path=state.artifacts["coverage_report"],
+                                )
+                                chased_ft_include_ids = {
+                                    d.paper_id for d in chased_ft if d.decision.value in ("include", "uncertain")
+                                }
+                                chased_included = [p for p in chased_ta_survivors if p.paper_id in chased_ft_include_ids]
                         state.deduped_papers = state.deduped_papers + new_papers
+                        state.included_papers = state.included_papers + chased_included
                         if rc:
-                            rc.emit_phase_done("citation_chasing", {"new_papers": len(new_papers)})
+                            rc.emit_phase_done("citation_chasing", {
+                                "new_papers": len(new_papers),
+                                "chased_included": len(chased_included),
+                            })
                     else:
                         if rc:
                             rc.emit_phase_done("citation_chasing", {"new_papers": 0})
@@ -1608,11 +1639,9 @@ class ExtractionQualityNode(BaseNode[ReviewState]):
                 phase="phase_4_extraction_quality",
                 completeness_ratio=completeness_ratio,
             )
-            await gate_runner.run_citation_lineage_gate(
-                workflow_id=state.workflow_id,
-                phase="phase_4_extraction_quality",
-                unresolved_items=0,
-            )
+            # Citation lineage gate is deferred to FinalizeNode, which validates the
+            # assembled manuscript against the ledger. No manuscript exists at phase-4,
+            # so there is nothing to validate here.
             _rob_paper_lookup = {p.paper_id: p for p in state.included_papers}
             render_rob_traffic_light(
                 rob2_rows,

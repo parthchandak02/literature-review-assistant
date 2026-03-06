@@ -514,7 +514,7 @@ Used by: extraction, quality assessment, writing, humanizer, style extractor, na
 
 ### 7.5 Screening Prompts Design
 
-Every screening prompt opens with a context block: role, goal, topic, research question, domain, and keywords. Structured JSON output is enforced at the end of every prompt. Truncation limits: title/abstract (full content, no truncation), full-text (first 8,000 chars), extraction (first 10,000 chars).
+Every screening prompt opens with a context block: role, goal, topic, research question, domain, and keywords. Structured JSON output is enforced at the end of every prompt. Truncation limits: title/abstract (full content, no truncation), full-text (first 8,000 chars), extraction (first 32,000 chars; PyMuPDF parses PDFs to clean markdown, typically 40-60K chars; the 32K slice is the LLM context window budget).
 
 Reviewer A prompt emphasizes inclusion: "Include this paper if ANY inclusion criterion is plausibly met." Reviewer B prompt emphasizes exclusion: "Exclude this paper if ANY exclusion criterion clearly applies." The adjudicator sees both decisions and reasons before making a final call.
 
@@ -522,7 +522,7 @@ Reviewer A prompt emphasizes inclusion: "Include this paper if ANY inclusion cri
 
 ## 8. Persistence and Resume
 
-### 8.1 SQLite Schema (19 Tables)
+### 8.1 SQLite Schema (21 Tables)
 
 Each run creates its own `runtime.db`. Schema defined in `src/db/schema.sql`.
 
@@ -536,8 +536,10 @@ Each run creates its own `runtime.db`. Schema defined in `src/db/schema.sql`.
 | `claims` | Atomic factual claims from manuscript sections |
 | `citations` | Bibliographic references (citekey unique) |
 | `evidence_links` | Claim -> citation mappings with evidence span and score |
-| `rob_assessments` | RoB 2 / ROBINS-I / CASP assessment JSON per paper |
-| `grade_assessments` | GRADEOutcomeAssessment JSON per outcome |
+| `rob_assessments` | RoB 2 / ROBINS-I assessment JSON per paper (PRIMARY KEY: workflow_id, paper_id) |
+| `casp_assessments` | CASP assessment JSON per paper (PRIMARY KEY: workflow_id, paper_id; ON CONFLICT upsert) |
+| `mmat_assessments` | MMAT 2018 assessment JSON per paper (PRIMARY KEY: workflow_id, paper_id; ON CONFLICT upsert) |
+| `grade_assessments` | GRADEOutcomeAssessment JSON per outcome (aggregated across all papers per outcome name) |
 | `section_drafts` | Versioned manuscript sections (unique per workflow+section+version) |
 | `gate_results` | Quality gate outcomes per phase |
 | `decision_log` | Append-only audit trail for all decisions |
@@ -696,7 +698,7 @@ The frontend is run-centric. The sidebar is a run list, not a navigation menu. S
 | View | Purpose |
 |------|---------|
 | SetupView | Structured PICO form + keyword/criteria tag inputs + database checkboxes + YAML builder; "Load from past run" dropdown reuses a stored config via `GET /api/history/{workflow_id}/config` |
-| RunView | 6-tab shell (Config, Activity, Data, Cost, Results; Review Screening when awaiting_review) for a selected run |
+| RunView | 7-tab shell (Config, Activity, Data, Cost, Results, References; Review Screening when awaiting_review) for a selected run |
 | ConfigView | Shows research question and timestamped review.yaml for the run; used by agents and for copy-to-clipboard |
 | ActivityView | Phase timeline + stats strip + event log (text search); works for live SSE runs and historical fetched runs |
 | CostView | Recharts bar chart grouped by model/phase + sortable cost/token tables; reads from cost_records DB via /api/db/{run_id}/costs (primary, polls every 5s while active); SSE api_call events used as fallback before first DB response |
@@ -932,8 +934,8 @@ Living section -- update as work completes.
 | Component | Status | Notes |
 |-----------|--------|-------|
 | Phase 1: Foundation | DONE | Models, SQLite, 6 gates, citation ledger, LLM provider, rate limiter |
-| Phase 2: Search | DONE | All 11 connectors (scopus, web_of_science, openalex, pubmed, semantic_scholar, ieee_xplore, arxiv, crossref, perplexity_search, clinicaltrials, csv_import) + ClinicalTrials.gov grey literature, MinHash LSH dedup (datasketch + thefuzz), forward citation chasing (Semantic Scholar + OpenAlex), BM25 ranking, protocol generator, SearchConfig |
-| Phase 3: Screening | DONE | Dual reviewer with cross-model validation (Reviewer A=flash-lite tier, Reviewer B=flash tier -- see config/settings.yaml), keyword filter, BM25 cap, kappa injected into writing, Ctrl+C proceed-with-partial, confidence fast-path, protocol-only auto-exclusion |
+| Phase 2: Search | DONE | All 11 connectors (scopus, web_of_science, openalex, pubmed, semantic_scholar, ieee_xplore, arxiv, crossref, perplexity_search, clinicaltrials, csv_import) + ClinicalTrials.gov grey literature, MinHash LSH dedup (datasketch + thefuzz), BM25 ranking, protocol generator, SearchConfig |
+| Phase 3: Screening | DONE | Dual reviewer with cross-model validation (Reviewer A=flash-lite tier, Reviewer B=flash tier -- see config/settings.yaml), keyword filter, BM25 cap, kappa injected into writing, Ctrl+C proceed-with-partial, confidence fast-path, protocol-only auto-exclusion; forward citation chasing (Semantic Scholar + OpenAlex) runs at end of ScreeningNode -- chased papers are immediately dual-screened (title/abstract + fulltext) in the same run and contribute to dual_screening_results |
 | Phase 4: Extraction + Quality | DONE | LLM extraction with PyMuPDF full-text parsing (32K char context, up from 8K), async RoB 2 / ROBINS-I / CASP with heuristic fallback tagged by assessment_source, GRADE auto-wired from RoB data (assess_from_rob), study router, RoB traffic-light figure |
 | Phase 5: Synthesis | DONE | Hardened feasibility (requires effect_size+se in >= 2 studies), statsmodels pooling (DL), forest + funnel plots, LLM-based narrative direction classification, sensitivity analysis (leave-one-out + subgroup), synthesis_results table |
 | Phase 6: Writing | DONE | Section writer, humanizer, citation validation, style extractor, naturalness scorer, per-section checkpoint, WritingGroundingData (includes kappa, sensitivity_results, n_studies_reporting_count, separated search sources), GRADE table injected into manuscript |
