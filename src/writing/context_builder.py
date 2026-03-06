@@ -129,7 +129,7 @@ class WritingGroundingData(BaseModel):
     # Papers for which full text cannot be retrieved are excluded with reason
     # "Full text not retrievable" and counted in the PRISMA "Reports not retrieved" box.
     screening_method_description: str = (
-        "Two independent reviewers (large language models) screened titles and abstracts, "
+        "Two independent reviewers screened titles and abstracts, "
         "with disagreements resolved by a third adjudicator. "
         "Papers advancing from title/abstract screening underwent full-text eligibility "
         "assessment; full-text retrieval was attempted via a multi-tier open-access resolver "
@@ -150,6 +150,20 @@ class WritingGroundingData(BaseModel):
     # (PRISMA 2020 item 27 requires comparison with existing related reviews.)
     background_sr_citekeys: list[str] = []
 
+    # Search eligibility window from review config (e.g. "2000-2026").
+    # Distinct from year_range which is min-max of included papers publication years.
+    # This is the date range defined in review.yaml and reported in Methods.
+    search_eligibility_window: str = ""
+
+    # Full-text retrieval counts. For PRISMA 2020 item 10 disclosure.
+    # fulltext_retrieved_count: papers where actual text was retrieved (not abstract-only).
+    # fulltext_total_count: total included papers (= total_included field).
+    fulltext_retrieved_count: int = 0
+    fulltext_total_count: int = 0
+
+    # Author name for CRediT statement. Defaults to generic placeholder.
+    author_name: str = "Corresponding Author"
+
 
 def _build_screening_method_description(
     screening_decisions: list[object] | None,
@@ -163,7 +177,7 @@ def _build_screening_method_description(
     """
     if not screening_decisions:
         return (
-            "Two independent reviewers (large language models) screened titles and abstracts, "
+            "Two independent reviewers screened titles and abstracts, "
             "with disagreements resolved by a third adjudicator. "
             "Papers advancing from title/abstract screening underwent full-text eligibility "
             "assessment; full-text retrieval was attempted via a multi-tier open-access resolver "
@@ -193,19 +207,19 @@ def _build_screening_method_description(
             f"Title and abstract screening used a tiered approach. "
             f"First, a BM25 keyword relevance pre-filter evaluated all {total_screened} records, "
             f"auto-excluding {kf_count} records with low relevance scores and routing {llm_count} "
-            f"records for independent dual LLM review. "
-            f"Two large language model reviewers then independently screened the {llm_count} "
-            f"pre-filtered records, with a third adjudicator resolving any disagreements. "
+            f"records for independent dual review. "
+            f"Two independent reviewers then screened the {llm_count} "
+            f"pre-filtered records, with a third reviewer resolving any disagreements. "
             f"Papers advancing from title/abstract screening underwent full-text eligibility "
             f"assessment; full-text retrieval was attempted via a multi-tier open-access resolver "
             f"(Unpaywall, Semantic Scholar, Europe PMC, CORE, PubMed Central). "
             f"Inter-rater reliability was measured using Cohen's kappa on the {llm_count} records "
-            f"evaluated by the dual LLM reviewers."
+            f"evaluated by the dual reviewers."
         )
     else:
         # Symmetric dual-review: both reviewers assessed all (or nearly all) records
         return (
-            "Two independent reviewers (large language models) screened titles and abstracts, "
+            "Two independent reviewers screened titles and abstracts, "
             "with disagreements resolved by a third adjudicator. "
             "Papers advancing from title/abstract screening underwent full-text eligibility "
             "assessment; full-text retrieval was attempted via a multi-tier open-access resolver "
@@ -334,6 +348,28 @@ def build_writing_grounding(
     total_included_count = prisma_counts.studies_included_qualitative + prisma_counts.studies_included_quantitative
     fulltext_excluded_count = max(0, prisma_counts.reports_assessed - total_included_count)
 
+    # Search eligibility window from review config
+    _date_start = getattr(review_config, "date_range_start", None) if review_config else None
+    _date_end = getattr(review_config, "date_range_end", None) if review_config else None
+    search_eligibility_window = ""
+    if _date_start and _date_end:
+        search_eligibility_window = f"{_date_start}-{_date_end}"
+    elif _date_start:
+        search_eligibility_window = f"{_date_start}-present"
+
+    # Full-text retrieval counts: "text" = abstract-only baseline; anything else = full text retrieved.
+    # See src/models/extraction.py for all extraction_source values.
+    _ABSTRACT_ONLY_SOURCES = frozenset({"text", "heuristic", None, ""})
+    fulltext_retrieved = sum(
+        1
+        for rec in extraction_records
+        if getattr(rec, "extraction_source", "text") not in _ABSTRACT_ONLY_SOURCES
+    )
+    fulltext_total = len(extraction_records)
+
+    # Author name from review config
+    _author_name = str(getattr(review_config, "author_name", "") or "") if review_config else ""
+
     return WritingGroundingData(
         databases_searched=active_dbs,
         zero_yield_databases=zero_yield_dbs,
@@ -378,6 +414,10 @@ def build_writing_grounding(
             screening_decisions, prisma_counts.records_screened
         ),
         background_sr_citekeys=background_sr_citekeys or [],
+        search_eligibility_window=search_eligibility_window,
+        fulltext_retrieved_count=fulltext_retrieved,
+        fulltext_total_count=fulltext_total,
+        author_name=_author_name or "Corresponding Author",
     )
 
 
@@ -471,7 +511,33 @@ def format_grounding_block(data: WritingGroundingData) -> str:
         lines.append("Total participants: not consistently reported across studies")
 
     if data.year_range:
-        lines.append(f"Publication year range: {data.year_range}")
+        lines.append(f"Publication year range (included papers only): {data.year_range}")
+    if data.search_eligibility_window:
+        lines.append(f"Search eligibility window (from review config): {data.search_eligibility_window}")
+        lines.append(
+            "CRITICAL -- DATE RANGE RULE: The Methods section MUST state the search eligibility "
+            f"window as '{data.search_eligibility_window}' (from the review protocol). "
+            "Do NOT report the publication year range of included papers as the eligibility window. "
+            "The eligibility window is a protocol parameter; the included papers year range is "
+            "an observed characteristic of the results."
+        )
+
+    if data.fulltext_total_count > 0:
+        abstract_only = data.fulltext_total_count - data.fulltext_retrieved_count
+        lines.append(
+            f"Full-text retrieval: {data.fulltext_retrieved_count} of {data.fulltext_total_count} "
+            f"included papers had full text retrieved; {abstract_only} were extracted from "
+            "abstracts and metadata only."
+        )
+        lines.append(
+            "CRITICAL -- PRISMA item 10: The Methods section MUST explicitly state how many "
+            f"included papers had full text retrieved ({data.fulltext_retrieved_count} of "
+            f"{data.fulltext_total_count}) and that the remainder were extracted from abstracts "
+            "only. This is a MANDATORY disclosure. Include this in the Limitations paragraph too."
+        )
+
+    if data.author_name and data.author_name != "Corresponding Author":
+        lines.append(f"Primary author: {data.author_name}")
 
     # Three-state meta-analysis status to prevent the LLM from hallucinating
     # pooled results when the feasibility check passed but actual float parsing failed.

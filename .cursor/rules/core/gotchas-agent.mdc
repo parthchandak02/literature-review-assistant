@@ -201,3 +201,32 @@ you explicitly configured them. Always use the full process names:
   pm2 logs litreview-api
   pm2 restart litreview-api
   pm2 restart litreview-ui
+
+## Background SR Citekeys Must Be ASCII (No Accented Characters)
+`register_background_sr_citations()` in `src/writing/orchestration.py` builds citekeys
+as `{first_surname}{year}SR`. Author surnames with accented characters (e.g. "Perez"
+from "Perez-Encinas") produce citekeys like `[Perez-Encinas2020SR]` that the citation
+ledger regex `[A-Za-z0-9_:-]+` cannot match -- they appear verbatim and unresolved in
+the final manuscript. The fix is already applied: `unicodedata.normalize("NFD", surname)`
+strips accents before building the citekey. Do NOT remove this normalization.
+
+## `WritingGroundingData` Has Three Config-Derived Fields (Not DB-Derived)
+`search_eligibility_window`, `fulltext_retrieved_count`/`fulltext_total_count`, and
+`author_name` are populated by `build_writing_grounding()` from `review_config` and
+`extraction_records`, NOT from the database or PRISMA counts directly:
+- `search_eligibility_window`: computed from `review_config.date_range_start`/`date_range_end`
+  (e.g. "2000-2026"). DISTINCT from `year_range` (min-max of included papers). The LLM is
+  instructed to report the eligibility window in Methods, not the included-papers year range.
+- `fulltext_retrieved_count`: count of extraction_records where `extraction_source != "text"`
+  (i.e. NOT abstract-only). `"text"` and `"heuristic"` are abstract-only; all other values
+  indicate actual full-text retrieval.
+- `author_name`: read from `review_config.author_name`; defaults to "Corresponding Author"
+  when blank. Used in CRediT statement. Set `author_name:` in `config/review.yaml` to
+  populate correctly.
+
+## `search_eligibility_window` vs `year_range` Are Different Things
+`WritingGroundingData.year_range` = "2016-2025" (min-max publication years of included papers).
+`WritingGroundingData.search_eligibility_window` = "2000-2026" (protocol date range from YAML).
+The LLM MUST use the eligibility window for the Methods section date statement and the
+year range only when describing the characteristics of included studies. Confusing them
+was the root cause of the audit finding "Methods says 2016-2025 but config says 2000-2026".

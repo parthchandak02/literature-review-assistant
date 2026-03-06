@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import re
+import unicodedata
 from collections.abc import Callable
 from typing import TYPE_CHECKING
 
@@ -443,11 +444,18 @@ async def register_background_sr_citations(
             authors = [a.get("name", "") for a in authors_raw if a.get("name")]
             doi = (p.get("externalIds") or {}).get("DOI")
             venue = p.get("venue") or ""
-            # Build a citekey from first author surname + year
+            # Build a citekey from first author surname + year.
+            # Normalize to ASCII so accented characters (e.g. Perez, not Pérez)
+            # do not produce citekeys that regex patterns fail to match.
             first_surname = ""
             if authors:
                 name_parts = authors[0].split()
-                first_surname = name_parts[-1] if name_parts else "Author"
+                raw_surname = name_parts[-1] if name_parts else "Author"
+                first_surname = "".join(
+                    c
+                    for c in unicodedata.normalize("NFD", raw_surname)
+                    if unicodedata.category(c) != "Mn"
+                )
             base_key = f"{first_surname}{year}SR" if first_surname else f"SR{year}"
             citekey = base_key
             suffix = 2
@@ -539,6 +547,8 @@ async def write_section_with_validation(
             effective_context + "\n\n## Relevant Evidence Chunks (retrieved by semantic search)\n" + rag_context
         )
 
+    if provider is not None:
+        await provider.reserve_call_slot("writing")
     writer = SectionWriter(
         review=review,
         settings=settings,
