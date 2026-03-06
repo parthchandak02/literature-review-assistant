@@ -783,24 +783,15 @@ export default function App() {
           {/* Breadcrumb */}
           <TooltipProvider delayDuration={0}>
             <div className="flex items-center gap-1.5 text-sm flex-1 min-w-0">
-              <button
-                onClick={handleGoHome}
-                className="text-zinc-600 font-medium shrink-0 hover:text-zinc-400 transition-colors cursor-pointer"
-              >
-                LitReview
-              </button>
-              {breadcrumbTopic && (
+              {breadcrumbTopic ? (
                 <>
-                  <span className="text-zinc-700 shrink-0">/</span>
                   <Tooltip>
                     <TooltipTrigger asChild>
                       <button
                         onClick={() => void handleCopyTopic()}
-                        className="text-zinc-500 font-medium truncate max-w-[220px] shrink-0 text-left hover:text-zinc-300 transition-colors cursor-pointer"
+                        className="text-zinc-400 font-medium truncate flex-1 min-w-0 text-left hover:text-zinc-200 transition-colors cursor-pointer"
                       >
-                        {breadcrumbTopic.length > 45
-                          ? breadcrumbTopic.slice(0, 45) + "..."
-                          : breadcrumbTopic}
+                        {breadcrumbTopic}
                       </button>
                     </TooltipTrigger>
                     <TooltipContent
@@ -810,10 +801,12 @@ export default function App() {
                       {breadcrumbTopic}
                     </TooltipContent>
                   </Tooltip>
+                  <span className="text-zinc-700 shrink-0">/</span>
+                  <span className="text-zinc-300 font-medium shrink-0">{breadcrumbTab}</span>
                 </>
+              ) : (
+                <span className="text-zinc-300 font-medium">{breadcrumbTab}</span>
               )}
-              <span className="text-zinc-700 shrink-0">/</span>
-              <span className="text-zinc-300 font-medium truncate">{breadcrumbTab}</span>
             </div>
           </TooltipProvider>
         </header>

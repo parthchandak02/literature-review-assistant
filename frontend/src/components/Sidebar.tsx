@@ -260,9 +260,6 @@ export function Sidebar({
             <span className="font-semibold text-sm text-white tracking-tight whitespace-nowrap">
               LitReview
             </span>
-            <span className="text-[10px] font-medium text-zinc-500 bg-zinc-800 px-1.5 py-0.5 rounded whitespace-nowrap">
-              BETA
-            </span>
           </div>
         </button>
 
