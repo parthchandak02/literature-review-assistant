@@ -37,7 +37,7 @@ import type { RunTab, SelectedRun } from "@/views/RunView"
 
 const SetupView = lazy(() => import("@/views/SetupView").then((m) => ({ default: m.SetupView })))
 
-const VALID_TABS = new Set<RunTab>(["activity", "results", "database", "cost", "config", "review-screening"])
+const VALID_TABS = new Set<RunTab>(["activity", "results", "database", "cost", "config", "review-screening", "references"])
 
 // ---------------------------------------------------------------------------
 // Top-level error boundary: catches render-time crashes in any child view so
@@ -171,13 +171,15 @@ export default function App() {
         .reduce((acc, e) => acc + (e.type === "connector_result" ? (e.records ?? 0) : 0), 0),
     [events],
   )
-  const liveIncluded = useMemo(
-    () =>
-      events.filter(
-        (e) => e.type === "screening_decision" && e.decision === "include",
-      ).length,
-    [events],
-  )
+  const liveIncluded = useMemo(() => {
+    const lastDecision = new Map<string, string>()
+    for (const e of events) {
+      if (e.type === "screening_decision") {
+        lastDecision.set(e.paper_id, e.decision)
+      }
+    }
+    return [...lastDecision.values()].filter((d) => d === "include").length
+  }, [events])
   const livePhaseProgress = useMemo(() => computePhaseProgress(events), [events])
 
   const liveRunForSidebar = useMemo<LiveRun | null>(
@@ -564,29 +566,6 @@ export default function App() {
     abort()
   }
 
-  function handleLivingRefresh(newRunId: string) {
-    const now = new Date()
-    const topic = selectedRun?.topic ? `[Living refresh] ${selectedRun.topic}` : "Living refresh"
-    reset()
-    wasStreamingRef.current = false
-    liveRunNavigatedRef.current = null
-    setLiveRunId(newRunId)
-    setLiveTopic(topic)
-    setLiveStartedAt(now)
-    setLiveWorkflowId(null)
-    saveLiveRun({ runId: newRunId, topic, startedAt: now.toISOString() })
-    setSelectedRun({
-      runId: newRunId,
-      workflowId: null,
-      topic,
-      dbPath: null,
-      isDone: false,
-      startedAt: now,
-      createdAt: now.toISOString(),
-    })
-    setActiveRunTab("activity")
-  }
-
   function handleNewReview() {
     setSelectedRun(null)
     setHistoryOutputs({})
@@ -750,7 +729,6 @@ export default function App() {
         activeTab={activeRunTab}
         onTabChange={handleTabChange}
         onCancel={handleCancel}
-        onLivingRefresh={handleLivingRefresh}
         historyOutputs={historyOutputs}
         liveOutputs={isViewingLiveRun ? liveOutputs : {}}
         dbUnlocked={Boolean(dbUnlocked)}

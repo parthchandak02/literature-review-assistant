@@ -63,6 +63,10 @@ screening:
   # meaningfully improve kappa for well-scoped topics and wastes LLM calls.
   calibration_sample_size: 15
   calibration_max_iterations: 1
+  # Lowered from 12 -> 5. At 12, 322/368 papers were auto-excluded before LLM because PubMed
+  # returns many records with short/absent abstracts. At 5, borderline records reach the LLM
+  # so the reviewer can screen on title alone. Truly empty records (0 words) still auto-exclude.
+  insufficient_content_min_words: 5
 
 dual_review:
   enabled: true

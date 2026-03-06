@@ -158,6 +158,15 @@ class ScreeningConfig(BaseModel):
         le=10,
         description="Maximum bisection iterations during threshold calibration.",
     )
+    insufficient_content_min_words: int = Field(
+        default=5,
+        ge=0,
+        description=(
+            "Minimum abstract word count to allow LLM screening. Papers with fewer words "
+            "are auto-excluded as title-only stubs. Lowering increases recall at the cost "
+            "of more LLM calls on borderline records. 0 disables the heuristic entirely."
+        ),
+    )
 
 
 class DualReviewConfig(BaseModel):

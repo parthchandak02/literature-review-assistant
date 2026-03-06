@@ -241,7 +241,7 @@ FIGURE_DEFS: list[tuple[str, str]] = [
     ),
     (
         "geographic",
-        "Geographic distribution of included studies by country of origin.",
+        "Geographic distribution of included studies by country of origin (or source database when country data is unavailable).",
     ),
     (
         "concept_taxonomy",
@@ -283,6 +283,15 @@ def build_markdown_figures_section(
         fig_path = Path(fig_path_str)
         if not fig_path.exists():
             continue
+        # Use caption sidecar file when present (allows visualization code to
+        # override the default caption -- e.g. geographic falls back to source
+        # database distribution when country data is unavailable).
+        caption_sidecar = fig_path.with_suffix(".caption")
+        if caption_sidecar.exists():
+            try:
+                caption = caption_sidecar.read_text(encoding="utf-8").strip() or caption
+            except Exception:
+                pass
         # Compute relative path from manuscript file to figure (they are siblings).
         try:
             rel = fig_path.relative_to(manuscript_path.parent)

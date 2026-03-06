@@ -197,13 +197,16 @@ class DualReviewerScreener:
         "[abstract not available]",
     )
 
-    _TITLE_ONLY_ABSTRACT_WORD_THRESHOLD: int = 12
+    # Retained as a fallback default; the live value is read from settings.screening.insufficient_content_min_words
+    _TITLE_ONLY_ABSTRACT_WORD_THRESHOLD: int = 5
 
     def _is_insufficient_content(self, paper: CandidatePaper) -> bool:
         """Return True when the paper has no usable abstract content.
 
         Fires when:
-        - The abstract is absent or has fewer than 12 words (title repeated or stub)
+        - The abstract is absent or has fewer than settings.screening.insufficient_content_min_words
+          words (title repeated or stub). Lowering the threshold allows the LLM to screen
+          borderline records on title alone; raising it auto-excludes more aggressively.
         - The abstract text explicitly signals it is a title-only record
 
         Papers that pass this check have no abstract content for reviewers
@@ -226,9 +229,14 @@ class DualReviewerScreener:
         if any(phrase in abstract_lower for phrase in self._TITLE_ONLY_ABSTRACT_PHRASES):
             return True
 
-        # Stub abstract: fewer than threshold words
+        # Stub abstract: fewer than configured threshold words
+        min_words = getattr(
+            getattr(getattr(self, "settings", None), "screening", None),
+            "insufficient_content_min_words",
+            self._TITLE_ONLY_ABSTRACT_WORD_THRESHOLD,
+        )
         word_count = len(abstract.split())
-        if word_count < self._TITLE_ONLY_ABSTRACT_WORD_THRESHOLD:
+        if word_count < min_words:
             return True
 
         return False
@@ -563,7 +571,11 @@ class DualReviewerScreener:
                     decision_type="screening_insufficient_content_heuristic",
                     paper_id=paper.paper_id,
                     decision=ScreeningDecisionType.EXCLUDE.value,
-                    rationale="Title-only or stub abstract: fewer than 12 words or explicit no-abstract marker.",
+                    rationale=(
+                        f"Title-only or stub abstract: fewer than "
+                        f"{getattr(getattr(getattr(self, 'settings', None), 'screening', None), 'insufficient_content_min_words', self._TITLE_ONLY_ABSTRACT_WORD_THRESHOLD)} "
+                        f"words or explicit no-abstract marker."
+                    ),
                     actor=ReviewerType.KEYWORD_FILTER.value,
                     phase="phase_3_screening",
                 )

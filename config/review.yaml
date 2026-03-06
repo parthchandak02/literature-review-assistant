@@ -114,10 +114,10 @@ search_overrides:
     OR "robotic pharmacy"[Title/Abstract] OR "ScriptPro"[Title/Abstract]
     OR "Pyxis"[Title/Abstract] OR "Omnicell"[Title/Abstract] OR "RxMedic"[Title/Abstract])
     AND
-    ("Medication Errors"[MeSH Terms] OR "Pharmacy Service, Hospital"[MeSH Terms]
-    OR "dispensing accuracy"[Title/Abstract] OR "medication error*"[Title/Abstract]
-    OR "outpatient pharmacy"[Title/Abstract] OR "ambulatory pharmacy"[Title/Abstract]
-    OR "community pharmacy"[Title/Abstract] OR "pharmacy workflow"[Title/Abstract]
-    OR "patient safety"[Title/Abstract])
+    ("outpatient"[Title/Abstract] OR "ambulatory"[Title/Abstract]
+    OR "community pharmacy"[Title/Abstract] OR "dispensing accuracy"[Title/Abstract]
+    OR "medication error*"[Title/Abstract] OR "dispensing error"[Title/Abstract]
+    OR "pharmacy workflow"[Title/Abstract] OR "patient safety"[Title/Abstract]
+    OR "pharmacy efficiency"[Title/Abstract])
   semantic_scholar: "robotic dispensing pharmacy automation medication error dispensing accuracy outpatient ambulatory"
   openalex: "robotic dispensing pharmacy automation medication error dispensing accuracy outpatient ambulatory"

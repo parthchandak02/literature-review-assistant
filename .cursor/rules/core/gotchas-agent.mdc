@@ -87,3 +87,26 @@ with no AI or human qualifier. The TRANSPARENCY RULE in `format_grounding_block(
 this: do NOT specify whether reviewers were human or AI in any section prompt.
 Prompt instructions that say "AI-assisted screening" in this repo are stale -- the
 canonical source of truth is `context_builder.py` line ~129 and `sections.py` lines ~170-173.
+
+## PubMed Search Override Phrase Sensitivity (Critical for Recall)
+The PubMed query is built from `search_overrides.pubmed` in `config/review.yaml`.
+Exact-phrase requirements in the second AND group kill recall dramatically:
+- `"outpatient pharmacy"[Title/Abstract]` (2-word exact phrase) returned 6 records
+- `"outpatient"[Title/Abstract]` (single word) returned 317 records for the same topic
+Always use single-word OR terms (`"outpatient"`, `"ambulatory"`) in the setting group,
+never multi-word exact phrases. Also avoid restrictive MeSH terms in the AND group
+(`"Medication Errors"[MeSH Terms]`, `"Pharmacy Service, Hospital"[MeSH Terms]`) -- these
+over-constrain results because many pharmacy automation papers are not indexed under them.
+The auto-generated fallback query (when no override is set) may produce better recall than a
+poorly crafted override. If a run returns fewer papers from PubMed than a prior run with the
+same topic, compare the actual queries in `doc_search_strategies_appendix.md`.
+
+## "insufficient_data" Is a Full-Text-Only Exclusion Reason
+The dual screener may produce `insufficient_data` as an exclusion reason. This is only
+methodologically valid at the full-text screening stage (paper lacks empirical data).
+At the title/abstract stage, `insufficient_data` is incorrect -- papers that lack data in
+their abstract may still contain empirical data in the full text. If you see many
+`insufficient_data` exclusions at title/abstract stage in the screening log, the LLM
+reviewer is likely over-applying this reason to borderline records. The correct title/abstract
+reasons are: `wrong_population`, `wrong_intervention`, `wrong_outcome`, `wrong_setting`,
+`wrong_study_design`, or `low_relevance_score`.

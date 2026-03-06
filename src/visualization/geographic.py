@@ -133,4 +133,10 @@ def render_geographic(papers: list[CandidatePaper], output_path: str) -> Path:
     fig.savefig(path, dpi=150, bbox_inches="tight")
     fig.savefig(path.with_suffix(".svg"), bbox_inches="tight")
     plt.close(fig)
+    # Write caption sidecar so markdown_refs.py uses the correct caption
+    _caption = (
+        "Distribution of included studies by source database. "
+        "Country of origin was not available from search API metadata."
+    )
+    path.with_suffix(".caption").write_text(_caption, encoding="utf-8")
     return path

@@ -1,10 +1,9 @@
-import { Suspense, lazy, useState } from "react"
-import { Activity, BarChart3, ChevronRight, Database, FileText, FileCode2, ClipboardCheck, RefreshCw } from "lucide-react"
+import { Suspense, lazy, useMemo, useState } from "react"
+import { Activity, BarChart3, BookOpen, ChevronRight, Database, FileText, FileCode2, ClipboardCheck } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { formatRunDate, formatWorkflowId } from "@/lib/format"
 import { Spinner } from "@/components/ui/feedback"
 import { ActivityView } from "@/views/ActivityView"
-import { livingRefresh } from "@/lib/api"
 import type { ReviewEvent } from "@/lib/api"
 import type { CostStats } from "@/hooks/useCostStats"
 
@@ -21,12 +20,15 @@ const ConfigView = lazy(() =>
 const ScreeningReviewView = lazy(() =>
   import("@/views/ScreeningReviewView").then((m) => ({ default: m.ScreeningReviewView })),
 )
+const ReferencesView = lazy(() =>
+  import("@/views/ReferencesView").then((m) => ({ default: m.ReferencesView })),
+)
 
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 
-export type RunTab = "activity" | "results" | "database" | "cost" | "config" | "review-screening"
+export type RunTab = "activity" | "results" | "database" | "cost" | "config" | "review-screening" | "references"
 
 /** A run that is currently being viewed (live or historical). */
 export interface SelectedRun {
@@ -47,13 +49,14 @@ export interface SelectedRun {
   historicalStatus?: string | null
 }
 
-/** Tab order follows the review workflow: Config (YAML) -> Activity -> Data -> Cost -> Results */
+/** Tab order follows the review workflow: Config (YAML) -> Activity -> Data -> Cost -> Results -> References */
 const TAB_ITEMS: { id: RunTab; label: string; icon: React.ElementType; step: number }[] = [
   { id: "config", label: "Config", icon: FileCode2, step: 1 },
   { id: "activity", label: "Activity", icon: Activity, step: 2 },
   { id: "database", label: "Data", icon: Database, step: 3 },
   { id: "cost", label: "Cost", icon: BarChart3, step: 4 },
   { id: "results", label: "Results", icon: FileText, step: 5 },
+  { id: "references", label: "References", icon: BookOpen, step: 6 },
 ]
 
 function ViewLoader() {
@@ -103,8 +106,6 @@ interface RunViewProps {
   dbUnlocked: boolean
   /** True while the run is still streaming (for DatabaseView auto-refresh). */
   isLive: boolean
-  /** Called when the user requests a living-review refresh run. */
-  onLivingRefresh?: (runId: string) => void
 }
 
 export function RunView({
@@ -119,9 +120,7 @@ export function RunView({
   liveOutputs,
   dbUnlocked,
   isLive,
-  onLivingRefresh,
 }: RunViewProps) {
-  const [refreshing, setRefreshing] = useState(false)
   const [wfIdCopied, setWfIdCopied] = useState(false)
   const isDone = run.isDone || status === "done"
   const isRunning = status === "streaming" || status === "connecting"
@@ -134,19 +133,6 @@ export function RunView({
       events.some((e) => e.type === "phase_start" && e.phase === "human_review_checkpoint") &&
       !events.some((e) => e.type === "phase_done" && e.phase === "human_review_checkpoint"))
 
-  async function handleLivingRefresh() {
-    if (refreshing || !onLivingRefresh) return
-    setRefreshing(true)
-    try {
-      const data = await livingRefresh(run.runId)
-      onLivingRefresh(data.run_id)
-    } catch (e) {
-      console.error("Living refresh error:", e)
-    } finally {
-      setRefreshing(false)
-    }
-  }
-
   // Derive stats for the info strip.
   // For live runs: use SSE-derived costStats + event counts.
   // For historical runs: fall back to data baked into SelectedRun from HistoryEntry.
@@ -154,9 +140,15 @@ export function RunView({
     .filter((e) => e.type === "connector_result" && e.status === "success")
     .reduce((acc, e) => acc + (e.type === "connector_result" ? (e.records ?? 0) : 0), 0)
 
-  const liveIncluded = events.filter(
-    (e) => e.type === "screening_decision" && e.decision === "include",
-  ).length
+  const liveIncluded = useMemo(() => {
+    const lastDecision = new Map<string, string>()
+    for (const e of events) {
+      if (e.type === "screening_decision") {
+        lastDecision.set(e.paper_id, e.decision)
+      }
+    }
+    return [...lastDecision.values()].filter((d) => d === "include").length
+  }, [events])
 
   const displayPapersFound =
     livePapersFound > 0 ? livePapersFound : (run.papersFound ?? null)
@@ -255,21 +247,6 @@ export function RunView({
                 {wfIdCopied ? "Copied!" : formatWorkflowId(run.workflowId ?? run.runId)}
               </button>
             </InfoPill>
-          </>
-        )}
-        {/* Living review refresh button -- only shown for completed runs */}
-        {isDone && onLivingRefresh && (
-          <>
-            <InfoPill dim>|</InfoPill>
-            <button
-              onClick={() => void handleLivingRefresh()}
-              disabled={refreshing}
-              className="inline-flex items-center gap-1 text-violet-500 hover:text-violet-300 transition-colors disabled:opacity-50"
-              title="Launch an incremental living-review run to pick up new papers"
-            >
-              <RefreshCw className={cn("h-3 w-3", refreshing && "animate-spin")} />
-              <span className="shrink-0">{refreshing ? "Starting..." : "Refresh Search"}</span>
-            </button>
           </>
         )}
       </div>
@@ -375,6 +352,10 @@ export function RunView({
 
           {activeTab === "review-screening" && (
             <ScreeningReviewView runId={run.runId} />
+          )}
+
+          {activeTab === "references" && (
+            <ReferencesView runId={run.runId} isDone={isDone} />
           )}
         </Suspense>
       </div>

@@ -282,14 +282,27 @@ class StartNode(BaseNode[ReviewState]):
         state.artifacts["conceptual_framework"] = str(run_paths.run_dir / "fig_conceptual_framework.svg")
         state.artifacts["methodology_flow"] = str(run_paths.run_dir / "fig_methodology_flow.svg")
         state.artifacts["evidence_network"] = str(run_paths.run_dir / "fig_evidence_network.png")
+        state.artifacts["papers_dir"] = str(run_paths.run_dir / "papers")
+        state.artifacts["papers_manifest"] = str(run_paths.run_dir / "data_papers_manifest.json")
 
-        # Snapshot the review config at run start so re-extraction and post-hoc
-        # scripts always use the config that produced this run, not a later config.
-        import shutil as _shutil
-
+        # Snapshot the review config at run start, prepending workflow identity
+        # so config_snapshot.yaml is the single source of truth linking a run
+        # directory to its workflow ID without querying SQLite.
         _config_src = Path("config/review.yaml")
+        _snapshot_dest = run_paths.run_dir / "config_snapshot.yaml"
+        _header = (
+            f"# workflow_id: {state.workflow_id}\n"
+            f"# run_dir: {run_paths.run_dir}\n"
+            f"# created_at: {state.run_id}\n"
+            f"#\n"
+        )
         if _config_src.exists():
-            _shutil.copy(_config_src, run_paths.run_dir / "config_snapshot.yaml")
+            _snapshot_dest.write_text(
+                _header + _config_src.read_text(encoding="utf-8"),
+                encoding="utf-8",
+            )
+        else:
+            _snapshot_dest.write_text(_header, encoding="utf-8")
 
         if rc:
             rc.emit_phase_done("start", {"workflow_id": state.workflow_id})
@@ -1291,6 +1304,47 @@ class ExtractionQualityNode(BaseNode[ReviewState]):
                         full_text = (paper.abstract or paper.title or "").strip()
                 else:
                     full_text = (paper.abstract or paper.title or "").strip()
+
+                # --- Persist full text / PDF bytes to papers_dir for frontend reference tab ---
+                papers_dir_path = Path(state.artifacts.get("papers_dir", ""))
+                papers_manifest_path = Path(state.artifacts.get("papers_manifest", ""))
+                if papers_dir_path.name:
+                    try:
+                        papers_dir_path.mkdir(parents=True, exist_ok=True)
+                        saved_path: str | None = None
+                        if ft_result and ft_result.pdf_bytes and len(ft_result.pdf_bytes) > 1000:
+                            pdf_dest = papers_dir_path / f"{paper.paper_id}.pdf"
+                            pdf_dest.write_bytes(ft_result.pdf_bytes)
+                            saved_path = str(pdf_dest)
+                        elif full_text and ft_result and ft_result.source not in ("abstract", ""):
+                            txt_dest = papers_dir_path / f"{paper.paper_id}.txt"
+                            txt_dest.write_text(full_text, encoding="utf-8")
+                            saved_path = str(txt_dest)
+                        # Update papers manifest JSON
+                        if papers_manifest_path.name:
+                            import json as _json
+                            manifest: dict = {}
+                            if papers_manifest_path.exists():
+                                try:
+                                    manifest = _json.loads(papers_manifest_path.read_text(encoding="utf-8"))
+                                except Exception:
+                                    manifest = {}
+                            manifest[paper.paper_id] = {
+                                "title": paper.title or "",
+                                "authors": paper.authors or "",
+                                "year": paper.year,
+                                "doi": paper.doi or "",
+                                "url": paper.url or "",
+                                "source": ft_result.source if ft_result else "abstract",
+                                "file_path": saved_path,
+                                "file_type": (
+                                    "pdf" if (saved_path and saved_path.endswith(".pdf"))
+                                    else ("txt" if saved_path else None)
+                                ),
+                            }
+                            papers_manifest_path.write_text(_json.dumps(manifest, indent=2), encoding="utf-8")
+                    except Exception as _save_err:
+                        logger.debug("ExtractionNode: could not save fulltext for %s: %s", paper.paper_id, _save_err)
 
                 try:
                     design = await classifier.classify(state.workflow_id, paper)

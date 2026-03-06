@@ -440,9 +440,11 @@ def render_rob_traffic_light(
         ax.set_title("Risk of Bias Traffic-Light Summary")
         msg = "No assessments available."
         if not_applicable_count:
+            _sw = "study" if not_applicable_count == 1 else "studies"
             msg += (
-                f" {not_applicable_count} included studies (systematic reviews, "
-                "technical reports) were not amenable to ROBINS-I or RoB2 assessment."
+                f" {not_applicable_count} included {_sw} (systematic reviews, "
+                f"technical reports) {'was' if not_applicable_count == 1 else 'were'} "
+                "not amenable to ROBINS-I or RoB2 assessment."
             )
         ax.text(0.5, 0.5, msg, ha="center", va="center", fontsize=8, wrap=True)
         ax.axis("off")
@@ -455,10 +457,12 @@ def render_rob_traffic_light(
     # Build disclosure note for ROBINS-I figure
     disclosure_parts = []
     if not_applicable_count:
+        study_word = "study" if not_applicable_count == 1 else "studies"
         disclosure_parts.append(
-            f"Note: {not_applicable_count} included studies (systematic reviews, "
+            f"Note: {not_applicable_count} included {study_word} (systematic reviews, "
             "technical reports, proof-of-concept papers) are not primary interventional "
-            "studies and were not assessed with ROBINS-I. They are excluded from this figure."
+            f"{study_word} and were not assessed with ROBINS-I. "
+            f"{'It is' if not_applicable_count == 1 else 'They are'} excluded from this figure."
         )
     if rob2 and robins_i and rob2_output_path:
         disclosure_parts.append(

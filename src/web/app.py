@@ -1835,6 +1835,258 @@ async def get_run_artifacts(run_id: str) -> dict[str, Any]:
     return _json.loads(summary.read_text(encoding="utf-8"))
 
 
+@app.get("/api/run/{run_id}/papers-reference")
+async def get_papers_reference(run_id: str) -> dict[str, Any]:
+    """Return included papers with metadata and file availability for the Reference tab.
+
+    Reads from the papers_manifest.json saved during extraction and merges with
+    dual_screening_results to filter to included papers only. Falls back to
+    querying the DB when no manifest exists (for older runs).
+    """
+    db_path = _get_db_path(run_id)
+    run_dir = pathlib.Path(db_path).parent
+    manifest_path = run_dir / "data_papers_manifest.json"
+
+    manifest: dict[str, Any] = {}
+    if manifest_path.exists():
+        try:
+            manifest = _json.loads(manifest_path.read_text(encoding="utf-8"))
+        except Exception:
+            manifest = {}
+
+    try:
+        async with aiosqlite.connect(db_path) as db:
+            db.row_factory = aiosqlite.Row
+            await db.execute("PRAGMA journal_mode = WAL")
+            await db.execute("PRAGMA synchronous = NORMAL")
+            await db.execute("PRAGMA foreign_keys = ON")
+            async with db.execute(
+                """
+                SELECT p.paper_id, p.title, p.authors, p.year,
+                       p.source_database, p.doi, p.url, p.country,
+                       ft.final_decision
+                FROM papers p
+                JOIN dual_screening_results ft
+                  ON p.paper_id = ft.paper_id AND ft.stage = 'fulltext'
+                WHERE ft.final_decision = 'include'
+                ORDER BY p.year DESC
+                """
+            ) as cur:
+                rows = await cur.fetchall()
+
+        papers_out = []
+        for row in rows:
+            paper_id = row["paper_id"]
+            raw_authors = row["authors"] or ""
+            try:
+                authors_list = _json.loads(raw_authors) if raw_authors.startswith("[") else [raw_authors]
+                authors_fmt = ", ".join(
+                    (a.get("name") or a.get("raw_name") or str(a)) if isinstance(a, dict) else str(a)
+                    for a in authors_list
+                )
+            except Exception:
+                authors_fmt = raw_authors
+
+            entry = manifest.get(paper_id, {})
+            file_type = entry.get("file_type")
+            has_file = bool(entry.get("file_path") and pathlib.Path(entry["file_path"]).exists())
+
+            papers_out.append(
+                {
+                    "paper_id": paper_id,
+                    "title": row["title"],
+                    "authors": authors_fmt,
+                    "year": row["year"],
+                    "source_database": row["source_database"],
+                    "doi": row["doi"] or entry.get("doi", ""),
+                    "url": row["url"] or entry.get("url", ""),
+                    "country": row["country"],
+                    "retrieval_source": entry.get("source", "abstract"),
+                    "has_file": has_file,
+                    "file_type": file_type,
+                }
+            )
+
+        return {"papers": papers_out, "total": len(papers_out)}
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@app.get("/api/run/{run_id}/papers/{paper_id}/file")
+async def get_paper_file(run_id: str, paper_id: str) -> StreamingResponse:
+    """Stream the saved full-text file (PDF or TXT) for an included paper.
+
+    Returns the file with appropriate Content-Type. Returns 404 when the file
+    was not retrieved during extraction (abstract-only extraction run).
+    """
+    db_path = _get_db_path(run_id)
+    run_dir = pathlib.Path(db_path).parent
+    manifest_path = run_dir / "data_papers_manifest.json"
+
+    if not manifest_path.exists():
+        raise HTTPException(status_code=404, detail="No papers manifest found for this run.")
+
+    try:
+        manifest = _json.loads(manifest_path.read_text(encoding="utf-8"))
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Could not read manifest: {exc}") from exc
+
+    entry = manifest.get(paper_id)
+    if not entry:
+        raise HTTPException(status_code=404, detail=f"Paper {paper_id} not in manifest.")
+
+    file_path_str = entry.get("file_path")
+    if not file_path_str:
+        raise HTTPException(
+            status_code=404,
+            detail="Full-text file not available for this paper. Extraction used abstract only.",
+        )
+
+    file_path = pathlib.Path(file_path_str)
+    if not file_path.exists():
+        raise HTTPException(status_code=404, detail="Full-text file not found on disk.")
+
+    media_type = "application/pdf" if file_path.suffix == ".pdf" else "text/plain"
+    safe_title = "".join(c if c.isalnum() or c in " -_" else "_" for c in (entry.get("title", paper_id)[:60]))
+    filename = f"{safe_title}{file_path.suffix}"
+
+    async def file_iterator() -> Any:
+        with open(file_path, "rb") as fh:
+            while chunk := fh.read(65536):
+                yield chunk
+
+    return StreamingResponse(
+        file_iterator(),
+        media_type=media_type,
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@app.post("/api/run/{run_id}/fetch-pdfs")
+async def fetch_pdfs_for_run(run_id: str) -> dict[str, Any]:
+    """Retroactively fetch full-text PDFs/text for all included papers in a completed run.
+
+    Uses the same 8-tier fallback chain as the extraction node (Unpaywall, Semantic Scholar,
+    CORE, Europe PMC, ScienceDirect, PMC, arXiv, Crossref). Saves PDF bytes to
+    {run_dir}/papers/{paper_id}.pdf or full text to {paper_id}.txt, then updates
+    data_papers_manifest.json. Safe to call multiple times; skips papers that already
+    have a file saved.
+    """
+    from src.extraction.table_extraction import fetch_full_text
+
+    db_path = _get_db_path(run_id)
+    run_dir = pathlib.Path(db_path).parent
+    papers_dir = run_dir / "papers"
+    manifest_path = run_dir / "data_papers_manifest.json"
+
+    papers_dir.mkdir(parents=True, exist_ok=True)
+
+    manifest: dict[str, Any] = {}
+    if manifest_path.exists():
+        try:
+            manifest = _json.loads(manifest_path.read_text(encoding="utf-8"))
+        except Exception:
+            manifest = {}
+
+    try:
+        async with aiosqlite.connect(db_path) as db:
+            db.row_factory = aiosqlite.Row
+            await db.execute("PRAGMA journal_mode = WAL")
+            await db.execute("PRAGMA synchronous = NORMAL")
+            await db.execute("PRAGMA foreign_keys = ON")
+            async with db.execute(
+                """
+                SELECT p.paper_id, p.title, p.authors, p.year, p.doi, p.url
+                FROM papers p
+                JOIN dual_screening_results ft
+                  ON p.paper_id = ft.paper_id AND ft.stage = 'fulltext'
+                WHERE ft.final_decision = 'include'
+                ORDER BY p.paper_id
+                """
+            ) as cur:
+                rows = await cur.fetchall()
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+    results: list[dict[str, Any]] = []
+    succeeded = 0
+    skipped = 0
+
+    for row in rows:
+        paper_id = row["paper_id"]
+        doi = row["doi"] or ""
+        url = row["url"] or ""
+
+        # Skip if already saved and file still exists
+        existing = manifest.get(paper_id, {})
+        existing_path = existing.get("file_path")
+        if existing_path and pathlib.Path(existing_path).exists():
+            skipped += 1
+            results.append({"paper_id": paper_id, "status": "skipped", "source": existing.get("source")})
+            continue
+
+        saved_path: str | None = None
+        source: str = "abstract"
+        error_msg: str | None = None
+
+        try:
+            ft_result = await fetch_full_text(doi=doi or None, url=url or None)
+            if ft_result.pdf_bytes and len(ft_result.pdf_bytes) > 1000:
+                pdf_dest = papers_dir / f"{paper_id}.pdf"
+                pdf_dest.write_bytes(ft_result.pdf_bytes)
+                saved_path = str(pdf_dest)
+                source = ft_result.source
+                succeeded += 1
+            elif ft_result.text and ft_result.source not in ("abstract", ""):
+                txt_dest = papers_dir / f"{paper_id}.txt"
+                txt_dest.write_text(ft_result.text, encoding="utf-8")
+                saved_path = str(txt_dest)
+                source = ft_result.source
+                succeeded += 1
+            else:
+                source = "abstract"
+        except Exception as exc:
+            error_msg = str(exc)
+            _logger.warning("fetch-pdfs: failed for %s: %s", paper_id, exc)
+
+        manifest[paper_id] = {
+            "title": row["title"] or "",
+            "authors": row["authors"] or "",
+            "year": row["year"],
+            "doi": doi,
+            "url": url,
+            "source": source,
+            "file_path": saved_path,
+            "file_type": (
+                "pdf" if (saved_path and saved_path.endswith(".pdf"))
+                else ("txt" if saved_path else None)
+            ),
+        }
+        results.append(
+            {
+                "paper_id": paper_id,
+                "status": "ok" if saved_path else "failed",
+                "source": source,
+                "file_type": manifest[paper_id]["file_type"],
+                "error": error_msg,
+            }
+        )
+
+    manifest_path.write_text(_json.dumps(manifest, indent=2), encoding="utf-8")
+
+    attempted = len(rows) - skipped
+    failed = attempted - succeeded
+    return {
+        "attempted": attempted,
+        "succeeded": succeeded,
+        "failed": failed,
+        "skipped": skipped,
+        "results": results,
+    }
+
+
 @app.get("/api/run/{run_id}/events")
 async def get_run_events(run_id: str) -> dict[str, Any]:
     """Return the full event log for a run.

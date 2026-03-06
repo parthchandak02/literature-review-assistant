@@ -79,7 +79,7 @@ A secondary "Paste YAML directly" link is also available for pasting a raw confi
 
 Your Gemini API key is required and is pre-filled from localStorage on return visits. All keys are saved locally in your browser and never sent anywhere except your local backend.
 
-The sidebar shows all your runs (live and historical) with status colors (emerald = completed, violet = running, red = error, amber = cancelled) and a stats strip (papers found, papers included, artifacts, cost). Selecting a run opens its dashboard with 6 tabs: Config (research question + review.yaml), Activity (phase timeline + event log), Data, Cost, Results, and Review Screening (appears only when the run pauses for human-in-the-loop screening approval). You can resume from a specific phase (e.g. re-run synthesis after changing criteria) or delete completed runs from the sidebar.
+The sidebar shows all your runs (live and historical) with status colors (emerald = completed, violet = running, red = error, amber = cancelled) and a stats strip (papers found, papers included, artifacts, cost). Selecting a run opens its dashboard with 7 tabs: Config (research question + review.yaml), Activity (phase timeline + event log), Data, Cost, Results, References (included papers list with PDF/TXT download), and Review Screening (appears only when the run pauses for human-in-the-loop screening approval). You can resume from a specific phase (e.g. re-run synthesis after changing criteria) or delete completed runs from the sidebar.
 
 **Tip -- reuse a past config:** Click "+" to open the form, then use the "Load from past run" dropdown to pre-populate the form from any previous run's config. Useful for iterating on the same research question with different parameters.
 
@@ -379,6 +379,7 @@ cd frontend && pnpm fix && pnpm typecheck
 | `scripts/benchmark.py` | Validate tool outputs against a gold-standard corpus: measures screening recall, extraction field accuracy, and RoB Cohen's kappa vs. published review. Usage: `uv run python scripts/benchmark.py --run-dir runs/<date>/<topic>/run_<time> --gold gold.json` |
 | `scripts/test_fulltext_retrieval.py` | Test full-text retrieval for included papers from a workflow. Reports coverage by tier (Unpaywall, Semantic Scholar, CORE, Europe PMC, ScienceDirect, PMC). Usage: `uv run python scripts/test_fulltext_retrieval.py --workflow-id wf-xxx` or `--run-dir runs/<path>` |
 | `scripts/validate_scopus_key.py` | Validate SCOPUS_API_KEY against Elsevier API. Usage: `uv run python scripts/validate_scopus_key.py` |
+| `scripts/show_run_info.py` | Print run metadata (status, included papers, cost) for a workflow ID without opening the browser. Usage: `uv run python scripts/show_run_info.py --workflow-id wf-xxx` |
 
 ---
 
@@ -392,6 +393,8 @@ cd frontend && pnpm fix && pnpm typecheck
 **Rate limit errors:** The tool respects Gemini free-tier limits automatically. If you hit them, wait a minute and resume.
 
 **"No papers found":** Check that your keywords are broad enough and that `OPENALEX_API_KEY` is set. Try lowering `keyword_filter_min_matches` to `0` in `config/settings.yaml` to disable pre-filtering.
+
+**PubMed returns far fewer papers than a previous run:** Check `doc_search_strategies_appendix.md` in the run directory to see the exact query used. Exact-phrase requirements in the `search_overrides.pubmed` AND group kill recall -- `"outpatient pharmacy"[Title/Abstract]` (2-word phrase) returns ~6 records while `"outpatient"[Title/Abstract]` (single word) returns ~300+ for the same topic. Use single-word setting terms in the second AND group of the PubMed override. Also avoid `"Medication Errors"[MeSH Terms]` and `"Pharmacy Service, Hospital"[MeSH Terms]` in the AND group -- many pharmacy automation papers are not indexed under these MeSH terms.
 
 ---
 

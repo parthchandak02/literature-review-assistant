@@ -409,6 +409,57 @@ export async function fetchArtifacts(runId: string): Promise<Record<string, stri
   return (data.artifacts ?? data.outputs ?? {}) as Record<string, string>
 }
 
+// ---------------------------------------------------------------------------
+// References tab -- included papers with full-text file info
+// ---------------------------------------------------------------------------
+
+export interface PaperReference {
+  paper_id: string
+  title: string
+  authors: string
+  year: number | null
+  source_database: string | null
+  doi: string | null
+  url: string | null
+  country: string | null
+  retrieval_source: string
+  has_file: boolean
+  file_type: "pdf" | "txt" | null
+}
+
+export async function fetchPapersReference(runId: string): Promise<PaperReference[]> {
+  const res = await fetch(`${BASE}/run/${runId}/papers-reference`)
+  if (!res.ok) throw await _apiError(res, "Papers reference fetch failed")
+  const data = await res.json() as { papers?: PaperReference[] }
+  return data.papers ?? []
+}
+
+/** Returns a direct URL to download a paper's full-text file (PDF or TXT). */
+export function paperFileUrl(runId: string, paperId: string): string {
+  return `${BASE}/run/${runId}/papers/${paperId}/file`
+}
+
+export interface FetchPdfsResult {
+  attempted: number
+  succeeded: number
+  failed: number
+  skipped: number
+  results: Array<{
+    paper_id: string
+    status: "ok" | "failed" | "skipped"
+    source: string | null
+    file_type: "pdf" | "txt" | null
+    error: string | null
+  }>
+}
+
+/** Retroactively fetch full-text PDFs/text for all included papers in a completed run. */
+export async function fetchPdfsForRun(runId: string): Promise<FetchPdfsResult> {
+  const res = await fetch(`${BASE}/run/${runId}/fetch-pdfs`, { method: "POST" })
+  if (!res.ok) throw await _apiError(res, "PDF fetch failed")
+  return res.json() as Promise<FetchPdfsResult>
+}
+
 /**
  * Trigger IEEE LaTeX export for a completed run.
  * Returns the submission directory path and a sorted list of generated file paths.
@@ -648,17 +699,6 @@ export async function fetchPrismaChecklist(runId: string): Promise<PrismaCheckli
   const res = await fetch(`${BASE}/run/${runId}/prisma-checklist`)
   if (!res.ok) throw await _apiError(res, "PRISMA checklist fetch failed")
   return res.json() as Promise<PrismaChecklist>
-}
-
-// Living review refresh
-
-export async function livingRefresh(runId: string): Promise<RunResponse> {
-  const res = await fetch(`${BASE}/run/${runId}/living-refresh`, { method: "POST" })
-  if (!res.ok) {
-    const text = await res.text()
-    throw new Error(`Living refresh failed: ${text}`)
-  }
-  return res.json() as Promise<RunResponse>
 }
 
 // History endpoints
