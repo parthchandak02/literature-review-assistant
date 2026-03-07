@@ -254,11 +254,43 @@ silent quota exhaustion for pro-tier models like Gemini 3.1 Pro Preview.
 
 ## All LLM Models Are Centralized In config/settings.yaml
 No Gemini model string is hardcoded anywhere in src/ (only the provider.py docstring
-example comment contains "gemini-2.5-flash" as an illustration). All 17 agent keys +
+example comment contains "gemini-2.5-flash" as an illustration). All 19 agent keys +
 rag.embed_model/hyde_model/reranker_model + extraction.pdf_vision_model live in
 `config/settings.yaml`. Module fallbacks use `_get_model_from_settings()` helpers that
 read from settings.yaml and only fall back to a current model name string when the YAML
 cannot be parsed. To change any model, edit settings.yaml only -- no Python edits needed.
+The 19 agent keys are: screening_reviewer_a/b, screening_adjudicator, batch_screener,
+search, extraction, quality_assessment, study_type_detection, writing, abstract_generation,
+humanizer, contradiction_resolver, naturalness_scorer, criteria_refinement, table_extraction,
+config_generation, concept_diagrams, narrative, style_extraction.
+
+## Batch LLM Pre-Ranker Sits Between BM25 and Dual-Reviewer
+`src/screening/batch_ranker.py` implements a batch scoring step that fires after BM25
+ranking and before the full dual-reviewer LLM pass. It scores papers in batches using
+the `batch_screener` agent (settings.yaml). Papers scoring below `batch_screening.min_score`
+(default 0.35) are auto-excluded as `batch_screened_low` and emitted via the
+`batch_screen_done` SSE event (visible in the FUNNEL log line). Only papers above the
+threshold proceed to the dual-reviewer. The funnel display shows "N to dual-reviewer"
+and "M auto-excluded (score < X%)" for this stage. If batch_ranker raises an exception,
+ScreeningNode falls back to passing ALL BM25-ranked papers to the dual-reviewer.
+
+## Resume May Skip Phases Due To Stale Zero-Result Checkpoint
+`resume.py` uses `from_phase` checkpoints. If a phase completes but produces 0 results
+(e.g. writing phase saves `sections: 0`), resume treats the checkpoint as valid and skips
+re-running the phase -- jumping straight to the next one. To force re-execution: manually
+delete the phase checkpoint row from `checkpoints` table in `runtime.db` and reset the
+run status to `running`. This was the root cause of empty manuscripts after model quota
+exhaustion mid-run: the writing phase saved a zero-section checkpoint, causing all subsequent
+resumes to skip writing entirely.
+
+## tests/conftest.py Uses load_dotenv(override=True) for API Keys
+`tests/conftest.py` (project root) calls `load_dotenv(override=True)` at session start.
+`override=True` is intentional: it ensures the `.env` file's API key values take precedence
+over any stale/invalid key already exported in the shell environment (e.g. an expired
+`GOOGLE_API_KEY` set in `.zshrc`). The production config loader uses the default
+`load_dotenv()` (no override) -- the override is test-only. If LLM-dependent integration
+tests are skipping or failing with auth errors, check whether `GOOGLE_API_KEY` in the
+shell differs from the one in `.env`.
 
 ## `search_eligibility_window` vs `year_range` Are Different Things
 `WritingGroundingData.year_range` = "2016-2025" (min-max publication years of included papers).

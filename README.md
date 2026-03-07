@@ -252,8 +252,10 @@ The pipeline runs as an 8-phase PydanticAI graph. Each phase writes its results 
 Phase 1: Load config, initialize DB, set up LLM provider
 Phase 2: Search 7+ databases (incl. ClinicalTrials.gov grey lit), deduplicate (MinHash LSH),
          generate PROSPERO protocol
-Phase 3: Dual-reviewer screening -- Reviewer A (gemini-3.1-flash-lite-preview) + Reviewer B
-         (gemini-3-flash-preview, cross-model validation), adjudicator on disagreement;
+Phase 3: Dual-reviewer screening -- keyword pre-filter, BM25 ranking (top N to LLM),
+         batch LLM pre-ranker (scores papers in batches; below-threshold papers are
+         auto-excluded as batch_screened_low), then full dual-reviewer (Reviewer A +
+         Reviewer B, cross-model validation), adjudicator on disagreement;
          protocol-only studies auto-excluded; Cohen's kappa logged;
          forward citation chasing runs after inclusion decisions (PRISMA 2020 snowball)
          [Optional pause: human review checkpoint when human_in_the_loop.enabled=true]
@@ -350,7 +352,7 @@ cd frontend && pnpm fix && pnpm typecheck
 | `src/db/` | SQLite schema, typed repositories, workflow registry |
 | `src/orchestration/` | PydanticAI Graph nodes, quality gates, resume logic |
 | `src/search/` | Database connectors + deduplication + search strategy |
-| `src/screening/` | Dual reviewer, Cohen's kappa, keyword pre-filter |
+| `src/screening/` | Batch LLM pre-ranker, dual reviewer, Cohen's kappa, keyword pre-filter |
 | `src/extraction/` | Study design classifier, data extractor |
 | `src/quality/` | RoB 2, ROBINS-I, CASP, GRADE |
 | `src/synthesis/` | Feasibility checker, meta-analysis, narrative synthesis |

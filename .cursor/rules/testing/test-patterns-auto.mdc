@@ -27,6 +27,13 @@ uv run pytest tests/integration -q   # slower, may use LLM
 # tests/e2e/ does not exist yet
 ```
 
+## Environment / API Keys In Tests
+`tests/conftest.py` (project root) calls `load_dotenv(override=True)` at pytest session
+start. This ensures `.env` values take precedence over any stale key exported in the shell.
+Tests that require a real LLM key should use `pytest.mark.skipif(not os.getenv("GOOGLE_API_KEY"), ...)`.
+Do NOT rely on a key being set in the shell -- always ensure `.env` is populated and that
+`tests/conftest.py` is present so `load_dotenv(override=True)` runs.
+
 ## Artifact Hygiene
 - Test runs may produce runtime artifacts under `runs/`.
 - Do not stage or commit runtime artifacts by default.
