@@ -127,7 +127,7 @@ literature-review-assistant/
 |   |-- quality/                    # rob2, robins_i, casp, grade, study_router
 |   |-- synthesis/                  # feasibility, meta_analysis, effect_size, narrative
 |   |-- rag/                        # chunker, embedder (PydanticAI), hybrid retriever (BM25+dense RRF), hyde (HyDE query expansion), reranker (Gemini listwise)
-|   |-- writing/                    # section_writer, humanizer, style_extractor, prompts/ (dir), context_builder, orchestration, citation_grounding, contradiction_resolver
+|   |-- writing/                    # section_writer, humanizer, prompts/ (dir), context_builder, orchestration, citation_grounding, contradiction_resolver
 |   |-- citation/                   # ledger (claim -> evidence -> citation)
 |   |-- protocol/                   # PROSPERO-format protocol generator
 |   |-- prisma/                     # PRISMA 2020 flow diagram
@@ -243,7 +243,7 @@ Change rarely. Values are tuned from real runs.
 | `screening.*` | `stage1_include_threshold` (0.85), `stage1_exclude_threshold` (0.80), `screening_concurrency` (asyncio.Semaphore), `max_llm_screen` (optional BM25 cap), `skip_fulltext_if_no_pdf`, `pdf_retrieval_concurrency` (8 -- concurrent PDF fetches), `batch_screen_concurrency` (3 -- concurrent batch ranker batches), `reviewer_batch_size` (default 10 -- papers per dual-reviewer LLM call; 0 = per-paper legacy mode) |
 | `dual_review.*` | `enabled`, `kappa_warning_threshold` (0.4) |
 | `gates.*` | `profile` (strict / warning), `search_volume_minimum` (50), `screening_minimum` (5), `extraction_completeness_threshold` (0.80), `cost_budget_max` (USD) |
-| `writing.*` | `style_extraction`, `humanization`, `humanization_iterations` (2), `naturalness_threshold` (0.75), `checkpoint_per_section`, `llm_timeout` (120s) |
+| `writing.*` | `humanization`, `humanization_iterations` (2), `checkpoint_per_section`, `llm_timeout` (120s) |
 | `risk_of_bias.*` | `rct_tool` (rob2), `non_randomized_tool` (robins_i), `qualitative_tool` (casp) |
 | `meta_analysis.*` | `enabled`, `heterogeneity_threshold` (50 = I-squared cutoff for fixed vs random effects), `funnel_plot_minimum_studies` (10), effect measures |
 | `ieee_export.*` | `template` (IEEEtran), `max_abstract_words` (250), `target_page_range` ([7, 10]) |
@@ -446,7 +446,7 @@ A section writer (Gemini Pro) generates each of six manuscript sections. All sec
 - Style patterns from included papers
 - Study-count-adapted language (singular vs plural)
 
-After each section, a naturalness scorer (Gemini Pro, 3,000 chars input) rates the output 0-1. If below `naturalness_threshold` (0.75), the humanizer (Gemini Pro, 4,000 chars input) runs up to `humanization_iterations` refinement passes.
+After each section, the humanizer (flash tier, up to `humanization_iterations` refinement passes) polishes the output for academic tone. The naturalness scorer was removed -- it returned a constant 0.8 and never gated any output.
 
 The citation ledger validates after each section: every in-text citekey must resolve to a `CitationEntryRecord`. Zero unresolved citations is required before export.
 
@@ -504,7 +504,7 @@ Registry status updated to "completed". `run_summary.json` written to log dir wi
 |------|-------|------------------------------|-------------------|
 | Bulk | gemini-3.1-flash-lite-preview | $0.25 / $1.50 | screening_reviewer_a, search, study_type_detection, abstract_generation, hyde generation, rag reranker |
 | Fast | gemini-3-flash-preview | lower cost | screening_reviewer_b |
-| Quality | gemini-3.1-pro-preview | $1.25 / $10.00 | screening_adjudicator, extraction, quality_assessment, writing, humanizer, style_extraction |
+| Quality | gemini-3.1-pro-preview | $1.25 / $10.00 | screening_adjudicator, extraction, quality_assessment, writing, humanizer |
 
 Reviewer A (gemini-3.1-flash-lite-preview) and Reviewer B (gemini-3-flash-preview) use different models intentionally -- this provides genuine cross-model validation rather than intra-model temperature variation. Flash-Lite-Preview is optimal for bulk classification at scale; gemini-3-flash-preview provides a different model perspective for Reviewer B without the cost of Pro. HyDE generation and listwise reranking also use flash-lite-preview for speed and cost efficiency.
 
@@ -530,7 +530,7 @@ Every LLM call records a `CostRecord` to the `cost_records` table immediately af
 - Typed JSON schema mode (`response_schema`) for structured outputs
 - 120-second timeout per call (configurable via `settings.yaml` `writing.llm_timeout`)
 
-Used by: extraction, quality assessment, writing, humanizer, style extractor, naturalness scorer. Screening has its own `GeminiScreeningClient` due to different batching and concurrency requirements.
+Used by: extraction, quality assessment, writing, humanizer. Screening has its own `GeminiScreeningClient` due to different batching and concurrency requirements.
 
 ### 7.5 Screening Prompts Design
 
@@ -1080,7 +1080,7 @@ Living section -- update as work completes.
 | Phase 3: Screening | DONE | Dual reviewer with cross-model validation (Reviewer A=flash-lite tier, Reviewer B=flash tier -- see config/settings.yaml), keyword filter, BM25 cap, batch LLM pre-ranker (batch_ranker.py; batch_screener agent; papers below batch_screen_threshold auto-excluded as batch_screened_low), kappa injected into writing, Ctrl+C proceed-with-partial, confidence fast-path, protocol-only auto-exclusion; forward citation chasing (Semantic Scholar + OpenAlex) runs at end of ScreeningNode -- chased papers are immediately dual-screened (title/abstract + fulltext) in the same run and contribute to dual_screening_results |
 | Phase 4: Extraction + Quality | DONE | LLM extraction with PyMuPDF full-text parsing (32K char context, up from 8K), async RoB 2 / ROBINS-I / CASP with heuristic fallback tagged by assessment_source, GRADE auto-wired from RoB data (assess_from_rob), study router, RoB traffic-light figure |
 | Phase 5: Synthesis | DONE | Hardened feasibility (requires effect_size+se in >= 2 studies), statsmodels pooling (DL), forest + funnel plots, LLM-based narrative direction classification, sensitivity analysis (leave-one-out + subgroup), synthesis_results table |
-| Phase 6: Writing | DONE | Section writer, humanizer, citation validation, style extractor, naturalness scorer, per-section checkpoint, WritingGroundingData (includes kappa, sensitivity_results, n_studies_reporting_count, separated search sources), GRADE table injected into manuscript |
+| Phase 6: Writing | DONE | Section writer, humanizer, citation validation, per-section checkpoint, WritingGroundingData (includes kappa, sensitivity_results, n_studies_reporting_count, separated search sources, rob_summary, grade_summary injected from actual assessments), GRADE table + RoB summary injected into writing prompts |
 | Phase 7: PRISMA + Viz | DONE | PRISMA diagram (prisma-flow-diagram + fallback), timeline, geographic, ROBINS-I in RoB figure, uniform artifact naming |
 | Phase 8: Export + Orchestration | DONE | Run/resume, IEEE LaTeX, BibTeX, validators, Word DOCX export (pypandoc + python-docx), submission packager, pdflatex, CLI subcommands |
 | Web UI | DONE | FastAPI SSE backend (30+ endpoints incl. screening-summary, approve-screening, living-refresh, prisma-checklist, papers-reference, papers/{id}/file, fetch-pdfs), React/Vite/TypeScript frontend, structured Setup form, run-centric sidebar, 7-tab RunView in workflow order (Config -> Activity -> Data -> Cost -> Results -> References, with step numbers and chevron connectors; Review Screening when awaiting_review), Config tab shows research question and timestamped review.yaml for agent reference, DB explorer with heuristic RoB filter, cost tracking, grouped Results panel with PRISMA checklist panel, ScreeningReviewView for HITL approval, ReferencesView (tab 6) shows included papers with PDF/TXT download and retroactive "Fetch PDFs" button; NOTE: living-refresh backend endpoint exists but no frontend control is currently wired to it -- trigger via CLI or direct API call; history UX lives in Sidebar.tsx (not a separate HistoryView component) |

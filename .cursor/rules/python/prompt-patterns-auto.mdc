@@ -52,5 +52,7 @@ Every writing section prompt includes a FACTUAL DATA BLOCK built by `format_grou
 - cohens_kappa: when not None, instructs LLM to report exact value; when None, explicitly instructs
   LLM NOT to report a kappa value
 - screening_method_description: injected verbatim; states that full-text PDFs were not retrieved
+- rob_summary: structured text block listing each paper's RoB2/ROBINS-I tool, judgment (low/some_concerns/high), and domains; injected so the LLM can write the risk-of-bias subsection with actual data instead of generic language
+- grade_summary: table of GRADE outcomes with certainty level (high/moderate/low/very_low); injected so the Discussion/Conclusion can cite actual GRADE ratings
 - VALID CITATION KEYS: includes both included study citekeys AND methodology citekeys
   (Page2021, Sterne2019, Sterne2016, Guyatt2011, Cohen1960) from register_methodology_citations()

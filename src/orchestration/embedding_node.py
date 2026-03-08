@@ -119,7 +119,6 @@ class EmbeddingNode(BaseNode[ReviewState]):
 
                         _cost_repo = _WR(db)
                         await _cost_repo.save_cost_record(
-                            state.workflow_id,
                             CostRecord(
                                 model=embed_model,
                                 phase="phase_4b_embedding",
