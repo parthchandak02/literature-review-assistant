@@ -16,12 +16,13 @@ from src.models import (
     SettingsConfig,
 )
 from src.models.enums import ReviewType
-from src.writing import SectionWriter, StylePatterns, extract_style_patterns
+from src.writing import SectionWriter
 from src.writing.orchestration import (
     build_citation_catalog_from_papers,
     prepare_writing_context,
     register_citations_from_papers,
 )
+from src.writing.style_extractor import StylePatterns, extract_style_patterns
 from src.writing.prompts.sections import (
     SECTIONS,
     get_section_context,
@@ -100,8 +101,8 @@ def test_prepare_writing_context() -> None:
         ),
     ]
     settings = _minimal_settings()
-    patterns, catalog = prepare_writing_context(papers, None, settings)
-    assert isinstance(patterns, StylePatterns)
+    catalog = prepare_writing_context(papers, settings)
+    assert isinstance(catalog, str)
     assert "Test" in catalog
 
 
