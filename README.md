@@ -383,6 +383,7 @@ cd frontend && pnpm fix && pnpm typecheck
 | `scripts/test_fulltext_retrieval.py` | Test full-text retrieval for included papers from a workflow. Reports coverage by tier (Unpaywall, Semantic Scholar, CORE, Europe PMC, ScienceDirect, PMC). Usage: `uv run python scripts/test_fulltext_retrieval.py --workflow-id wf-xxx` or `--run-dir runs/<path>` |
 | `scripts/validate_scopus_key.py` | Validate SCOPUS_API_KEY against Elsevier API. Usage: `uv run python scripts/validate_scopus_key.py` |
 | `scripts/show_run_info.py` | Print run metadata (status, included papers, cost) for a workflow ID without opening the browser. Usage: `uv run python scripts/show_run_info.py --workflow-id wf-xxx` |
+| `scripts/build_benchmark.py` | Build or update the gold-standard benchmark from reference/ PDFs using the PDF vision LLM. Extracts structured quality dimensions and computes derived thresholds. Usage: `uv run python scripts/build_benchmark.py` or `--fetch-web` to pull additional published SRs. |
 
 ---
 
