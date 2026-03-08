@@ -49,6 +49,10 @@ class WritingGroundingData(BaseModel):
     # PRISMA 2020 item 7 ("For each database or register searched, the date, scope,
     # and number of records retrieved").
     zero_yield_databases: list[str] = []
+    # Databases attempted but that raised an error during the search phase (e.g.
+    # API quota exhausted, auth failure). These never produce a search_results row.
+    # PRISMA 2020 item 5 requires disclosing all attempted sources, including failed ones.
+    failed_databases: list[str] = []
     other_methods_searched: list[str]
     search_date: str
 
@@ -84,6 +88,11 @@ class WritingGroundingData(BaseModel):
 
     # Citation keys (the ONLY keys the LLM is allowed to use)
     valid_citekeys: list[str]
+
+    # Map from citekey to a short title snippet (first ~60 chars of title).
+    # Included in the grounding prompt so the LLM can associate study titles
+    # with the exact citekey string rather than guessing author-year variants.
+    citekey_title_map: dict[str, str] = {}
 
     # Inter-rater reliability (from dual-reviewer screening phase).
     # kappa_n is the number of papers in the uncertain-paper subset on which
@@ -136,8 +145,7 @@ class WritingGroundingData(BaseModel):
         "(Unpaywall, Semantic Scholar, Europe PMC, CORE, PubMed Central). "
         "Papers for which full text could not be retrieved were excluded and are reported "
         "in the PRISMA flow as 'Reports not retrieved'. "
-        "Inter-rater reliability was measured using Cohen's kappa on the subset of papers "
-        "requiring dual review."
+        "Inter-rater reliability was not formally computed for this run."
     )
 
     # Number of quality assessments derived from heuristic fallback (LLM timed out).
@@ -161,6 +169,20 @@ class WritingGroundingData(BaseModel):
     fulltext_retrieved_count: int = 0
     fulltext_total_count: int = 0
 
+    # PRISMA 2020 full-text retrieval flow counts (items 10-11).
+    # fulltext_sought: papers forwarded to stage-2 full-text screening.
+    # fulltext_not_retrieved: papers excluded because no PDF was obtainable.
+    # When non-zero, the Methods section must state: "X reports were sought; Y could
+    # not be retrieved; Z were assessed for eligibility."
+    fulltext_sought: int = 0
+    fulltext_not_retrieved: int = 0
+
+    # Batch LLM pre-ranker counts (set during screening phase).
+    # When batch_screen_forwarded > 0, the Methods section should describe a
+    # 3-stage funnel: BM25 -> batch pre-ranker -> dual-reviewer.
+    batch_screen_forwarded: int = 0
+    batch_screen_excluded: int = 0
+
     # Author name for CRediT statement. Defaults to generic placeholder.
     author_name: str = "Corresponding Author"
 
@@ -168,22 +190,37 @@ class WritingGroundingData(BaseModel):
 def _build_screening_method_description(
     screening_decisions: list[object] | None,
     total_screened: int,
+    batch_screen_forwarded: int = 0,
+    batch_screen_excluded: int = 0,
+    cohens_kappa: float | None = None,
 ) -> str:
     """Compute an accurate screening method description from actual decision records.
 
     Counts decisions by actor (keyword_filter vs LLM reviewers) to describe the
     real tiered architecture rather than a generic 'two independent reviewers' claim.
-    This ensures the Methods section accurately reflects what the pipeline did.
+    When batch_screen_forwarded > 0, describes a 3-stage funnel:
+    BM25 -> batch LLM pre-ranker -> dual independent reviewers.
+    The kappa sentence is only emitted when cohens_kappa is not None; omitting it
+    prevents the Abstract from contradicting the Methods on resumed runs where
+    kappa was not yet restored into state.
     """
+    _RESOLVER_TEXT = (
+        "full-text retrieval was attempted via a multi-tier open-access resolver "
+        "(Unpaywall, Semantic Scholar, Europe PMC, CORE, PubMed Central)"
+    )
+    _kappa_sentence = (
+        "Inter-rater reliability was measured using Cohen's kappa on the subset of papers requiring dual review."
+        if cohens_kappa is not None
+        else "Inter-rater reliability was not formally computed for this run."
+    )
+
     if not screening_decisions:
         return (
             "Two independent reviewers screened titles and abstracts, "
             "with disagreements resolved by a third adjudicator. "
-            "Papers advancing from title/abstract screening underwent full-text eligibility "
-            "assessment; full-text retrieval was attempted via a multi-tier open-access resolver "
-            "(Unpaywall, Semantic Scholar, Europe PMC, CORE, PubMed Central). "
-            "Inter-rater reliability was measured using Cohen's kappa on the subset of papers "
-            "requiring dual review."
+            f"Papers advancing from title/abstract screening underwent full-text eligibility "
+            f"assessment; {_RESOLVER_TEXT}. "
+            f"{_kappa_sentence}"
         )
 
     # Count decisions by actor at the title_abstract stage
@@ -201,8 +238,36 @@ def _build_screening_method_description(
         and getattr(d, "actor", "")
     )
 
-    if kf_count > 0 and llm_count < kf_count:
-        # Tiered architecture detected: keyword filter handled the majority
+    if batch_screen_forwarded > 0:
+        # 3-stage funnel: BM25 -> batch pre-ranker -> dual reviewers
+        bm25_fwd = batch_screen_forwarded + batch_screen_excluded
+        _batch_kappa = (
+            f"Inter-rater reliability was measured using Cohen's kappa on the "
+            f"{batch_screen_forwarded} records evaluated by the dual reviewers."
+            if cohens_kappa is not None
+            else "Inter-rater reliability was not formally computed for this run."
+        )
+        return (
+            f"Title and abstract screening used a three-stage approach. "
+            f"First, a BM25 keyword relevance pre-filter evaluated all records, routing "
+            f"{bm25_fwd} records to a batch LLM pre-ranker. "
+            f"The pre-ranker coarse-scored all {bm25_fwd} records and auto-excluded "
+            f"{batch_screen_excluded} records with low relevance scores (threshold < 35%), "
+            f"forwarding {batch_screen_forwarded} records for independent dual review. "
+            f"Two independent reviewers then screened those {batch_screen_forwarded} records, "
+            f"with a third reviewer resolving any disagreements. "
+            f"Papers advancing from title/abstract screening underwent full-text eligibility "
+            f"assessment; {_RESOLVER_TEXT}. "
+            f"{_batch_kappa}"
+        )
+    elif kf_count > 0 and llm_count < kf_count:
+        # Tiered architecture detected: keyword/BM25 filter handled the majority
+        _tiered_kappa = (
+            f"Inter-rater reliability was measured using Cohen's kappa on the {llm_count} records "
+            f"evaluated by the dual reviewers."
+            if cohens_kappa is not None
+            else "Inter-rater reliability was not formally computed for this run."
+        )
         return (
             f"Title and abstract screening used a tiered approach. "
             f"First, a BM25 keyword relevance pre-filter evaluated all {total_screened} records, "
@@ -211,21 +276,17 @@ def _build_screening_method_description(
             f"Two independent reviewers then screened the {llm_count} "
             f"pre-filtered records, with a third reviewer resolving any disagreements. "
             f"Papers advancing from title/abstract screening underwent full-text eligibility "
-            f"assessment; full-text retrieval was attempted via a multi-tier open-access resolver "
-            f"(Unpaywall, Semantic Scholar, Europe PMC, CORE, PubMed Central). "
-            f"Inter-rater reliability was measured using Cohen's kappa on the {llm_count} records "
-            f"evaluated by the dual reviewers."
+            f"assessment; {_RESOLVER_TEXT}. "
+            f"{_tiered_kappa}"
         )
     else:
         # Symmetric dual-review: both reviewers assessed all (or nearly all) records
         return (
             "Two independent reviewers screened titles and abstracts, "
             "with disagreements resolved by a third adjudicator. "
-            "Papers advancing from title/abstract screening underwent full-text eligibility "
-            "assessment; full-text retrieval was attempted via a multi-tier open-access resolver "
-            "(Unpaywall, Semantic Scholar, Europe PMC, CORE, PubMed Central). "
-            "Inter-rater reliability was measured using Cohen's kappa on the subset of papers "
-            "requiring dual review."
+            f"Papers advancing from title/abstract screening underwent full-text eligibility "
+            f"assessment; {_RESOLVER_TEXT}. "
+            f"{_kappa_sentence}"
         )
 
 
@@ -245,6 +306,11 @@ def build_writing_grounding(
     screening_decisions: list[object] | None = None,
     background_sr_citekeys: list[str] | None = None,
     search_date: str | None = None,
+    failed_databases: list[str] | None = None,
+    batch_screen_forwarded: int = 0,
+    batch_screen_excluded: int = 0,
+    fulltext_sought: int = 0,
+    fulltext_not_retrieved: int = 0,
 ) -> WritingGroundingData:
     """Aggregate real pipeline outputs into a WritingGroundingData instance."""
 
@@ -336,14 +402,23 @@ def build_writing_grounding(
             )
         )
 
-    # Extract valid citekeys from the citation catalog
+    # Extract valid citekeys from the citation catalog and build title snippet map.
+    # The catalog format is: [citekey] Title (year) -- one entry per line.
     valid_citekeys: list[str] = []
+    citekey_title_map: dict[str, str] = {}
     for line in citation_catalog.splitlines():
         line = line.strip()
         if line.startswith("[") and "]" in line:
-            key = line[1 : line.index("]")]
+            _close = line.index("]")
+            key = line[1:_close]
             if key:
                 valid_citekeys.append(key)
+                # Extract the title portion (between "] " and " (year)") for the map.
+                _rest = line[_close + 1 :].strip()
+                # _rest looks like "Some Title (2023)" -- grab up to the first " ("
+                _paren_idx = _rest.rfind(" (")
+                _title_part = _rest[:_paren_idx].strip() if _paren_idx > 0 else _rest
+                citekey_title_map[key] = _title_part[:60]
 
     total_included_count = prisma_counts.studies_included_qualitative + prisma_counts.studies_included_quantitative
     fulltext_excluded_count = max(0, prisma_counts.reports_assessed - total_included_count)
@@ -361,9 +436,7 @@ def build_writing_grounding(
     # See src/models/extraction.py for all extraction_source values.
     _ABSTRACT_ONLY_SOURCES = frozenset({"text", "heuristic", None, ""})
     fulltext_retrieved = sum(
-        1
-        for rec in extraction_records
-        if getattr(rec, "extraction_source", "text") not in _ABSTRACT_ONLY_SOURCES
+        1 for rec in extraction_records if getattr(rec, "extraction_source", "text") not in _ABSTRACT_ONLY_SOURCES
     )
     fulltext_total = len(extraction_records)
 
@@ -373,6 +446,7 @@ def build_writing_grounding(
     return WritingGroundingData(
         databases_searched=active_dbs,
         zero_yield_databases=zero_yield_dbs,
+        failed_databases=failed_databases or [],
         other_methods_searched=active_other,
         search_date=search_date or str(datetime.now().year),
         total_identified=prisma_counts.total_identified_databases + prisma_counts.total_identified_other,
@@ -393,6 +467,7 @@ def build_writing_grounding(
         key_themes=themes,
         study_summaries=study_summaries,
         valid_citekeys=valid_citekeys,
+        citekey_title_map=citekey_title_map,
         cohens_kappa=cohens_kappa,
         kappa_stage=kappa_stage,
         kappa_n=kappa_n,
@@ -411,12 +486,20 @@ def build_writing_grounding(
         heuristic_assessment_count=heuristic_assessment_count,
         heterogeneity_warning=heterogeneity_warning,
         screening_method_description=_build_screening_method_description(
-            screening_decisions, prisma_counts.records_screened
+            screening_decisions,
+            prisma_counts.records_screened,
+            batch_screen_forwarded=batch_screen_forwarded,
+            batch_screen_excluded=batch_screen_excluded,
+            cohens_kappa=cohens_kappa,
         ),
         background_sr_citekeys=background_sr_citekeys or [],
         search_eligibility_window=search_eligibility_window,
         fulltext_retrieved_count=fulltext_retrieved,
         fulltext_total_count=fulltext_total,
+        fulltext_sought=fulltext_sought,
+        fulltext_not_retrieved=fulltext_not_retrieved,
+        batch_screen_forwarded=batch_screen_forwarded,
+        batch_screen_excluded=batch_screen_excluded,
         author_name=_author_name or "Corresponding Author",
     )
 
@@ -458,6 +541,16 @@ def format_grounding_block(data: WritingGroundingData) -> str:
             "Per PRISMA 2020 item 7, every searched source must report its record count. "
             "Do NOT silently omit zero-yield sources."
         )
+    if data.failed_databases:
+        failed_str = ", ".join(data.failed_databases)
+        lines.append(f"Databases attempted but failed (API error during search): {failed_str}")
+        lines.append(
+            "CRITICAL -- PRISMA DISCLOSURE: The Methods section MUST disclose that the "
+            f"following database(s) were searched but encountered errors and returned no records: {failed_str}. "
+            "Per PRISMA 2020 item 5, all attempted sources must be reported even if the search failed. "
+            "State this as: '[database] was searched but could not be queried due to an API error "
+            "and returned no records for this review.' Do NOT silently omit failed sources."
+        )
     if data.search_limitation:
         lines.append(f"Search limitation: {data.search_limitation}")
     lines += [
@@ -485,6 +578,19 @@ def format_grounding_block(data: WritingGroundingData) -> str:
         f"Full-text articles excluded: {data.fulltext_excluded}",
         f"Studies included: {data.total_included}",
     ]
+    if data.batch_screen_forwarded > 0:
+        _bm25_fwd = data.batch_screen_forwarded + data.batch_screen_excluded
+        lines.append(
+            f"Screening funnel detail: BM25 routed {_bm25_fwd} to batch pre-ranker; "
+            f"batch pre-ranker excluded {data.batch_screen_excluded} (low relevance); "
+            f"{data.batch_screen_forwarded} forwarded to dual independent reviewers."
+        )
+        lines.append(
+            "CRITICAL -- SCREENING FUNNEL: The Methods section MUST describe the three-stage "
+            "screening process: (1) BM25 relevance pre-filter, (2) batch LLM pre-ranker, "
+            "(3) independent dual reviewers. Do NOT collapse these into a single step. "
+            "Use the exact counts above for each stage."
+        )
 
     if data.excluded_fulltext_reasons:
         reasons_str = "; ".join(f"{_normalize_label(k)} ({v})" for k, v in data.excluded_fulltext_reasons.items())
@@ -522,7 +628,22 @@ def format_grounding_block(data: WritingGroundingData) -> str:
             "an observed characteristic of the results."
         )
 
-    if data.fulltext_total_count > 0:
+    if data.fulltext_sought > 0:
+        # Accurate PRISMA 2020 items 10-11: reports sought, not retrieved, assessed.
+        _ft_assessed = data.fulltext_sought - data.fulltext_not_retrieved
+        lines.append(
+            f"PRISMA full-text flow: {data.fulltext_sought} reports sought; "
+            f"{data.fulltext_not_retrieved} could not be retrieved; "
+            f"{_ft_assessed} assessed for eligibility."
+        )
+        lines.append(
+            "CRITICAL -- PRISMA items 10-11: The Methods section MUST state: "
+            f"'{data.fulltext_sought} full-text reports were sought; "
+            f"{data.fulltext_not_retrieved} could not be retrieved; "
+            f"{_ft_assessed} were assessed for eligibility.' "
+            "Use these exact counts. Do NOT confuse 'sought' with 'assessed'."
+        )
+    elif data.fulltext_total_count > 0:
         abstract_only = data.fulltext_total_count - data.fulltext_retrieved_count
         lines.append(
             f"Full-text retrieval: {data.fulltext_retrieved_count} of {data.fulltext_total_count} "
@@ -578,8 +699,11 @@ def format_grounding_block(data: WritingGroundingData) -> str:
     lines.append(f"Protocol registration: {reg_status}")
     lines.append(
         "CRITICAL: The 'Protocol Registration' field above is the authoritative source. "
-        "Every section (Methods AND Declarations) MUST use identical wording. "
-        "NEVER write 'registered prospectively' unless registration=YES."
+        "Include the protocol statement ONLY in the Methods section (as a subsection or "
+        "sentence within study selection) AND in the Declarations section. "
+        "Do NOT place it in the Results section opening -- the Results section must begin "
+        "with study selection numbers (PRISMA flow). "
+        "NEVER write 'registered prospectively' unless registration=YES above."
     )
     lines.append(f"Synthesis direction: {data.synthesis_direction}")
     lines.append(f"Studies synthesized: {data.n_studies_synthesized}")
@@ -667,13 +791,30 @@ def format_grounding_block(data: WritingGroundingData) -> str:
             "CRITICAL -- PRIOR REVIEWS RULE: The Discussion section MUST compare and contrast this "
             "review's findings against the background systematic reviews listed above. Use these "
             "citekeys in the 'Comparison with Prior Work' subsection. PRISMA 2020 item 27 requires "
-            "this comparison. Do NOT write the Discussion without citing at least 2-3 of these reviews."
+            "this comparison. Do NOT write the Discussion without citing at least 2-3 of these reviews. "
+            "STRICT KEY CONSTRAINT: You MUST use ONLY the exact citekeys listed above for background "
+            "SRs. Do NOT invent or hallucinate any other author-year keys for systematic reviews -- "
+            "invented citekeys cannot be resolved and will be stripped from the final manuscript."
         )
 
     if data.valid_citekeys:
         lines.append("")
-        lines.append("VALID CITATION KEYS - use ONLY these keys in square brackets, e.g. [Smith2023]:")
-        lines.append(", ".join(data.valid_citekeys))
+        lines.append(
+            "CITATION CATALOG -- STRICT RULE: You MUST use ONLY the exact citekeys listed below "
+            "in square brackets when citing included studies. DO NOT invent, guess, or paraphrase "
+            "any citekey. Every key you write MUST match one of the entries below exactly "
+            "(case-sensitive). Any citekey not in this list will be stripped from the final "
+            "manuscript and will NOT appear in the reference list."
+        )
+        lines.append("EXACT CITEKEYS (copy these character-for-character):")
+        for key in data.valid_citekeys:
+            title_snip = ""
+            if data.citekey_title_map:
+                title_snip = data.citekey_title_map.get(key, "")
+            if title_snip:
+                lines.append(f"  [{key}] -- {title_snip}")
+            else:
+                lines.append(f"  [{key}]")
 
     lines.append("---")
     return "\n".join(lines)

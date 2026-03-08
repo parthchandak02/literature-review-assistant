@@ -354,7 +354,7 @@ export function DatabaseView({ runId, isDone, dbAvailable, isLive }: DatabaseVie
                       />
                     }
                   >
-                    TA Decision
+                    Title/Abstract
                   </Th>
                   <Th
                     filter={
@@ -366,7 +366,7 @@ export function DatabaseView({ runId, isDone, dbAvailable, isLive }: DatabaseVie
                       />
                     }
                   >
-                    FT Decision
+                    Full-Text
                   </Th>
                   {hasConfidenceData && <Th>Confidence</Th>}
                   <Th>RoB Source</Th>

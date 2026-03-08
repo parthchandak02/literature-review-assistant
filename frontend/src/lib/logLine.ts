@@ -33,13 +33,30 @@ export type LogLevel = "info" | "warn" | "error" | "dim" | "include" | "exclude"
 // Event -> log line conversion
 // ---------------------------------------------------------------------------
 
+const PHASE_LABELS: Record<string, string> = {
+  start: "Start",
+  phase_2_search: "Search",
+  phase_3_screening: "Screening",
+  screening_calibration: "Threshold Calibration",
+  fulltext_pdf_retrieval: "Full-Text PDF Retrieval",
+  citation_chasing: "Citation Chasing",
+  phase_4_extraction_quality: "Extraction & Quality",
+  phase_4b_embedding: "Embedding",
+  phase_5_synthesis: "Synthesis",
+  phase_5b_knowledge_graph: "Knowledge Graph",
+  phase_6_writing: "Writing",
+  finalize: "Finalize",
+}
+
 export function eventToLogLine(ev: ReviewEvent): { text: string; level: LogLevel } {
   switch (ev.type) {
-    case "phase_start":
+    case "phase_start": {
+      const label = PHASE_LABELS[ev.phase as string] ?? ev.phase
       return {
-        text: `[${fmtTs(ev.ts)}] PHASE  ${ev.phase}${ev.description ? "  " + ev.description : ""}`,
+        text: `[${fmtTs(ev.ts)}] PHASE  ${label}${ev.description ? "  " + ev.description : ""}`,
         level: "info",
       }
+    }
 
     case "phase_done": {
       const s = ev.summary as Record<string, unknown> | null | undefined
@@ -48,11 +65,14 @@ export function eventToLogLine(ev: ReviewEvent): { text: string; level: LogLevel
         detail = `  ${s.included} included of ${s.screened} papers`
       else if (s?.new_papers != null)
         detail = `  ${Number(s.new_papers) > 0 ? s.new_papers + " new papers found" : "no new papers"}`
+      else if (s?.fetched != null)
+        detail = `  ${s.fetched} papers`
       else if (s?.records != null)
         detail = `  ${s.records} records`
       else if (s?.papers != null)
         detail = `  ${s.papers} papers`
-      return { text: `[${fmtTs(ev.ts)}] DONE   ${ev.phase}${detail}`, level: "info" }
+      const phaseLabel = PHASE_LABELS[ev.phase as string] ?? ev.phase
+      return { text: `[${fmtTs(ev.ts)}] DONE   ${phaseLabel}${detail}`, level: "info" }
     }
 
     case "progress":
@@ -122,6 +142,15 @@ export function eventToLogLine(ev: ReviewEvent): { text: string; level: LogLevel
         level: "info",
       }
 
+    case "search_override_status": {
+      const badge = ev.status === "applied" ? "OK    " : ev.status === "miss" ? "MISS  " : "ABSENT"
+      const lvl: LogLevel = ev.status === "applied" ? "info" : "warn"
+      return {
+        text: `[${fmtTs(ev.ts)}] SRCHOV ${badge} ${ev.database}: ${ev.detail}`,
+        level: lvl,
+      }
+    }
+
     case "rate_limit_wait":
       return {
         text: `[${fmtTs(ev.ts)}] RATELIMIT  ${ev.tier}: ${ev.slots_used}/${ev.limit} slots -- waiting`,
@@ -151,6 +180,31 @@ export function eventToLogLine(ev: ReviewEvent): { text: string; level: LogLevel
         text: `[${fmtTs(ev.ts)}] CANCEL Review cancelled.`,
         level: "warn",
       }
+
+    case "screening_prefilter_done": {
+      const pf = ev as unknown as Record<string, number>
+      const deduped = pf.deduped ?? 0
+      const metaRej = pf.metadata_rejected ?? 0
+      const autoExcl = pf.automation_excluded ?? 0
+      const toLlm = pf.to_llm ?? 0
+      return {
+        text: `[${fmtTs(ev.ts)}] FUNNEL ${deduped} deduped -> ${deduped - metaRej} after metadata -> ${toLlm} to LLM (${autoExcl} auto-excluded)`,
+        level: "info",
+      }
+    }
+
+    case "batch_screen_done": {
+      const bs = ev as unknown as Record<string, number>
+      const scored = bs.scored ?? 0
+      const forwarded = bs.forwarded ?? 0
+      const excluded = bs.excluded ?? 0
+      const threshold = typeof bs.threshold === "number" ? Math.round(bs.threshold * 100) : 35
+      const skipNote = bs.skipped_resume ? ` (${bs.skipped_resume} skipped-resume)` : ""
+      return {
+        text: `[${fmtTs(ev.ts)}] BATCH  ${scored} batch-ranked -> ${forwarded} to dual-reviewer, ${excluded} auto-excluded (score < ${threshold}%)${skipNote}`,
+        level: "info",
+      }
+    }
 
     default:
       return { text: `[${fmtTs("ts" in ev ? (ev as { ts?: string }).ts : undefined)}] ${ev.type}`, level: "dim" }

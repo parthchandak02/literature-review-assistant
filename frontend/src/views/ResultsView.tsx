@@ -14,7 +14,9 @@ import {
   XCircle,
   AlertTriangle,
   BookOpen,
-  Download,
+  FileType,
+  FileCode,
+  BookMarked,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { ResultsPanel } from "@/components/ResultsPanel"
@@ -55,6 +57,20 @@ function findFileByName(outputs: Record<string, unknown>, namePart: string): str
     return null
   }
   return walk(outputs)
+}
+
+function findAllFilesByExt(outputs: Record<string, unknown>, exts: string[]): string[] {
+  const results: string[] = []
+  function walk(obj: unknown) {
+    if (typeof obj === "string" && isFilePath(obj)) {
+      const name = (obj.split("/").pop() ?? "").toLowerCase()
+      if (exts.some((ext) => name.endsWith(ext))) results.push(obj)
+    } else if (obj && typeof obj === "object" && !Array.isArray(obj)) {
+      for (const v of Object.values(obj as Record<string, unknown>)) walk(v)
+    }
+  }
+  walk(outputs)
+  return results
 }
 
 function makeUrlTransform(markdownFilePath: string) {
@@ -126,7 +142,7 @@ function ManuscriptViewer({ filePath }: { filePath: string }) {
 
   if (loading) {
     return (
-      <div className="card-surface overflow-hidden">
+      <div className="overflow-hidden">
         <div className="px-6 py-4 border-b border-zinc-800 flex items-center gap-2">
           <Loader2 className="h-4 w-4 animate-spin text-violet-400" />
           <span className="text-sm text-zinc-400">Loading manuscript...</span>
@@ -151,7 +167,7 @@ function ManuscriptViewer({ filePath }: { filePath: string }) {
   if (!content) return null
 
   return (
-    <div className="card-surface overflow-hidden">
+    <div className="overflow-hidden">
       {/* TOC bar */}
       {headings.length > 0 && (
         <div className="flex items-center gap-1 px-4 py-2 border-b border-zinc-800 bg-zinc-950/60 overflow-x-auto scrollbar-none">
@@ -236,7 +252,6 @@ function PrismaCard({ runId }: { runId: string }) {
       : data.items.filter((i) => i.section === sectionFilter)
     : []
 
-  // Score chip shown in the header once data is available.
   const scoreChip = data && data.total > 0 ? (
     <span className={cn(
       "text-[10px] font-mono px-1.5 py-0.5 rounded border shrink-0",
@@ -336,7 +351,7 @@ function PrismaCard({ runId }: { runId: string }) {
 }
 
 // ---------------------------------------------------------------------------
-// Evidence Network collapsible section (Idea 5: Knowledge Graph)
+// Evidence Network collapsible section
 // ---------------------------------------------------------------------------
 
 function EvidenceNetworkSection({ runId }: { runId: string }) {
@@ -355,6 +370,117 @@ function EvidenceNetworkSection({ runId }: { runId: string }) {
 }
 
 // ---------------------------------------------------------------------------
+// Manuscript section header actions
+// ---------------------------------------------------------------------------
+
+type ExportState = "idle" | "loading" | "done" | "error"
+
+interface ManuscriptActionsProps {
+  docxPath: string | null
+  canExport: boolean
+  exportRunId: string | null | undefined
+  allOutputs: Record<string, unknown>
+}
+
+function ManuscriptActions({ docxPath, canExport, exportRunId, allOutputs }: ManuscriptActionsProps) {
+  const [exportState, setExportState] = useState<ExportState>("idle")
+  const [exportFiles, setExportFiles] = useState<string[]>([])
+
+  async function handleExport() {
+    if (!exportRunId) return
+    setExportState("loading")
+    try {
+      const result = await triggerExport(exportRunId)
+      setExportFiles(result.files)
+      setExportState("done")
+    } catch {
+      setExportState("error")
+    }
+  }
+
+  // After export, find the generated files
+  const mergedOutputs = useMemo<Record<string, unknown>>(() => {
+    if (exportFiles.length === 0) return allOutputs
+    const submission: Record<string, string> = {}
+    for (const filePath of exportFiles) {
+      const name = filePath.split("/").pop() ?? filePath
+      submission[name] = filePath
+    }
+    return { ...allOutputs, submission }
+  }, [allOutputs, exportFiles])
+
+  const texPath = useMemo(() => findFileByName(mergedOutputs, "manuscript.tex"), [mergedOutputs])
+  const bibPath = useMemo(() => findFileByName(mergedOutputs, ".bib"), [mergedOutputs])
+  const coverPath = useMemo(() => findFileByName(mergedOutputs, "cover_letter"), [mergedOutputs])
+
+  const sharedCls = "h-7 gap-1 text-xs border-zinc-700 text-zinc-400 hover:text-zinc-200 hover:border-zinc-500"
+
+  return (
+    <div className="flex items-center gap-1.5">
+      {/* Download DOCX */}
+      {docxPath && (
+        <Button size="sm" variant="outline" asChild className={sharedCls}>
+          <a href={downloadUrl(docxPath)} download="manuscript.docx">
+            <FileType className="h-3 w-3 text-blue-400" />
+            DOCX
+          </a>
+        </Button>
+      )}
+
+      {/* Export to LaTeX / download LaTeX after export */}
+      {canExport && exportState !== "done" && (
+        <Button
+          size="sm"
+          variant="outline"
+          disabled={exportState === "loading"}
+          onClick={() => void handleExport()}
+          className={sharedCls}
+        >
+          {exportState === "loading" ? (
+            <><Loader2 className="h-3 w-3 animate-spin" />Packaging...</>
+          ) : exportState === "error" ? (
+            <><AlertTriangle className="h-3 w-3 text-red-400" />Retry LaTeX</>
+          ) : (
+            <><Package className="h-3 w-3" />LaTeX</>
+          )}
+        </Button>
+      )}
+
+      {/* After export: show individual download buttons */}
+      {exportState === "done" && (
+        <>
+          {texPath && (
+            <Button size="sm" variant="outline" asChild className={sharedCls}>
+              <a href={downloadUrl(texPath)} download="manuscript.tex">
+                <FileCode className="h-3 w-3" />
+                .tex
+              </a>
+            </Button>
+          )}
+          {bibPath && (
+            <Button size="sm" variant="outline" asChild className={sharedCls}>
+              <a href={downloadUrl(bibPath)} download="references.bib">
+                <BookMarked className="h-3 w-3" />
+                .bib
+              </a>
+            </Button>
+          )}
+          {coverPath && (
+            <Button size="sm" variant="outline" asChild className={sharedCls}>
+              <a href={downloadUrl(coverPath)} download="cover_letter.md">
+                <FileText className="h-3 w-3" />
+                Cover
+              </a>
+            </Button>
+          )}
+          <PackageCheck className="h-3.5 w-3.5 text-emerald-400 shrink-0" />
+        </>
+      )}
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
 // ResultsView
 // ---------------------------------------------------------------------------
 
@@ -365,18 +491,13 @@ interface ResultsViewProps {
   exportRunId?: string | null
 }
 
-type ExportState = "idle" | "loading" | "done" | "error"
-
 export function ResultsView({
   outputs,
   isDone,
   historyOutputs = {},
   exportRunId,
 }: ResultsViewProps) {
-  const [exportState, setExportState] = useState<ExportState>("idle")
-  const [exportError, setExportError] = useState<string | null>(null)
-  const [exportFiles, setExportFiles] = useState<string[]>([])
-  const [showManuscript, setShowManuscript] = useState(true)
+  const [showManuscript, setShowManuscript] = useState(false)
   const [showOtherFiles, setShowOtherFiles] = useState(false)
 
   const effectiveOutputs = useMemo<Record<string, unknown>>(() => {
@@ -384,16 +505,6 @@ export function ResultsView({
     if (Object.keys(historyOutputs).length > 0) return { artifacts: historyOutputs }
     return {}
   }, [outputs, historyOutputs])
-
-  const mergedOutputs = useMemo<Record<string, unknown>>(() => {
-    if (exportFiles.length === 0) return effectiveOutputs
-    const submission: Record<string, string> = {}
-    for (const filePath of exportFiles) {
-      const name = filePath.split("/").pop() ?? filePath
-      submission[name] = filePath
-    }
-    return { ...effectiveOutputs, submission }
-  }, [effectiveOutputs, exportFiles])
 
   const isHistorical = !isDone && Object.keys(historyOutputs).length > 0
   const hasResults = isDone || isHistorical
@@ -409,19 +520,18 @@ export function ResultsView({
     [effectiveOutputs],
   )
 
-  async function handleExport() {
-    if (!exportRunId) return
-    setExportState("loading")
-    setExportError(null)
-    try {
-      const result = await triggerExport(exportRunId)
-      setExportFiles(result.files)
-      setExportState("done")
-    } catch (err) {
-      setExportError(err instanceof Error ? err.message : "Export failed")
-      setExportState("error")
-    }
-  }
+  // Paths to exclude from Other Artifacts (they live in the Manuscript section)
+  const manuscriptExcludePaths = useMemo<Set<string>>(() => {
+    const paths = new Set<string>()
+    if (manuscriptPath) paths.add(manuscriptPath)
+    if (docxPath) paths.add(docxPath)
+    // Also exclude LaTeX/BibTeX/cover letter files that may appear after export
+    const texFiles = findAllFilesByExt(effectiveOutputs, [".tex", ".bib"])
+    texFiles.forEach((p) => paths.add(p))
+    const coverFile = findFileByName(effectiveOutputs, "cover_letter")
+    if (coverFile) paths.add(coverFile)
+    return paths
+  }, [effectiveOutputs, manuscriptPath, docxPath])
 
   if (!hasResults) {
     return (
@@ -434,7 +544,7 @@ export function ResultsView({
     )
   }
 
-  if (Object.keys(mergedOutputs).length === 0) {
+  if (Object.keys(effectiveOutputs).length === 0) {
     return (
       <EmptyState
         icon={FileText}
@@ -446,73 +556,27 @@ export function ResultsView({
 
   return (
     <div className="flex flex-col gap-5 max-w-4xl">
-      {/* Action bar -- all buttons use outline variant with matching style */}
-      <div className="flex items-center gap-2 flex-wrap">
-        {/* Export to LaTeX */}
-        {canExport && (
-          <Button
-            size="sm"
-            variant="outline"
-            disabled={exportState === "loading" || exportState === "done"}
-            onClick={() => void handleExport()}
-            className="border-zinc-700 text-zinc-300 hover:text-white gap-1.5 disabled:opacity-50"
-          >
-            {exportState === "loading" ? (
-              <>
-                <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                Packaging...
-              </>
-            ) : exportState === "done" ? (
-              <>
-                <PackageCheck className="h-3.5 w-3.5 text-emerald-400" />
-                <span className="text-emerald-400">LaTeX Exported</span>
-              </>
-            ) : (
-              <>
-                <Package className="h-3.5 w-3.5" />
-                Export to LaTeX
-              </>
-            )}
-          </Button>
-        )}
-
-        {/* Download DOCX */}
-        {docxPath && (
-          <Button
-            size="sm"
-            variant="outline"
-            asChild
-            className="border-zinc-700 text-zinc-300 hover:text-white gap-1.5"
-          >
-            <a href={downloadUrl(docxPath)} download="manuscript.docx">
-              <Download className="h-3.5 w-3.5" />
-              Download .docx
-            </a>
-          </Button>
-        )}
-
-        {/* Export error */}
-        {exportState === "error" && exportError && (
-          <span className="text-xs text-red-400 flex items-center gap-1">
-            <AlertTriangle className="h-3 w-3" />
-            {exportError}
-          </span>
-        )}
-      </div>
-
-      {/* Manuscript inline reader -- collapsible, closed by default for a clean landing */}
+      {/* Manuscript -- collapsed by default; download actions in header */}
       {manuscriptPath && (
         <CollapsibleSection
           icon={FileText}
           title="Manuscript"
           open={showManuscript}
           onToggle={() => setShowManuscript((v) => !v)}
+          actions={
+            <ManuscriptActions
+              docxPath={docxPath}
+              canExport={canExport}
+              exportRunId={exportRunId}
+              allOutputs={effectiveOutputs}
+            />
+          }
         >
           <ManuscriptViewer filePath={manuscriptPath} />
         </CollapsibleSection>
       )}
 
-      {/* Other artifacts (collapsible) */}
+      {/* Other Artifacts -- flat layout, no manuscript items */}
       <CollapsibleSection
         icon={FileText}
         title="Other Artifacts"
@@ -522,16 +586,16 @@ export function ResultsView({
       >
         <div className="p-4">
           <ResultsPanel
-            outputs={mergedOutputs}
-            excludePaths={manuscriptPath ? new Set([manuscriptPath]) : undefined}
+            outputs={effectiveOutputs}
+            excludePaths={manuscriptExcludePaths}
           />
         </div>
       </CollapsibleSection>
 
-      {/* PRISMA 2020 Compliance -- at the end so the main content comes first */}
+      {/* PRISMA 2020 Compliance */}
       {exportRunId && <PrismaCard runId={exportRunId} />}
 
-      {/* Evidence Network (Idea 5: Knowledge Graph) */}
+      {/* Evidence Network */}
       {exportRunId && <EvidenceNetworkSection runId={exportRunId} />}
     </div>
   )

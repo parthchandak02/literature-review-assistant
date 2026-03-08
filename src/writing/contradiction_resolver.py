@@ -26,6 +26,7 @@ def _get_model_from_settings() -> str:
     except Exception:
         return "google-gla:gemini-3.1-pro-preview"
 
+
 _RESOLVER_PROMPT_TEMPLATE = (
     "You are writing the Discussion section of a systematic review.\n"
     "The following pairs of studies report opposite findings on the same outcome.\n\n"
@@ -113,18 +114,31 @@ async def generate_contradiction_paragraph(
     return await loop.run_in_executor(None, _generate_paragraph_sync, flags, raw_model, key)
 
 
-def build_conflicting_evidence_section(flags: list[ContradictionFlag]) -> str:
+def build_conflicting_evidence_section(
+    flags: list[ContradictionFlag],
+    paper_id_to_label: dict[str, str] | None = None,
+) -> str:
     """Build a structured '### Conflicting Evidence' subsection for the Discussion.
 
-    Each detected contradiction pair is listed as a bullet with both paper IDs,
-    the shared outcome name, and the opposing result directions. This section is
+    Each detected contradiction pair is listed as a bullet with human-readable
+    labels (citekeys when available, short paper_id prefix as fallback), the
+    shared outcome name, and the opposing result directions. This section is
     injected into the Discussion draft AFTER the LLM-generated body but BEFORE
     manuscript assembly so it appears in the final DOCX.
+
+    paper_id_to_label: optional mapping from paper_id to citekey/author-year label,
+    built from the citation catalog in the caller. When provided, labels replace
+    raw UUID fragments in bullet points.
 
     Returns an empty string when no flags are provided.
     """
     if not flags:
         return ""
+
+    _label_map = paper_id_to_label or {}
+
+    def _display(paper_id: str) -> str:
+        return _label_map.get(paper_id, paper_id[:12])
 
     lines: list[str] = ["### Conflicting Evidence", ""]
     lines.append(
@@ -138,8 +152,8 @@ def build_conflicting_evidence_section(flags: list[ContradictionFlag]) -> str:
     for flag in flags[:10]:
         lines.append(
             f"- **{flag.outcome_name}**: "
-            f"Study `{flag.paper_id_a[:12]}` reported a *{flag.direction_a}* direction, "
-            f"while Study `{flag.paper_id_b[:12]}` reported a *{flag.direction_b}* direction "
+            f"Study `{_display(flag.paper_id_a)}` reported a *{flag.direction_a}* direction, "
+            f"while Study `{_display(flag.paper_id_b)}` reported a *{flag.direction_b}* direction "
             f"(outcome similarity: {flag.similarity:.2f})." + (f" Note: {flag.note}" if flag.note else "")
         )
 

@@ -8,13 +8,16 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
-from src.db.repositories import WorkflowRepository
+import structlog
 
-_logger = logging.getLogger(__name__)
+from src.db.repositories import WorkflowRepository
 from src.models import DecisionLogEntry, ReviewConfig, SearchResult
 from src.orchestration.gates import GateRunner
 from src.search.base import SearchConnector
 from src.search.deduplication import deduplicate_papers
+
+_logger = logging.getLogger(__name__)
+_slog = structlog.get_logger()
 
 
 def build_boolean_query(config: ReviewConfig) -> str:
@@ -37,8 +40,28 @@ def build_boolean_query(config: ReviewConfig) -> str:
 
 def build_database_query(config: ReviewConfig, database_name: str) -> str:
     name = database_name.lower()
-    if config.search_overrides and name in config.search_overrides:
-        return config.search_overrides[name]
+    if config.search_overrides:
+        if name in config.search_overrides:
+            _slog.info(
+                "search_override_status",
+                database=name,
+                status="applied",
+                detail=f"verbatim override ({len(config.search_overrides[name])} chars)",
+            )
+            return config.search_overrides[name]
+        _slog.info(
+            "search_override_status",
+            database=name,
+            status="miss",
+            detail=f"search_overrides present but no key for '{name}' -- keys: {list(config.search_overrides.keys())}",
+        )
+    else:
+        _slog.info(
+            "search_override_status",
+            database=name,
+            status="absent",
+            detail="config.search_overrides is None -- using fallback query",
+        )
     base = build_boolean_query(config)
     # short_query: first 8 keywords space-separated for relevance-ranked APIs (S2, OpenAlex).
     # Use natural keyword terms, NOT full PICO description strings which never appear
@@ -182,7 +205,8 @@ class SearchStrategyCoordinator:
                     self.config.date_range_end,
                     None,
                 )
-            for r in result_list:
+
+            async def _save_one(r: SearchResult) -> None:
                 try:
                     await self.repository.save_search_result(r)
                 except Exception:
@@ -193,7 +217,9 @@ class SearchStrategyCoordinator:
                         r.papers[0].paper_id if r.papers else None,
                     )
                     raise
-                results.append(r)
+
+            await asyncio.gather(*[_save_one(r) for r in result_list])
+            results.extend(result_list)
 
         # Low-recall diagnostic: warn when a connector returned very few records.
         # This surfaces over-restricted queries early so the user can fix before screening.

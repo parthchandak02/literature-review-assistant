@@ -14,6 +14,7 @@ import { cn } from "@/lib/utils"
 import { formatRunDate, formatWorkflowId } from "@/lib/format"
 import { fetchHistory } from "@/lib/api"
 import type { HistoryEntry } from "@/lib/api"
+import type { FunnelStage } from "@/lib/funnelStages"
 import {
   Tooltip,
   TooltipContent,
@@ -52,6 +53,7 @@ export interface LiveRun {
   startedAt?: string | null
   papersFound?: number | null
   papersIncluded?: number | null
+  funnelStages?: FunnelStage[]
 }
 
 interface SidebarProps {
@@ -72,6 +74,8 @@ interface SidebarProps {
   onToggle: () => void
   width: number
   onWidthChange: (w: number) => void
+  /** When true, renders the sidebar as a slide-in overlay drawer instead of a fixed column. */
+  isMobile?: boolean
 }
 
 // ---------------------------------------------------------------------------
@@ -104,6 +108,7 @@ export function Sidebar({
   onToggle,
   width,
   onWidthChange,
+  isMobile = false,
 }: SidebarProps) {
   const [history, setHistory] = useState<HistoryEntry[]>([])
   const [loadingHistory, setLoadingHistory] = useState(false)
@@ -183,6 +188,8 @@ export function Sidebar({
 
   async function handleSelectHistory(entry: HistoryEntry) {
     setOpeningId(entry.workflow_id)
+    // Close the mobile drawer when a run is selected
+    if (isMobile) onToggle()
     try {
       await onSelectHistory(entry)
     } finally {
@@ -232,17 +239,35 @@ export function Sidebar({
 
   return (
     <TooltipProvider delayDuration={0}>
+      {/* Backdrop: only shown on mobile when the drawer is open */}
+      {isMobile && !collapsed && (
+        <div
+          className="fixed inset-0 z-40 bg-black/60"
+          onClick={onToggle}
+          aria-hidden
+        />
+      )}
       <aside
         className={cn(
-          "fixed left-0 top-0 h-full bg-zinc-900 border-r border-zinc-800 flex flex-col z-20 select-none overflow-hidden",
-          !isDragging && "transition-[width] duration-200 ease-in-out",
+          "fixed left-0 top-0 h-full bg-zinc-900 border-r border-zinc-800 flex flex-col select-none overflow-hidden",
+          isMobile
+            ? cn(
+                "z-50 w-72 transition-transform duration-200 ease-in-out",
+                collapsed ? "-translate-x-full" : "translate-x-0",
+              )
+            : cn(
+                "z-20",
+                !isDragging && "transition-[width] duration-200 ease-in-out",
+              ),
         )}
-        style={{ width: collapsed ? 56 : width }}
+        style={isMobile
+          ? { paddingTop: 'env(safe-area-inset-top)' }
+          : { width: collapsed ? 56 : width, paddingTop: 'env(safe-area-inset-top)' }}
       >
         {/* Logo row - clickable to go home */}
         <button
           type="button"
-          onClick={() => onGoHome?.()}
+          onClick={() => { onGoHome?.(); if (isMobile) onToggle() }}
           className={cn(
             "flex items-center h-14 border-b border-zinc-800 shrink-0 px-3.5 gap-2 w-full text-left",
             "hover:bg-zinc-800/50 transition-colors cursor-pointer",
@@ -267,7 +292,7 @@ export function Sidebar({
         <div className={cn("px-2.5 pt-3 pb-2 shrink-0", collapsed && "px-2")}>
           <SidebarTooltip label="New Review" collapsed={collapsed} side="right">
             <button
-              onClick={onNewReview}
+              onClick={() => { onNewReview(); if (isMobile) onToggle() }}
               className={cn(
                 "flex items-center gap-2 rounded-lg transition-colors text-sm font-medium w-full",
                 "bg-violet-600 hover:bg-violet-500 text-white",
@@ -332,7 +357,7 @@ export function Sidebar({
                   )}>
                     <div className="relative">
                       <button
-                        onClick={onSelectLiveRun}
+                        onClick={() => { onSelectLiveRun(); if (isMobile) onToggle() }}
                         className={cn(
                           "w-full transition-colors text-left",
                           collapsed
@@ -346,18 +371,19 @@ export function Sidebar({
                         {collapsed ? (
                           <RunDot status={liveRun.status} animate={isRunning} />
                         ) : (
-                          <div
-                            className={cn(
-                              "flex flex-col gap-1 min-w-0",
-                              ((onDelete && liveRun.workflowId && !isRunning) || (isRunning && onCancel)) && "pr-12",
-                            )}
-                          >
-                            <span className="text-xs text-zinc-300 line-clamp-2 leading-snug">
+                          <div className="flex flex-col gap-1 min-w-0">
+                            <span
+                              className={cn(
+                                "text-xs text-zinc-300 line-clamp-2 leading-snug",
+                                ((onDelete && liveRun.workflowId && !isRunning) || (isRunning && onCancel)) && "pr-12",
+                              )}
+                            >
                               {liveRun.topic}
                             </span>
                             <RunCardMetrics
                               papersFound={liveRun.papersFound}
                               papersIncluded={liveRun.papersIncluded}
+                              funnelStages={liveRun.funnelStages}
                               cost={liveRun.cost}
                               workflowId={liveRun.workflowId}
                               copiedWorkflowId={wfIdCopied}
@@ -369,7 +395,7 @@ export function Sidebar({
                                 }
                               }}
                             />
-                            <div className="flex items-center gap-2 min-w-0 flex-wrap text-meta">
+                            <div className="flex items-center justify-between gap-2 min-w-0 text-meta">
                               <div className="flex items-center gap-1.5 shrink-0">
                                 <RunDot status={liveRun.status} animate={isRunning} />
                                 <span
@@ -381,7 +407,7 @@ export function Sidebar({
                                   {STATUS_LABEL[liveRun.status]}
                                 </span>
                               </div>
-                              <span className="text-white font-medium tabular-nums">
+                              <span className="text-zinc-400 font-medium tabular-nums shrink-0">
                                 {liveRun.startedAt ? formatRunDate(liveRun.startedAt) : "Now"}
                               </span>
                             </div>
@@ -485,13 +511,13 @@ export function Sidebar({
                           {collapsed ? (
                             <RunDot status={statusKey} />
                           ) : (
-                            <div
-                              className={cn(
-                                "flex flex-col gap-1 min-w-0",
-                                (onDelete || isResumable) && "pr-12",
-                              )}
-                            >
-                              <span className="text-xs text-zinc-300 line-clamp-2 leading-snug">
+                            <div className="flex flex-col gap-1 min-w-0">
+                              <span
+                                className={cn(
+                                  "text-xs text-zinc-300 line-clamp-2 leading-snug",
+                                  (onDelete || isResumable) && "pr-12",
+                                )}
+                              >
                                 {entry.topic}
                               </span>
                               <RunCardMetrics
@@ -508,7 +534,7 @@ export function Sidebar({
                                   }
                                 }}
                               />
-                              <div className="flex items-center gap-2 min-w-0 flex-wrap text-meta">
+                              <div className="flex items-center justify-between gap-2 min-w-0 text-meta">
                                 <div className="flex items-center gap-1.5 shrink-0">
                                   {isOpening ? (
                                     <div className="h-1.5 w-1.5 rounded-full border border-zinc-500 animate-spin" />
@@ -525,7 +551,7 @@ export function Sidebar({
                                   </span>
                                 </div>
                                 {entry.created_at && (
-                                  <span className="text-white font-medium tabular-nums">
+                                  <span className="text-zinc-400 font-medium tabular-nums shrink-0">
                                     {formatRunDate(entry.created_at)}
                                   </span>
                                 )}
@@ -619,8 +645,8 @@ export function Sidebar({
           )}
         </button>
 
-        {/* Drag resize handle */}
-        {!collapsed && (
+        {/* Drag resize handle -- desktop only */}
+        {!collapsed && !isMobile && (
           <div
             onMouseDown={handleDragHandleMouseDown}
             className={cn(
@@ -651,6 +677,7 @@ export function Sidebar({
 function RunCardMetrics({
   papersFound,
   papersIncluded,
+  funnelStages,
   cost,
   workflowId,
   copiedWorkflowId,
@@ -658,12 +685,15 @@ function RunCardMetrics({
 }: {
   papersFound?: number | null
   papersIncluded?: number | null
+  funnelStages?: FunnelStage[]
   cost?: number | null
   workflowId?: string | null
   copiedWorkflowId?: string | null
   onCopyWorkflowId?: (id: string) => void | Promise<void>
 }) {
+  const hasFunnel = funnelStages != null && funnelStages.length > 0
   const hasStats =
+    hasFunnel ||
     papersFound != null ||
     papersIncluded != null ||
     (cost != null && cost > 0)
@@ -671,64 +701,78 @@ function RunCardMetrics({
 
   if (!hasStats && !hasWfId) return null
 
+  // 2-column layout:
+  //   Left  -- funnel stages stacked vertically (or simple found/included rows)
+  //   Right -- cost + workflow ID, right-aligned
+  // Vertical stacking eliminates the need for inline arrows; order implies the flow.
   return (
-    <div className="flex items-baseline justify-between gap-x-3 min-w-0 text-meta">
-      {hasStats && (
-        <div className="flex items-baseline gap-x-3 flex-wrap gap-y-0.5 min-w-0">
-        {papersFound != null && (
-          <span className="flex items-baseline gap-0.5 leading-none shrink-0">
-            <span className="font-semibold text-blue-400">{fmtNum(papersFound)}</span>
-            <span className="text-zinc-600 font-normal">found</span>
-          </span>
+    <div className="flex justify-between items-start gap-x-2 min-w-0 text-meta w-full">
+      {/* Left column: pipeline stages */}
+      <div className="flex flex-col gap-y-0.5 min-w-0">
+        {hasFunnel ? (
+          funnelStages!.map((stage) => (
+            <span key={stage.key} className="flex items-baseline gap-1 leading-none">
+              <span className={cn("font-semibold tabular-nums", stage.colorClass)}>
+                {fmtNum(stage.count)}
+              </span>
+              <span className="text-zinc-600 font-normal">{stage.label}</span>
+            </span>
+          ))
+        ) : (
+          <>
+            {papersFound != null && (
+              <span className="flex items-baseline gap-1 leading-none">
+                <span className="font-semibold tabular-nums text-blue-400">{fmtNum(papersFound)}</span>
+                <span className="text-zinc-600 font-normal">found</span>
+              </span>
+            )}
+            {papersIncluded != null && (
+              <span className="flex items-baseline gap-1 leading-none">
+                <span className="font-semibold tabular-nums text-emerald-400">{fmtNum(papersIncluded)}</span>
+                <span className="text-zinc-600 font-normal">included</span>
+              </span>
+            )}
+          </>
         )}
-        {papersIncluded != null && (
-          <span className="flex items-baseline gap-0.5 leading-none shrink-0">
-            <span className="font-semibold text-emerald-400">{fmtNum(papersIncluded)}</span>
-            <span className="text-zinc-600 font-normal">included</span>
-          </span>
-        )}
+      </div>
+
+      {/* Right column: cost + wf ID, right-aligned */}
+      <div className="flex flex-col items-end gap-y-0.5 shrink-0">
         {cost != null && cost > 0 && (
-          <span className="font-semibold text-amber-400 shrink-0">
+          <span className="font-semibold text-amber-400 whitespace-nowrap">
             ${cost.toFixed(3)}
           </span>
         )}
-        </div>
-      )}
-      {hasWfId && (
-        onCopyWorkflowId ? (
-          <span
-            role="button"
-            tabIndex={0}
-            onClick={(e) => {
-              e.stopPropagation()
-              void onCopyWorkflowId(workflowId!)
-            }}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" || e.key === " ") {
+        {hasWfId && (
+          onCopyWorkflowId ? (
+            <span
+              role="button"
+              tabIndex={0}
+              onClick={(e) => {
                 e.stopPropagation()
                 void onCopyWorkflowId(workflowId!)
-              }
-            }}
-            className={cn(
-              "text-zinc-600 shrink-0 whitespace-nowrap hover:text-zinc-400 transition-colors cursor-pointer",
-              !hasStats && "ml-auto",
-            )}
-            title="Copy workflow ID"
-          >
-            {copiedWorkflowId === workflowId ? "Copied!" : formatWorkflowId(workflowId!)}
-          </span>
-        ) : (
-          <span
-            className={cn(
-              "text-zinc-600 shrink-0 whitespace-nowrap",
-              !hasStats && "ml-auto",
-            )}
-            title={workflowId ?? undefined}
-          >
-            {formatWorkflowId(workflowId!)}
-          </span>
-        )
-      )}
+              }}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" || e.key === " ") {
+                  e.stopPropagation()
+                  void onCopyWorkflowId(workflowId!)
+                }
+              }}
+              className="text-zinc-600 whitespace-nowrap hover:text-zinc-400 transition-colors cursor-pointer"
+              title="Copy workflow ID"
+            >
+              {copiedWorkflowId === workflowId ? "Copied!" : formatWorkflowId(workflowId!)}
+            </span>
+          ) : (
+            <span
+              className="text-zinc-600 whitespace-nowrap"
+              title={workflowId ?? undefined}
+            >
+              {formatWorkflowId(workflowId!)}
+            </span>
+          )
+        )}
+      </div>
     </div>
   )
 }

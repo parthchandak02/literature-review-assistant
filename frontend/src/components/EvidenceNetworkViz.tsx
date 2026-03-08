@@ -44,6 +44,15 @@ function truncateTitle(title: string, max = 18): string {
   return title.length <= max ? title : title.slice(0, max - 2) + ".."
 }
 
+function nodeLabel(node: KnowledgeGraphNode): string {
+  const year = node.year ? ` (${node.year})` : ""
+  if (node.first_author) {
+    const suffix = node.has_multiple_authors ? " et al." : ""
+    return `${node.first_author}${suffix}${year}`
+  }
+  return truncateTitle(node.title, 22) + year
+}
+
 interface NodePosition {
   x: number
   y: number
@@ -249,30 +258,44 @@ function GraphCanvas({ graph, width, height, gapPaperIds, selectedId, onSelect, 
               strokeWidth={isSelected ? 2.5 : isHovered ? 1.5 : 0.8}
             />
 
-            {/* Always-visible truncated label below the node */}
+            {/* Always-visible author+year label below the node */}
             <text
               y={nodeR + 11}
               textAnchor="middle"
-              fontSize={9}
+              fontSize={10}
               fill="#a1a1aa"
               className="pointer-events-none select-none"
               style={{ userSelect: "none" }}
             >
-              {truncateTitle(node.title)}
+              {nodeLabel(node)}
             </text>
 
-            {/* Hover tooltip label (larger, above node) */}
+            {/* Hover tooltip: title + year above node */}
             {isHovered && !isSelected && (
-              <text
-                y={-(nodeR + 5)}
-                textAnchor="middle"
-                fontSize={10}
-                fill="#e4e4e7"
-                className="pointer-events-none select-none"
-                style={{ userSelect: "none" }}
-              >
-                {node.title.length > 45 ? node.title.slice(0, 45) + "..." : node.title}
-              </text>
+              <>
+                <text
+                  y={-(nodeR + 14)}
+                  textAnchor="middle"
+                  fontSize={10}
+                  fill="#e4e4e7"
+                  className="pointer-events-none select-none"
+                  style={{ userSelect: "none" }}
+                >
+                  {node.title.length > 50 ? node.title.slice(0, 50) + "..." : node.title}
+                </text>
+                {node.year && (
+                  <text
+                    y={-(nodeR + 2)}
+                    textAnchor="middle"
+                    fontSize={9}
+                    fill="#a1a1aa"
+                    className="pointer-events-none select-none"
+                    style={{ userSelect: "none" }}
+                  >
+                    {node.first_author ? `${node.first_author}${node.has_multiple_authors ? " et al." : ""}, ` : ""}{node.year}
+                  </text>
+                )}
+              </>
             )}
           </g>
         )

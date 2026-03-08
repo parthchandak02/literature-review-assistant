@@ -43,7 +43,10 @@ export type ReviewEvent =
   | { type: "extraction_paper"; paper_id: string; design: string; rob_judgment: string; ts: string }
   | { type: "synthesis"; feasible: boolean; groups: number; n_studies: number; direction: string; ts: string }
   | { type: "rate_limit_wait"; tier: string; slots_used: number; limit: number; ts: string }
+  | { type: "search_override_status"; database: string; status: "applied" | "miss" | "absent"; detail: string; ts: string }
   | { type: "status"; message: string; ts: string }
+  | { type: "screening_prefilter_done"; deduped: number; metadata_rejected: number; after_metadata: number; automation_excluded: number; to_llm: number; ts: string }
+  | { type: "batch_screen_done"; scored: number; forwarded: number; excluded: number; skipped_resume: number; threshold: number; ts: string }
   | { type: "screening_calibration"; include_threshold: number; exclude_threshold: number; kappa: number; iterations: number; sample_size: number; ts: string }
   | { type: "db_ready"; ts: string }
   | { type: "workflow_id_ready"; workflow_id: string }
@@ -453,11 +456,88 @@ export interface FetchPdfsResult {
   }>
 }
 
-/** Retroactively fetch full-text PDFs/text for all included papers in a completed run. */
-export async function fetchPdfsForRun(runId: string): Promise<FetchPdfsResult> {
+export interface FetchPdfsProgressEvent {
+  current: number
+  total: number
+  paperId: string
+  title: string
+  status: "ok" | "failed" | "skipped"
+  source: string | null
+  fileType: "pdf" | "txt" | null
+}
+
+/**
+ * Retroactively fetch full-text PDFs/text for all included papers in a completed run.
+ * Streams SSE progress events as each paper is processed.
+ * onProgress is called after each paper with the current count and result.
+ */
+export async function fetchPdfsForRun(
+  runId: string,
+  onProgress?: (evt: FetchPdfsProgressEvent) => void,
+): Promise<FetchPdfsResult> {
   const res = await fetch(`${BASE}/run/${runId}/fetch-pdfs`, { method: "POST" })
   if (!res.ok) throw await _apiError(res, "PDF fetch failed")
-  return res.json() as Promise<FetchPdfsResult>
+
+  const reader = res.body?.getReader()
+  if (!reader) throw new Error("No response body from fetch-pdfs stream")
+
+  const decoder = new TextDecoder()
+  let buffer = ""
+  let result: FetchPdfsResult = { attempted: 0, succeeded: 0, failed: 0, skipped: 0, results: [] }
+
+  while (true) {
+    const { done, value } = await reader.read()
+    if (done) break
+    buffer += decoder.decode(value, { stream: true })
+    const lines = buffer.split("\n")
+    buffer = lines.pop() ?? ""
+    for (const line of lines) {
+      if (!line.startsWith("data: ")) continue
+      try {
+        const msg = JSON.parse(line.slice(6)) as {
+          type: string
+          current?: number
+          total?: number
+          paper_id?: string
+          title?: string
+          status?: string
+          source?: string | null
+          file_type?: "pdf" | "txt" | null
+          attempted?: number
+          succeeded?: number
+          failed?: number
+          skipped?: number
+          results?: FetchPdfsResult["results"]
+          detail?: string
+        }
+        if (msg.type === "progress" && onProgress) {
+          onProgress({
+            current: msg.current ?? 0,
+            total: msg.total ?? 0,
+            paperId: msg.paper_id ?? "",
+            title: msg.title ?? "",
+            status: (msg.status ?? "failed") as "ok" | "failed" | "skipped",
+            source: msg.source ?? null,
+            fileType: msg.file_type ?? null,
+          })
+        } else if (msg.type === "done") {
+          result = {
+            attempted: msg.attempted ?? 0,
+            succeeded: msg.succeeded ?? 0,
+            failed: msg.failed ?? 0,
+            skipped: msg.skipped ?? 0,
+            results: msg.results ?? [],
+          }
+        } else if (msg.type === "error") {
+          throw new Error(msg.detail ?? "PDF fetch failed")
+        }
+      } catch (parseErr) {
+        if (parseErr instanceof SyntaxError) continue
+        throw parseErr
+      }
+    }
+  }
+  return result
 }
 
 /**
@@ -655,6 +735,8 @@ export interface KnowledgeGraphNode {
   year: number | null
   study_design: string
   community_id: number
+  first_author: string
+  has_multiple_authors: boolean
 }
 
 export interface KnowledgeGraphEdge {

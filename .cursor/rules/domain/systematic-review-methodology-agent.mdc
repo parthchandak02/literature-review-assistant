@@ -25,8 +25,8 @@ alwaysApply: false
 - NEVER use summary quality scores -- always domain-based assessment
 
 ## Meta-Analysis Thresholds
-- I^2 < 40%: fixed-effect model
-- I^2 >= 40%: random-effects (DerSimonian-Laird)
+- I^2 < 50%: fixed-effect model (threshold set by `meta_analysis.heterogeneity_threshold` in settings.yaml; default in code is 40 but config overrides to 50)
+- I^2 >= 50%: random-effects (DerSimonian-Laird)
 - Funnel plot: only when >= 10 studies
 - Statistics computed by scipy/statsmodels ONLY, never by LLM
 

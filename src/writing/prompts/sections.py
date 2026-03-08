@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from src.writing.context_builder import WritingGroundingData
 
+
 def _get_abstract_word_limit() -> int:
     """Read max_abstract_words from settings.ieee_export; fall back to 250 (IEEE max)."""
     try:
@@ -174,7 +175,11 @@ def get_methods_prompt_context(
         "'We searched X, Y, Z; only [database name] returned records.' "
         "Any sources listed under 'Other methods' (e.g. perplexity_web, AI discovery tools) must be "
         "described separately as 'Other Methods' per PRISMA 2020 item 7, NOT as bibliographic databases. "
-        "Do NOT add Scopus/Web of Science/CINAHL unless listed in the block. "
+        "Do NOT add Scopus/Web of Science/CINAHL unless listed in the block as searched or as failed. "
+        "If the block lists 'Databases attempted but failed', MUST include a sentence disclosing each "
+        "failed database verbatim (e.g. 'Web of Science was searched but could not be queried due to an "
+        "API error and returned no records for this review.'). Per PRISMA 2020 item 5, failed sources "
+        "must be reported. Do NOT omit them even if they returned no results. "
         "If inter-rater reliability (Cohen's kappa) is present in the block, report it in this section. "
         "(3) Search strategy (reference the search appendix), "
         "(4) Selection process: use the 'Screening method' text from the FACTUAL DATA BLOCK verbatim. "

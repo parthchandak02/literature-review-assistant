@@ -24,6 +24,8 @@ interface CollapsibleSectionProps {
   badge?: React.ReactNode
   /** Optional description rendered right of the title (muted text). */
   description?: string
+  /** Optional action elements rendered on the right side of the header, outside the toggle button. */
+  actions?: React.ReactNode
   /** Controls initial open state. Defaults to false. */
   defaultOpen?: boolean
   /** Override open state externally (controlled mode). */
@@ -39,6 +41,7 @@ export function CollapsibleSection({
   title,
   badge,
   description,
+  actions,
   defaultOpen = false,
   open: controlledOpen,
   onToggle,
@@ -59,21 +62,37 @@ export function CollapsibleSection({
 
   return (
     <div className={cn("card-surface overflow-hidden", className)}>
-      <button onClick={handleToggle} className="section-trigger">
-        <div className="flex items-center gap-2 min-w-0">
-          {Icon && <Icon className="h-4 w-4 text-zinc-500 shrink-0" />}
-          <span className="text-sm font-medium text-zinc-300 shrink-0">{title}</span>
-          {badge}
-          {description && (
-            <span className="label-muted truncate">{description}</span>
+      <div className="flex items-center border-b-0">
+        {/* Toggle button: icon + title + badge + description + chevron */}
+        <button
+          onClick={handleToggle}
+          className="flex flex-1 items-center justify-between px-4 py-3 hover:bg-zinc-800/30 transition-colors min-w-0 text-left"
+        >
+          <div className="flex items-center gap-2 min-w-0">
+            {Icon && <Icon className="h-4 w-4 text-zinc-500 shrink-0" />}
+            <span className="text-sm font-medium text-zinc-300 shrink-0">{title}</span>
+            {badge}
+            {description && (
+              <span className="label-muted truncate">{description}</span>
+            )}
+          </div>
+          {open ? (
+            <ChevronUp className="h-4 w-4 text-zinc-600 shrink-0 ml-2" />
+          ) : (
+            <ChevronDown className="h-4 w-4 text-zinc-600 shrink-0 ml-2" />
           )}
-        </div>
-        {open ? (
-          <ChevronUp className="h-4 w-4 text-zinc-600 shrink-0" />
-        ) : (
-          <ChevronDown className="h-4 w-4 text-zinc-600 shrink-0" />
+        </button>
+
+        {/* Actions slot: rendered outside the toggle button so they are independently clickable */}
+        {actions && (
+          <div
+            className="flex items-center gap-1.5 pr-3 shrink-0"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {actions}
+          </div>
         )}
-      </button>
+      </div>
 
       {open && (
         <div className="border-t border-zinc-800">

@@ -8,6 +8,7 @@ CandidatePaper objects with source="citation_chasing" for PRISMA attribution.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 from urllib.parse import quote
@@ -45,6 +46,7 @@ class CitationChaser:
         self,
         included_papers: list[CandidatePaper],
         known_doi_set: set[str],
+        concurrency: int = 5,
     ) -> list[CandidatePaper]:
         """Return new candidate papers citing any of the included papers.
 
@@ -55,6 +57,8 @@ class CitationChaser:
         known_doi_set:
             Set of DOIs already in the pipeline (to avoid re-adding duplicates).
             Pass an empty set if no deduplication is needed.
+        concurrency:
+            Maximum number of included papers chased simultaneously.
 
         Returns
         -------
@@ -62,22 +66,41 @@ class CitationChaser:
             New papers not already in the pipeline, tagged with
             source_database="citation_chasing" and source_category=OTHER_SOURCE.
         """
-        found: list[CandidatePaper] = []
         seen_dois: set[str] = set(doi.lower().strip() for doi in known_doi_set if doi)
+        # Snapshot of known DOIs for each task -- tasks run in parallel so each
+        # gets the initial set; cross-paper dedup is performed after gather.
+        initial_seen = set(seen_dois)
+        sem = asyncio.Semaphore(concurrency)
 
-        for paper in included_papers:
-            try:
-                papers = await self._chase_one(paper, seen_dois)
-                for p in papers:
-                    if p.doi:
-                        seen_dois.add(p.doi.lower().strip())
-                found.extend(papers)
-            except Exception as exc:
-                logger.warning(
-                    "Citation chasing failed for %s: %s",
-                    paper.paper_id[:12],
-                    exc,
-                )
+        async def _chase_with_sem(paper: CandidatePaper) -> list[CandidatePaper]:
+            async with sem:
+                try:
+                    return await self._chase_one(paper, set(initial_seen))
+                except Exception as exc:
+                    logger.warning(
+                        "Citation chasing failed for %s: %s",
+                        paper.paper_id[:12],
+                        exc,
+                    )
+                    return []
+
+        results_per_paper = await asyncio.gather(
+            *[_chase_with_sem(p) for p in included_papers],
+            return_exceptions=True,
+        )
+
+        # Merge all results with cross-paper deduplication
+        found: list[CandidatePaper] = []
+        for batch in results_per_paper:
+            if isinstance(batch, BaseException):
+                continue
+            for p in batch:
+                doi_key = p.doi.lower().strip() if p.doi else None
+                if doi_key and doi_key in seen_dois:
+                    continue
+                found.append(p)
+                if doi_key:
+                    seen_dois.add(doi_key)
 
         return found
 
@@ -85,11 +108,12 @@ class CitationChaser:
         self,
         included_papers: list[CandidatePaper],
         known_doi_set: set[str],
+        concurrency: int = 5,
     ) -> list[SearchResult]:
         """Wrap chase_citations output as SearchResult objects for PRISMA counting."""
         from datetime import date
 
-        all_papers = await self.chase_citations(included_papers, known_doi_set)
+        all_papers = await self.chase_citations(included_papers, known_doi_set, concurrency=concurrency)
         if not all_papers:
             return []
         return [
@@ -110,17 +134,35 @@ class CitationChaser:
         paper: CandidatePaper,
         seen_dois: set[str],
     ) -> list[CandidatePaper]:
-        """Chase citations for a single included paper."""
+        """Chase citations for a single included paper.
+
+        Runs Semantic Scholar and OpenAlex in parallel (each with a snapshot of
+        seen_dois). Results are merged and deduplicated before returning.
+        """
+        # Run both sources concurrently; pass separate copies so internal dedup
+        # within each source is independent and there is no cross-source race.
+        s2_coro = self._chase_semantic_scholar(paper, set(seen_dois))
+        oa_coro = self._chase_openalex(paper, set(seen_dois)) if paper.doi else None
+
+        if oa_coro is not None:
+            s2_raw, oa_raw = await asyncio.gather(s2_coro, oa_coro, return_exceptions=True)
+        else:
+            s2_raw = await s2_coro
+            oa_raw = []
+
+        s2_results: list[CandidatePaper] = [] if isinstance(s2_raw, BaseException) else s2_raw
+        oa_results: list[CandidatePaper] = [] if isinstance(oa_raw, BaseException) else oa_raw
+
+        # Merge with dedup -- S2 takes precedence, OA fills gaps
+        merged_dois: set[str] = set()
         results: list[CandidatePaper] = []
-
-        # Try Semantic Scholar first
-        s2_results = await self._chase_semantic_scholar(paper, seen_dois)
-        results.extend(s2_results)
-
-        # Supplement with OpenAlex if DOI is available and S2 returned few results
-        if paper.doi and len(s2_results) < 5:
-            oa_results = await self._chase_openalex(paper, seen_dois)
-            results.extend(oa_results)
+        for p in s2_results + oa_results:
+            doi_key = p.doi.lower().strip() if p.doi else None
+            if doi_key and doi_key in merged_dois:
+                continue
+            results.append(p)
+            if doi_key:
+                merged_dois.add(doi_key)
 
         return results
 

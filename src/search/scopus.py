@@ -268,17 +268,17 @@ async def enrich_scopus_abstracts(
         len(candidates),
     )
 
-    enriched = 0
     headers = {
         "X-ELS-APIKey": key,
         "Accept": "application/json",
     }
+    # Semaphore caps concurrent requests at 3 (well under the 6 req/sec ceiling).
+    # Each coroutine sleeps _ABSTRACT_RATE_SLEEP after its own request so the
+    # effective rate stays within the Elsevier API limit.
+    sem = asyncio.Semaphore(3)
 
-    async with aiohttp.ClientSession(
-        connector=tcp_connector_with_certifi(),
-        headers=headers,
-    ) as session:
-        for paper in to_enrich:
+    async def _enrich_one(session: aiohttp.ClientSession, paper: CandidatePaper) -> bool:
+        async with sem:
             try:
                 url = f"{_ABSTRACT_API_BASE}/{paper.doi}"
                 async with session.get(
@@ -292,20 +292,20 @@ async def enrich_scopus_abstracts(
                             paper.doi,
                         )
                         await asyncio.sleep(_ABSTRACT_RATE_SLEEP)
-                        continue
+                        return False
                     payload = await resp.json(content_type=None)
-
                 resp_obj = payload.get("abstracts-retrieval-response", {})
                 coredata = resp_obj.get("coredata", {}) or {}
                 abstract_text = coredata.get("dc:description") or ""
                 if abstract_text and len(abstract_text) > 20:
                     paper.abstract = str(abstract_text).strip()
-                    enriched += 1
                     logger.debug(
                         "enrich_scopus_abstracts: got abstract for DOI %s (%d chars)",
                         paper.doi,
                         len(paper.abstract),
                     )
+                    await asyncio.sleep(_ABSTRACT_RATE_SLEEP)
+                    return True
             except Exception as exc:
                 logger.debug(
                     "enrich_scopus_abstracts: error for DOI %s: %s",
@@ -313,7 +313,18 @@ async def enrich_scopus_abstracts(
                     exc,
                 )
             await asyncio.sleep(_ABSTRACT_RATE_SLEEP)
+            return False
 
+    async with aiohttp.ClientSession(
+        connector=tcp_connector_with_certifi(),
+        headers=headers,
+    ) as session:
+        results = await asyncio.gather(
+            *[_enrich_one(session, paper) for paper in to_enrich],
+            return_exceptions=True,
+        )
+
+    enriched = sum(1 for r in results if r is True)
     logger.info(
         "enrich_scopus_abstracts: enriched %d/%d papers",
         enriched,

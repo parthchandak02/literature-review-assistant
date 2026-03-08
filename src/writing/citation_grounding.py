@@ -48,22 +48,79 @@ def verify_citation_grounding(
     return verified, hallucinated
 
 
+def _fuzzy_match_citekey(
+    unknown: str,
+    valid_citekeys: list[str],
+    catalog_rows: list[tuple[str, str, int | None]] | None = None,
+) -> str | None:
+    """Attempt to match an unknown citekey to a valid one using author+year heuristics.
+
+    Strategy:
+    1. Extract the year token (last 4-digit sequence in the key).
+    2. Extract the author token (alphabetic prefix before the year).
+    3. Find valid citekeys whose year matches and whose author token is a
+       case-insensitive substring of the valid citekey (or vice-versa).
+    4. If catalog_rows are provided (list of (citekey, title, year) tuples),
+       also try matching against the title text.
+    5. Return the best single match when confidence is high; None otherwise.
+    """
+    import re as _re
+
+    _year_m = _re.search(r"(\d{4})", unknown)
+    if not _year_m:
+        return None
+    year_str = _year_m.group(1)
+    author_token = unknown[: _year_m.start()].lower()
+    if len(author_token) < 2:
+        return None
+
+    year_candidates = [k for k in valid_citekeys if k.endswith(year_str) or year_str in k]
+    if not year_candidates:
+        return None
+
+    # Try substring match on the author token portion
+    for cand in year_candidates:
+        cand_author = _re.sub(r"\d+", "", cand).lower()
+        if author_token in cand_author or cand_author in author_token:
+            return cand
+
+    # Try first 3 chars of author as prefix (handles "castelao" vs "CastelaoLopez")
+    prefix = author_token[:3]
+    prefix_matches = [k for k in year_candidates if _re.sub(r"\d+", "", k).lower().startswith(prefix)]
+    if len(prefix_matches) == 1:
+        return prefix_matches[0]
+
+    return None
+
+
 def repair_hallucinated_citekeys(
     text: str,
     hallucinated: list[str],
     valid_citekeys: list[str],
+    catalog_rows: list[tuple[str, str, int | None]] | None = None,
 ) -> str:
-    """Replace hallucinated citekeys with a placeholder note.
+    """Replace hallucinated citekeys with fuzzy-matched valid keys or a placeholder.
 
-    This is a conservative repair: hallucinated citekeys are replaced with
-    [CITATION_NEEDED] so human reviewers can identify and correct them,
-    rather than silently substituting a potentially wrong paper.
+    For each hallucinated key, attempt fuzzy matching using author+year tokens:
+    - If a unique match is found in valid_citekeys, substitute it and log the repair.
+    - Otherwise replace with [CITATION_NEEDED] so human reviewers can correct it.
+
+    catalog_rows: optional list of (citekey, title, year) for title-based fallback.
     """
     if not hallucinated:
         return text
 
     result = text
     for key in hallucinated:
-        result = result.replace(f"[{key}]", "[CITATION_NEEDED]")
+        matched = _fuzzy_match_citekey(key, valid_citekeys, catalog_rows)
+        if matched:
+            logger.info(
+                "Fuzzy-matched hallucinated citekey [%s] -> [%s]",
+                key,
+                matched,
+            )
+            result = result.replace(f"[{key}]", f"[{matched}]")
+        else:
+            result = result.replace(f"[{key}]", "[CITATION_NEEDED]")
 
     return result

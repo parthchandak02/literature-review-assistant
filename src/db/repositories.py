@@ -320,6 +320,33 @@ class WorkflowRepository:
                 databases[name] = cnt
         return databases, other
 
+    async def get_failed_search_connectors(self, workflow_id: str) -> list[str]:
+        """Return connector names that raised an error during the search phase.
+
+        Failed connectors are logged to decision_log as search_connector_error
+        and never receive a row in search_results.  PRISMA 2020 item 5 requires
+        disclosing all attempted databases, including those that failed.
+        The connector name is parsed from the rationale field which is formatted
+        as "{connector_name}: {ExceptionType}: {message}".
+        """
+        cursor = await self.db.execute(
+            """
+            SELECT rationale FROM decision_log
+            WHERE workflow_id = ? AND decision_type = 'search_connector_error'
+            """,
+            (workflow_id,),
+        )
+        rows = await cursor.fetchall()
+        failed: list[str] = []
+        seen: set[str] = set()
+        for (rationale,) in rows:
+            # rationale format: "connector_name: ExceptionType: message"
+            connector_name = str(rationale).split(":")[0].strip()
+            if connector_name and connector_name not in seen:
+                seen.add(connector_name)
+                failed.append(connector_name)
+        return failed
+
     async def get_prisma_screening_counts(self, workflow_id: str) -> tuple[int, int, int, int, int, dict[str, int]]:
         """Return (records_screened, records_excluded_screening, reports_sought,
         reports_not_retrieved, reports_assessed, reports_excluded_with_reasons).
@@ -829,6 +856,72 @@ class WorkflowRepository:
         )
         await self.db.commit()
 
+    async def get_paper_id_to_citekey_map(self) -> dict[str, str]:
+        """Build a paper_id -> citekey map by joining papers and citations on normalized DOI.
+
+        Used to display human-readable citekeys in CASP/MMAT tables and other
+        places that have paper_ids but need author-year labels for readability.
+        """
+        result: dict[str, str] = {}
+        try:
+            cursor = await self.db.execute(
+                """
+                SELECT p.paper_id, c.citekey
+                FROM papers p
+                JOIN citations c ON (
+                    c.doi IS NOT NULL
+                    AND p.doi IS NOT NULL
+                    AND lower(trim(c.doi)) = lower(trim(p.doi))
+                )
+                WHERE c.citekey IS NOT NULL AND c.citekey != ''
+                """
+            )
+            rows = await cursor.fetchall()
+            for pid, citekey in rows:
+                if pid and citekey:
+                    result[str(pid)] = str(citekey)
+        except Exception:
+            pass
+        return result
+
+    async def load_casp_assessments(self, workflow_id: str) -> list[Any]:
+        """Load all CASP assessments for a workflow from casp_assessments table."""
+        from src.quality.casp import CaspAssessment
+
+        assessments: list[Any] = []
+        cursor = await self.db.execute(
+            "SELECT assessment_data FROM casp_assessments WHERE workflow_id = ?",
+            (workflow_id,),
+        )
+        rows = await cursor.fetchall()
+        for (data,) in rows:
+            if not data:
+                continue
+            try:
+                assessments.append(CaspAssessment.model_validate_json(data))
+            except Exception:
+                continue
+        return assessments
+
+    async def load_mmat_assessments(self, workflow_id: str) -> list[Any]:
+        """Load all MMAT assessments for a workflow from mmat_assessments table."""
+        from src.quality.mmat import MmatAssessment
+
+        assessments: list[Any] = []
+        cursor = await self.db.execute(
+            "SELECT assessment_data FROM mmat_assessments WHERE workflow_id = ?",
+            (workflow_id,),
+        )
+        rows = await cursor.fetchall()
+        for (data,) in rows:
+            if not data:
+                continue
+            try:
+                assessments.append(MmatAssessment.model_validate_json(data))
+            except Exception:
+                continue
+        return assessments
+
     async def save_checkpoint(
         self,
         workflow_id: str,
@@ -955,6 +1048,32 @@ class WorkflowRepository:
             return None
         return int(row[0])
 
+    async def get_last_event_of_type(self, workflow_id: str, event_type: str) -> dict | None:
+        """Return the JSON payload of the most recent event_log row of a given type.
+
+        Returns None if no such event exists for this workflow. Used to source
+        structured counts (e.g. batch_screen_done.excluded) that are not
+        reflected in row-count queries across dual_screening_results.
+        """
+        import json as _json
+
+        cursor = await self.db.execute(
+            """
+            SELECT payload FROM event_log
+            WHERE workflow_id = ? AND event_type = ?
+            ORDER BY ts DESC
+            LIMIT 1
+            """,
+            (workflow_id, event_type),
+        )
+        row = await cursor.fetchone()
+        if row is None:
+            return None
+        try:
+            return _json.loads(row[0]) if isinstance(row[0], str) else row[0]
+        except Exception:
+            return None
+
     async def create_workflow(self, workflow_id: str, topic: str, config_hash: str) -> None:
         await self.db.execute(
             """
@@ -994,6 +1113,18 @@ class CitationRepository:
         await self.db.commit()
 
     async def register_citation(self, citation: CitationEntryRecord) -> None:
+        # Guard: if a non-empty DOI already exists in the table (under any citekey),
+        # skip registration.  This prevents the same paper from appearing twice in
+        # the reference list when it is registered first as an included-study
+        # citekey and later as a background-SR citekey (or vice-versa).
+        # The unique partial index on doi (WHERE doi IS NOT NULL AND doi != '')
+        # enforces this at the DB level for new databases; this pre-check handles
+        # existing databases that pre-date the index.
+        if citation.doi:
+            _doi_cur = await self.db.execute("SELECT 1 FROM citations WHERE doi = ? LIMIT 1", (citation.doi,))
+            if await _doi_cur.fetchone():
+                return
+
         await self.db.execute(
             """
             INSERT INTO citations (citation_id, citekey, doi, title, authors, year, journal, bibtex, resolved)

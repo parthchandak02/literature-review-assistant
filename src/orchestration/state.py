@@ -43,3 +43,12 @@ class ReviewState:
     # Count of quality assessments that used heuristic fallback (LLM timed out).
     # Surfaced in the Methods section grounding block for transparency.
     heuristic_assessment_count: int = 0
+    # Batch LLM pre-ranker counts (set during screening phase).
+    # Used by the writing grounding block to describe the 3-stage screening funnel.
+    batch_screen_forwarded: int = 0
+    batch_screen_excluded: int = 0
+    # PRISMA full-text retrieval counts (set after PDF retrieval).
+    # fulltext_sought: papers sent to stage-2 full-text screening.
+    # fulltext_not_retrieved: papers excluded because no PDF could be obtained.
+    fulltext_sought: int = 0
+    fulltext_not_retrieved: int = 0

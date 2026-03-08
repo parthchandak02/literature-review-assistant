@@ -13,6 +13,7 @@ Auth: GEMINI_API_KEY env var -- read automatically by PydanticAI, no manual wiri
 
 from __future__ import annotations
 
+import asyncio
 import logging
 
 from pydantic_ai.embeddings import Embedder
@@ -44,28 +45,37 @@ async def embed_texts(
     batch_size: int = 20,
     model: str = _DEFAULT_EMBED_MODEL,
     dim: int = _DEFAULT_EMBED_DIM,
+    concurrency: int = 4,
 ) -> list[list[float]]:
     """Embed a list of documents using PydanticAI Embedder.
 
-    Batches calls to stay within rate limits. Returns a list of float vectors
-    with length equal to ``dim``. Falls back to zero vectors on API failure so
-    the workflow never hard-crashes during the embedding phase.
+    Sends up to ``concurrency`` batches to the embedding API simultaneously to
+    reduce wall-clock time. Order is preserved by collecting (batch_idx, vecs)
+    tuples and sorting before flattening. Falls back to zero vectors on API
+    failure so the workflow never hard-crashes during the embedding phase.
     """
     if not texts:
         return []
 
     embedder = _get_embedder(model, dim)
+    batches = [(i // batch_size, texts[i : i + batch_size]) for i in range(0, len(texts), batch_size)]
+    sem = asyncio.Semaphore(concurrency)
+
+    async def _embed_batch(batch_idx: int, batch: list[str]) -> tuple[int, list[list[float]]]:
+        async with sem:
+            try:
+                result = await embedder.embed_documents(batch)
+                return batch_idx, [list(vec) for vec in result.embeddings]
+            except Exception as exc:
+                start = batch_idx * batch_size
+                logger.warning("Embedding batch [%d:%d] failed: %s", start, start + len(batch), exc)
+                return batch_idx, [[0.0] * dim for _ in batch]
+
+    gathered = await asyncio.gather(*[_embed_batch(idx, b) for idx, b in batches])
+    # Sort by batch_idx to restore original text order
     all_embeddings: list[list[float]] = []
-
-    for i in range(0, len(texts), batch_size):
-        batch = texts[i : i + batch_size]
-        try:
-            result = await embedder.embed_documents(batch)
-            all_embeddings.extend([list(vec) for vec in result.embeddings])
-        except Exception as exc:
-            logger.warning("Embedding batch [%d:%d] failed: %s", i, i + batch_size, exc)
-            all_embeddings.extend([[0.0] * dim for _ in batch])
-
+    for _, vecs in sorted(gathered, key=lambda t: t[0]):
+        all_embeddings.extend(vecs)
     return all_embeddings
 
 

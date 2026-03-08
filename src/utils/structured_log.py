@@ -180,7 +180,7 @@ def log_connector_result(
 # JSONL replay helpers
 # ---------------------------------------------------------------------------
 
-_PASSTHROUGH_EVENTS = frozenset({"api_call", "screening_decision", "rate_limit_wait"})
+_PASSTHROUGH_EVENTS = frozenset({"api_call", "screening_decision", "rate_limit_wait", "search_override_status"})
 
 
 def normalize_jsonl_event(entry: dict[str, Any]) -> dict[str, Any] | None:
@@ -225,7 +225,11 @@ def normalize_jsonl_event(entry: dict[str, Any]) -> dict[str, Any] | None:
         }
 
     if ev in _PASSTHROUGH_EVENTS:
-        out = {k: v for k, v in entry.items() if k not in ("event", "level", "timestamp", "workflow_id", "run_id", "log_dir")}
+        out = {
+            k: v
+            for k, v in entry.items()
+            if k not in ("event", "level", "timestamp", "workflow_id", "run_id", "log_dir")
+        }
         out["type"] = ev
         out["ts"] = ts
         return out

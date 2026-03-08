@@ -66,6 +66,10 @@ async def load_resume_state(
     log_dir = str(run_dir)
     output_dir = log_dir  # same directory
 
+    cohens_kappa_restored: float | None = None
+    kappa_stage_restored: str | None = None
+    kappa_n_restored: int = 0
+
     async with get_db(db_path) as db:
         await repair_foreign_key_integrity(db)
         repo = WorkflowRepository(db)
@@ -90,6 +94,36 @@ async def load_resume_state(
         extraction_records_list: list[ExtractionRecord] = []
         if "phase_4_extraction_quality" in checkpoints:
             extraction_records_list = await repo.load_extraction_records(workflow_id)
+
+        # Restore Cohen's kappa from the screening_calibration phase_done event.
+        # kappa is computed during screening but not persisted to the workflows
+        # table, so on resume state.cohens_kappa is None and the grounding block
+        # incorrectly says kappa was not computed.
+        _calib_event = await repo.get_last_event_of_type(workflow_id, "phase_done")
+        # get_last_event_of_type returns the most recent phase_done; we need
+        # specifically the screening_calibration one, so query directly.
+        try:
+            import json as _json
+
+            _calib_cur = await db.execute(
+                """
+                SELECT payload FROM event_log
+                WHERE workflow_id = ? AND event_type = 'phase_done'
+                  AND json_extract(payload, '$.phase') = 'screening_calibration'
+                ORDER BY ts DESC LIMIT 1
+                """,
+                (workflow_id,),
+            )
+            _calib_row = await _calib_cur.fetchone()
+            if _calib_row:
+                _calib_payload = _json.loads(_calib_row[0]) if isinstance(_calib_row[0], str) else _calib_row[0]
+                _summary = (_calib_payload or {}).get("summary", {}) or {}
+                if _summary.get("kappa") is not None:
+                    cohens_kappa_restored = float(_summary["kappa"])
+                    kappa_stage_restored = "title_abstract"
+                    kappa_n_restored = int(_summary.get("sample_size", 0))
+        except Exception as _kappa_exc:
+            logger.warning("Could not restore kappa from event_log on resume: %s", _kappa_exc)
 
         if from_phase is not None:
             if from_phase not in PHASE_ORDER:
@@ -156,5 +190,8 @@ async def load_resume_state(
         extraction_records=extraction_records_list,
         artifacts=artifacts,
         next_phase=next_phase,
+        cohens_kappa=cohens_kappa_restored,
+        kappa_stage=kappa_stage_restored,
+        kappa_n=kappa_n_restored,
     )
     return state, next_phase

@@ -695,7 +695,7 @@ Heartbeat events are sent every 15 seconds of inactivity to keep the connection 
 
 ### 9.3 View Model
 
-The frontend is run-centric. The sidebar is a run list, not a navigation menu. Selecting a run sets `selectedRun` in App state. `RunView` renders 6 tabs in workflow order: Config, Activity, Data, Cost, Results (plus Review Screening when awaiting_review). The selected tab is persisted in localStorage.
+The frontend is run-centric. The sidebar is a run list, not a navigation menu. Selecting a run sets `selectedRun` in App state. `RunView` renders 7 tabs in workflow order: Config, Activity, Data, Cost, Results, References (plus Review Screening when awaiting_review). The selected tab is persisted in localStorage.
 
 | View | Purpose |
 |------|---------|

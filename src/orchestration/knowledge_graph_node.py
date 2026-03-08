@@ -92,16 +92,12 @@ class KnowledgeGraphNode(BaseNode[ReviewState]):
                 )
 
                 if rc:
-                    rc.log_status(
-                        f"Detecting communities (Louvain) across {len(graph.edges)} edges..."
-                    )
+                    rc.log_status(f"Detecting communities (Louvain) across {len(graph.edges)} edges...")
                 # Run community detection
                 updated_nodes, communities = detect_communities(graph)
 
                 if rc:
-                    rc.log_status(
-                        f"Detecting research gaps ({len(communities)} communities found)..."
-                    )
+                    rc.log_status(f"Detecting research gaps ({len(communities)} communities found)...")
                 # Detect research gaps
                 gaps = detect_research_gaps(state.extraction_records)
 
@@ -162,8 +158,7 @@ class KnowledgeGraphNode(BaseNode[ReviewState]):
 
                 if rc:
                     rc.log_status(
-                        f"Rendering evidence network figure ({len(graph.edges)} edges, "
-                        f"{len(gaps)} gaps detected)..."
+                        f"Rendering evidence network figure ({len(graph.edges)} edges, {len(gaps)} gaps detected)..."
                     )
                 # Render figure to run directory (same level as all other figures).
                 # Skip silently when there are no edges (e.g. zero included papers):

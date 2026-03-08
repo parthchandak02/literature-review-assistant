@@ -302,10 +302,15 @@ async def build_prisma_counts(
         excluded_total = 0
 
     records_excluded_screening = max(0, records_screened - reports_sought)
-    # When records_screened < records_after_dedup, the gap represents records
-    # automatically excluded by the BM25 pre-filter or keyword hard-gate before
-    # LLM screening. PRISMA 2020 labels these "Automation tools" removals.
-    automation_excluded = max(0, records_after_dedup - records_screened)
+    # Prefer the structured count emitted by the batch ranker (batch_screen_done
+    # event) because dual_screening_results stores batch-excluded papers too,
+    # making the row-count gap always 0 even when hundreds were auto-excluded.
+    # Fall back to arithmetic gap when the event is absent (older runs / CSV mode).
+    _batch_event = await repo.get_last_event_of_type(workflow_id, "batch_screen_done")
+    _batch_excluded: int = 0
+    if _batch_event and isinstance(_batch_event, dict):
+        _batch_excluded = int(_batch_event.get("excluded", 0))
+    automation_excluded = _batch_excluded if _batch_excluded > 0 else max(0, records_after_dedup - records_screened)
     arithmetic_valid = (
         (records_screened == records_after_dedup or automation_excluded > 0)
         and records_screened == records_excluded_screening + reports_sought

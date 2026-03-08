@@ -22,7 +22,7 @@ import os
 import re
 from dataclasses import dataclass
 from html.parser import HTMLParser
-from urllib.parse import quote, urljoin
+from urllib.parse import parse_qsl, quote, urlencode, urljoin, urlparse, urlunparse
 
 import aiohttp
 
@@ -39,6 +39,7 @@ def _get_model_from_settings() -> str:
         return s.agents["table_extraction"].model.replace("google-gla:", "").replace("google-vertex:", "")
     except Exception:
         return "gemini-3.1-flash-lite-preview"
+
 
 # ---------------------------------------------------------------------------
 # Constants for the full-text retrieval tiers
@@ -290,13 +291,19 @@ async def _fetch_unpaywall(doi: str, diagnostics: list[str] | None = None) -> Fu
                         if not pdf_bytes:
                             last_err = "no PDF bytes"
                             continue
-                        if "pdf" in ct.lower() or pdf_url.endswith(".pdf"):
+                        if "pdf" in ct.lower() or pdf_bytes[:4] == b"%PDF":
                             return FullTextResult(
                                 text="",
                                 source="unpaywall_pdf",
                                 pdf_bytes=pdf_bytes,
                             )
-                        # HTML/text response -- use as plain text
+                        # HTML landing pages are publisher paywalls / article wrappers,
+                        # not actual article text.  Skip and let the landing-page
+                        # resolver (Tier 6) handle them via citation_pdf_url meta.
+                        if "text/html" in ct.lower() or "html" in ct.lower():
+                            last_err = "HTML landing page skipped (not article text)"
+                            continue
+                        # XML / plain-text OA full-text (e.g. PubMed OA XML) is usable.
                         text = pdf_bytes.decode("utf-8", errors="replace")
                         if len(text) >= _SD_MIN_CHARS:
                             return FullTextResult(text=text, source="unpaywall_text")
@@ -1010,6 +1017,63 @@ def _extract_jsonld_pdf_urls(html_text: str, base_url: str) -> list[str]:
     return results
 
 
+def _publisher_direct_pdf_url(url: str) -> str | None:
+    """Return a direct PDF URL for known OA publisher URL patterns, or None.
+
+    This is applied to the *post-redirect* final_url (e.g. after doi.org resolves
+    to the actual publisher domain), so detection is reliable even when paper.url
+    is a doi.org link.  Only covers publishers with stable, predictable PDF URL
+    conventions -- all are confirmed open-access.
+
+    Patterns:
+      MDPI:            mdpi.com/{j}/{v}/{i}/{n}         -> .../pdf
+      Frontiers:       frontiersin.org/articles/{doi}/full  -> .../pdf
+                       frontiersin.org/articles/{doi}        -> .../pdf
+      BioMed Central:  *.biomedcentral.com/articles/{doi}   -> .../pdf
+      SpringerOpen:    *.springeropen.com/articles/{doi}     -> .../pdf
+      JMIR:            jmir.org/...                          -> .../PDF
+      PLoS:            journals.plos.org/...?id={doi}        -> add type=printable
+      PeerJ:           peerj.com/articles/{id}               -> .../pdf
+    """
+    if not url or not url.startswith("http"):
+        return None
+    parsed = urlparse(url)
+    host = parsed.netloc.lower()
+    path = parsed.path.rstrip("/")
+
+    # MDPI: https://www.mdpi.com/{journal-id}/{vol}/{iss}/{article-num}
+    if "mdpi.com" in host and not path.endswith("/pdf"):
+        return urlunparse(parsed._replace(path=path + "/pdf", query="", fragment=""))
+
+    # Frontiers: https://www.frontiersin.org/articles/{doi}/full  OR  .../articles/{doi}
+    if "frontiersin.org" in host:
+        if path.endswith("/full"):
+            return urlunparse(parsed._replace(path=path[:-5] + "/pdf", query="", fragment=""))
+        if "/articles/" in path and not path.endswith("/pdf"):
+            return urlunparse(parsed._replace(path=path + "/pdf", query="", fragment=""))
+
+    # BioMed Central and SpringerOpen: https://xxx.biomedcentral.com/articles/{doi}
+    if ("biomedcentral.com" in host or "springeropen.com" in host) and "/articles/" in path:
+        if not path.endswith("/pdf"):
+            return urlunparse(parsed._replace(path=path + "/pdf", query="", fragment=""))
+
+    # JMIR: https://www.jmir.org/{year}/{n}/e{id}  ->  .../PDF
+    if "jmir.org" in host and not path.endswith("/PDF"):
+        return urlunparse(parsed._replace(path=path + "/PDF", query="", fragment=""))
+
+    # PLoS: https://journals.plos.org/plosone/article?id={doi}  ->  add type=printable
+    if "journals.plos.org" in host and "type=printable" not in parsed.query:
+        params = dict(parse_qsl(parsed.query))
+        params["type"] = "printable"
+        return urlunparse(parsed._replace(query=urlencode(params), fragment=""))
+
+    # PeerJ: https://peerj.com/articles/{id}
+    if "peerj.com" in host and "/articles/" in path and not path.endswith(".pdf"):
+        return urlunparse(parsed._replace(path=path + ".pdf", query="", fragment=""))
+
+    return None
+
+
 async def _resolve_landing_page(
     url: str,
     diagnostics: list[str] | None = None,
@@ -1065,10 +1129,18 @@ async def _resolve_landing_page(
 
         html_text = body.decode("utf-8", errors="replace")
 
+        # Publisher-specific direct PDF URL: prepend before HTML parsing so it
+        # is attempted first.  Operates on final_url (post-redirect) so MDPI /
+        # Frontiers are detected even when the original URL was a doi.org link.
+        pub_pdf = _publisher_direct_pdf_url(final_url)
+        candidates: list[str] = [pub_pdf] if pub_pdf else []
+
         # Extract PDF candidates from HTML metadata and download anchors.
         parser = _PDFLinkParser(final_url)
         parser.feed(html_text)
-        candidates: list[str] = list(parser.candidates)
+        for c in parser.candidates:
+            if c not in candidates:
+                candidates.append(c)
 
         # Also scan JSON-LD blocks for schema.org contentUrl.
         for c in _extract_jsonld_pdf_urls(html_text, final_url):
@@ -1099,9 +1171,7 @@ async def _resolve_landing_page(
                     if not pbody or len(pbody) < 500:
                         continue
                     _is_pdf_response = (
-                        "application/pdf" in pct
-                        or pdf_url.lower().endswith(".pdf")
-                        or pbody[:4] == b"%PDF"
+                        "application/pdf" in pct or pdf_url.lower().endswith(".pdf") or pbody[:4] == b"%PDF"
                     )
                     if _is_pdf_response:
                         text = ""

@@ -194,6 +194,40 @@ _GENERIC_TITLE_WORDS = frozenset(
 _SNAKE_RE = re.compile(r"\b([a-z][a-z0-9]*(?:_[a-z][a-z0-9]*)+)\b")
 
 
+def _enforce_word_limit(text: str, max_words: int) -> str:
+    """Trim text to at most max_words words, cutting at a sentence boundary.
+
+    Splits on sentence-ending punctuation so the result is never mid-sentence.
+    Falls back to word-level trim only if no earlier sentence boundary exists.
+    """
+    words = text.split()
+    if len(words) <= max_words:
+        return text
+    # Sentence boundary pattern: period/bang/question followed by whitespace or end.
+    sentence_end = re.compile(r"(?<=[.!?])\s+")
+    trimmed = " ".join(words[:max_words])
+    # Walk backwards from max_words to find a sentence boundary within the trimmed text.
+    sentences = sentence_end.split(trimmed)
+    if len(sentences) > 1:
+        # Drop the trailing incomplete sentence.
+        candidate = " ".join(sentences[:-1]).rstrip()
+        if candidate:
+            logger.debug(
+                "Abstract truncated from %d to %d words to meet IEEE limit of %d.",
+                len(words),
+                len(candidate.split()),
+                max_words,
+            )
+            return candidate
+    # No sentence boundary found -- fall back to hard word trim with ellipsis stripped.
+    logger.debug(
+        "Abstract hard-trimmed from %d to %d words (no sentence boundary found).",
+        len(words),
+        max_words,
+    )
+    return trimmed
+
+
 def _sanitize_prose(content: str) -> str:
     """Replace any remaining snake_case identifiers in prose with spaced equivalents.
 
@@ -452,9 +486,7 @@ async def register_background_sr_citations(
                 name_parts = authors[0].split()
                 raw_surname = name_parts[-1] if name_parts else "Author"
                 first_surname = "".join(
-                    c
-                    for c in unicodedata.normalize("NFD", raw_surname)
-                    if unicodedata.category(c) != "Mn"
+                    c for c in unicodedata.normalize("NFD", raw_surname) if unicodedata.category(c) != "Mn"
                 )
             base_key = f"{first_surname}{year}SR" if first_surname else f"SR{year}"
             citekey = base_key
@@ -595,6 +627,13 @@ async def write_section_with_validation(
         )
     # Safety-net: replace any leftover snake_case in prose before saving.
     content = _sanitize_prose(content)
+
+    # Hard-enforce word limit after generation. The LLM treats the prompt word
+    # limit as advisory and will occasionally exceed it (abstract ran to 264 for
+    # the IEEE 250-word cap). Trim at the last sentence boundary that keeps the
+    # section within the configured limit.
+    if word_limit and section == "abstract":
+        content = _enforce_word_limit(content, word_limit)
 
     # Register each cited sentence as a claim and link it to evidence so the
     # citation lineage gate can verify full claim->evidence->citation coverage.

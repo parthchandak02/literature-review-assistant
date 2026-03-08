@@ -43,6 +43,7 @@ class EmbeddingNode(BaseNode[ReviewState]):
         embed_model = rag_cfg.embed_model
         embed_dim = rag_cfg.embed_dim
         embed_batch_size = rag_cfg.embed_batch_size
+        embed_concurrency = getattr(rag_cfg, "embed_concurrency", 4)
         chunk_max_words = rag_cfg.chunk_max_words
         chunk_overlap_sentences = rag_cfg.chunk_overlap_sentences
 
@@ -67,9 +68,7 @@ class EmbeddingNode(BaseNode[ReviewState]):
                     rc.log_status(f"All {len(state.extraction_records)} papers already embedded; skipping.")
             else:
                 if rc:
-                    rc.log_status(
-                        f"Chunking {len(to_embed)} extracted papers into RAG segments..."
-                    )
+                    rc.log_status(f"Chunking {len(to_embed)} extracted papers into RAG segments...")
                 # Chunk all records -- text chunks + vision-extracted table rows
                 all_chunks = []
                 for record in to_embed:
@@ -106,29 +105,32 @@ class EmbeddingNode(BaseNode[ReviewState]):
                         batch_size=embed_batch_size,
                         model=embed_model,
                         dim=embed_dim,
+                        concurrency=embed_concurrency,
                     )
 
                     if rc:
-                        rc.log_status(
-                            f"Persisting {len(all_chunks)} embedded chunks to database..."
+                        rc.log_status(f"Persisting {len(all_chunks)} embedded chunks to database...")
+                    # Bulk insert all chunks in a single executemany call -- orders of
+                    # magnitude faster than per-row execute for large embedding sets.
+                    chunk_rows = [
+                        (
+                            chunk.chunk_id,
+                            state.workflow_id,
+                            chunk.paper_id,
+                            chunk.chunk_index,
+                            chunk.content,
+                            json.dumps(embedding),
                         )
-                    # Persist chunks with embeddings
-                    for chunk, embedding in zip(all_chunks, embeddings):
-                        await db.execute(
-                            """
-                            INSERT OR IGNORE INTO paper_chunks_meta
-                                (chunk_id, workflow_id, paper_id, chunk_index, content, embedding)
-                            VALUES (?, ?, ?, ?, ?, ?)
-                            """,
-                            (
-                                chunk.chunk_id,
-                                state.workflow_id,
-                                chunk.paper_id,
-                                chunk.chunk_index,
-                                chunk.content,
-                                json.dumps(embedding),
-                            ),
-                        )
+                        for chunk, embedding in zip(all_chunks, embeddings)
+                    ]
+                    await db.executemany(
+                        """
+                        INSERT OR IGNORE INTO paper_chunks_meta
+                            (chunk_id, workflow_id, paper_id, chunk_index, content, embedding)
+                        VALUES (?, ?, ?, ?, ?, ?)
+                        """,
+                        chunk_rows,
+                    )
                     await db.commit()
                     logger.info(
                         "EmbeddingNode: embedded %d chunks from %d papers",

@@ -204,21 +204,29 @@ class DualReviewerScreener:
         """Return True when the paper has no usable abstract content.
 
         Fires when:
-        - The abstract is absent or has fewer than settings.screening.insufficient_content_min_words
-          words (title repeated or stub). Lowering the threshold allows the LLM to screen
-          borderline records on title alone; raising it auto-excludes more aggressively.
-        - The abstract text explicitly signals it is a title-only record
+        - The abstract is absent AND settings.screening.insufficient_content_min_words > 0.
+          When min_words is 0, empty-abstract papers are forwarded to the LLM for title-only
+          evaluation (PRISMA 2020 guidance: advance to full-text when abstract is absent).
+        - The abstract has fewer than insufficient_content_min_words words (stub/title-only).
+        - The abstract text explicitly signals it is a title-only record.
 
-        Papers that pass this check have no abstract content for reviewers
-        to evaluate against inclusion criteria and would produce unreliable
-        screening and extraction results.
+        Setting insufficient_content_min_words: 0 disables all stub-abstract auto-exclusions
+        and delegates every record to the LLM dual-screener, which can exclude on title alone.
         """
         abstract = (paper.abstract or "").strip()
         title = (paper.title or "").strip()
 
-        # No abstract at all
+        # Read threshold first so the empty-abstract guard can respect it.
+        min_words = getattr(
+            getattr(getattr(self, "settings", None), "screening", None),
+            "insufficient_content_min_words",
+            self._TITLE_ONLY_ABSTRACT_WORD_THRESHOLD,
+        )
+
+        # No abstract at all: only auto-exclude when the threshold requires content.
+        # When min_words=0, forward to LLM for title-only evaluation.
         if not abstract:
-            return True
+            return min_words > 0
 
         # Abstract is just the title repeated (some databases duplicate title as abstract)
         if abstract.lower() == title.lower():
@@ -230,11 +238,6 @@ class DualReviewerScreener:
             return True
 
         # Stub abstract: fewer than configured threshold words
-        min_words = getattr(
-            getattr(getattr(self, "settings", None), "screening", None),
-            "insufficient_content_min_words",
-            self._TITLE_ONLY_ABSTRACT_WORD_THRESHOLD,
-        )
         word_count = len(abstract.split())
         if word_count < min_words:
             return True
@@ -349,6 +352,7 @@ class DualReviewerScreener:
         full_text_by_paper: dict[str, str] | None = None,
         retriever: PDFRetriever | None = None,
         coverage_report_path: str | None = None,
+        on_pdf_progress: Callable[[int, int], None] | None = None,
     ) -> list[ScreeningDecision]:
         # Clear consumed flag at the start of every new batch so subsequent
         # Ctrl+C events (after a reset) are still honoured.
@@ -357,7 +361,10 @@ class DualReviewerScreener:
         if stage == "fulltext":
             if full_text_by_paper is None:
                 active_retriever = retriever or PDFRetriever()
-                retrieval_results, coverage = await active_retriever.retrieve_batch(papers)
+                _pdf_concurrency = getattr(self.settings.screening, "pdf_retrieval_concurrency", 8)
+                retrieval_results, coverage = await active_retriever.retrieve_batch(
+                    papers, on_progress=on_pdf_progress, concurrency=_pdf_concurrency
+                )
                 full_text_by_paper = {
                     paper_id: result.full_text for paper_id, result in retrieval_results.items() if result.success
                 }

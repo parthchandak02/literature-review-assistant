@@ -446,10 +446,14 @@ class ExtractionService:
             try:
                 record = await self._llm_extract(paper, study_design, full_text)
             except Exception as exc:
+                # Log both exception type AND message so quota/auth errors are visible
+                # in the server log and diagnosable without a debugger.
                 logger.warning(
-                    "LLM extraction failed for %s (%s); using heuristic fallback.",
+                    "LLM extraction failed for %s (%s: %s); using heuristic fallback. "
+                    "If all papers fail, check API quota for the extraction model.",
                     paper.paper_id[:12],
                     type(exc).__name__,
+                    str(exc)[:200],
                 )
                 record = self._heuristic_extract(paper, study_design, full_text)
         else:

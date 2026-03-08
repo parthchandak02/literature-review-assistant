@@ -23,6 +23,7 @@ def _get_model_from_settings() -> str:
     except Exception:
         return "google-gla:gemini-3.1-pro-preview"
 
+
 _HUMANIZE_PROMPT_TEMPLATE = """\
 You are an expert academic editor specialising in systematic review manuscripts.
 

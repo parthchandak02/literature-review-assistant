@@ -39,7 +39,7 @@ from src.export.markdown_refs import assemble_submission_manuscript, is_extracti
 from src.extraction import ExtractionService, StudyClassifier
 from src.llm.provider import LLMProvider
 from src.llm.pydantic_client import PydanticAIClient
-from src.models import DecisionLogEntry, ExtractionRecord, GateStatus, SectionDraft, StudyDesign
+from src.models import CandidatePaper, DecisionLogEntry, ExtractionRecord, GateStatus, SectionDraft, StudyDesign
 from src.models.diagrams import (
     FlowchartDiagramInput,
     FlowchartPhase,
@@ -562,8 +562,8 @@ class SearchNode(BaseNode[ReviewState]):
             if supp_paths:
                 try:
                     supp_results = parse_supplementary_csvs(supp_paths, state.workflow_id)
+                    await asyncio.gather(*[repository.save_search_result(sr) for sr in supp_results])
                     for sr in supp_results:
-                        await repository.save_search_result(sr)
                         all_papers.extend(sr.papers)
                         if rc:
                             rc.log_connector_result(
@@ -784,9 +784,7 @@ class ScreeningNode(BaseNode[ReviewState]):
                 # shared root word in BM25 but contain no domain-specific terms.
                 kw_min = state.settings.screening.keyword_filter_min_matches
                 if kw_min > 0:
-                    kw_excluded, to_rank = keyword_prefilter(
-                        meta_acceptable, state.review, state.settings.screening
-                    )
+                    kw_excluded, to_rank = keyword_prefilter(meta_acceptable, state.review, state.settings.screening)
                     # Adaptive fallback: if the keyword list is too narrow (e.g. from
                     # a poor AI-generated config), it can exclude >80% of the pool and
                     # cause downstream gate failures. In that case, skip the keyword
@@ -804,9 +802,7 @@ class ScreeningNode(BaseNode[ReviewState]):
                     kw_excluded, to_rank = [], meta_acceptable
 
                 # BM25 ranks keyword-accepted papers; top N go to LLM, tail auto-excluded.
-                papers_for_llm, bm25_excluded = bm25_rank_and_cap(
-                    to_rank, state.review, state.settings.screening
-                )
+                papers_for_llm, bm25_excluded = bm25_rank_and_cap(to_rank, state.review, state.settings.screening)
                 pre_excluded = kw_excluded + bm25_excluded
 
                 if kw_excluded:
@@ -854,6 +850,7 @@ class ScreeningNode(BaseNode[ReviewState]):
             # typed event IS persisted and replayed on history load.
             if rc and hasattr(rc, "_emit"):
                 import datetime as _dt_pf
+
                 rc._emit(
                     {
                         "type": "screening_prefilter_done",
@@ -868,8 +865,15 @@ class ScreeningNode(BaseNode[ReviewState]):
 
             # --- Adaptive threshold calibration (optional) ---
             screening_cfg = state.settings.screening
+            # Skip calibration on resume: if screening decisions already exist, the
+            # threshold was calibrated during the first pass. Re-calibrating on resume
+            # produces kappa=0.00 because the sample papers are already decided, emitting
+            # a misleading CALIB SSE event with kappa=0.00 in the activity log.
+            _already_decided_ids = await repository.get_processed_paper_ids(state.workflow_id, "title_abstract")
+            _is_screening_resume = len(_already_decided_ids) > 0
             if (
-                getattr(screening_cfg, "calibrate_threshold", True)
+                not _is_screening_resume
+                and getattr(screening_cfg, "calibrate_threshold", True)
                 and papers_for_llm
                 and use_real_client
                 and not state.parent_db_path  # skip for living-refresh delta runs
@@ -899,7 +903,7 @@ class ScreeningNode(BaseNode[ReviewState]):
                         rc.advance_screening("screening_calibration", _calib_completed[0], _calib_total)
 
                 async def _calibration_screener(
-                    sample_papers: list[CandidatePaper],  # noqa: F821
+                    sample_papers: list[CandidatePaper],
                     threshold: float,
                 ) -> list[DualScreeningResult]:  # noqa: F821
                     # Use screen_batch_for_calibration so both reviewers always run.
@@ -972,11 +976,7 @@ class ScreeningNode(BaseNode[ReviewState]):
             # then filters out clearly irrelevant papers before the expensive dual-reviewer.
             # Reduces dual-reviewer calls by 60-70% while maintaining recall because the
             # threshold is intentionally liberal (default 0.35 -- uncertain papers are forwarded).
-            if (
-                getattr(screening_cfg, "batch_screen_enabled", True)
-                and papers_for_llm
-                and use_real_client
-            ):
+            if getattr(screening_cfg, "batch_screen_enabled", True) and papers_for_llm and use_real_client:
                 from src.screening.batch_ranker import BatchLLMRanker, PydanticAIBatchRankerClient
 
                 _batch_agent_key = "batch_screener"
@@ -986,20 +986,15 @@ class ScreeningNode(BaseNode[ReviewState]):
                 )
                 if _batch_agent is None:
                     logger.warning(
-                        "ScreeningNode: 'batch_screener' agent not found in settings.yaml; "
-                        "skipping batch pre-ranker."
+                        "ScreeningNode: 'batch_screener' agent not found in settings.yaml; skipping batch pre-ranker."
                     )
                 else:
                     # Resume safety: skip papers already processed (batch-excluded or
                     # dual-reviewed in a prior interrupted session). Only unprocessed
                     # papers need batch re-ranking; already-processed ones are recovered
                     # by the prior_ta_includes logic below.
-                    _already_screened = await repository.get_processed_paper_ids(
-                        state.workflow_id, "title_abstract"
-                    )
-                    _papers_for_batch = [
-                        p for p in papers_for_llm if p.paper_id not in _already_screened
-                    ]
+                    _already_screened = await repository.get_processed_paper_ids(state.workflow_id, "title_abstract")
+                    _papers_for_batch = [p for p in papers_for_llm if p.paper_id not in _already_screened]
 
                     _batch_forwarded: list[CandidatePaper] = []
                     _batch_excluded_decisions: list = []
@@ -1015,15 +1010,11 @@ class ScreeningNode(BaseNode[ReviewState]):
                             outcome=state.review.pico.outcome,
                             client=PydanticAIBatchRankerClient(),
                         )
-                        _batch_forwarded, _batch_excluded_decisions = await _br.rank_and_split(
-                            _papers_for_batch
-                        )
+                        _batch_forwarded, _batch_excluded_decisions = await _br.rank_and_split(_papers_for_batch)
 
                         if _batch_excluded_decisions:
                             _batch_excl_papers = [
-                                paper_by_id[d.paper_id]
-                                for d in _batch_excluded_decisions
-                                if d.paper_id in paper_by_id
+                                paper_by_id[d.paper_id] for d in _batch_excluded_decisions if d.paper_id in paper_by_id
                             ]
                             await repository.bulk_save_screening_decisions(
                                 workflow_id=state.workflow_id,
@@ -1033,8 +1024,7 @@ class ScreeningNode(BaseNode[ReviewState]):
                             )
                     else:
                         logger.info(
-                            "ScreeningNode: all %d papers already processed; "
-                            "skipping batch pre-ranker on resume.",
+                            "ScreeningNode: all %d papers already processed; skipping batch pre-ranker on resume.",
                             len(papers_for_llm),
                         )
 
@@ -1042,10 +1032,18 @@ class ScreeningNode(BaseNode[ReviewState]):
                     # can show batch-ranker -> dual-reviewer as a distinct funnel stage.
                     # This event is persisted to event_log and replayed on history load.
                     import datetime as _dt_bs
+
                     _batch_n_scored = len(_papers_for_batch)
                     _batch_n_excl = len(_batch_excluded_decisions)
                     _batch_n_fwd = len(_batch_forwarded)
                     _batch_n_skip = len(_already_screened.intersection({p.paper_id for p in papers_for_llm}))
+                    # Persist batch stats to state so the Writing phase can describe
+                    # the 3-stage funnel in the Methods section grounding block.
+                    # On resume, _batch_n_fwd is 0 (all papers skipped); preserve
+                    # the original non-zero value stored from the first run.
+                    if _batch_n_fwd > 0 or state.batch_screen_forwarded == 0:
+                        state.batch_screen_forwarded = _batch_n_fwd
+                        state.batch_screen_excluded = _batch_n_excl
                     if rc and hasattr(rc, "_emit"):
                         rc._emit(
                             {
@@ -1122,6 +1120,16 @@ class ScreeningNode(BaseNode[ReviewState]):
                     "fulltext_pdf_retrieval",
                     {"fetched": len(stage1_survivors)},
                 )
+            # Track PRISMA full-text retrieval counts for accurate Methods disclosure.
+            # fulltext_sought = all papers forwarded to stage-2 (stage1_survivors).
+            # fulltext_not_retrieved = papers auto-excluded because no PDF was found
+            # (identified by ExclusionReason.NO_FULL_TEXT in stage2 decisions).
+            from src.models.enums import ExclusionReason as _ExclusionReason
+
+            state.fulltext_sought = len(stage1_survivors)
+            state.fulltext_not_retrieved = sum(
+                1 for d in stage2 if getattr(d, "exclusion_reason", None) == _ExclusionReason.NO_FULL_TEXT
+            )
             # Fallback guard: if stage 2 returned nothing for a non-empty input,
             # the interrupt flag was consumed -- fall back to stage-1 survivors.
             if stage1_survivors and not stage2:
@@ -1212,15 +1220,17 @@ class ScreeningNode(BaseNode[ReviewState]):
                         rc.log_status(
                             f"Citation chasing: querying forward citations for {len(state.included_papers)} papers..."
                         )
-                    chased_results = await chaser.chase_citations_to_search_results(state.included_papers, known_dois)
+                    _chase_concurrency = getattr(
+                        getattr(state.settings, "search", None), "citation_chasing_concurrency", 5
+                    )
+                    chased_results = await chaser.chase_citations_to_search_results(
+                        state.included_papers, known_dois, concurrency=_chase_concurrency
+                    )
                     if chased_results:
-                        for sr in chased_results:
-                            await repository.save_search_result(sr)
+                        await asyncio.gather(*[repository.save_search_result(sr) for sr in chased_results])
                         new_papers = [p for sr in chased_results for p in sr.papers]
                         if rc and hasattr(rc, "log_status"):
-                            rc.log_status(
-                                f"Citation chasing: screening {len(new_papers)} newly discovered papers..."
-                            )
+                            rc.log_status(f"Citation chasing: screening {len(new_papers)} newly discovered papers...")
                         rc.advance_screening("citation_chasing", 1, 3) if rc else None
                         # Screen chased papers through title/abstract then fulltext so they
                         # appear in dual_screening_results and PRISMA counts are accurate.
@@ -1258,15 +1268,20 @@ class ScreeningNode(BaseNode[ReviewState]):
                                 chased_ft_include_ids = {
                                     d.paper_id for d in chased_ft if d.decision.value in ("include", "uncertain")
                                 }
-                                chased_included = [p for p in chased_ta_survivors if p.paper_id in chased_ft_include_ids]
+                                chased_included = [
+                                    p for p in chased_ta_survivors if p.paper_id in chased_ft_include_ids
+                                ]
                         state.deduped_papers = state.deduped_papers + new_papers
                         state.included_papers = state.included_papers + chased_included
                         rc.advance_screening("citation_chasing", 3, 3) if rc else None
                         if rc:
-                            rc.emit_phase_done("citation_chasing", {
-                                "new_papers": len(new_papers),
-                                "chased_included": len(chased_included),
-                            })
+                            rc.emit_phase_done(
+                                "citation_chasing",
+                                {
+                                    "new_papers": len(new_papers),
+                                    "chased_included": len(chased_included),
+                                },
+                            )
                     else:
                         if rc:
                             rc.emit_phase_done("citation_chasing", {"new_papers": 0})
@@ -1439,72 +1454,82 @@ class ExtractionQualityNode(BaseNode[ReviewState]):
             _grade_pairs: list[tuple] = []
 
             # Quality-only pass: papers extracted before a crash but missing RoB.
+            # Papers are independent -- run up to extraction_concurrency concurrently.
             _paper_lookup = {p.paper_id: p for p in state.included_papers}
-            for qr in quality_only:
-                _src_paper = _paper_lookup.get(qr.paper_id)
-                full_text = (_src_paper.abstract or _src_paper.title or "").strip() if _src_paper else ""
-                try:
-                    tool = router.route_tool(qr)
-                    if tool == "rob2":
-                        assessment = await rob2.assess(qr, full_text=full_text)
-                        await repository.save_rob2_assessment(state.workflow_id, assessment)
-                    elif tool == "robins_i":
-                        assessment = await robins_i.assess(qr, full_text=full_text)
-                        await repository.save_robins_i_assessment(state.workflow_id, assessment)
-                    elif tool == "casp":
-                        assessment = await casp.assess(qr, full_text=full_text)
-                        await repository.save_casp_assessment(state.workflow_id, qr.paper_id, assessment)
+            _quality_concurrency = getattr(getattr(state.settings, "extraction", None), "extraction_concurrency", 4)
+            _quality_sem = asyncio.Semaphore(_quality_concurrency)
+
+            async def _assess_quality_one(qr: ExtractionRecord) -> None:
+                async with _quality_sem:
+                    _src_paper = _paper_lookup.get(qr.paper_id)
+                    full_text = (_src_paper.abstract or _src_paper.title or "").strip() if _src_paper else ""
+                    try:
+                        tool = router.route_tool(qr)
+                        if tool == "rob2":
+                            assessment = await rob2.assess(qr, full_text=full_text)
+                            await repository.save_rob2_assessment(state.workflow_id, assessment)
+                        elif tool == "robins_i":
+                            assessment = await robins_i.assess(qr, full_text=full_text)
+                            await repository.save_robins_i_assessment(state.workflow_id, assessment)
+                        elif tool == "casp":
+                            assessment = await casp.assess(qr, full_text=full_text)
+                            await repository.save_casp_assessment(state.workflow_id, qr.paper_id, assessment)
+                            await repository.append_decision_log(
+                                DecisionLogEntry(
+                                    decision_type="casp_assessment",
+                                    paper_id=qr.paper_id,
+                                    decision="completed",
+                                    rationale=assessment.overall_summary,
+                                    actor="quality_assessment",
+                                    phase="phase_4_extraction_quality",
+                                )
+                            )
+                        elif tool == "mmat":
+                            mmat_result = await mmat.assess(qr, full_text=full_text)
+                            await repository.save_mmat_assessment(state.workflow_id, qr.paper_id, mmat_result)
+                            await repository.append_decision_log(
+                                DecisionLogEntry(
+                                    decision_type="mmat_assessment",
+                                    paper_id=qr.paper_id,
+                                    decision="completed",
+                                    rationale=mmat_result.overall_summary,
+                                    actor="quality_assessment",
+                                    phase="phase_4_extraction_quality",
+                                )
+                            )
+                        else:
+                            not_applicable_paper_ids.append(qr.paper_id)
+                        _qr_outcomes = [
+                            o.name.strip()
+                            for o in qr.outcomes
+                            if o.name.strip()
+                            and o.name.strip().lower()
+                            not in {
+                                "primary_outcome",
+                                "secondary_outcome",
+                                "not_reported",
+                                "",
+                            }
+                        ]
+                        _qr_outcome_name = _qr_outcomes[0] if _qr_outcomes else "primary_outcome"
+                        # Defer to post-loop aggregation (no rob_assessment in quality-only retry).
+                        _grade_pairs.append((qr, None, _qr_outcome_name))
+                    except Exception as exc:
                         await repository.append_decision_log(
                             DecisionLogEntry(
-                                decision_type="casp_assessment",
+                                decision_type="quality_retry_error",
                                 paper_id=qr.paper_id,
-                                decision="completed",
-                                rationale=assessment.overall_summary,
-                                actor="quality_assessment",
+                                decision="error",
+                                rationale=f"Quality-only retry error: {type(exc).__name__}: {exc}",
+                                actor="workflow_run",
                                 phase="phase_4_extraction_quality",
                             )
                         )
-                    elif tool == "mmat":
-                        mmat_result = await mmat.assess(qr, full_text=full_text)
-                        await repository.save_mmat_assessment(state.workflow_id, qr.paper_id, mmat_result)
-                        await repository.append_decision_log(
-                            DecisionLogEntry(
-                                decision_type="mmat_assessment",
-                                paper_id=qr.paper_id,
-                                decision="completed",
-                                rationale=mmat_result.overall_summary,
-                                actor="quality_assessment",
-                                phase="phase_4_extraction_quality",
-                            )
-                        )
-                    else:
-                        not_applicable_paper_ids.append(qr.paper_id)
-                    _qr_outcomes = [
-                        o.name.strip()
-                        for o in qr.outcomes
-                        if o.name.strip()
-                        and o.name.strip().lower()
-                        not in {
-                            "primary_outcome",
-                            "secondary_outcome",
-                            "not_reported",
-                            "",
-                        }
-                    ]
-                    _qr_outcome_name = _qr_outcomes[0] if _qr_outcomes else "primary_outcome"
-                    # Defer to post-loop aggregation (no rob_assessment in quality-only retry).
-                    _grade_pairs.append((qr, None, _qr_outcome_name))
-                except Exception as exc:
-                    await repository.append_decision_log(
-                        DecisionLogEntry(
-                            decision_type="quality_retry_error",
-                            paper_id=qr.paper_id,
-                            decision="error",
-                            rationale=f"Quality-only retry error: {type(exc).__name__}: {exc}",
-                            actor="workflow_run",
-                            phase="phase_4_extraction_quality",
-                        )
-                    )
+
+            await asyncio.gather(
+                *[_assess_quality_one(qr) for qr in quality_only],
+                return_exceptions=True,
+            )
 
             # Load extraction config for full-text retrieval and PDF vision
             extraction_cfg = getattr(state.settings, "extraction", None)
@@ -1529,9 +1554,7 @@ class ExtractionQualityNode(BaseNode[ReviewState]):
                         if rc and hasattr(rc, "log_status"):
                             paper_num = _extract_done_count[0] + 1
                             title_snippet = (paper.title or paper.paper_id[:12] or "")[:50]
-                            rc.log_status(
-                                f"Fetching full text [{paper_num}/{len(to_process)}]: {title_snippet}..."
-                            )
+                            rc.log_status(f"Fetching full text [{paper_num}/{len(to_process)}]: {title_snippet}...")
                         try:
                             from src.extraction.table_extraction import fetch_full_text
 
@@ -1618,11 +1641,11 @@ class ExtractionQualityNode(BaseNode[ReviewState]):
                                             else ("txt" if saved_path else None)
                                         ),
                                     }
-                                    papers_manifest_path.write_text(
-                                        _json.dumps(_manifest, indent=2), encoding="utf-8"
-                                    )
+                                    papers_manifest_path.write_text(_json.dumps(_manifest, indent=2), encoding="utf-8")
                         except Exception as _save_err:
-                            logger.debug("ExtractionNode: could not save fulltext for %s: %s", paper.paper_id, _save_err)
+                            logger.debug(
+                                "ExtractionNode: could not save fulltext for %s: %s", paper.paper_id, _save_err
+                            )
 
                     try:
                         try:
@@ -1650,7 +1673,9 @@ class ExtractionQualityNode(BaseNode[ReviewState]):
                         # Guard: require at least 1 KB of PDF bytes to avoid "document has no pages"
                         # errors from the vision model when the retriever returns empty/corrupt bytes.
                         _pdf_bytes_ok = (
-                            ft_result is not None and ft_result.pdf_bytes is not None and len(ft_result.pdf_bytes) >= 1024
+                            ft_result is not None
+                            and ft_result.pdf_bytes is not None
+                            and len(ft_result.pdf_bytes) >= 1024
                         )
                         use_vision = (
                             use_llm
@@ -1710,14 +1735,18 @@ class ExtractionQualityNode(BaseNode[ReviewState]):
                             await repository.save_rob2_assessment(state.workflow_id, assessment)
                             rob_assessment_obj = assessment
                             rob_judgment = (
-                                assessment.overall_judgment.value if hasattr(assessment, "overall_judgment") else "unknown"
+                                assessment.overall_judgment.value
+                                if hasattr(assessment, "overall_judgment")
+                                else "unknown"
                             )
                         elif tool == "robins_i":
                             assessment = await robins_i.assess(record, full_text=full_text)
                             await repository.save_robins_i_assessment(state.workflow_id, assessment)
                             rob_assessment_obj = assessment
                             rob_judgment = (
-                                assessment.overall_judgment.value if hasattr(assessment, "overall_judgment") else "unknown"
+                                assessment.overall_judgment.value
+                                if hasattr(assessment, "overall_judgment")
+                                else "unknown"
                             )
                         elif tool == "casp":
                             assessment = await casp.assess(record, full_text=full_text)
@@ -1835,7 +1864,11 @@ class ExtractionQualityNode(BaseNode[ReviewState]):
                         )
                     await repository.save_grade_assessment(state.workflow_id, _agg_grade)
                 except Exception as _grade_err:
-                    logger.warning("ExtractionQualityNode: GRADE aggregation failed for outcome '%s': %s", _gp_outcome_name, _grade_err)
+                    logger.warning(
+                        "ExtractionQualityNode: GRADE aggregation failed for outcome '%s': %s",
+                        _gp_outcome_name,
+                        _grade_err,
+                    )
 
             rob2_rows, robins_i_rows = await repository.load_rob_assessments(state.workflow_id)
             # Count heuristic-derived assessments for Methods section transparency.
@@ -2451,6 +2484,10 @@ class WritingNode(BaseNode[ReviewState]):
                     background_sr_citekeys=_bg_citekeys,
                     search_date=_actual_search_date,
                     failed_databases=_failed_dbs,
+                    batch_screen_forwarded=state.batch_screen_forwarded,
+                    batch_screen_excluded=state.batch_screen_excluded,
+                    fulltext_sought=state.fulltext_sought,
+                    fulltext_not_retrieved=state.fulltext_not_retrieved,
                 )
 
                 def _on_write(**kw):
@@ -2487,16 +2524,12 @@ class WritingNode(BaseNode[ReviewState]):
                             )
                             _hyde_done[0] += 1
                             if rc and hasattr(rc, "log_status"):
-                                rc.log_status(
-                                    f"HyDE ready: '{s}' ({_hyde_done[0]}/{_hyde_total} sections)"
-                                )
+                                rc.log_status(f"HyDE ready: '{s}' ({_hyde_done[0]}/{_hyde_total} sections)")
                             return result
                         except Exception as _e:
                             _hyde_done[0] += 1
                             if rc and hasattr(rc, "log_status"):
-                                rc.log_status(
-                                    f"HyDE skipped: '{s}' ({_hyde_done[0]}/{_hyde_total} sections)"
-                                )
+                                rc.log_status(f"HyDE skipped: '{s}' ({_hyde_done[0]}/{_hyde_total} sections)")
                             return _e
 
                     try:
@@ -2686,13 +2719,35 @@ class WritingNode(BaseNode[ReviewState]):
                 # Reassemble in canonical SECTIONS order (gather returns in submission order,
                 # but we sort by index to be explicit and handle any exception entries).
                 _ordered: list[tuple[int, str]] = []
-                for _res in _section_results:
+                _failed_sections: list[str] = []
+                for _idx, _res in enumerate(_section_results):
                     if isinstance(_res, BaseException):
-                        logger.error("Writing task failed: %s", _res)
+                        _sec_name = SECTIONS[_idx] if _idx < len(SECTIONS) else f"section_{_idx}"
+                        # Log full exception so quota/auth errors appear in server log.
+                        logger.error(
+                            "Writing task failed for section '%s' (%s: %s). Check API quota for the writing model.",
+                            _sec_name,
+                            type(_res).__name__,
+                            str(_res)[:200],
+                        )
+                        _failed_sections.append(_sec_name)
                     else:
                         _ordered.append(_res)
                 _ordered.sort(key=lambda t: t[0])
                 sections_written = [content for _, content in _ordered]
+                if _failed_sections and rc and hasattr(rc, "_emit"):
+                    rc._emit(
+                        {
+                            "type": "writing_error",
+                            "failed_sections": _failed_sections,
+                            "succeeded": len(_ordered),
+                            "message": (
+                                f"Writing failed for {len(_failed_sections)} section(s): "
+                                f"{', '.join(_failed_sections)}. "
+                                "Check API quota for the writing model in config/settings.yaml."
+                            ),
+                        }
+                    )
 
                 await repository.save_checkpoint(state.workflow_id, "phase_6_writing", papers_processed=len(SECTIONS))
 
@@ -2802,7 +2857,19 @@ class WritingNode(BaseNode[ReviewState]):
 
                     # Append structured "### Conflicting Evidence" subsection before
                     # the Conclusion so reviewers can see the flag pairs explicitly.
-                    _conflict_section = build_conflicting_evidence_section(flags)
+                    # Build a paper_id -> citekey label map from the citation catalog
+                    # so that conflict bullets show readable labels instead of UUID prefixes.
+                    _pid_to_label: dict[str, str] = {}
+                    for _crow in citation_rows:
+                        _ckey = (
+                            _crow.get("citekey", "") or _crow.get("cite_key", "")
+                            if isinstance(_crow, dict)
+                            else getattr(_crow, "citekey", None) or getattr(_crow, "cite_key", "")
+                        )
+                        _cpid = _crow.get("paper_id", "") if isinstance(_crow, dict) else getattr(_crow, "paper_id", "")
+                        if _ckey and _cpid:
+                            _pid_to_label[str(_cpid)] = str(_ckey)
+                    _conflict_section = build_conflicting_evidence_section(flags, paper_id_to_label=_pid_to_label)
                     if _conflict_section:
                         # Insert before ## Conclusion (or append to body if absent)
                         if "## Conclusion" in body:
@@ -2841,28 +2908,56 @@ class WritingNode(BaseNode[ReviewState]):
             _grade_repo = WorkflowRepository(_grade_db)
             _grade_assessments = await _grade_repo.load_grade_assessments(state.workflow_id)
             _rob2_rows, _robins_i_rows = await _grade_repo.load_rob_assessments(state.workflow_id)
+            _casp_rows = await _grade_repo.load_casp_assessments(state.workflow_id)
+            _mmat_rows = await _grade_repo.load_mmat_assessments(state.workflow_id)
+            _paper_id_to_citekey = await _grade_repo.get_paper_id_to_citekey_map()
 
         _search_appendix_path = (
             Path(state.artifacts["search_appendix"]) if "search_appendix" in state.artifacts else None
         )
 
         # Build the set of paper_ids that have a full-text file on disk.
-        # Read from data_papers_manifest.json (authoritative paper_id -> file_path
-        # mapping written by ExtractionQualityNode) rather than scanning the
-        # directory with _f.stem, which would fail for any file whose name does
-        # not exactly equal the paper_id (e.g. title-based fallback names).
+        # Primary: read from data_papers_manifest.json, resolving relative paths
+        # relative to the manifest's own directory (not the process cwd, which
+        # may differ on PM2-managed or resumed runs).
+        # Fallback: scan run_dir/papers/ directly for {paper_id}.pdf/.txt files.
+        # This covers resumed runs where state.artifacts["papers_manifest"] is
+        # absent or where the relative path was stored relative to project root
+        # but the process cwd is different.
         _papers_manifest_path = Path(state.artifacts.get("papers_manifest", ""))
         _fulltext_paper_ids: set[str] = set()
         if _papers_manifest_path.exists():
             try:
                 import json as _manifest_json
+
+                _manifest_dir = _papers_manifest_path.parent
                 _manifest_data = _manifest_json.loads(_papers_manifest_path.read_text(encoding="utf-8"))
                 for _pid, _entry in _manifest_data.items():
-                    _fp = (_entry or {}).get("file_path", "")
-                    if _fp and Path(_fp).exists() and Path(_fp).stat().st_size > 0:
+                    _fp_raw = (_entry or {}).get("file_path", "")
+                    if not _fp_raw:
+                        continue
+                    _fp = Path(_fp_raw)
+                    # Resolve relative paths relative to manifest dir first,
+                    # then fall back to absolute / project-root resolution.
+                    if not _fp.is_absolute():
+                        _fp_resolved = (_manifest_dir / _fp_raw).resolve()
+                        if not _fp_resolved.exists():
+                            # Try from project root (original behavior)
+                            _fp_resolved = Path(_fp_raw)
+                    else:
+                        _fp_resolved = _fp
+                    if _fp_resolved.exists() and _fp_resolved.stat().st_size > 0:
                         _fulltext_paper_ids.add(str(_pid))
             except Exception as _manifest_err:
                 logger.warning("Could not read papers manifest for Appendix B: %s", _manifest_err)
+        # Fallback: scan the run's papers/ directory directly. This handles
+        # resumed runs where state.artifacts["papers_manifest"] was not set.
+        if not _fulltext_paper_ids:
+            _papers_dir = Path(state.db_path).parent / "papers"
+            if _papers_dir.exists():
+                for _pf in _papers_dir.iterdir():
+                    if _pf.suffix in {".pdf", ".txt"} and _pf.stat().st_size > 0:
+                        _fulltext_paper_ids.add(_pf.stem)
 
         full_manuscript = assemble_submission_manuscript(
             body=body,
@@ -2873,6 +2968,9 @@ class WritingNode(BaseNode[ReviewState]):
             extraction_records=extraction_records_for_table,
             grade_assessments=_grade_assessments if _grade_assessments else None,
             robins_i_assessments=_robins_i_rows if _robins_i_rows else None,
+            casp_assessments=_casp_rows if _casp_rows else None,
+            mmat_assessments=_mmat_rows if _mmat_rows else None,
+            paper_id_to_citekey=_paper_id_to_citekey if _paper_id_to_citekey else None,
             review_config=state.review,
             failed_count=_failed_extraction_count,
             search_appendix_path=_search_appendix_path,

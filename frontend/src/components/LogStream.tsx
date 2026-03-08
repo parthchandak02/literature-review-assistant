@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef } from "react"
+import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef } from "react"
 import { cn } from "@/lib/utils"
 import { PHASE_LABELS } from "@/lib/constants"
 import type { ReviewEvent } from "@/lib/api"
@@ -62,17 +62,41 @@ function levelClass(level: LogLevel): string {
 // LogStream
 // ---------------------------------------------------------------------------
 
+export interface LogStreamHandle {
+  scrollToPhase: (phase: string) => void
+}
+
 interface LogStreamProps {
   events: ReviewEvent[]
   /** When false, suppresses auto-scroll to bottom (use when a filter is active). */
   autoScroll?: boolean
 }
 
-export function LogStream({ events, autoScroll = true }: LogStreamProps) {
+export const LogStream = forwardRef<LogStreamHandle, LogStreamProps>(function LogStream(
+  { events, autoScroll = true },
+  ref,
+) {
   const scrollContainerRef = useRef<HTMLDivElement>(null)
   const bottomRef = useRef<HTMLDivElement>(null)
-  // True when the user has manually scrolled up so we suppress auto-scroll.
   const userScrolledUp = useRef(false)
+
+  useImperativeHandle(ref, () => ({
+    scrollToPhase: (phase: string) => {
+      const container = scrollContainerRef.current
+      const el = container?.querySelector<HTMLElement>(`[data-phase="${phase}"]`)
+      if (!el || !container) return
+      // getBoundingClientRect gives viewport-relative coords, which correctly
+      // accounts for any ancestor transforms/positions. offsetTop would be
+      // relative to the nearest positioned ancestor, which may not be the
+      // scroll container, producing a wrong offset.
+      const elTop = el.getBoundingClientRect().top
+      const containerTop = container.getBoundingClientRect().top
+      container.scrollTo({
+        top: container.scrollTop + (elTop - containerTop) - 8,
+        behavior: "smooth",
+      })
+    },
+  }))
 
   // Watch the sentinel element with an IntersectionObserver so we know whether
   // the user has scrolled away from the bottom.
@@ -122,6 +146,7 @@ export function LogStream({ events, autoScroll = true }: LogStreamProps) {
             return (
               <div
                 key={item.key}
+                data-phase={item.phase}
                 className="flex items-center gap-2 mt-3 mb-1 first:mt-0"
               >
                 <div className="h-px flex-1 bg-zinc-800" />
@@ -212,4 +237,4 @@ export function LogStream({ events, autoScroll = true }: LogStreamProps) {
       </div>
     </div>
   )
-}
+})

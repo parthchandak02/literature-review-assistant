@@ -2,10 +2,11 @@ import { useEffect, useMemo, useRef, useState, Suspense, lazy, Component } from 
 import type { ReactNode, ErrorInfo } from "react"
 import { useNavigate, useLocation } from "react-router-dom"
 import { Toaster, toast } from "sonner"
-import { AlertTriangle } from "lucide-react"
+import { AlertTriangle, Menu } from "lucide-react"
 import { Sidebar } from "@/components/Sidebar"
 import type { LiveRun } from "@/components/Sidebar"
 import { computePhaseProgress } from "@/lib/phaseProgress"
+import { computeFunnelStages } from "@/lib/funnelStages"
 import { useSSEStream } from "@/hooks/useSSEStream"
 import { useCostStats } from "@/hooks/useCostStats"
 import { useBackendHealth } from "@/hooks/useBackendHealth"
@@ -105,7 +106,8 @@ export default function App() {
   const navigate = useNavigate()
   const location = useLocation()
 
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
+  const [isMobile, setIsMobile] = useState(() => window.innerWidth < 640)
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(() => window.innerWidth < 640)
   const [sidebarWidth, setSidebarWidth] = useState<number>(() => {
     const stored = localStorage.getItem("sidebar-width")
     return stored ? Math.max(200, Math.min(420, Number(stored))) : 240
@@ -181,6 +183,7 @@ export default function App() {
     return [...lastDecision.values()].filter((d) => d === "include").length
   }, [events])
   const livePhaseProgress = useMemo(() => computePhaseProgress(events), [events])
+  const liveFunnelStages = useMemo(() => computeFunnelStages(events), [events])
 
   const liveRunForSidebar = useMemo<LiveRun | null>(
     () =>
@@ -195,11 +198,12 @@ export default function App() {
             startedAt: liveStartedAt?.toISOString() ?? null,
             papersFound: livePapersFound > 0 ? livePapersFound : null,
             papersIncluded: liveIncluded > 0 ? liveIncluded : null,
+            funnelStages: liveFunnelStages.length > 0 ? liveFunnelStages : undefined,
           }
         : null,
-    // livePhaseProgress intentionally included; it memoizes computePhaseProgress(events)
-    // so the sidebar object only updates when actual values change, not on every render.
-    [liveRunId, liveTopic, status, costStats.total_cost, liveWorkflowId, livePhaseProgress, liveStartedAt, livePapersFound, liveIncluded],
+    // livePhaseProgress and liveFunnelStages intentionally included; they memoize
+    // derived event data so the sidebar object only updates when values actually change.
+    [liveRunId, liveTopic, status, costStats.total_cost, liveWorkflowId, livePhaseProgress, liveStartedAt, livePapersFound, liveIncluded, liveFunnelStages],
   )
 
   // ---------------------------------------------------------------------------
@@ -483,6 +487,19 @@ export default function App() {
   }, [selectedRun?.workflowId, selectedRun?.historicalStatus, isViewingLiveRun, reset, navigate])
 
   // ---------------------------------------------------------------------------
+  // Track mobile viewport (< 640px) and auto-collapse sidebar on mobile.
+  // ---------------------------------------------------------------------------
+  useEffect(() => {
+    function handleResize() {
+      const mobile = window.innerWidth < 640
+      setIsMobile(mobile)
+      if (mobile) setSidebarCollapsed(true)
+    }
+    window.addEventListener("resize", handleResize)
+    return () => window.removeEventListener("resize", handleResize)
+  }, [])
+
+  // ---------------------------------------------------------------------------
   // Keyboard shortcut: Cmd+B / Ctrl+B to toggle sidebar
   // ---------------------------------------------------------------------------
   useEffect(() => {
@@ -691,7 +708,8 @@ export default function App() {
   // Layout
   // ---------------------------------------------------------------------------
 
-  const mainMargin = sidebarCollapsed ? 56 : sidebarWidth
+  // On mobile the sidebar is an overlay (drawer), so it does not push content.
+  const mainMargin = isMobile ? 0 : sidebarCollapsed ? 56 : sidebarWidth
 
   function renderMain() {
     if (selectedRun === null) {
@@ -754,7 +772,7 @@ export default function App() {
   }
 
   return (
-    <div className="flex h-screen bg-background text-zinc-100 overflow-hidden">
+    <div className="flex h-dvh bg-background text-zinc-100 overflow-hidden">
       <Toaster position="top-center" richColors closeButton />
       <Sidebar
         liveRun={liveRunForSidebar}
@@ -772,43 +790,59 @@ export default function App() {
         onToggle={() => setSidebarCollapsed((v) => !v)}
         width={sidebarWidth}
         onWidthChange={handleSidebarWidthChange}
+        isMobile={isMobile}
       />
 
       <main
-        className="flex-1 h-full overflow-hidden flex flex-col transition-[margin-left] duration-200 ease-in-out"
+        className="flex-1 h-full overflow-hidden overscroll-none flex flex-col transition-[margin-left] duration-200 ease-in-out"
         style={{ marginLeft: mainMargin }}
       >
-        {/* Top bar */}
-        <header className="sticky top-0 z-10 bg-background/80 backdrop-blur-sm border-b border-zinc-800 h-14 flex items-center px-6 gap-4 shrink-0">
-          {/* Breadcrumb */}
-          <TooltipProvider delayDuration={0}>
-            <div className="flex items-center gap-1.5 text-sm flex-1 min-w-0">
-              {breadcrumbTopic ? (
-                <>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <button
-                        onClick={() => void handleCopyTopic()}
-                        className="text-zinc-400 font-medium truncate flex-1 min-w-0 text-left hover:text-zinc-200 transition-colors cursor-pointer"
+        {/* Top bar -- paddingTop pushes content below the iOS status bar when viewport-fit=cover is active */}
+        <header
+          className="sticky top-0 z-10 bg-background/80 backdrop-blur-sm border-b border-zinc-800 shrink-0"
+          style={{ paddingTop: 'env(safe-area-inset-top)' }}
+        >
+          <div className="h-14 flex items-center px-4 gap-3">
+            {/* Hamburger: only visible on mobile to open the sidebar drawer */}
+            {isMobile && (
+              <button
+                onClick={() => setSidebarCollapsed(false)}
+                aria-label="Open menu"
+                className="flex items-center justify-center h-10 w-10 -ml-1 rounded-lg text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800 transition-colors shrink-0"
+              >
+                <Menu className="h-5 w-5" />
+              </button>
+            )}
+            {/* Breadcrumb */}
+            <TooltipProvider delayDuration={0}>
+              <div className="flex items-center gap-1.5 text-sm flex-1 min-w-0">
+                {breadcrumbTopic ? (
+                  <>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <button
+                          onClick={() => void handleCopyTopic()}
+                          className="text-zinc-400 font-medium truncate flex-1 min-w-0 text-left hover:text-zinc-200 transition-colors cursor-pointer"
+                        >
+                          {breadcrumbTopic}
+                        </button>
+                      </TooltipTrigger>
+                      <TooltipContent
+                        side="bottom"
+                        className="max-w-md break-words bg-zinc-800 border-zinc-700 text-zinc-200"
                       >
                         {breadcrumbTopic}
-                      </button>
-                    </TooltipTrigger>
-                    <TooltipContent
-                      side="bottom"
-                      className="max-w-md break-words bg-zinc-800 border-zinc-700 text-zinc-200"
-                    >
-                      {breadcrumbTopic}
-                    </TooltipContent>
-                  </Tooltip>
-                  <span className="text-zinc-700 shrink-0">/</span>
-                  <span className="text-zinc-300 font-medium shrink-0">{breadcrumbTab}</span>
-                </>
-              ) : (
-                <span className="text-zinc-300 font-medium">{breadcrumbTab}</span>
-              )}
-            </div>
-          </TooltipProvider>
+                      </TooltipContent>
+                    </Tooltip>
+                    <span className="text-zinc-700 shrink-0">/</span>
+                    <span className="text-zinc-300 font-medium shrink-0">{breadcrumbTab}</span>
+                  </>
+                ) : (
+                  <span className="text-zinc-300 font-medium">{breadcrumbTab}</span>
+                )}
+              </div>
+            </TooltipProvider>
+          </div>
         </header>
 
         {/* Backend offline banner */}

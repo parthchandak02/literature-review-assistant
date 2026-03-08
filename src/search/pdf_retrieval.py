@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
+import asyncio
 import io
 import logging
 import os
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from urllib.parse import quote
 
 import aiohttp
@@ -82,7 +83,9 @@ class PDFRetriever:
                             paper_id=paper.paper_id,
                             resolved_url=paper.url,
                             full_text=ft_result.text[:_PDF_MAX_CHARS],
-                            pdf_bytes=ft_result.pdf_bytes if ft_result.pdf_bytes and len(ft_result.pdf_bytes) > 1000 else None,
+                            pdf_bytes=ft_result.pdf_bytes
+                            if ft_result.pdf_bytes and len(ft_result.pdf_bytes) > 1000
+                            else None,
                             source=ft_result.source,
                             success=True,
                         )
@@ -168,15 +171,32 @@ class PDFRetriever:
         )
 
     async def retrieve_batch(
-        self, papers: Sequence[CandidatePaper]
+        self,
+        papers: Sequence[CandidatePaper],
+        on_progress: Callable[[int, int], None] | None = None,
+        concurrency: int = 8,
     ) -> tuple[dict[str, PDFRetrievalResult], FullTextCoverageSummary]:
         results: dict[str, PDFRetrievalResult] = {}
         failed_ids: list[str] = []
-        for paper in papers:
-            outcome = await self.retrieve(paper)
+        done_count: list[int] = [0]
+        total = len(papers)
+        sem = asyncio.Semaphore(concurrency)
+
+        async def _fetch_one(paper: CandidatePaper) -> None:
+            async with sem:
+                outcome = await self.retrieve(paper)
+            # asyncio is single-threaded: dict/list mutations here are safe
             results[paper.paper_id] = outcome
             if not outcome.success:
                 failed_ids.append(paper.paper_id)
+            done_count[0] += 1
+            if on_progress is not None:
+                try:
+                    on_progress(done_count[0], total)
+                except Exception:
+                    pass
+
+        await asyncio.gather(*[_fetch_one(p) for p in papers], return_exceptions=True)
         attempted = len(papers)
         succeeded = attempted - len(failed_ids)
         failed = len(failed_ids)

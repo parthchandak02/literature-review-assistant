@@ -11,7 +11,6 @@ import "highlight.js/styles/github-dark.css"
 import { Button } from "@/components/ui/button"
 import { Th } from "@/components/ui/table"
 import { EmptyState } from "@/components/ui/feedback"
-import { PageSection } from "@/components/ui/section"
 import {
   Download,
   FileText,
@@ -102,11 +101,6 @@ function fileGroupKey(file: OutputFile): DocGroup {
   return "data"
 }
 
-const GROUP_META: Record<DocGroup, { label: string; order: number }> = {
-  manuscript: { label: "Manuscript", order: 0 },
-  protocol: { label: "Protocol & Search", order: 1 },
-  data: { label: "Data & Analysis", order: 2 },
-}
 
 function collectFiles(outputs: Record<string, unknown>): OutputFile[] {
   const files: OutputFile[] = []
@@ -469,7 +463,7 @@ export function ResultsPanel({ outputs, excludePaths }: ResultsPanelProps) {
     return <EmptyState icon={FileText} heading="No output files to display." className="py-16" />
   }
 
-  // Group docs into logical buckets and sort by group order
+  // Only show protocol and data groups (manuscript files are excluded via excludePaths)
   const groupedDocs = docs.reduce<Record<DocGroup, OutputFile[]>>(
     (acc, f) => {
       const g = fileGroupKey(f)
@@ -478,51 +472,48 @@ export function ResultsPanel({ outputs, excludePaths }: ResultsPanelProps) {
     },
     { manuscript: [], protocol: [], data: [] },
   )
-  const orderedGroups = (Object.keys(GROUP_META) as DocGroup[]).sort(
-    (a, b) => GROUP_META[a].order - GROUP_META[b].order,
-  )
+
+  // Flat groups to render (skip manuscript)
+  const flatGroups: { key: DocGroup; label: string }[] = [
+    { key: "protocol", label: "Protocol & Search" },
+    { key: "data", label: "Data & Analysis" },
+  ]
+
+  const hasAnyDocs = flatGroups.some((g) => groupedDocs[g.key].length > 0)
 
   return (
-    <div className="flex flex-col gap-4">
-      {docs.length > 0 && (
-        <PageSection
-          icon={FileText}
-          title="Documents"
-          description="Manuscript, protocol, data"
-          contentClassName="flex flex-col gap-2"
-        >
-          {orderedGroups.map((group) => {
-            const groupFiles = groupedDocs[group]
-            if (groupFiles.length === 0) return null
-            return (
-              <div key={group} className="flex flex-col gap-2">
-                <p className="label-caps pt-1 pb-0.5 border-b border-zinc-800/60">
-                  {GROUP_META[group].label}
-                </p>
-                {groupFiles.map((f) =>
-                  f.isMarkdown || f.isJson || f.isLatex || f.isCsv ? (
-                    <InlineDocRow key={f.key} file={f} />
-                  ) : (
-                    <FileRow key={f.key} file={f} />
-                  ),
-                )}
-              </div>
-            )
-          })}
-        </PageSection>
-      )}
+    <div className="flex flex-col gap-0">
+      {/* Document groups: flat label-caps headers, no outer card */}
+      {hasAnyDocs && flatGroups.map(({ key, label }, idx) => {
+        const groupFiles = groupedDocs[key]
+        if (groupFiles.length === 0) return null
+        const isLast = idx === flatGroups.filter((g) => groupedDocs[g.key].length > 0).length - 1
+        return (
+          <div key={key} className={isLast && figs.length === 0 ? "" : "pb-4 mb-4 border-b border-zinc-800/60"}>
+            <p className="label-caps pb-2">{label}</p>
+            <div className="flex flex-col gap-2">
+              {groupFiles.map((f) =>
+                f.isMarkdown || f.isJson || f.isLatex || f.isCsv ? (
+                  <InlineDocRow key={f.key} file={f} />
+                ) : (
+                  <FileRow key={f.key} file={f} />
+                ),
+              )}
+            </div>
+          </div>
+        )
+      })}
 
+      {/* Figures: flat section */}
       {figs.length > 0 && (
-        <PageSection
-          icon={Image}
-          title="Figures"
-          description="PRISMA flow, forest plot, RoB, geographic, concept diagrams"
-          contentClassName="flex flex-col gap-2"
-        >
-          {figs.map((f) => (
-            <FigureRow key={f.key} file={f} />
-          ))}
-        </PageSection>
+        <div>
+          <p className="label-caps pb-2">Figures</p>
+          <div className="flex flex-col gap-3">
+            {figs.map((f) => (
+              <FigureRow key={f.key} file={f} />
+            ))}
+          </div>
+        </div>
       )}
     </div>
   )

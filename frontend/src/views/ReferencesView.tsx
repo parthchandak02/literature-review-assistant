@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react"
 import { BookOpen, Download, ExternalLink, FileText, FileX, RefreshCw } from "lucide-react"
 import { fetchPapersReference, fetchPdfsForRun, paperFileUrl } from "@/lib/api"
-import type { FetchPdfsResult, PaperReference } from "@/lib/api"
+import type { FetchPdfsProgressEvent, FetchPdfsResult, PaperReference } from "@/lib/api"
 import { cn } from "@/lib/utils"
 
 interface ReferencesViewProps {
@@ -52,11 +52,21 @@ function SourceBadge({ source }: { source: string }) {
   )
 }
 
+interface FetchProgress {
+  current: number
+  total: number
+  currentTitle: string
+  succeeded: number
+  failed: number
+  skipped: number
+}
+
 export function ReferencesView({ runId, isDone }: ReferencesViewProps) {
   const [papers, setPapers] = useState<PaperReference[]>([])
   const [loading, setLoading] = useState(isDone)
   const [error, setError] = useState<string | null>(null)
   const [fetching, setFetching] = useState(false)
+  const [fetchProgress, setFetchProgress] = useState<FetchProgress | null>(null)
   const [fetchResult, setFetchResult] = useState<FetchPdfsResult | null>(null)
   const [fetchError, setFetchError] = useState<string | null>(null)
   const [refreshKey, setRefreshKey] = useState(0)
@@ -79,9 +89,23 @@ export function ReferencesView({ runId, isDone }: ReferencesViewProps) {
     setFetching(true)
     setFetchError(null)
     setFetchResult(null)
-    fetchPdfsForRun(runId)
+    setFetchProgress(null)
+
+    const onProgress = (evt: FetchPdfsProgressEvent) => {
+      setFetchProgress(prev => ({
+        current: evt.current,
+        total: evt.total,
+        currentTitle: evt.title,
+        succeeded: (prev?.succeeded ?? 0) + (evt.status === "ok" ? 1 : 0),
+        failed: (prev?.failed ?? 0) + (evt.status === "failed" ? 1 : 0),
+        skipped: (prev?.skipped ?? 0) + (evt.status === "skipped" ? 1 : 0),
+      }))
+    }
+
+    fetchPdfsForRun(runId, onProgress)
       .then((result) => {
         setFetchResult(result)
+        setFetchProgress(null)
         setRefreshKey((k) => k + 1)
       })
       .catch((e: unknown) => setFetchError(e instanceof Error ? e.message : "PDF fetch failed"))
@@ -123,7 +147,7 @@ export function ReferencesView({ runId, isDone }: ReferencesViewProps) {
     )
   }
 
-  const noFilesYet = papers.length > 0 && papers.every((p) => !p.has_file)
+  const someFilesMissing = papers.length > 0 && papers.some((p) => !p.has_file)
 
   return (
     <div className="flex flex-col gap-4">
@@ -148,7 +172,7 @@ export function ReferencesView({ runId, isDone }: ReferencesViewProps) {
               Abstract only
             </span>
           </div>
-          {(noFilesYet || fetchResult) && (
+          {(someFilesMissing || fetchResult) && (
             <button
               onClick={handleFetchPdfs}
               disabled={fetching}
@@ -160,8 +184,32 @@ export function ReferencesView({ runId, isDone }: ReferencesViewProps) {
               )}
             >
               <RefreshCw className={cn("h-3 w-3", fetching && "animate-spin")} />
-              {fetching ? "Fetching PDFs..." : "Fetch PDFs"}
+              {fetching ? "Fetching..." : "Fetch PDFs"}
             </button>
+          )}
+          {/* Live progress during fetch */}
+          {fetching && fetchProgress && (
+            <div className="flex flex-col items-end gap-1 w-56">
+              <div className="w-full h-1 bg-zinc-800 rounded-full overflow-hidden">
+                <div
+                  className="h-full bg-emerald-600 transition-all duration-300"
+                  style={{ width: `${Math.round((fetchProgress.current / fetchProgress.total) * 100)}%` }}
+                />
+              </div>
+              <p className="text-[11px] text-zinc-500 text-right">
+                {fetchProgress.current} / {fetchProgress.total} papers
+                {fetchProgress.succeeded > 0 && (
+                  <span className="text-emerald-500 ml-1">-- {fetchProgress.succeeded} retrieved</span>
+                )}
+              </p>
+              <p className="text-[11px] text-zinc-600 text-right truncate max-w-[14rem]" title={fetchProgress.currentTitle}>
+                {fetchProgress.currentTitle}
+              </p>
+            </div>
+          )}
+          {/* Waiting for first event */}
+          {fetching && !fetchProgress && (
+            <p className="text-[11px] text-zinc-500">Connecting...</p>
           )}
           {fetchResult && !fetching && (
             <p className="text-[11px] text-zinc-500">

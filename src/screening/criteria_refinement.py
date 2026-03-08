@@ -32,6 +32,7 @@ def _get_model_from_settings() -> str:
     except Exception:
         return "google-gla:gemini-3.1-pro-preview"
 
+
 _MAX_CRITERION_LENGTH = 500
 _INJECTION_PATTERNS = re.compile(
     r"(ignore previous|ignore all|forget|disregard|new instruction|system prompt)",

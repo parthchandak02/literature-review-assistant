@@ -55,6 +55,11 @@ dev = [
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["."]
+asyncio_mode = "auto"
+# Session-scoped event loop prevents "Event loop is closed" errors when PydanticAI /
+# aiohttp / httpx create internal async resources during the first test that get reused
+# (and find their event loop closed) in subsequent tests in the same session.
+asyncio_default_fixture_loop_scope = "session"
 addopts = [
     "-v",               # show each test name + PASSED/FAILED
     "--tb=short",       # compact traceback on failure (full detail still visible)

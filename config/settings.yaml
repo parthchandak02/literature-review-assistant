@@ -1,7 +1,7 @@
 llm:
-  # Raised from 10/15/5 after confirming Gemini 3.x preview quotas support higher
-  # throughput at Tier 1 paid. Benchmarks (Jeffrey 2024, Batson 2020) ran searches
-  # on standard APIs without artificial rate limiting.
+  # flash_rpm raised to 20 to accommodate extraction/writing agents now running on
+  # gemini-3-flash-preview (moved from gemini-3.1-pro-preview which exhausted daily
+  # free-tier quotas causing silent heuristic fallback in extraction and empty sections).
   flash_rpm: 20
   flash_lite_rpm: 30
   pro_rpm: 10
@@ -17,37 +17,37 @@ agents:
     model: "google-gla:gemini-3-flash-preview"
     temperature: 0.1
   screening_adjudicator:
-    model: "google-gla:gemini-3.1-pro-preview"
+    model: "google-gla:gemini-3-flash-preview"
     temperature: 0.2
   search:
     model: "google-gla:gemini-3.1-flash-lite-preview"
     temperature: 0.1
   extraction:
-    model: "google-gla:gemini-3.1-pro-preview"
+    model: "google-gla:gemini-3-flash-preview"
     temperature: 0.1
   quality_assessment:
-    model: "google-gla:gemini-3.1-pro-preview"
+    model: "google-gla:gemini-3-flash-preview"
     temperature: 0.2
   study_type_detection:
     model: "google-gla:gemini-3.1-flash-lite-preview"
     temperature: 0.2
   writing:
-    model: "google-gla:gemini-3.1-pro-preview"
+    model: "google-gla:gemini-3-flash-preview"
     temperature: 0.2
   abstract_generation:
     model: "google-gla:gemini-3.1-flash-lite-preview"
     temperature: 0.2
   humanizer:
-    model: "google-gla:gemini-3.1-pro-preview"
+    model: "google-gla:gemini-3-flash-preview"
     temperature: 0.3
   contradiction_resolver:
-    model: "google-gla:gemini-3.1-pro-preview"
+    model: "google-gla:gemini-3-flash-preview"
     temperature: 0.2
   naturalness_scorer:
     model: "google-gla:gemini-3.1-flash-lite-preview"
     temperature: 0.1
   criteria_refinement:
-    model: "google-gla:gemini-3.1-pro-preview"
+    model: "google-gla:gemini-3-flash-preview"
     temperature: 0.2
   table_extraction:
     model: "google-gla:gemini-3.1-flash-lite-preview"
@@ -55,6 +55,9 @@ agents:
   config_generation:
     model: "google-gla:gemini-3.1-flash-lite-preview"
     temperature: 0.3
+  batch_screener:
+    model: "google-gla:gemini-3.1-flash-lite-preview"
+    temperature: 0.1
   concept_diagrams:
     model: "google-gla:gemini-3.1-flash-lite-preview"
     temperature: 0.3
@@ -62,13 +65,13 @@ agents:
     model: "google-gla:gemini-3.1-flash-lite-preview"
     temperature: 0.2
   style_extraction:
-    model: "google-gla:gemini-3.1-pro-preview"
+    model: "google-gla:gemini-3-flash-preview"
     temperature: 0.2
 
 screening:
   stage1_include_threshold: 0.85
   stage1_exclude_threshold: 0.8
-  keyword_filter_min_matches: 1
+  keyword_filter_min_matches: 0
   # true: papers without retrievable full text are auto-excluded at the full-text
   # screening stage with ExclusionReason.NO_FULL_TEXT. PRISMA 2020 item 17 requires
   # a "Reports not retrieved" box; without this gate that count is always 0 and
@@ -77,6 +80,11 @@ screening:
   # should appear in the PRISMA flow as "not retrieved" rather than as included studies.
   skip_fulltext_if_no_pdf: true
   screening_concurrency: 5
+  # Number of PDFs fetched concurrently during full-text retrieval (phase 3).
+  # Each fetch hits a different upstream host (Unpaywall, CORE, Semantic Scholar,
+  # Europe PMC) so 8 concurrent requests do not hammer any single service.
+  # Lower to 3-4 if rate-limit errors appear in the activity log.
+  pdf_retrieval_concurrency: 8
   # Raised from 200 -> 400. With 5+ databases on a broad topic, the dedup pool can
   # reach 800-2000 records; 200 was silently dropping relevant papers past the BM25 cutoff.
   max_llm_screen: 400
@@ -92,6 +100,15 @@ screening:
   # This allows papers with no abstract to reach the LLM screener, which can exclude
   # them on title alone rather than the heuristic stub-abstract filter.
   insufficient_content_min_words: 0
+  # Batch LLM pre-ranker: scores all BM25-selected papers in batches of 80 with a
+  # single LLM call each, then only forwards papers scoring >= 0.35 to the dual-reviewer.
+  # Reduces dual-review calls by ~60-70% while maintaining recall (threshold is intentionally
+  # low -- a false negative here permanently loses a study).
+  batch_screen_enabled: true
+  batch_screen_size: 80
+  batch_screen_threshold: 0.35
+  # Number of batch LLM ranker calls sent concurrently (default 3 balances throughput vs. RPM).
+  batch_screen_concurrency: 3
 
 dual_review:
   enabled: true
@@ -99,9 +116,10 @@ dual_review:
   # reviewer_b_model: overridden via agents.screening_reviewer_b.model above.
   # Reviewer A uses gemini-3.1-flash-lite-preview; Reviewer B uses gemini-3-flash-preview
   # for genuine cross-model validation (not just temperature variation).
+  # Adjudicator also uses gemini-3-flash-preview (moved from pro-preview; see llm comment).
 
 gates:
-  profile: "warning"
+  profile: "strict"
   search_volume_minimum: 50
   screening_minimum: 5
   extraction_completeness_threshold: 0.8
@@ -115,11 +133,16 @@ writing:
   naturalness_threshold: 0.75
   checkpoint_per_section: true
   llm_timeout: 120
+  # 3 concurrent sections: abstract/intro/methods kick off together, results/discussion/conclusion next.
+  # Pro-tier RPM is typically 10 RPM; 3 concurrent keeps us safely under that at 45-60s per call.
+  writing_concurrency: 3
 
 rag:
   embed_model: "google-gla:gemini-embedding-001"
   embed_dim: 768       # MRL output dimension; changing requires wiping paper_chunks_meta and re-embedding
   embed_batch_size: 20
+  # Number of embedding API batch calls sent concurrently. Each batch is embed_batch_size texts.
+  embed_concurrency: 4
   chunk_max_words: 400
   chunk_overlap_sentences: 2
   use_hyde: true
@@ -179,6 +202,9 @@ extraction:
   use_pdf_vision: true
   pdf_vision_model: "google-gla:gemini-3.1-flash-lite-preview"
   full_text_min_chars: 500
+  # Papers extracted concurrently; each paper's classify+extract+RoB steps run sequentially within it.
+  # 4 concurrent with flash_rpm=20 gives safe throughput (each extraction ~20-40s).
+  extraction_concurrency: 4
 
 # Search depth: how many records to fetch per database connector.
 # max_results_per_db is the global default; per_database_limits overrides
@@ -201,3 +227,6 @@ search:
   # Surfaces over-restricted queries early so the user can fix before screening.
   # Set to 0 to disable.
   low_recall_warning_threshold: 10
+  # Number of included papers chased concurrently during citation chasing.
+  # Each paper triggers parallel Semantic Scholar + OpenAlex HTTP calls.
+  citation_chasing_concurrency: 5

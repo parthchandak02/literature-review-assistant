@@ -40,6 +40,10 @@ keywords:
   - "automated drug distribution"
   - "robotic pharmacy"
   - "medication dispensing robot"
+  - "robotic dispensing"
+  - "automated dispensing"
+  - "dispensing error"
+  - "pharmacy robot"
 
 domain: "Pharmacy informatics and health systems engineering in outpatient care settings."
 scope: "This review evaluates the clinical and operational impact of robotic medication dispensing systems within outpatient and ambulatory pharmacy environments. It covers the efficacy of these systems in improving dispensing accuracy and efficiency, while identifying critical barriers and facilitators to successful implementation. The scope includes diverse pharmacy models such as retail chains, hospital-based outpatient departments, and centralized hub-and-spoke systems."
@@ -67,12 +71,14 @@ date_range_end: 2026
 
 target_databases:
   - scopus
-  - web_of_science
   - openalex
   - pubmed
   - semantic_scholar
   - ieee_xplore
   - clinicaltrials_gov
+  # web_of_science: removed -- Clarivate API returns status 512 consistently across
+  # multiple runs on March 5-6 2026 (wf-9e7598fe, wf-b431ebff, wf-f4a5df72).
+  # Re-enable after confirming the API key and quota are valid at developer.clarivate.com.
 
 target_sections:
   - abstract
@@ -106,14 +112,6 @@ search_overrides:
     OR "outpatient pharmacy" OR "ambulatory pharmacy" OR "community pharmacy"
     OR "pharmacy workflow" OR "implementation" OR "operational efficiency")
     AND PUBYEAR > 1999 AND PUBYEAR < 2027
-  web_of_science: >-
-    (TS="robotic dispensing" OR TS="automated dispensing" OR TS="pharmacy automation"
-    OR TS="automated dispensing cabinet" OR TS="robotic pharmacy" OR TS="ScriptPro"
-    OR TS="Pyxis" OR TS="Omnicell" OR TS="ARxIUM" OR TS="Swisslog" OR TS="Parata")
-    AND (TS="dispensing accuracy" OR TS="medication error" OR TS="patient safety"
-    OR TS="outpatient pharmacy" OR TS="ambulatory pharmacy" OR TS="community pharmacy"
-    OR TS="implementation barriers" OR TS="operational efficiency")
-    AND PY=2000-2026
   pubmed: >-
     ("Automation"[MeSH Terms] OR "Robotics"[MeSH Terms] OR "Drug Dispensers, Automatic"[MeSH Terms]
     OR "robotic dispensing"[Title/Abstract] OR "automated dispensing"[Title/Abstract]

@@ -249,9 +249,12 @@ class RobinsIAssessor:
                     overall_rationale=parsed.overall_rationale or "LLM overall judgment.",
                 )
             except Exception as exc:
+                # Log full error message so quota/auth errors are diagnosable.
                 logger.warning(
-                    "ROBINS-I LLM assessment failed for %s (%s); using heuristic.",
+                    "ROBINS-I LLM assessment failed for %s (%s: %s); using heuristic. "
+                    "If all papers fail, check API quota for quality_assessment model.",
                     record.paper_id[:12],
                     type(exc).__name__,
+                    str(exc)[:200],
                 )
         return self._heuristic(record)

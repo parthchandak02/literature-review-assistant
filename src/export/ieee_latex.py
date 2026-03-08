@@ -251,6 +251,8 @@ def markdown_to_latex(
     _FIGURE_CAPTIONS: dict[str, str] = {
         "fig_prisma_flow": "PRISMA 2020 flow diagram illustrating the systematic search and screening process.",
         "fig_rob_traffic_light": "Risk-of-bias traffic-light summary across included studies.",
+        "fig_rob2_traffic_light": "Risk-of-bias traffic-light summary (ROBINS-I) across included non-randomized studies.",
+        "fig_funnel_plot": "Funnel plot assessing publication bias across pooled effect estimates.",
         "fig_forest_plot": "Forest plot of pooled effect estimates with 95% confidence intervals.",
         "fig_publication_timeline": "Publication timeline of included studies.",
         "fig_geographic_distribution": "Geographic distribution of included studies by country.",

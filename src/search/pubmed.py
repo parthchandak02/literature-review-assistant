@@ -66,7 +66,7 @@ class PubMedConnector:
 
             # Authors
             authors: list[str] = []
-            for au in (art.get("AuthorList") or []):
+            for au in art.get("AuthorList") or []:
                 last = str(au.get("LastName") or "").strip()
                 fore = str(au.get("ForeName") or au.get("Initials") or "").strip()
                 name = f"{last}, {fore}" if fore else last
@@ -85,7 +85,7 @@ class PubMedConnector:
             doi: str | None = None
             pmid: str | None = None
             pubmed_data = article.get("PubmedData", {})
-            for aid in (pubmed_data.get("ArticleIdList") or []):
+            for aid in pubmed_data.get("ArticleIdList") or []:
                 id_type = getattr(aid, "attributes", {}).get("IdType", "") if hasattr(aid, "attributes") else ""
                 val = str(aid).strip()
                 if id_type == "doi" and not doi:

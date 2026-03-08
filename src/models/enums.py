@@ -21,6 +21,7 @@ class ReviewerType(str, Enum):
     ADJUDICATOR = "adjudicator"
     HUMAN = "human"
     KEYWORD_FILTER = "keyword_filter"
+    BATCH_RANKER = "batch_ranker"  # batch LLM pre-ranking pass (single call, multiple papers)
 
 
 class RiskOfBiasJudgment(str, Enum):
@@ -56,6 +57,7 @@ class ExclusionReason(str, Enum):
     NO_FULL_TEXT = "no_full_text"
     KEYWORD_FILTER = "keyword_filter"  # pre-filter: zero intervention keyword matches; no LLM call made
     LOW_RELEVANCE_SCORE = "low_relevance_score"  # BM25 score below cap cutoff; no LLM call made
+    BATCH_SCREENED_LOW = "batch_screened_low"  # batch LLM pre-ranker scored below threshold; no dual-review
     PROTOCOL_ONLY = "protocol_only"  # study is a registered protocol/trial with no reported results
     OTHER = "other"
 

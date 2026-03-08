@@ -513,6 +513,21 @@ _STRUCTURE_PROMPT = (
     "  (d) the specific outcome measure terms and measurable targets found in the\n"
     "      research brief (e.g. exact pathogen names, metric names),\n"
     "  (e) implementation-related terms (barriers, facilitators, adoption, workflow).\n"
+    "  CRITICAL -- these keywords are used to pre-filter paper ABSTRACTS via substring\n"
+    "  matching, NOT as database query strings. Two mandatory rules:\n"
+    "  RULE 1 -- Include SHORT ROOT FORMS: For every multi-word concept, also include\n"
+    "  the single most discriminative word as its own keyword entry, because abstracts\n"
+    "  vary phrasing. The root word catches all variants that multi-word phrases miss.\n"
+    "  Example (pharmacy automation topic):\n"
+    "    'automated dispensing systems' -> also add 'dispensing' as a separate entry\n"
+    "    'pharmacy automation' -> also add 'pharmacy' as a separate entry\n"
+    "    'robotic medication dispensing' -> 'dispensing' already covers this variant\n"
+    "  Apply this root-form pattern to YOUR specific topic -- not just pharmacy.\n"
+    "  RULE 2 -- Avoid generic cross-domain terms: NEVER include terms that appear\n"
+    "  across unrelated domains, such as 'operational efficiency', 'implementation\n"
+    "  barriers', 'patient safety', 'workflow integration', or 'change management'.\n"
+    "  These match surgical robot papers, HR studies, and supply chain literature.\n"
+    "  Only include terms that are specific to YOUR topic domain.\n"
     "- Generate 6-8 inclusion criteria as complete, specific sentences covering:\n"
     "  study type, setting, intervention specificity, outcome reporting, language, and\n"
     "  publication type.\n"
@@ -580,6 +595,109 @@ _STRUCTURE_PROMPT = (
     "Return the response as a JSON object matching the schema exactly. All text fields\n"
     "must be in English. Do not truncate or omit any field."
 )
+
+
+# ---------------------------------------------------------------------------
+# Keyword post-processing
+# ---------------------------------------------------------------------------
+
+
+def _extract_root_terms(keywords: list[str]) -> list[str]:
+    """Extract short discriminative root terms from multi-word keywords.
+
+    The LLM generates multi-word keyword phrases that work as database query
+    strings but miss abstract variants when used for substring pre-filtering.
+    This function extracts the single most discriminative word from each
+    multi-word keyword and adds it to the list (if not already present).
+
+    For example: 'automated dispensing systems' -> adds 'dispensing' because
+    abstracts say 'dispensing robot', 'dispensing cabinet', 'robotic dispenser',
+    none of which contain the full phrase.
+    """
+    _STOPWORDS = {
+        "and",
+        "or",
+        "the",
+        "of",
+        "in",
+        "for",
+        "to",
+        "a",
+        "an",
+        "with",
+        "from",
+        "by",
+        "at",
+        "on",
+        "use",
+        "using",
+        "based",
+        # Plural/variant forms of generic structural words
+        "system",
+        "systems",
+        "approach",
+        "approaches",
+        "method",
+        "methods",
+        "model",
+        "models",
+        "process",
+        "processes",
+        "framework",
+        "frameworks",
+        # Cross-domain generic terms that cause false positives across topics
+        "efficiency",
+        "safety",
+        "quality",
+        "management",
+        "operational",
+        "implementation",
+        "barriers",
+        "facilitators",
+        "integration",
+        "patient",
+        "clinical",
+        "health",
+        "care",
+        "technology",
+        "outcomes",
+        "analysis",
+        "review",
+        "study",
+        "research",
+        "assessment",
+        "evaluation",
+        "impact",
+        "effect",
+        "role",
+        "performance",
+        "strategy",
+        "strategies",
+        "practice",
+        "practices",
+        "adoption",
+        "workflow",
+        "workload",
+        "utilization",
+        "usage",
+    }
+    _MIN_LENGTH = 5  # skip short noise like "AI", "IT", "mg", "drug"
+
+    existing = {kw.lower() for kw in keywords}
+    additions: list[str] = []
+    for kw in keywords:
+        parts = kw.split()
+        if len(parts) < 2:
+            continue  # already a single word
+        words = [w.strip("()-,") for w in kw.lower().split()]
+        candidates = [w for w in words if len(w) >= _MIN_LENGTH and w not in _STOPWORDS]
+        # Prefer the LAST significant word (usually the most specific noun)
+        for candidate in reversed(candidates):
+            if candidate not in existing:
+                additions.append(candidate)
+                existing.add(candidate)
+                break
+    return keywords + additions
 
 
 # ---------------------------------------------------------------------------
@@ -672,5 +790,11 @@ async def generate_config_yaml(
             raise RuntimeError(f"Generated config failed schema validation: {exc}") from exc
 
     parsed = parsed.model_copy(update={"review_type": "systematic"})
+
+    # Post-process: add short root forms for multi-word keywords so the
+    # abstract substring pre-filter catches phrasing variants the LLM missed.
+    enriched_keywords = _extract_root_terms(list(parsed.keywords))
+    parsed = parsed.model_copy(update={"keywords": enriched_keywords})
+
     defaults = _load_default_config()
     return _build_yaml(parsed, defaults)

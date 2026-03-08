@@ -95,6 +95,31 @@ def _capitalize_name_part(name: str) -> str:
     return "-".join(capitalized)
 
 
+def _extract_surname(author_raw: Any) -> str:
+    """Extract the family/surname from an author entry.
+
+    Handles three author representations:
+    - dict: reads the 'last' or 'family' key directly (correct)
+    - string with comma ("Last, First Middle"): surname is the text before the
+      first comma. The original split()[-1] pattern returned "Sadat" from
+      "Kadkhodaei, Monireh Sadat" which was wrong.
+    - string without comma ("First M. Last" / "F. Last"): surname is the last
+      space-delimited token, consistent with Western name ordering.
+    """
+    if isinstance(author_raw, dict):
+        surname = author_raw.get("last") or author_raw.get("family") or ""
+        return _capitalize_name_part(surname) if surname else "NR"
+    s = str(author_raw).strip()
+    if not s:
+        return "NR"
+    if "," in s:
+        # "Last, First Middle" format: everything before the first comma is the surname.
+        return _capitalize_name_part(s.split(",")[0].strip())
+    # "First M. Last" format: the last token is the surname.
+    parts = s.split()
+    return _capitalize_name_part(parts[-1]) if parts else s
+
+
 def _fmt_author_str(raw: str) -> str:
     """Capitalize and lightly normalize a raw author string (Last, F. format)."""
     if not raw:
@@ -204,6 +229,36 @@ def _sanitize_body(text: str) -> str:
     text = re.sub(r"\blarge\s+language\s+models\s+screened\b", "reviewers screened", text, flags=re.IGNORECASE)
     text = re.sub(r"\bindependent\s+large\s+language\s+models\b", "independent reviewers", text, flags=re.IGNORECASE)
 
+    # Correct "available upon request" for search strategies that are already in Appendix C.
+    # The LLM writing step produces this phrase for the search strategy section, but
+    # the strings are always included verbatim in Appendix C, making the claim false.
+    text = re.sub(
+        r"are documented in the review protocol and are available upon request",
+        "are provided in Appendix C",
+        text,
+        flags=re.IGNORECASE,
+    )
+    # Broader fallback: any mention that search strings are "available upon request"
+    # inside a search strategy context should point to the appendix instead.
+    text = re.sub(
+        r"(search strings?[^.]{0,80}?)available upon request",
+        r"\1provided in Appendix C",
+        text,
+        flags=re.IGNORECASE,
+    )
+
+    # Inject AI-assisted screening disclosure if not already present.
+    # This sentence is always added after the first occurrence of "two independent
+    # reviewers" so the Methods section transparently discloses the pipeline nature.
+    # Idempotent: skipped when the disclosure text is already in the body.
+    _disclosure = "Screening was conducted using an AI-assisted dual-reviewer pipeline."
+    if _disclosure not in text:
+        _two_rev_re = re.compile(
+            r"(two independent reviewers[^.!?]*[.!?])",
+            re.IGNORECASE,
+        )
+        text = _two_rev_re.sub(r"\1 " + _disclosure, text, count=1)
+
     lines = text.split("\n")
     clean: list[str] = []
     # Orphaned fragment: line starts with optional whitespace then a comma then citekey tokens
@@ -217,6 +272,68 @@ def _sanitize_body(text: str) -> str:
             continue
         clean.append(line)
     return "\n".join(clean)
+
+
+# SR citekeys follow the pattern SurnameYYYYSR[N] (background systematic review
+# references registered by register_background_sr_citations). The LLM may hallucinate
+# SR citekeys that don't exist in the citation ledger. Instead of silently stripping
+# them, convert to readable parenthetical text "(Surname, Year)" to preserve meaning.
+# Handle both bracketed [Hanninen2021SR] and unbracketed Hanninen2021SR forms,
+# since the LLM sometimes omits brackets on these special citekeys.
+_SR_KEY_BRACKETED_RE = re.compile(
+    r"\[([\w][\w0-9_.-]*?)(\d{4})SR\d*\]",
+    re.UNICODE,
+)
+# Unbracketed form: word boundary ensures we don't match inside longer tokens.
+# The SR must be immediately after 4 digits with no space.
+_SR_KEY_PLAIN_RE = re.compile(
+    r"(?<!\[)\b([\w][\w0-9_.-]*?)(\d{4})SR(\d*)\b(?!\])",
+    re.UNICODE,
+)
+
+
+def _convert_sr_citekeys_to_text(text: str) -> str:
+    """Convert unresolved SR citekeys to readable parenthetical text.
+
+    Handles both bracketed [Hanninen2021SR] and unbracketed Hanninen2021SR
+    forms. Called after convert_to_numbered_citations so that correctly-
+    registered SR citekeys are already numbered ([N]). Only hallucinated /
+    unregistered ones remain and get converted to '(Author, Year)'.
+    """
+
+    def _replacer(m: re.Match) -> str:  # type: ignore[type-arg]
+        author_part = m.group(1).rstrip("0123456789")
+        year = m.group(2)
+        return f"({author_part}, {year})"
+
+    # Convert bracketed form first, then plain form
+    text = _SR_KEY_BRACKETED_RE.sub(_replacer, text)
+    text = _SR_KEY_PLAIN_RE.sub(_replacer, text)
+    return text
+
+
+def _dedup_citation_rows_by_doi(rows: list[tuple]) -> list[tuple]:
+    """Return rows with duplicate DOIs collapsed to the first occurrence.
+
+    A paper registered twice in the citation ledger (e.g., once as an included
+    study and once as a background reference) produces two citekeys that resolve
+    to the same DOI, which then renders as two numbered entries in the reference
+    list.  This helper keeps the first row per normalized DOI and silently drops
+    all subsequent duplicates.  Rows with no DOI are kept as-is (they cannot be
+    matched on DOI).
+    """
+    seen_dois: set[str] = set()
+    deduped: list[tuple] = []
+    for row in rows:
+        # row layout: (cid, citekey, doi, title, authors_json, year, journal, bibtex)
+        raw_doi = row[2] if len(row) > 2 else None
+        norm = _normalize_doi(raw_doi) if raw_doi else ""
+        if norm and norm in seen_dois:
+            continue
+        if norm:
+            seen_dois.add(norm)
+        deduped.append(row)
+    return deduped
 
 
 def convert_to_numbered_citations(
@@ -275,7 +392,12 @@ def convert_to_numbered_citations(
 FIGURE_DEFS: list[tuple[str, str]] = [
     (
         "prisma_diagram",
-        "PRISMA 2020 flow diagram showing the study selection process.",
+        "PRISMA 2020 flow diagram showing the study selection process. "
+        "Records excluded at the title/abstract stage include two automated steps "
+        "applied before independent dual review: (1) BM25 keyword relevance filtering "
+        "and (2) batch LLM pre-ranking (records scoring below 35% relevance were "
+        "automatically excluded). Only records passing both steps were forwarded for "
+        "independent dual review.",
     ),
     (
         "rob_traffic_light",
@@ -457,6 +579,7 @@ def build_study_characteristics_table(
     papers: list[Any],
     extraction_records: list[Any],
     pre_filtered_count: int = 0,
+    fulltext_paper_ids: set[str] | None = None,
 ) -> str:
     """Build a GFM markdown table of included study characteristics.
 
@@ -468,6 +591,11 @@ def build_study_characteristics_table(
     pre_filtered_count: number of extraction records already excluded by the
     caller before passing this list. Added to the footnote so the total
     omission count is accurate even when the caller pre-filters.
+
+    fulltext_paper_ids: set of paper_ids for which a full-text PDF or TXT
+    file was retrieved and saved to disk. Used to correctly mark
+    "Full Text Retrieved" as Yes even when extraction_source stayed "text"
+    because the retrieval fell back to abstract for extraction purposes.
     """
     paper_map: dict[str, Any] = {p.paper_id: p for p in papers}
     extraction_map: dict[str, Any] = {r.paper_id: r for r in extraction_records}
@@ -485,9 +613,8 @@ def build_study_characteristics_table(
 
         # Author(s), Year
         if paper.authors:
-            first_author_raw = str(paper.authors[0])
-            first_author = first_author_raw.split()[-1] if first_author_raw.split() else first_author_raw
-            author_str = f"{first_author} et al." if len(paper.authors) > 1 else first_author_raw
+            first_author = _extract_surname(paper.authors[0])
+            author_str = f"{first_author} et al." if len(paper.authors) > 1 else first_author
         else:
             author_str = "NR"
         year_str = str(paper.year) if paper.year else "n.d."
@@ -522,33 +649,78 @@ def build_study_characteristics_table(
             "<!doctype",
             "<html",
         )
+        # PDF/PMC metadata patterns that appear at the start of heuristic summaries
+        # when full-text retrieval returns raw XML or PDF header content instead
+        # of clean prose. These are detected by matching the first ~50 chars.
+        _PDF_METADATA_PREFIXES = (
+            "pmc ",
+            "doi ",
+            "doi:",
+            "p g y",
+            "p g\n",
+            "serial ",
+            "## research",
+            "# research",
+            "### ",
+            "## reviews",
+            "open access",
+        )
         real_names = [
             o.name.strip() for o in (rec.outcomes or [])[:3] if o.name.strip().lower() not in _PLACEHOLDER_OUTCOME_NAMES
         ]
         if real_names:
             outcomes_str = "; ".join(real_names[:2])
         else:
-            # Fall back to results_summary["summary"] truncated to 80 chars
+            # Fall back to results_summary["summary"] truncated and cleaned.
             summary = ""
             if isinstance(rec.results_summary, dict):
                 summary = rec.results_summary.get("summary", "")
             elif isinstance(rec.results_summary, str):
                 summary = rec.results_summary
-            # Guard: if the summary looks like HTML boilerplate or LLM error text,
-            # replace with "NR" rather than leaking extraction artifacts into the table.
-            summary_lower = summary.lower()
-            if any(marker in summary_lower for marker in _HTML_BOILERPLATE_MARKERS):
+            # LLM explanation phrases: the section writer or extractor sometimes
+            # returns a meta-comment about the paper instead of actual outcomes
+            # (e.g. "The provided text is an editorial header and does not contain...").
+            # These must be caught separately from PDF/PMC metadata patterns.
+            _LLM_EXPLANATION_PHRASES = (
+                "the provided text is",
+                "the text provided is",
+                "this text does not",
+                "does not contain the",
+                "is an editorial header",
+                "no specific methodology",
+                "cannot be determined from",
+                "the abstract does not",
+                "no outcomes were reported",
+                "insufficient information",
+            )
+            summary_lower = summary.lower().lstrip()
+            # Guard: detect HTML boilerplate, PDF/PMC metadata, or LLM meta-comments
+            # in the heuristic summary and replace with "NR" rather than leaking them.
+            is_boilerplate = any(marker in summary_lower for marker in _HTML_BOILERPLATE_MARKERS)
+            is_pdf_metadata = any(summary_lower.startswith(pfx) for pfx in _PDF_METADATA_PREFIXES)
+            is_llm_explanation = any(phrase in summary_lower for phrase in _LLM_EXPLANATION_PHRASES)
+            if is_boilerplate or is_pdf_metadata or is_llm_explanation:
                 outcomes_str = "NR"
                 logger.warning(
-                    "HTML/boilerplate detected in results_summary for paper %s; Key Outcomes set to NR.",
+                    "Artifact/explanation text detected in results_summary for paper %s; Key Outcomes set to NR.",
                     paper_id,
                 )
             else:
-                outcomes_str = summary[:80].rstrip() + "..." if len(summary) > 80 else summary or "NR"
+                outcomes_str = summary[:200].rstrip() + "..." if len(summary) > 200 else summary or "NR"
+        # Escape newlines and pipe chars so the cell does not break the markdown table.
+        outcomes_str = _escape_table_cell(outcomes_str)
 
-        # Full text retrieved: Yes when extraction_source is not "text" (abstract-only)
-        extraction_source = getattr(rec, "extraction_source", None) or "text"
-        full_text_retrieved = "Yes" if extraction_source != "text" else "No"
+        # Full text retrieved: Yes when a full-text file exists on disk OR when
+        # extraction_source indicates a non-abstract source was used.
+        # Check file presence first (fulltext_paper_ids from papers/ directory)
+        # to correctly handle cases where a PDF was retrieved but extraction
+        # fell back to abstract text (extraction_source stays "text").
+        # Uses the same _ABSTRACT_ONLY_SOURCES set as context_builder.py to ensure
+        # consistent classification across the manuscript and Appendix B.
+        _ABSTRACT_ONLY_SOURCES = frozenset({"text", "heuristic", None, ""})
+        extraction_source = getattr(rec, "extraction_source", None)
+        has_fulltext_file = paper_id in (fulltext_paper_ids or set())
+        full_text_retrieved = "Yes" if (extraction_source not in _ABSTRACT_ONLY_SOURCES or has_fulltext_file) else "No"
 
         rows.append(
             {
@@ -613,9 +785,8 @@ def _robins_judgment_display(value: Any) -> str:
 def _paper_author_year(paper: Any) -> str:
     """Return 'Author et al., Year' for a paper."""
     if paper.authors:
-        first_author_raw = str(paper.authors[0])
-        first_author = first_author_raw.split()[-1] if first_author_raw.split() else first_author_raw
-        author_str = f"{first_author} et al." if len(paper.authors) > 1 else first_author_raw
+        first_author = _extract_surname(paper.authors[0])
+        author_str = f"{first_author} et al." if len(paper.authors) > 1 else first_author
     else:
         author_str = "NR"
     year_str = str(paper.year) if paper.year else "n.d."
@@ -680,6 +851,34 @@ def build_picos_table(review_config: Any) -> str:
     exclusion = getattr(review_config, "exclusion_criteria", []) or []
     inc_str = "; ".join(str(c) for c in inclusion) if inclusion else "NR"
     exc_str = "; ".join(str(c) for c in exclusion) if exclusion else "NR"
+
+    # Strip date-range phrases from inclusion/exclusion criteria text entirely.
+    # The PICOS table already has a dedicated "Date range" row that shows the
+    # authoritative protocol window (date_range_start - date_range_end).
+    # Criteria text should describe WHAT is eligible, not WHEN -- having a date
+    # phrase there creates duplication and risks inconsistency with the Date range row.
+    # Pattern: "Research published between January 2010 and December 2025 is included..."
+    #          "Studies published from 2000 to 2026..."
+    # We strip the date-range sub-clause (and any trailing filler like "is included
+    # to ensure technological relevance") from each criterion that contains one.
+    _ds = getattr(review_config, "date_range_start", None)
+    _de = getattr(review_config, "date_range_end", None)
+    if _ds and _de:
+        _month = (
+            r"(?:January|February|March|April|May|June|"
+            r"July|August|September|October|November|December)\s+"
+        )
+        _date_phrase_re = re.compile(
+            r"(?:Research\s+published\s+|Studies\s+published\s+)?"
+            r"(?:from\s+|between\s+)?"
+            r"(?:" + _month + r")?\d{4}"
+            r"\s+(?:and|to)\s+"
+            r"(?:" + _month + r")?\d{4}"
+            r"(?:\s+is\s+included[^.;]*)?",
+            re.IGNORECASE,
+        )
+        inc_str = _date_phrase_re.sub("", inc_str).strip("; ").strip()
+        exc_str = _date_phrase_re.sub("", exc_str).strip("; ").strip()
 
     # Study design row: derive from review_type and any explicit study_design field
     review_type = getattr(review_config, "review_type", "") or ""
@@ -811,6 +1010,104 @@ def generate_grade_table(grade_assessments: list[Any]) -> str:
     return "## GRADE Evidence Profile\n\n" + "\n".join(rows) + "\n\n" + footnote
 
 
+def generate_casp_table(
+    casp_assessments: list[Any],
+    paper_id_to_label: dict[str, str] | None = None,
+) -> str:
+    """Generate a CASP checklist summary table for qualitative studies.
+
+    Each row represents one included study. When paper_id_to_label is provided,
+    uses the citekey/author-year label for the Paper column instead of a raw UUID.
+    Returns an empty string when no assessments are provided.
+    """
+    if not casp_assessments:
+        return ""
+
+    _label_map = paper_id_to_label or {}
+
+    _CRITERIA = [
+        ("design_appropriate", "Design Appropriate"),
+        ("recruitment_strategy", "Recruitment"),
+        ("data_collection_rigorous", "Data Collection"),
+        ("reflexivity_considered", "Reflexivity"),
+        ("ethics_considered", "Ethics"),
+        ("analysis_rigorous", "Analysis"),
+        ("findings_clear", "Findings Clear"),
+        ("value_of_research", "Value"),
+    ]
+    header_cols = ["Study"] + [c[1] for c in _CRITERIA] + ["Overall Summary"]
+    header = "| " + " | ".join(header_cols) + " |"
+    sep = "| " + " | ".join(["---"] * len(header_cols)) + " |"
+    rows = [header, sep]
+    for a in casp_assessments:
+        pid = getattr(a, "paper_id", "")
+        label = _label_map.get(pid, pid[:12])
+        vals = ["YES" if getattr(a, attr, False) else "NO" for attr, _ in _CRITERIA]
+        summary = (getattr(a, "overall_summary", "") or "")[:100].replace("|", "-").replace("\n", " ")
+        rows.append("| " + " | ".join([label] + vals + [summary]) + " |")
+
+    footnote = (
+        "_CASP: Critical Appraisal Skills Programme checklist for qualitative studies. "
+        "YES = criterion met; NO = criterion not met or unclear._"
+    )
+    return "## CASP Quality Assessment\n\n" + "\n".join(rows) + "\n\n" + footnote
+
+
+def generate_mmat_table(
+    mmat_assessments: list[Any],
+    paper_id_to_label: dict[str, str] | None = None,
+) -> str:
+    """Generate an MMAT 2018 quality assessment summary table for mixed-methods studies.
+
+    Each row shows the study, study type, screening criteria, five type-specific
+    criteria as YES/NO, overall score (0-5), and summary. When paper_id_to_label
+    is provided, uses citekey/author-year labels instead of raw UUID prefixes.
+    Returns an empty string when no assessments are provided.
+    """
+    if not mmat_assessments:
+        return ""
+
+    _label_map = paper_id_to_label or {}
+
+    header_cols = [
+        "Study",
+        "Study Type",
+        "Screen 1",
+        "Screen 2",
+        "C1",
+        "C2",
+        "C3",
+        "C4",
+        "C5",
+        "Score (0-5)",
+        "Summary",
+    ]
+    header = "| " + " | ".join(header_cols) + " |"
+    sep = "| " + " | ".join(["---"] * len(header_cols)) + " |"
+    rows = [header, sep]
+    for a in mmat_assessments:
+        pid = getattr(a, "paper_id", "")
+        label = _label_map.get(pid, pid[:12])
+        stype = str(getattr(a, "study_type", "") or "").replace("_", " ")
+        s1 = "YES" if getattr(a, "screening_1_clear_question", False) else "NO"
+        s2 = "YES" if getattr(a, "screening_2_appropriate_data", False) else "NO"
+        c1 = "YES" if getattr(a, "criterion_1", False) else "NO"
+        c2 = "YES" if getattr(a, "criterion_2", False) else "NO"
+        c3 = "YES" if getattr(a, "criterion_3", False) else "NO"
+        c4 = "YES" if getattr(a, "criterion_4", False) else "NO"
+        c5 = "YES" if getattr(a, "criterion_5", False) else "NO"
+        score = str(getattr(a, "overall_score", "NR"))
+        summary = (getattr(a, "overall_summary", "") or "")[:100].replace("|", "-").replace("\n", " ")
+        rows.append("| " + " | ".join([label, stype, s1, s2, c1, c2, c3, c4, c5, score, summary]) + " |")
+
+    footnote = (
+        "_MMAT 2018: Mixed Methods Appraisal Tool. "
+        "Screen 1: Research question clearly stated? Screen 2: Appropriate data collected? "
+        "C1-C5: Study-type-specific criteria. Score = count of YES criteria (max 5)._"
+    )
+    return "## MMAT Quality Assessment\n\n" + "\n".join(rows) + "\n\n" + footnote
+
+
 def build_markdown_references_section(
     manuscript_text: str,
     citation_rows: list[tuple],
@@ -885,6 +1182,59 @@ def build_markdown_references_section(
     return section
 
 
+def _normalize_date_range(text: str, date_start: str, date_end: str) -> str:
+    """Replace inconsistent date range mentions with the authoritative protocol values.
+
+    The LLM writing step sometimes outputs a different year than the config (e.g.
+    writes "2000 and 2025" when the protocol says 2000-2026). This function
+    deterministically corrects the date range in the manuscript body so that
+    the Methods eligibility window always matches the PICOS table.
+
+    Only replaces year pairs that are clearly date-range constructs (e.g.
+    "from YYYY to YYYY", "YYYY-YYYY", "between YYYY and YYYY") and where at
+    least one of the years is close to the expected values.
+    """
+    # Patterns that represent a date range in the manuscript Methods section.
+    # We only normalize where the start year matches date_start exactly.
+    # The end year may be off by 1-2 years (LLM drift); we correct it to date_end.
+    patterns = [
+        # "from 2000 to 2025" / "from 2000 to 2026"
+        (
+            re.compile(
+                r"\bfrom\s+" + re.escape(date_start) + r"\s+to\s+(\d{4})\b",
+                re.IGNORECASE,
+            ),
+            f"from {date_start} to {date_end}",
+        ),
+        # "2000 and 2025" (common LLM phrasing for date range in eligibility)
+        (
+            re.compile(
+                re.escape(date_start) + r"\s+and\s+(\d{4})\b",
+                re.IGNORECASE,
+            ),
+            f"{date_start} and {date_end}",
+        ),
+        # "2000-2025" or "2000 - 2025"
+        (
+            re.compile(
+                re.escape(date_start) + r"\s*[-\u2013]\s*(\d{4})\b",
+            ),
+            f"{date_start}-{date_end}",
+        ),
+        # "between 2000 and 2025"
+        (
+            re.compile(
+                r"\bbetween\s+" + re.escape(date_start) + r"\s+and\s+(\d{4})\b",
+                re.IGNORECASE,
+            ),
+            f"between {date_start} and {date_end}",
+        ),
+    ]
+    for pattern, replacement in patterns:
+        text = pattern.sub(replacement, text)
+    return text
+
+
 def assemble_submission_manuscript(
     body: str,
     manuscript_path: Path,
@@ -896,11 +1246,15 @@ def assemble_submission_manuscript(
     coi: str = "",
     grade_assessments: list[Any] | None = None,
     robins_i_assessments: list[Any] | None = None,
+    casp_assessments: list[Any] | None = None,
+    mmat_assessments: list[Any] | None = None,
+    paper_id_to_citekey: dict[str, str] | None = None,
     review_config: Any | None = None,
     failed_count: int = 0,
     search_appendix_path: Path | None = None,
     research_question: str = "",
     title: str | None = None,
+    fulltext_paper_ids: set[str] | None = None,
 ) -> str:
     """Combine all manuscript sections with HR separators.
 
@@ -926,8 +1280,25 @@ def assemble_submission_manuscript(
     """
     clean_body = _sanitize_body(body)
 
+    # Normalize date range in Methods section to the authoritative protocol values
+    # before citation conversion so the Methods text is consistent with PICOS table.
+    if review_config is not None:
+        _date_start = getattr(review_config, "date_range_start", None)
+        _date_end = getattr(review_config, "date_range_end", None)
+        if _date_start and _date_end:
+            clean_body = _normalize_date_range(clean_body, str(_date_start), str(_date_end))
+
+    # Collapse duplicate DOIs before numbering so the same paper is never
+    # assigned two sequential [N] numbers (e.g., included-study citekey and
+    # background-SR citekey that both resolve to the same DOI).
+    deduped_citation_rows = _dedup_citation_rows_by_doi(list(citation_rows))
+
     # Convert [AuthorYear] -> [N] numbered citations
-    numbered_body, ordered_citation_rows = convert_to_numbered_citations(clean_body, citation_rows)
+    numbered_body, ordered_citation_rows = convert_to_numbered_citations(clean_body, deduped_citation_rows)
+
+    # Convert any remaining unresolved SR citekeys (hallucinated by LLM) to
+    # parenthetical text so comparison with prior work stays readable.
+    numbered_body = _convert_sr_citekeys_to_text(numbered_body)
 
     # Prepend title and research question block when provided
     header_block = ""
@@ -985,10 +1356,35 @@ def assemble_submission_manuscript(
     if papers and robins_i_assessments:
         robins_section = build_robins_i_domain_table(papers, robins_i_assessments)
 
+    # Build paper_id -> citekey label map for CASP/MMAT tables.
+    # Primary: use the DOI-based map from the repository (get_paper_id_to_citekey_map).
+    # Fallback: try extracting from deduped_citation_rows (which may include paper_id field).
+    _pid_to_label: dict[str, str] = dict(paper_id_to_citekey or {})
+    for _crow in deduped_citation_rows:
+        _ckey = (
+            _crow.get("citekey", "") or _crow.get("cite_key", "")
+            if isinstance(_crow, dict)
+            else getattr(_crow, "citekey", None) or getattr(_crow, "cite_key", "")
+        ) or ""
+        _cpid = (_crow.get("paper_id", "") if isinstance(_crow, dict) else getattr(_crow, "paper_id", "")) or ""
+        if _ckey and _cpid:
+            _pid_to_label.setdefault(str(_cpid), str(_ckey))
+
+    casp_section = ""
+    if casp_assessments:
+        casp_section = generate_casp_table(casp_assessments, paper_id_to_label=_pid_to_label)
+
+    mmat_section = ""
+    if mmat_assessments:
+        mmat_section = generate_mmat_table(mmat_assessments, paper_id_to_label=_pid_to_label)
+
     study_table_section = ""
     if papers and extraction_records:
         study_table_section = build_study_characteristics_table(
-            papers, extraction_records, pre_filtered_count=failed_count
+            papers,
+            extraction_records,
+            pre_filtered_count=failed_count,
+            fulltext_paper_ids=fulltext_paper_ids,
         )
 
     figures_section = build_markdown_figures_section(manuscript_path, artifacts)
@@ -998,11 +1394,17 @@ def assemble_submission_manuscript(
     search_appendix_section = ""
     if search_appendix_path and search_appendix_path.exists():
         raw = search_appendix_path.read_text(encoding="utf-8").strip()
-        # Normalize the top-level heading to fit as an appendix
+        # Replace top-level title with Appendix C heading (H1 -> H2).
         raw = raw.replace(
             "# Search Strategies Appendix",
             "## Appendix C: Search Strategies",
         )
+        # Demote remaining H2 connector subsections to H3 so they nest
+        # correctly under the H2 "## Appendix C" heading in the manuscript.
+        # Only demote lines that start with exactly "## " (not "### " already).
+        import re as _re
+
+        raw = _re.sub(r"^## (?!#)", "### ", raw, flags=_re.MULTILINE)
         search_appendix_section = raw
 
     parts = [numbered_body]
@@ -1016,6 +1418,10 @@ def assemble_submission_manuscript(
         parts.append(sof_section)
     if robins_section:
         parts.append(robins_section)
+    if casp_section:
+        parts.append(casp_section)
+    if mmat_section:
+        parts.append(mmat_section)
     if study_table_section:
         parts.append(study_table_section)
     if figures_section:

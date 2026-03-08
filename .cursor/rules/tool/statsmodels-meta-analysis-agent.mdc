@@ -23,10 +23,11 @@ from statsmodels.stats.meta_analysis import effectsize_smd, effectsize_2proporti
 See https://www.statsmodels.org/dev/generated/statsmodels.stats.meta_analysis.combine_effects.html
 ```python
 from statsmodels.stats.meta_analysis import combine_effects
-# Fixed (I^2 < 40%): combine_effects(effect, variance, method_re="dl", use_t=False)
-# Random (I^2 >= 40%, DerSimonian-Laird): combine_effects(effect, variance, method_re="dl", use_t=True)
+# Fixed (I^2 < 50%): combine_effects(effect, variance, method_re="dl", use_t=False)
+# Random (I^2 >= 50%, DerSimonian-Laird): combine_effects(effect, variance, method_re="dl", use_t=True)
 # method_re: "dl" (DerSimonian-Laird) is used in this codebase; "pm" (Paule-Mandel) also available
-# The codebase switches between fixed and random based on I^2 threshold (40%) in meta_analysis.py
+# Threshold configured in settings.yaml meta_analysis.heterogeneity_threshold (default 50);
+# code function default is 40 but settings.yaml override is authoritative.
 ```
 
 ## Note: Mantel-Haenszel is NOT available in statsmodels

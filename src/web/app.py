@@ -1008,6 +1008,8 @@ class ResumeRequest(BaseModel):
     db_path: str
     topic: str
     from_phase: str | None = None  # e.g. "phase_3_screening" to resume from that phase
+    verbose: bool = False
+    debug: bool = False
 
 
 async def _resume_wrapper(
@@ -1015,6 +1017,8 @@ async def _resume_wrapper(
     workflow_id: str,
     db_path: str,
     from_phase: str | None = None,
+    verbose: bool = False,
+    debug: bool = False,
 ) -> None:
     """Async task that resumes an interrupted workflow from its last checkpoint."""
     run_root = str(pathlib.Path(db_path).parent.parent.parent.parent)
@@ -1122,6 +1126,8 @@ async def _resume_wrapper(
         queue=record.queue,
         on_db_ready=_on_db_ready,
         on_event=record.event_log.append,
+        verbose=verbose,
+        debug=debug,
     )
     try:
         outputs = await run_workflow_resume(
@@ -1240,7 +1246,9 @@ async def resume_run(req: ResumeRequest) -> RunResponse:
     record.db_path = req.db_path
     record.workflow_id = req.workflow_id
     _active_runs[run_id] = record
-    task = asyncio.create_task(_resume_wrapper(record, req.workflow_id, req.db_path, req.from_phase))
+    task = asyncio.create_task(
+        _resume_wrapper(record, req.workflow_id, req.db_path, req.from_phase, req.verbose, req.debug)
+    )
     record.task = task
     return RunResponse(run_id=run_id, topic=req.topic)
 
@@ -1989,8 +1997,11 @@ async def get_paper_file(run_id: str, paper_id: str) -> StreamingResponse:
 
 
 @app.post("/api/run/{run_id}/fetch-pdfs")
-async def fetch_pdfs_for_run(run_id: str) -> dict[str, Any]:
+async def fetch_pdfs_for_run(run_id: str) -> StreamingResponse:
     """Retroactively fetch full-text PDFs/text for all included papers in a completed run.
+
+    Streams SSE progress events as each paper is processed, then a final 'done' event.
+    Event types: 'start' (total count), 'progress' (per-paper result), 'done' (summary), 'error'.
 
     Uses the same PDFRetriever code path as paper screening (Unpaywall, Semantic Scholar,
     CORE, Europe PMC, ScienceDirect, PMC, arXiv, Crossref, landing-page resolver, plus
@@ -2034,89 +2045,133 @@ async def fetch_pdfs_for_run(run_id: str) -> dict[str, Any]:
             ) as cur:
                 rows = await cur.fetchall()
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
+        _fetch_err = str(exc)
 
-    retriever = PDFRetriever()
-    results: list[dict[str, Any]] = []
-    succeeded = 0
-    skipped = 0
+        async def _error_stream() -> AsyncGenerator[str, None]:
+            yield f"data: {_json.dumps({'type': 'error', 'detail': _fetch_err})}\n\n"
 
-    for row in rows:
-        paper_id = row["paper_id"]
-        doi = row["doi"] or ""
-        url = row["url"] or ""
-
-        # Skip if already saved and file still exists
-        existing = manifest.get(paper_id, {})
-        existing_path = existing.get("file_path")
-        if existing_path and pathlib.Path(existing_path).exists():
-            skipped += 1
-            results.append({"paper_id": paper_id, "status": "skipped", "source": existing.get("source")})
-            continue
-
-        saved_path: str | None = None
-        source: str = "abstract"
-        error_msg: str | None = None
-
-        try:
-            paper = CandidatePaper(
-                paper_id=paper_id,
-                title=row["title"] or "",
-                authors=[],
-                year=row["year"],
-                source_database=row["source_database"] or "",
-                doi=doi or None,
-                url=url or None,
-            )
-            ft_result = await retriever.retrieve(paper)
-            if ft_result.success and ft_result.pdf_bytes and len(ft_result.pdf_bytes) > 1000:
-                pdf_dest = papers_dir / f"{paper_id}.pdf"
-                pdf_dest.write_bytes(ft_result.pdf_bytes)
-                saved_path = str(pdf_dest)
-                source = ft_result.source
-                succeeded += 1
-            else:
-                # Record source for badge display even when no PDF is available to save.
-                # Text-only results (PMC XML, Unpaywall text) are useful for the
-                # extraction pipeline but are not saved as downloadable files.
-                source = ft_result.source if ft_result.success else "abstract"
-                if not ft_result.success and ft_result.error:
-                    error_msg = ft_result.error
-        except Exception as exc:
-            error_msg = str(exc)
-            _logger.warning("fetch-pdfs: failed for %s: %s", paper_id, exc)
-
-        manifest[paper_id] = {
-            "title": row["title"] or "",
-            "authors": row["authors"] or "",
-            "year": row["year"],
-            "doi": doi,
-            "url": url,
-            "source": source,
-            "file_path": saved_path,
-            "file_type": ("pdf" if (saved_path and saved_path.endswith(".pdf")) else ("txt" if saved_path else None)),
-        }
-        results.append(
-            {
-                "paper_id": paper_id,
-                "status": "ok" if saved_path else "failed",
-                "source": source,
-                "file_type": manifest[paper_id]["file_type"],
-                "error": error_msg,
-            }
+        return StreamingResponse(
+            _error_stream(),
+            media_type="text/event-stream",
+            headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
         )
 
-    manifest_path.write_text(_json.dumps(manifest, indent=2), encoding="utf-8")
+    async def _pdf_fetch_stream() -> AsyncGenerator[str, None]:
+        import asyncio as _asyncio
 
-    attempted = len(rows) - skipped
-    failed = attempted - succeeded
-    return {
-        "attempted": attempted,
-        "succeeded": succeeded,
-        "failed": failed,
-        "skipped": skipped,
-        "results": results,
-    }
+        retriever = PDFRetriever()
+        results: list[dict[str, Any]] = []
+        succeeded = 0
+        skipped = 0
+        total = len(rows)
+
+        yield f"data: {_json.dumps({'type': 'start', 'total': total})}\n\n"
+
+        # Emit skipped papers immediately; collect work for the rest
+        fetch_work: list[tuple[int, Any]] = []
+        for idx, row in enumerate(rows):
+            paper_id = row["paper_id"]
+            title = row["title"] or "Untitled"
+            existing = manifest.get(paper_id, {})
+            existing_path = existing.get("file_path")
+            if existing_path and pathlib.Path(existing_path).exists():
+                skipped += 1
+                results.append({"paper_id": paper_id, "status": "skipped", "source": existing.get("source")})
+                yield f"data: {_json.dumps({'type': 'progress', 'current': idx + 1, 'total': total, 'paper_id': paper_id, 'title': title, 'status': 'skipped', 'source': existing.get('source')})}\n\n"
+            else:
+                fetch_work.append((idx, row))
+
+        if fetch_work:
+            _sem = _asyncio.Semaphore(8)
+
+            async def _fetch_one(orig_idx: int, row: Any) -> tuple:
+                paper_id = row["paper_id"]
+                doi = row["doi"] or ""
+                url = row["url"] or ""
+                title = row["title"] or "Untitled"
+                saved_path: str | None = None
+                source: str = "abstract"
+                error_msg: str | None = None
+                async with _sem:
+                    try:
+                        paper = CandidatePaper(
+                            paper_id=paper_id,
+                            title=title,
+                            authors=[],
+                            year=row["year"],
+                            source_database=row["source_database"] or "",
+                            doi=doi or None,
+                            url=url or None,
+                        )
+                        ft_result = await retriever.retrieve(paper)
+                        if ft_result.success and ft_result.pdf_bytes and len(ft_result.pdf_bytes) > 1000:
+                            pdf_dest = papers_dir / f"{paper_id}.pdf"
+                            pdf_dest.write_bytes(ft_result.pdf_bytes)
+                            saved_path = str(pdf_dest)
+                            source = ft_result.source
+                        elif ft_result.success and ft_result.full_text and len(ft_result.full_text) >= 500:
+                            txt_dest = papers_dir / f"{paper_id}.txt"
+                            txt_dest.write_text(ft_result.full_text, encoding="utf-8")
+                            saved_path = str(txt_dest)
+                            source = ft_result.source
+                        else:
+                            source = ft_result.source if ft_result.success else "abstract"
+                            if not ft_result.success and ft_result.error:
+                                error_msg = ft_result.error
+                    except Exception as exc:  # noqa: BLE001
+                        error_msg = str(exc)
+                        _logger.warning("fetch-pdfs: failed for %s: %s", paper_id, exc)
+                return (orig_idx, paper_id, title, saved_path, source, error_msg)
+
+            gathered = await _asyncio.gather(
+                *[_fetch_one(idx, row) for idx, row in fetch_work],
+                return_exceptions=True,
+            )
+            # Emit progress events in original submission order
+            for item in sorted(
+                (r for r in gathered if not isinstance(r, BaseException)),
+                key=lambda t: t[0],
+            ):
+                orig_idx, paper_id, title, saved_path, source, error_msg = item
+                doi = rows[orig_idx]["doi"] or ""
+                url = rows[orig_idx]["url"] or ""
+                file_type = "pdf" if (saved_path and saved_path.endswith(".pdf")) else ("txt" if saved_path else None)
+                manifest[paper_id] = {
+                    "title": title,
+                    "authors": rows[orig_idx]["authors"] or "",
+                    "year": rows[orig_idx]["year"],
+                    "doi": doi,
+                    "url": url,
+                    "source": source,
+                    "file_path": saved_path,
+                    "file_type": file_type,
+                }
+                result_status = "ok" if saved_path else "failed"
+                if saved_path:
+                    succeeded += 1
+                results.append(
+                    {
+                        "paper_id": paper_id,
+                        "status": result_status,
+                        "source": source,
+                        "file_type": file_type,
+                        "error": error_msg,
+                    }
+                )
+                yield f"data: {_json.dumps({'type': 'progress', 'current': orig_idx + 1, 'total': total, 'paper_id': paper_id, 'title': title, 'status': result_status, 'source': source, 'file_type': file_type})}\n\n"
+
+        # Atomic manifest flush after all fetches complete
+        manifest_path.write_text(_json.dumps(manifest, indent=2), encoding="utf-8")
+
+        attempted = total - skipped
+        failed = attempted - succeeded
+        yield f"data: {_json.dumps({'type': 'done', 'attempted': attempted, 'succeeded': succeeded, 'failed': failed, 'skipped': skipped, 'results': results})}\n\n"
+
+    return StreamingResponse(
+        _pdf_fetch_stream(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
 
 
 @app.get("/api/run/{run_id}/events")
@@ -2502,7 +2557,7 @@ async def get_knowledge_graph(run_id: str) -> dict:
         # study_design lives in extraction_records; LEFT JOIN so unextracted papers still appear.
         nodes: list[dict] = []
         async with _kg_db.execute(
-            "SELECT p.paper_id, p.title, p.year, COALESCE(er.study_design, 'unknown')"
+            "SELECT p.paper_id, p.title, p.year, COALESCE(er.study_design, 'unknown'), p.authors"
             " FROM papers p"
             " LEFT JOIN extraction_records er"
             "  ON er.paper_id = p.paper_id AND er.workflow_id = ?"
@@ -2510,6 +2565,19 @@ async def get_knowledge_graph(run_id: str) -> dict:
             (_wf_id, _wf_id),
         ) as _nc:
             async for _nr in _nc:
+                _authors_raw = _nr[4] or ""
+                _first_author = ""
+                if _authors_raw:
+                    try:
+                        _authors_list = _json.loads(_authors_raw)
+                        if isinstance(_authors_list, list) and _authors_list:
+                            _first = str(_authors_list[0])
+                            _first_author = _first.split()[-1] if _first.split() else _first
+                        elif isinstance(_authors_list, str):
+                            _first_author = _authors_list.split(",")[0].strip().split()[-1]
+                    except (ValueError, TypeError):
+                        _first_part = _authors_raw.split(",")[0].strip()
+                        _first_author = _first_part.split()[-1] if _first_part.split() else _first_part
                 nodes.append(
                     {
                         "id": _nr[0],
@@ -2517,6 +2585,8 @@ async def get_knowledge_graph(run_id: str) -> dict:
                         "year": _nr[2],
                         "study_design": _nr[3] or "unknown",
                         "community_id": -1,
+                        "first_author": _first_author,
+                        "has_multiple_authors": "," in _authors_raw,
                     }
                 )
 

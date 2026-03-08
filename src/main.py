@@ -228,6 +228,8 @@ async def _try_resume_via_api(
     run_root: str,
     review_path: str,
     from_phase: str | None,
+    verbose: bool = False,
+    debug: bool = False,
 ) -> tuple[str, str] | None:
     """If the API is running, delegate resume to it and return (run_id, topic). Else return None."""
     entry = None
@@ -256,6 +258,8 @@ async def _try_resume_via_api(
                 "db_path": entry.db_path,
                 "topic": entry.topic,
                 "from_phase": from_phase,
+                "verbose": verbose,
+                "debug": debug,
             }
             r2 = await session.post(f"{base}/api/history/resume", json=payload)
             if r2.status not in (200, 201):
@@ -352,6 +356,8 @@ def main(argv: Sequence[str] | None = None) -> int:
                         run_root=args.run_root,
                         review_path=args.config,
                         from_phase=getattr(args, "from_phase", None),
+                        verbose=verbose,
+                        debug=debug,
                     )
                 )
                 if result is not None:
@@ -361,7 +367,10 @@ def main(argv: Sequence[str] | None = None) -> int:
                     )
                     topic_preview = f"{topic[:60]}..." if len(topic) > 60 else topic
                     console.print(f"  Run ID: {run_id}  |  Topic: {topic_preview}")
-                    console.print("[dim]Logs: pm2 logs litreview-api (or use --no-api for terminal output)[/]")
+                    verbose_note = " (verbose mode active on server)" if verbose or debug else ""
+                    console.print(
+                        f"[dim]Logs: pm2 logs litreview-api (or use --no-api for terminal output){verbose_note}[/]"
+                    )
                     return 0
 
             with create_progress(console) as progress:

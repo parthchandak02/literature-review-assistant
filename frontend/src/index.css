@@ -61,6 +61,8 @@
     color: hsl(var(--foreground));
     font-feature-settings: "rlig" 1, "calt" 1;
     -webkit-font-smoothing: antialiased;
+    /* Prevent tap highlight flash on iOS/Android */
+    -webkit-tap-highlight-color: transparent;
   }
 }
 
@@ -165,6 +167,15 @@
     max-height: none !important;
     overflow: visible !important;
   }
+}
+
+/* Hide scrollbar while keeping scroll behavior */
+.scrollbar-none {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+.scrollbar-none::-webkit-scrollbar {
+  display: none;
 }
 
 /* Scrollbar styling for dark theme */

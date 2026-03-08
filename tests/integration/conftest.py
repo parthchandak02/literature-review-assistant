@@ -20,6 +20,26 @@ import pytest
 
 
 @pytest.fixture(autouse=True)
+def clear_pydantic_ai_http_cache() -> None:
+    """Clear PydanticAI's cached httpx client before and after each test.
+
+    PydanticAI caches a shared httpx.AsyncClient via _cached_async_http_client
+    (a functools.cache wrapper). The transport inside that client holds a direct
+    reference to the event loop it was created on. When pytest-asyncio creates a
+    new event loop for the next test, the cached transport's loop is already
+    closed, triggering RuntimeError: Event loop is closed.
+
+    Clearing the cache before each test forces PydanticAI to create a fresh
+    client (and transport) bound to the current event loop.
+    """
+    from pydantic_ai.models import _cached_async_http_client
+
+    _cached_async_http_client.cache_clear()
+    yield
+    _cached_async_http_client.cache_clear()
+
+
+@pytest.fixture(autouse=True)
 def reset_structured_log() -> None:
     """Reset structured_log global state before each test.
 

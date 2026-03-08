@@ -175,6 +175,49 @@ class ScreeningConfig(BaseModel):
             "of more LLM calls on borderline records. 0 disables the heuristic entirely."
         ),
     )
+    batch_screen_enabled: bool = Field(
+        default=True,
+        description=(
+            "Enable batch LLM pre-ranking between BM25 and the dual-reviewer. "
+            "A single LLM call scores up to batch_screen_size papers at once and "
+            "filters out clearly irrelevant papers before the expensive dual-review step."
+        ),
+    )
+    batch_screen_size: int = Field(
+        default=80,
+        ge=1,
+        le=200,
+        description="Number of papers per batch LLM call in the batch pre-ranker.",
+    )
+    batch_screen_threshold: float = Field(
+        default=0.35,
+        ge=0.0,
+        le=1.0,
+        description=(
+            "Minimum relevance score (0-1) from the batch LLM ranker to forward a paper "
+            "to the dual-reviewer. Papers below this threshold are auto-excluded as "
+            "batch_screened_low. Set deliberately low (0.35) to err on the side of recall."
+        ),
+    )
+    batch_screen_concurrency: int = Field(
+        default=3,
+        ge=1,
+        le=10,
+        description=(
+            "Number of batch LLM ranker calls sent concurrently. "
+            "Each call scores up to batch_screen_size papers. Lower to stay within RPM limits."
+        ),
+    )
+    pdf_retrieval_concurrency: int = Field(
+        ge=1,
+        le=32,
+        default=8,
+        description=(
+            "Number of PDFs fetched concurrently during full-text retrieval (phase 3). "
+            "Each fetch hits a different upstream host so 8 concurrent requests are safe. "
+            "Lower to 3-4 if rate-limit errors appear in the activity log."
+        ),
+    )
 
 
 class DualReviewConfig(BaseModel):
@@ -206,6 +249,12 @@ class WritingConfig(BaseModel):
     naturalness_threshold: float = Field(ge=0.0, le=1.0, default=0.75)
     checkpoint_per_section: bool = True
     llm_timeout: int = 120
+    writing_concurrency: int = Field(
+        ge=1,
+        le=10,
+        default=3,
+        description="Number of manuscript sections written concurrently. Default 3 balances throughput vs. RPM.",
+    )
 
 
 class RiskOfBiasConfig(BaseModel):
@@ -283,6 +332,16 @@ class SearchConfig(BaseModel):
         description=(
             "Emit a WARNING log when a database connector returns fewer than this many records. "
             "0 disables the warning. Useful for detecting over-restricted search queries early."
+        ),
+    )
+    citation_chasing_concurrency: int = Field(
+        default=5,
+        ge=1,
+        le=20,
+        description=(
+            "Number of included papers chased concurrently during citation chasing. "
+            "Each paper triggers 1-2 HTTP calls to Semantic Scholar and OpenAlex. "
+            "Lower if rate-limit errors appear in the activity log."
         ),
     )
 
@@ -382,6 +441,12 @@ class ExtractionConfig(BaseModel):
             "Responses shorter than this fall through to the next retrieval tier."
         ),
     )
+    extraction_concurrency: int = Field(
+        ge=1,
+        le=16,
+        default=4,
+        description="Number of papers extracted concurrently in phase 4. Each paper runs classify+extract+RoB sequentially; papers run in parallel.",
+    )
 
 
 class RagConfig(BaseModel):
@@ -430,6 +495,15 @@ class RagConfig(BaseModel):
     reranker_model: str = Field(
         default="google-gla:gemini-3.1-flash-lite-preview",
         description="LLM model used for listwise reranking of retrieved chunks (Gemini Flash recommended).",
+    )
+    embed_concurrency: int = Field(
+        default=4,
+        ge=1,
+        le=16,
+        description=(
+            "Number of embedding API batches sent concurrently. "
+            "Each batch is embed_batch_size texts. Lower if embedding rate-limit errors occur."
+        ),
     )
 
 
