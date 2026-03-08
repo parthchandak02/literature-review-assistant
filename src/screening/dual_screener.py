@@ -44,6 +44,17 @@ class ScreeningResponse(BaseModel):
     exclusion_reason: ExclusionReason | None = None
 
 
+class _BatchScreeningItem(BaseModel):
+    """One paper's decision within a batch LLM response array."""
+
+    paper_id: str
+    decision: ScreeningDecisionType
+    confidence: float = Field(ge=0.0, le=1.0)
+    short_reason: str | None = None
+    reasoning: str
+    exclusion_reason: ExclusionReason | None = None
+
+
 class ScreeningLLMClient(Protocol):
     async def complete_json(
         self,
@@ -387,6 +398,19 @@ class DualReviewerScreener:
         processed = await self.repository.get_processed_paper_ids(workflow_id, stage)
         to_process = [p for p in papers if p.paper_id not in processed]
 
+        # ------------------------------------------------------------------
+        # Batch-mode dispatch: when reviewer_batch_size > 0 send N papers per
+        # LLM call instead of one call per paper.
+        # ------------------------------------------------------------------
+        batch_size = getattr(self.settings.screening, "reviewer_batch_size", 0)
+        if batch_size > 0 and to_process:
+            return await self._screen_batch_mode(
+                workflow_id=workflow_id,
+                stage=stage,
+                papers=to_process,
+                full_texts=full_text_by_paper,
+            )
+
         total = len(to_process)
         concurrency = self.settings.screening.screening_concurrency
         sem = asyncio.Semaphore(concurrency)
@@ -703,6 +727,437 @@ class DualReviewerScreener:
                 final_decision.confidence,
             )
         return final_decision
+
+    # ------------------------------------------------------------------
+    # Batch reviewer helpers
+    # ------------------------------------------------------------------
+
+    _BATCH_SYSTEM_PROMPT = (
+        "You are a systematic review screener. Screen each paper below.\n"
+        "\n"
+        "MANDATORY DATA QUALITY EXCLUSION CRITERIA (apply first, before topic relevance):\n"
+        "EXCLUDE with exclusion_reason=insufficient_data if ANY apply:\n"
+        "- No authors listed; editorial/letter/opinion with no empirical data\n"
+        "- Conference abstract only; purely theoretical; no measurable outcomes\n"
+        "EXCLUDE with exclusion_reason=protocol_only if paper is a registered protocol\n"
+        "with no reported results.\n"
+        "\n"
+        "Return ONLY a valid JSON array, one entry per paper (same count as input):\n"
+        "[\n"
+        "  {\n"
+        '    "paper_id": "<id>",\n'
+        '    "decision": "include|exclude|uncertain",\n'
+        '    "confidence": 0.0,\n'
+        '    "short_reason": "<max 80 chars>",\n'
+        '    "reasoning": "<justification>",\n'
+        '    "exclusion_reason": "<code or null>"\n'
+        "  }\n"
+        "]\n"
+        "\n"
+        "Allowed exclusion_reason values: wrong_population, wrong_intervention, "
+        "wrong_comparator, wrong_outcome, wrong_study_design, not_peer_reviewed, "
+        "duplicate, insufficient_data, wrong_language, no_full_text, protocol_only, other.\n"
+        "Use null when decision is include or uncertain."
+    )
+
+    def _build_batch_prompt(
+        self,
+        papers: list[CandidatePaper],
+        stage: str,
+        full_texts: dict[str, str],
+        spec: ReviewerSpec,
+    ) -> str:
+        """Build a single prompt that asks the LLM to screen all papers in one call."""
+        from src.screening.prompts import _topic_header
+
+        role = "Reviewer A (recall-biased)" if spec.reviewer_type == ReviewerType.REVIEWER_A else "Reviewer B (precision-biased)"
+        goal = (
+            f"Screen papers for inclusion in a systematic review on: {self.review.research_question}"
+        )
+        backstory = f"Domain: {self.review.domain}. Favour recall when uncertain."
+
+        header = _topic_header(self.review, role, goal, backstory)
+        lines = [header, self._BATCH_SYSTEM_PROMPT, "", "Papers to screen:"]
+        for i, paper in enumerate(papers, start=1):
+            text = full_texts.get(paper.paper_id, "") if stage == "fulltext" else ""
+            content = (text[:1200] if text else (paper.abstract or ""))[:600].replace("\n", " ")
+            lines.append(
+                f"[{i}] paper_id={paper.paper_id} | {paper.title} | {content}"
+            )
+        return "\n".join(lines)
+
+    def _parse_batch_response(
+        self,
+        raw: str,
+        papers: list[CandidatePaper],
+        spec: ReviewerSpec,
+        stage: str,
+    ) -> dict[str, ScreeningDecision]:
+        """Parse a JSON array response into a paper_id -> ScreeningDecision map.
+
+        Returns only the paper_ids that were successfully parsed. Missing or
+        unparseable papers are handled by the caller (fallback to individual call).
+        """
+        s = raw.strip()
+        s = re.sub(r"^```(?:json)?\s*", "", s)
+        s = re.sub(r"\s*```\s*$", "", s)
+        s = s.strip()
+        first = s.find("[")
+        last = s.rfind("]")
+        if first < 0 or last <= first:
+            return {}
+        s = s[first : last + 1]
+        try:
+            items = json.loads(s)
+        except json.JSONDecodeError:
+            return {}
+        if not isinstance(items, list):
+            return {}
+        result: dict[str, ScreeningDecision] = {}
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            try:
+                parsed = _BatchScreeningItem.model_validate(item)
+            except Exception:
+                continue
+            decision = ScreeningDecision(
+                paper_id=parsed.paper_id,
+                decision=parsed.decision,
+                reason=parsed.reasoning,
+                exclusion_reason=parsed.exclusion_reason,
+                reviewer_type=spec.reviewer_type,
+                confidence=parsed.confidence,
+            )
+            if stage == "fulltext" and decision.decision == ScreeningDecisionType.EXCLUDE:
+                decision = self._enforce_fulltext_exclusion_reason(decision)
+            result[parsed.paper_id] = decision
+        return result
+
+    async def _batch_run_reviewer(
+        self,
+        workflow_id: str,
+        papers: list[CandidatePaper],
+        stage: str,
+        full_texts: dict[str, str],
+        spec: ReviewerSpec,
+    ) -> dict[str, ScreeningDecision]:
+        """Send N papers to the LLM in one call; return paper_id -> ScreeningDecision.
+
+        Papers missing from the response are NOT included in the returned dict.
+        The caller is responsible for falling back to individual _run_reviewer()
+        for any paper whose paper_id is absent.
+        """
+        if not papers:
+            return {}
+        prompt = self._build_batch_prompt(papers, stage, full_texts, spec)
+        if self.on_prompt:
+            self.on_prompt(spec.agent_name, prompt, None)
+        runtime = await self.provider.reserve_call_slot(spec.agent_name)
+        started = time.perf_counter()
+        try:
+            if hasattr(self.llm_client, "complete_json_with_usage"):
+                raw, tokens_in, tokens_out, cache_write, cache_read = (
+                    await self.llm_client.complete_json_with_usage(
+                        prompt,
+                        agent_name=spec.agent_name,
+                        model=runtime.model,
+                        temperature=runtime.temperature,
+                    )
+                )
+            else:
+                raw = await self.llm_client.complete_json(
+                    prompt,
+                    agent_name=spec.agent_name,
+                    model=runtime.model,
+                    temperature=runtime.temperature,
+                )
+                tokens_in = max(1, len(prompt.split()))
+                tokens_out = max(1, len(raw.split()))
+                cache_write = cache_read = 0
+        except Exception as exc:
+            _log.warning("Batch reviewer call failed (%s) -- all %d papers fall back to individual calls", exc, len(papers))
+            return {}
+        elapsed_ms = int((time.perf_counter() - started) * 1000)
+        cost_usd = self.provider.estimate_cost(runtime.model, tokens_in, tokens_out, cache_write, cache_read)
+        await self.provider.log_cost(
+            model=runtime.model,
+            tokens_in=tokens_in,
+            tokens_out=tokens_out,
+            cost_usd=cost_usd,
+            latency_ms=elapsed_ms,
+            phase="phase_3_screening",
+            cache_read_tokens=cache_read,
+            cache_write_tokens=cache_write,
+        )
+        parsed_map = self._parse_batch_response(raw, papers, spec, stage)
+        # Persist decisions + decision log for papers that were parsed.
+        for paper in papers:
+            decision = parsed_map.get(paper.paper_id)
+            if decision is None:
+                continue
+            await self.repository.save_screening_decision(
+                workflow_id=workflow_id, stage=stage, decision=decision
+            )
+            await self.repository.append_decision_log(
+                DecisionLogEntry(
+                    decision_type="screening_reviewer_decision",
+                    paper_id=paper.paper_id,
+                    decision=decision.decision.value,
+                    rationale=decision.reason or "Batch reviewer decision.",
+                    actor=decision.reviewer_type.value,
+                    phase="phase_3_screening",
+                )
+            )
+        return parsed_map
+
+    async def _screen_batch_mode(
+        self,
+        workflow_id: str,
+        stage: str,
+        papers: list[CandidatePaper],
+        full_texts: dict[str, str] | None,
+    ) -> list[ScreeningDecision]:
+        """Screen papers in batches: one LLM call per chunk for Reviewer A,
+        then one call per uncertain-remainder chunk for Reviewer B.
+        Adjudication and DB writes are handled per-paper.
+
+        Preserves the fast-path (high-confidence A decisions skip Reviewer B),
+        all on_progress / on_screening_decision callbacks, and DB write semantics
+        identical to the per-paper path.
+        """
+        from src.models import DualScreeningResult
+
+        batch_size = self.settings.screening.reviewer_batch_size
+        ft = full_texts or {}
+        include_thresh = self.settings.screening.stage1_include_threshold
+        exclude_thresh = self.settings.screening.stage1_exclude_threshold
+
+        spec_a = ReviewerSpec(agent_name="screening_reviewer_a", reviewer_type=ReviewerType.REVIEWER_A)
+        spec_b = ReviewerSpec(agent_name="screening_reviewer_b", reviewer_type=ReviewerType.REVIEWER_B)
+
+        # Heuristic pre-filters (protocol-only, insufficient-content) still run per-paper
+        # before any LLM call, identical to the per-paper path.
+        heuristic_decisions: dict[str, ScreeningDecision] = {}
+        llm_candidates: list[CandidatePaper] = []
+        for paper in papers:
+            await self.repository.save_paper(paper)
+            if self._is_protocol_only(paper):
+                d = ScreeningDecision(
+                    paper_id=paper.paper_id,
+                    decision=ScreeningDecisionType.EXCLUDE,
+                    confidence=0.95,
+                    reason="Protocol-only heuristic: title or abstract indicates a study protocol with no reported results.",
+                    reviewer_type=ReviewerType.KEYWORD_FILTER,
+                    exclusion_reason=ExclusionReason.PROTOCOL_ONLY,
+                )
+                await self.repository.save_screening_decision(workflow_id=workflow_id, stage=stage, decision=d)
+                await self.repository.append_decision_log(
+                    DecisionLogEntry(
+                        decision_type="screening_protocol_heuristic",
+                        paper_id=paper.paper_id,
+                        decision=ScreeningDecisionType.EXCLUDE.value,
+                        rationale="Protocol-only auto-exclusion.",
+                        actor=ReviewerType.KEYWORD_FILTER.value,
+                        phase="phase_3_screening",
+                    )
+                )
+                if self.on_screening_decision:
+                    self.on_screening_decision(paper.paper_id, stage, "exclude", "protocol_only_heuristic", 0.95)
+                heuristic_decisions[paper.paper_id] = d
+                continue
+            if stage == "title_abstract" and self._is_insufficient_content(paper):
+                wc = len((paper.abstract or "").split())
+                d = ScreeningDecision(
+                    paper_id=paper.paper_id,
+                    decision=ScreeningDecisionType.EXCLUDE,
+                    confidence=0.90,
+                    reason="Insufficient content: abstract absent, too short, or title-only stub.",
+                    reviewer_type=ReviewerType.KEYWORD_FILTER,
+                    exclusion_reason=ExclusionReason.INSUFFICIENT_DATA,
+                )
+                await self.repository.save_screening_decision(workflow_id=workflow_id, stage=stage, decision=d)
+                await self.repository.append_decision_log(
+                    DecisionLogEntry(
+                        decision_type="screening_insufficient_content_heuristic",
+                        paper_id=paper.paper_id,
+                        decision=ScreeningDecisionType.EXCLUDE.value,
+                        rationale=f"Abstract absent or stub ({wc} words).",
+                        actor=ReviewerType.KEYWORD_FILTER.value,
+                        phase="phase_3_screening",
+                    )
+                )
+                if self.on_screening_decision:
+                    self.on_screening_decision(
+                        paper.paper_id, stage, "exclude",
+                        f"insufficient_content_heuristic|{wc}w", 0.90,
+                    )
+                heuristic_decisions[paper.paper_id] = d
+                continue
+            llm_candidates.append(paper)
+
+        # ------------------------------------------------------------------
+        # Phase 1: Reviewer A -- chunked batch calls
+        # ------------------------------------------------------------------
+        reviewer_a_map: dict[str, ScreeningDecision] = {}
+        chunks = [llm_candidates[i : i + batch_size] for i in range(0, len(llm_candidates), batch_size)]
+        for chunk in chunks:
+            batch_result = await self._batch_run_reviewer(workflow_id, chunk, stage, ft, spec_a)
+            reviewer_a_map.update(batch_result)
+            # Fallback: any paper missing from the batch response is individually reviewed.
+            for paper in chunk:
+                if paper.paper_id not in reviewer_a_map:
+                    _log.warning("Batch A missing paper %s -- falling back to individual call", paper.paper_id)
+                    d = await self._run_reviewer(workflow_id, paper, stage, ft.get(paper.paper_id), spec_a)
+                    reviewer_a_map[paper.paper_id] = d
+
+        # ------------------------------------------------------------------
+        # Phase 2: Apply fast-path; collect uncertain papers for Reviewer B
+        # ------------------------------------------------------------------
+        fast_path_decisions: dict[str, ScreeningDecision] = {}
+        uncertain_papers: list[CandidatePaper] = []
+        uncertain_reviewer_a: dict[str, ScreeningDecision] = {}
+        for paper in llm_candidates:
+            a = reviewer_a_map[paper.paper_id]
+            is_fast = (
+                (a.confidence >= include_thresh and a.decision == ScreeningDecisionType.INCLUDE)
+                or (a.confidence >= exclude_thresh and a.decision == ScreeningDecisionType.EXCLUDE)
+            )
+            if is_fast:
+                fast_path_decisions[paper.paper_id] = a
+            else:
+                uncertain_papers.append(paper)
+                uncertain_reviewer_a[paper.paper_id] = a
+
+        # ------------------------------------------------------------------
+        # Phase 3: Reviewer B -- batched for uncertain papers only
+        # ------------------------------------------------------------------
+        reviewer_b_map: dict[str, ScreeningDecision] = {}
+        if uncertain_papers:
+            b_chunks = [uncertain_papers[i : i + batch_size] for i in range(0, len(uncertain_papers), batch_size)]
+            for chunk in b_chunks:
+                batch_result = await self._batch_run_reviewer(workflow_id, chunk, stage, ft, spec_b)
+                reviewer_b_map.update(batch_result)
+                for paper in chunk:
+                    if paper.paper_id not in reviewer_b_map:
+                        _log.warning("Batch B missing paper %s -- falling back to individual call", paper.paper_id)
+                        d = await self._run_reviewer(
+                            workflow_id, paper, stage, ft.get(paper.paper_id), spec_b,
+                            other_reviewer_decision=uncertain_reviewer_a[paper.paper_id].decision,
+                        )
+                        reviewer_b_map[paper.paper_id] = d
+
+        # ------------------------------------------------------------------
+        # Phase 4: Adjudication, dual_screening_results, callbacks -- all per-paper
+        # ------------------------------------------------------------------
+        final_decisions: list[ScreeningDecision] = []
+        completed = [0]
+        total = len(papers)
+
+        async def _finalize_heuristic(paper: CandidatePaper) -> ScreeningDecision:
+            d = heuristic_decisions[paper.paper_id]
+            await self.repository.save_dual_screening_result(
+                workflow_id=workflow_id,
+                paper_id=paper.paper_id,
+                stage=stage,
+                agreement=True,
+                final_decision=d.decision,
+                adjudication_needed=False,
+            )
+            completed[0] += 1
+            if self.on_progress:
+                self.on_progress("phase_3_screening", completed[0], total)
+            return d
+
+        async def _finalize_fast_path(paper: CandidatePaper) -> ScreeningDecision:
+            d = fast_path_decisions[paper.paper_id]
+            await self.repository.save_dual_screening_result(
+                workflow_id=workflow_id,
+                paper_id=paper.paper_id,
+                stage=stage,
+                agreement=True,
+                final_decision=d.decision,
+                adjudication_needed=False,
+            )
+            await self.repository.append_decision_log(
+                DecisionLogEntry(
+                    decision_type="dual_screening_final",
+                    paper_id=paper.paper_id,
+                    decision=d.decision.value,
+                    rationale=d.reason or "Fast-path: Reviewer A high-confidence decision.",
+                    actor="dual_screener",
+                    phase="phase_3_screening",
+                )
+            )
+            if self.on_screening_decision is not None:
+                self.on_screening_decision(paper.paper_id, stage, d.decision.value, d.reason, d.confidence)
+            completed[0] += 1
+            if self.on_progress:
+                self.on_progress("phase_3_screening", completed[0], total)
+            return d
+
+        async def _finalize_dual(paper: CandidatePaper) -> ScreeningDecision:
+            a = uncertain_reviewer_a[paper.paper_id]
+            b = reviewer_b_map[paper.paper_id]
+            agreement = a.decision == b.decision
+            self._dual_results.append(
+                DualScreeningResult(
+                    paper_id=paper.paper_id,
+                    reviewer_a=a,
+                    reviewer_b=b,
+                    agreement=agreement,
+                    final_decision=a.decision if agreement else b.decision,
+                )
+            )
+            if agreement:
+                final = a
+                adjudication_needed = False
+            else:
+                final = await self._run_adjudicator(
+                    workflow_id=workflow_id,
+                    paper=paper,
+                    stage=stage,
+                    full_text=ft.get(paper.paper_id),
+                    reviewer_a=a,
+                    reviewer_b=b,
+                )
+                adjudication_needed = True
+            if stage == "fulltext" and final.decision == ScreeningDecisionType.EXCLUDE:
+                final = self._enforce_fulltext_exclusion_reason(final)
+            await self.repository.save_dual_screening_result(
+                workflow_id=workflow_id,
+                paper_id=paper.paper_id,
+                stage=stage,
+                agreement=agreement,
+                final_decision=final.decision,
+                adjudication_needed=adjudication_needed,
+            )
+            await self.repository.append_decision_log(
+                DecisionLogEntry(
+                    decision_type="dual_screening_final",
+                    paper_id=paper.paper_id,
+                    decision=final.decision.value,
+                    rationale=final.reason or "Final decision from dual-review workflow.",
+                    actor="dual_screener",
+                    phase="phase_3_screening",
+                )
+            )
+            if self.on_screening_decision is not None:
+                self.on_screening_decision(paper.paper_id, stage, final.decision.value, final.reason, final.confidence)
+            completed[0] += 1
+            if self.on_progress:
+                self.on_progress("phase_3_screening", completed[0], total)
+            return final
+
+        for paper in papers:
+            if paper.paper_id in heuristic_decisions:
+                final_decisions.append(await _finalize_heuristic(paper))
+            elif paper.paper_id in fast_path_decisions:
+                final_decisions.append(await _finalize_fast_path(paper))
+            else:
+                final_decisions.append(await _finalize_dual(paper))
+
+        return final_decisions
 
     async def _run_reviewer(
         self,

@@ -218,6 +218,16 @@ class ScreeningConfig(BaseModel):
             "Lower to 3-4 if rate-limit errors appear in the activity log."
         ),
     )
+    reviewer_batch_size: int = Field(
+        default=0,
+        ge=0,
+        description=(
+            "Papers per LLM call in the dual-reviewer phase. "
+            "0 = per-paper mode (current behavior, one call per paper). "
+            "10 = send 10 papers per batch call, then apply fast-path and adjudicate disagreements. "
+            "Reduces dual-reviewer LLM calls by ~5x at batch_size=10 while preserving all decisions."
+        ),
+    )
 
 
 class DualReviewConfig(BaseModel):

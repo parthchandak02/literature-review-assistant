@@ -15,6 +15,7 @@ from src.models import (
     ScreeningDecisionType,
     SettingsConfig,
 )
+from src.models.config import ScreeningConfig
 from src.screening.dual_screener import DualReviewerScreener, ScreeningLLMClient
 
 
@@ -62,7 +63,10 @@ def _settings() -> SettingsConfig:
             "screening_reviewer_a": {"model": "google-gla:gemini-2.5-flash-lite", "temperature": 0.1},
             "screening_reviewer_b": {"model": "google-gla:gemini-2.5-flash-lite", "temperature": 0.3},
             "screening_adjudicator": {"model": "google-gla:gemini-2.5-pro", "temperature": 0.2},
-        }
+        },
+        # Match production settings.yaml (insufficient_content_min_words=0 disables
+        # the stub-abstract heuristic so test papers with short abstracts reach the LLM).
+        screening=ScreeningConfig(insufficient_content_min_words=0),
     )
 
 
@@ -123,3 +127,340 @@ async def test_fulltext_exclusion_requires_reason(tmp_path) -> None:
         final = await screener.screen_full_text("wf-fulltext", paper, "full text content")
         assert final.decision == ScreeningDecisionType.EXCLUDE
         assert final.exclusion_reason == ExclusionReason.OTHER
+
+
+# ---------------------------------------------------------------------------
+# Helpers shared by batch-mode tests
+# ---------------------------------------------------------------------------
+
+
+def _batch_settings(batch_size: int = 5) -> SettingsConfig:
+    """Settings with reviewer_batch_size > 0 to activate batch mode."""
+    return SettingsConfig(
+        agents={
+            "screening_reviewer_a": {"model": "google-gla:gemini-2.5-flash-lite", "temperature": 0.1},
+            "screening_reviewer_b": {"model": "google-gla:gemini-2.5-flash-lite", "temperature": 0.3},
+            "screening_adjudicator": {"model": "google-gla:gemini-2.5-pro", "temperature": 0.2},
+        },
+        screening=ScreeningConfig(
+            reviewer_batch_size=batch_size,
+            insufficient_content_min_words=0,
+        ),
+    )
+
+
+def _paper(pid: str, title: str = "", abstract: str = "test abstract") -> CandidatePaper:
+    return CandidatePaper(
+        paper_id=pid,
+        title=title or f"Study {pid}",
+        authors=["Author, A."],
+        source_database="openalex",
+        abstract=abstract,
+    )
+
+
+def _batch_item(pid: str, decision: str, confidence: float, reason: str = "ok") -> dict:
+    return {
+        "paper_id": pid,
+        "decision": decision,
+        "confidence": confidence,
+        "short_reason": reason,
+        "reasoning": reason,
+        "exclusion_reason": None,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Test 1: All papers pass fast-path via Reviewer A -- no Reviewer B calls
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_batch_reviewer_all_high_confidence(tmp_path) -> None:
+    """3 papers, all A confidence above include threshold -> 0 Reviewer B calls."""
+    papers = [_paper("p1"), _paper("p2"), _paper("p3")]
+    # One batch call for Reviewer A returning 3 items; no Reviewer B calls at all.
+    batch_a_response = [
+        _batch_item("p1", "include", 0.95),
+        _batch_item("p2", "include", 0.90),
+        _batch_item("p3", "include", 0.88),
+    ]
+    responses: list[object] = [batch_a_response]  # only 1 LLM call expected
+    async with get_db(str(tmp_path / "batch_all_conf.db")) as db:
+        repo = WorkflowRepository(db)
+        await repo.create_workflow("wf-batch-all", "topic", "hash")
+        provider = LLMProvider(_batch_settings(batch_size=10), repo)
+        screener = DualReviewerScreener(
+            repository=repo,
+            provider=provider,
+            review=_review(),
+            settings=_batch_settings(batch_size=10),
+            llm_client=_ScriptedClient(responses),
+        )
+        results = await screener.screen_batch(
+            workflow_id="wf-batch-all",
+            stage="title_abstract",
+            papers=papers,
+        )
+        assert len(results) == 3
+        assert all(r.decision == ScreeningDecisionType.INCLUDE for r in results)
+        # No Reviewer B rows: all went through fast-path.
+        cur = await db.execute(
+            "SELECT COUNT(*) FROM screening_decisions WHERE reviewer_type = 'reviewer_b'",
+        )
+        row = await cur.fetchone()
+        assert int(row[0]) == 0
+        # All dual_screening_results should show agreement=True.
+        cur = await db.execute(
+            "SELECT SUM(agreement) FROM dual_screening_results WHERE workflow_id = 'wf-batch-all'",
+        )
+        row = await cur.fetchone()
+        assert int(row[0]) == 3
+
+
+# ---------------------------------------------------------------------------
+# Test 2: Mixed confidence -- one uncertain paper needs Reviewer B + adjudication
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_batch_reviewer_mixed_confidence(tmp_path) -> None:
+    """3 papers: 2 high-conf include (A only), 1 uncertain include (A+B agree -> no adjudication)."""
+    papers = [_paper("p1"), _paper("p2"), _paper("p3")]
+    # A batch: p1 and p2 high-conf, p3 uncertain.
+    batch_a = [
+        _batch_item("p1", "include", 0.95),
+        _batch_item("p2", "include", 0.91),
+        _batch_item("p3", "include", 0.60),  # below include threshold -> needs B
+    ]
+    # B batch: only p3 is sent; B agrees -> no adjudication.
+    batch_b = [
+        _batch_item("p3", "include", 0.80),
+    ]
+    responses: list[object] = [batch_a, batch_b]
+    async with get_db(str(tmp_path / "batch_mixed.db")) as db:
+        repo = WorkflowRepository(db)
+        await repo.create_workflow("wf-batch-mixed", "topic", "hash")
+        provider = LLMProvider(_batch_settings(batch_size=10), repo)
+        screener = DualReviewerScreener(
+            repository=repo,
+            provider=provider,
+            review=_review(),
+            settings=_batch_settings(batch_size=10),
+            llm_client=_ScriptedClient(responses),
+        )
+        results = await screener.screen_batch(
+            workflow_id="wf-batch-mixed",
+            stage="title_abstract",
+            papers=papers,
+        )
+        assert len(results) == 3
+        assert all(r.decision == ScreeningDecisionType.INCLUDE for r in results)
+        # p3 had Reviewer B: one reviewer_b row.
+        cur = await db.execute(
+            "SELECT COUNT(*) FROM screening_decisions WHERE reviewer_type = 'reviewer_b'",
+        )
+        row = await cur.fetchone()
+        assert int(row[0]) == 1
+        # No adjudication needed (A and B agreed on p3).
+        cur = await db.execute(
+            "SELECT SUM(adjudication_needed) FROM dual_screening_results WHERE workflow_id = 'wf-batch-mixed'",
+        )
+        row = await cur.fetchone()
+        assert int(row[0]) == 0
+
+
+# ---------------------------------------------------------------------------
+# Test 3: Missing paper in batch response -> individual fallback call
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_batch_reviewer_missing_paper_fallback(tmp_path) -> None:
+    """A returns only 2 of 3 paper_ids. Missing paper falls back to individual _run_reviewer."""
+    papers = [_paper("p1"), _paper("p2"), _paper("pmissing")]
+    # Batch A omits pmissing.
+    batch_a_partial = [
+        _batch_item("p1", "include", 0.95),
+        _batch_item("p2", "include", 0.92),
+    ]
+    # Fallback individual call for pmissing (Reviewer A format: single dict).
+    fallback_a = {"decision": "exclude", "confidence": 0.88, "reasoning": "out of scope", "exclusion_reason": "wrong_population"}
+    responses: list[object] = [batch_a_partial, fallback_a]
+    async with get_db(str(tmp_path / "batch_missing.db")) as db:
+        repo = WorkflowRepository(db)
+        await repo.create_workflow("wf-batch-missing", "topic", "hash")
+        provider = LLMProvider(_batch_settings(batch_size=10), repo)
+        screener = DualReviewerScreener(
+            repository=repo,
+            provider=provider,
+            review=_review(),
+            settings=_batch_settings(batch_size=10),
+            llm_client=_ScriptedClient(responses),
+        )
+        results = await screener.screen_batch(
+            workflow_id="wf-batch-missing",
+            stage="title_abstract",
+            papers=papers,
+        )
+        assert len(results) == 3
+        decisions = {r.paper_id: r.decision for r in results}
+        assert decisions["p1"] == ScreeningDecisionType.INCLUDE
+        assert decisions["p2"] == ScreeningDecisionType.INCLUDE
+        assert decisions["pmissing"] == ScreeningDecisionType.EXCLUDE
+        # pmissing was individually screened: its row must exist in screening_decisions.
+        cur = await db.execute(
+            "SELECT COUNT(*) FROM screening_decisions WHERE paper_id = 'pmissing'",
+        )
+        row = await cur.fetchone()
+        assert int(row[0]) >= 1
+
+
+# ---------------------------------------------------------------------------
+# Test 4: JSON parse failure -> all papers fall back to individual calls
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_batch_reviewer_json_parse_failure_fallback(tmp_path) -> None:
+    """If batch A response is malformed JSON, all 3 papers fall back to individual calls."""
+    papers = [_paper("p1"), _paper("p2"), _paper("p3")]
+    # First response is garbage; then 3 individual fallback responses follow.
+    individual = {"decision": "include", "confidence": 0.90, "reasoning": "fallback ok"}
+    responses: list[object] = [
+        "this is not json at all",  # batch A fails -> 3 individual fallbacks
+        individual,
+        individual,
+        individual,
+    ]
+    async with get_db(str(tmp_path / "batch_parse_fail.db")) as db:
+        repo = WorkflowRepository(db)
+        await repo.create_workflow("wf-batch-parse", "topic", "hash")
+        provider = LLMProvider(_batch_settings(batch_size=10), repo)
+        screener = DualReviewerScreener(
+            repository=repo,
+            provider=provider,
+            review=_review(),
+            settings=_batch_settings(batch_size=10),
+            llm_client=_ScriptedClient(responses),
+        )
+        results = await screener.screen_batch(
+            workflow_id="wf-batch-parse",
+            stage="title_abstract",
+            papers=papers,
+        )
+        # All 3 papers must still get a decision (via individual fallback).
+        assert len(results) == 3
+        assert all(r.decision == ScreeningDecisionType.INCLUDE for r in results)
+
+
+# ---------------------------------------------------------------------------
+# Test 5: Multiple chunks -- 7 papers with batch_size=3 -> ceil(7/3)=3 batch calls for A
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_batch_reviewer_multiple_chunks(tmp_path) -> None:
+    """7 papers, batch_size=3 -> 3 A-batch calls (3+3+1). All high-conf -> no B calls."""
+    papers = [_paper(f"p{i}") for i in range(1, 8)]
+    # 3 chunks: [p1,p2,p3], [p4,p5,p6], [p7]
+    chunk1 = [_batch_item(f"p{i}", "include", 0.95) for i in range(1, 4)]
+    chunk2 = [_batch_item(f"p{i}", "include", 0.90) for i in range(4, 7)]
+    chunk3 = [_batch_item("p7", "include", 0.88)]
+    responses: list[object] = [chunk1, chunk2, chunk3]
+    async with get_db(str(tmp_path / "batch_chunks.db")) as db:
+        repo = WorkflowRepository(db)
+        await repo.create_workflow("wf-batch-chunks", "topic", "hash")
+        provider = LLMProvider(_batch_settings(batch_size=3), repo)
+        screener = DualReviewerScreener(
+            repository=repo,
+            provider=provider,
+            review=_review(),
+            settings=_batch_settings(batch_size=3),
+            llm_client=_ScriptedClient(responses),
+        )
+        results = await screener.screen_batch(
+            workflow_id="wf-batch-chunks",
+            stage="title_abstract",
+            papers=papers,
+        )
+        assert len(results) == 7
+        assert all(r.decision == ScreeningDecisionType.INCLUDE for r in results)
+        # All 3 responses should have been consumed (scripted client is now empty).
+        assert len(screener.llm_client._responses) == 0  # type: ignore[attr-defined]
+
+
+# ---------------------------------------------------------------------------
+# Test 6: reviewer_batch_size=0 -> per-paper mode, same DB rows as existing tests
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_batch_reviewer_disabled_when_zero(tmp_path) -> None:
+    """reviewer_batch_size=0 -> existing per-paper path; screener produces identical DB rows."""
+    paper = _paper("p1", abstract="relevant study")
+    # Per-paper: Reviewer A high-conf include -> fast-path, 1 LLM call only.
+    responses = [
+        {"decision": "include", "confidence": 0.92, "reasoning": "relevant"},
+    ]
+    async with get_db(str(tmp_path / "batch_disabled.db")) as db:
+        repo = WorkflowRepository(db)
+        await repo.create_workflow("wf-batch-zero", "topic", "hash")
+        provider = LLMProvider(_settings(), repo)
+        screener = DualReviewerScreener(
+            repository=repo,
+            provider=provider,
+            review=_review(),
+            settings=_settings(),  # reviewer_batch_size=0 by default
+            llm_client=_ScriptedClient(responses),
+        )
+        results = await screener.screen_batch(
+            workflow_id="wf-batch-zero",
+            stage="title_abstract",
+            papers=[paper],
+        )
+        assert len(results) == 1
+        assert results[0].decision == ScreeningDecisionType.INCLUDE
+        cur = await db.execute("SELECT COUNT(*) FROM dual_screening_results WHERE workflow_id = 'wf-batch-zero'")
+        row = await cur.fetchone()
+        assert int(row[0]) == 1
+
+
+# ---------------------------------------------------------------------------
+# Test 7: on_progress fires exactly once per paper even in batch mode
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_batch_reviewer_progress_fires_per_paper(tmp_path) -> None:
+    """on_progress callback must fire N times for N papers, even when using batch LLM calls."""
+    papers = [_paper(f"p{i}") for i in range(1, 6)]  # 5 papers
+    batch_a = [_batch_item(f"p{i}", "include", 0.95) for i in range(1, 6)]
+    responses: list[object] = [batch_a]
+    progress_calls: list[tuple[str, int, int]] = []
+
+    async with get_db(str(tmp_path / "batch_progress.db")) as db:
+        repo = WorkflowRepository(db)
+        await repo.create_workflow("wf-batch-progress", "topic", "hash")
+        provider = LLMProvider(_batch_settings(batch_size=10), repo)
+        screener = DualReviewerScreener(
+            repository=repo,
+            provider=provider,
+            review=_review(),
+            settings=_batch_settings(batch_size=10),
+            llm_client=_ScriptedClient(responses),
+            on_progress=lambda phase, cur, total: progress_calls.append((phase, cur, total)),
+        )
+        results = await screener.screen_batch(
+            workflow_id="wf-batch-progress",
+            stage="title_abstract",
+            papers=papers,
+        )
+        assert len(results) == 5
+        # on_progress must have fired exactly 5 times (once per paper).
+        assert len(progress_calls) == 5
+        # Progress counter must be monotonically increasing.
+        counters = [call[1] for call in progress_calls]
+        assert counters == list(range(1, 6))
+        # Total reported in every call must equal 5.
+        assert all(call[2] == 5 for call in progress_calls)
