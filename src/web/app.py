@@ -41,6 +41,7 @@ from sse_starlette.sse import EventSourceResponse
 
 from src.config.loader import load_configs as _load_configs
 from src.db.workflow_registry import update_heartbeat as _update_registry_heartbeat
+from src.db.workflow_registry import update_notes as _update_registry_notes
 from src.db.workflow_registry import update_status as _update_registry_status
 from src.export.submission_packager import package_submission
 from src.orchestration.context import WebRunContext
@@ -89,6 +90,13 @@ class _RunRecord:
 
 
 _active_runs: dict[str, _RunRecord] = {}
+
+# ---------------------------------------------------------------------------
+# Notes SSE: global broadcast channel for per-workflow note updates.
+# Each connected client gets an asyncio.Queue; PATCH /api/notes/{id} pushes
+# to all queues so every open browser tab sees the update in real time.
+# ---------------------------------------------------------------------------
+_notes_subscribers: set[asyncio.Queue[dict[str, Any] | None]] = set()
 
 # Evict completed run records older than run_ttl_seconds (from settings.yaml web.run_ttl_seconds).
 _RUN_TTL_SECONDS = _web_cfg.run_ttl_seconds
@@ -231,6 +239,8 @@ class HistoryEntry(BaseModel):
     # Populated when a workflow is actively running in-process.
     # The frontend uses this to connect a live SSE stream instead of replaying DB events.
     live_run_id: str | None = None
+    # User-authored annotation stored in the central registry.
+    notes: str | None = None
 
 
 class AttachRequest(BaseModel):
@@ -942,7 +952,8 @@ async def list_history(run_root: str = "runs") -> list[HistoryEntry]:
                 """SELECT workflow_id, topic, status, db_path,
                           COALESCE(created_at, '') AS created_at,
                           updated_at,
-                          heartbeat_at
+                          heartbeat_at,
+                          notes
                    FROM workflows_registry
                    ORDER BY created_at DESC"""
             ) as cur:
@@ -989,9 +1000,70 @@ async def list_history(run_root: str = "runs") -> list[HistoryEntry]:
                 total_cost=s.get("total_cost"),
                 artifacts_count=s.get("artifacts_count"),
                 live_run_id=live_run_id,
+                notes=row["notes"] if row["notes"] is not None else None,
             )
         )
     return enriched
+
+
+# ---------------------------------------------------------------------------
+# Notes endpoints
+# ---------------------------------------------------------------------------
+
+
+class _NoteBody(BaseModel):
+    note: str
+    run_root: str = "runs"
+
+
+@app.patch("/api/notes/{workflow_id}")
+async def save_note(workflow_id: str, body: _NoteBody) -> dict[str, bool]:
+    """Persist a user note for a workflow and broadcast it to all connected note-stream clients."""
+    await _update_registry_notes(body.run_root, workflow_id, body.note)
+    event: dict[str, Any] = {
+        "workflow_id": workflow_id,
+        "note": body.note,
+        "ts": __import__("datetime").datetime.utcnow().isoformat(),
+    }
+    dead: set[asyncio.Queue[dict[str, Any] | None]] = set()
+    for q in list(_notes_subscribers):
+        try:
+            q.put_nowait(event)
+        except asyncio.QueueFull:
+            dead.add(q)
+    _notes_subscribers.difference_update(dead)
+    return {"ok": True}
+
+
+@app.get("/api/notes/stream")
+async def notes_stream(request: Request) -> EventSourceResponse:
+    """SSE stream that broadcasts note-save events to all connected clients.
+
+    Each browser tab that opens this stream will receive an event whenever any
+    client saves a note via PATCH /api/notes/{workflow_id}.  The client uses
+    this to update its local notes map and trigger the flash animation.
+    """
+    queue: asyncio.Queue[dict[str, Any] | None] = asyncio.Queue(maxsize=64)
+    _notes_subscribers.add(queue)
+
+    async def _generator() -> Any:
+        try:
+            while True:
+                if await request.is_disconnected():
+                    break
+                try:
+                    event = await asyncio.wait_for(queue.get(), timeout=30.0)
+                except TimeoutError:
+                    # Send a keep-alive comment so the connection stays open.
+                    yield {"comment": "ka"}
+                    continue
+                if event is None:
+                    break
+                yield {"data": __import__("json").dumps(event)}
+        finally:
+            _notes_subscribers.discard(queue)
+
+    return EventSourceResponse(_generator())
 
 
 @app.get("/api/history/{workflow_id}/config")

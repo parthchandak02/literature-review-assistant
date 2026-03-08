@@ -144,6 +144,11 @@ def _extract_title_and_abstract(md: str) -> tuple[str | None, str | None, str]:
                 first_h2_idx = idx
         if fallback_title and title is None:
             title = fallback_title
+        # Structured abstracts often end with **Conclusion:** rather than
+        # **Keywords:**, leaving fallback_abstract_end unset. Fall back to
+        # using everything up to (but not including) the first ## heading.
+        if fallback_abstract_start >= 0 and fallback_abstract_end < 0 and first_h2_idx > fallback_abstract_start:
+            fallback_abstract_end = first_h2_idx - 1
         if fallback_abstract_start >= 0 and fallback_abstract_end >= fallback_abstract_start and abstract is None:
             abstract = "\n".join(fallback_lines[fallback_abstract_start : fallback_abstract_end + 1]).strip()
         if abstract and first_h2_idx >= 0 and rest == md:
@@ -198,9 +203,11 @@ def _convert_md_table_to_latex(
         while len(r) < n_cols:
             r.append("")
 
-    # Proportional column widths; each column gets an equal share of 0.9\linewidth
+    # Proportional column widths; use \textwidth (full page width) so the
+    # table* float spans both columns correctly. \linewidth inside table*
+    # equals \textwidth, but being explicit avoids confusion.
     col_frac = round(0.9 / max(n_cols, 1), 3)
-    col_spec = " ".join([f"p{{{col_frac}\\linewidth}}"] * n_cols)
+    col_spec = " ".join([f"p{{{col_frac}\\textwidth}}"] * n_cols)
 
     def convert_cell(cell: str) -> str:
         conv = _convert_inline_formatting(
@@ -208,10 +215,18 @@ def _convert_md_table_to_latex(
             citekeys,
             num_to_citekey,
         )
-        return _escape_latex(conv)
+        result = _escape_latex(conv)
+        # Break semicolon-delimited list items (.; ) onto separate lines within
+        # the p{} column so multi-item cells (e.g. PICOS criteria) are readable.
+        result = result.replace(".; ", ".\\\\ ")
+        return result
 
+    # IEEEtran requires table* for two-column-spanning tables and strongly
+    # favors top placement ([!t]). Caption goes ABOVE the tabular per IEEE style.
     result: list[str] = [
-        "\\begin{center}",
+        "\\begin{table*}[!t]",
+        "\\centering",
+        "\\caption{}",
         f"\\small\\begin{{tabular}}{{{col_spec}}}",
         "\\toprule",
     ]
@@ -221,7 +236,7 @@ def _convert_md_table_to_latex(
     result.append("\\midrule")
     for row in body_rows:
         result.append(" & ".join(convert_cell(c) for c in row) + " \\\\")
-    result.extend(["\\bottomrule", "\\end{tabular}", "\\end{center}"])
+    result.extend(["\\bottomrule", "\\end{tabular}", "\\end{table*}"])
     return result
 
 
@@ -355,6 +370,7 @@ def markdown_to_latex(
     preamble = r"""\documentclass[journal]{IEEEtran}
 \usepackage{graphicx}
 \usepackage{amsmath}
+\usepackage{cite}
 \usepackage{booktabs}
 \usepackage{longtable}
 \usepackage{hyperref}

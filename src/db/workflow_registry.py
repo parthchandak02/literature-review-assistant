@@ -30,6 +30,7 @@ CREATE INDEX IF NOT EXISTS idx_registry_topic_hash ON workflows_registry(topic, 
 """
 
 _MIGRATION_ADD_HEARTBEAT = "ALTER TABLE workflows_registry ADD COLUMN heartbeat_at TEXT"
+_MIGRATION_ADD_NOTES = "ALTER TABLE workflows_registry ADD COLUMN notes TEXT"
 
 
 @dataclass
@@ -59,6 +60,11 @@ async def _ensure_registry(run_root: str) -> str:
         # Migration: add heartbeat_at column for existing databases that pre-date the schema change.
         try:
             await db.execute(_MIGRATION_ADD_HEARTBEAT)
+        except Exception:
+            pass  # Column already exists -- sqlite raises OperationalError, ignore it.
+        # Migration: add notes column for per-workflow user annotations.
+        try:
+            await db.execute(_MIGRATION_ADD_NOTES)
         except Exception:
             pass  # Column already exists -- sqlite raises OperationalError, ignore it.
         await db.commit()
@@ -219,6 +225,21 @@ async def update_status(run_root: str, workflow_id: str, status: str) -> None:
             WHERE workflow_id = ?
             """,
             (status, workflow_id),
+        )
+        await db.commit()
+
+
+async def update_notes(run_root: str, workflow_id: str, notes: str) -> None:
+    """Persist user-authored notes for a workflow.
+
+    Notes are stored in the central registry so they survive across re-runs and
+    are included in the /api/history response without opening per-run databases.
+    """
+    path = await _ensure_registry(run_root)
+    async with aiosqlite.connect(path) as db:
+        await db.execute(
+            "UPDATE workflows_registry SET notes = ?, updated_at = datetime('now') WHERE workflow_id = ?",
+            (notes, workflow_id),
         )
         await db.commit()
 

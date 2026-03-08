@@ -8,7 +8,6 @@ import {
   FileText,
   Lock,
   Loader2,
-  PackageCheck,
   CheckCircle,
   XCircle,
   AlertTriangle,
@@ -20,6 +19,7 @@ import {
   GripVertical,
   Maximize2,
   Minimize2,
+  RefreshCw,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { ResultsPanel } from "@/components/ResultsPanel"
@@ -537,7 +537,16 @@ function ManuscriptActions({ docxPath, canExport, exportRunId, allOutputs }: Man
             </Button>
           )}
           {exportState === "done" && (
-            <PackageCheck className="h-3.5 w-3.5 text-emerald-400 shrink-0" />
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => { setExportState("idle"); void handleExport(); }}
+              className={sharedCls}
+              title="Regenerate manuscript, .tex, .bib, and DOCX"
+            >
+              <RefreshCw className="h-3 w-3 text-emerald-400" />
+              Refresh Docs
+            </Button>
           )}
         </>
       )}

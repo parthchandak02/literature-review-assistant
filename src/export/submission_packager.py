@@ -241,6 +241,7 @@ async def package_submission(
     citekeys: set[str] = set()
     async with get_db(db_path) as db:
         citation_repo = CitationRepository(db)
+        await citation_repo.ensure_schema()
         citations = await citation_repo.get_all_citations_for_export()
         citekeys = {c[1] for c in citations}
 

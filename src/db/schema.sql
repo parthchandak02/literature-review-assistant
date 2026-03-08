@@ -71,6 +71,7 @@ CREATE TABLE IF NOT EXISTS citations (
     citation_id TEXT PRIMARY KEY,
     citekey TEXT UNIQUE NOT NULL,
     doi TEXT,
+    url TEXT,
     title TEXT NOT NULL,
     authors TEXT NOT NULL,
     year INTEGER,

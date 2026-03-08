@@ -131,6 +131,7 @@ class DualReviewerScreener:
         on_prompt: Callable[[str, str, str | None], None] | None = None,
         should_proceed_with_partial: Callable[[], bool] | None = None,
         on_screening_decision: Callable[[str, str, str, str | None, float | None], None] | None = None,
+        on_status: Callable[[str], None] | None = None,
     ):
         self.repository = repository
         self.provider = provider
@@ -142,6 +143,7 @@ class DualReviewerScreener:
         self.on_prompt = on_prompt
         self.should_proceed_with_partial = should_proceed_with_partial
         self.on_screening_decision = on_screening_decision
+        self.on_status = on_status
         # Accumulates DualScreeningResult objects where both reviewers participated.
         # Used by the workflow to compute Cohen's kappa after screening completes.
         self._dual_results: list = []
@@ -1001,7 +1003,14 @@ class DualReviewerScreener:
         # ------------------------------------------------------------------
         reviewer_a_map: dict[str, ScreeningDecision] = {}
         chunks = [llm_candidates[i : i + batch_size] for i in range(0, len(llm_candidates), batch_size)]
-        for chunk in chunks:
+        n_chunks = len(chunks)
+        for chunk_idx, chunk in enumerate(chunks):
+            if self.on_status:
+                papers_done = len(heuristic_decisions) + chunk_idx * batch_size
+                self.on_status(
+                    f"Reviewer A: batch {chunk_idx + 1}/{n_chunks} "
+                    f"({papers_done}/{len(papers)} papers reviewed so far)"
+                )
             batch_result = await self._batch_run_reviewer(workflow_id, chunk, stage, ft, spec_a)
             reviewer_a_map.update(batch_result)
             # Fallback: any paper missing from the batch response is individually reviewed.
@@ -1035,7 +1044,18 @@ class DualReviewerScreener:
         reviewer_b_map: dict[str, ScreeningDecision] = {}
         if uncertain_papers:
             b_chunks = [uncertain_papers[i : i + batch_size] for i in range(0, len(uncertain_papers), batch_size)]
-            for chunk in b_chunks:
+            n_b_chunks = len(b_chunks)
+            if self.on_status:
+                self.on_status(
+                    f"Reviewer B: {len(uncertain_papers)} uncertain papers need cross-review "
+                    f"({n_b_chunks} batches)"
+                )
+            for b_idx, chunk in enumerate(b_chunks):
+                if self.on_status:
+                    self.on_status(
+                        f"Reviewer B: batch {b_idx + 1}/{n_b_chunks} "
+                        f"({b_idx * batch_size}/{len(uncertain_papers)} cross-reviewed so far)"
+                    )
                 batch_result = await self._batch_run_reviewer(workflow_id, chunk, stage, ft, spec_b)
                 reviewer_b_map.update(batch_result)
                 for paper in chunk:
@@ -1050,6 +1070,13 @@ class DualReviewerScreener:
         # ------------------------------------------------------------------
         # Phase 4: Adjudication, dual_screening_results, callbacks -- all per-paper
         # ------------------------------------------------------------------
+        if self.on_status:
+            n_fast = len(fast_path_decisions)
+            n_uncertain = len(uncertain_papers)
+            self.on_status(
+                f"Adjudicating {len(papers)} papers: "
+                f"{n_fast} fast-path, {n_uncertain} needed cross-review"
+            )
         final_decisions: list[ScreeningDecision] = []
         completed = [0]
         total = len(papers)

@@ -26,6 +26,7 @@ class CitationEntryRecord(BaseModel):
     citation_id: str = Field(default_factory=lambda: str(uuid.uuid4())[:12])
     citekey: str
     doi: str | None = None
+    url: str | None = None
     title: str
     authors: list[str]
     year: int | None = None

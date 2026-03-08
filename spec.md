@@ -121,7 +121,7 @@ literature-review-assistant/
 |   |-- models/                     # ALL Pydantic data contracts
 |   |-- db/                         # SQLite schema, connection manager, repositories, registry
 |   |-- orchestration/              # workflow.py, context.py, state.py, resume.py, gates.py
-|   |-- search/                     # base.py (SearchConnector protocol), 11 connectors (scopus, web_of_science, openalex, pubmed, semantic_scholar, ieee_xplore, arxiv, crossref, perplexity_search, clinicaltrials, csv_import), dedup, strategy, pdf_retrieval
+|   |-- search/                     # base.py (SearchConnector protocol), 12 connectors (scopus, web_of_science, openalex, pubmed, semantic_scholar, ieee_xplore, arxiv, crossref, perplexity_search, clinicaltrials, csv_import, embase), dedup, strategy, pdf_retrieval
 |   |-- screening/                  # dual_screener, keyword_filter, prompts.py, reliability, gemini_client
 |   |-- extraction/                 # extractor, study_classifier
 |   |-- quality/                    # rob2, robins_i, casp, grade, study_router
@@ -134,7 +134,7 @@ literature-review-assistant/
 |   |-- visualization/              # forest_plot, funnel_plot, rob_figure, timeline, geographic
 |   |-- export/                     # ieee_latex, bibtex_builder, submission_packager, prisma_checklist, ieee_validator
 |   |-- llm/                        # provider, gemini_client (shim), pydantic_client, base_client, rate_limiter
-|   |-- web/                        # FastAPI app (25 endpoints, SSE, static serving)
+|   |-- web/                        # FastAPI app (40+ endpoints, SSE, static serving)
 |   `-- utils/                      # structured_log, logging_paths (RunPaths + create_run_paths), ssl_context
 |-- tests/
 |   |-- unit/                       # 20 unit test files (86 passing)
@@ -201,6 +201,7 @@ OPENALEX_API_KEY=...            # Required since Feb 2026 (free at openalex.org)
 IEEE_API_KEY=...                # Optional; for IEEE Xplore connector
 WOS_API_KEY=...                 # Optional; for Web of Science connector (Clarivate Starter API, 300 req/day free)
 SCOPUS_API_KEY=...              # Optional; for Scopus connector (Elsevier Search API)
+EMBASE_API_KEY=...              # Optional; for Embase connector (Elsevier institutional)
 PUBMED_EMAIL=...                # Required for PubMed Entrez (Biopython)
 PUBMED_API_KEY=...              # Optional; raises PubMed rate limit from 3 to 10 req/sec
 PERPLEXITY_SEARCH_API_KEY=...   # Optional; for auxiliary discovery connector
@@ -358,6 +359,7 @@ Finalize                   -> writes run_summary.json + registry status = "compl
 | arXiv | arxiv Python library | DATABASE |
 | Crossref | Works API, polite email | DATABASE |
 | Perplexity | Perplexity Search API, cap 20 | OTHER_SOURCE |
+| Embase | Elsevier Embase API (EMBASE_API_KEY) | DATABASE |
 
 Perplexity and ClinicalTrials items tagged `SourceCategory.OTHER_SOURCE` count toward the PRISMA right-hand column (other sources). URL-based source inference (`_infer_source_from_url()`) attributes Perplexity-discovered papers to academic databases when they link to PubMed, arXiv, etc.
 
@@ -434,7 +436,7 @@ Synthesis results (`SynthesisFeasibility` + `NarrativeSynthesis`) are persisted 
 
 ### 6.6 Phase 6: Writing
 
-**What happens:** Before writing begins, a style extractor (Gemini Pro) analyzes included papers (up to 50,000 chars per paper) to extract sentence openings, domain vocabulary, citation integration patterns, and transition phrases. These patterns are injected into every section prompt.
+**What happens:** RAG retrieval runs before each section.
 
 **RAG retrieval (runs before each section):** A three-stage pipeline surfaces the most relevant evidence chunks from embedded paper content. (1) HyDE (`src/rag/hyde.py`) generates a 100-200 word hypothetical excerpt of the section using Gemini Flash -- producing a richer dense query vector than the bare section name. (2) The hypothetical text is embedded for cosine retrieval; BM25 uses the original research question + section name without the hypothetical, to avoid hallucinated keyword drift. Reciprocal Rank Fusion combines both signals into a top-20 candidate set. (3) A Gemini Flash listwise reranker (`src/rag/reranker.py`) scores all 20 candidates in a single LLM call and returns the top-8 chunks, which are injected as `rag_context` into the writing prompt. The abstract skips HyDE (already synthesis-grounded). Any retrieval failure falls back silently -- the section is written without RAG context. RAG is controlled by `settings.yaml rag.*` (`use_hyde`, `rerank`, and their model keys).
 
@@ -975,7 +977,7 @@ This section traces data from raw PDF bytes through every pipeline stage to the 
 - pdflatex (for IEEE export compilation; part of TeX Live or MacTeX)
 - API keys in `.env` (see Section 4.1)
 
-### 11.2 One-Time Setup
+### 12.2 One-Time Setup
 
 ```
 # Install Python dependencies
@@ -988,7 +990,7 @@ cd frontend && pnpm install
 cp .env.example .env
 ```
 
-### 11.3 Daily Development
+### 12.3 Daily Development
 
 ```
 pm2 start ecosystem.config.js                    # Start FastAPI + Vite together (recommended)
@@ -1012,7 +1014,7 @@ uv run python -m src.main validate --workflow-id abc123 --run-root runs/
 uv run python -m src.main export --workflow-id abc123 --run-root runs/
 ```
 
-### 11.4 Testing
+### 12.4 Testing
 
 ```
 uv run ruff check . --fix && uv run ruff format .   # Python lint + format
@@ -1024,7 +1026,7 @@ uv run python -m src.main --help                    # confirm CLI loads without 
 
 After each phase, run all commands and confirm clean output before proceeding.
 
-### 11.5 Production Frontend Build
+### 12.5 Production Frontend Build
 
 ```
 cd frontend && pnpm run build         # tsc strict mode + Vite chunk split -> frontend/dist/
@@ -1034,7 +1036,7 @@ cd frontend && pnpm run build         # tsc strict mode + Vite chunk split -> fr
 
 TypeScript strict mode catches all type errors. There is no separate ESLint step required.
 
-### 11.6 Output Artifact Naming
+### 12.6 Output Artifact Naming
 
 All runtime artifacts use type-based prefixes for clarity:
 - `fig_*` (PNG figures): prisma_flow, publication_timeline, geographic_distribution, rob_traffic_light, forest_plot, funnel_plot
@@ -1076,14 +1078,14 @@ Living section -- update as work completes.
 | Component | Status | Notes |
 |-----------|--------|-------|
 | Phase 1: Foundation | DONE | Models, SQLite, 6 gates, citation ledger, LLM provider, rate limiter |
-| Phase 2: Search | DONE | All 11 connectors (scopus, web_of_science, openalex, pubmed, semantic_scholar, ieee_xplore, arxiv, crossref, perplexity_search, clinicaltrials, csv_import) + ClinicalTrials.gov grey literature, MinHash LSH dedup (datasketch + thefuzz), BM25 ranking, protocol generator, SearchConfig |
+| Phase 2: Search | DONE | All 12 connectors (scopus, web_of_science, openalex, pubmed, semantic_scholar, ieee_xplore, arxiv, crossref, perplexity_search, clinicaltrials, csv_import, embase) + ClinicalTrials.gov grey literature, MinHash LSH dedup (datasketch + thefuzz), BM25 ranking, protocol generator, SearchConfig |
 | Phase 3: Screening | DONE | Dual reviewer with cross-model validation (Reviewer A=flash-lite tier, Reviewer B=flash tier -- see config/settings.yaml), keyword filter, BM25 cap, batch LLM pre-ranker (batch_ranker.py; batch_screener agent; papers below batch_screen_threshold auto-excluded as batch_screened_low), kappa injected into writing, Ctrl+C proceed-with-partial, confidence fast-path, protocol-only auto-exclusion; forward citation chasing (Semantic Scholar + OpenAlex) runs at end of ScreeningNode -- chased papers are immediately dual-screened (title/abstract + fulltext) in the same run and contribute to dual_screening_results |
 | Phase 4: Extraction + Quality | DONE | LLM extraction with PyMuPDF full-text parsing (32K char context, up from 8K), async RoB 2 / ROBINS-I / CASP with heuristic fallback tagged by assessment_source, GRADE auto-wired from RoB data (assess_from_rob), study router, RoB traffic-light figure |
 | Phase 5: Synthesis | DONE | Hardened feasibility (requires effect_size+se in >= 2 studies), statsmodels pooling (DL), forest + funnel plots, LLM-based narrative direction classification, sensitivity analysis (leave-one-out + subgroup), synthesis_results table |
 | Phase 6: Writing | DONE | Section writer, humanizer, citation validation, per-section checkpoint, WritingGroundingData (includes kappa, sensitivity_results, n_studies_reporting_count, separated search sources, rob_summary, grade_summary injected from actual assessments), GRADE table + RoB summary injected into writing prompts |
 | Phase 7: PRISMA + Viz | DONE | PRISMA diagram (prisma-flow-diagram + fallback), timeline, geographic, ROBINS-I in RoB figure, uniform artifact naming |
 | Phase 8: Export + Orchestration | DONE | Run/resume, IEEE LaTeX, BibTeX, validators, Word DOCX export (pypandoc + python-docx), submission packager, pdflatex, CLI subcommands |
-| Web UI | DONE | FastAPI SSE backend (30+ endpoints incl. screening-summary, approve-screening, living-refresh, prisma-checklist, papers-reference, papers/{id}/file, fetch-pdfs), React/Vite/TypeScript frontend, structured Setup form, run-centric sidebar, 7-tab RunView in workflow order (Config -> Activity -> Data -> Cost -> Results -> References, with step numbers and chevron connectors; Review Screening when awaiting_review), Config tab shows research question and timestamped review.yaml for agent reference, DB explorer with heuristic RoB filter, cost tracking, grouped Results panel with PRISMA checklist panel, ScreeningReviewView for HITL approval, ReferencesView (tab 6) shows included papers with PDF/TXT download and retroactive "Fetch PDFs" button; NOTE: living-refresh backend endpoint exists but no frontend control is currently wired to it -- trigger via CLI or direct API call; history UX lives in Sidebar.tsx (not a separate HistoryView component) |
+| Web UI | DONE | FastAPI SSE backend (40+ endpoints incl. screening-summary, approve-screening, living-refresh, prisma-checklist, papers-reference, papers/{id}/file, fetch-pdfs), React/Vite/TypeScript frontend, structured Setup form, run-centric sidebar, 7-tab RunView in workflow order (Config -> Activity -> Data -> Cost -> Results -> References, with step numbers and chevron connectors; Review Screening when awaiting_review), Config tab shows research question and timestamped review.yaml for agent reference, DB explorer with heuristic RoB filter, cost tracking, grouped Results panel with PRISMA checklist panel, ScreeningReviewView for HITL approval, ReferencesView (tab 6) shows included papers with PDF/TXT download and retroactive "Fetch PDFs" button; NOTE: living-refresh backend endpoint exists but no frontend control is currently wired to it -- trigger via CLI or direct API call; history UX lives in Sidebar.tsx (not a separate HistoryView component) |
 | Human-in-the-Loop | DONE | HumanReviewCheckpointNode pauses run at awaiting_review status; approve-screening API resumes; frontend shows Review Screening tab with AI decisions + confidence |
 | Living Review | DONE | living_review + last_search_date in review.yaml; SearchNode skips previously-screened DOIs; POST /api/run/{id}/living-refresh creates incremental re-run |
 | Resume | DONE | Central registry, topic auto-resume, mid-phase resume, resume-from-phase (backend API supports from_phase param; UI phase-picker modal removed -- resume via CLI --from-phase flag or direct API call), fallback scan of run_summary.json |

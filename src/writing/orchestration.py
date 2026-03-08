@@ -493,9 +493,11 @@ async def register_background_sr_citations(
             while citekey in existing:
                 citekey = f"{base_key}{suffix}"
                 suffix += 1
+            sr_url = (p.get("url") or p.get("externalIds", {}).get("URL")) or None
             record = CitationEntryRecord(
                 citekey=citekey,
                 doi=doi,
+                url=str(sr_url) if sr_url else None,
                 title=title,
                 authors=authors,
                 year=year,
@@ -533,10 +535,11 @@ async def register_citations_from_papers(repo: CitationRepository, papers: list[
         record = CitationEntryRecord(
             citekey=citekey,
             doi=p.doi,
+            url=p.url,
             title=p.title or "(No title)",
             authors=p.authors or [],
             year=p.year,
-            journal=None,
+            journal=p.journal,
             bibtex=None,
             resolved=True,
         )

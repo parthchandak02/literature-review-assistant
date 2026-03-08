@@ -12,7 +12,7 @@ import {
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { formatRunDate, formatWorkflowId } from "@/lib/format"
-import { fetchHistory } from "@/lib/api"
+import { fetchHistory, saveNote } from "@/lib/api"
 import type { HistoryEntry } from "@/lib/api"
 import type { FunnelStage } from "@/lib/funnelStages"
 import {
@@ -123,12 +123,25 @@ export function Sidebar({
   const dragStartX = useRef(0)
   const dragStartWidth = useRef(0)
 
+  // Notes: keyed by workflow_id. Seeded from history, updated via SSE.
+  const [notes, setNotes] = useState<Record<string, string>>({})
+  // workflowId that just received a remote note update -- drives the flash animation.
+  const [noteFlashId, setNoteFlashId] = useState<string | null>(null)
+
   const loadHistory = useCallback(async () => {
     setLoadingHistory(true)
     setHistoryError(null)
     try {
       const data = await fetchHistory()
       setHistory(data)
+      // Seed notes map from history response (server is source of truth on load).
+      setNotes((prev) => {
+        const next = { ...prev }
+        for (const entry of data) {
+          if (entry.notes != null) next[entry.workflow_id] = entry.notes
+        }
+        return next
+      })
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e)
       setHistoryError(
@@ -137,6 +150,26 @@ export function Sidebar({
     } finally {
       setLoadingHistory(false)
     }
+  }, [])
+
+  // Subscribe to the global notes SSE stream for real-time cross-client sync.
+  useEffect(() => {
+    const es = new EventSource("/api/notes/stream")
+    es.onmessage = (event) => {
+      try {
+        const data = JSON.parse(event.data as string) as {
+          workflow_id: string
+          note: string
+        }
+        setNotes((prev) => ({ ...prev, [data.workflow_id]: data.note }))
+        setNoteFlashId(data.workflow_id)
+        // Clear flash id after animation completes so re-updates can re-trigger.
+        setTimeout(() => setNoteFlashId((id) => (id === data.workflow_id ? null : id)), 800)
+      } catch {
+        // Ignore malformed events.
+      }
+    }
+    return () => es.close()
   }, [])
 
   // Fetch history on mount, poll every 15s (picks up in-progress CLI runs),
@@ -606,6 +639,16 @@ export function Sidebar({
                       {!collapsed && (
                         <CardProgressBar status={statusKey} progress={progressValue} />
                       )}
+                      {!collapsed && (
+                        <NoteField
+                          workflowId={entry.workflow_id}
+                          value={notes[entry.workflow_id] ?? ""}
+                          isFlashing={noteFlashId === entry.workflow_id}
+                          onChange={(val) =>
+                            setNotes((prev) => ({ ...prev, [entry.workflow_id]: val }))
+                          }
+                        />
+                      )}
                     </div>
                   </SidebarTooltip>
                 )
@@ -863,5 +906,114 @@ function SidebarTooltip({
         {label}
       </TooltipContent>
     </Tooltip>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// NoteField: inline per-workflow annotation with debounced autosave + flash
+// ---------------------------------------------------------------------------
+
+function NoteField({
+  workflowId,
+  value,
+  isFlashing,
+  onChange,
+}: {
+  workflowId: string
+  value: string
+  isFlashing: boolean
+  onChange: (val: string) => void
+}) {
+  const [localValue, setLocalValue] = useState(value)
+  const [saveState, setSaveState] = useState<"idle" | "saving" | "saved">("idle")
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const savedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  // Sync incoming value from parent (SSE remote update) without overwriting
+  // an active local edit. Only apply when the textarea is not focused.
+  const textareaRef = useRef<HTMLTextAreaElement>(null)
+  useEffect(() => {
+    if (document.activeElement !== textareaRef.current) {
+      setLocalValue(value)
+    }
+  }, [value])
+
+  function scheduleSave(val: string) {
+    if (debounceRef.current) clearTimeout(debounceRef.current)
+    setSaveState("saving")
+    debounceRef.current = setTimeout(() => {
+      void persistNote(val)
+    }, 500)
+  }
+
+  async function persistNote(val: string) {
+    try {
+      await saveNote(workflowId, val)
+      setSaveState("saved")
+      if (savedTimerRef.current) clearTimeout(savedTimerRef.current)
+      savedTimerRef.current = setTimeout(() => setSaveState("idle"), 1500)
+    } catch {
+      setSaveState("idle")
+    }
+  }
+
+  function handleChange(e: React.ChangeEvent<HTMLTextAreaElement>) {
+    const val = e.target.value
+    setLocalValue(val)
+    onChange(val)
+    scheduleSave(val)
+  }
+
+  function handleBlur() {
+    // Flush any pending debounce immediately on blur.
+    if (debounceRef.current) {
+      clearTimeout(debounceRef.current)
+      debounceRef.current = null
+      void persistNote(localValue)
+    }
+  }
+
+  // Stop card click from firing when the user interacts with the note field.
+  function stopPropagation(e: React.MouseEvent | React.KeyboardEvent) {
+    e.stopPropagation()
+  }
+
+  return (
+    <div
+      className={cn(
+        "mx-2 mb-1.5 rounded px-1.5 py-1 transition-colors",
+        isFlashing && "animate-note-flash",
+      )}
+      onClick={stopPropagation}
+    >
+      <textarea
+        ref={textareaRef}
+        rows={1}
+        value={localValue}
+        onChange={handleChange}
+        onBlur={handleBlur}
+        onClick={stopPropagation}
+        onKeyDown={stopPropagation}
+        placeholder="Add a note..."
+        className={cn(
+          "w-full bg-transparent resize-none text-[11px] leading-snug",
+          "text-amber-400 placeholder-zinc-600",
+          "border-none outline-none focus:outline-none",
+          "scrollbar-none",
+        )}
+        style={{ minHeight: "1.3rem", maxHeight: "4rem", overflowY: "auto" }}
+        onInput={(e) => {
+          // Auto-grow the textarea up to maxHeight.
+          const el = e.currentTarget
+          el.style.height = "auto"
+          el.style.height = `${Math.min(el.scrollHeight, 64)}px`
+        }}
+      />
+      {saveState !== "idle" && (
+        <span className="text-[10px] text-zinc-600 tabular-nums">
+          {saveState === "saving" ? "Saving..." : "Saved"}
+        </span>
+      )}
+    </div>
   )
 }

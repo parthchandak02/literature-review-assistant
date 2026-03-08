@@ -253,17 +253,18 @@ If you add a new LLM-calling module, always add a `reserve_call_slot()` call to 
 silent quota exhaustion for pro-tier models like Gemini 3.1 Pro Preview.
 
 ## All LLM Models Are Centralized In config/settings.yaml
-No Gemini model string is hardcoded anywhere in src/. All 17 agent keys +
+No Gemini model string is hardcoded anywhere in src/. All 18 agent keys +
 rag.embed_model/hyde_model/reranker_model + extraction.pdf_vision_model live in
 `config/settings.yaml`. Module fallbacks use `src.llm.model_fallback.get_fallback_model(tier)`
 which reads settings.yaml first and only falls back to _TIER_LAST_RESORT constants when YAML
 cannot be parsed. To change any model, edit settings.yaml only -- no Python edits needed.
-The 17 agent keys are: screening_reviewer_a/b, screening_adjudicator, batch_screener,
+The 18 agent keys are: screening_reviewer_a/b, screening_adjudicator, batch_screener,
 search, extraction, quality_assessment, study_type_detection, writing, abstract_generation,
 humanizer, contradiction_resolver, criteria_refinement, table_extraction,
-config_generation, concept_diagrams, narrative.
-NOTE: naturalness_scorer and style_extraction were removed from settings.yaml when their
-corresponding dead-code modules were deleted.
+config_generation, concept_diagrams, narrative, style_extraction.
+NOTE: naturalness_scorer was removed from settings.yaml when its dead-code module was deleted.
+style_extraction remains in settings.yaml but the style_extractor module returns empty patterns
+and prepare_writing_context() no longer uses it -- effectively dead in the pipeline.
 
 ## Batch LLM Pre-Ranker Sits Between BM25 and Dual-Reviewer
 `src/screening/batch_ranker.py` implements a batch scoring step that fires after BM25

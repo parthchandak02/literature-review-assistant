@@ -1,4 +1,4 @@
-research_question: "What is the impact of robotic medication dispensing systems on dispensing accuracy, operational efficiency, and patient safety in outpatient and ambulatory pharmacy settings, and what are the primary barriers and facilitators to their implementation?"
+research_question: "What is the educational efficacy, user experience, and implementation impact of generative conversational AI tutoring systems on health science students within clinical and didactic learning environments?"
 review_type: "systematic"
 
 # Living review settings (optional)
@@ -8,63 +8,61 @@ living_review: false
 last_search_date: null
 
 pico:
-  population: "Outpatient, ambulatory, and community pharmacy settings, including hospital-based outpatient departments and centralized pharmacy hubs."
-  intervention: "Robotic medication dispensing systems (RDS), including automated prescription fulfillment, storage, and retrieval technologies."
-  comparison: "Manual dispensing processes, traditional pharmacy workflows, or pre-implementation baseline performance."
-  outcome: "Dispensing accuracy (error rates, near-misses), operational efficiency (throughput, turnaround time, labor requirements, wastage), patient safety, and implementation factors (barriers and facilitators)."
+  population: "Health science students including medical, nursing, pharmacy, allied health, dental, and public health trainees."
+  intervention: "Conversational AI tutors, Large Language Models (LLMs), and generative AI-driven pedagogical agents."
+  comparison: "Traditional educational methods, non-AI-based virtual patients, static learning materials, or pre-implementation baselines."
+  outcome: "Educational efficacy (test scores, diagnostic accuracy), user experience (satisfaction, trust, empathy), and implementation metrics (hallucination rates, latency, workflow integration)."
 
 keywords:
-  - "robotic dispensing systems"
-  - "pharmacy automation"
-  - "automated prescription fulfillment"
-  - "ScriptPro"
-  - "Omnicell"
-  - "Omnicell XR2"
-  - "Becton Dickinson medication management"
-  - "ARxIUM"
-  - "Swisslog PillPick"
-  - "Yuyama"
-  - "Parata"
-  - "RxMedic"
-  - "Pyxis"
-  - "outpatient pharmacy"
-  - "ambulatory pharmacy"
-  - "community pharmacy"
-  - "dispensing accuracy"
-  - "operational efficiency"
-  - "pharmacy workflow"
-  - "implementation barriers"
-  - "implementation facilitators"
-  - "prescription throughput"
-  - "medication safety"
-  - "automated drug distribution"
-  - "robotic pharmacy"
-  - "medication dispensing robot"
-  - "robotic dispensing"
-  - "automated dispensing"
-  - "dispensing error"
-  - "pharmacy robot"
+  - "conversational AI"
+  - "generative AI"
+  - "LLM"
+  - "chatbot"
+  - "virtual patient"
+  - "pedagogical agent"
+  - "ChatGPT"
+  - "Claude"
+  - "Gemini"
+  - "AMIE"
+  - "tutor"
+  - "tutoring"
+  - "didactic"
+  - "clinical"
+  - "OSCE"
+  - "hallucination"
+  - "diagnostic"
+  - "reasoning"
+  - "medical education"
+  - "nursing education"
+  - "pharmacy education"
+  - "health science"
+  - "conversational"
+  - "generative"
+  - "virtual"
+  - "agent"
+  - "education"
+  - "nursing"
+  - "pharmacy"
+  - "science"
 
-domain: "Pharmacy informatics and health systems engineering in outpatient care settings."
-scope: "This review evaluates the clinical and operational impact of robotic medication dispensing systems within outpatient and ambulatory pharmacy environments. It covers the efficacy of these systems in improving dispensing accuracy and efficiency, while identifying critical barriers and facilitators to successful implementation. The scope includes diverse pharmacy models such as retail chains, hospital-based outpatient departments, and centralized hub-and-spoke systems."
+domain: "Health professions education and medical training technology."
+scope: "This review covers the application of generative conversational AI systems in the training of health science students. It examines both didactic knowledge acquisition and clinical reasoning practice in simulated environments. The scope includes educational outcomes, user-perceived experience, and technical implementation challenges such as hallucination and workflow integration."
 
 inclusion_criteria:
-  - "Studies must evaluate robotic medication dispensing systems in outpatient, ambulatory, or community pharmacy settings."
-  - "Quantitative studies reporting on dispensing accuracy, operational efficiency, or patient safety outcomes are eligible."
-  - "Qualitative or mixed-methods studies identifying barriers and facilitators to system implementation are included."
-  - "Peer-reviewed journal articles, conference proceedings, and systematic reviews published in English are eligible."
-  - "Studies must provide sufficient detail on the specific technology or automation system used."
-  - "Research published from the year 2000 to the present is included to ensure technological relevance."
+  - "Studies must evaluate a generative conversational AI system used for educational purposes."
+  - "The target population must be students enrolled in health science degree programs."
+  - "The study must report quantitative or qualitative data on educational efficacy, user experience, or implementation impact."
+  - "Peer-reviewed journal articles, conference proceedings, and preprints are eligible for inclusion."
+  - "Studies must be published in the English language."
+  - "Research must be conducted in either clinical simulation or didactic learning settings."
 
 exclusion_criteria:
-  - "Studies focusing exclusively on inpatient ward-based automated dispensing cabinets are excluded."
-  - "Research concerning automated home medication dispensers for patient-level adherence is excluded."
-  - "Studies limited to barcode medication administration (BCMA) or computerized physician order entry (CPOE) without a dispensing component are excluded."
-  - "Non-English language publications are excluded."
-  - "Editorials, opinion pieces, and non-peer-reviewed white papers are excluded."
-  - "Studies where the primary intervention is not a physical robotic dispensing system (e.g., Lean, Six Sigma, 5S, or e-prescribing studies without a robotic dispenser component) are excluded."
-  - "Studies on inventory management, procurement, or supply chain systems without a dispensing accuracy or patient safety outcome are excluded."
-  - "Studies for which the full text could not be retrieved after exhausting all available open-access retrieval tiers (Unpaywall, Semantic Scholar, Europe PMC, CORE, PubMed Central) are excluded, as synthesis requires full-text review."
+  - "Studies focusing on rule-based chatbots or non-generative decision-tree scripts are excluded."
+  - "Research involving static virtual patient software without conversational AI capabilities is excluded."
+  - "Papers evaluating AI tools used solely for administrative tasks like scheduling or billing are excluded."
+  - "Studies focusing on non-conversational clinical decision support systems (CDSS) are excluded."
+  - "Editorials, opinion pieces, and non-empirical literature reviews are excluded."
+  - "Studies where the AI intervention is not specifically applied to health science student training are excluded."
 
 date_range_start: 2000
 date_range_end: 2026
@@ -76,9 +74,6 @@ target_databases:
   - semantic_scholar
   - ieee_xplore
   - clinicaltrials_gov
-  # web_of_science: removed -- Clarivate API returns status 512 consistently across
-  # multiple runs on March 5-6 2026 (wf-9e7598fe, wf-b431ebff, wf-f4a5df72).
-  # Re-enable after confirming the API key and quota are valid at developer.clarivate.com.
 
 target_sections:
   - abstract
@@ -104,31 +99,9 @@ author_name: ""  # Fill in: full name of the corresponding/first author (used in
 
 # Optional: override auto-generated queries per database. Omit a database to use default.
 search_overrides:
-  scopus: >-
-    TITLE-ABS-KEY("robotic dispensing" OR "automated dispensing" OR "pharmacy automation"
-    OR "automated dispensing cabinet" OR "robotic pharmacy" OR "ScriptPro" OR "Pyxis"
-    OR "Omnicell" OR "ARxIUM" OR "Swisslog" OR "Yuyama" OR "Parata" OR "RxMedic")
-    AND TITLE-ABS-KEY("dispensing accuracy" OR "medication error" OR "patient safety"
-    OR "outpatient pharmacy" OR "ambulatory pharmacy" OR "community pharmacy"
-    OR "pharmacy workflow" OR "implementation" OR "operational efficiency")
-    AND PUBYEAR > 1999 AND PUBYEAR < 2027
-  pubmed: >-
-    ("Automation"[MeSH Terms] OR "Robotics"[MeSH Terms] OR "Drug Dispensers, Automatic"[MeSH Terms]
-    OR "robotic dispensing"[Title/Abstract] OR "automated dispensing"[Title/Abstract]
-    OR "pharmacy automation"[Title/Abstract] OR "automated dispensing cabinet"[Title/Abstract]
-    OR "robotic pharmacy"[Title/Abstract] OR "ScriptPro"[Title/Abstract]
-    OR "Pyxis"[Title/Abstract] OR "Omnicell"[Title/Abstract] OR "RxMedic"[Title/Abstract]
-    OR "ARxIUM"[Title/Abstract] OR "Swisslog"[Title/Abstract] OR "Parata"[Title/Abstract])
-    AND
-    ("outpatient"[Title/Abstract] OR "ambulatory"[Title/Abstract]
-    OR "community pharmacy"[Title/Abstract] OR "dispensing accuracy"[Title/Abstract]
-    OR "medication error*"[Title/Abstract] OR "dispensing error"[Title/Abstract]
-    OR "pharmacy workflow"[Title/Abstract] OR "patient safety"[Title/Abstract]
-    OR "implementation barrier*"[Title/Abstract] OR "pharmacy efficiency"[Title/Abstract])
-  semantic_scholar: "robotic pharmacy dispensing outpatient medication error implementation barriers"
-  openalex: "robotic dispensing OR pharmacy automation OR automated dispensing cabinet OR robotic pharmacy OR ScriptPro OR Omnicell OR Parata OR dispensing accuracy OR medication dispensing robot"
-  clinicaltrials_gov: >-
-    "robotic dispensing" OR "pharmacy automation" OR "automated dispensing" OR "ScriptPro"
-    OR "Omnicell" OR "Parata" OR "Pyxis" OR "RxMedic" OR "ARxIUM" OR "Swisslog"
-    OR "outpatient pharmacy" OR "ambulatory pharmacy" OR "dispensing accuracy"
-    OR "medication error" OR "pharmacy robot"
+  pubmed: "(Artificial Intelligence[MeSH Terms] OR \"conversational AI\"[Title/Abstract] OR \"generative AI\"[Title/Abstract] OR \"large language model\"[Title/Abstract]) AND (student[Title/Abstract] OR education[Title/Abstract] OR clinical[Title/Abstract] OR diagnostic[Title/Abstract] OR tutoring[Title/Abstract])"
+  scopus: "TITLE-ABS-KEY(\"conversational AI\" OR \"generative AI\" OR \"large language model\" OR \"chatbot\" OR \"virtual patient\") AND TITLE-ABS-KEY(\"medical education\" OR \"nursing education\" OR \"clinical reasoning\" OR \"OSCE\" OR \"tutoring\") AND PUBYEAR > 2019 AND PUBYEAR < 2027"
+  ieee_xplore: "(\"conversational AI\" OR \"generative AI\" OR \"large language model\" OR \"intelligent tutoring system\") AND (\"medical education\" OR \"clinical training\" OR \"health science\")"
+  semantic_scholar: "generative AI medical education student learning outcomes implementation"
+  openalex: "conversational AI health science education student learning outcomes effectiveness"
+  clinicaltrials_gov: "\"conversational AI\" OR \"generative AI\" OR \"large language model\" OR \"chatbot\" OR \"virtual patient\" OR \"medical education\" OR \"clinical training\""

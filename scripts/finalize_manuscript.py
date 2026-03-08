@@ -103,6 +103,122 @@ def _remove_protocol_from_results_opening(body: str) -> str:
     return body[:window_start] + cleaned_window + body[window_end:]
 
 
+def _inject_keywords(body: str, keywords: list[str]) -> str:
+    """Inject a Keywords line after the structured abstract paragraph.
+
+    PRISMA 2020 item 2 recommends keywords in the abstract. The function
+    inserts a '**Keywords:**' line between the abstract and the Introduction
+    heading. Safe to call multiple times (idempotent via keyword presence check).
+    """
+    if not keywords or "**Keywords:**" in body:
+        return body
+    kw_str = "; ".join(k for k in keywords[:10] if k.strip())
+    if not kw_str:
+        return body
+    intro_match = re.search(r"\n\n## Introduction", body, re.IGNORECASE)
+    if not intro_match:
+        return body
+    kw_block = f"\n\n**Keywords:** {kw_str}"
+    return body[: intro_match.start()] + kw_block + body[intro_match.start() :]
+
+
+def _add_synthesis_software_disclosure(body: str) -> str:
+    """Append a disclosure that narrative synthesis was manual (no NVivo/software).
+
+    Required by PRISMA 2020 and benchmark SR standards to name or disclaim
+    thematic analysis software. Appended to the first sentence of the Synthesis
+    Methods subsection. Idempotent.
+    """
+    disclosure = (
+        "Narrative synthesis was conducted manually without dedicated thematic analysis software."
+    )
+    if disclosure in body:
+        return body
+    # Find the first sentence after ### Synthesis Methods heading
+    synth_re = re.compile(
+        r"(### Synthesis Methods\n[^.!?]+[.!?])",
+        re.IGNORECASE | re.DOTALL,
+    )
+    return synth_re.sub(r"\1 " + disclosure, body, count=1)
+
+
+def _fix_figure_references_from_map(body: str, full_text_with_figures: str) -> str:
+    """Correct figure numbers in the manuscript body using the assembled Figures section.
+
+    Parses the '## Figures' section of the assembled full manuscript to extract
+    the actual figure numbering (e.g. Fig. 3 = RoB 2 traffic-light), then
+    corrects 'Figure N' references in the body text when the number does not
+    match. This prevents off-by-one errors caused by optional figures (e.g. the
+    RoB 2 traffic-light for RCTs) that the writing LLM did not account for when
+    assigning figure numbers.
+
+    No-op when the Figures section is absent or empty (safe to call always).
+    """
+    # Parse the ## Figures section from the assembled manuscript
+    fig_section_match = re.search(
+        r"## Figures\n(.+?)(?:\n---|\Z)", full_text_with_figures, re.DOTALL
+    )
+    if not fig_section_match:
+        return body
+
+    fig_section = fig_section_match.group(1)
+
+    # Caption keywords by logical figure role (used to parse the Figures section).
+    _CAPTION_ROLES: dict[str, list[str]] = {
+        "prisma": ["prisma", "flow diagram", "study selection"],
+        "rob_robins": ["robins-i", "non-randomized", "casp", "traffic-light"],
+        "rob2_rct": ["rob 2", "cochrane rob", "randomized controlled trial"],
+        "forest": ["forest plot", "pooled effect"],
+        "funnel": ["funnel plot", "publication bias"],
+        "timeline": ["publication timeline", "timeline of included"],
+        "geographic": ["geographic distribution", "country of origin"],
+        "evidence_network": ["evidence network", "co-citation"],
+        "concept_taxonomy": ["conceptual taxonomy", "taxonomy of"],
+        "conceptual_framework": ["conceptual framework", "framework derived"],
+        "methodology_flow": ["methodology flow"],
+    }
+
+    # Build role -> figure number map by matching Fig. captions
+    role_to_num: dict[str, int] = {}
+    for m in re.finditer(r"\*\*Fig\. (\d+)\.\*\*\s*(.+?)(?=\n\*\*Fig\.|\n---|\Z)", fig_section, re.DOTALL):
+        num = int(m.group(1))
+        cap_lo = m.group(2).lower()
+        for role, kws in _CAPTION_ROLES.items():
+            if any(kw in cap_lo for kw in kws):
+                role_to_num[role] = num
+                break
+
+    if not role_to_num:
+        return body
+
+    # Body context keywords -> role (for matching "Figure N" references in body text)
+    _BODY_ROLES: dict[str, list[str]] = {
+        "prisma": ["prisma", "flow diagram", "study selection", "screening funnel"],
+        "rob_robins": ["traffic-light", "traffic light", "risk of bias traffic", "robins", "casp"],
+        "rob2_rct": ["rob 2", "cochrane rob"],
+        "timeline": ["publication timeline", "research volume", "timeline", "yearly", "publications over"],
+        "geographic": ["geographic", "global distribution", "country of origin", "geograph"],
+        "evidence_network": ["evidence network", "co-citation", "knowledge graph"],
+        "concept_taxonomy": ["conceptual taxonomy", "taxonomy of"],
+        "conceptual_framework": ["conceptual framework"],
+        "methodology_flow": ["methodology flow"],
+    }
+
+    def _replace_fig(m: re.Match) -> str:
+        n = int(m.group(1))
+        start, end = m.span()
+        ctx_lo = body[max(0, start - 300) : min(len(body), end + 300)].lower()
+        for role, kws in _BODY_ROLES.items():
+            correct = role_to_num.get(role)
+            if correct is None:
+                continue
+            if any(kw in ctx_lo for kw in kws) and n != correct:
+                return f"Figure {correct}"
+        return m.group(0)
+
+    return re.sub(r"Figure (\d+)", _replace_fig, body)
+
+
 def _add_ai_screening_disclosure(body: str) -> str:
     """Insert an AI-assisted screening disclosure sentence in the Methods section.
 
@@ -175,6 +291,8 @@ async def main(run_dir: str) -> int:
     manuscript_path = run_path / "doc_manuscript.md"
     db_path = run_path / "runtime.db"
 
+    review_yaml_path = run_path / "review.yaml"
+
     if not manuscript_path.exists():
         print(f"ERROR: manuscript not found: {manuscript_path}")
         return 1
@@ -202,6 +320,18 @@ async def main(run_dir: str) -> int:
     body = _inject_imrad_headings(body)
     body = _add_ai_screening_disclosure(body)
     body = _remove_protocol_from_results_opening(body)
+
+    # Read keywords from the run's review.yaml for keyword injection.
+    _run_keywords: list[str] = []
+    if review_yaml_path.exists():
+        try:
+            _kw_data = yaml.safe_load(review_yaml_path.read_text(encoding="utf-8")) or {}
+            _run_keywords = [str(k) for k in (_kw_data.get("keywords") or []) if k]
+        except Exception:
+            pass
+
+    body = _inject_keywords(body, _run_keywords)
+    body = _add_synthesis_software_disclosure(body)
 
     # Post-process: replace raw paper_id UUID fragments in the Conflicting Evidence
     # section with citekey labels. This handles runs where the section was written
@@ -277,7 +407,6 @@ async def main(run_dir: str) -> int:
     _search_appendix_path = run_path / "doc_search_strategies_appendix.md"
     research_question = ""
     review_config = None
-    review_yaml_path = run_path / "review.yaml"
     if review_yaml_path.exists():
         try:
             config_data = yaml.safe_load(review_yaml_path.read_text(encoding="utf-8")) or {}
@@ -372,6 +501,16 @@ async def main(run_dir: str) -> int:
 
     # Strip any surviving unresolved [AuthorYear] citekeys (hallucinated or ledger gaps)
     full_manuscript = _strip_unresolved_citekeys(full_manuscript)
+
+    # Fix figure number references in the body text using the correctly numbered
+    # ## Figures section as the source of truth. Only the portion of the manuscript
+    # BEFORE the ## Figures heading is patched so correct captions are not disturbed.
+    _figures_split = re.search(r"\n## Figures\n", full_manuscript)
+    if _figures_split:
+        _body_part = full_manuscript[: _figures_split.start()]
+        _tail_part = full_manuscript[_figures_split.start() :]
+        _body_part_fixed = _fix_figure_references_from_map(_body_part, full_manuscript)
+        full_manuscript = _body_part_fixed + _tail_part
 
     # Idempotency fix: if the assembled manuscript is missing a References section
     # (because the body was already numbered from a prior run and no [AuthorYear]

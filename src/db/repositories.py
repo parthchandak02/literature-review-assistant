@@ -1102,6 +1102,15 @@ class CitationRepository:
     def __init__(self, db: aiosqlite.Connection):
         self.db = db
 
+    async def ensure_schema(self) -> None:
+        """Idempotent migration: add columns introduced after initial schema creation."""
+        try:
+            await self.db.execute("ALTER TABLE citations ADD COLUMN url TEXT")
+            await self.db.commit()
+        except Exception:
+            # Column already exists (or table does not exist yet -- schema.sql will create it).
+            pass
+
     async def register_claim(self, claim: ClaimRecord) -> None:
         await self.db.execute(
             """
@@ -1127,11 +1136,12 @@ class CitationRepository:
 
         await self.db.execute(
             """
-            INSERT INTO citations (citation_id, citekey, doi, title, authors, year, journal, bibtex, resolved)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO citations (citation_id, citekey, doi, url, title, authors, year, journal, bibtex, resolved)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(citation_id) DO UPDATE SET
                 citekey=excluded.citekey,
                 doi=excluded.doi,
+                url=excluded.url,
                 title=excluded.title,
                 authors=excluded.authors,
                 year=excluded.year,
@@ -1143,6 +1153,7 @@ class CitationRepository:
                 citation.citation_id,
                 citation.citekey,
                 citation.doi,
+                citation.url,
                 citation.title,
                 json.dumps(citation.authors),
                 citation.year,
@@ -1205,11 +1216,11 @@ class CitationRepository:
 
     async def get_all_citations_for_export(
         self,
-    ) -> list[tuple[str, str, str | None, str, str, int | None, str | None, str | None]]:
-        """Return (citation_id, citekey, doi, title, authors_json, year, journal, bibtex) for BibTeX export."""
+    ) -> list[tuple[str, str, str | None, str, str, int | None, str | None, str | None, str | None]]:
+        """Return (citation_id, citekey, doi, title, authors_json, year, journal, bibtex, url) for BibTeX export."""
         cursor = await self.db.execute(
             """
-            SELECT citation_id, citekey, doi, title, authors, year, journal, bibtex
+            SELECT citation_id, citekey, doi, title, authors, year, journal, bibtex, url
             FROM citations
             ORDER BY citekey
             """
@@ -1225,6 +1236,7 @@ class CitationRepository:
                 int(row[5]) if row[5] is not None else None,
                 str(row[6]) if row[6] else None,
                 str(row[7]) if row[7] else None,
+                str(row[8]) if row[8] else None,
             )
             for row in rows
         ]

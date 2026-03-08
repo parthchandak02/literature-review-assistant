@@ -3,6 +3,14 @@
 
 @theme {
   --font-sans: "Inter", system-ui, -apple-system, sans-serif;
+
+  /* Note flash: brief amber highlight when a remote note update arrives */
+  --animate-note-flash: note-flash 0.7s ease-out forwards;
+
+  @keyframes note-flash {
+    0%   { background-color: rgba(245, 158, 11, 0.30); border-radius: 0.25rem; }
+    100% { background-color: transparent; }
+  }
   --color-background: #09090b;
   --color-card: #18181b;
   --color-border: #27272a;

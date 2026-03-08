@@ -742,6 +742,7 @@ class ScreeningNode(BaseNode[ReviewState]):
                     )
 
                 on_screening_decision = _on_screening_decision
+            _on_status = rc.log_status if rc and hasattr(rc, "log_status") else None
             screener = DualReviewerScreener(
                 repository=repository,
                 provider=provider,
@@ -753,6 +754,7 @@ class ScreeningNode(BaseNode[ReviewState]):
                 on_prompt=on_prompt,
                 should_proceed_with_partial=should_proceed,
                 on_screening_decision=on_screening_decision,
+                on_status=_on_status,
             )
 
             # --- Gate 0: Metadata pre-filter (no LLM cost) ---
@@ -2377,6 +2379,7 @@ class WritingNode(BaseNode[ReviewState]):
                 rc.console.print(f"  Geographic: {Path(state.artifacts['geographic']).name}")
 
             citation_repo = CitationRepository(db)
+            await citation_repo.ensure_schema()
             completed = await repository.get_completed_sections(state.workflow_id)
             provider = LLMProvider(state.settings, repository)
 
@@ -2481,6 +2484,21 @@ class WritingNode(BaseNode[ReviewState]):
                 except Exception as _rob_err:
                     logger.debug("WritingNode: could not load RoB/GRADE assessments: %s", _rob_err)
 
+                # Compute figure map from existing artifact files.
+                # Uses FIGURE_DEFS canonical order from markdown_refs.py so the
+                # writing LLM receives exact figure numbers matching the final
+                # assembled manuscript (preventing off-by-one figure references).
+                from src.export.markdown_refs import FIGURE_DEFS as _FIGURE_DEFS
+                import pathlib as _pathlib
+
+                _fig_map: dict[str, int] = {}
+                _fig_seq = 1
+                for _fkey, _ in _FIGURE_DEFS:
+                    _fpath_str = state.artifacts.get(_fkey, "")
+                    if _fpath_str and _pathlib.Path(_fpath_str).exists():
+                        _fig_map[_fkey] = _fig_seq
+                        _fig_seq += 1
+
                 grounding = build_writing_grounding(
                     prisma_counts=prisma_counts,
                     extraction_records=state.extraction_records,
@@ -2505,6 +2523,7 @@ class WritingNode(BaseNode[ReviewState]):
                     rob2_assessments=_rob2_rows_w or None,
                     robins_i_assessments=_robins_i_rows_w or None,
                     grade_assessments=_grade_rows_w or None,
+                    figure_map=_fig_map or None,
                 )
 
                 def _on_write(**kw):

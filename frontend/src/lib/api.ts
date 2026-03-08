@@ -112,6 +112,8 @@ export interface HistoryEntry {
   /** Set when the workflow has an active in-process task. The frontend uses
    *  this to connect a live SSE stream instead of replaying historical DB events. */
   live_run_id?: string | null
+  /** User-authored annotation persisted in the central registry. */
+  notes?: string | null
 }
 
 const BASE = "/api"
@@ -872,5 +874,18 @@ export async function deleteRun(workflowId: string, runRoot = "runs"): Promise<v
   if (!res.ok) {
     const text = await res.text()
     throw new Error(`Failed to delete run: ${text}`)
+  }
+}
+
+/** Persist a user note for a workflow. Broadcasts to all connected note-stream clients. */
+export async function saveNote(workflowId: string, note: string, runRoot = "runs"): Promise<void> {
+  const res = await fetch(`${BASE}/notes/${workflowId}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ note, run_root: runRoot }),
+  })
+  if (!res.ok) {
+    const text = await res.text()
+    throw new Error(`Failed to save note: ${text}`)
   }
 }

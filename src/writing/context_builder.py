@@ -239,6 +239,13 @@ class WritingGroundingData(BaseModel):
     # Empty string when GRADE was not run.
     grade_summary: str = ""
 
+    # Figure number map: artifact_key -> sequential figure number (1-based).
+    # Computed at WritingNode start from artifact files that exist on disk,
+    # following the canonical FIGURE_DEFS order in src/export/markdown_refs.py.
+    # Injected into the grounding block so the LLM uses correct figure numbers
+    # instead of guessing. Empty dict when figure files cannot be checked.
+    figure_map: dict[str, int] = {}
+
 
 def _build_screening_method_description(
     screening_decisions: list[object] | None,
@@ -367,6 +374,7 @@ def build_writing_grounding(
     rob2_assessments: list | None = None,
     robins_i_assessments: list | None = None,
     grade_assessments: list | None = None,
+    figure_map: dict[str, int] | None = None,
 ) -> WritingGroundingData:
     """Aggregate real pipeline outputs into a WritingGroundingData instance."""
 
@@ -569,6 +577,7 @@ def build_writing_grounding(
         author_name=_author_name or "Corresponding Author",
         rob_summary=_rob_summary,
         grade_summary=_grade_summary,
+        figure_map=figure_map or {},
     )
 
 
@@ -869,6 +878,34 @@ def format_grounding_block(data: WritingGroundingData) -> str:
             "CRITICAL -- GRADE REPORTING RULE: The Results section MUST report the certainty "
             "of evidence for each outcome using the GRADE levels listed above verbatim. "
             "Do NOT modify, upgrade, or downgrade these certainty assessments."
+        )
+
+    if data.figure_map:
+        lines.append("")
+        lines.append(
+            "FIGURE NUMBER MAP -- CRITICAL: Use ONLY these figure numbers when referencing figures. "
+            "Do NOT guess or infer figure numbers. Each number below is the exact sequential figure "
+            "number assigned in the final manuscript based on which figures exist on disk."
+        )
+        _fig_label_map = {
+            "prisma_diagram": "PRISMA 2020 flow diagram",
+            "rob_traffic_light": "Risk of bias traffic-light plot (ROBINS-I/CASP)",
+            "rob2_traffic_light": "RoB 2 traffic-light plot (RCTs only)",
+            "fig_forest_plot": "Forest plot",
+            "fig_funnel_plot": "Funnel plot",
+            "timeline": "Publication timeline",
+            "geographic": "Geographic distribution of studies",
+            "concept_taxonomy": "Conceptual taxonomy",
+            "conceptual_framework": "Conceptual framework",
+            "methodology_flow": "Methodology flow diagram",
+            "evidence_network": "Evidence network",
+        }
+        for artifact_key, fig_num in sorted(data.figure_map.items(), key=lambda x: x[1]):
+            label = _fig_label_map.get(artifact_key, artifact_key)
+            lines.append(f"  Figure {fig_num}: {label}")
+        lines.append(
+            "STRICT RULE: When writing 'Figure N' in the text, N MUST come from the map above. "
+            "If a figure is not listed, do NOT reference it by number."
         )
 
     if data.sensitivity_results:

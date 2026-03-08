@@ -10,7 +10,7 @@ It runs a full PRISMA 2020-compliant pipeline: searches academic databases (defa
 
 ## What It Produces
 
-After a run completes, the run directory contains:
+After a run completes, the run directory (`runs/YYYY-MM-DD/<topic-slug>/run_<time>/`) contains:
 
 - `doc_manuscript.md` -- the full manuscript in markdown
 - `doc_manuscript.tex` -- IEEE LaTeX version (generated automatically, no export step needed)
@@ -180,6 +180,7 @@ Your `submission/` folder is ready.
 | `CORE_API_KEY` | [core.ac.uk/api-keys/register](https://core.ac.uk/api-keys/register) | No (full-text from institutional repos) |
 | `SCOPUS_API_KEY` | Elsevier API (institutional) | No (ScienceDirect full-text for Elsevier OA) |
 | `WOS_API_KEY` | [Clarivate developer portal](https://developer.clarivate.com) | No (Web of Science Starter API, 300 req/day free) |
+| `EMBASE_API_KEY` | Elsevier institutional (apisupport@elsevier.com) | No (Embase connector) |
 
 The free Gemini tier (Flash-Lite / Flash / Pro) is sufficient for most reviews. A full run typically costs under $5.
 
@@ -234,13 +235,13 @@ Two config files control behavior:
 - `research_question`, `pico`, `keywords`, `domain`
 - `inclusion_criteria`, `exclusion_criteria`
 - `date_range_start`, `date_range_end`
-- `target_databases` (defaults: scopus, web_of_science, openalex, pubmed, semantic_scholar; opt-in: ieee_xplore, clinicaltrials_gov, arxiv, crossref, perplexity_search)
+- `target_databases` (defaults: scopus, web_of_science, openalex, pubmed, semantic_scholar; opt-in: ieee_xplore, clinicaltrials_gov, arxiv, crossref, perplexity_search, embase)
 - `search_overrides` (per-database query overrides; the AI config generator produces these for all six primary databases automatically; omit a key to use the auto-generated fallback)
 - `living_review: false` -- set to `true` + set `last_search_date` to re-run only from that date forward
 
 **`config/settings.yaml`** -- change this rarely:
 - LLM model assignments (which Gemini tier handles screening vs. writing)
-- `dual_review.reviewer_b_model` -- second reviewer model for cross-model validation (default: gemini-3-flash-preview)
+- `agents.screening_reviewer_b.model` -- second reviewer model for cross-model validation
 - Screening thresholds (include/exclude confidence cutoffs)
 - `max_llm_screen` -- hard cap on LLM screening volume (cost control)
 - `human_in_the_loop.enabled` -- pause after screening for manual review of AI decisions
@@ -366,7 +367,7 @@ cd frontend && pnpm fix && pnpm typecheck
 | `src/synthesis/` | Feasibility checker, meta-analysis, narrative synthesis |
 | `src/rag/` | RAG pipeline: chunker, embedder (PydanticAI), hybrid BM25+dense retriever (RRF), HyDE query expansion, Gemini listwise reranker |
 | `src/knowledge_graph/` | Builder, community (Louvain), gap detector |
-| `src/writing/` | Section writer, humanizer, style extractor, grounding |
+| `src/writing/` | Section writer, humanizer, grounding |
 | `src/citation/` | Citation ledger -- claim-to-evidence-to-BibTeX lineage |
 | `src/export/` | IEEE LaTeX exporter, Word DOCX exporter, BibTeX builder, PRISMA validator |
 | `src/visualization/` | Forest plot, funnel plot, RoB figure, timeline, geographic |
