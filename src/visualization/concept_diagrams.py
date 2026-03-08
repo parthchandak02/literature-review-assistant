@@ -41,7 +41,9 @@ def _get_model_from_settings() -> str:
         _, s = load_configs(settings_path="config/settings.yaml")
         return s.agents["concept_diagrams"].model
     except Exception:
-        return "google-gla:gemini-3.1-flash-lite-preview"
+        from src.llm.model_fallback import get_fallback_model
+
+        return get_fallback_model("lite")
 
 
 _LLM_MODEL = _get_model_from_settings()

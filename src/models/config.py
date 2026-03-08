@@ -253,10 +253,8 @@ class GatesConfig(BaseModel):
 
 
 class WritingConfig(BaseModel):
-    style_extraction: bool = True
     humanization: bool = True
     humanization_iterations: int = Field(ge=1, le=5, default=2)
-    naturalness_threshold: float = Field(ge=0.0, le=1.0, default=0.75)
     checkpoint_per_section: bool = True
     llm_timeout: int = 120
     writing_concurrency: int = Field(

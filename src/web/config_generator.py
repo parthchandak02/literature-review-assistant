@@ -43,9 +43,6 @@ logger = logging.getLogger(__name__)
 # Used when full ReviewConfig validation fails (schema drift, partial YAML).
 _DefaultConfigDict = dict[str, Any]
 
-# Fallback model used only when settings.yaml cannot be loaded.
-# In production the model is resolved from agents.search in settings.yaml.
-_MODEL_FALLBACK = "google-gla:gemini-3.1-flash-lite-preview"
 _TEMPERATURE = 0.3
 
 
@@ -60,7 +57,9 @@ def _resolve_model() -> str:
             return agent.model
     except Exception:
         pass
-    return _MODEL_FALLBACK
+    from src.llm.model_fallback import get_fallback_model
+
+    return get_fallback_model("lite")
 
 
 # Structural defaults that are never LLM-generated (kept stable across all reviews).

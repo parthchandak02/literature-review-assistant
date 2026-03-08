@@ -21,7 +21,9 @@ def _get_model_from_settings() -> str:
         _, s = load_configs(settings_path="config/settings.yaml")
         return s.agents["humanizer"].model
     except Exception:
-        return "google-gla:gemini-3.1-pro-preview"
+        from src.llm.model_fallback import get_fallback_model
+
+        return get_fallback_model("flash")
 
 
 _HUMANIZE_PROMPT_TEMPLATE = """\
@@ -47,12 +49,6 @@ Section text:
 
 Return ONLY the revised section text. Do not include any commentary or explanation.
 """
-
-
-def humanize(text: str, max_chars: int = 12_000) -> str:
-    """Synchronous pass-through stub for offline/test usage."""
-    _ = max_chars
-    return text
 
 
 async def humanize_async(

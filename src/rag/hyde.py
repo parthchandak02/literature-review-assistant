@@ -71,10 +71,25 @@ def _build_pico_block(pico: object | None) -> str:
     return "\nPICO framework for this review:\n" + "\n".join(parts) + "\n"
 
 
+def _get_hyde_default_model() -> str:
+    try:
+        from src.config.loader import load_configs
+
+        _, s = load_configs(settings_path="config/settings.yaml")
+        return s.rag.hyde_model
+    except Exception:
+        from src.llm.model_fallback import get_fallback_model
+
+        return get_fallback_model("lite")
+
+
+_DEFAULT_HYDE_MODEL = _get_hyde_default_model()
+
+
 async def generate_hyde_document(
     section: str,
     research_question: str,
-    model: str = "google-gla:gemini-3.1-flash-lite-preview",
+    model: str = _DEFAULT_HYDE_MODEL,
     pico: object | None = None,
     provider: object | None = None,
     repository: WorkflowRepository | None = None,

@@ -32,7 +32,19 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-_DEFAULT_MODEL = "google-gla:gemini-3.1-flash-lite-preview"
+def _get_default_model() -> str:
+    try:
+        from src.config.loader import load_configs
+
+        _, s = load_configs(settings_path="config/settings.yaml")
+        return s.rag.reranker_model
+    except Exception:
+        from src.llm.model_fallback import get_fallback_model
+
+        return get_fallback_model("lite")
+
+
+_DEFAULT_MODEL = _get_default_model()
 
 _RERANK_PROMPT = """\
 You are a relevance-ranking assistant for a systematic literature review.

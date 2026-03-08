@@ -2,13 +2,12 @@
 
 from __future__ import annotations
 
-import re
 import time
 from dataclasses import dataclass
 
 from src.llm.provider import LLMProvider
 from src.llm.pydantic_client import PydanticAIClient
-from src.models import ReviewConfig, SectionDraft, SettingsConfig
+from src.models import ReviewConfig, SettingsConfig
 
 
 @dataclass
@@ -35,12 +34,10 @@ class SectionWriter:
         review: ReviewConfig,
         settings: SettingsConfig,
         citation_catalog: str = "",
-        style_patterns: object | None = None,
     ):
         self.review = review
         self.settings = settings
         self.citation_catalog = citation_catalog
-        self.style_patterns = style_patterns
 
     def _build_section_prompt(
         self,
@@ -107,25 +104,3 @@ class SectionWriter:
         return content, metadata
 
 
-def write_section(
-    section: str,
-    context: str,
-    review: ReviewConfig,
-    settings: SettingsConfig,
-    citation_catalog: str = "",
-    word_limit: int | None = None,
-) -> SectionDraft:
-    """Synchronous wrapper for section writing. Returns SectionDraft.
-
-    For now returns a placeholder draft; full async integration is in workflow.
-    """
-    word_count = len(re.split(r"\s+", context.strip())) if context else 0
-    return SectionDraft(
-        workflow_id="",
-        section=section,
-        version=1,
-        content="[Section placeholder - use SectionWriter.write_section_async in workflow]",
-        claims_used=[],
-        citations_used=[],
-        word_count=word_count,
-    )

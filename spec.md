@@ -1,6 +1,6 @@
 # LitReview -- Unified System Specification
 
-**Version:** 1.0
+**Version:** 1.1
 **Date:** March 2026
 **Owner:** Parth Chandak
 **Purpose:** Single living recipe for building and maintaining the LitReview systematic review automation system. Covers architecture, technology decisions, data flow, phase design, and operating procedures. This document is the sole source of truth -- read it before writing any code.
@@ -59,25 +59,43 @@ The pipeline is a directed acyclic graph implemented with PydanticAI's stable `B
 StartNode / ResumeStartNode
     |
     v
-SearchNode          (phase_2_search)
+SearchNode                    (phase_2_search)
     |
     v
-ScreeningNode       (phase_3_screening)
+ScreeningNode                 (phase_3_screening)
     |
     v
-ExtractionQualityNode  (phase_4_extraction_quality)
-    |
+HumanReviewCheckpointNode     (optional gate -- awaits /api/run/{id}/approve-screening)
+    |                          When human-in-the-loop is disabled, passes through immediately.
     v
-SynthesisNode       (phase_5_synthesis)
-    |
+ExtractionQualityNode         (phase_4_extraction_quality)
+    |                          Classifies study design, extracts data, runs RoB2/ROBINS-I/CASP/MMAT,
+    |                          saves PDFs to papers/, updates data_papers_manifest.json
     v
-WritingNode         (phase_6_writing)
-    |
+EmbeddingNode                 (phase_4b_embedding)
+    |                          Chunks ExtractionRecords, calls Gemini embedding API,
+    |                          persists vectors to paper_chunks_meta table for RAG
     v
-FinalizeNode        (finalize -- no checkpoint; writes run_summary.json)
+SynthesisNode                 (phase_5_synthesis)
+    |                          Runs GRADE, meta-analysis (scipy/statsmodels only), narrative LLM,
+    |                          contradiction detector, sensitivity analysis; writes forest/funnel plots
+    v
+KnowledgeGraphNode            (phase_5b_knowledge_graph)
+    |                          Builds force-directed knowledge graph from extraction records
+    v
+WritingNode                   (phase_6_writing)
+    |                          HyDE -> RAG retrieval per section, writes 6 sections with citation
+    |                          ledger validation, humanizer passes, citation grounding repair
+    v
+FinalizeNode                  (finalize -- no checkpoint)
+    |                          Writes doc_manuscript.tex, references.bib, run_summary.json
+    v
+End
 ```
 
 `ResumeStartNode` reads the `checkpoints` table and routes directly to the first incomplete phase, enabling paper-level resume without reprocessing completed work.
+
+Phase order for resume: `phase_2_search`, `phase_3_screening`, `phase_4_extraction_quality`, `phase_4b_embedding`, `phase_5_synthesis`, `phase_5b_knowledge_graph`, `phase_6_writing`, `finalize`.
 
 ### 2.2 Directory Layout
 
@@ -109,7 +127,7 @@ literature-review-assistant/
 |   |-- quality/                    # rob2, robins_i, casp, grade, study_router
 |   |-- synthesis/                  # feasibility, meta_analysis, effect_size, narrative
 |   |-- rag/                        # chunker, embedder (PydanticAI), hybrid retriever (BM25+dense RRF), hyde (HyDE query expansion), reranker (Gemini listwise)
-|   |-- writing/                    # section_writer, humanizer, style_extractor, naturalness_scorer, prompts/ (dir), context_builder, orchestration
+|   |-- writing/                    # section_writer, humanizer, style_extractor, prompts/ (dir), context_builder, orchestration, citation_grounding, contradiction_resolver
 |   |-- citation/                   # ledger (claim -> evidence -> citation)
 |   |-- protocol/                   # PROSPERO-format protocol generator
 |   |-- prisma/                     # PRISMA 2020 flow diagram
@@ -771,36 +789,51 @@ Run card status border (2px left): emerald = completed, violet = running/connect
 
 ## 10. API Contract
 
-### 10.1 REST Endpoints (25 total)
+### 10.1 REST Endpoints
 
 | Method | Path | Description |
 |--------|------|-------------|
-| POST | /api/run | Start new review; inject API keys as env vars; returns `{run_id, topic}` |
+| POST | /api/run | Start new review (JSON body or multipart with master-list CSV); returns `{run_id, topic}` |
+| POST | /api/run-with-masterlist | Start review from master-list CSV upload (multipart form) |
 | GET | /api/stream/{run_id} | SSE stream of ReviewEvent JSON; heartbeat every 15s; ends with done/error/cancelled |
 | POST | /api/cancel/{run_id} | Cancel active run; sets cancellation event |
 | GET | /api/runs | List all in-memory active runs |
 | GET | /api/results/{run_id} | Artifact paths for completed run |
-| GET | /api/download | Download artifact file (restricted to runs/) |
+| GET | /api/download | Download artifact file (query param `path`; restricted to runs/) |
 | GET | /api/config/review | Default review.yaml content (pre-fills Setup form) |
+| POST | /api/config/generate | AI config generation from research question; returns YAML string |
+| GET | /api/config/generate/stream | SSE-streamed version of config generation |
+| GET | /api/config/env-keys | API keys already set in server .env; used to pre-fill Setup form |
 | GET | /api/health | Health check; polled every 6s by useBackendHealth hook |
 | GET | /api/history | Past runs from workflows_registry.db |
+| GET | /api/history/active-run | Whether a run for the given workflow_id is currently active |
 | GET | /api/history/{workflow_id}/config | Original review.yaml written at run completion |
 | POST | /api/history/attach | Attach historical run for DB explorer; loads event_log from DB |
-| POST | /api/history/resume | Resume a historical run by workflow_id; body may include from_phase (e.g. phase_3_screening) to re-run from that phase onward |
-| DELETE | /api/history/{workflow_id} | Delete run directory from disk; cannot delete if run is actively in progress |
+| POST | /api/history/resume | Resume a historical run; body includes workflow_id, optionally from_phase |
+| DELETE | /api/history/{workflow_id} | Delete run directory + registry entry from disk |
 | GET | /api/db/{run_id}/papers | Paginated + searchable papers from runtime.db |
-| GET | /api/db/{run_id}/papers-all | All papers with optional text filters (year, source, decisions) |
+| GET | /api/db/{run_id}/papers-all | All papers with doi + url fields for clickable links |
 | GET | /api/db/{run_id}/papers-facets | Distinct facet values (sources, decisions) for filter UI |
 | GET | /api/db/{run_id}/papers-suggest | Autocomplete suggestions for paper search |
 | GET | /api/db/{run_id}/screening | Screening decisions with stage/decision filters |
-| GET | /api/db/{run_id}/costs | Cost records grouped by model and phase |
+| GET | /api/db/{run_id}/costs | Cost records grouped by model and phase (includes embedding phase) |
+| GET | /api/db/{run_id}/tables | Vision-extracted table rows from papers |
 | GET | /api/run/{run_id}/artifacts | Full run_summary.json for any run (live or historical) |
-| GET | /api/run/{run_id}/events | Replay buffer snapshot (all buffered events) |
-| GET | /api/workflow/{workflow_id}/events | Events from event_log table by workflow ID |
+| GET | /api/run/{run_id}/events | Replay buffer snapshot (all buffered SSE events for live run) |
+| GET | /api/workflow/{workflow_id}/events | Events from event_log table by workflow ID (historical) |
+| GET | /api/run/{run_id}/papers-reference | Included papers list with PDF/TXT file availability flags |
+| GET | /api/run/{run_id}/papers/{paper_id}/file | Stream PDF or TXT file for a specific included paper |
+| POST | /api/run/{run_id}/fetch-pdfs | Retroactive full-text fetch for completed runs; returns `{attempted, succeeded, failed}` |
+| GET | /api/run/{run_id}/screening-summary | Human-in-the-loop screening summary (counts, sample decisions) |
+| POST | /api/run/{run_id}/approve-screening | Approve screening and unblock HumanReviewCheckpointNode |
+| GET | /api/run/{run_id}/knowledge-graph | Force-directed knowledge graph nodes and edges for EvidenceNetworkViz |
+| GET | /api/run/{run_id}/prisma-checklist | PRISMA 2020 compliance checklist (item-by-item pass/fail/partial) |
+| GET | /api/run/{run_id}/grade-sof | GRADE Summary of Findings table for the review |
+| POST | /api/run/{run_id}/living-refresh | Start incremental re-run from last_search_date for living reviews |
 | POST | /api/run/{run_id}/export | Package IEEE LaTeX submission; calls package_submission() |
 | GET | /api/run/{run_id}/submission.zip | Download the submission ZIP package |
 | GET | /api/run/{run_id}/manuscript.docx | Download the Word DOCX manuscript |
-| GET | /api/logs/stream | SSE tail of per-run PM2 log file; filtered by run_id |
+| GET | /api/logs/stream | SSE tail of per-run PM2 log file; filtered by run_id query param |
 
 ### 10.2 SSE Event Types
 
@@ -842,9 +875,99 @@ Each active run in `src/web/app.py` is tracked as a `_RunRecord` class (not a da
 
 ---
 
-## 11. Development Workflow
+## 11. End-to-End Data Flow
 
-### 11.1 Prerequisites
+This section traces data from raw PDF bytes through every pipeline stage to the final IEEE manuscript. Use it to understand where a bug could cause wrong content in a section.
+
+### 11.1 PDF Bytes to Writing Context
+
+```
+[Search connectors]
+    -- CandidatePaper (paper_id, doi, title, abstract, url) --> papers table
+    |
+    v
+[ScreeningNode]
+    -- DualScreeningResult --> screening_decisions + decision_log tables
+    -- full_text retrieved via PDFRetrievalResult (pdf_bytes, full_text, source)
+    |
+    v
+[ExtractionQualityNode]
+    -- pdf_bytes (from PDFRetrievalResult) --> papers/{paper_id}.pdf (disk)
+    -- full_text (parsed from pdf_bytes via PyMuPDF) --> ExtractionRecord.full_text
+    -- ExtractionRecord (structured fields: outcomes, effect_size, N, design) --> extraction_records table
+    -- RoB2Assessment / RobinsIAssessment --> rob_assessments table
+    -- CASPAssessment --> casp_assessments table
+    -- MMATAssessment --> mmat_assessments table
+    -- GRADEOutcomeAssessment --> grade_assessments table
+    -- data_papers_manifest.json updated (pdf_available, txt_available flags)
+    |
+    v
+[EmbeddingNode]
+    -- ExtractionRecord fields chunked by src/rag/chunker.py
+    -- chunk.content strings --> Gemini embedding API --> vectors
+    -- vectors + chunk metadata --> paper_chunks_meta table
+    |
+    v
+[SynthesisNode]
+    -- ExtractionRecord list --> feasibility check (deterministic)
+    -- feasibility.feasible=True --> combine_effects() (statsmodels, no LLM)
+    -- synthesis output --> data_narrative_synthesis.json (artifact)
+    -- GRADE outcomes --> grade_assessments table (upsert per outcome name)
+    -- forest plot, funnel plot --> fig_forest_plot.png, fig_funnel_plot.png
+    |
+    v
+[KnowledgeGraphNode]
+    -- ExtractionRecord list --> community detection --> fig_evidence_network.png
+    |
+    v
+[WritingNode]
+    |
+    +-- prepare_writing_context(included_papers, settings)
+    |       --> citation_catalog string (included studies + methodology refs)
+    |
+    +-- build_writing_grounding(prisma_counts, extraction_records, narrative,
+    |       citation_catalog, rob2_assessments, robins_i_assessments,
+    |       grade_assessments, ...)
+    |       --> WritingGroundingData (frozen factual block injected into every prompt)
+    |       --> format_grounding_block() --> FACTUAL DATA BLOCK string
+    |
+    +-- For each section [abstract, introduction, methods, results, discussion, conclusion]:
+    |       1. generate_hyde_document(section, research_question) --> hypothetical text
+    |       2. embed_query(hyde_text) --> query vector
+    |       3. hybrid_retrieve(query_vector, query_text, bm25_index) --> top-K chunks (RRF fusion)
+    |       4. rerank(query, chunks) --> reranked_chunks --> rag_context string
+    |       5. get_section_context(section, grounding) --> section prompt with FACTUAL DATA BLOCK
+    |       6. SectionWriter.write_section_async(prompt + rag_context) --> raw_content
+    |       7. humanize_async(raw_content) x humanization_iterations --> humanized_content
+    |       8. verify_citation_grounding(humanized_content, valid_citekeys) --> hallucinated_keys
+    |       9. repair_hallucinated_citekeys(content, hallucinated_keys, valid_citekeys)
+    |          --> all occurrences of each bad key replaced (re.sub, not str.replace)
+    |      10. CitationLedger.validate_section() --> unresolved claims flagged
+    |      11. SectionDraft saved to section_drafts table
+    |
+    v
+[FinalizeNode]
+    -- section_drafts assembled --> doc_manuscript.md
+    -- bibtex_builder --> references.bib
+    -- ieee_latex: markdown_to_latex(md, figure_paths) --> doc_manuscript.tex
+    -- total cost summed from cost_records --> run_summary.json
+    -- PRISMA flow diagram --> fig_prisma_flow.png
+    -- RoB traffic light --> fig_rob_traffic_light.png / fig_rob2_traffic_light.png
+```
+
+### 11.2 Key Invariants
+
+- **No LLM statistics:** All effect sizes, p-values, heterogeneity measures, and confidence intervals are computed by scipy/statsmodels only. LLMs receive pre-computed numbers verbatim in the FACTUAL DATA BLOCK.
+- **Citation lineage:** Every sentence with a `[CiteKey]` marker is registered in the citation ledger as a `ClaimRecord` linked to `EvidenceLinkRecord`s. `block_export_on_unresolved: true` prevents submission if unresolved claims remain.
+- **All citekey replacements global:** `repair_hallucinated_citekeys` uses `re.sub` to replace ALL occurrences of each hallucinated key, not just the first.
+- **Resume safety:** `load_resume_state` restores all artifact paths including `papers_dir`, `papers_manifest`, `manuscript_tex`, and `references_bib` so phase 4+ resume never writes to empty paths.
+- **Cost tracking complete:** Every LLM call (screening, extraction, quality, writing, humanization) logs to `cost_records`. Embedding calls log with `cost_usd=0.0` (Gemini embedding-001 is free) and approximate token counts.
+
+---
+
+## 12. Development Workflow
+
+### 12.1 Prerequisites
 
 - Python 3.11+, uv (`pip install uv` or `curl -LsSf https://astral.sh/uv/install.sh | sh`)
 - Node 20.19+ or 22.12+, pnpm 10 (`npm install -g pnpm`)
@@ -921,7 +1044,7 @@ All runtime artifacts use type-based prefixes for clarity:
 
 ---
 
-## 12. Methodology Standards
+## 13. Methodology Standards
 
 The tool enforces these academic standards structurally -- via typed data models, quality gates, and validators -- not through LLM judgment.
 
@@ -946,7 +1069,7 @@ The tool enforces these academic standards structurally -- via typed data models
 
 ---
 
-## 13. Implementation Status
+## 14. Implementation Status
 
 Living section -- update as work completes.
 
@@ -998,7 +1121,7 @@ Living section -- update as work completes.
 
 ---
 
-## 14. Next Steps
+## 15. Next Steps
 
 Living section -- update as items complete.
 

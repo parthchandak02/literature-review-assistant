@@ -2355,7 +2355,7 @@ class WritingNode(BaseNode[ReviewState]):
                 except Exception:
                     narrative = None
 
-        style_patterns, citation_catalog = prepare_writing_context(state.included_papers, narrative, state.settings)
+        citation_catalog = prepare_writing_context(state.included_papers, state.settings)
 
         sections_written: list[str] = []
         async with get_db(state.db_path) as db:
@@ -2469,6 +2469,18 @@ class WritingNode(BaseNode[ReviewState]):
                 except Exception as _fdb_err:
                     logger.debug("WritingNode: could not fetch failed search connectors: %s", _fdb_err)
 
+                # Load RoB and GRADE assessments for grounding injection so the
+                # writing LLM can accurately summarise risk-of-bias findings and
+                # GRADE certainty levels instead of hallucinating them.
+                _rob2_rows_w: list = []
+                _robins_i_rows_w: list = []
+                _grade_rows_w: list = []
+                try:
+                    _rob2_rows_w, _robins_i_rows_w = await repository.load_rob_assessments(state.workflow_id)
+                    _grade_rows_w = await repository.load_grade_assessments(state.workflow_id)
+                except Exception as _rob_err:
+                    logger.debug("WritingNode: could not load RoB/GRADE assessments: %s", _rob_err)
+
                 grounding = build_writing_grounding(
                     prisma_counts=prisma_counts,
                     extraction_records=state.extraction_records,
@@ -2490,6 +2502,9 @@ class WritingNode(BaseNode[ReviewState]):
                     batch_screen_excluded=state.batch_screen_excluded,
                     fulltext_sought=state.fulltext_sought,
                     fulltext_not_retrieved=state.fulltext_not_retrieved,
+                    rob2_assessments=_rob2_rows_w or None,
+                    robins_i_assessments=_robins_i_rows_w or None,
+                    grade_assessments=_grade_rows_w or None,
                 )
 
                 def _on_write(**kw):
@@ -2672,7 +2687,6 @@ class WritingNode(BaseNode[ReviewState]):
                             settings=state.settings,
                             citation_repo=citation_repo,
                             citation_catalog=citation_catalog,
-                            style_patterns=style_patterns,
                             word_limit=word_limit,
                             on_llm_call=_on_write if rc else None,
                             provider=provider,

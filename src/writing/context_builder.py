@@ -15,6 +15,43 @@ from src.models import CandidatePaper, ExtractionRecord
 from src.models.additional import PRISMACounts
 
 
+def _build_rob_summary(rob2_assessments: list, robins_i_assessments: list) -> str:
+    """Summarise RoB assessment counts by judgment level for grounding injection."""
+    if not rob2_assessments and not robins_i_assessments:
+        return ""
+    parts: list[str] = []
+    if rob2_assessments:
+        counts: dict[str, int] = {}
+        for a in rob2_assessments:
+            j = getattr(a, "overall_judgment", None)
+            key = str(j.value if hasattr(j, "value") else j).replace("_", " ")
+            counts[key] = counts.get(key, 0) + 1
+        summary = "; ".join(f"{k}: {v}" for k, v in sorted(counts.items()))
+        parts.append(f"RoB 2 (RCTs, n={len(rob2_assessments)}): {summary}")
+    if robins_i_assessments:
+        counts = {}
+        for a in robins_i_assessments:
+            j = getattr(a, "overall_judgment", None)
+            key = str(j.value if hasattr(j, "value") else j).replace("_", " ")
+            counts[key] = counts.get(key, 0) + 1
+        summary = "; ".join(f"{k}: {v}" for k, v in sorted(counts.items()))
+        parts.append(f"ROBINS-I (non-RCTs, n={len(robins_i_assessments)}): {summary}")
+    return " | ".join(parts)
+
+
+def _build_grade_summary(grade_assessments: list) -> str:
+    """Summarise GRADE certainty per outcome for grounding injection."""
+    if not grade_assessments:
+        return ""
+    rows: list[str] = []
+    for a in grade_assessments:
+        outcome = getattr(a, "outcome_name", "outcome")
+        certainty = getattr(a, "final_certainty", None)
+        cert_str = str(certainty.value if hasattr(certainty, "value") else certainty).replace("_", " ")
+        rows.append(f"{outcome}: {cert_str}")
+    return "; ".join(rows)
+
+
 def _normalize_label(raw: str) -> str:
     """Convert snake_case or enum value strings to natural prose labels.
 
@@ -194,6 +231,14 @@ class WritingGroundingData(BaseModel):
     # Author name for CRediT statement. Defaults to generic placeholder.
     author_name: str = "Corresponding Author"
 
+    # Risk-of-bias summary (counts by judgment level from rob_assessments table).
+    # Empty string when no assessments were performed.
+    rob_summary: str = ""
+
+    # GRADE certainty summary (per-outcome certainty levels from grade_assessments table).
+    # Empty string when GRADE was not run.
+    grade_summary: str = ""
+
 
 def _build_screening_method_description(
     screening_decisions: list[object] | None,
@@ -319,6 +364,9 @@ def build_writing_grounding(
     batch_screen_excluded: int = 0,
     fulltext_sought: int = 0,
     fulltext_not_retrieved: int = 0,
+    rob2_assessments: list | None = None,
+    robins_i_assessments: list | None = None,
+    grade_assessments: list | None = None,
 ) -> WritingGroundingData:
     """Aggregate real pipeline outputs into a WritingGroundingData instance."""
 
@@ -451,6 +499,10 @@ def build_writing_grounding(
     # Author name from review config
     _author_name = str(getattr(review_config, "author_name", "") or "") if review_config else ""
 
+    # Risk-of-bias and GRADE summaries for grounding injection
+    _rob_summary = _build_rob_summary(rob2_assessments or [], robins_i_assessments or [])
+    _grade_summary = _build_grade_summary(grade_assessments or [])
+
     return WritingGroundingData(
         databases_searched=active_dbs,
         zero_yield_databases=zero_yield_dbs,
@@ -515,6 +567,8 @@ def build_writing_grounding(
         batch_screen_forwarded=batch_screen_forwarded,
         batch_screen_excluded=batch_screen_excluded,
         author_name=_author_name or "Corresponding Author",
+        rob_summary=_rob_summary,
+        grade_summary=_grade_summary,
     )
 
 
@@ -796,6 +850,25 @@ def format_grounding_block(data: WritingGroundingData) -> str:
             "timed out. Include this caveat in the Methods section: "
             f"'{data.heuristic_assessment_count} risk-of-bias assessment(s) used a "
             "conservative heuristic fallback due to LLM timeout and should be reviewed manually.'"
+        )
+
+    if data.rob_summary:
+        lines.append("")
+        lines.append(f"Risk-of-bias assessment summary: {data.rob_summary}")
+        lines.append(
+            "CRITICAL -- ROB REPORTING RULE: The Results section MUST summarise risk-of-bias "
+            "findings using the counts above. Report the distribution of low/some concerns/high "
+            "risk judgments (RoB 2) or low/moderate/serious/critical (ROBINS-I) across included "
+            "studies. Do NOT fabricate any judgment counts not listed above."
+        )
+
+    if data.grade_summary:
+        lines.append("")
+        lines.append(f"GRADE certainty of evidence (per outcome): {data.grade_summary}")
+        lines.append(
+            "CRITICAL -- GRADE REPORTING RULE: The Results section MUST report the certainty "
+            "of evidence for each outcome using the GRADE levels listed above verbatim. "
+            "Do NOT modify, upgrade, or downgrade these certainty assessments."
         )
 
     if data.sensitivity_results:

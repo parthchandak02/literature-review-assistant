@@ -13,12 +13,15 @@ O(n^2) to approximately O(n log n) with no recall loss at the chosen threshold.
 
 from __future__ import annotations
 
+import logging
 import re
 from collections.abc import Iterable
 
 from thefuzz import fuzz
 
 from src.models import CandidatePaper
+
+logger = logging.getLogger(__name__)
 
 BRUTE_FORCE_THRESHOLD = 500
 
@@ -60,8 +63,8 @@ def _minhash_dedup(
         minhashes[idx] = mh
         try:
             lsh.insert(str(idx), mh)
-        except Exception:
-            pass
+        except Exception as _e:
+            logger.warning("MinHash LSH insert failed for paper index %d: %s", idx, _e)
 
     unique_indices: set[int] = set()
     duplicate_count = 0
@@ -72,7 +75,8 @@ def _minhash_dedup(
         mh = minhashes[idx]
         try:
             candidates = lsh.query(mh)
-        except Exception:
+        except Exception as _e:
+            logger.warning("MinHash LSH query failed for paper index %d: %s", idx, _e)
             candidates = []
         is_dup = False
         for cand_str in candidates:

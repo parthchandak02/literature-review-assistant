@@ -19,7 +19,6 @@ from src.models import (
     SettingsConfig,
 )
 from src.writing.section_writer import SectionWriter
-from src.writing.style_extractor import StylePatterns, extract_style_patterns
 
 if TYPE_CHECKING:
     from src.writing.context_builder import WritingGroundingData
@@ -553,7 +552,6 @@ async def write_section_with_validation(
     settings: SettingsConfig,
     citation_repo: CitationRepository,
     citation_catalog: str = "",
-    style_patterns: StylePatterns | None = None,
     word_limit: int | None = None,
     on_llm_call: Callable[..., None] | None = None,
     provider=None,
@@ -585,7 +583,6 @@ async def write_section_with_validation(
         review=review,
         settings=settings,
         citation_catalog=citation_catalog,
-        style_patterns=style_patterns,
     )
     content, metadata = await writer.write_section_async(
         section=section,
@@ -676,25 +673,19 @@ def build_methodology_catalog() -> str:
 
 def prepare_writing_context(
     included_papers: list[CandidatePaper],
-    narrative_synthesis: dict | None,
     settings: SettingsConfig,
-) -> tuple[StylePatterns, str]:
-    """Prepare style patterns and citation catalog for writing phase.
+) -> str:
+    """Build the citation catalog for the writing phase.
 
     The catalog includes both included-study citekeys and fixed methodology
     references (PRISMA 2020, GRADE, RoB tools) so the writing LLM can cite
     them in the Methods section.
+
+    Returns the catalog string; style extraction was removed because
+    extract_style_patterns always returns empty patterns that are never
+    injected into prompts.
     """
-    style_enabled = getattr(
-        getattr(settings, "writing", None),
-        "style_extraction",
-        True,
-    )
-    paper_texts = [(p.abstract or "") + " " + (p.title or "") for p in included_papers]
-    if style_enabled:
-        patterns = extract_style_patterns(paper_texts)
-    else:
-        patterns = extract_style_patterns([])
+    _ = settings  # reserved for future per-agent catalog filtering
     included_catalog = build_citation_catalog_from_papers(included_papers)
     methodology_catalog = build_methodology_catalog()
     # Methodology refs appended after included studies; separator makes it clear
@@ -702,6 +693,4 @@ def prepare_writing_context(
     if methodology_catalog:
         catalog_parts.append("# Methodology references (cite when describing study design, PRISMA, GRADE, RoB):")
         catalog_parts.append(methodology_catalog)
-    catalog = "\n".join(catalog_parts)
-    _ = narrative_synthesis
-    return patterns, catalog
+    return "\n".join(catalog_parts)

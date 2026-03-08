@@ -389,12 +389,10 @@ class ExtractionService:
         if not outcomes:
             outcomes = self._heuristic_outcomes()
 
-        import re as _re
-
         participant_count: int | None = None
         raw_count = (parsed.participant_count or "").strip()
         if raw_count:
-            m = _re.search(r"\d+", raw_count)
+            m = re.search(r"\d+", raw_count)
             if m:
                 participant_count = int(m.group())
 

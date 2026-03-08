@@ -38,7 +38,9 @@ def _get_model_from_settings() -> str:
         _, s = load_configs(settings_path="config/settings.yaml")
         return s.agents["table_extraction"].model.replace("google-gla:", "").replace("google-vertex:", "")
     except Exception:
-        return "gemini-3.1-flash-lite-preview"
+        from src.llm.model_fallback import get_fallback_model
+
+        return get_fallback_model("lite").replace("google-gla:", "").replace("google-vertex:", "")
 
 
 # ---------------------------------------------------------------------------

@@ -10,10 +10,12 @@ from __future__ import annotations
 
 import json
 import logging
+import time
 
 from pydantic_graph import BaseNode, GraphRunContext
 
 from src.db.database import get_db
+from src.models import CostRecord
 from src.orchestration.state import ReviewState
 from src.rag.chunker import chunk_extraction_record, chunk_table_outcomes
 from src.rag.embedder import embed_texts
@@ -100,6 +102,7 @@ class EmbeddingNode(BaseNode[ReviewState]):
                             f"(batch_size={embed_batch_size})..."
                         )
                     texts = [c.content for c in all_chunks]
+                    _embed_t0 = time.monotonic()
                     embeddings = await embed_texts(
                         texts,
                         batch_size=embed_batch_size,
@@ -107,6 +110,27 @@ class EmbeddingNode(BaseNode[ReviewState]):
                         dim=embed_dim,
                         concurrency=embed_concurrency,
                     )
+                    _embed_latency_ms = int((time.monotonic() - _embed_t0) * 1000)
+                    # Approximate token count (word-split; Gemini embedding-001 is
+                    # currently free so cost_usd=0.0, but we log for completeness).
+                    _embed_tokens = sum(len(t.split()) for t in texts)
+                    try:
+                        from src.db.repositories import WorkflowRepository as _WR
+
+                        _cost_repo = _WR(db)
+                        await _cost_repo.save_cost_record(
+                            state.workflow_id,
+                            CostRecord(
+                                model=embed_model,
+                                phase="phase_4b_embedding",
+                                tokens_in=_embed_tokens,
+                                tokens_out=0,
+                                cost_usd=0.0,
+                                latency_ms=_embed_latency_ms,
+                            ),
+                        )
+                    except Exception as _ce:
+                        logger.debug("EmbeddingNode: could not save cost record: %s", _ce)
 
                     if rc:
                         rc.log_status(f"Persisting {len(all_chunks)} embedded chunks to database...")

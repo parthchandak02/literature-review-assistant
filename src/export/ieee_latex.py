@@ -11,7 +11,23 @@ if TYPE_CHECKING:
 
 
 def _escape_latex(s: str) -> str:
-    """Escape LaTeX special characters in plain text. Preserves \\cite, \\textbf, \\textit."""
+    """Escape LaTeX special characters in plain text.
+
+    Protects already-converted LaTeX commands (\\cite{}, \\textbf{}, etc.) so
+    their arguments are not corrupted by underscore or other char escaping.
+    """
+    protected: list[str] = []
+
+    def _protect(m: re.Match) -> str:
+        protected.append(m.group(0))
+        return f"\x00P{len(protected) - 1}\x00"
+
+    # Shield command+argument pairs before escaping special chars
+    s = re.sub(
+        r"\\(?:cite|textbf|textit|emph|ref|label|url|href)\{[^}]*\}",
+        _protect,
+        s,
+    )
     for old, new in [
         ("&", "\\&"),
         ("%", "\\%"),
@@ -20,6 +36,8 @@ def _escape_latex(s: str) -> str:
         ("_", "\\_"),
     ]:
         s = s.replace(old, new)
+    for i, orig in enumerate(protected):
+        s = s.replace(f"\x00P{i}\x00", orig)
     return s
 
 
@@ -195,16 +213,15 @@ def _convert_md_table_to_latex(
     result: list[str] = [
         "\\begin{center}",
         f"\\small\\begin{{tabular}}{{{col_spec}}}",
-        "\\hline",
+        "\\toprule",
     ]
     # Header row in bold
     header_cells = [f"\\textbf{{{convert_cell(c)}}}" for c in header_row]
     result.append(" & ".join(header_cells) + " \\\\")
-    result.append("\\hline")
+    result.append("\\midrule")
     for row in body_rows:
         result.append(" & ".join(convert_cell(c) for c in row) + " \\\\")
-        result.append("\\hline")
-    result.extend(["\\end{tabular}", "\\end{center}"])
+    result.extend(["\\bottomrule", "\\end{tabular}", "\\end{center}"])
     return result
 
 
@@ -336,10 +353,11 @@ def markdown_to_latex(
     )
 
     preamble = r"""\documentclass[journal]{IEEEtran}
-\usepackage{booktabs}
 \usepackage{graphicx}
 \usepackage{amsmath}
-\usepackage{url}
+\usepackage{booktabs}
+\usepackage{longtable}
+\usepackage{hyperref}
 
 \begin{document}
 """
