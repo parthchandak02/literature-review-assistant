@@ -222,7 +222,7 @@ Change rarely. Values are tuned from real runs.
 |---------|-----------|
 | `llm.*` | `flash_rpm`, `flash_lite_rpm`, `pro_rpm` -- free-tier rate limits enforced by rate limiter |
 | `agents.*` | Per-agent model string (e.g. `google-gla:gemini-3.1-flash-lite-preview`) and temperature. Changing a model requires only a YAML edit. |
-| `screening.*` | `stage1_include_threshold` (0.85), `stage1_exclude_threshold` (0.80), `screening_concurrency` (asyncio.Semaphore), `max_llm_screen` (optional BM25 cap), `skip_fulltext_if_no_pdf`, `pdf_retrieval_concurrency` (8 -- concurrent PDF fetches), `batch_screen_concurrency` (3 -- concurrent batch ranker batches) |
+| `screening.*` | `stage1_include_threshold` (0.85), `stage1_exclude_threshold` (0.80), `screening_concurrency` (asyncio.Semaphore), `max_llm_screen` (optional BM25 cap), `skip_fulltext_if_no_pdf`, `pdf_retrieval_concurrency` (8 -- concurrent PDF fetches), `batch_screen_concurrency` (3 -- concurrent batch ranker batches), `reviewer_batch_size` (default 10 -- papers per dual-reviewer LLM call; 0 = per-paper legacy mode) |
 | `dual_review.*` | `enabled`, `kappa_warning_threshold` (0.4) |
 | `gates.*` | `profile` (strict / warning), `search_volume_minimum` (50), `screening_minimum` (5), `extraction_completeness_threshold` (0.80), `cost_budget_max` (USD) |
 | `writing.*` | `style_extraction`, `humanization`, `humanization_iterations` (2), `naturalness_threshold` (0.75), `checkpoint_per_section`, `llm_timeout` (120s) |
@@ -1023,7 +1023,7 @@ The core 8-phase pipeline and all 10 post-build enhancements are complete and ru
 
 All major features are shipped. Current priorities for the next session:
 
-- **Embase connector:** Institutional API token required (`apisupport@elsevier.com`). Implementation pattern matches `src/search/scopus.py`.
+- **Embase connector:** DONE. `src/search/embase.py` -- requires `EMBASE_API_KEY` (institutional Elsevier token; contact `apisupport@elsevier.com`).
 - **Higher kappa target:** Cohen's kappa was 0.118 on first real run (borderline-only subset). Enhancement #9 (adaptive threshold) is implemented; verify calibration reduces this on next run.
 - **End-to-end IEEE submission:** Run the full pipeline on a new topic, verify all Definition of Done criteria pass, produce submission package.
 

@@ -42,6 +42,12 @@ Every writing section prompt includes a FACTUAL DATA BLOCK built by `format_grou
 `src/writing/context_builder.py`. Key fields injected:
 - PRISMA counts: total_identified, duplicates_removed, automation_excluded (BM25/keyword pre-filter),
   total_screened, fulltext_assessed, total_included
+- records_after_deduplication: pre-computed (total_identified - duplicates_removed); injected verbatim
+  with a CRITICAL note -- the LLM MUST use this value and MUST NOT subtract duplicates itself
+- records_excluded_screening: pre-computed (total_screened - fulltext_assessed); same rationale --
+  never let the LLM derive PRISMA arithmetic; all derived counts must be pre-computed and injected
+- batch_screen_forwarded, batch_screen_excluded: populated when the batch LLM pre-ranker is active;
+  used to emit the 3-stage funnel detail in the grounding block
 - zero_yield_databases: databases searched with 0 records -- MUST be disclosed per PRISMA 2020 item 7
 - cohens_kappa: when not None, instructs LLM to report exact value; when None, explicitly instructs
   LLM NOT to report a kappa value
