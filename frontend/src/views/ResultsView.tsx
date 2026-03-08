@@ -8,7 +8,6 @@ import {
   FileText,
   Lock,
   Loader2,
-  Package,
   PackageCheck,
   CheckCircle,
   XCircle,
@@ -17,6 +16,9 @@ import {
   FileType,
   FileCode,
   BookMarked,
+  GripVertical,
+  Maximize2,
+  Minimize2,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { ResultsPanel } from "@/components/ResultsPanel"
@@ -111,6 +113,8 @@ function ManuscriptViewer({ filePath }: { filePath: string }) {
   const [content, setContent] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [zoom, setZoom] = useState(100)
+  const [showOutline, setShowOutline] = useState(false)
   const viewerRef = useRef<HTMLDivElement>(null)
 
   const load = useCallback(async () => {
@@ -168,32 +172,70 @@ function ManuscriptViewer({ filePath }: { filePath: string }) {
 
   return (
     <div className="overflow-hidden">
-      {/* TOC bar */}
-      {headings.length > 0 && (
-        <div className="flex items-center gap-1 px-4 py-2 border-b border-zinc-800 bg-zinc-950/60 overflow-x-auto scrollbar-none">
-          <BookOpen className="h-3.5 w-3.5 text-zinc-600 shrink-0 mr-1" />
-          {headings.map((h) => (
-            <button
-              key={h.slug}
-              onClick={() => jumpTo(h.slug)}
-              className={cn(
-                "shrink-0 px-2 py-0.5 rounded text-xs transition-colors whitespace-nowrap",
-                h.level === 1
-                  ? "text-zinc-200 font-semibold hover:bg-zinc-800"
-                  : h.level === 2
-                  ? "text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200"
-                  : "text-zinc-600 hover:bg-zinc-800 hover:text-zinc-400",
-              )}
-            >
-              {h.text}
-            </button>
-          ))}
+      {/* Toolbar: outline toggle + zoom control */}
+      <div className="flex items-center justify-between px-4 h-9 border-b border-zinc-800 bg-zinc-950/60 shrink-0">
+        {/* Outline toggle */}
+        <button
+          onClick={() => setShowOutline((v) => !v)}
+          className={cn(
+            "flex items-center gap-1.5 text-xs rounded px-1.5 py-1 transition-colors",
+            showOutline
+              ? "text-zinc-300 bg-zinc-800/60 hover:bg-zinc-800"
+              : "text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800/40",
+          )}
+          title={showOutline ? "Hide outline" : "Show outline"}
+        >
+          <BookOpen className="h-3.5 w-3.5" />
+          Outline
+        </button>
+
+        {/* Zoom control */}
+        <div className="flex items-center gap-1">
+          <button
+            onClick={() => setZoom((z) => Math.max(70, z - 15))}
+            disabled={zoom <= 70}
+            className="w-6 h-6 rounded text-sm font-mono text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800 disabled:opacity-30 transition-colors"
+          >
+            -
+          </button>
+          <span className="text-xs font-mono text-zinc-500 w-10 text-center tabular-nums">{zoom}%</span>
+          <button
+            onClick={() => setZoom((z) => Math.min(160, z + 15))}
+            disabled={zoom >= 160}
+            className="w-6 h-6 rounded text-sm font-mono text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800 disabled:opacity-30 transition-colors"
+          >
+            +
+          </button>
+        </div>
+      </div>
+
+      {/* Vertical outline panel -- collapsible */}
+      {showOutline && headings.length > 0 && (
+        <div className="border-b border-zinc-800 bg-zinc-950/40 max-h-52 overflow-y-auto">
+          <nav className="py-1">
+            {headings.map((h) => (
+              <button
+                key={h.slug}
+                onClick={() => jumpTo(h.slug)}
+                className={cn(
+                  "w-full text-left px-4 py-1 text-xs transition-colors hover:bg-zinc-800/50 truncate block",
+                  h.level === 1
+                    ? "text-zinc-300 font-semibold pl-4"
+                    : h.level === 2
+                    ? "text-zinc-400 pl-7"
+                    : "text-zinc-600 pl-10",
+                )}
+              >
+                {h.text}
+              </button>
+            ))}
+          </nav>
         </div>
       )}
 
       {/* Manuscript body */}
       <div ref={viewerRef} className="overflow-auto max-h-[70vh] p-6 md:p-10">
-        <div className="prose prose-invert prose-zinc max-w-3xl mx-auto">
+        <div className="prose prose-invert prose-zinc max-w-3xl mx-auto" style={{ fontSize: `${zoom}%` }}>
           <ReactMarkdown
             remarkPlugins={[remarkGfm]}
             rehypePlugins={[
@@ -386,7 +428,7 @@ function ManuscriptActions({ docxPath, canExport, exportRunId, allOutputs }: Man
   const [exportState, setExportState] = useState<ExportState>("idle")
   const [exportFiles, setExportFiles] = useState<string[]>([])
 
-  async function handleExport() {
+  const handleExport = useCallback(async () => {
     if (!exportRunId) return
     setExportState("loading")
     try {
@@ -396,9 +438,16 @@ function ManuscriptActions({ docxPath, canExport, exportRunId, allOutputs }: Man
     } catch {
       setExportState("error")
     }
-  }
+  }, [exportRunId])
 
-  // After export, find the generated files
+  // Auto-trigger export once when the component mounts and a run is ready
+  useEffect(() => {
+    if (canExport && exportState === "idle") {
+      void handleExport()
+    }
+  }, [canExport, exportState, handleExport])
+
+  // After export, merge the generated file paths into the outputs map
   const mergedOutputs = useMemo<Record<string, unknown>>(() => {
     if (exportFiles.length === 0) return allOutputs
     const submission: Record<string, string> = {}
@@ -412,42 +461,39 @@ function ManuscriptActions({ docxPath, canExport, exportRunId, allOutputs }: Man
   const texPath = useMemo(() => findFileByName(mergedOutputs, "manuscript.tex"), [mergedOutputs])
   const bibPath = useMemo(() => findFileByName(mergedOutputs, ".bib"), [mergedOutputs])
   const coverPath = useMemo(() => findFileByName(mergedOutputs, "cover_letter"), [mergedOutputs])
+  // DOCX: prefer the post-export path; fall back to any pre-existing artifact path from the run
+  const mergedDocxPath = useMemo(
+    () => findFileByName(mergedOutputs, ".docx") ?? docxPath,
+    [mergedOutputs, docxPath],
+  )
 
   const sharedCls = "h-7 gap-1 text-xs border-zinc-700 text-zinc-400 hover:text-zinc-200 hover:border-zinc-500"
 
   return (
     <div className="flex items-center gap-1.5">
-      {/* Download DOCX */}
-      {docxPath && (
-        <Button size="sm" variant="outline" asChild className={sharedCls}>
-          <a href={downloadUrl(docxPath)} download="manuscript.docx">
-            <FileType className="h-3 w-3 text-blue-400" />
-            DOCX
-          </a>
-        </Button>
+      {/* Packaging spinner shown while auto-export is in flight */}
+      {exportState === "loading" && (
+        <span className="flex items-center gap-1 text-xs text-zinc-500">
+          <Loader2 className="h-3 w-3 animate-spin" />
+          Packaging...
+        </span>
       )}
 
-      {/* Export to LaTeX / download LaTeX after export */}
-      {canExport && exportState !== "done" && (
+      {/* Retry button on failure */}
+      {exportState === "error" && (
         <Button
           size="sm"
           variant="outline"
-          disabled={exportState === "loading"}
           onClick={() => void handleExport()}
           className={sharedCls}
         >
-          {exportState === "loading" ? (
-            <><Loader2 className="h-3 w-3 animate-spin" />Packaging...</>
-          ) : exportState === "error" ? (
-            <><AlertTriangle className="h-3 w-3 text-red-400" />Retry LaTeX</>
-          ) : (
-            <><Package className="h-3 w-3" />LaTeX</>
-          )}
+          <AlertTriangle className="h-3 w-3 text-red-400" />
+          Retry export
         </Button>
       )}
 
-      {/* After export: show individual download buttons */}
-      {exportState === "done" && (
+      {/* Download buttons -- shown once export is done (or if artifacts were already present) */}
+      {(exportState === "done" || mergedDocxPath) && (
         <>
           {texPath && (
             <Button size="sm" variant="outline" asChild className={sharedCls}>
@@ -465,6 +511,14 @@ function ManuscriptActions({ docxPath, canExport, exportRunId, allOutputs }: Man
               </a>
             </Button>
           )}
+          {mergedDocxPath && (
+            <Button size="sm" variant="outline" asChild className={sharedCls}>
+              <a href={downloadUrl(mergedDocxPath)} download="manuscript.docx">
+                <FileType className="h-3 w-3 text-blue-400" />
+                DOCX
+              </a>
+            </Button>
+          )}
           {coverPath && (
             <Button size="sm" variant="outline" asChild className={sharedCls}>
               <a href={downloadUrl(coverPath)} download="cover_letter.md">
@@ -473,7 +527,9 @@ function ManuscriptActions({ docxPath, canExport, exportRunId, allOutputs }: Man
               </a>
             </Button>
           )}
-          <PackageCheck className="h-3.5 w-3.5 text-emerald-400 shrink-0" />
+          {exportState === "done" && (
+            <PackageCheck className="h-3.5 w-3.5 text-emerald-400 shrink-0" />
+          )}
         </>
       )}
     </div>
@@ -483,6 +539,12 @@ function ManuscriptActions({ docxPath, canExport, exportRunId, allOutputs }: Man
 // ---------------------------------------------------------------------------
 // ResultsView
 // ---------------------------------------------------------------------------
+
+type ResultsLayout = "split" | "left" | "right"
+
+const MIN_RIGHT_WIDTH = 220
+const MAX_RIGHT_WIDTH = 520
+const DEFAULT_RIGHT_WIDTH = 300
 
 interface ResultsViewProps {
   outputs: Record<string, unknown>
@@ -497,8 +559,37 @@ export function ResultsView({
   historyOutputs = {},
   exportRunId,
 }: ResultsViewProps) {
-  const [showManuscript, setShowManuscript] = useState(false)
-  const [showOtherFiles, setShowOtherFiles] = useState(false)
+  const [layout, setLayout] = useState<ResultsLayout>("split")
+  const [rightWidth, setRightWidth] = useState(DEFAULT_RIGHT_WIDTH)
+  const containerRef = useRef<HTMLDivElement>(null)
+  const isDragging = useRef(false)
+
+  // Drag-to-resize the right panel (inverse of ActivityView: right is fixed, left is flex-1)
+  const handleDividerMouseDown = useCallback((e: React.MouseEvent) => {
+    e.preventDefault()
+    isDragging.current = true
+    document.body.style.cursor = "col-resize"
+    document.body.style.userSelect = "none"
+
+    const handleMouseMove = (ev: MouseEvent) => {
+      if (!isDragging.current || !containerRef.current) return
+      const rect = containerRef.current.getBoundingClientRect()
+      const distFromRight = rect.right - ev.clientX
+      const newWidth = Math.max(MIN_RIGHT_WIDTH, Math.min(MAX_RIGHT_WIDTH, distFromRight))
+      setRightWidth(newWidth)
+    }
+
+    const handleMouseUp = () => {
+      isDragging.current = false
+      document.body.style.cursor = ""
+      document.body.style.userSelect = ""
+      document.removeEventListener("mousemove", handleMouseMove)
+      document.removeEventListener("mouseup", handleMouseUp)
+    }
+
+    document.addEventListener("mousemove", handleMouseMove)
+    document.addEventListener("mouseup", handleMouseUp)
+  }, [])
 
   const effectiveOutputs = useMemo<Record<string, unknown>>(() => {
     if (Object.keys(outputs).length > 0) return outputs
@@ -520,12 +611,11 @@ export function ResultsView({
     [effectiveOutputs],
   )
 
-  // Paths to exclude from Other Artifacts (they live in the Manuscript section)
+  // Paths to exclude from Artifacts panel (they live in the left panel header actions)
   const manuscriptExcludePaths = useMemo<Set<string>>(() => {
     const paths = new Set<string>()
     if (manuscriptPath) paths.add(manuscriptPath)
     if (docxPath) paths.add(docxPath)
-    // Also exclude LaTeX/BibTeX/cover letter files that may appear after export
     const texFiles = findAllFilesByExt(effectiveOutputs, [".tex", ".bib"])
     texFiles.forEach((p) => paths.add(p))
     const coverFile = findFileByName(effectiveOutputs, "cover_letter")
@@ -555,48 +645,127 @@ export function ResultsView({
   }
 
   return (
-    <div className="flex flex-col gap-5 max-w-4xl">
-      {/* Manuscript -- collapsed by default; download actions in header */}
-      {manuscriptPath && (
-        <CollapsibleSection
-          icon={FileText}
-          title="Manuscript"
-          open={showManuscript}
-          onToggle={() => setShowManuscript((v) => !v)}
-          actions={
-            <ManuscriptActions
-              docxPath={docxPath}
-              canExport={canExport}
-              exportRunId={exportRunId}
-              allOutputs={effectiveOutputs}
-            />
-          }
+    <div
+      ref={containerRef}
+      className="flex"
+      style={{ minHeight: "520px", alignItems: "stretch" }}
+    >
+      {/* ---- LEFT: Manuscript + Artifacts ---- */}
+      {layout !== "right" && (
+        <div
+          className="flex flex-col min-w-0 flex-1"
         >
-          <ManuscriptViewer filePath={manuscriptPath} />
-        </CollapsibleSection>
+          <div className="card-surface overflow-hidden flex flex-col flex-1 min-h-0">
+            {/* Panel header -- always visible; download actions live here */}
+            <div className="flex items-center justify-between px-4 h-11 border-b border-zinc-800 shrink-0 gap-2">
+              <span className="label-caps shrink-0">Manuscript</span>
+              <div
+                className="flex items-center gap-1.5 flex-1 justify-end overflow-hidden"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <ManuscriptActions
+                  docxPath={docxPath}
+                  canExport={canExport}
+                  exportRunId={exportRunId}
+                  allOutputs={effectiveOutputs}
+                />
+                <button
+                  onClick={() => setLayout(layout === "left" ? "split" : "left")}
+                  className="text-zinc-500 hover:text-zinc-300 transition-colors p-0.5 rounded shrink-0 ml-1"
+                  title={layout === "left" ? "Restore split view" : "Expand manuscript panel"}
+                >
+                  {layout === "left"
+                    ? <Minimize2 className="h-3.5 w-3.5" />
+                    : <Maximize2 className="h-3.5 w-3.5" />
+                  }
+                </button>
+              </div>
+            </div>
+
+            {/* Scrollable body: Manuscript viewer + Artifacts list */}
+            <div className="flex-1 overflow-y-auto min-h-0">
+              {manuscriptPath && (
+                <CollapsibleSection
+                  icon={FileText}
+                  title="Manuscript"
+                  defaultOpen={true}
+                >
+                  <ManuscriptViewer filePath={manuscriptPath} />
+                </CollapsibleSection>
+              )}
+
+              <CollapsibleSection
+                icon={FileText}
+                title="Artifacts"
+                description="Protocol, data files, figures"
+              >
+                <div className="p-4">
+                  <ResultsPanel
+                    outputs={effectiveOutputs}
+                    excludePaths={manuscriptExcludePaths}
+                  />
+                </div>
+              </CollapsibleSection>
+            </div>
+          </div>
+        </div>
       )}
 
-      {/* Other Artifacts -- flat layout, no manuscript items */}
-      <CollapsibleSection
-        icon={FileText}
-        title="Other Artifacts"
-        description="Protocol, search appendix, data files, figures"
-        open={showOtherFiles}
-        onToggle={() => setShowOtherFiles((v) => !v)}
-      >
-        <div className="p-4">
-          <ResultsPanel
-            outputs={effectiveOutputs}
-            excludePaths={manuscriptExcludePaths}
-          />
+      {/* ---- Drag handle (split only) ---- */}
+      {layout === "split" && (
+        <div
+          className="flex items-center justify-center w-3 shrink-0 cursor-col-resize group relative"
+          onMouseDown={handleDividerMouseDown}
+        >
+          <div className="absolute inset-y-0 -inset-x-1 z-10" />
+          <div className="flex flex-col items-center gap-1 relative z-20 h-full justify-center">
+            <div className="w-px flex-1 bg-zinc-800 group-hover:bg-violet-500/40 transition-colors" />
+            <GripVertical className="h-4 w-4 text-zinc-700 group-hover:text-violet-400 transition-colors shrink-0" />
+            <div className="w-px flex-1 bg-zinc-800 group-hover:bg-violet-500/40 transition-colors" />
+          </div>
         </div>
-      </CollapsibleSection>
+      )}
 
-      {/* PRISMA 2020 Compliance */}
-      {exportRunId && <PrismaCard runId={exportRunId} />}
+      {/* ---- RIGHT: PRISMA + Evidence Network ---- */}
+      {layout !== "left" && (
+        <div
+          className="flex flex-col min-w-0"
+          style={layout === "split" ? { width: rightWidth, flexShrink: 0 } : { flex: 1 }}
+        >
+          <div className="card-surface overflow-hidden flex flex-col flex-1 min-h-0">
+            {/* Panel header */}
+            <div className="flex items-center justify-between px-4 h-11 border-b border-zinc-800 shrink-0">
+              <span className="label-caps">Analysis</span>
+              <button
+                onClick={() => setLayout(layout === "right" ? "split" : "right")}
+                className="text-zinc-500 hover:text-zinc-300 transition-colors p-0.5 rounded"
+                title={layout === "right" ? "Restore split view" : "Expand analysis panel"}
+              >
+                {layout === "right"
+                  ? <Minimize2 className="h-3.5 w-3.5" />
+                  : <Maximize2 className="h-3.5 w-3.5" />
+                }
+              </button>
+            </div>
 
-      {/* Evidence Network */}
-      {exportRunId && <EvidenceNetworkSection runId={exportRunId} />}
+            {/* Scrollable body: PRISMA + Evidence Network */}
+            <div className="flex-1 overflow-y-auto min-h-0">
+              {exportRunId
+                ? <PrismaCard runId={exportRunId} />
+                : (
+                  <div className="px-4 py-3 text-xs text-zinc-600">
+                    PRISMA compliance available after run completes.
+                  </div>
+                )
+              }
+              {exportRunId
+                ? <EvidenceNetworkSection runId={exportRunId} />
+                : null
+              }
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
