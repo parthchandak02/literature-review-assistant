@@ -839,11 +839,48 @@ async def _fetch_run_stats(db_path: str) -> dict[str, Any]:
         async with aiosqlite.connect(db_path) as db:
             await db.execute("PRAGMA journal_mode=WAL")
             papers_found = (await (await db.execute("SELECT COUNT(*) FROM papers")).fetchone())[0]
-            papers_included = (
+
+            # Prefer the terminal phase_done event count -- this matches the top progress bar which
+            # reads phase_done("phase_3_screening").summary.included from the SSE event stream.
+            # The old query (dual_screening_results WHERE final_decision='include') over-counts because
+            # it includes abstract-stage "include" decisions for papers later excluded at full-text.
+            included_from_event = (
                 await (
-                    await db.execute("SELECT COUNT(*) FROM dual_screening_results WHERE final_decision='include'")
+                    await db.execute(
+                        """
+                        SELECT json_extract(payload, '$.summary.included')
+                        FROM event_log
+                        WHERE event_type = 'phase_done'
+                          AND json_extract(payload, '$.phase') = 'phase_3_screening'
+                        ORDER BY id DESC
+                        LIMIT 1
+                        """
+                    )
                 ).fetchone()
-            )[0]
+            )
+            if included_from_event and included_from_event[0] is not None:
+                papers_included = int(included_from_event[0])
+            else:
+                # Fallback for in-progress runs: count papers included at their most advanced
+                # screening stage (fulltext takes priority over title_abstract).
+                fallback_row = (
+                    await (
+                        await db.execute(
+                            """
+                            SELECT COUNT(DISTINCT paper_id) FROM dual_screening_results d
+                            WHERE final_decision = 'include'
+                              AND stage = (
+                                SELECT stage FROM dual_screening_results d2
+                                WHERE d2.workflow_id = d.workflow_id AND d2.paper_id = d.paper_id
+                                ORDER BY CASE stage WHEN 'fulltext' THEN 2 ELSE 1 END DESC
+                                LIMIT 1
+                              )
+                            """
+                        )
+                    ).fetchone()
+                )
+                papers_included = int(fallback_row[0]) if fallback_row else 0
+
             total_cost = (await (await db.execute("SELECT COALESCE(SUM(cost_usd), 0.0) FROM cost_records")).fetchone())[
                 0
             ]

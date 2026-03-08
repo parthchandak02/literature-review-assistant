@@ -284,6 +284,8 @@ class StartNode(BaseNode[ReviewState]):
         state.artifacts["rob2_traffic_light"] = str(run_paths.run_dir / "fig_rob2_traffic_light.png")
         state.artifacts["narrative_synthesis"] = str(run_paths.run_dir / "data_narrative_synthesis.json")
         state.artifacts["manuscript_md"] = str(run_paths.run_dir / "doc_manuscript.md")
+        state.artifacts["manuscript_tex"] = str(run_paths.run_dir / "doc_manuscript.tex")
+        state.artifacts["references_bib"] = str(run_paths.run_dir / "references.bib")
         state.artifacts["prisma_diagram"] = str(run_paths.run_dir / "fig_prisma_flow.png")
         state.artifacts["timeline"] = str(run_paths.run_dir / "fig_publication_timeline.png")
         state.artifacts["geographic"] = str(run_paths.run_dir / "fig_geographic_distribution.png")
@@ -3096,6 +3098,35 @@ class WritingNode(BaseNode[ReviewState]):
         except Exception as _cd_exc:  # noqa: BLE001
             logger.warning("Concept diagram generation failed: %s", _cd_exc)
 
+        # Re-assemble the manuscript now that concept diagram SVGs exist on disk.
+        # The first assembly above ran before SVGs were written, so those figures
+        # were silently omitted from the Figures section.  This patch is
+        # best-effort -- a failure here must never block FinalizeNode.
+        try:
+            patched = assemble_submission_manuscript(
+                body=body,
+                manuscript_path=manuscript_path,
+                artifacts=state.artifacts,
+                citation_rows=citation_rows,
+                papers=included_papers_for_table,
+                extraction_records=extraction_records_for_table,
+                grade_assessments=_grade_assessments if _grade_assessments else None,
+                robins_i_assessments=_robins_i_rows if _robins_i_rows else None,
+                casp_assessments=_casp_rows if _casp_rows else None,
+                mmat_assessments=_mmat_rows if _mmat_rows else None,
+                paper_id_to_citekey=_paper_id_to_citekey if _paper_id_to_citekey else None,
+                review_config=state.review,
+                failed_count=_failed_extraction_count,
+                search_appendix_path=_search_appendix_path,
+                research_question=state.review.research_question if state.review else "",
+                title=None,
+                fulltext_paper_ids=_fulltext_paper_ids if _fulltext_paper_ids else None,
+            )
+            manuscript_path.write_text(patched, encoding="utf-8")
+            logger.info("WritingNode: manuscript patched with concept diagram figures")
+        except Exception as _patch_exc:  # noqa: BLE001
+            logger.warning("WritingNode: concept diagram manuscript patch failed (non-fatal): %s", _patch_exc)
+
         return FinalizeNode()
 
 
@@ -3107,6 +3138,37 @@ class FinalizeNode(BaseNode[ReviewState]):
         rc = _rc(state)
         if rc:
             rc.emit_phase_start("finalize", "Writing run summary...")
+
+        # Generate doc_manuscript.tex and references.bib as first-class run artifacts.
+        # These live in the run dir alongside doc_manuscript.md so the frontend can
+        # offer them for download without requiring a separate POST /export call.
+        # Best-effort: a failure here must never block finalization.
+        _mmd_path = state.artifacts.get("manuscript_md", "")
+        if _mmd_path and os.path.isfile(_mmd_path):
+            try:
+                from src.export.bibtex_builder import build_bibtex as _build_bibtex
+                from src.export.ieee_latex import markdown_to_latex as _md_to_latex
+                from src.export.submission_packager import _build_number_to_citekey
+
+                _tex_path = Path(_mmd_path).parent / "doc_manuscript.tex"
+                _bib_path = Path(_mmd_path).parent / "references.bib"
+                async with get_db(state.db_path) as _tex_db:
+                    _citations = await CitationRepository(_tex_db).get_all_citations_for_export()
+                _md_text = Path(_mmd_path).read_text(encoding="utf-8")
+                _citekeys = {c[1] for c in _citations}
+                _num_map = _build_number_to_citekey(_md_text, _citations)
+                _author = str(getattr(getattr(state, "review", None), "author_name", "") or "")
+                _tex_path.write_text(
+                    _md_to_latex(_md_text, citekeys=_citekeys, num_to_citekey=_num_map, author_name=_author),
+                    encoding="utf-8",
+                )
+                _bib_path.write_text(_build_bibtex(_citations), encoding="utf-8")
+                state.artifacts["manuscript_tex"] = str(_tex_path)
+                state.artifacts["references_bib"] = str(_bib_path)
+                logger.info("FinalizeNode: wrote doc_manuscript.tex and references.bib")
+            except Exception as _tex_err:  # noqa: BLE001
+                logger.warning("FinalizeNode: LaTeX artifact generation failed (non-fatal): %s", _tex_err)
+
         # Filter artifact paths: only include entries that either are the run_summary
         # itself (written below) or point to a file that actually exists on disk.
         # This prevents broken image links in the UI when optional figures (e.g.

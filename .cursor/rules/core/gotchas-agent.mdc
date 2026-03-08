@@ -317,20 +317,20 @@ original run. Fix: `src/orchestration/resume.py` reads the `phase_done` event wi
 `state.kappa_stage`, and `state.kappa_n`. If you add any other transient state fields that
 affect manuscript content, add the same restore pattern to `resume.py`.
 
-## CITATION CATALOG Block Enforces Correct Citekeys In Writing LLM
-`format_grounding_block()` in `src/writing/context_builder.py` injects a "CITATION CATALOG"
-block listing every exact citekey with a title snippet. The writing LLM is instructed to use
-ONLY the citekeys in this catalog. Without this block, LLMs invent citekeys like [Castelao2015]
-that do not match the registered key (e.g. Ezequiel2015), causing unresolved citations and a
-reference list with only 6 entries. A second repair pass in `src/writing/citation_grounding.py`
-(`repair_hallucinated_citekeys()`) fuzzy-matches remaining unknown citekeys against the citations
-table by author_token + year before falling back to [CITATION_NEEDED]. Both safeguards are needed
-because the catalog prompt alone does not eliminate all hallucinations.
+## Sidebar "Papers Included" Uses phase_done Event Count (Not dual_screening_results)
+`_fetch_run_stats()` in `src/web/app.py` now derives `papers_included` from the
+`phase_done` SSE event where `phase='phase_3_screening'` rather than counting rows in
+`dual_screening_results WHERE final_decision='include'`. The old query over-counted because
+it included abstract-stage "include" decisions for papers later excluded at full-text.
+The event-based count matches the top progress bar. A fallback query (most-advanced-stage
+deduplication) is used when the phase_done event is absent (in-progress runs).
 
-## Kappa Restored From event_log On Resume (Not From State)
-`state.cohens_kappa` is not persisted to the database. On resume, it starts as None, which causes
-`format_grounding_block()` to emit "kappa NOT available" even when kappa was computed in the
-original run. Fix: `src/orchestration/resume.py` reads the `phase_done` event with
-`phase='screening_calibration'` from `event_log` and restores `state.cohens_kappa`,
-`state.kappa_stage`, and `state.kappa_n`. If you add any other transient state fields that
-affect manuscript content, add the same restore pattern to `resume.py`.
+## doc_manuscript.tex and references.bib Are First-Class Run Artifacts
+`FinalizeNode` in `src/orchestration/workflow.py` now generates `doc_manuscript.tex` and
+`references.bib` directly into the run directory (alongside `doc_manuscript.md`) as
+first-class artifacts -- no separate POST /export call required. Both are also
+pre-registered in `StartNode` so their paths appear in artifact lists even before finalize.
+The submission packager still produces its own `manuscript.tex` inside `submission/`
+(with `\includegraphics` for figures); the run-dir `.tex` is the same content without
+a bundled figures/ directory. Both are valid IEEE LaTeX -- the run-dir copy is for
+single-file inspection; the `submission/` copy is for pdflatex compilation.

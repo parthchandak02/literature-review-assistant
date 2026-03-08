@@ -109,6 +109,10 @@ screening:
   batch_screen_threshold: 0.35
   # Number of batch LLM ranker calls sent concurrently (default 3 balances throughput vs. RPM).
   batch_screen_concurrency: 3
+  # Papers per LLM call in the dual-reviewer phase.
+  # 0 = per-paper mode (one call per paper). 10 = send 10 papers per batch call.
+  # Reduces dual-reviewer LLM calls by ~5x while preserving all decisions and callbacks.
+  reviewer_batch_size: 10
 
 dual_review:
   enabled: true

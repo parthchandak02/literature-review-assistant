@@ -16,6 +16,7 @@ import {
   FileType,
   FileCode,
   BookMarked,
+  Archive,
   GripVertical,
   Maximize2,
   Minimize2,
@@ -23,7 +24,7 @@ import {
 import { Button } from "@/components/ui/button"
 import { ResultsPanel } from "@/components/ResultsPanel"
 import { EvidenceNetworkViz } from "@/components/EvidenceNetworkViz"
-import { triggerExport, fetchPrismaChecklist, downloadUrl } from "@/lib/api"
+import { triggerExport, fetchPrismaChecklist, downloadUrl, submissionZipUrl } from "@/lib/api"
 import { Skeleton } from "@/components/ui/skeleton"
 import { FetchError, EmptyState } from "@/components/ui/feedback"
 import { CollapsibleSection } from "@/components/ui/section"
@@ -524,6 +525,14 @@ function ManuscriptActions({ docxPath, canExport, exportRunId, allOutputs }: Man
               <a href={downloadUrl(coverPath)} download="cover_letter.md">
                 <FileText className="h-3 w-3" />
                 Cover
+              </a>
+            </Button>
+          )}
+          {exportState === "done" && exportRunId && (
+            <Button size="sm" variant="outline" asChild className={sharedCls}>
+              <a href={submissionZipUrl(exportRunId)} download>
+                <Archive className="h-3 w-3" />
+                ZIP
               </a>
             </Button>
           )}

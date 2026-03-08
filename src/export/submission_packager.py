@@ -270,16 +270,31 @@ async def package_submission(
         if src.exists():
             dst = figures_dir / fig_name
             shutil.copy2(src, dst)
-            figure_paths.append(fig_name)
+            if not fig_name.endswith(".svg"):
+                figure_paths.append(fig_name)
 
+    # Read author_name from the run's own config_snapshot.yaml (written by StartNode)
+    # so the packaged LaTeX reflects the review that was actually run, not whatever
+    # review.yaml is currently loaded on disk.
     _author_name = ""
-    try:
-        from src.config.loader import load_configs as _load_cfgs
+    _snapshot_path = output_path / "config_snapshot.yaml"
+    if _snapshot_path.exists():
+        try:
+            import yaml as _yaml
 
-        _review_cfg, _ = _load_cfgs()
-        _author_name = str(getattr(_review_cfg, "author_name", "") or "")
-    except Exception:
-        pass
+            _snap = _yaml.safe_load(_snapshot_path.read_text(encoding="utf-8"))
+            _author_name = str((_snap or {}).get("author_name", "") or "")
+        except Exception:
+            pass
+    # Fallback to current review.yaml when no snapshot exists (e.g. legacy runs)
+    if not _author_name:
+        try:
+            from src.config.loader import load_configs as _load_cfgs
+
+            _review_cfg, _ = _load_cfgs()
+            _author_name = str(getattr(_review_cfg, "author_name", "") or "")
+        except Exception:
+            pass
 
     md_content = manuscript_md.read_text(encoding="utf-8")
     num_to_citekey = _build_number_to_citekey(md_content, citations)

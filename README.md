@@ -10,9 +10,16 @@ It runs a full PRISMA 2020-compliant pipeline: searches academic databases (defa
 
 ## What It Produces
 
-After a run completes, you get a `submission/` folder containing:
+After a run completes, the run directory contains:
 
-- `manuscript.tex` + `manuscript.pdf` -- IEEE-formatted manuscript (IEEEtran)
+- `doc_manuscript.md` -- the full manuscript in markdown
+- `doc_manuscript.tex` -- IEEE LaTeX version (generated automatically, no export step needed)
+- `references.bib` -- all citations (generated automatically)
+- `fig_*.png` / `fig_*.svg` -- all figures (PRISMA flow, RoB traffic-light, forest plot, funnel plot, timeline, geographic, concept diagrams)
+
+Clicking **Export** in the browser (or running `uv run python -m src.main export`) assembles a `submission/` folder:
+
+- `manuscript.tex` + `manuscript.pdf` -- IEEE-formatted manuscript with bundled figures (IEEEtran, pdflatex-compiled)
 - `manuscript.docx` -- Word format with figures and formatted tables (for sharing / human review)
 - `references.bib` -- all citations
 - `figures/` -- PRISMA flow diagram, RoB traffic-light, forest plot, funnel plot, publication timeline, geographic distribution
@@ -384,6 +391,7 @@ cd frontend && pnpm fix && pnpm typecheck
 | `scripts/validate_scopus_key.py` | Validate SCOPUS_API_KEY against Elsevier API. Usage: `uv run python scripts/validate_scopus_key.py` |
 | `scripts/show_run_info.py` | Print run metadata (status, included papers, cost) for a workflow ID without opening the browser. Usage: `uv run python scripts/show_run_info.py --workflow-id wf-xxx` |
 | `scripts/build_benchmark.py` | Build or update the gold-standard benchmark from reference/ PDFs using the PDF vision LLM. Extracts structured quality dimensions and computes derived thresholds. Usage: `uv run python scripts/build_benchmark.py` or `--fetch-web` to pull additional published SRs. |
+| `scripts/test_search_connectors.py` | Live smoke-test for all configured search connectors. Loads API keys from .env and config from review.yaml, runs a real query per connector, and reports record counts and errors. Usage: `uv run python scripts/test_search_connectors.py` |
 
 ---
 

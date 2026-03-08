@@ -47,7 +47,7 @@ def _convert_inline_formatting(
     citekeys: set[str],
     num_to_citekey: dict[str, str] | None = None,
 ) -> str:
-    """Convert **bold** and *italic* to LaTeX. Citations already converted."""
+    """Convert **bold**, *italic*, and _italic_ to LaTeX. Citations already converted."""
 
     def bold_repl(m: re.Match) -> str:
         inner = m.group(1)
@@ -59,6 +59,9 @@ def _convert_inline_formatting(
 
     text = re.sub(r"\*\*(.+?)\*\*", bold_repl, text)
     text = re.sub(r"\*(.+?)\*", italic_repl, text)
+    # Handle _text_ italic, guarded by word boundaries so underscores inside
+    # identifiers (e.g. fig_name, non_randomized) are not converted.
+    text = re.sub(r"(?<!\w)_(.+?)_(?!\w)", italic_repl, text)
     return text
 
 
@@ -127,8 +130,82 @@ def _extract_title_and_abstract(md: str) -> tuple[str | None, str | None, str]:
             abstract = "\n".join(fallback_lines[fallback_abstract_start : fallback_abstract_end + 1]).strip()
         if abstract and first_h2_idx >= 0 and rest == md:
             rest = "\n".join(fallback_lines[first_h2_idx:])
+        # Strip the "# Title\n\n**Research Question:** ...\n\n---\n\n" header block
+        # from rest when it was not consumed by the abstract extractor above.
+        # Without this the title line becomes a spurious \section{} in the body.
+        if fallback_title and rest == md:
+            rest = re.sub(
+                r"^# [^\n]+\n\n(?:\*\*Research Question:\*\*[^\n]*\n\n)?---\n\n",
+                "",
+                rest,
+                flags=re.DOTALL,
+            )
 
     return title, abstract, rest
+
+
+def _is_table_separator_row(row: str) -> bool:
+    """Return True for |---|---| alignment rows used in markdown tables."""
+    return bool(re.match(r"^\|[\s\-\|:]+\|$", row))
+
+
+def _convert_md_table_to_latex(
+    table_lines: list[str],
+    citekeys: set[str],
+    num_to_citekey: dict[str, str],
+) -> list[str]:
+    """Convert a list of markdown table lines to a LaTeX tabular block.
+
+    Separator rows (|---|) are detected and used only to identify the header;
+    they are not emitted as data rows.
+    """
+    # Separate header, separator, and body rows
+    header_row: list[str] | None = None
+    body_rows: list[list[str]] = []
+    for row in table_lines:
+        if _is_table_separator_row(row):
+            continue
+        cells = [c.strip() for c in row.strip().strip("|").split("|")]
+        if header_row is None:
+            header_row = cells
+        else:
+            body_rows.append(cells)
+
+    if header_row is None:
+        return []
+
+    n_cols = len(header_row)
+    # Pad body rows that have fewer cells than the header
+    for r in body_rows:
+        while len(r) < n_cols:
+            r.append("")
+
+    # Proportional column widths; each column gets an equal share of 0.9\linewidth
+    col_frac = round(0.9 / max(n_cols, 1), 3)
+    col_spec = " ".join([f"p{{{col_frac}\\linewidth}}"] * n_cols)
+
+    def convert_cell(cell: str) -> str:
+        conv = _convert_inline_formatting(
+            _convert_citations(cell, citekeys, num_to_citekey),
+            citekeys,
+            num_to_citekey,
+        )
+        return _escape_latex(conv)
+
+    result: list[str] = [
+        "\\begin{center}",
+        f"\\small\\begin{{tabular}}{{{col_spec}}}",
+        "\\hline",
+    ]
+    # Header row in bold
+    header_cells = [f"\\textbf{{{convert_cell(c)}}}" for c in header_row]
+    result.append(" & ".join(header_cells) + " \\\\")
+    result.append("\\hline")
+    for row in body_rows:
+        result.append(" & ".join(convert_cell(c) for c in row) + " \\\\")
+        result.append("\\hline")
+    result.extend(["\\end{tabular}", "\\end{center}"])
+    return result
 
 
 def _md_section_to_latex(
@@ -161,20 +238,45 @@ def _md_section_to_latex(
         line = lines[i]
         stripped = line.strip()
 
-        if stripped.startswith("### "):
+        if stripped.startswith("#### "):
+            flush_list()
+            title = stripped[5:].strip()
+            parts.append(f"\\subsubsection{{{_escape_latex(title)}}}")
+            parts.append("")
+        elif stripped.startswith("### "):
             flush_list()
             title = stripped[4:].strip()
-            parts.append(f"\\subsubsection{{{_escape_latex(title)}}}")
+            parts.append(f"\\subsection{{{_escape_latex(title)}}}")
             parts.append("")
         elif stripped.startswith("## "):
             flush_list()
             title = stripped[3:].strip()
-            parts.append(f"\\subsection{{{_escape_latex(title)}}}")
+            parts.append(f"\\section{{{_escape_latex(title)}}}")
             parts.append("")
         elif stripped.startswith("# "):
+            # Top-level title is already in \title{}; skip to avoid duplication.
+            # The _extract_title_and_abstract fallback strips the header block, but
+            # if any # heading survives (e.g. in appendices), emit as \section.
             flush_list()
             title = stripped[2:].strip()
             parts.append(f"\\section{{{_escape_latex(title)}}}")
+            parts.append("")
+        elif stripped == "---":
+            # Markdown horizontal rules are section separators; skip silently
+            flush_list()
+        elif stripped.startswith("|") and stripped.endswith("|"):
+            flush_list()
+            # Accumulate all consecutive table rows
+            table_lines = [stripped]
+            while (
+                i + 1 < len(lines)
+                and lines[i + 1].strip().startswith("|")
+                and lines[i + 1].strip().endswith("|")
+            ):
+                i += 1
+                table_lines.append(lines[i].strip())
+            table_latex = _convert_md_table_to_latex(table_lines, citekeys, num_to_citekey)
+            parts.extend(table_latex)
             parts.append("")
         elif stripped.startswith("*   ") or stripped.startswith("-   "):
             content = stripped[4:].strip()
@@ -222,6 +324,16 @@ def markdown_to_latex(
     figure_paths = figure_paths or []
 
     title, abstract, rest = _extract_title_and_abstract(md_content)
+
+    # Strip the markdown Figures section -- LaTeX figures are emitted separately
+    # via \includegraphics from figure_paths, so the markdown image embeds would
+    # otherwise appear as garbled literal text in the body.
+    rest = re.sub(
+        r"\n\n---\n\n## Figures\b.*?(?=\n\n---\n\n|\Z)",
+        "",
+        rest,
+        flags=re.DOTALL,
+    )
 
     preamble = r"""\documentclass[journal]{IEEEtran}
 \usepackage{booktabs}

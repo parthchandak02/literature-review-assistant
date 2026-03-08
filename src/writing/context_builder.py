@@ -59,6 +59,11 @@ class WritingGroundingData(BaseModel):
     # PRISMA counts
     total_identified: int
     duplicates_removed: int
+    # Pre-computed: total_identified - duplicates_removed.
+    # Injected verbatim so the writing LLM never performs this subtraction itself.
+    # LLM arithmetic on grounding values is unreliable; every derived count must
+    # be pre-computed here and passed as a named field.
+    records_after_deduplication: int = 0
     # Records removed by automated pre-screening (BM25 ranking auto-exclusion or
     # keyword hard-gate) BEFORE LLM title/abstract screening. PRISMA 2020 item 16
     # requires this to appear as "Automation tools (n=X)" in the flow diagram and
@@ -66,6 +71,9 @@ class WritingGroundingData(BaseModel):
     # 0 when no automated pre-filter was applied.
     automation_excluded: int = 0
     total_screened: int
+    # Pre-computed: total_screened - fulltext_assessed (records excluded at T/A stage).
+    # Injected verbatim so the LLM does not compute it.
+    records_excluded_screening: int = 0
     fulltext_assessed: int
     total_included: int
     fulltext_excluded: int  # derived: fulltext_assessed - total_included
@@ -451,8 +459,14 @@ def build_writing_grounding(
         search_date=search_date or str(datetime.now().year),
         total_identified=prisma_counts.total_identified_databases + prisma_counts.total_identified_other,
         duplicates_removed=prisma_counts.duplicates_removed,
+        records_after_deduplication=(
+            prisma_counts.total_identified_databases
+            + prisma_counts.total_identified_other
+            - prisma_counts.duplicates_removed
+        ),
         automation_excluded=prisma_counts.automation_excluded,
         total_screened=prisma_counts.records_screened,
+        records_excluded_screening=prisma_counts.records_excluded_screening,
         fulltext_assessed=prisma_counts.reports_assessed,
         total_included=total_included_count,
         fulltext_excluded=fulltext_excluded_count,
@@ -558,6 +572,10 @@ def format_grounding_block(data: WritingGroundingData) -> str:
         f"Search date: {data.search_date}",
         f"Records identified: {data.total_identified}",
         f"Duplicates removed: {data.duplicates_removed}",
+        f"Records after deduplication: {data.records_after_deduplication}",
+        "CRITICAL: Use 'Records after deduplication' exactly as given above. "
+        "Do NOT compute this yourself (e.g. do not subtract duplicates from identified). "
+        "LLM arithmetic on counts is unreliable; every derived value is pre-computed.",
     ]
     if data.automation_excluded > 0:
         lines.append(
@@ -574,6 +592,9 @@ def format_grounding_block(data: WritingGroundingData) -> str:
         )
     lines += [
         f"Records screened (title/abstract by LLM): {data.total_screened}",
+        f"Records excluded at title/abstract screening: {data.records_excluded_screening}",
+        "CRITICAL: Use 'Records excluded at title/abstract screening' exactly as given. "
+        "Do NOT compute this as screened minus assessed.",
         f"Full-text assessed: {data.fulltext_assessed}",
         f"Full-text articles excluded: {data.fulltext_excluded}",
         f"Studies included: {data.total_included}",
