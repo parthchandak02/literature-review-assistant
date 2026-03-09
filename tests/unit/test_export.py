@@ -6,7 +6,7 @@ from hypothesis import given, settings
 from hypothesis import strategies as st
 
 from src.export.bibtex_builder import build_bibtex
-from src.export.ieee_latex import _escape_latex, markdown_to_latex
+from src.export.ieee_latex import _convert_md_table_to_latex, _escape_latex, markdown_to_latex
 from src.export.ieee_validator import validate_ieee
 from src.export.prisma_checklist import validate_prisma
 
@@ -148,3 +148,46 @@ def test_escape_latex_special_chars_are_escaped() -> None:
     assert "\\#" in result
     assert "\\_" in result
     assert "\\$" in result
+
+
+# ---------------------------------------------------------------------------
+# Table generation -- tabularx invariants
+# ---------------------------------------------------------------------------
+
+def test_md_table_uses_tabularx() -> None:
+    """_convert_md_table_to_latex must emit tabularx, never bare tabular."""
+    lines = ["| A | B | C |", "|---|---|---|", "| x | y | z |"]
+    out = "\n".join(_convert_md_table_to_latex(lines, set(), {}))
+    assert "tabularx" in out
+    # \end{tabular} (without the 'x') must not appear -- would be malformed
+    assert "\\end{tabular}" not in out
+    # Table must always fill the full page width
+    assert "\\textwidth" in out
+
+
+def test_md_table_wide_cols_uses_tabcolsep() -> None:
+    """Tables with more than 5 columns emit a tabcolsep override."""
+    header = "| " + " | ".join(f"H{i}" for i in range(9)) + " |"
+    sep = "| " + " | ".join(["---"] * 9) + " |"
+    row = "| " + " | ".join(f"v{i}" for i in range(9)) + " |"
+    out = "\n".join(_convert_md_table_to_latex([header, sep, row], set(), {}))
+    assert "tabcolsep" in out
+
+
+def test_md_table_narrow_no_tabcolsep() -> None:
+    """Tables with 5 or fewer columns do NOT inject a tabcolsep override."""
+    lines = ["| A | B | C |", "|---|---|---|", "| x | y | z |"]
+    out = "\n".join(_convert_md_table_to_latex(lines, set(), {}))
+    assert "tabcolsep" not in out
+
+
+def test_md_table_arraystretch_always_present() -> None:
+    """arraystretch is emitted for all tables regardless of column count."""
+    lines = ["| A | B |", "|---|---|", "| 1 | 2 |"]
+    out = "\n".join(_convert_md_table_to_latex(lines, set(), {}))
+    assert "arraystretch" in out
+
+
+def test_md_table_empty_returns_empty() -> None:
+    """An empty input produces no output without raising."""
+    assert _convert_md_table_to_latex([], set(), {}) == []

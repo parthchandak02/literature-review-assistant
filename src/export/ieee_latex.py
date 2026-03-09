@@ -279,11 +279,10 @@ def _convert_md_table_to_latex(
         while len(r) < n_cols:
             r.append("")
 
-    # Proportional column widths; use \textwidth (full page width) so the
-    # table* float spans both columns correctly. \linewidth inside table*
-    # equals \textwidth, but being explicit avoids confusion.
-    col_frac = round(0.9 / max(n_cols, 1), 3)
-    col_spec = " ".join([f"p{{{col_frac}\\textwidth}}"] * n_cols)
+    # tabularx with X columns: auto-fills \textwidth equally regardless of
+    # column count. No arithmetic needed -- works for 2-col or 11-col tables
+    # without any per-review tuning.
+    col_spec = " ".join([">{\\raggedright\\arraybackslash}X"] * n_cols)
 
     def convert_cell(cell: str) -> str:
         # Strip leaked markdown heading markers (##, ###, #) that sometimes
@@ -306,10 +305,18 @@ def _convert_md_table_to_latex(
     # favors top placement ([!t]). No caption is emitted because the section
     # writer does not supply table titles to this converter; IEEEtran will still
     # number the float via the table* counter.
+    #
+    # For wide tables (>5 cols) reduce inter-column padding so the 9-11 column
+    # GRADE/MMAT/Appendix B tables do not overflow the page margins.
+    tabcolsep_override = (
+        ["\\setlength{\\tabcolsep}{4pt}"] if n_cols > 5 else []
+    )
     result: list[str] = [
         "\\begin{table*}[!t]",
         "\\centering",
-        f"\\small\\begin{{tabular}}{{{col_spec}}}",
+        "\\renewcommand{\\arraystretch}{1.15}",
+        *tabcolsep_override,
+        f"\\small\\begin{{tabularx}}{{\\textwidth}}{{{col_spec}}}",
         "\\toprule",
     ]
     # Header row in bold
@@ -318,7 +325,7 @@ def _convert_md_table_to_latex(
     result.append("\\midrule")
     for row in body_rows:
         result.append(" & ".join(convert_cell(c) for c in row) + " \\\\")
-    result.extend(["\\bottomrule", "\\end{tabular}", "\\end{table*}"])
+    result.extend(["\\bottomrule", "\\end{tabularx}", "\\end{table*}"])
     return result
 
 
@@ -478,6 +485,8 @@ def markdown_to_latex(
 \usepackage{cite}
 \usepackage{booktabs}
 \usepackage{longtable}
+\usepackage{tabularx}
+\usepackage{array}
 \usepackage{hyperref}
 
 \begin{document}
@@ -550,29 +559,50 @@ def render_grade_sof_latex(table: GradeSoFTable) -> str:
         "very_low": "VERY LOW",
     }
 
+    # Column spec uses relative \textwidth fractions so the table adapts to
+    # any page size without hardcoded centimetre values. Fractions sum to ~1.0:
+    #   Outcome (0.18) + N (0.05) + Design (0.10) + RoB (0.10) +
+    #   Inconsistency (0.10) + Indirectness (0.10) + Imprecision (0.10) +
+    #   Other (0.10) + Certainty+Effect (0.15) = 0.98 (2% slack for colsep)
+    _COL_SPEC = (
+        "p{0.18\\textwidth}"
+        "p{0.05\\textwidth}"
+        "p{0.10\\textwidth}"
+        "p{0.10\\textwidth}"
+        "p{0.10\\textwidth}"
+        "p{0.10\\textwidth}"
+        "p{0.10\\textwidth}"
+        "p{0.10\\textwidth}"
+        "p{0.15\\textwidth}"
+    )
+
     e = _escape_latex
+    _HEADER_ROW = (
+        "\\textbf{Outcome} & \\textbf{N} & \\textbf{Design} & \\textbf{Risk of Bias} & "
+        "\\textbf{Inconsistency} & \\textbf{Indirectness} & \\textbf{Imprecision} & "
+        "\\textbf{Other} & \\textbf{Certainty} \\\\"
+    )
     lines: list[str] = [
         "",
         "\\section*{Appendix: GRADE Summary of Findings}",
         "",
         f"\\textbf{{Topic:}} {e(table.topic)}",
         "",
-        "\\begin{longtable}{p{2.8cm}p{0.6cm}p{1.4cm}p{1.4cm}p{1.4cm}p{1.4cm}p{1.4cm}p{1.4cm}p{2.0cm}}",
+        "\\setlength{\\tabcolsep}{4pt}",
+        f"\\begin{{longtable}}{{{_COL_SPEC}}}",
         "\\caption{GRADE Summary of Findings} \\label{tab:grade_sof} \\\\",
-        "\\hline",
-        "\\textbf{Outcome} & \\textbf{N} & \\textbf{Design} & \\textbf{Risk of Bias} & "
-        "\\textbf{Inconsistency} & \\textbf{Indirectness} & \\textbf{Imprecision} & "
-        "\\textbf{Other} & \\textbf{Certainty} \\\\",
-        "\\hline",
+        "\\toprule",
+        _HEADER_ROW,
+        "\\midrule",
         "\\endfirsthead",
-        "\\hline",
-        "\\textbf{Outcome} & \\textbf{N} & \\textbf{Design} & \\textbf{Risk of Bias} & "
-        "\\textbf{Inconsistency} & \\textbf{Indirectness} & \\textbf{Imprecision} & "
-        "\\textbf{Other} & \\textbf{Certainty} \\\\",
-        "\\hline",
+        "\\toprule",
+        _HEADER_ROW,
+        "\\midrule",
         "\\endhead",
-        "\\hline",
+        "\\midrule",
         "\\endfoot",
+        "\\bottomrule",
+        "\\endlastfoot",
     ]
 
     for row in table.rows:
@@ -591,7 +621,6 @@ def render_grade_sof_latex(table: GradeSoFTable) -> str:
             f"\\textbf{{{cert_label}}}",
         ]
         lines.append(" & ".join(cells) + " \\\\")
-        lines.append("\\hline")
 
     lines.append("\\end{longtable}")
     lines.append("")

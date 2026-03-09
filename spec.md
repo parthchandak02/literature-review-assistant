@@ -1124,7 +1124,7 @@ Living section -- update as work completes.
 
 | IEEE LaTeX Unicode hardening + resume bug fixes | DONE | (1) _escape_latex() refactored into 7-step pipeline: targeted typographic table (7 entries: em-dash/en-dash/smart-quotes/non-breaking-hyphen -> IEEEtran forms), LaTeX special chars, degree sign, pylatexenc.UnicodeToLatexEncoder fallback for all remaining non-ASCII, last-resort [?] guard with warning log for unrenderable glyphs (e.g. Arabic). inputenc/fontenc/textcomp added to IEEE preamble. (2) context_builder.py: math.isnan() guard on cohens_kappa prevents nan propagation into LLM prompt; emits "not calculable (N=X)" with single-class explanation. (3) writing/orchestration.py: save_checkpoint("phase_6_writing") moved after manuscript file write; resume.py: file-existence guard clears stale phase_6_writing checkpoint when doc_manuscript.md is absent. (4) markdown_refs.py: citation_rows unpacking updated to 9 values (includes url). (5) property-based tests added with hypothesis: test_escape_latex_always_ascii_output, test_escape_latex_emdash_uses_triple_dash, test_escape_latex_endash_uses_double_dash, test_escape_latex_smart_quotes_use_standard_ligatures, test_escape_latex_preserves_latex_commands, test_escape_latex_special_chars_are_escaped. pylatexenc>=2.10 and hypothesis>=6.151.9 added as project dependencies. |
 
-**Test status:** 211 unit tests, 52 integration tests (`uv run pytest tests/unit tests/integration -q`).
+**Test status:** 216 unit tests, 52 integration tests (`uv run pytest tests/unit tests/integration -q`).
 
 ---
 

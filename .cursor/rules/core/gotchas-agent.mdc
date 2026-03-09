@@ -347,6 +347,23 @@ The same pattern applies to `records_excluded_screening` (pre-computed as
 `total_screened - fulltext_assessed`). Never remove these fields or rely on the LLM to
 perform PRISMA arithmetic -- LLM arithmetic on injected grounding counts is unreliable.
 
+## All LaTeX Tables Use `tabularx` + `X` Columns (Never `tabular` + `p{X\textwidth}`)
+`_convert_md_table_to_latex()` in `src/export/ieee_latex.py` uses `\begin{tabularx}{\textwidth}{...}` with
+`>{\raggedright\arraybackslash}X` columns. Do NOT revert to `\begin{tabular}{p{X\textwidth}}` arithmetic --
+the old approach hardcoded fractional widths that overflowed on wide tables (9-11 cols). The `X` column
+type auto-fills the full `\textwidth` regardless of column count, making the generator truly review-agnostic.
+For tables with more than 5 columns, `\setlength{\tabcolsep}{4pt}` is emitted automatically.
+`render_grade_sof_latex()` uses relative `p{0.XX\textwidth}` fractions (not hardcoded `cm` widths) and
+`\toprule/\midrule/\bottomrule` booktabs rules (not `\hline`). If you see `\hline` or `p{2.8cm}` in
+generated `.tex`, the code has been reverted -- fix it.
+
+## All markdown tables from markdown_refs.py flow through `_convert_md_table_to_latex()`
+`build_study_characteristics_table()`, `build_robins_i_domain_table()`, `generate_casp_table()`, and
+`generate_mmat_table()` in `src/export/markdown_refs.py` all emit GFM markdown (`| ... |` format).
+These flow through `markdown_to_latex()` -> `_convert_md_table_to_latex()` and inherit the `tabularx`
+upgrade automatically. You do NOT need to change `markdown_refs.py` to improve table formatting -- fix
+`_convert_md_table_to_latex()` in `ieee_latex.py` and all tables benefit.
+
 ## `_escape_latex()` Uses pylatexenc Fallback -- Do Not Add Manual Accented-Char Entries
 `_escape_latex()` in `src/export/ieee_latex.py` uses a 7-entry targeted typographic table
 (em-dash, en-dash, smart quotes, non-breaking hyphen) for IEEEtran-preferred syntax,
