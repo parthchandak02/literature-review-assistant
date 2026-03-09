@@ -23,6 +23,14 @@ class EvidenceLinkRecord(BaseModel):
 
 
 class CitationEntryRecord(BaseModel):
+    """A single bibliographic entry to be registered in the citations table.
+
+    source_type distinguishes the origin of the citation:
+    - 'included': a primary study that was screened in and extracted
+    - 'methodology': a fixed methodology reference (PRISMA, GRADE, RoB tools, etc.)
+    - 'background_sr': a related systematic review discovered via auxiliary search
+    """
+
     citation_id: str = Field(default_factory=lambda: str(uuid.uuid4())[:12])
     citekey: str
     doi: str | None = None
@@ -33,3 +41,4 @@ class CitationEntryRecord(BaseModel):
     journal: str | None = None
     bibtex: str | None = None
     resolved: bool = False
+    source_type: str = "included"

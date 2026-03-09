@@ -86,6 +86,25 @@ def _escape_latex(s: str) -> str:
     # $ delimiters are not themselves re-escaped by step 3.
     s = s.replace("\u00b0", "$^{\\circ}$")
 
+    # Step 4.5: Strip characters in CJK Unicode blocks before pylatexenc.
+    # pdflatex cannot render CJK without specialised packages (CJKutf8, XeLaTeX,
+    # etc.) which are not part of the IEEEtran template used here.  Silently
+    # removing CJK characters is cleaner than the [?] substitution that would
+    # otherwise appear in author names and titles of East-Asian-language papers.
+    # Ranges: CJK Unified Ideographs (4E00-9FFF), Extension A (3400-4DBF),
+    # CJK Compatibility Ideographs (F900-FAFF), Bopomofo (3100-312F),
+    # CJK Radicals Supplement (2E80-2EFF), Kangxi Radicals (2F00-2FDF),
+    # CJK Symbols and Punctuation (3000-303F), Enclosed CJK (3200-32FF).
+    _CJK_RE = re.compile(
+        r"[\u2e80-\u2eff\u2f00-\u2fdf\u3000-\u303f\u3100-\u312f"
+        r"\u3200-\u32ff\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]"
+    )
+    if _CJK_RE.search(s):
+        logger.debug("_escape_latex: stripped CJK characters from string (not renderable in pdflatex)")
+        s = _CJK_RE.sub("", s)
+        # Remove any resulting runs of double-spaces
+        s = re.sub(r"  +", " ", s).strip()
+
     # Step 5: pylatexenc fallback for all remaining non-ASCII characters.
     # non_ascii_only=True means ASCII chars we emitted in steps 2-4 (---, \\&,
     # etc.) are left completely untouched.

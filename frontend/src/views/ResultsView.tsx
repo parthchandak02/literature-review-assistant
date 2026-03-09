@@ -428,6 +428,7 @@ interface ManuscriptActionsProps {
 function ManuscriptActions({ docxPath, canExport, exportRunId, allOutputs }: ManuscriptActionsProps) {
   const [exportState, setExportState] = useState<ExportState>("idle")
   const [exportFiles, setExportFiles] = useState<string[]>([])
+  const prefix = exportRunId ?? "manuscript"
 
   const handleExport = useCallback(async (force = false) => {
     if (!exportRunId) return
@@ -514,7 +515,7 @@ function ManuscriptActions({ docxPath, canExport, exportRunId, allOutputs }: Man
         <>
           {texPath && (
             <Button size="sm" variant="outline" asChild className={sharedCls}>
-              <a href={downloadUrl(texPath)} download="manuscript.tex">
+              <a href={downloadUrl(texPath)} download={`${prefix}-manuscript.tex`}>
                 <FileCode className="h-3 w-3" />
                 .tex
               </a>
@@ -522,15 +523,15 @@ function ManuscriptActions({ docxPath, canExport, exportRunId, allOutputs }: Man
           )}
           {bibPath && (
             <Button size="sm" variant="outline" asChild className={sharedCls}>
-              <a href={downloadUrl(bibPath)} download="references.bib">
+              <a href={downloadUrl(bibPath)} download={`${prefix}-references.bib`}>
                 <BookMarked className="h-3 w-3" />
                 .bib
               </a>
             </Button>
           )}
-          {mergedDocxPath && (
+          {exportRunId && (
             <Button size="sm" variant="outline" asChild className={sharedCls}>
-              <a href={downloadUrl(mergedDocxPath)} download="manuscript.docx">
+              <a href={`/api/run/${exportRunId}/manuscript.docx`}>
                 <FileType className="h-3 w-3 text-blue-400" />
                 DOCX
               </a>
@@ -538,7 +539,7 @@ function ManuscriptActions({ docxPath, canExport, exportRunId, allOutputs }: Man
           )}
           {coverPath && (
             <Button size="sm" variant="outline" asChild className={sharedCls}>
-              <a href={downloadUrl(coverPath)} download="cover_letter.md">
+              <a href={downloadUrl(coverPath)} download={`${prefix}-cover_letter.md`}>
                 <FileText className="h-3 w-3" />
                 Cover
               </a>

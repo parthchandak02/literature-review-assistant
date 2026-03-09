@@ -121,9 +121,21 @@ def _extract_surname(author_raw: Any) -> str:
 
 
 def _fmt_author_str(raw: str) -> str:
-    """Capitalize and lightly normalize a raw author string (Last, F. format)."""
+    """Capitalize and lightly normalize a raw author string (Last, F. format).
+
+    Also deduplicates doubled names that appear when metadata APIs return
+    the full name in both given and family fields (e.g. "Peng Shumin Peng Shumin"
+    or the CJK equivalent "彭淑敏 彭淑敏" -> "彭淑敏").
+    """
     if not raw:
         return raw
+    # Deduplicate doubled name: "A B A B" -> "A B" (handles both ASCII and CJK).
+    words = raw.split()
+    n = len(words)
+    if n > 1 and n % 2 == 0:
+        half = n // 2
+        if words[:half] == words[half:]:
+            raw = " ".join(words[:half])
     # If already looks properly formatted (capital start), return as-is
     if raw[0].isupper():
         return raw

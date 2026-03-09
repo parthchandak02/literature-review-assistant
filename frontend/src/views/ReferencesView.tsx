@@ -148,6 +148,8 @@ export function ReferencesView({ runId, isDone }: ReferencesViewProps) {
   }
 
   const someFilesMissing = papers.length > 0 && papers.some((p) => !p.has_file)
+  const fulltextCount = papers.filter((p) => p.has_file).length
+  const abstractOnlyCount = papers.length - fulltextCount
 
   return (
     <div className="flex flex-col gap-4">
@@ -159,6 +161,11 @@ export function ReferencesView({ runId, isDone }: ReferencesViewProps) {
           </h2>
           <p className="text-xs text-zinc-500 mt-0.5">
             {papers.length} {papers.length === 1 ? "paper" : "papers"} included in this review
+            {abstractOnlyCount > 0 && (
+              <span className="text-amber-500/80 ml-1">
+                -- {abstractOnlyCount} abstract-only (no full text retrieved)
+              </span>
+            )}
           </p>
         </div>
         <div className="flex flex-col items-end gap-2">

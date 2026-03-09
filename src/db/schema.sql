@@ -77,7 +77,8 @@ CREATE TABLE IF NOT EXISTS citations (
     year INTEGER,
     journal TEXT,
     bibtex TEXT,
-    resolved INTEGER NOT NULL DEFAULT 0
+    resolved INTEGER NOT NULL DEFAULT 0,
+    source_type TEXT NOT NULL DEFAULT 'included'
 );
 
 CREATE TABLE IF NOT EXISTS evidence_links (

@@ -17,9 +17,9 @@ from src.search.clinicaltrials import ClinicalTrialsConnector
 
 def _make_study(
     nct_id: str = "NCT04567890",
-    brief_title: str = "Robotic Dispensing Trial",
+    brief_title: str = "Intervention Effectiveness Trial",
     official_title: str | None = None,
-    brief_summary: str = "A study of pharmacy automation.",
+    brief_summary: str = "A study evaluating intervention outcomes in adults.",
     start_date: str = "2021-03-01",
     sponsor: str = "University Hospital",
 ) -> dict[str, Any]:
@@ -102,7 +102,7 @@ async def test_successful_search_returns_results() -> None:
             mock_cls.return_value.__aenter__ = AsyncMock(return_value=mock_session)
             mock_cls.return_value.__aexit__ = AsyncMock(return_value=False)
 
-            results = await connector.search("robotic dispensing pharmacy", max_results=25)
+            results = await connector.search("intervention population adults", max_results=25)
 
     assert isinstance(results, list)
     assert len(results) == 1
@@ -155,7 +155,7 @@ async def test_non_200_returns_empty_list() -> None:
             mock_cls.return_value.__aenter__ = AsyncMock(return_value=mock_session)
             mock_cls.return_value.__aexit__ = AsyncMock(return_value=False)
 
-            results = await connector.search("pharmacy", max_results=10)
+            results = await connector.search("intervention effectiveness", max_results=10)
 
     assert results == []
 
@@ -176,7 +176,7 @@ async def test_network_error_returns_empty_list() -> None:
         mock_cls.return_value.__aenter__ = AsyncMock(side_effect=Exception("Connection refused"))
         mock_cls.return_value.__aexit__ = AsyncMock(return_value=False)
 
-        results = await connector.search("pharmacy", max_results=10)
+        results = await connector.search("intervention effectiveness", max_results=10)
 
     assert results == []
 
@@ -201,7 +201,7 @@ async def test_year_parsed_from_start_date() -> None:
             mock_cls.return_value.__aenter__ = AsyncMock(return_value=mock_session)
             mock_cls.return_value.__aexit__ = AsyncMock(return_value=False)
 
-            results = await connector.search("automation", max_results=5)
+            results = await connector.search("study outcomes", max_results=5)
 
     assert results[0].papers[0].year == 2019
 
@@ -266,7 +266,7 @@ async def test_date_start_forwarded_as_filter_advanced() -> None:
         mock_cls.return_value.__aenter__ = AsyncMock(return_value=mock_session)
         mock_cls.return_value.__aexit__ = AsyncMock(return_value=False)
 
-        await connector.search("pharmacy robotics", max_results=10, date_start=2018)
+        await connector.search("intervention outcomes", max_results=10, date_start=2018)
 
     assert captured_params, "Expected at least one API call"
     params = captured_params[0]
@@ -358,10 +358,10 @@ async def test_search_result_metadata() -> None:
             mock_cls.return_value.__aenter__ = AsyncMock(return_value=mock_session)
             mock_cls.return_value.__aexit__ = AsyncMock(return_value=False)
 
-            results = await connector.search("automation trial", max_results=15)
+            results = await connector.search("intervention trial", max_results=15)
 
     result = results[0]
     assert result.workflow_id == "wf-777"
     assert result.database_name == "clinicaltrials_gov"
-    assert result.search_query == "automation trial"
+    assert result.search_query == "intervention trial"
     assert "pageSize" in result.limits_applied

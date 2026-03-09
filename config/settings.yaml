@@ -64,6 +64,9 @@ agents:
   style_extraction:
     model: "google-gla:gemini-3-flash-preview"
     temperature: 0.2
+  citation_matching:
+    model: "google-gla:gemini-3.1-flash-lite-preview"
+    temperature: 0.0
 
 screening:
   stage1_include_threshold: 0.85
@@ -196,7 +199,7 @@ extraction:
   semanticscholar_full_text: true
   arxiv_full_text: true
   biorxiv_medrxiv_full_text: true
-  openalex_content_full_text: false  # opt-in; $0.01/file
+  openalex_content_full_text: true  # enabled; requires OPENALEX_API_KEY in .env
   crossref_links_full_text: true
   use_pdf_vision: true
   pdf_vision_model: "google-gla:gemini-3.1-flash-lite-preview"

@@ -72,10 +72,10 @@ def _make_ranker(
         screening=_screening_config(threshold=threshold, batch_size=batch_size),
         model="google-gla:gemini-test",
         temperature=0.1,
-        research_question="What is the impact of robotic dispensing?",
-        population="pharmacy",
-        intervention="robotic dispensing",
-        outcome="accuracy",
+        research_question="What is the effect of the intervention on the primary outcome?",
+        population="adult participants",
+        intervention="structured intervention",
+        outcome="primary outcome measure",
         client=_ScriptedBatchClient(responses),
     )
 
@@ -92,7 +92,7 @@ async def test_rank_and_split_normal_case() -> None:
 
     response_items = [
         {"id": "p1", "score": 0.9, "reason": "clearly relevant"},
-        {"id": "p2", "score": 0.2, "reason": "surgical robot, unrelated"},
+        {"id": "p2", "score": 0.2, "reason": "different domain, unrelated"},
         {"id": "p3", "score": 0.6, "reason": "adjacent topic"},
         {"id": "p4", "score": 0.1, "reason": "unrelated domain"},
         {"id": "p5", "score": 0.8, "reason": "direct match"},

@@ -661,7 +661,7 @@ function QuestionStage({
           value={question}
           onChange={(e) => setQuestion(e.target.value)}
           rows={4}
-          placeholder="e.g. What is the impact of autonomous UV-C disinfection robots on pathogen reduction and healthcare-associated infection rates in hospital settings?"
+          placeholder="e.g. What is the effect of [intervention] on [outcome] in [population]? Describe your research question in plain language."
           className="resize-none text-sm bg-zinc-900 border-zinc-800 text-zinc-200 placeholder:text-zinc-600 focus-visible:ring-violet-500/50 leading-relaxed"
           onKeyDown={(e) => {
             if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) void handleGenerate()

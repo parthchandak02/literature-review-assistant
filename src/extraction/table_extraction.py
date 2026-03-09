@@ -27,6 +27,7 @@ from urllib.parse import parse_qsl, quote, urlencode, urljoin, urlparse, urlunpa
 import aiohttp
 
 from src.models.extraction import OutcomeRecord
+from src.utils.ssl_context import tcp_connector_with_certifi
 
 logger = logging.getLogger(__name__)
 
@@ -246,7 +247,10 @@ async def _fetch_unpaywall(doi: str, diagnostics: list[str] | None = None) -> Fu
     """
     if not doi:
         return None
-    meta_url = f"{_UNPAYWALL_BASE}/{doi}?email=litreview@app.local"
+    bare_doi = _normalize_doi(doi)
+    if not bare_doi:
+        return None
+    meta_url = f"{_UNPAYWALL_BASE}/{bare_doi}?email=litreview@app.local"
     try:
         async with aiohttp.ClientSession() as session:
             async with session.get(meta_url, timeout=aiohttp.ClientTimeout(total=_FT_TIMEOUT)) as resp:
@@ -661,10 +665,12 @@ async def _fetch_openalex_content(
     doi: str,
     diagnostics: list[str] | None = None,
 ) -> FullTextResult | None:
-    """Fetch PDF from OpenAlex Content API.
+    """Fetch PDF from OpenAlex Content API (cached PDFs for OA works).
 
-    Resolves DOI to work, checks content_url, fetches PDF. Costs $0.01/file.
-    Requires OPENALEX_API_KEY. Opt-in (use_openalex_content=False by default).
+    Resolves DOI to work via the OpenAlex works API, then:
+    1. Tries the content_urls.pdf field (OpenAlex CDN -- requires OPENALEX_API_KEY).
+    2. Falls back to open_access.oa_url (direct publisher OA PDF, no key needed).
+    Requires OPENALEX_API_KEY to be set for the CDN path.
     """
     api_key = os.environ.get("OPENALEX_API_KEY", "").strip()
     if not api_key:
@@ -674,53 +680,80 @@ async def _fetch_openalex_content(
     if not bare:
         return None
     try:
-        work_url = f"{_OPENALEX_WORKS_URL}/DOI:{quote(bare)}"
+        # Correct URL format: works/https://doi.org/{doi}  (not works/DOI:{doi})
+        work_url = f"{_OPENALEX_WORKS_URL}/https://doi.org/{quote(bare)}"
         async with aiohttp.ClientSession() as session:
             async with session.get(
                 work_url,
-                params={"mailto": os.environ.get("PUBMED_EMAIL", "unknown@example.com")},
+                params={
+                    "mailto": os.environ.get("PUBMED_EMAIL", "unknown@example.com"),
+                    "api_key": api_key,
+                },
                 timeout=aiohttp.ClientTimeout(total=_FT_TIMEOUT),
             ) as resp:
                 if resp.status != 200:
                     _append_diag(diagnostics, "OpenAlex", f"works API HTTP {resp.status}")
                     return None
                 data = await resp.json(content_type=None)
-        content_url = data.get("content_url")
-        if not content_url:
-            _append_diag(diagnostics, "OpenAlex", "no content_url (no cached PDF)")
-            return None
-        # content_url is like https://content.openalex.org/works/W2741809807
-        # Fetch PDF: append .pdf and api_key
-        pdf_url = f"{content_url}.pdf"
-        async with aiohttp.ClientSession() as session:
-            async with session.get(
-                pdf_url,
-                params={"api_key": api_key},
-                timeout=aiohttp.ClientTimeout(total=_FT_TIMEOUT),
-                allow_redirects=True,
-            ) as resp:
-                if resp.status != 200:
-                    _append_diag(diagnostics, "OpenAlex", f"content PDF HTTP {resp.status}")
-                    return None
-                body = await resp.read()
-        if not body or len(body) < 500:
-            _append_diag(diagnostics, "OpenAlex", "PDF too small or empty")
-            return None
-        try:
-            import io
 
-            import fitz  # PyMuPDF
-            import pymupdf4llm
+        # Build ordered list of PDF URLs to try.
+        # 1. OpenAlex CDN (content_urls.pdf) -- authoritative cached copy.
+        # 2. open_access.oa_url -- direct OA PDF from publisher/repo.
+        pdf_candidates: list[tuple[str, dict[str, str]]] = []
+        content_urls = data.get("content_urls") or {}
+        cdn_pdf = content_urls.get("pdf") if isinstance(content_urls, dict) else None
+        if cdn_pdf and cdn_pdf.startswith("http"):
+            pdf_candidates.append((cdn_pdf, {"api_key": api_key}))
+        oa_url = (data.get("open_access") or {}).get("oa_url") or ""
+        if oa_url and oa_url.startswith("http") and oa_url not in (cdn_pdf or ""):
+            pdf_candidates.append((oa_url, {}))
 
-            doc = fitz.open(stream=io.BytesIO(body), filetype="pdf")
-            md_text = pymupdf4llm.to_markdown(doc)
-            doc.close()
-            text = md_text[: _SD_MIN_CHARS * 2]
-            if len(text.strip()) >= _SD_MIN_CHARS:
-                return FullTextResult(text=text, source="openalex_content", pdf_bytes=body)
-        except Exception:
-            pass
-        return FullTextResult(text="", source="openalex_content", pdf_bytes=body)
+        if not pdf_candidates:
+            _append_diag(diagnostics, "OpenAlex", "no content_urls.pdf or oa_url")
+            return None
+
+        for pdf_url, extra_params in pdf_candidates:
+            try:
+                async with aiohttp.ClientSession() as session:
+                    async with session.get(
+                        pdf_url,
+                        params=extra_params if extra_params else None,
+                        headers={
+                            "User-Agent": (
+                                "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+                                "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+                            ),
+                            "Accept": "application/pdf,*/*",
+                        },
+                        timeout=aiohttp.ClientTimeout(total=_FT_TIMEOUT),
+                        allow_redirects=True,
+                    ) as resp:
+                        if resp.status != 200:
+                            _append_diag(diagnostics, "OpenAlex", f"PDF HTTP {resp.status} for {pdf_url[:50]}")
+                            continue
+                        body = await resp.read()
+                if not body or len(body) < 500:
+                    continue
+                try:
+                    import io
+
+                    import fitz  # PyMuPDF
+                    import pymupdf4llm
+
+                    doc = fitz.open(stream=io.BytesIO(body), filetype="pdf")
+                    md_text = pymupdf4llm.to_markdown(doc)
+                    doc.close()
+                    text = md_text[: _SD_MIN_CHARS * 2]
+                    if len(text.strip()) >= _SD_MIN_CHARS:
+                        logger.info("OpenAlex Content: PDF fetched from %s", pdf_url[:70])
+                        return FullTextResult(text=text, source="openalex_content", pdf_bytes=body)
+                except Exception:
+                    pass
+                return FullTextResult(text="", source="openalex_content", pdf_bytes=body)
+            except Exception as _exc:
+                _append_diag(diagnostics, "OpenAlex", f"fetch error: {_exc!s:.60}")
+                continue
+        return None
     except Exception as exc:
         _append_diag(diagnostics, "OpenAlex", str(exc))
         logger.debug("OpenAlex Content fetch error for doi=%s: %s", doi, exc)
@@ -915,6 +948,71 @@ async def _fetch_crossref_links(
     except Exception as exc:
         _append_diag(diagnostics, "Crossref", str(exc))
         logger.debug("Crossref links fetch error for doi=%s: %s", doi, exc)
+        return None
+
+
+# ---------------------------------------------------------------------------
+# Tier 0 helper: direct PDF fetch for known-pattern OA publisher URLs
+# ---------------------------------------------------------------------------
+
+
+async def _fetch_url_direct(
+    pdf_url: str,
+    diagnostics: list[str] | None = None,
+) -> FullTextResult | None:
+    """Fetch a URL that is expected to serve a PDF directly.
+
+    Used for publisher-pattern URLs (MDPI /pdf, Frontiers /pdf, etc.) where we
+    already know the exact PDF endpoint without any HTML parsing.  Returns None
+    when the response is not a PDF or the fetch fails.
+    """
+    pdf_headers = {
+        "User-Agent": (
+            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
+            "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+        ),
+        "Accept": "application/pdf,*/*",
+    }
+    try:
+        async with aiohttp.ClientSession(connector=tcp_connector_with_certifi()) as session:
+            async with session.get(
+                pdf_url,
+                headers=pdf_headers,
+                timeout=aiohttp.ClientTimeout(total=_FT_TIMEOUT),
+                allow_redirects=True,
+            ) as resp:
+                if resp.status != 200:
+                    _append_diag(diagnostics, "PublisherDirect", f"HTTP {resp.status} for {pdf_url[:60]}")
+                    return None
+                pct = resp.headers.get("Content-Type", "").lower()
+                body = await resp.read()
+        if not body or len(body) < 500:
+            _append_diag(diagnostics, "PublisherDirect", "response too short")
+            return None
+        if "application/pdf" not in pct and body[:4] != b"%PDF":
+            _append_diag(diagnostics, "PublisherDirect", f"not a PDF (ct={pct[:40]})")
+            return None
+        text = ""
+        try:
+            import io as _io
+
+            import fitz
+            import pymupdf4llm
+
+            doc = fitz.open(stream=_io.BytesIO(body), filetype="pdf")
+            text = pymupdf4llm.to_markdown(doc)
+            doc.close()
+        except Exception:
+            pass
+        logger.info("PublisherDirect: PDF fetched from %s", pdf_url[:80])
+        return FullTextResult(
+            text=text[:_LP_MAX_CHARS] if text else "",
+            source="publisher_direct_pdf",
+            pdf_bytes=body,
+        )
+    except Exception as exc:
+        _append_diag(diagnostics, "PublisherDirect", str(exc)[:80])
+        logger.debug("PublisherDirect fetch error for %s: %s", pdf_url[:60], exc)
         return None
 
 
@@ -1271,6 +1369,21 @@ async def fetch_full_text(
     key = scopus_api_key or os.environ.get("SCOPUS_API_KEY", "")
     insttoken = (scopus_insttoken or os.environ.get("SCOPUS_INSTTOKEN", "")).strip() or None
     effective_doi = doi or ""
+
+    # Tier 0: Publisher-direct PDF for known OA publisher URL patterns.
+    # Applies to MDPI, Frontiers, BioMedCentral, SpringerOpen, JMIR, PLoS, PeerJ.
+    # Skips all API round-trips for papers whose landing URL maps to a direct PDF endpoint.
+    if url:
+        direct_pdf_url = _publisher_direct_pdf_url(url)
+        if direct_pdf_url:
+            result = await _fetch_url_direct(direct_pdf_url, diagnostics=diagnostics)
+            if result:
+                logger.info(
+                    "fetch_full_text: tier 0 PublisherDirect success for url=%s source=%s",
+                    url[:60],
+                    result.source,
+                )
+                return result
 
     # Tier 1: Unpaywall (OA first, no API key, no quota)
     if use_unpaywall and effective_doi:

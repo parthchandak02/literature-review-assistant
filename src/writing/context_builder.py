@@ -135,6 +135,11 @@ class WritingGroundingData(BaseModel):
     # Citation keys (the ONLY keys the LLM is allowed to use)
     valid_citekeys: list[str]
 
+    # Subset of valid_citekeys that are included primary studies (source_type='included').
+    # The LLM must cite every key in this list at least once in the Results section.
+    # Does NOT include methodology (Page2021, Cohen1960, etc.) or background SR refs.
+    included_study_citekeys: list[str] = []
+
     # Map from citekey to a short title snippet (first ~60 chars of title).
     # Included in the grounding prompt so the LLM can associate study titles
     # with the exact citekey string rather than guessing author-year variants.
@@ -484,16 +489,25 @@ def build_writing_grounding(
         )
 
     # Extract valid citekeys from the citation catalog and build title snippet map.
-    # The catalog format is: [citekey] Title (year) -- one entry per line.
+    # The catalog has two sections separated by a "# Methodology references" header:
+    #   - Lines before the header -> included primary studies
+    #   - Lines after (or starting with "#") -> methodology references
     valid_citekeys: list[str] = []
+    included_study_citekeys: list[str] = []
     citekey_title_map: dict[str, str] = {}
+    _in_methodology_section = False
     for line in citation_catalog.splitlines():
         line = line.strip()
+        if line.startswith("#"):
+            _in_methodology_section = True
+            continue
         if line.startswith("[") and "]" in line:
             _close = line.index("]")
             key = line[1:_close]
             if key:
                 valid_citekeys.append(key)
+                if not _in_methodology_section:
+                    included_study_citekeys.append(key)
                 # Extract the title portion (between "] " and " (year)") for the map.
                 _rest = line[_close + 1 :].strip()
                 # _rest looks like "Some Title (2023)" -- grab up to the first " ("
@@ -558,6 +572,7 @@ def build_writing_grounding(
         key_themes=themes,
         study_summaries=study_summaries,
         valid_citekeys=valid_citekeys,
+        included_study_citekeys=included_study_citekeys,
         citekey_title_map=citekey_title_map,
         cohens_kappa=cohens_kappa,
         kappa_stage=kappa_stage,
@@ -867,8 +882,9 @@ def format_grounding_block(data: WritingGroundingData) -> str:
             "Because meta-analysis was not performed, the synthesis MUST follow the "
             "Synthesis Without Meta-analysis (SWiM) reporting guideline. The Methods section "
             "MUST explicitly state: (a) the outcome domains used to group studies "
-            "(e.g., dispensing accuracy, operational efficiency, patient outcomes, implementation "
-            "barriers/facilitators); (b) the direction-of-effect summary approach used "
+            "(e.g., primary outcomes, secondary outcomes, safety outcomes, implementation "
+            "barriers/facilitators -- use the actual outcome categories from the included studies); "
+            "(b) the direction-of-effect summary approach used "
             "(vote-counting: how many studies reported improvement/no change/worsening per domain); "
             "(c) that heterogeneity in study designs and outcome reporting precluded meta-analysis. "
             "The Results 'Synthesis of Findings' subsection MUST organise findings by these "
@@ -1002,26 +1018,26 @@ def format_grounding_block(data: WritingGroundingData) -> str:
             "(b) states explicitly that VERY LOW GRADE certainty means the true effect "
             "could differ substantially from observed estimates and that findings should be "
             "interpreted as hypothesis-generating rather than confirmatory; "
-            "(c) explains WHY effect sizes vary across studies (differences in setting, system "
-            "maturity, baseline error rate, EMR integration depth, pharmacy volume). "
+            "(c) explains WHY effect sizes vary across studies (differences in setting, "
+            "population characteristics, intervention design, outcome measurement, and "
+            "study quality -- use the specific factors relevant to the included evidence). "
             "Do NOT write 'most studies demonstrated moderate to serious risk of bias' as a "
             "standalone sentence -- this glosses over the interpretation and will trigger "
             "reviewer rejection. Connect the bias DIRECTLY to the reliability of each major claim."
         )
         lines.append(
-            "CRITICAL -- SOCIO-TECHNICAL VARIABILITY (Q1 REQUIREMENT): "
+            "CRITICAL -- EFFECT SIZE VARIABILITY (REQUIRED FOR DISCUSSION): "
             "The Discussion 'Comparison with Prior Work' subsection MUST address the "
             "variability in effect sizes across studies. Specifically: "
-            "(a) explain why productivity gains ranged from 33% to 70% across studies -- "
-            "this reflects differences in system maturity, pharmacy volume, staff training "
-            "duration, and the degree of EMR integration; "
-            "(b) reference the 'Implementation Dip' phenomenon -- the temporary loss of "
-            "efficiency during the early adoption phase (analogous to the technology "
-            "adoption trough in medical informatics literature) -- citing specific study "
-            "evidence where dispensing times initially rose before recovering; "
-            "(c) ground this in socio-technical theory (e.g., Normalization Process Theory, "
-            "Technology Acceptance Model) to explain user adaptation patterns. "
-            "This elevates the Discussion from a summary of findings to an academic analysis."
+            "(a) explain what factors account for the observed heterogeneity -- "
+            "consider differences in setting, population, intervention intensity, comparator, "
+            "outcome measurement, follow-up duration, and implementation fidelity; "
+            "(b) identify any dose-response, temporal, or adoption-curve patterns visible "
+            "in the data and discuss their theoretical basis; "
+            "(c) ground the Discussion in an appropriate theoretical or conceptual framework "
+            "relevant to this topic (e.g., a behaviour change theory, implementation science "
+            "framework, or clinical pathway model) to elevate the synthesis beyond a summary "
+            "of findings into an academic analysis of the evidence."
         )
 
     if data.figure_map:
@@ -1073,23 +1089,40 @@ def format_grounding_block(data: WritingGroundingData) -> str:
         )
 
     if data.valid_citekeys:
-        lines.append("")
-        lines.append(
-            "CITATION CATALOG -- STRICT RULE: You MUST use ONLY the exact citekeys listed below "
-            "in square brackets when citing included studies. DO NOT invent, guess, or paraphrase "
-            "any citekey. Every key you write MUST match one of the entries below exactly "
-            "(case-sensitive). Any citekey not in this list will be stripped from the final "
-            "manuscript and will NOT appear in the reference list."
-        )
-        lines.append("EXACT CITEKEYS (copy these character-for-character):")
-        for key in data.valid_citekeys:
-            title_snip = ""
-            if data.citekey_title_map:
-                title_snip = data.citekey_title_map.get(key, "")
-            if title_snip:
-                lines.append(f"  [{key}] -- {title_snip}")
-            else:
-                lines.append(f"  [{key}]")
+        # Separate included study keys from methodology keys for clear LLM guidance.
+        _methodology_keys = set(data.valid_citekeys) - set(data.included_study_citekeys)
+
+        if data.included_study_citekeys:
+            lines.append("")
+            lines.append(
+                "INCLUDED STUDIES -- CITATION COVERAGE REQUIRED: Every key listed below "
+                "belongs to a primary study that was screened in and included in this review. "
+                "You MUST cite EVERY key below at least once across the manuscript. "
+                "In the Results section, group any uncited keys by study design and append them "
+                "as citation clusters (e.g. 'Developmental studies also include "
+                "[KeyA2021, KeyB2022, KeyC2023].'). "
+                "DO NOT invent or paraphrase any citekey -- copy exactly, case-sensitive."
+            )
+            for key in data.included_study_citekeys:
+                title_snip = data.citekey_title_map.get(key, "") if data.citekey_title_map else ""
+                if title_snip:
+                    lines.append(f"  [{key}] -- {title_snip}")
+                else:
+                    lines.append(f"  [{key}]")
+
+        if _methodology_keys:
+            lines.append("")
+            lines.append(
+                "METHODOLOGY REFERENCES (cite ONLY when describing study design methods, "
+                "systematic review methodology, PRISMA reporting, GRADE evidence rating, "
+                "or risk-of-bias tools -- NOT as evidence for clinical outcomes):"
+            )
+            for key in sorted(_methodology_keys):
+                title_snip = data.citekey_title_map.get(key, "") if data.citekey_title_map else ""
+                if title_snip:
+                    lines.append(f"  [{key}] -- {title_snip}")
+                else:
+                    lines.append(f"  [{key}]")
 
     lines.append("---")
     return "\n".join(lines)

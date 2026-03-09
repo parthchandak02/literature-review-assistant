@@ -16,11 +16,11 @@ from src.search.ieee_xplore import IEEEXploreConnector
 
 
 def _make_article(
-    title: str = "Robotic Dispensing in Pharmacy",
+    title: str = "Study on Intervention Effectiveness",
     doi: str = "10.1109/test.2023.001",
     year: int | str = 2023,
     html_url: str = "https://ieeexplore.ieee.org/document/12345",
-    abstract: str = "An abstract about robotic dispensing.",
+    abstract: str = "An abstract about intervention outcomes.",
     authors: list[str] | None = None,
 ) -> dict[str, Any]:
     author_list = [{"full_name": name} for name in (authors or ["Smith, J.", "Jones, A."])]
@@ -66,7 +66,7 @@ async def _mock_session(payload: dict[str, Any], status: int = 200):
 async def test_missing_api_key_returns_empty(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("IEEE_API_KEY", raising=False)
     connector = IEEEXploreConnector("wf-test")
-    result = await connector.search("robotic dispensing", max_results=10)
+    result = await connector.search("intervention effectiveness", max_results=10)
 
     assert result.records_retrieved == 0
     assert result.papers == []
@@ -98,7 +98,7 @@ async def test_successful_search_returns_papers(monkeypatch: pytest.MonkeyPatch)
             mock_cls.return_value.__aenter__ = AsyncMock(return_value=mock_session)
             mock_cls.return_value.__aexit__ = AsyncMock(return_value=False)
 
-            result = await connector.search("robotic dispensing", max_results=10)
+            result = await connector.search("intervention study outcome", max_results=10)
 
     assert result.records_retrieved == 2
     assert len(result.papers) == 2
@@ -130,7 +130,7 @@ async def test_author_parsing(monkeypatch: pytest.MonkeyPatch) -> None:
             mock_cls.return_value.__aenter__ = AsyncMock(return_value=mock_session)
             mock_cls.return_value.__aexit__ = AsyncMock(return_value=False)
 
-            result = await connector.search("pharmacy automation", max_results=5)
+            result = await connector.search("systematic review outcomes", max_results=5)
 
     assert len(result.papers) == 1
     paper = result.papers[0]
@@ -160,7 +160,7 @@ async def test_year_as_string_is_parsed(monkeypatch: pytest.MonkeyPatch) -> None
             mock_cls.return_value.__aenter__ = AsyncMock(return_value=mock_session)
             mock_cls.return_value.__aexit__ = AsyncMock(return_value=False)
 
-            result = await connector.search("automation", max_results=5)
+            result = await connector.search("study design", max_results=5)
 
     assert result.papers[0].year == 2021
 
@@ -183,7 +183,7 @@ async def test_non_200_response_returns_empty(monkeypatch: pytest.MonkeyPatch) -
             mock_cls.return_value.__aenter__ = AsyncMock(return_value=mock_session)
             mock_cls.return_value.__aexit__ = AsyncMock(return_value=False)
 
-            result = await connector.search("medication error", max_results=5)
+            result = await connector.search("population intervention outcome", max_results=5)
 
     assert result.records_retrieved == 0
     assert result.papers == []
@@ -219,7 +219,7 @@ async def test_date_range_sent_as_params(monkeypatch: pytest.MonkeyPatch) -> Non
         mock_cls.return_value.__aenter__ = AsyncMock(return_value=mock_session)
         mock_cls.return_value.__aexit__ = AsyncMock(return_value=False)
 
-        await connector.search("pharmacy", max_results=20, date_start=2015, date_end=2024)
+        await connector.search("intervention population", max_results=20, date_start=2015, date_end=2024)
 
     assert captured_params, "Expected at least one API call"
     params = captured_params[0]
@@ -249,11 +249,11 @@ async def test_search_result_metadata(monkeypatch: pytest.MonkeyPatch) -> None:
             mock_cls.return_value.__aenter__ = AsyncMock(return_value=mock_session)
             mock_cls.return_value.__aexit__ = AsyncMock(return_value=False)
 
-            result = await connector.search("robotics", max_results=25)
+            result = await connector.search("evidence synthesis", max_results=25)
 
     assert result.workflow_id == "wf-999"
     assert result.database_name == "ieee_xplore"
-    assert result.search_query == "robotics"
+    assert result.search_query == "evidence synthesis"
     assert "max_results=25" in result.limits_applied
     from src.models import SourceCategory
 

@@ -45,8 +45,8 @@ def _make_extraction(paper_id: str, extraction_source: str = "text") -> Extracti
         paper_id=paper_id,
         study_design="non_randomized",
         participant_count=100,
-        setting="Outpatient pharmacy",
-        intervention_description="Robotic dispensing",
+        setting="Community clinic",
+        intervention_description="Structured intervention program",
         results_summary={},
         extraction_source=extraction_source,
         confidence_score=0.9,
@@ -216,10 +216,10 @@ def test_picos_table_inclusion_criteria_date_normalized():
     """Inclusion criteria text with wrong end year gets normalized."""
     config = SimpleNamespace(
         pico=SimpleNamespace(
-            population="Pharmacy staff",
-            intervention="Robotic dispensing",
-            comparison="Manual dispensing",
-            outcome="Error rate",
+            population="Adult participants",
+            intervention="Structured intervention",
+            comparison="Control condition",
+            outcome="Primary outcome measure",
             study_design=None,
             study_designs=None,
         ),

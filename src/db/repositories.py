@@ -1109,11 +1109,42 @@ class CitationRepository:
 
     async def ensure_schema(self) -> None:
         """Idempotent migration: add columns introduced after initial schema creation."""
+        for _ddl in (
+            "ALTER TABLE citations ADD COLUMN url TEXT",
+            "ALTER TABLE citations ADD COLUMN source_type TEXT NOT NULL DEFAULT 'included'",
+        ):
+            try:
+                await self.db.execute(_ddl)
+                await self.db.commit()
+            except Exception:
+                # Column already exists (or table does not exist yet -- schema.sql creates it).
+                pass
+
+        # Retroactively fix source_type for known methodology references that were
+        # registered before the source_type column was added.  Without this UPDATE,
+        # the ALTER TABLE default sets them all to 'included', causing them to be
+        # treated as required included-study citations in coverage checks.
+        _METHODOLOGY_KEYS = (
+            "Page2021",
+            "Sterne2019",
+            "Sterne2016",
+            "Guyatt2011",
+            "Cohen1960",
+        )
         try:
-            await self.db.execute("ALTER TABLE citations ADD COLUMN url TEXT")
+            placeholders = ",".join("?" * len(_METHODOLOGY_KEYS))
+            await self.db.execute(
+                f"UPDATE citations SET source_type='methodology'"
+                f" WHERE citekey IN ({placeholders}) AND source_type='included'",
+                _METHODOLOGY_KEYS,
+            )
+            # Background SR keys follow the pattern citekey LIKE '%SR' (e.g. Jones2021SR).
+            await self.db.execute(
+                "UPDATE citations SET source_type='background_sr'"
+                " WHERE citekey LIKE '%SR' AND source_type='included'"
+            )
             await self.db.commit()
         except Exception:
-            # Column already exists (or table does not exist yet -- schema.sql will create it).
             pass
 
     async def register_claim(self, claim: ClaimRecord) -> None:
@@ -1141,8 +1172,8 @@ class CitationRepository:
 
         await self.db.execute(
             """
-            INSERT INTO citations (citation_id, citekey, doi, url, title, authors, year, journal, bibtex, resolved)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO citations (citation_id, citekey, doi, url, title, authors, year, journal, bibtex, resolved, source_type)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(citation_id) DO UPDATE SET
                 citekey=excluded.citekey,
                 doi=excluded.doi,
@@ -1152,7 +1183,8 @@ class CitationRepository:
                 year=excluded.year,
                 journal=excluded.journal,
                 bibtex=excluded.bibtex,
-                resolved=excluded.resolved
+                resolved=excluded.resolved,
+                source_type=excluded.source_type
             """,
             (
                 citation.citation_id,
@@ -1165,6 +1197,7 @@ class CitationRepository:
                 citation.journal,
                 citation.bibtex,
                 1 if citation.resolved else 0,
+                citation.source_type,
             ),
         )
         await self.db.commit()
@@ -1198,6 +1231,24 @@ class CitationRepository:
 
     async def get_citekeys(self) -> list[str]:
         cursor = await self.db.execute("SELECT citekey FROM citations")
+        rows = await cursor.fetchall()
+        return [str(row[0]) for row in rows]
+
+    async def get_included_citekeys(self) -> list[str]:
+        """Return citekeys for included primary studies only (source_type='included').
+
+        Excludes methodology references (Page2021, Cohen1960, etc.) and background
+        SR citations so callers can enforce citation coverage only over actual
+        included studies. Falls back to all citekeys for older DBs that predate
+        the source_type column migration.
+        """
+        try:
+            cursor = await self.db.execute(
+                "SELECT citekey FROM citations WHERE source_type = 'included' ORDER BY citekey"
+            )
+        except Exception:
+            # source_type column absent on old DB -- return all citekeys as fallback
+            cursor = await self.db.execute("SELECT citekey FROM citations ORDER BY citekey")
         rows = await cursor.fetchall()
         return [str(row[0]) for row in rows]
 

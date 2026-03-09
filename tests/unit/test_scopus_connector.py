@@ -118,7 +118,7 @@ async def test_date_range_injected_into_query(monkeypatch: pytest.MonkeyPatch) -
         mock_cls.return_value.__aexit__ = AsyncMock(return_value=False)
 
         result = await connector.search(
-            query="TITLE-ABS-KEY(robotic dispensing)",
+            query="TITLE-ABS-KEY(intervention effectiveness)",
             max_results=10,
             date_start=2015,
             date_end=2024,

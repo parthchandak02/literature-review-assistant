@@ -9,7 +9,7 @@ a sample DOI venue lookup to demonstrate that endpoint.
 
 Usage:
     uv run python scripts/test_openalex_quality.py
-    uv run python scripts/test_openalex_quality.py --query "pharmacy automation dispensing"
+    uv run python scripts/test_openalex_quality.py --query "exercise intervention sleep quality adults"
     uv run python scripts/test_openalex_quality.py --max 30
 """
 
@@ -38,8 +38,7 @@ _BASE_URL = "https://api.openalex.org/works"
 _SELECT = "id,display_name,doi,publication_year,primary_location,cited_by_count,is_retracted"
 
 _DEFAULT_QUERY = (
-    "robotic medication dispensing automated dispensing pharmacy automation "
-    "medication error patient safety dispensing accuracy"
+    "systematic review intervention effectiveness outcome population"
 )
 
 

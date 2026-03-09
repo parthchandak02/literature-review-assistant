@@ -404,6 +404,7 @@ async def register_methodology_citations(repo: CitationRepository) -> list[str]:
             journal=journal,
             bibtex=None,
             resolved=True,
+            source_type="methodology",
         )
         try:
             await repo.register_citation(record)
@@ -504,6 +505,7 @@ async def register_background_sr_citations(
                 journal=venue or None,
                 bibtex=None,
                 resolved=True,
+                source_type="background_sr",
             )
             try:
                 await repo.register_citation(record)
@@ -542,6 +544,7 @@ async def register_citations_from_papers(repo: CitationRepository, papers: list[
             journal=p.journal,
             bibtex=None,
             resolved=True,
+            source_type="included",
         )
         await repo.register_citation(record)
         existing.add(citekey)

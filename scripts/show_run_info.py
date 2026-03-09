@@ -255,9 +255,12 @@ async def show_run(db_path: pathlib.Path, fetch_pdfs: bool = False, run_root: st
                 WHEN reason LIKE '%no publication year%' THEN 'No publication year'
                 WHEN reason LIKE '%BM25%' OR reason LIKE '%Low relevance%' THEN 'BM25 low relevance score'
                 WHEN reason LIKE '%inpatient%' OR reason LIKE '%hospital ward%' THEN 'Inpatient/hospital setting only'
-                WHEN reason LIKE '%surgical%' OR reason LIKE '%surgery%' OR reason LIKE '%hysterectomy%'
-                     OR reason LIKE '%prostatectomy%' OR reason LIKE '%insulinoma%' THEN 'Surgical robotics (not pharmacy)'
+                WHEN reason LIKE '%surgical%' OR reason LIKE '%surgery%' THEN 'Surgical/procedural study'
                 WHEN reason LIKE '%conference abstract%' THEN 'Conference abstract only'
+                WHEN reason LIKE '%wrong population%' THEN 'Wrong population'
+                WHEN reason LIKE '%wrong intervention%' THEN 'Wrong intervention'
+                WHEN reason LIKE '%wrong outcome%' THEN 'Wrong outcome'
+                WHEN reason LIKE '%wrong study design%' THEN 'Wrong study design'
                 ELSE SUBSTR(reason, 1, 65)
             END as reason_label,
             COUNT(*) as cnt

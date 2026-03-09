@@ -9,7 +9,7 @@ from src.writing.contradiction_resolver import build_conflicting_evidence_sectio
 def _flag(
     paper_a: str = "paper-aaa-001",
     paper_b: str = "paper-bbb-002",
-    outcome: str = "dispensing error rate",
+    outcome: str = "primary outcome measure",
     dir_a: str = "positive",
     dir_b: str = "negative",
     similarity: float = 0.82,
@@ -43,9 +43,9 @@ def test_section_contains_both_paper_ids() -> None:
 
 
 def test_section_contains_outcome_name() -> None:
-    flag = _flag(outcome="medication dispensing error rate")
+    flag = _flag(outcome="intervention effect on primary outcome")
     result = build_conflicting_evidence_section([flag])
-    assert "medication dispensing error rate" in result
+    assert "intervention effect on primary outcome" in result
 
 
 def test_section_contains_direction_labels() -> None:
@@ -75,14 +75,14 @@ def test_note_absent_when_empty() -> None:
 
 def test_multiple_flags_all_listed() -> None:
     flags = [
-        _flag(outcome="dispensing accuracy"),
-        _flag(outcome="medication error rate", paper_a="paper-ccc", paper_b="paper-ddd"),
-        _flag(outcome="staff satisfaction", paper_a="paper-eee", paper_b="paper-fff"),
+        _flag(outcome="primary outcome score"),
+        _flag(outcome="secondary outcome measure", paper_a="paper-ccc", paper_b="paper-ddd"),
+        _flag(outcome="participant satisfaction", paper_a="paper-eee", paper_b="paper-fff"),
     ]
     result = build_conflicting_evidence_section(flags)
-    assert "dispensing accuracy" in result
-    assert "medication error rate" in result
-    assert "staff satisfaction" in result
+    assert "primary outcome score" in result
+    assert "secondary outcome measure" in result
+    assert "participant satisfaction" in result
 
 
 def test_capped_at_ten_flags() -> None:

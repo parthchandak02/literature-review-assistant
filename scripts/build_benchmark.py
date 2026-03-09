@@ -11,7 +11,7 @@ Optionally fetches 2-3 additional high-quality published SRs from the web
 Usage:
     uv run python scripts/build_benchmark.py
     uv run python scripts/build_benchmark.py --fetch-web
-    uv run python scripts/build_benchmark.py --fetch-web --topic "telemedicine elderly"
+    uv run python scripts/build_benchmark.py --fetch-web --topic "your review topic here"
     uv run python scripts/build_benchmark.py --dry-run   # show what would be extracted, no write
 """
 
@@ -602,7 +602,7 @@ if __name__ == "__main__":
         "--topic",
         type=str,
         default=None,
-        help="Topic string for web fetch (e.g. 'telemedicine elderly'). Reads config/review.yaml if not set.",
+        help="Topic string for web fetch (e.g. 'exercise intervention sleep quality'). Reads config/review.yaml if not set.",
     )
     parser.add_argument(
         "--dry-run",

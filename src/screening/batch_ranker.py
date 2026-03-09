@@ -45,7 +45,7 @@ RESPONSE FORMAT -- return ONLY a valid JSON array, no prose:
 SCORING RULES:
 - score 0.8-1.0: clearly relevant (directly evaluates the intervention in the target setting)
 - score 0.4-0.7: possibly relevant (adjacent topic, may meet criteria on closer review)
-- score 0.0-0.35: clearly irrelevant (different domain, unrelated intervention, or surgical robot)
+- score 0.0-0.35: clearly irrelevant (different domain, unrelated intervention, or clearly out-of-scope topic)
 
 CRITICAL -- BE LIBERAL: When uncertain, assign score >= 0.35 so the paper reaches detailed review.
 A false negative (missing a relevant paper) is permanent. A false positive costs one extra review call.

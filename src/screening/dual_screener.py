@@ -936,12 +936,48 @@ class DualReviewerScreener:
         spec_a = ReviewerSpec(agent_name="screening_reviewer_a", reviewer_type=ReviewerType.REVIEWER_A)
         spec_b = ReviewerSpec(agent_name="screening_reviewer_b", reviewer_type=ReviewerType.REVIEWER_B)
 
-        # Heuristic pre-filters (protocol-only, insufficient-content) still run per-paper
-        # before any LLM call, identical to the per-paper path.
+        # Heuristic pre-filters (no-full-text, protocol-only, insufficient-content) still run
+        # per-paper before any LLM call, identical to the per-paper path.
+        skip_no_pdf = getattr(self.settings.screening, "skip_fulltext_if_no_pdf", False)
         heuristic_decisions: dict[str, ScreeningDecision] = {}
         llm_candidates: list[CandidatePaper] = []
         for paper in papers:
             await self.repository.save_paper(paper)
+            # Gate: if full-text screening and no PDF was retrieved, auto-exclude.
+            # Must mirror the _process_one path so skip_fulltext_if_no_pdf is enforced
+            # regardless of whether batch mode or per-paper mode is active.
+            if stage == "fulltext" and skip_no_pdf and not ft.get(paper.paper_id, "").strip():
+                d = ScreeningDecision(
+                    paper_id=paper.paper_id,
+                    decision=ScreeningDecisionType.EXCLUDE,
+                    confidence=1.0,
+                    reason="Full text not retrievable.",
+                    reviewer_type=ReviewerType.ADJUDICATOR,
+                    exclusion_reason=ExclusionReason.NO_FULL_TEXT,
+                )
+                await self.repository.save_screening_decision(workflow_id=workflow_id, stage=stage, decision=d)
+                await self.repository.save_dual_screening_result(
+                    workflow_id=workflow_id,
+                    paper_id=paper.paper_id,
+                    stage=stage,
+                    agreement=True,
+                    final_decision=ScreeningDecisionType.EXCLUDE,
+                    adjudication_needed=False,
+                )
+                await self.repository.append_decision_log(
+                    DecisionLogEntry(
+                        decision_type="screening_no_fulltext",
+                        paper_id=paper.paper_id,
+                        decision=ScreeningDecisionType.EXCLUDE.value,
+                        rationale="Full text not retrievable; excluded per skip_fulltext_if_no_pdf.",
+                        actor=ReviewerType.ADJUDICATOR.value,
+                        phase="phase_3_screening",
+                    )
+                )
+                if self.on_screening_decision:
+                    self.on_screening_decision(paper.paper_id, stage, "exclude", "fulltext_no_pdf_heuristic", 1.0)
+                heuristic_decisions[paper.paper_id] = d
+                continue
             if self._is_protocol_only(paper):
                 d = ScreeningDecision(
                     paper_id=paper.paper_id,

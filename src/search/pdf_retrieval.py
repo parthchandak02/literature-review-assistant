@@ -72,10 +72,13 @@ class PDFRetriever:
             try:
                 from src.extraction.table_extraction import fetch_full_text
 
+                # Enable OpenAlex Content tier when the API key is available.
+                _use_openalex = bool(os.getenv("OPENALEX_API_KEY", "").strip())
                 ft_result = await fetch_full_text(
                     doi=paper.doi,
                     url=paper.url,
                     pmid=getattr(paper, "pmid", None),
+                    use_openalex_content=_use_openalex,
                 )
                 if ft_result and ft_result.source != "abstract":
                     if ft_result.text and len(ft_result.text) >= 500:
@@ -231,9 +234,19 @@ class PDFRetriever:
                 unique.append(normalized)
         return unique
 
+    @staticmethod
+    def _bare_doi(doi: str) -> str:
+        """Strip https://doi.org/ prefix to get the bare DOI for API queries."""
+        if "doi.org/" in doi.lower():
+            doi = doi.split("doi.org/")[-1]
+        return doi.strip()
+
     async def _resolve_unpaywall(self, doi: str) -> str | None:
         email = os.getenv("CROSSREF_EMAIL") or os.getenv("PUBMED_EMAIL") or "unknown@example.com"
-        url = f"https://api.unpaywall.org/v2/{quote(doi)}"
+        bare = self._bare_doi(doi)
+        if not bare:
+            return None
+        url = f"https://api.unpaywall.org/v2/{quote(bare)}"
         try:
             async with aiohttp.ClientSession(
                 timeout=aiohttp.ClientTimeout(total=15),
@@ -253,7 +266,10 @@ class PDFRetriever:
         headers: dict[str, str] = {}
         if s2_key:
             headers["x-api-key"] = s2_key
-        url = f"https://api.semanticscholar.org/graph/v1/paper/DOI:{quote(doi)}"
+        bare = self._bare_doi(doi)
+        if not bare:
+            return None
+        url = f"https://api.semanticscholar.org/graph/v1/paper/DOI:{quote(bare)}"
         try:
             async with aiohttp.ClientSession(
                 timeout=aiohttp.ClientTimeout(total=15),

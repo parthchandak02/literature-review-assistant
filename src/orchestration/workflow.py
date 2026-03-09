@@ -2275,6 +2275,29 @@ def _reconcile_manuscript_consistency(body: str, state: ReviewState) -> str:  # 
     return body
 
 
+def _build_citation_coverage_patch(uncited_keys: list[str]) -> str:
+    """Build a brief Study Characteristics paragraph citing all uncited included-study keys.
+
+    Groups keys alphabetically into one paragraph so every included study citekey
+    appears at least once in the Results section. The paragraph is injected just
+    before the Risk of Bias subsection by the coverage-check caller.
+
+    This is a programmatic safety net: the LLM prompt already instructs comprehensive
+    citation coverage, but if the model omits any keys this function ensures the
+    final manuscript is complete.
+    """
+    if not uncited_keys:
+        return ""
+    # Chunk into groups of up to 8 for readability
+    _CHUNK = 8
+    groups = [uncited_keys[i : i + _CHUNK] for i in range(0, len(uncited_keys), _CHUNK)]
+    cite_clusters = "; ".join("[" + ", ".join(g) + "]" for g in groups)
+    return (
+        "Additional included studies contributing to the evidence base are "
+        f"acknowledged here to ensure complete citation coverage: {cite_clusters}."
+    )
+
+
 def _build_minimal_sections_for_zero_papers(
     research_question: str,
     minimal_paragraph: str,
@@ -2929,7 +2952,7 @@ class WritingNode(BaseNode[ReviewState]):
             except Exception as _contra_exc:
                 logger.warning("Contradiction detection failed (non-fatal): %s", _contra_exc)
 
-        # --- Citation grounding verification (Idea 1) ---
+        # --- Citation grounding verification ---
         # Verify all citekeys in the assembled manuscript are legitimate.
         if citation_catalog:
             _valid_citekeys = [
@@ -2946,6 +2969,70 @@ class WritingNode(BaseNode[ReviewState]):
                         len(_hallucinated),
                         _hallucinated[:5],
                     )
+
+        # --- Programmatic citation coverage check ---
+        # Detect included-study citekeys that the LLM omitted and auto-patch
+        # the Results section body + DB draft so no study goes uncited.
+        try:
+            async with get_db(state.db_path) as _cov_db:
+                _cov_repo = CitationRepository(_cov_db)
+                _included_keys = set(await _cov_repo.get_included_citekeys())
+            if _included_keys:
+                _cited_in_body = set(
+                    re.findall(r"\[([A-Za-z][A-Za-z0-9_\-']+\d{4}[a-z]?)\]", body)
+                )
+                _uncited = sorted(_included_keys - _cited_in_body)
+                if _uncited:
+                    logger.warning(
+                        "WritingNode: %d included-study citekeys not cited in manuscript: %s",
+                        len(_uncited),
+                        _uncited[:10],
+                    )
+                    # Build a grouped coverage paragraph and inject into Results body.
+                    # Grouping uses paper_id_to_citekey; falls back to a flat list.
+                    _cov_patch = _build_citation_coverage_patch(_uncited)
+                    # Inject before '### Risk of Bias' in the body; append to Results if absent.
+                    _rob_marker = "### Risk of Bias"
+                    if _rob_marker in body:
+                        body = body.replace(_rob_marker, _cov_patch + "\n\n" + _rob_marker, 1)
+                    else:
+                        # Append at end of Results section (before Discussion heading)
+                        _disc_marker = "## Discussion"
+                        if _disc_marker in body:
+                            body = body.replace(_disc_marker, _cov_patch + "\n\n" + _disc_marker, 1)
+                        else:
+                            body = body.rstrip() + "\n\n" + _cov_patch + "\n"
+                    # Persist patched Results draft back to DB so inject script stays idempotent.
+                    try:
+                        async with get_db(state.db_path) as _patch_db:
+                            _results_content_cur = await _patch_db.execute(
+                                "SELECT content FROM section_drafts WHERE workflow_id=? AND section='results' ORDER BY version DESC LIMIT 1",
+                                (state.workflow_id,),
+                            )
+                            _results_row = await _results_content_cur.fetchone()
+                            if _results_row:
+                                _patched_results = _results_row[0]
+                                if _rob_marker in _patched_results:
+                                    _patched_results = _patched_results.replace(
+                                        _rob_marker, _cov_patch + "\n\n" + _rob_marker, 1
+                                    )
+                                else:
+                                    _patched_results = _patched_results.rstrip() + "\n\n" + _cov_patch
+                                await _patch_db.execute(
+                                    "UPDATE section_drafts SET content=? WHERE workflow_id=? AND section='results'",
+                                    (_patched_results, state.workflow_id),
+                                )
+                                await _patch_db.commit()
+                                logger.info(
+                                    "WritingNode: injected %d uncited keys into Results section_draft",
+                                    len(_uncited),
+                                )
+                    except Exception as _db_patch_exc:
+                        logger.debug("WritingNode: DB draft patch failed (non-fatal): %s", _db_patch_exc)
+                else:
+                    logger.info("WritingNode: citation coverage OK -- all %d included keys cited", len(_included_keys))
+        except Exception as _cov_exc:
+            logger.warning("WritingNode: citation coverage check failed (non-fatal): %s", _cov_exc)
 
         # Cross-section consistency pass: detect and repair contradictions that arise
         # when sections are written independently by the LLM.
@@ -3200,7 +3287,10 @@ class FinalizeNode(BaseNode[ReviewState]):
             try:
                 from src.export.bibtex_builder import build_bibtex as _build_bibtex
                 from src.export.ieee_latex import markdown_to_latex as _md_to_latex
-                from src.export.submission_packager import _build_number_to_citekey
+                from src.export.submission_packager import (
+                    _build_number_to_citekey,
+                    llm_resolve_unmatched_citations,
+                )
 
                 _tex_path = Path(_mmd_path).parent / "doc_manuscript.tex"
                 _bib_path = Path(_mmd_path).parent / "references.bib"
@@ -3208,7 +3298,16 @@ class FinalizeNode(BaseNode[ReviewState]):
                     _citations = await CitationRepository(_tex_db).get_all_citations_for_export()
                 _md_text = Path(_mmd_path).read_text(encoding="utf-8")
                 _citekeys = {c[1] for c in _citations}
+                # Three-layer mechanical matching (DOI -> URL -> title)
                 _num_map = _build_number_to_citekey(_md_text, _citations)
+                # Layer 4: LLM batch fallback for any still-unresolved [N] entries
+                _num_map = await llm_resolve_unmatched_citations(
+                    _md_text,
+                    _citations,
+                    _num_map,
+                    db_path=state.db_path,
+                    workflow_id=state.workflow_id,
+                )
                 _author = str(getattr(getattr(state, "review", None), "author_name", "") or "")
                 _tex_path.write_text(
                     _md_to_latex(_md_text, citekeys=_citekeys, num_to_citekey=_num_map, author_name=_author),

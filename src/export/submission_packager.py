@@ -139,6 +139,13 @@ def _generate_search_appendix_pdf(md_path: Path, pdf_path: Path) -> None:
         pdf_path.unlink()
 
 
+def _normalize_title_for_match(title: str) -> str:
+    """Return a lowercase, punctuation-stripped version of a title for fuzzy matching."""
+    import string
+
+    return title.lower().translate(str.maketrans("", "", string.punctuation)).split()[:8]
+
+
 def _build_number_to_citekey(
     md_content: str,
     citations: list[tuple],
@@ -146,34 +153,293 @@ def _build_number_to_citekey(
     """Build mapping from [N] to citekey by parsing References section.
 
     Manuscripts use numbered refs [1], [2]. References section lists [N] Author... doi: URL.
-    Match by DOI to get ordered citekeys, then return {str(N): citekey}.
+    Uses three-layer fallback to handle papers without DOIs:
+    1. DOI match (primary)
+    2. URL match (for ClinicalTrials, arXiv, preprints, etc.)
+    3. Title-based fuzzy match (for papers with neither DOI nor URL)
+
+    Returns {str(N): citekey} for all successfully mapped entries.
     """
     doi_to_citekey: dict[str, str] = {}
+    url_to_citekey: dict[str, str] = {}
+    title_words_to_citekey: dict[str, str] = {}
     for row in citations:
         citekey = str(row[1])
         doi = row[2]
+        url = row[8] if len(row) > 8 else None
+        title = row[3] if len(row) > 3 else ""
         if doi:
-            norm = doi.replace("https://doi.org/", "").replace("http://doi.org/", "").strip()
+            norm = doi.replace("https://doi.org/", "").replace("http://doi.org/", "").strip().rstrip(".,")
             doi_to_citekey[norm] = citekey
+        if url:
+            url_norm = str(url).strip().rstrip("/")
+            url_to_citekey[url_norm] = citekey
+        if title:
+            # Index first 8 words of title for approximate matching
+            title_key = " ".join(_normalize_title_for_match(str(title)))
+            if title_key and title_key not in title_words_to_citekey:
+                title_words_to_citekey[title_key] = citekey
+
     in_refs = False
     num_to_citekey: dict[str, str] = {}
     ref_num_re = re.compile(r"^\[(\d+)\]\s+")
     doi_re = re.compile(r"doi:\s*(https?://doi\.org/)?([^\s\)\]]+)")
+    url_re = re.compile(r"https?://[^\s\)\]]+")
+    # Capture quoted title: e.g. "Some title text,"
+    title_re = re.compile(r'"([^"]{8,120})"')
+
     for line in md_content.split("\n"):
         if line.strip().startswith("## References") or line.strip() == "## References":
             in_refs = True
             continue
         if in_refs and line.strip().startswith("## "):
             break
-        if in_refs:
-            m = ref_num_re.match(line)
-            if m:
-                num = m.group(1)
-                doi_match = doi_re.search(line)
-                if doi_match:
-                    norm_doi = doi_match.group(2).rstrip(".,")
-                    if norm_doi in doi_to_citekey:
-                        num_to_citekey[num] = doi_to_citekey[norm_doi]
+        if not in_refs:
+            continue
+        m = ref_num_re.match(line)
+        if not m:
+            continue
+        num = m.group(1)
+        if num in num_to_citekey:
+            continue
+
+        # Layer 1: DOI match
+        doi_match = doi_re.search(line)
+        if doi_match:
+            norm_doi = doi_match.group(2).rstrip(".,")
+            if norm_doi in doi_to_citekey:
+                num_to_citekey[num] = doi_to_citekey[norm_doi]
+                continue
+
+        # Layer 2: URL match (catches ClinicalTrials, arXiv, GitHub, etc.)
+        url_matches = url_re.findall(line)
+        for raw_url in url_matches:
+            url_norm = raw_url.rstrip("/.,)").rstrip()
+            if url_norm in url_to_citekey:
+                num_to_citekey[num] = url_to_citekey[url_norm]
+                break
+        if num in num_to_citekey:
+            continue
+
+        # Layer 3: Title-based fuzzy match (last resort for grey literature)
+        title_match = title_re.search(line)
+        if title_match:
+            candidate_words = " ".join(_normalize_title_for_match(title_match.group(1)))
+            if candidate_words and candidate_words in title_words_to_citekey:
+                num_to_citekey[num] = title_words_to_citekey[candidate_words]
+
+    return num_to_citekey
+
+
+# ---------------------------------------------------------------------------
+# Layer 4: LLM batch citation resolver (last-resort fallback)
+# ---------------------------------------------------------------------------
+
+_CITATION_MATCH_SYSTEM = (
+    "You are a bibliography matching assistant for a systematic literature review.\n"
+    "Your task: match each numbered reference entry to the correct citekey from the provided database.\n\n"
+    "RESPONSE FORMAT: Return ONLY a valid JSON object where keys are reference numbers (as strings)\n"
+    "and values are exact citekeys from the database. Example: {\"3\": \"Brown2021\", \"7\": \"ClinTrial2019\"}\n\n"
+    "RULES:\n"
+    "- Match only when confident (>=85% certainty based on author, year, and title similarity).\n"
+    "- Omit entries where you cannot find a confident match -- do NOT guess.\n"
+    "- Never invent citekeys not present in the database.\n"
+    "- If two reference entries could plausibly match the same citekey, pick the closest one and omit the other.\n"
+    "- Return an empty JSON object {} if no confident matches can be made."
+)
+
+_CITATION_MATCH_USER_TEMPLATE = """\
+## UNMATCHED REFERENCE ENTRIES ({n_unmatched} entries)
+
+These reference lines could not be resolved via DOI, URL, or title matching:
+
+{unmatched_lines}
+
+## CITATION DATABASE ({n_db} entries)
+
+| Citekey | Authors | Year | Title |
+|---------|---------|------|-------|
+{db_table}
+
+## TASK
+
+Match each unmatched reference entry [N] to its citekey in the database.
+Return ONLY the JSON mapping. Omit entries where you are not confident.
+"""
+
+
+def _format_citation_db_table(citations: list[tuple]) -> str:
+    """Format citations DB as a compact pipe table for the LLM prompt."""
+    rows: list[str] = []
+    for row in citations:
+        citekey = str(row[1])
+        title = str(row[3] or "")[:80].replace("|", " ")
+        try:
+            authors_raw = json.loads(str(row[4] or "[]"))
+            first_author = str(authors_raw[0]) if authors_raw else ""
+        except Exception:
+            first_author = str(row[4] or "")[:40]
+        year = str(row[5] or "")
+        rows.append(f"| {citekey} | {first_author[:40]} | {year} | {title} |")
+    return "\n".join(rows)
+
+
+async def llm_resolve_unmatched_citations(
+    md_content: str,
+    citations: list[tuple],
+    num_to_citekey: dict[str, str],
+    *,
+    db_path: str | None = None,
+    workflow_id: str | None = None,
+) -> dict[str, str]:
+    """LLM batch fallback: resolve [N] -> citekey for entries not matched mechanically.
+
+    Collects all reference lines that are still unmapped after the three mechanical
+    layers (DOI, URL, title) and sends them in a SINGLE LLM call alongside the full
+    citations database. The LLM returns a JSON mapping {num: citekey} for any it
+    can confidently identify.
+
+    This is intentionally a non-blocking best-effort step: if the LLM call fails or
+    returns an unparseable response, the existing num_to_citekey is returned unchanged.
+
+    Args:
+        md_content: The full doc_manuscript.md text (for parsing the References section).
+        citations: All citation_rows from the DB (9-element tuples).
+        num_to_citekey: Already-resolved mapping from mechanical layers (mutated in place).
+        db_path: Optional path to runtime.db for cost logging.
+        workflow_id: Optional workflow ID for cost logging.
+
+    Returns:
+        Enriched num_to_citekey dict (same reference as input, with new keys added).
+    """
+    import logging
+
+    logger = logging.getLogger(__name__)
+
+    # --- Collect unmapped reference lines ---
+    in_refs = False
+    unmatched: list[tuple[str, str]] = []  # [(num, line_text), ...]
+    ref_num_re = re.compile(r"^\[(\d+)\]\s+")
+    for line in md_content.split("\n"):
+        stripped = line.strip()
+        if stripped.startswith("## References") or stripped == "## References":
+            in_refs = True
+            continue
+        if in_refs and stripped.startswith("## "):
+            break
+        if not in_refs:
+            continue
+        m = ref_num_re.match(line)
+        if m:
+            num = m.group(1)
+            if num not in num_to_citekey:
+                unmatched.append((num, line.strip()))
+
+    if not unmatched:
+        return num_to_citekey  # nothing to resolve
+
+    logger.info(
+        "LLM citation resolver: %d unmatched reference entries will be sent to LLM batch call",
+        len(unmatched),
+    )
+
+    # --- Build prompt ---
+    unmatched_lines_str = "\n".join(f"[{num}] {text}" for num, text in unmatched)
+    db_table = _format_citation_db_table(citations)
+
+    prompt = (
+        _CITATION_MATCH_SYSTEM
+        + "\n\n"
+        + _CITATION_MATCH_USER_TEMPLATE.format(
+            n_unmatched=len(unmatched),
+            unmatched_lines=unmatched_lines_str,
+            n_db=len(citations),
+            db_table=db_table,
+        )
+    )
+
+    # --- Load model from settings ---
+    model_name = ""
+    try:
+        from src.config.loader import load_configs
+
+        _, settings = load_configs(settings_path="config/settings.yaml")
+        agent_cfg = settings.agents.get("citation_matching")
+        model_name = agent_cfg.model if agent_cfg else ""
+    except Exception:
+        pass
+    if not model_name:
+        from src.llm.model_fallback import get_fallback_model
+
+        model_name = get_fallback_model("lite")
+
+    # --- Call LLM with JSON schema enforcement ---
+    _json_schema = {
+        "type": "object",
+        "additionalProperties": {"type": "string"},
+    }
+    try:
+        from src.llm.pydantic_client import PydanticAIClient
+
+        client = PydanticAIClient(timeout_seconds=60.0)
+        raw_json, tokens_in, tokens_out, _, _ = await client.complete_with_usage(
+            prompt,
+            model=model_name,
+            temperature=0.0,
+            json_schema=_json_schema,
+        )
+
+        # --- Parse and validate response ---
+        import ast
+
+        try:
+            resolved: dict = json.loads(raw_json)
+        except json.JSONDecodeError:
+            try:
+                resolved = ast.literal_eval(raw_json)
+            except Exception:
+                logger.warning("LLM citation resolver: could not parse JSON response -- skipping")
+                return num_to_citekey
+
+        valid_citekeys = {str(row[1]) for row in citations}
+        n_resolved = 0
+        for num_str, citekey in resolved.items():
+            num_str = str(num_str).strip()
+            citekey = str(citekey).strip()
+            if num_str not in num_to_citekey and citekey in valid_citekeys:
+                num_to_citekey[num_str] = citekey
+                n_resolved += 1
+
+        logger.info(
+            "LLM citation resolver: resolved %d additional entries (model=%s, tokens_in=%d, tokens_out=%d)",
+            n_resolved,
+            model_name,
+            tokens_in,
+            tokens_out,
+        )
+
+        # --- Log cost to cost_records if possible ---
+        if db_path and workflow_id and (tokens_in + tokens_out) > 0:
+            try:
+                _cost_per_1m_in = 0.0001  # flash-lite approximate
+                _cost_per_1m_out = 0.0004
+                _cost_usd = (tokens_in * _cost_per_1m_in + tokens_out * _cost_per_1m_out) / 1_000_000
+
+                async with get_db(db_path) as _cost_db:
+                    await _cost_db.execute(
+                        """
+                        INSERT INTO cost_records (workflow_id, model, phase, tokens_in, tokens_out, cost_usd, latency_ms)
+                        VALUES (?, ?, 'citation_matching', ?, ?, ?, 0)
+                        """,
+                        (workflow_id, model_name, tokens_in, tokens_out, _cost_usd),
+                    )
+                    await _cost_db.commit()
+            except Exception as _log_exc:
+                logger.debug("LLM citation resolver: cost logging failed (non-fatal): %s", _log_exc)
+
+    except Exception as exc:
+        logger.warning("LLM citation resolver: LLM call failed (non-fatal, using mechanical matches only): %s", exc)
+
     return num_to_citekey
 
 
@@ -298,7 +564,15 @@ async def package_submission(
             pass
 
     md_content = manuscript_md.read_text(encoding="utf-8")
+    # Three-layer mechanical matching (DOI -> URL -> title), then LLM batch fallback.
     num_to_citekey = _build_number_to_citekey(md_content, citations)
+    num_to_citekey = await llm_resolve_unmatched_citations(
+        md_content,
+        citations,
+        num_to_citekey,
+        db_path=db_path,
+        workflow_id=workflow_id,
+    )
     latex_content = markdown_to_latex(
         md_content,
         citekeys=citekeys,

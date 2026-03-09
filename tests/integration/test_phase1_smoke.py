@@ -23,17 +23,17 @@ from src.models.enums import ReviewType
 # ---------------------------------------------------------------------------
 
 _MINIMAL_REVIEW = {
-    "research_question": "How does pharmacy automation reduce dispensing errors?",
+    "research_question": "What is the effect of the intervention on the primary outcome in the target population?",
     "review_type": "systematic",
     "pico": {
-        "population": "hospital pharmacies",
-        "intervention": "automated dispensing",
-        "comparison": "manual dispensing",
-        "outcome": "dispensing error rate",
+        "population": "adult participants in controlled settings",
+        "intervention": "structured intervention program",
+        "comparison": "standard care or control condition",
+        "outcome": "primary outcome measure",
     },
-    "keywords": ["pharmacy automation", "dispensing error"],
-    "domain": "pharmacy",
-    "scope": "health sciences",
+    "keywords": ["intervention", "outcome", "systematic review"],
+    "domain": "health and wellbeing",
+    "scope": "clinical and community settings",
     "inclusion_criteria": ["peer-reviewed"],
     "exclusion_criteria": ["opinion pieces"],
     "date_range_start": 2015,
@@ -78,10 +78,10 @@ _EXPECTED_TABLES = {
 
 def test_review_config_validates_from_dict() -> None:
     config = ReviewConfig.model_validate(_MINIMAL_REVIEW)
-    assert config.research_question.startswith("How does")
+    assert config.research_question.startswith("What is the effect")
     assert config.review_type == ReviewType.SYSTEMATIC
-    assert "pharmacy automation" in config.keywords
-    assert config.pico.population == "hospital pharmacies"
+    assert "intervention" in config.keywords
+    assert config.pico.population == "adult participants in controlled settings"
     assert config.date_range_start == 2015
     assert config.date_range_end == 2026
 
@@ -92,7 +92,7 @@ def test_review_config_round_trips_through_yaml(tmp_path: Path) -> None:
     config_path.write_text(yaml.safe_dump(_MINIMAL_REVIEW), encoding="utf-8")
     raw = yaml.safe_load(config_path.read_text(encoding="utf-8"))
     config = ReviewConfig.model_validate(raw)
-    assert config.domain == "pharmacy"
+    assert config.domain == "health and wellbeing"
 
 
 def test_review_config_accepts_empty_research_question_known_gap() -> None:
@@ -174,12 +174,12 @@ async def _create_db(path: str) -> None:
 async def test_workflow_repository_create_and_find(tmp_path: Path) -> None:
     async with get_db(str(tmp_path / "repo.db")) as db:
         repo = WorkflowRepository(db)
-        await repo.create_workflow("wf-phase1", "pharmacy-automation", "hash-abc")
+        await repo.create_workflow("wf-phase1", "test-review-topic", "hash-abc")
 
         cursor = await db.execute("SELECT topic, config_hash FROM workflows WHERE workflow_id = ?", ("wf-phase1",))
         row = await cursor.fetchone()
         assert row is not None
-        assert str(row[0]) == "pharmacy-automation"
+        assert str(row[0]) == "test-review-topic"
         assert str(row[1]) == "hash-abc"
 
 
@@ -244,5 +244,5 @@ def test_config_loader_reads_review_yaml(tmp_path: Path) -> None:
     from src.config.loader import load_configs
 
     review, settings = load_configs(str(review_path), str(settings_path))
-    assert review.domain == "pharmacy"
+    assert review.domain == "health and wellbeing"
     assert settings.gates.profile == "warning"

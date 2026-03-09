@@ -37,136 +37,136 @@ pytestmark = [
 # Test corpus
 # ---------------------------------------------------------------------------
 
-# 10 clearly relevant papers about robotic medication dispensing
+# 10 clearly relevant papers about mindfulness-based interventions for anxiety reduction
 _RELEVANT_PAPERS = [
     CandidatePaper(
         paper_id="rel-01",
-        title="Implementation of an automated dispensing robot in a hospital pharmacy: impact on dispensing accuracy",
+        title="Mindfulness-based stress reduction for generalised anxiety disorder: a randomised controlled trial",
         authors=["Smith, J.", "Jones, A."],
         source_database="pubmed",
         source_category=SourceCategory.DATABASE,
         abstract=(
-            "Automated dispensing cabinets and robotic medication dispensing systems have been widely adopted "
-            "in outpatient pharmacy settings. This prospective study evaluated the impact of a robotic dispensing "
-            "system on dispensing accuracy, pharmacist workload, and patient safety outcomes in an ambulatory pharmacy "
-            "serving 500 patients per day. The system reduced dispensing errors by 87% and increased throughput by 23%."
+            "Mindfulness-based stress reduction (MBSR) is an 8-week structured program targeting stress and anxiety "
+            "in adult populations. This randomised controlled trial evaluated MBSR versus a waitlist control in 120 "
+            "adults with generalised anxiety disorder. Participants in the MBSR group showed significantly lower "
+            "anxiety scores at post-treatment and 6-month follow-up compared to controls."
         ),
     ),
     CandidatePaper(
         paper_id="rel-02",
-        title="Barriers and facilitators to robotic pharmacy automation implementation: a qualitative study",
+        title="Barriers and facilitators to mindfulness intervention uptake in community mental health settings",
         authors=["Lee, B.", "Park, C."],
         source_database="pubmed",
         source_category=SourceCategory.DATABASE,
         abstract=(
-            "This qualitative study explored the experiences of pharmacy staff and managers with implementation "
-            "of robotic dispensing systems across ten outpatient pharmacies. Key barriers included high initial "
-            "capital cost, staff resistance to change, and integration with existing pharmacy information systems. "
-            "Facilitators included strong leadership support, phased rollout, and staff training programs."
+            "This qualitative study explored the experiences of adults with anxiety attending mindfulness-based "
+            "cognitive therapy (MBCT) sessions across ten community mental health centres. Key barriers included "
+            "stigma, scheduling difficulties, and perceived incompatibility with cultural beliefs. Facilitators "
+            "included peer support, flexible scheduling, and therapist rapport."
         ),
     ),
     CandidatePaper(
         paper_id="rel-03",
-        title="Operational efficiency of robotic dispensing systems in ambulatory pharmacies: a systematic review",
+        title="Mindfulness meditation for anxiety: a systematic review and meta-analysis",
         authors=["Wang, X."],
         source_database="openalex",
         source_category=SourceCategory.DATABASE,
         abstract=(
-            "We systematically reviewed studies evaluating operational efficiency outcomes of robotic medication "
-            "dispensing systems in outpatient and ambulatory pharmacy settings. Seventeen studies met inclusion "
-            "criteria. Robotic systems consistently reduced dispensing time, decreased medication errors, and "
-            "freed pharmacists for clinical activities."
+            "We systematically reviewed and meta-analysed randomised controlled trials evaluating mindfulness "
+            "meditation interventions for anxiety reduction in adult populations. Thirty-two studies met inclusion "
+            "criteria. Pooled effect sizes indicated a moderate-to-large reduction in anxiety symptoms with "
+            "mindfulness interventions compared to control conditions."
         ),
     ),
     CandidatePaper(
         paper_id="rel-04",
-        title="Evaluation of APOTECA robot for chemotherapy compounding accuracy in outpatient oncology pharmacy",
+        title="App-delivered mindfulness training for work-related anxiety: a pilot randomised trial",
         authors=["Garcia, M.", "Lopez, F."],
         source_database="scopus",
         source_category=SourceCategory.DATABASE,
         abstract=(
-            "The APOTECA chemo robot was implemented in a community oncology pharmacy for automated chemotherapy "
-            "compounding. Accuracy rates were compared between manual and robotic preparation. The robot achieved "
-            "99.97% preparation accuracy versus 99.2% manual, with significant reductions in operator exposure to "
-            "cytotoxic agents and preparation time."
+            "Smartphone-delivered mindfulness programs offer scalable anxiety management for working adults. "
+            "This pilot randomised trial compared an app-based mindfulness program to a psychoeducation control "
+            "in 80 adults with occupational stress and elevated anxiety. The mindfulness group reported significantly "
+            "lower State-Trait Anxiety Inventory scores and improved sleep quality at 8 weeks."
         ),
     ),
     CandidatePaper(
         paper_id="rel-05",
-        title="Cost-effectiveness analysis of automated dispensing robots in retail pharmacy chains",
+        title="Cost-effectiveness of mindfulness-based cognitive therapy for anxiety disorders in primary care",
         authors=["Kim, D."],
         source_database="semantic_scholar",
         source_category=SourceCategory.DATABASE,
         abstract=(
-            "Robotic pharmacy dispensing systems represent a major capital investment for retail and ambulatory "
-            "pharmacy chains. This study modeled the cost-effectiveness of robotic implementation over a ten-year "
-            "horizon accounting for error reduction, pharmacist time savings, and improved workflow efficiency. "
-            "Break-even was reached at 350 prescriptions per day."
+            "Mindfulness-based cognitive therapy (MBCT) represents an evidence-based treatment for recurrent "
+            "anxiety and depression. This health-economic modelling study evaluated the cost-effectiveness of "
+            "MBCT versus standard care in primary care settings over a 2-year horizon. MBCT was found to be "
+            "cost-effective with an incremental cost-effectiveness ratio of 8200 USD per quality-adjusted life year."
         ),
     ),
     CandidatePaper(
         paper_id="rel-06",
-        title="Staff perceptions of pharmacy automation: a survey of outpatient pharmacists",
+        title="Participant experiences of mindfulness-based stress reduction for social anxiety: a qualitative study",
         authors=["Brown, R.", "White, S."],
         source_database="pubmed",
         source_category=SourceCategory.DATABASE,
         abstract=(
-            "A survey of 240 pharmacists working in outpatient settings with robotic dispensing systems assessed "
-            "perceptions of automation on workload, job satisfaction, and patient care. Most respondents reported "
-            "that automation freed them to perform clinical consultations and medication therapy management. Common "
-            "concerns were maintenance downtime and workflow disruptions during system outages."
+            "A qualitative study explored the subjective experiences of 30 adults with social anxiety disorder "
+            "who completed an 8-week mindfulness-based stress reduction program. Thematic analysis identified "
+            "three major themes: increased self-awareness, reduced avoidance behaviour, and greater capacity "
+            "for emotional regulation. Participants reported sustained benefits at 3-month follow-up."
         ),
     ),
     CandidatePaper(
         paper_id="rel-07",
-        title="Integration of automated dispensing cabinets with electronic health records in ambulatory clinics",
+        title="Integration of mindfulness into cognitive behavioural therapy for panic disorder",
         authors=["Patel, N."],
         source_database="pubmed",
         source_category=SourceCategory.DATABASE,
         abstract=(
-            "This study examined the integration challenges and benefits of connecting automated dispensing cabinets "
-            "with electronic health record (EHR) systems in ambulatory care settings. Tight integration enabled "
-            "real-time inventory management, automated refill alerts, and pharmacist verification workflows that "
-            "reduced dispensing delays by 34% and eliminated transcription errors."
+            "This study examined the additive effect of mindfulness training integrated into cognitive behavioural "
+            "therapy (CBT) for panic disorder in outpatient psychiatric clinics. Patients receiving integrated "
+            "CBT-mindfulness showed greater reductions in panic frequency and agoraphobic avoidance compared to "
+            "those receiving standard CBT alone, with benefits maintained at 12-month follow-up."
         ),
     ),
     CandidatePaper(
         paper_id="rel-08",
-        title="Patient safety outcomes after robotic prescription dispensing system adoption",
+        title="Mindfulness-based relapse prevention for anxiety and comorbid substance use: a controlled trial",
         authors=["Taylor, G.", "Adams, K."],
         source_database="pubmed",
         source_category=SourceCategory.DATABASE,
         abstract=(
-            "A pre-post study evaluated adverse drug event rates before and after adoption of a robotic prescription "
-            "dispensing system in an outpatient pharmacy serving a large health maintenance organization. Dispensing "
-            "errors with potential for patient harm decreased by 92% and near-miss events reported by pharmacy staff "
-            "fell by 65% in the 12 months following implementation."
+            "A controlled trial evaluated mindfulness-based relapse prevention (MBRP) in adults with comorbid "
+            "anxiety disorders and substance use disorder. Participants in the MBRP condition demonstrated "
+            "significantly lower anxiety severity and reduced relapse rates at 6-month follow-up compared to "
+            "a treatment-as-usual control group."
         ),
     ),
     CandidatePaper(
         paper_id="rel-09",
-        title="Workflow redesign for robotic dispensing in high-volume outpatient pharmacies",
+        title="Group mindfulness therapy for health anxiety in medical outpatients: an effectiveness study",
         authors=["Chen, W."],
         source_database="scopus",
         source_category=SourceCategory.DATABASE,
         abstract=(
-            "Implementation of robotic medication dispensing technology requires significant workflow redesign. "
-            "This case study documents the workflow changes at a 1200-prescription-per-day outpatient pharmacy "
-            "following robot installation. Lean process mapping identified bottlenecks in pharmacist verification "
-            "and prescription intake that needed addressing for the robot to reach its throughput potential."
+            "Health anxiety is common in medical outpatient populations and associated with high healthcare "
+            "utilisation. This effectiveness study evaluated group-format mindfulness-based therapy delivered "
+            "in a hospital outpatient setting. Pre-post analyses showed significant reductions in health anxiety, "
+            "illness worry, and medical consultation frequency at treatment completion."
         ),
     ),
     CandidatePaper(
         paper_id="rel-10",
-        title="Pharmacist role transformation with pharmacy automation: a scoping review",
+        title="Mindfulness interventions for perinatal anxiety: a scoping review",
         authors=["Johnson, P.", "Williams, A."],
         source_database="pubmed",
         source_category=SourceCategory.DATABASE,
         abstract=(
-            "As robotic dispensing systems automate dispensing tasks in outpatient pharmacies, pharmacist roles "
-            "are evolving toward clinical and patient counseling activities. This scoping review of 24 studies "
-            "examined how pharmacy automation affects pharmacist work content, job satisfaction, and professional "
-            "identity. Automation consistently shifted pharmacist time from dispensing to patient-facing activities."
+            "Perinatal anxiety affects up to 20% of pregnant and postpartum women and is associated with adverse "
+            "maternal and infant outcomes. This scoping review examined mindfulness-based interventions delivered "
+            "during pregnancy or postpartum for anxiety reduction. Fourteen studies were identified; most reported "
+            "significant reductions in anxiety symptoms with mindfulness compared to standard antenatal care."
         ),
     ),
 ]
@@ -175,67 +175,67 @@ _RELEVANT_PAPERS = [
 _OFFTOPIC_PAPERS = [
     CandidatePaper(
         paper_id="off-01",
-        title="Robotic-assisted laparoscopic prostatectomy: outcomes and complications",
+        title="Structural performance of reinforced concrete beams under seismic loading",
         authors=["Martinez, R."],
-        source_database="pubmed",
+        source_database="scopus",
         source_category=SourceCategory.DATABASE,
         abstract=(
-            "This retrospective study compared perioperative outcomes, continence rates, and complication rates "
-            "between robotic-assisted laparoscopic prostatectomy and open radical prostatectomy in 500 patients. "
-            "Robotic surgery was associated with shorter hospital stays and lower estimated blood loss but similar "
-            "long-term oncological outcomes."
+            "This experimental study evaluated the flexural and shear performance of reinforced concrete beams "
+            "with different reinforcement ratios under simulated seismic loading conditions. Beams were tested "
+            "to failure under reversed cyclic lateral forces. Results indicate that higher reinforcement ratios "
+            "improved ductility but did not significantly increase peak load capacity."
         ),
     ),
     CandidatePaper(
         paper_id="off-02",
-        title="Soft robotic rehabilitation glove for hand function recovery after stroke",
+        title="Machine learning algorithms for satellite image classification in remote sensing",
         authors=["Liu, Y.", "Zhang, Q."],
         source_database="ieee_xplore",
         source_category=SourceCategory.DATABASE,
         abstract=(
-            "We present a soft robotic rehabilitation glove designed to assist hand function recovery in post-stroke "
-            "patients. The glove uses pneumatic actuators to support finger extension and flexion during occupational "
-            "therapy sessions. In a randomized controlled trial of 40 patients, the robotic glove group showed "
-            "significantly greater improvement in grip strength and dexterity scores."
+            "This paper compares convolutional neural network, random forest, and support vector machine "
+            "classifiers for land-use and land-cover classification from Sentinel-2 multispectral satellite "
+            "imagery. Models were trained on labelled datasets from five geographic regions. The CNN achieved "
+            "92% overall classification accuracy, outperforming traditional machine learning methods."
         ),
     ),
     CandidatePaper(
         paper_id="off-03",
-        title="Earthquake rescue robot design with autonomous navigation capabilities",
+        title="Optimisation of supply chain logistics using multi-objective evolutionary algorithms",
         authors=["Anderson, T."],
-        source_database="ieee_xplore",
+        source_database="scopus",
         source_category=SourceCategory.DATABASE,
         abstract=(
-            "This paper presents the design and testing of an autonomous rescue robot for earthquake disaster "
-            "response. The robot uses LiDAR mapping, thermal imaging, and voice detection to locate survivors "
-            "in collapsed building rubble. Field tests in simulated disaster environments demonstrated 85% "
-            "survivor detection accuracy within 30 minutes of deployment."
+            "This paper presents a multi-objective evolutionary algorithm framework for optimising vehicle routing "
+            "and warehouse allocation in complex supply chain networks. The framework simultaneously minimises "
+            "delivery cost, carbon emissions, and delivery time. Computational experiments on benchmark instances "
+            "demonstrate superior Pareto front convergence compared to NSGA-II."
         ),
     ),
     CandidatePaper(
         paper_id="off-04",
-        title="Agricultural gantry robot for precision fertilization and crop monitoring",
+        title="Effect of nitrogen fertilisation rate on wheat grain yield and protein content",
         authors=["Robinson, H."],
         source_database="scopus",
         source_category=SourceCategory.DATABASE,
         abstract=(
-            "Precision agriculture demands autonomous robotic systems capable of real-time crop monitoring and "
-            "variable-rate fertilization. This study presents a wide-span gantry robot deployed in wheat fields "
-            "equipped with multispectral imaging and GPS-guided fertilizer application. Fertilizer use efficiency "
-            "improved by 28% compared to conventional broadcast application methods."
+            "A two-year field experiment evaluated the effect of varying nitrogen fertilisation rates (60, 120, "
+            "180, and 240 kg N/ha) on grain yield, protein content, and nitrogen use efficiency in winter wheat. "
+            "Grain yield plateaued above 120 kg N/ha while protein content continued to increase. Optimal "
+            "economic nitrogen rate was 140 kg N/ha under prevailing market conditions."
         ),
     ),
     CandidatePaper(
         paper_id="off-05",
-        title="Dental implant placement with robotic surgical navigation system",
+        title="Thermoelectric generator performance under variable temperature gradients",
         authors=["Thompson, E.", "Hill, M."],
-        source_database="pubmed",
+        source_database="ieee_xplore",
         source_category=SourceCategory.DATABASE,
         abstract=(
-            "This prospective study evaluated the accuracy of a robotic surgical navigation system for dental "
-            "implant placement compared to freehand placement. Forty patients requiring single or multiple implants "
-            "were enrolled. The robotic system achieved angular deviation of 1.2 degrees versus 3.8 degrees for "
-            "freehand placement, significantly reducing the risk of implant malposition."
+            "The power output and conversion efficiency of bismuth telluride thermoelectric generators were "
+            "characterised across a range of temperature differentials from 20 to 200 degrees Celsius. A "
+            "Peltier-based test rig with precise temperature control was used. Peak conversion efficiency of "
+            "6.4% was achieved at a 180-degree temperature gradient, consistent with theoretical predictions."
         ),
     ),
 ]
@@ -262,13 +262,13 @@ def _make_ranker(
         model=model,
         temperature=0.1,
         research_question=(
-            "What is the impact of robotic medication dispensing systems on dispensing accuracy, "
-            "operational efficiency, and pharmacy workflow in outpatient and ambulatory settings, "
-            "and what are the primary barriers and facilitators to their implementation?"
+            "What is the effect of mindfulness-based interventions on anxiety reduction "
+            "in adults, and what are the primary barriers and facilitators to their implementation "
+            "in clinical and community settings?"
         ),
-        population="outpatient and ambulatory pharmacy settings",
-        intervention="robotic medication dispensing systems",
-        outcome="dispensing accuracy, operational efficiency, workflow",
+        population="adults with anxiety disorders or elevated anxiety symptoms",
+        intervention="mindfulness-based interventions (MBSR, MBCT, mindfulness meditation)",
+        outcome="anxiety severity, quality of life, implementation feasibility",
         client=PydanticAIBatchRankerClient(),
     )
 
