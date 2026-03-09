@@ -10,7 +10,7 @@ It runs a full PRISMA 2020-compliant pipeline: searches academic databases (defa
 
 ## What It Produces
 
-After a run completes, the run directory (`runs/YYYY-MM-DD/<topic-slug>/run_<time>/`) contains:
+After a run completes, the run directory (`runs/YYYY-MM-DD/wf-NNNN-<topic-slug>/run_<time>/`) contains:
 
 - `doc_manuscript.md` -- the full manuscript in markdown
 - `doc_manuscript.tex` -- IEEE LaTeX version (generated automatically, no export step needed)
@@ -267,7 +267,7 @@ Phase 3: Dual-reviewer screening -- keyword pre-filter, BM25 ranking (top N to L
          protocol-only studies auto-excluded; Cohen's kappa logged;
          forward citation chasing runs after inclusion decisions (PRISMA 2020 snowball)
          [Optional pause: human review checkpoint when human_in_the_loop.enabled=true]
-Phase 4: Data extraction (full-text via 6-tier resolver: Unpaywall, Semantic Scholar, CORE, Europe PMC, ScienceDirect, PMC; PyMuPDF 32K char context) + risk of bias
+Phase 4: Data extraction (full-text via multi-tier resolver: Tier 0 publisher-direct, Tier 0.5 citation_pdf_url meta, Tier 1 Unpaywall, Tiers 2-5 Semantic Scholar/CORE/OpenAlex/EuropePMC/ScienceDirect/PMC/Crossref, Tier 6 landing-page scraper; PyMuPDF 32K char context) + risk of bias
          (RoB 2 / ROBINS-I / CASP / GRADE, heuristic fallback tagged by source)
 Phase 5: Meta-analysis or narrative synthesis + sensitivity analysis (leave-one-out,
          subgroup by study_design)
@@ -394,6 +394,8 @@ cd frontend && pnpm fix && pnpm typecheck
 | `scripts/show_run_info.py` | Print run metadata (status, included papers, cost) for a workflow ID without opening the browser. Usage: `uv run python scripts/show_run_info.py --workflow-id wf-xxx` |
 | `scripts/build_benchmark.py` | Build or update the gold-standard benchmark from reference/ PDFs using the PDF vision LLM. Extracts structured quality dimensions and computes derived thresholds. Usage: `uv run python scripts/build_benchmark.py` or `--fetch-web` to pull additional published SRs. |
 | `scripts/test_search_connectors.py` | Live smoke-test for all configured search connectors. Loads API keys from .env and config from review.yaml, runs a real query per connector, and reports record counts and errors. Usage: `uv run python scripts/test_search_connectors.py` |
+| `scripts/inject_missing_citations.py` | Post-hoc CLI: reads a completed run's section drafts, identifies uncited citekeys, patches the Results section with a design-grouped coverage paragraph, and regenerates the manuscript. Accepts `--workflow-id`. Uses LLM batch resolver as fallback for unmatched keys. Usage: `uv run python scripts/inject_missing_citations.py --workflow-id wf-xxx` |
+| `scripts/test_openalex_quality.py` | Diagnostic: checks OpenAlex filter quality for a query (journal vs. preprint ratio, core vs. broad coverage). Usage: `uv run python scripts/test_openalex_quality.py` |
 
 ---
 

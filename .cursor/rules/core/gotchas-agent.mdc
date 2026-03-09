@@ -253,15 +253,15 @@ If you add a new LLM-calling module, always add a `reserve_call_slot()` call to 
 silent quota exhaustion for pro-tier models like Gemini 3.1 Pro Preview.
 
 ## All LLM Models Are Centralized In config/settings.yaml
-No Gemini model string is hardcoded anywhere in src/. All 18 agent keys +
+No Gemini model string is hardcoded anywhere in src/. All 19 agent keys +
 rag.embed_model/hyde_model/reranker_model + extraction.pdf_vision_model live in
 `config/settings.yaml`. Module fallbacks use `src.llm.model_fallback.get_fallback_model(tier)`
 which reads settings.yaml first and only falls back to _TIER_LAST_RESORT constants when YAML
 cannot be parsed. To change any model, edit settings.yaml only -- no Python edits needed.
-The 18 agent keys are: screening_reviewer_a/b, screening_adjudicator, batch_screener,
+The 19 agent keys are: screening_reviewer_a/b, screening_adjudicator, batch_screener,
 search, extraction, quality_assessment, study_type_detection, writing, abstract_generation,
 humanizer, contradiction_resolver, criteria_refinement, table_extraction,
-config_generation, concept_diagrams, narrative, style_extraction.
+config_generation, concept_diagrams, narrative, style_extraction, citation_matching.
 NOTE: naturalness_scorer was removed from settings.yaml when its dead-code module was deleted.
 style_extraction remains in settings.yaml but the style_extractor module returns empty patterns
 and prepare_writing_context() no longer uses it -- effectively dead in the pipeline.
@@ -410,6 +410,16 @@ LaTeX -- it does NOT re-run `assemble_submission_manuscript()`. This means:
 - `build_compact_study_table()` injection only appears in NEW runs.
 - Re-exporting an old run with force=True will NOT add the compact table or remove the RQ prefix.
 - To get these features into an existing run, re-run the workflow or use inject_missing_citations.py.
+
+## Run Folder Names Include `wf-NNNN-` Prefix For New Runs
+`create_run_paths()` in `src/utils/logging_paths.py` accepts `workflow_id: str = ""`.
+When `workflow_id` is provided (e.g. "wf-0007"), the topic folder becomes `wf-0007-<slug>/`
+instead of just `<slug>/`. `StartNode` passes `workflow_id=state.workflow_id` which is
+already allocated before `create_run_paths` is called.
+Old runs (pre-prefix) retain their original paths stored in `workflows_registry.db` -- do
+NOT recompute paths for existing runs; use whatever `db_path` the registry row contains.
+New runs always get the prefix. The run dir path has 4 levels:
+`runs/YYYY-MM-DD/wf-NNNN-<slug>/run_<HH-MM-SSam>/runtime.db`.
 
 ## Tier 0.5 (_quick_citation_pdf_url) Must Be Mocked in Tier-Ordering Tests
 `fetch_full_text()` in `src/extraction/table_extraction.py` now has a Tier 0.5 between Tier 0

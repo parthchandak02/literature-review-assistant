@@ -64,7 +64,10 @@ WritingNode uses a two-phase approach (see src/orchestration/workflow.py):
 The PRIOR SECTIONS RULE in src/writing/prompts/sections.py instructs the LLM to synthesise and extend prior content rather than repeat it. Never bypass this by re-running Phase B sections without prior context -- it causes mechanical repetition.
 
 ## Section Word Limits (SECTION_WORD_LIMITS in src/writing/prompts/sections.py)
-abstract: 230 words (enforced deterministically by _trim_abstract_to_limit() post-LLM)
+abstract: 230 words (enforced deterministically by _trim_abstract_to_limit() post-LLM).
+The trim target is `max(ABSTRACT_WORD_LIMIT - 20, 210)` (conservative; leaves 20-word headroom
+for post-assembly expansion: citekey substitution, disclosure injection, etc.). The LLM is
+instructed not to exceed 230 words but routinely writes 250-280; the post-trim is the hard gate.
 introduction: 700, methods: 900, results: 1400, discussion: 900, conclusion: 350
 Do NOT lower results below 1400 for reviews with >50 included papers -- the word budget is needed
 to mention all included studies at least once to satisfy the MANDATORY CITATION COVERAGE RULE.

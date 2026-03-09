@@ -44,11 +44,12 @@ The system has three runtime layers and two persistent databases.
 [PydanticAI Graph -- src/orchestration/workflow.py]
     |  aiosqlite reads/writes (paper-level persistence at every step)
     v
-[runs/{date}/{topic}/run_*/runtime.db]   <-- per-run SQLite
-[runs/workflows_registry.db]             <-- central resume registry
+[runs/{date}/wf-NNNN-{topic}/run_*/runtime.db]  <-- per-run SQLite (new runs)
+[runs/{date}/{topic}/run_*/runtime.db]          <-- per-run SQLite (pre-prefix legacy runs)
+[runs/workflows_registry.db]                    <-- central resume registry
     |
     v
-[runs/{date}/{topic}/run_*/]             <-- fig_, doc_, data_ artifacts (same dir)
+[runs/{date}/wf-NNNN-{topic}/run_*/]    <-- fig_, doc_, data_ artifacts (same dir)
 ```
 
 ### 2.1 Workflow Graph
@@ -137,7 +138,7 @@ literature-review-assistant/
 |   |-- web/                        # FastAPI app (40+ endpoints, SSE, static serving)
 |   `-- utils/                      # structured_log, logging_paths (RunPaths + create_run_paths), ssl_context
 |-- tests/
-|   |-- unit/                       # 35 unit test files (211 passing)
+|   |-- unit/                       # 38 unit test files (263 passing)
 |   `-- integration/                # 7 integration test files
 `-- runs/                           # All per-run artifacts + central registry (gitignored)
 ```
