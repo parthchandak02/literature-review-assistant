@@ -2,19 +2,47 @@
 
 from __future__ import annotations
 
+import logging
 import re
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from pylatexenc.latexencode import UnicodeToLatexEncoder
+
 if TYPE_CHECKING:
     from src.models.quality import GradeSoFTable
+
+logger = logging.getLogger(__name__)
+
+# Module-level encoder instance (avoids re-initialisation on every call).
+# non_ascii_only=True: only converts chars > 127, leaving ASCII LaTeX commands
+# we already emitted (\\&, ---,  `` etc.) completely untouched.
+_LATEX_ENCODER = UnicodeToLatexEncoder(
+    non_ascii_only=True,
+    replacement_latex_protection="braces",
+)
 
 
 def _escape_latex(s: str) -> str:
     """Escape LaTeX special characters in plain text.
 
-    Protects already-converted LaTeX commands (\\cite{}, \\textbf{}, etc.) so
-    their arguments are not corrupted by underscore or other char escaping.
+    Processing order matters:
+      1. Protect already-converted LaTeX commands (\\cite{}, \\textbf{}, etc.)
+         using null-byte placeholders so their arguments survive escaping.
+      2. Convert typographic Unicode punctuation that has a preferred
+         IEEEtran-specific ASCII form (--- for em-dash, -- for en-dash, etc.).
+         We handle these manually rather than delegating to pylatexenc because
+         pylatexenc produces \\textemdash{} / \\textendash{} which, while valid,
+         differ from the de-facto IEEEtran convention.
+      3. Escape LaTeX special chars (&, %, $, #, _).
+      4. Degree sign: uses math mode and must be inserted AFTER $ is escaped.
+      5. pylatexenc fallback: converts ALL remaining non-ASCII chars (accented
+         author names, Greek symbols, etc.) to valid LaTeX sequences.  This is
+         the sustainable alternative to maintaining a manual enumeration list.
+      6. Last-resort guard: any char still > ASCII 126 after pylatexenc (e.g.
+         Arabic script which has no pdflatex representation) is replaced with
+         [?] and a warning is logged so the compile never fails silently.
+      7. Restore protected LaTeX commands.
     """
     protected: list[str] = []
 
@@ -22,12 +50,29 @@ def _escape_latex(s: str) -> str:
         protected.append(m.group(0))
         return f"\x00P{len(protected) - 1}\x00"
 
-    # Shield command+argument pairs before escaping special chars
+    # Step 1: Shield command+argument pairs before escaping special chars.
     s = re.sub(
         r"\\(?:cite|textbf|textit|emph|ref|label|url|href)\{[^}]*\}",
         _protect,
         s,
     )
+
+    # Step 2: Targeted typographic substitutions with IEEEtran-preferred forms.
+    # Accented Latin letters (a-tilde, e-acute, etc.) are intentionally NOT
+    # listed here -- \usepackage[utf8]{inputenc} handles them transparently in
+    # pdflatex, and pylatexenc (step 5) covers any that slip through.
+    for old, new in [
+        ("\u2014", "---"),  # em-dash
+        ("\u2013", "--"),    # en-dash
+        ("\u2019", "'"),     # right single quotation mark
+        ("\u2018", "`"),     # left single quotation mark
+        ("\u201c", "``"),    # left double quotation mark
+        ("\u201d", "''"),    # right double quotation mark
+        ("\u2011", "-"),     # non-breaking hyphen
+    ]:
+        s = s.replace(old, new)
+
+    # Step 3: LaTeX special chars.
     for old, new in [
         ("&", "\\&"),
         ("%", "\\%"),
@@ -36,6 +81,30 @@ def _escape_latex(s: str) -> str:
         ("_", "\\_"),
     ]:
         s = s.replace(old, new)
+
+    # Step 4: Degree sign -- math mode, inserted AFTER $ is escaped so the new
+    # $ delimiters are not themselves re-escaped by step 3.
+    s = s.replace("\u00B0", "$^{\\circ}$")
+
+    # Step 5: pylatexenc fallback for all remaining non-ASCII characters.
+    # non_ascii_only=True means ASCII chars we emitted in steps 2-4 (---, \\&,
+    # etc.) are left completely untouched.
+    s = _LATEX_ENCODER.unicode_to_latex(s)
+
+    # Step 6: Last-resort guard -- replace any char still above ASCII 126 with
+    # [?] and log a warning so the compile never fails silently.
+    def _replace_unknown(m: re.Match) -> str:
+        ch = m.group(0)
+        logger.warning(
+            "No LaTeX representation for U+%04X (%s); substituted [?]",
+            ord(ch),
+            ch,
+        )
+        return "[?]"
+
+    s = re.sub(r"[^\x00-\x7e]", _replace_unknown, s)
+
+    # Step 7: Restore protected LaTeX commands.
     for i, orig in enumerate(protected):
         s = s.replace(f"\x00P{i}\x00", orig)
     return s
@@ -65,7 +134,7 @@ def _convert_inline_formatting(
     citekeys: set[str],
     num_to_citekey: dict[str, str] | None = None,
 ) -> str:
-    """Convert **bold**, *italic*, and _italic_ to LaTeX. Citations already converted."""
+    """Convert **bold**, *italic*, _italic_, and `code` to LaTeX. Citations already converted."""
 
     def bold_repl(m: re.Match) -> str:
         inner = m.group(1)
@@ -75,6 +144,13 @@ def _convert_inline_formatting(
         inner = m.group(1)
         return f"\\textit{{{_escape_latex(inner)}}}"
 
+    def code_repl(m: re.Match) -> str:
+        inner = m.group(1)
+        return f"\\texttt{{{_escape_latex(inner)}}}"
+
+    # Code spans must be processed before bold/italic to avoid misinterpreting
+    # asterisks or underscores inside backtick-delimited spans.
+    text = re.sub(r"`([^`]+)`", code_repl, text)
     text = re.sub(r"\*\*(.+?)\*\*", bold_repl, text)
     text = re.sub(r"\*(.+?)\*", italic_repl, text)
     # Handle _text_ italic, guarded by word boundaries so underscores inside
@@ -210,6 +286,11 @@ def _convert_md_table_to_latex(
     col_spec = " ".join([f"p{{{col_frac}\\textwidth}}"] * n_cols)
 
     def convert_cell(cell: str) -> str:
+        # Strip leaked markdown heading markers (##, ###, #) that sometimes
+        # appear when study abstracts are used as cell content verbatim.
+        cell = re.sub(r"^#{1,6}\s*", "", cell)
+        # Strip raw URLs that would cause line-breaking issues in narrow columns.
+        cell = re.sub(r"https?://\S+", "", cell)
         conv = _convert_inline_formatting(
             _convert_citations(cell, citekeys, num_to_citekey),
             citekeys,
@@ -222,11 +303,12 @@ def _convert_md_table_to_latex(
         return result
 
     # IEEEtran requires table* for two-column-spanning tables and strongly
-    # favors top placement ([!t]). Caption goes ABOVE the tabular per IEEE style.
+    # favors top placement ([!t]). No caption is emitted because the section
+    # writer does not supply table titles to this converter; IEEEtran will still
+    # number the float via the table* counter.
     result: list[str] = [
         "\\begin{table*}[!t]",
         "\\centering",
-        "\\caption{}",
         f"\\small\\begin{{tabular}}{{{col_spec}}}",
         "\\toprule",
     ]
@@ -338,6 +420,21 @@ def _md_section_to_latex(
     return "\n".join(parts)
 
 
+def _merge_consecutive_cites(text: str) -> str:
+    """Merge adjacent \\cite{A}, \\cite{B} sequences into \\cite{A,B}.
+
+    The cite package only compresses citation ranges (e.g. [1]-[3]) when all
+    keys are listed in a single \\cite{} command. This post-processor collapses
+    any run of comma-separated consecutive \\cite{} calls into one.
+    """
+
+    def repl(m: re.Match) -> str:
+        keys = re.findall(r"\\cite\{([^}]+)\}", m.group(0))
+        return f"\\cite{{{','.join(keys)}}}"
+
+    return re.sub(r"\\cite\{[^}]+\}(?:,\s*\\cite\{[^}]+\})+", repl, text)
+
+
 def markdown_to_latex(
     md_content: str,
     citekeys: set[str] | None = None,
@@ -367,9 +464,17 @@ def markdown_to_latex(
         flags=re.DOTALL,
     )
 
+    # Strip the markdown References section -- BibTeX (\bibliography{references})
+    # handles the reference list. Keeping the manually-formatted [1] Author... entries
+    # in the body would produce a duplicate reference list in the compiled PDF.
+    rest = re.sub(r"\n## References\b.*", "", rest, flags=re.DOTALL)
+
     preamble = r"""\documentclass[journal]{IEEEtran}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
 \usepackage{graphicx}
 \usepackage{amsmath}
+\usepackage{textcomp}
 \usepackage{cite}
 \usepackage{booktabs}
 \usepackage{longtable}
@@ -393,6 +498,7 @@ def markdown_to_latex(
         preamble += "\\end{abstract}\n\n"
 
     body = _md_section_to_latex(rest, citekeys, num_to_citekey)
+    body = _merge_consecutive_cites(body)
 
     _FIGURE_CAPTIONS: dict[str, str] = {
         "fig_prisma_flow": "PRISMA 2020 flow diagram illustrating the systematic search and screening process.",

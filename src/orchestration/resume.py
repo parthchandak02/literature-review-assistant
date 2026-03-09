@@ -149,6 +149,23 @@ async def load_resume_state(
                 next_phase = from_phase
         else:
             next_phase = _next_phase(checkpoints)
+            # Guard: the phase_6_writing checkpoint can be saved before the
+            # manuscript file is written (if the process crashes during assembly).
+            # If the file is absent, clear the stale checkpoint so WritingNode
+            # re-runs and produces the manuscript; section_drafts already hold all
+            # completed LLM outputs so only the assembly step is repeated.
+            if next_phase == "finalize" and "phase_6_writing" in checkpoints:
+                manuscript_md_path = run_dir / "doc_manuscript.md"
+                if not manuscript_md_path.exists():
+                    logger.warning(
+                        "phase_6_writing checkpoint exists but %s is missing; "
+                        "clearing checkpoint so WritingNode re-runs assembly.",
+                        manuscript_md_path,
+                    )
+                    await repo.delete_checkpoints_for_phases(
+                        workflow_id, ["phase_6_writing"]
+                    )
+                    next_phase = "phase_6_writing"
 
     artifacts = {
         "run_summary": str(run_dir / "run_summary.json"),

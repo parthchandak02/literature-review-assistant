@@ -137,7 +137,7 @@ literature-review-assistant/
 |   |-- web/                        # FastAPI app (40+ endpoints, SSE, static serving)
 |   `-- utils/                      # structured_log, logging_paths (RunPaths + create_run_paths), ssl_context
 |-- tests/
-|   |-- unit/                       # 20 unit test files (86 passing)
+|   |-- unit/                       # 35 unit test files (211 passing)
 |   `-- integration/                # 7 integration test files
 `-- runs/                           # All per-run artifacts + central registry (gitignored)
 ```
@@ -1019,7 +1019,7 @@ uv run python -m src.main export --workflow-id abc123 --run-root runs/
 ```
 uv run ruff check . --fix && uv run ruff format .   # Python lint + format
 cd frontend && pnpm fix && pnpm typecheck           # ESLint + TypeScript
-uv run pytest tests/unit -q                         # 105 unit tests
+uv run pytest tests/unit -q                         # 211 unit tests
 uv run pytest tests/integration -q                 # integration tests (require config/review.yaml)
 uv run python -m src.main --help                    # confirm CLI loads without error
 ```
@@ -1122,7 +1122,9 @@ Living section -- update as work completes.
 | Batch dual-reviewer + DB arithmetic fix | DONE | (1) reviewer_batch_size (default 10 in settings.yaml) sends N papers per dual-reviewer LLM call, reducing LLM calls by ~5x at batch_size=10; 0=per-paper legacy mode; dual_screener.py dispatches to _screen_batch_mode() internally; per-paper decisions, callbacks, and adjudication are unchanged -- methodologically identical to per-paper mode. (2) records_after_deduplication and records_excluded_screening pre-computed in build_writing_grounding() from prisma_counts and injected verbatim into format_grounding_block() with CRITICAL instructions; LLM is forbidden from performing PRISMA arithmetic; root cause of "1882 vs 1884" error eliminated. 7 new unit tests added to tests/unit/test_screening.py. |
 | Pipeline cleanup + RoB/GRADE grounding | DONE | (1) naturalness_scorer removed (always returned 0.8, never gated output; module deleted, agent key removed from settings.yaml). (2) StylePatterns / style_extractor removed from writing pipeline (always returned empty patterns; prepare_writing_context() now returns catalog str directly). (3) src/llm/model_fallback.py: centralized get_fallback_model(tier) resolver -- reads settings.yaml first, falls back to _TIER_LAST_RESORT constants. (4) rob_summary and grade_summary injected into WritingGroundingData and format_grounding_block() from actual DB assessments so writing LLM receives structured RoB/GRADE evidence. (5) _escape_latex() now protects \\cite{}/\\textbf{} argument strings before escaping underscores. (6) LaTeX table rules upgraded to booktabs (\\toprule/\\midrule/\\bottomrule); longtable and hyperref added to IEEE preamble. |
 
-**Test status:** 200 unit tests, 52 integration tests (`uv run pytest tests/unit tests/integration -q`).
+| IEEE LaTeX Unicode hardening + resume bug fixes | DONE | (1) _escape_latex() refactored into 7-step pipeline: targeted typographic table (7 entries: em-dash/en-dash/smart-quotes/non-breaking-hyphen -> IEEEtran forms), LaTeX special chars, degree sign, pylatexenc.UnicodeToLatexEncoder fallback for all remaining non-ASCII, last-resort [?] guard with warning log for unrenderable glyphs (e.g. Arabic). inputenc/fontenc/textcomp added to IEEE preamble. (2) context_builder.py: math.isnan() guard on cohens_kappa prevents nan propagation into LLM prompt; emits "not calculable (N=X)" with single-class explanation. (3) writing/orchestration.py: save_checkpoint("phase_6_writing") moved after manuscript file write; resume.py: file-existence guard clears stale phase_6_writing checkpoint when doc_manuscript.md is absent. (4) markdown_refs.py: citation_rows unpacking updated to 9 values (includes url). (5) property-based tests added with hypothesis: test_escape_latex_always_ascii_output, test_escape_latex_emdash_uses_triple_dash, test_escape_latex_endash_uses_double_dash, test_escape_latex_smart_quotes_use_standard_ligatures, test_escape_latex_preserves_latex_commands, test_escape_latex_special_chars_are_escaped. pylatexenc>=2.10 and hypothesis>=6.151.9 added as project dependencies. |
+
+**Test status:** 211 unit tests, 52 integration tests (`uv run pytest tests/unit tests/integration -q`).
 
 ---
 

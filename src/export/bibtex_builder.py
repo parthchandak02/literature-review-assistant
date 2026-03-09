@@ -14,6 +14,24 @@ _LOWERCASE_TITLE_WORDS = frozenset({
     "via", "vs", "per",
 })
 
+# Keywords that strongly suggest an institutional/organisation author name.
+_INSTITUTIONAL_KEYWORDS = frozenset({
+    "university", "institute", "college", "department", "association",
+    "society", "national", "international", "hospital", "clinic",
+    "center", "centre", "corporation", "inc", "ltd", "llc", "group",
+    "committee", "organization", "organisation", "ministry", "agency",
+    "foundation", "consortium", "network", "authority", "office",
+    "bureau", "division", "school", "faculty", "board", "council",
+})
+
+# DOI URL prefixes to strip when normalising a DOI string.
+_DOI_URL_PREFIXES = (
+    "https://doi.org/",
+    "http://doi.org/",
+    "https://dx.doi.org/",
+    "http://dx.doi.org/",
+)
+
 # LaTeX special characters that need escaping (order matters: backslash first).
 _LATEX_SPECIAL = [
     ("\\", "\\textbackslash{}"),
@@ -139,21 +157,39 @@ def _authors_to_bibtex(authors_json: str) -> str:
             name = a.strip()
             if not name:
                 continue
-            # Heuristic: if the token has no comma and contains spaces it may
-            # be "First Last" format; try to flip it.
             if "," not in name and " " in name:
                 name_parts = name.split()
-                # Treat multi-word strings with only title-case words as
-                # institutional names; flip plain "First Last" pairs.
-                all_title = all(w[0].isupper() if w else True for w in name_parts)
-                if len(name_parts) == 2 and all_title:
-                    # "John Smith" -> "Smith, John"
+                if len(name_parts) == 2:
+                    first_tok, second_tok = name_parts
+                    # "LastName Initials" -> "LastName, Initials"   e.g. "Cohen J", "Page MJ"
+                    if _looks_like_initials(second_tok):
+                        parts.append(
+                            f"{_escape_bibtex(first_tok)}, {_escape_bibtex(second_tok)}"
+                        )
+                    # "Initials LastName" -> "LastName, Initials"   e.g. "MJ Page"
+                    elif _looks_like_initials(first_tok):
+                        parts.append(
+                            f"{_escape_bibtex(second_tok)}, {_escape_bibtex(first_tok)}"
+                        )
+                    # "FirstName LastName" -> flip   e.g. "John Smith"
+                    else:
+                        parts.append(
+                            f"{_escape_bibtex(second_tok)}, {_escape_bibtex(first_tok)}"
+                        )
+                elif len(name_parts) == 3 and _looks_like_initials(name_parts[1]):
+                    # "FirstName Middle LastName" -> "LastName, FirstName Middle"
+                    # e.g. "Stephanie R. Beldick" -> "Beldick, Stephanie R."
+                    first, mid, last = name_parts
                     parts.append(
-                        f"{_escape_bibtex(name_parts[-1])}, {_escape_bibtex(name_parts[0])}"
+                        f"{_escape_bibtex(last)}, {_escape_bibtex(first)} {_escape_bibtex(mid)}"
                     )
-                else:
-                    # Institutional name -- double-brace.
+                elif _is_institutional_name(name_parts):
                     parts.append(_wrap_institutional(_escape_bibtex(name)))
+                else:
+                    # Best effort: last word is last name.
+                    last = name_parts[-1]
+                    rest = " ".join(name_parts[:-1])
+                    parts.append(f"{_escape_bibtex(last)}, {_escape_bibtex(rest)}")
             else:
                 escaped = _escape_bibtex(name)
                 parts.append(escaped)
@@ -169,6 +205,32 @@ def _wrap_institutional(name: str) -> str:
     if name.startswith("{{") and name.endswith("}}"):
         return name
     return "{{" + name + "}}"
+
+
+def _looks_like_initials(token: str) -> bool:
+    """Return True if token looks like name initials (e.g. 'J', 'MJ', 'JAC', 'A.')."""
+    stripped = token.rstrip(".")
+    return len(stripped) <= 3 and stripped.isupper() and stripped.isalpha()
+
+
+def _is_institutional_name(name_parts: list[str]) -> bool:
+    """Heuristic: does this multi-word string look like an organisation?"""
+    joined_lower = " ".join(p.lower().rstrip(".,;") for p in name_parts)
+    for kw in _INSTITUTIONAL_KEYWORDS:
+        if kw in joined_lower:
+            return True
+    # All-caps words (acronym-style org names) with no obvious initials
+    if all(p.isupper() for p in name_parts if len(p) > 1):
+        return True
+    return False
+
+
+def _normalize_doi(doi: str) -> str:
+    """Return bare DOI, stripping any leading URL prefix."""
+    for prefix in _DOI_URL_PREFIXES:
+        if doi.startswith(prefix):
+            return doi[len(prefix):]
+    return doi.lstrip("/")
 
 
 def _month_int_to_abbr(month: int | None) -> str | None:
@@ -194,18 +256,20 @@ def _build_single_entry(
 ) -> str:
     """Build one BibTeX entry in Zotero style.
 
-    Uses the stored bibtex verbatim when present (preserving Crossref/Semantic
-    Scholar supplied records).  Otherwise generates a clean entry from fields.
+    Always regenerates from structured fields using our Zotero formatter so
+    that field order, title bracing, author format, and DOI normalisation are
+    consistent regardless of what may be stored in the bibtex column.
+    The entry type is still inferred from stored bibtex when available.
     """
-    if bibtex and bibtex.strip():
-        return bibtex.strip()
-
     entry_type = _detect_entry_type(journal, doi, bibtex)
     author_str = _authors_to_bibtex(authors_json)
     protected_title = _bibtex_protect_title(title) if title else "(No title)"
 
-    # Build field list in Zotero order: title, volume/issn, url, doi,
-    # abstract, urldate, journal, author, month, year, pages.
+    # Normalise the DOI to bare form (strip any https://doi.org/ prefix).
+    clean_doi = _normalize_doi(doi) if doi else None
+
+    # Build field list in Zotero order: title, journal, url, doi,
+    # author, month, year.
     fields: list[str] = []
 
     fields.append(f"\ttitle = {{{protected_title}}},")
@@ -215,14 +279,13 @@ def _build_single_entry(
 
     if url:
         fields.append(f"\turl = {{{_escape_bibtex(url)}}},")
-    elif doi and not url:
+    elif clean_doi and entry_type == "misc":
         # Synthesise a doi.org URL so @misc entries still have a url field.
-        if entry_type == "misc":
-            doi_url = f"https://doi.org/{doi.lstrip('/')}"
-            fields.append(f"\turl = {{{_escape_bibtex(doi_url)}}},")
+        doi_url = f"https://doi.org/{clean_doi}"
+        fields.append(f"\turl = {{{_escape_bibtex(doi_url)}}},")
 
-    if doi:
-        fields.append(f"\tdoi = {{{_escape_bibtex(doi)}}},")
+    if clean_doi:
+        fields.append(f"\tdoi = {{{_escape_bibtex(clean_doi)}}},")
 
     fields.append(f"\tauthor = {{{author_str}}},")
 

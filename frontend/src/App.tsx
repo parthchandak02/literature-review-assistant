@@ -106,8 +106,12 @@ export default function App() {
   const navigate = useNavigate()
   const location = useLocation()
 
-  const [isMobile, setIsMobile] = useState(() => window.innerWidth < 640)
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(() => window.innerWidth < 640)
+  // matchMedia is more reliable than window.innerWidth for SSR/hydration safety and
+  // avoids reading a stale value before layout has settled.
+  const [isMobile, setIsMobile] = useState(() => window.matchMedia("(max-width: 639px)").matches)
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(
+    () => window.matchMedia("(max-width: 639px)").matches,
+  )
   const [sidebarWidth, setSidebarWidth] = useState<number>(() => {
     const stored = localStorage.getItem("sidebar-width")
     return stored ? Math.max(200, Math.min(420, Number(stored))) : 240
@@ -490,13 +494,13 @@ export default function App() {
   // Track mobile viewport (< 640px) and auto-collapse sidebar on mobile.
   // ---------------------------------------------------------------------------
   useEffect(() => {
-    function handleResize() {
-      const mobile = window.innerWidth < 640
-      setIsMobile(mobile)
-      if (mobile) setSidebarCollapsed(true)
+    const mq = window.matchMedia("(max-width: 639px)")
+    function handleChange(e: MediaQueryListEvent) {
+      setIsMobile(e.matches)
+      if (e.matches) setSidebarCollapsed(true)
     }
-    window.addEventListener("resize", handleResize)
-    return () => window.removeEventListener("resize", handleResize)
+    mq.addEventListener("change", handleChange)
+    return () => mq.removeEventListener("change", handleChange)
   }, [])
 
   // ---------------------------------------------------------------------------

@@ -336,10 +336,21 @@ export function ActivityView({
   const [fetchError, setFetchError] = useState<string | null>(null)
   const [layout, setLayout] = useState<LayoutState>("split")
   const [leftWidth, setLeftWidth] = useState(DEFAULT_LEFT_WIDTH)
+  const [isMobile, setIsMobile] = useState(
+    () => window.matchMedia("(max-width: 767px)").matches,
+  )
 
   const containerRef = useRef<HTMLDivElement>(null)
   const logRef = useRef<LogStreamHandle>(null)
   const isDragging = useRef(false)
+
+  // Track mobile breakpoint (md = 768px) -- on mobile, stack panels vertically.
+  useEffect(() => {
+    const mq = window.matchMedia("(max-width: 767px)")
+    const handler = (e: MediaQueryListEvent) => setIsMobile(e.matches)
+    mq.addEventListener("change", handler)
+    return () => mq.removeEventListener("change", handler)
+  }, [])
 
   // Drag-to-resize divider
   const handleDividerMouseDown = useCallback((e: React.MouseEvent) => {
@@ -467,17 +478,23 @@ export function ActivityView({
         </div>
       )}
 
-      {/* Split panel row - items-stretch makes all children match tallest sibling height */}
+      {/* Split panel row -- stacks vertically on mobile, side-by-side on md+ */}
       <div
         ref={containerRef}
-        className="flex"
-        style={{ minHeight: "480px", alignItems: "stretch" }}
+        className={cn("flex", isMobile ? "flex-col gap-3" : "flex-row")}
+        style={isMobile ? undefined : { minHeight: "480px", alignItems: "stretch" }}
       >
         {/* ---- Phase Timeline Panel ---- */}
         {layout !== "log" && (
           <div
             className="flex flex-col min-w-0"
-            style={layout === "split" ? { width: leftWidth, flexShrink: 0 } : { flex: 1 }}
+            style={
+              isMobile
+                ? { minHeight: "240px" }
+                : layout === "split"
+                  ? { width: leftWidth, flexShrink: 0 }
+                  : { flex: 1 }
+            }
           >
             <div className="card-surface overflow-hidden flex flex-col flex-1 min-h-0">
               <div className="flex items-center justify-between px-4 h-11 border-b border-zinc-800 shrink-0">
@@ -510,8 +527,8 @@ export function ActivityView({
           </div>
         )}
 
-        {/* ---- Drag handle (only in split mode) ---- */}
-        {layout === "split" && (
+        {/* ---- Drag handle (only in split mode, only on desktop) ---- */}
+        {layout === "split" && !isMobile && (
           <div
             className="flex items-center justify-center w-3 shrink-0 cursor-col-resize group relative"
             onMouseDown={handleDividerMouseDown}
@@ -529,7 +546,10 @@ export function ActivityView({
 
         {/* ---- Activity Log Panel ---- */}
         {layout !== "timeline" && (
-          <div className="flex-1 min-w-0 flex flex-col">
+          <div
+            className="flex flex-col min-w-0"
+            style={isMobile ? { minHeight: "320px" } : { flex: 1 }}
+          >
             <div className="card-surface overflow-hidden flex flex-col flex-1 min-h-0">
               {/* Header */}
               <div className="flex items-center gap-2 px-4 h-11 border-b border-zinc-800 shrink-0 overflow-hidden">

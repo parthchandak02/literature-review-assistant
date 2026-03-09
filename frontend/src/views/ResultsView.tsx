@@ -459,7 +459,17 @@ function ManuscriptActions({ docxPath, canExport, exportRunId, allOutputs }: Man
     return { ...allOutputs, submission }
   }, [allOutputs, exportFiles])
 
-  const texPath = useMemo(() => findFileByName(mergedOutputs, "manuscript.tex"), [mergedOutputs])
+  // Prefer the freshly packaged submission/manuscript.tex over doc_manuscript.tex.
+  // findFileByName() matches substrings so "doc_manuscript.tex" would always win because
+  // it also contains "manuscript.tex". When exportFiles is populated, look for the exact
+  // submission path first before falling back to the SSE artifact map.
+  const texPath = useMemo(() => {
+    if (exportFiles.length > 0) {
+      const submissionTex = exportFiles.find(f => /\/manuscript\.tex$/.test(f))
+      if (submissionTex) return submissionTex
+    }
+    return findFileByName(mergedOutputs, "manuscript.tex")
+  }, [mergedOutputs, exportFiles])
   const bibPath = useMemo(() => findFileByName(mergedOutputs, ".bib"), [mergedOutputs])
   const coverPath = useMemo(() => findFileByName(mergedOutputs, "cover_letter"), [mergedOutputs])
   // DOCX: prefer the post-export path; fall back to any pre-existing artifact path from the run
@@ -539,13 +549,12 @@ function ManuscriptActions({ docxPath, canExport, exportRunId, allOutputs }: Man
           {exportState === "done" && (
             <Button
               size="sm"
-              variant="outline"
               onClick={() => { setExportState("idle"); void handleExport(); }}
-              className={sharedCls}
+              className="h-7 gap-1 text-xs bg-zinc-800 hover:bg-zinc-700 text-zinc-300 hover:text-zinc-100 border-0 shadow-none"
               title="Regenerate manuscript, .tex, .bib, and DOCX"
             >
               <RefreshCw className="h-3 w-3 text-emerald-400" />
-              Refresh Docs
+              Refresh
             </Button>
           )}
         </>
@@ -579,8 +588,19 @@ export function ResultsView({
 }: ResultsViewProps) {
   const [layout, setLayout] = useState<ResultsLayout>("split")
   const [rightWidth, setRightWidth] = useState(DEFAULT_RIGHT_WIDTH)
+  const [isMobile, setIsMobile] = useState(
+    () => window.matchMedia("(max-width: 767px)").matches,
+  )
   const containerRef = useRef<HTMLDivElement>(null)
   const isDragging = useRef(false)
+
+  // Track mobile breakpoint (md = 768px) -- on mobile stack panels vertically.
+  useEffect(() => {
+    const mq = window.matchMedia("(max-width: 767px)")
+    const handler = (e: MediaQueryListEvent) => setIsMobile(e.matches)
+    mq.addEventListener("change", handler)
+    return () => mq.removeEventListener("change", handler)
+  }, [])
 
   // Drag-to-resize the right panel (inverse of ActivityView: right is fixed, left is flex-1)
   const handleDividerMouseDown = useCallback((e: React.MouseEvent) => {
@@ -665,13 +685,14 @@ export function ResultsView({
   return (
     <div
       ref={containerRef}
-      className="flex"
-      style={{ minHeight: "520px", alignItems: "stretch" }}
+      className={cn("flex", isMobile ? "flex-col gap-3" : "flex-row")}
+      style={isMobile ? undefined : { minHeight: "520px", alignItems: "stretch" }}
     >
       {/* ---- LEFT: Manuscript + Artifacts ---- */}
       {layout !== "right" && (
         <div
           className="flex flex-col min-w-0 flex-1"
+          style={isMobile ? { minHeight: "480px" } : undefined}
         >
           <div className="card-surface overflow-hidden flex flex-col flex-1 min-h-0">
             {/* Panel header -- always visible; download actions live here */}
@@ -729,8 +750,8 @@ export function ResultsView({
         </div>
       )}
 
-      {/* ---- Drag handle (split only) ---- */}
-      {layout === "split" && (
+      {/* ---- Drag handle (split only, desktop only) ---- */}
+      {layout === "split" && !isMobile && (
         <div
           className="flex items-center justify-center w-3 shrink-0 cursor-col-resize group relative"
           onMouseDown={handleDividerMouseDown}
@@ -748,7 +769,13 @@ export function ResultsView({
       {layout !== "left" && (
         <div
           className="flex flex-col min-w-0"
-          style={layout === "split" ? { width: rightWidth, flexShrink: 0 } : { flex: 1 }}
+          style={
+            isMobile
+              ? { minHeight: "300px" }
+              : layout === "split"
+                ? { width: rightWidth, flexShrink: 0 }
+                : { flex: 1 }
+          }
         >
           <div className="card-surface overflow-hidden flex flex-col flex-1 min-h-0">
             {/* Panel header */}

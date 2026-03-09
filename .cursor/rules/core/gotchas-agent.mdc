@@ -347,6 +347,24 @@ The same pattern applies to `records_excluded_screening` (pre-computed as
 `total_screened - fulltext_assessed`). Never remove these fields or rely on the LLM to
 perform PRISMA arithmetic -- LLM arithmetic on injected grounding counts is unreliable.
 
+## `_escape_latex()` Uses pylatexenc Fallback -- Do Not Add Manual Accented-Char Entries
+`_escape_latex()` in `src/export/ieee_latex.py` uses a 7-entry targeted typographic table
+(em-dash, en-dash, smart quotes, non-breaking hyphen) for IEEEtran-preferred syntax,
+then `pylatexenc.latexencode.UnicodeToLatexEncoder` as a generic Unicode->LaTeX fallback
+(Step 5), and finally a last-resort guard replacing any remaining non-ASCII with `[?]` (Step 6).
+Do NOT add individual accented-char mappings (e.g. `a -> \~{a}`) -- pylatexenc handles all of
+them generically. `\usepackage[utf8]{inputenc}`, `\usepackage[T1]{fontenc}`, and
+`\usepackage{textcomp}` are all in the generated preamble so common accented chars work
+natively. The property-based test `test_escape_latex_always_ascii_output` in
+`tests/unit/test_export.py` uses `hypothesis` to assert the invariant for arbitrary Unicode.
+
+## Kappa nan Is Guarded In context_builder.py (Not Propagated to LLM)
+`format_grounding_block()` in `src/writing/context_builder.py` uses `math.isnan()` to guard
+`cohens_kappa` before formatting. If `cohens_kappa` is `nan` (e.g. N=1, single-class input
+to `cohen_kappa_score()`), the grounding block emits "not calculable (N=X)" instead of
+the raw `nan` value. Do NOT remove this guard -- propagating `nan` into an LLM prompt
+produces unreliable Methods section text and triggered schema validation errors in past runs.
+
 ## `save_cost_record()` Takes CostRecord Directly (No workflow_id Argument)
 `WorkflowRepository.save_cost_record(self, record: CostRecord)` takes exactly ONE argument
 beyond `self` -- the CostRecord object. There is NO workflow_id parameter. The cost_records

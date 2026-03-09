@@ -13,7 +13,6 @@ import signal
 _log = logging.getLogger(__name__)
 from datetime import UTC, datetime
 from pathlib import Path
-from uuid import uuid4
 
 logger = logging.getLogger(__name__)
 
@@ -25,6 +24,7 @@ from src.config.loader import load_configs
 from src.db.database import get_db
 from src.db.repositories import CitationRepository, WorkflowRepository
 from src.db.workflow_registry import (
+    allocate_workflow_id,
     find_by_topic,
     find_by_workflow_id,
     find_by_workflow_id_fallback,
@@ -267,7 +267,7 @@ class StartNode(BaseNode[ReviewState]):
         state.review = review
         state.settings = settings
         state.run_id = _now_utc()
-        state.workflow_id = f"wf-{uuid4().hex[:8]}"
+        state.workflow_id = await allocate_workflow_id(state.run_root)
 
         run_paths = create_run_paths(run_root=state.run_root, workflow_description=review.research_question)
         state.log_dir = str(run_paths.run_dir)
@@ -2488,8 +2488,9 @@ class WritingNode(BaseNode[ReviewState]):
                 # Uses FIGURE_DEFS canonical order from markdown_refs.py so the
                 # writing LLM receives exact figure numbers matching the final
                 # assembled manuscript (preventing off-by-one figure references).
-                from src.export.markdown_refs import FIGURE_DEFS as _FIGURE_DEFS
                 import pathlib as _pathlib
+
+                from src.export.markdown_refs import FIGURE_DEFS as _FIGURE_DEFS
 
                 _fig_map: dict[str, int] = {}
                 _fig_seq = 1
@@ -2784,8 +2785,6 @@ class WritingNode(BaseNode[ReviewState]):
                         }
                     )
 
-                await repository.save_checkpoint(state.workflow_id, "phase_6_writing", papers_processed=len(SECTIONS))
-
             citation_rows = await CitationRepository(db).get_all_citations_for_export()
             # Load papers + extraction records for the study characteristics table.
             # Derive included_ids from extraction_records first (not from fulltext
@@ -3014,6 +3013,14 @@ class WritingNode(BaseNode[ReviewState]):
             fulltext_paper_ids=_fulltext_paper_ids if _fulltext_paper_ids else None,
         )
         manuscript_path.write_text(full_manuscript, encoding="utf-8")
+        # Checkpoint only after the file is safely on disk so that a crash
+        # during assembly does not leave a stale checkpoint that causes resume
+        # to skip straight to FinalizeNode with no manuscript.
+        async with get_db(state.db_path) as _ckpt_db:
+            await WorkflowRepository(_ckpt_db).save_checkpoint(
+                state.workflow_id, "phase_6_writing", papers_processed=len(SECTIONS)
+            )
+            await _ckpt_db.commit()
 
         # Emit phase done and advance to FinalizeNode NOW, before concept diagrams.
         # Concept diagrams are bonus artifacts -- a CancelledError, timeout, or any

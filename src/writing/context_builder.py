@@ -7,6 +7,7 @@ prompt, preventing hallucination of statistics, counts, and citation keys.
 
 from __future__ import annotations
 
+import math
 from datetime import datetime
 
 from pydantic import BaseModel
@@ -268,9 +269,11 @@ def _build_screening_method_description(
         "full-text retrieval was attempted via a multi-tier open-access resolver "
         "(Unpaywall, Semantic Scholar, Europe PMC, CORE, PubMed Central)"
     )
+    # Treat nan as not-computable (sklearn returns nan for single-class input).
+    _kappa_usable = cohens_kappa is not None and not math.isnan(cohens_kappa)
     _kappa_sentence = (
         "Inter-rater reliability was measured using Cohen's kappa on the subset of papers requiring dual review."
-        if cohens_kappa is not None
+        if _kappa_usable
         else "Inter-rater reliability was not formally computed for this run."
     )
 
@@ -304,7 +307,7 @@ def _build_screening_method_description(
         _batch_kappa = (
             f"Inter-rater reliability was measured using Cohen's kappa on the "
             f"{batch_screen_forwarded} records evaluated by the dual reviewers."
-            if cohens_kappa is not None
+            if _kappa_usable
             else "Inter-rater reliability was not formally computed for this run."
         )
         return (
@@ -325,7 +328,7 @@ def _build_screening_method_description(
         _tiered_kappa = (
             f"Inter-rater reliability was measured using Cohen's kappa on the {llm_count} records "
             f"evaluated by the dual reviewers."
-            if cohens_kappa is not None
+            if _kappa_usable
             else "Inter-rater reliability was not formally computed for this run."
         )
         return (
@@ -812,7 +815,13 @@ def format_grounding_block(data: WritingGroundingData) -> str:
                 parts.append(f"   Finding: {s.key_finding}")
             lines.extend(parts)
 
-    if data.cohens_kappa is not None:
+    # Treat nan as not-computable: sklearn's cohen_kappa_score returns nan when
+    # all labels are the same class (e.g. N=1 or unanimous perfect agreement),
+    # and writing "Cohen's kappa = nan" in the prose is incorrect.
+    _kappa_valid = (
+        data.cohens_kappa is not None and not math.isnan(data.cohens_kappa)
+    )
+    if _kappa_valid:
         kappa_str = f"{data.cohens_kappa:.3f}"
         stage_str = f" ({data.kappa_stage} stage)" if data.kappa_stage else ""
         n_str = f", N={data.kappa_n}" if data.kappa_n > 0 else ""
@@ -826,7 +835,16 @@ def format_grounding_block(data: WritingGroundingData) -> str:
             f"Do NOT describe this as overall reviewer agreement without the subset qualifier."
         )
     else:
-        lines.append("Inter-rater reliability (Cohen's kappa): not computed for this run.")
+        # If kappa is nan (e.g. N=1, all reviewers agreed so only one class present),
+        # report it as not calculable with the sample-size context.
+        n_str = f" (N={data.kappa_n})" if data.kappa_n > 0 else ""
+        _reason = (
+            f"not calculable{n_str} -- only one paper reached dual review so "
+            "Cohen's kappa is undefined (single-class input)"
+            if (data.cohens_kappa is not None and data.kappa_n <= 1)
+            else "not computed for this run"
+        )
+        lines.append(f"Inter-rater reliability (Cohen's kappa): {_reason}.")
         lines.append(
             "CRITICAL -- kappa NOT available: Do NOT claim a specific kappa value was computed "
             "or report a kappa statistic. In the Methods section you may state that inter-rater "

@@ -8,6 +8,8 @@ from __future__ import annotations
 
 import json
 import os
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -27,10 +29,31 @@ CREATE TABLE IF NOT EXISTS workflows_registry (
 
 CREATE INDEX IF NOT EXISTS idx_registry_topic ON workflows_registry(topic);
 CREATE INDEX IF NOT EXISTS idx_registry_topic_hash ON workflows_registry(topic, config_hash);
+
+CREATE TABLE IF NOT EXISTS workflow_counter (
+    id INTEGER PRIMARY KEY CHECK (id = 1),
+    last_seq INTEGER NOT NULL DEFAULT 0
+);
+
+INSERT OR IGNORE INTO workflow_counter (id, last_seq) VALUES (1, 0);
 """
 
 _MIGRATION_ADD_HEARTBEAT = "ALTER TABLE workflows_registry ADD COLUMN heartbeat_at TEXT"
 _MIGRATION_ADD_NOTES = "ALTER TABLE workflows_registry ADD COLUMN notes TEXT"
+
+
+@asynccontextmanager
+async def _open_registry(path: str) -> AsyncIterator[aiosqlite.Connection]:
+    """Open the registry DB with WAL mode and a 5 s busy-timeout.
+
+    WAL allows concurrent readers alongside a single writer so note saves never
+    block history reads.  busy_timeout lets writers queue instead of immediately
+    returning SQLITE_BUSY when another write holds the lock.
+    """
+    async with aiosqlite.connect(path, timeout=5.0) as db:
+        await db.execute("PRAGMA journal_mode = WAL")
+        await db.execute("PRAGMA busy_timeout = 5000")
+        yield db
 
 
 @dataclass
@@ -55,7 +78,7 @@ async def _ensure_registry(run_root: str) -> str:
     """Ensure registry db exists with schema, running migrations. Return absolute path."""
     path = _registry_path(run_root)
     Path(path).parent.mkdir(parents=True, exist_ok=True)
-    async with aiosqlite.connect(path) as db:
+    async with _open_registry(path) as db:
         await db.executescript(REGISTRY_SCHEMA)
         # Migration: add heartbeat_at column for existing databases that pre-date the schema change.
         try:
@@ -67,6 +90,17 @@ async def _ensure_registry(run_root: str) -> str:
             await db.execute(_MIGRATION_ADD_NOTES)
         except Exception:
             pass  # Column already exists -- sqlite raises OperationalError, ignore it.
+        # Migration: create sequential counter table for wf-NNNN IDs (existing installs).
+        try:
+            await db.execute(
+                "CREATE TABLE IF NOT EXISTS workflow_counter "
+                "(id INTEGER PRIMARY KEY CHECK (id = 1), last_seq INTEGER NOT NULL DEFAULT 0)"
+            )
+            await db.execute(
+                "INSERT OR IGNORE INTO workflow_counter (id, last_seq) VALUES (1, 0)"
+            )
+        except Exception:
+            pass
         await db.commit()
     return path
 
@@ -82,7 +116,7 @@ async def register(
     """Register a workflow in the central registry."""
     path = await _ensure_registry(run_root)
     abs_db_path = str(Path(db_path).resolve())
-    async with aiosqlite.connect(path) as db:
+    async with _open_registry(path) as db:
         await db.execute(
             """
             INSERT INTO workflows_registry
@@ -105,7 +139,7 @@ async def find_by_workflow_id(run_root: str, workflow_id: str) -> RegistryEntry 
     path = _registry_path(run_root)
     if not os.path.isfile(path):
         return None
-    async with aiosqlite.connect(path) as db:
+    async with _open_registry(path) as db:
         db.row_factory = aiosqlite.Row
         cursor = await db.execute(
             """
@@ -174,7 +208,7 @@ async def find_by_topic(
     path = _registry_path(run_root)
     if not os.path.isfile(path):
         return []
-    async with aiosqlite.connect(path) as db:
+    async with _open_registry(path) as db:
         db.row_factory = aiosqlite.Row
         if config_hash:
             cursor = await db.execute(
@@ -218,7 +252,7 @@ async def update_status(run_root: str, workflow_id: str, status: str) -> None:
     path = _registry_path(run_root)
     if not os.path.isfile(path):
         return
-    async with aiosqlite.connect(path) as db:
+    async with _open_registry(path) as db:
         await db.execute(
             """
             UPDATE workflows_registry SET status = ?, updated_at = datetime('now')
@@ -236,7 +270,7 @@ async def update_notes(run_root: str, workflow_id: str, notes: str) -> None:
     are included in the /api/history response without opening per-run databases.
     """
     path = await _ensure_registry(run_root)
-    async with aiosqlite.connect(path) as db:
+    async with _open_registry(path) as db:
         await db.execute(
             "UPDATE workflows_registry SET notes = ?, updated_at = datetime('now') WHERE workflow_id = ?",
             (notes, workflow_id),
@@ -253,9 +287,29 @@ async def update_heartbeat(run_root: str, workflow_id: str) -> None:
     path = _registry_path(run_root)
     if not os.path.isfile(path):
         return
-    async with aiosqlite.connect(path) as db:
+    async with _open_registry(path) as db:
         await db.execute(
             "UPDATE workflows_registry SET heartbeat_at = datetime('now') WHERE workflow_id = ?",
             (workflow_id,),
         )
         await db.commit()
+
+
+async def allocate_workflow_id(run_root: str) -> str:
+    """Atomically allocate the next sequential workflow ID (wf-0001, wf-0002, ...).
+
+    Uses BEGIN EXCLUSIVE to make the read-increment-write a single atomic operation,
+    preventing duplicate IDs even when two runs start concurrently under PM2.
+    Counter is stored in the workflow_counter table in workflows_registry.db.
+    """
+    path = await _ensure_registry(run_root)
+    async with _open_registry(path) as db:
+        await db.execute("BEGIN EXCLUSIVE")
+        cursor = await db.execute("SELECT last_seq FROM workflow_counter WHERE id = 1")
+        row = await cursor.fetchone()
+        next_seq = (row[0] if row else 0) + 1
+        await db.execute(
+            "UPDATE workflow_counter SET last_seq = ? WHERE id = 1", (next_seq,)
+        )
+        await db.commit()
+    return f"wf-{next_seq:04d}"

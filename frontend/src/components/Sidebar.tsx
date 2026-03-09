@@ -125,8 +125,9 @@ export function Sidebar({
 
   // Notes: keyed by workflow_id. Seeded from history, updated via SSE.
   const [notes, setNotes] = useState<Record<string, string>>({})
-  // workflowId that just received a remote note update -- drives the flash animation.
-  const [noteFlashId, setNoteFlashId] = useState<string | null>(null)
+  // Flash counter per workflow_id: incrementing forces NoteField to re-key and retrigger
+  // the animation even when the same card receives rapid successive remote updates.
+  const [noteFlashCounters, setNoteFlashCounters] = useState<Record<string, number>>({})
 
   const loadHistory = useCallback(async () => {
     setLoadingHistory(true)
@@ -162,12 +163,19 @@ export function Sidebar({
           note: string
         }
         setNotes((prev) => ({ ...prev, [data.workflow_id]: data.note }))
-        setNoteFlashId(data.workflow_id)
-        // Clear flash id after animation completes so re-updates can re-trigger.
-        setTimeout(() => setNoteFlashId((id) => (id === data.workflow_id ? null : id)), 800)
+        // Increment flash counter for the updated workflow so NoteField re-keys
+        // and restarts the CSS animation even on rapid successive updates.
+        setNoteFlashCounters((prev) => ({
+          ...prev,
+          [data.workflow_id]: (prev[data.workflow_id] ?? 0) + 1,
+        }))
       } catch {
         // Ignore malformed events.
       }
+    }
+    es.onerror = () => {
+      // EventSource auto-reconnects after errors; no manual action needed.
+      // Errors in development (e.g. server restart) resolve on reconnect.
     }
     return () => es.close()
   }, [])
@@ -297,12 +305,21 @@ export function Sidebar({
           ? { paddingTop: 'env(safe-area-inset-top)' }
           : { width: collapsed ? 56 : width, paddingTop: 'env(safe-area-inset-top)' }}
       >
+        {/* Ambient violet glow -- gives the glass cards something to "float" against */}
+        <div
+          className="pointer-events-none absolute inset-0 z-0"
+          aria-hidden
+          style={{
+            background: "radial-gradient(ellipse 80% 60% at 50% 110%, rgba(139,92,246,0.10) 0%, transparent 70%)",
+          }}
+        />
+
         {/* Logo row - clickable to go home */}
         <button
           type="button"
           onClick={() => { onGoHome?.(); if (isMobile) onToggle() }}
           className={cn(
-            "flex items-center h-14 border-b border-zinc-800 shrink-0 px-3.5 gap-2 w-full text-left",
+            "relative z-10 flex items-center h-14 border-b border-zinc-800 shrink-0 px-3.5 gap-2 w-full text-left",
             "hover:bg-zinc-800/50 transition-colors cursor-pointer",
           )}
         >
@@ -322,7 +339,7 @@ export function Sidebar({
         </button>
 
         {/* New Review button */}
-        <div className={cn("px-2.5 pt-3 pb-2 shrink-0", collapsed && "px-2")}>
+        <div className={cn("relative z-10 px-2.5 pt-3 pb-2 shrink-0", collapsed && "px-2")}>
           <SidebarTooltip label="New Review" collapsed={collapsed} side="right">
             <button
               onClick={() => { onNewReview(); if (isMobile) onToggle() }}
@@ -341,7 +358,7 @@ export function Sidebar({
         </div>
 
         {/* Run list -- unified single "Runs" section */}
-        <nav className="flex-1 overflow-y-auto overflow-x-hidden px-2.5 pb-2 pt-1">
+        <nav className="flex-1 overflow-y-auto overflow-x-hidden px-2 pb-2 pt-1 relative z-10">
           <section>
             {/* Section header */}
             {!collapsed && (
@@ -369,24 +386,23 @@ export function Sidebar({
             )}
 
             {loadingHistory && history.length === 0 && !liveRun && !collapsed && (
-              <div className="space-y-1">
+              <div className="space-y-2">
                 {[1, 2, 3].map((i) => (
-                  <div key={i} className="pl-2.5 pr-2 py-2.5 rounded-r-md border-l-2 border-zinc-700">
-                    <div className="h-2.5 bg-zinc-800 rounded animate-pulse w-3/4 mb-1.5" />
-                    <div className="h-2 bg-zinc-800 rounded animate-pulse w-1/2" />
+                  <div key={i} className="sidebar-card px-3 py-3">
+                    <div className="h-2.5 bg-zinc-700/50 rounded animate-pulse w-3/4 mb-2" />
+                    <div className="h-2 bg-zinc-700/50 rounded animate-pulse w-1/2" />
                   </div>
                 ))}
               </div>
             )}
 
-            <div className="space-y-1.5">
+            <div className="space-y-2">
               {/* Live run card - first in the unified list, handles both collapsed and expanded */}
               {liveRun && (
                 <SidebarTooltip label={liveRun.topic} collapsed={collapsed} side="right">
                   <div className={cn(
-                    "rounded-r-md overflow-hidden",
-                    !collapsed && "rounded-b-none",
-                    isLiveRunSelected && "bg-zinc-800",
+                    "sidebar-card",
+                    isLiveRunSelected ? "sidebar-card-selected" : "sidebar-card-hover",
                   )}>
                     <div className="relative">
                       <button
@@ -394,11 +410,8 @@ export function Sidebar({
                         className={cn(
                           "w-full transition-colors text-left",
                           collapsed
-                            ? "flex justify-center items-center h-9 w-9 mx-auto rounded-lg"
+                            ? "flex justify-center items-center h-9 w-9 mx-auto rounded-xl"
                             : "pl-2.5 pr-2 py-2.5",
-                          isLiveRunSelected
-                            ? "bg-zinc-800"
-                            : "hover:bg-zinc-800/60",
                         )}
                       >
                         {collapsed ? (
@@ -455,7 +468,7 @@ export function Sidebar({
                           }}
                           aria-label="Stop run"
                           title="Stop run"
-                          className="absolute top-1.5 right-1.5 flex items-center justify-center h-5 w-5 rounded bg-red-600 hover:bg-red-500 text-white transition-colors"
+                          className="absolute top-0 right-0 flex items-center justify-center h-8 w-8 rounded-bl-md bg-red-600 hover:bg-red-500 text-white transition-colors"
                         >
                           <Square className="h-2.5 w-2.5 fill-white" />
                         </button>
@@ -467,7 +480,7 @@ export function Sidebar({
                           aria-label="Delete run"
                           title="Delete run"
                           className={cn(
-                            "absolute top-1.5 right-1.5 flex items-center justify-center h-5 w-5 rounded",
+                            "absolute top-0 right-0 flex items-center justify-center h-8 w-8 rounded-bl-md",
                             "text-zinc-500 hover:text-red-400 hover:bg-red-500/10 transition-colors",
                             deletingId === liveRun.workflowId && "opacity-50 cursor-wait",
                           )}
@@ -521,9 +534,12 @@ export function Sidebar({
                     side="right"
                   >
                     <div className={cn(
-                      "rounded-r-md overflow-hidden",
-                      !collapsed && "rounded-b-none",
-                      isSelected && "bg-zinc-800",
+                      "sidebar-card",
+                      isSelected
+                        ? "sidebar-card-selected"
+                        : canOpen
+                          ? "sidebar-card-hover"
+                          : "opacity-50",
                     )}>
                       <div className="relative">
                         <button
@@ -532,13 +548,9 @@ export function Sidebar({
                           className={cn(
                             "w-full transition-colors text-left",
                             collapsed
-                              ? "flex justify-center items-center h-9 w-9 mx-auto rounded-lg"
+                              ? "flex justify-center items-center h-9 w-9 mx-auto rounded-xl"
                               : "pl-2.5 pr-2 py-2.5",
-                            isSelected
-                              ? "bg-zinc-800"
-                              : canOpen
-                                ? "hover:bg-zinc-800/50"
-                                : "opacity-40 cursor-not-allowed",
+                            !canOpen && "cursor-not-allowed",
                           )}
                         >
                           {collapsed ? (
@@ -595,7 +607,7 @@ export function Sidebar({
 
                         {/* Action buttons: trash (all) + resume (resumable only) */}
                         {!collapsed && (
-                          <div className="absolute top-1.5 right-1.5 flex items-center gap-1">
+                          <div className="absolute top-0 right-0 flex items-center">
                             {onDelete && (
                               <button
                                 onClick={(e) => handleDeleteClick(e, entry.workflow_id)}
@@ -603,7 +615,8 @@ export function Sidebar({
                                 aria-label="Delete run"
                                 title="Delete run"
                                 className={cn(
-                                  "flex items-center justify-center h-5 w-5 rounded",
+                                  "flex items-center justify-center h-8 w-8",
+                                  isResumable ? "" : "rounded-bl-md",
                                   "text-zinc-500 hover:text-red-400 hover:bg-red-500/10 transition-colors",
                                   deletingId === entry.workflow_id && "opacity-50 cursor-wait",
                                 )}
@@ -622,7 +635,7 @@ export function Sidebar({
                                 aria-label="Resume run"
                                 title="Resume run"
                                 className={cn(
-                                  "flex items-center justify-center h-5 w-5 rounded bg-violet-600 hover:bg-violet-500 text-white",
+                                  "flex items-center justify-center h-8 w-8 rounded-bl-md bg-violet-600 hover:bg-violet-500 text-white",
                                   isResuming && "opacity-80 cursor-wait",
                                 )}
                               >
@@ -641,9 +654,10 @@ export function Sidebar({
                       )}
                       {!collapsed && (
                         <NoteField
+                          key={`note-${entry.workflow_id}`}
                           workflowId={entry.workflow_id}
                           value={notes[entry.workflow_id] ?? ""}
-                          isFlashing={noteFlashId === entry.workflow_id}
+                          flashKey={noteFlashCounters[entry.workflow_id] ?? 0}
                           onChange={(val) =>
                             setNotes((prev) => ({ ...prev, [entry.workflow_id]: val }))
                           }
@@ -677,7 +691,7 @@ export function Sidebar({
           onClick={onToggle}
           aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
           className={cn(
-            "flex items-center justify-center h-9 shrink-0 border-t border-zinc-800",
+            "relative z-10 flex items-center justify-center h-9 shrink-0 border-t border-zinc-800",
             "text-zinc-600 hover:text-zinc-300 hover:bg-zinc-800/50 transition-colors",
           )}
         >
@@ -837,8 +851,8 @@ function CardProgressBar({
 
   if (isIndeterminate) {
     return (
-      <div className="h-1 rounded-b-md overflow-hidden bg-zinc-800">
-        <div className="h-full w-1/3 rounded-full bg-violet-500/60 animate-pulse" />
+      <div className="h-0.5 overflow-hidden bg-zinc-700/40">
+        <div className="h-full w-1/3 rounded-full bg-violet-500/70 animate-pulse" />
       </div>
     )
   }
@@ -846,8 +860,8 @@ function CardProgressBar({
   return (
     <div
       className={cn(
-        "h-1 rounded-b-md overflow-hidden",
-        showFill ? "bg-zinc-800" : colorClass,
+        "h-0.5 overflow-hidden",
+        showFill ? "bg-zinc-700/40" : colorClass,
       )}
     >
       {showFill && (
@@ -916,27 +930,60 @@ function SidebarTooltip({
 function NoteField({
   workflowId,
   value,
-  isFlashing,
+  flashKey,
   onChange,
 }: {
   workflowId: string
   value: string
-  isFlashing: boolean
+  /** Incremented by the parent each time a remote SSE update arrives.
+   *  The component stays mounted (stable key); this prop drives an imperative
+   *  CSS animation retrigger on the wrapper div without touching the textarea. */
+  flashKey: number
   onChange: (val: string) => void
 }) {
   const [localValue, setLocalValue] = useState(value)
   const [saveState, setSaveState] = useState<"idle" | "saving" | "saved">("idle")
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const savedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-
-  // Sync incoming value from parent (SSE remote update) without overwriting
-  // an active local edit. Only apply when the textarea is not focused.
   const textareaRef = useRef<HTMLTextAreaElement>(null)
+  const wrapperRef = useRef<HTMLDivElement>(null)
+
+  // Auto-grow helper: called both on user input and on programmatic value changes.
+  function recalcHeight() {
+    const el = textareaRef.current
+    if (!el) return
+    el.style.height = "auto"
+    // Allow up to 6 lines (~144px at 1.4 line-height with 11px font).
+    el.style.height = `${Math.min(el.scrollHeight, 144)}px`
+  }
+
+  // Sync incoming value from server (SSE or history load) only when the
+  // textarea is NOT focused -- never overwrite an in-progress local edit.
   useEffect(() => {
     if (document.activeElement !== textareaRef.current) {
       setLocalValue(value)
     }
   }, [value])
+
+  // Recalculate height whenever localValue changes (covers programmatic updates).
+  useEffect(() => {
+    recalcHeight()
+  }, [localValue])
+
+  // Retrigger the amber flash animation imperatively on the wrapper div.
+  // This avoids remounting the component (which would lose focus) while still
+  // restarting the CSS animation for each incoming remote update.
+  // Pattern: remove class -> force reflow -> re-add class (CSS-Tricks standard).
+  useEffect(() => {
+    if (flashKey === 0) return
+    const el = wrapperRef.current
+    if (!el) return
+    el.classList.remove("animate-note-flash")
+    void el.offsetWidth  // force reflow
+    el.classList.add("animate-note-flash")
+    const t = setTimeout(() => el.classList.remove("animate-note-flash"), 750)
+    return () => clearTimeout(t)
+  }, [flashKey])
 
   function scheduleSave(val: string) {
     if (debounceRef.current) clearTimeout(debounceRef.current)
@@ -964,8 +1011,32 @@ function NoteField({
     scheduleSave(val)
   }
 
+  function handleKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
+    // Stop card click/select from bubbling up.
+    e.stopPropagation()
+    // Enter alone = save + blur (Slack-style). Shift+Enter = newline (default).
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault()
+      if (debounceRef.current) {
+        clearTimeout(debounceRef.current)
+        debounceRef.current = null
+      }
+      void persistNote(localValue)
+      textareaRef.current?.blur()
+    }
+    // Escape = discard pending and blur.
+    if (e.key === "Escape") {
+      e.preventDefault()
+      if (debounceRef.current) {
+        clearTimeout(debounceRef.current)
+        debounceRef.current = null
+      }
+      textareaRef.current?.blur()
+    }
+  }
+
   function handleBlur() {
-    // Flush any pending debounce immediately on blur.
+    // Flush any pending debounce immediately on blur so edits are never lost.
     if (debounceRef.current) {
       clearTimeout(debounceRef.current)
       debounceRef.current = null
@@ -973,18 +1044,11 @@ function NoteField({
     }
   }
 
-  // Stop card click from firing when the user interacts with the note field.
-  function stopPropagation(e: React.MouseEvent | React.KeyboardEvent) {
-    e.stopPropagation()
-  }
-
   return (
     <div
-      className={cn(
-        "mx-2 mb-1.5 rounded px-1.5 py-1 transition-colors",
-        isFlashing && "animate-note-flash",
-      )}
-      onClick={stopPropagation}
+      ref={wrapperRef}
+      className="mx-2 my-1 px-2 py-1 rounded"
+      onClick={(e) => e.stopPropagation()}
     >
       <textarea
         ref={textareaRef}
@@ -992,22 +1056,16 @@ function NoteField({
         value={localValue}
         onChange={handleChange}
         onBlur={handleBlur}
-        onClick={stopPropagation}
-        onKeyDown={stopPropagation}
+        onKeyDown={handleKeyDown}
+        onClick={(e) => e.stopPropagation()}
         placeholder="Add a note..."
         className={cn(
-          "w-full bg-transparent resize-none text-[11px] leading-snug",
-          "text-amber-400 placeholder-zinc-600",
+          "w-full bg-transparent resize-none text-[11px] leading-relaxed",
+          "text-amber-300/90 placeholder-zinc-600",
           "border-none outline-none focus:outline-none",
-          "scrollbar-none",
+          "scrollbar-none block",
         )}
-        style={{ minHeight: "1.3rem", maxHeight: "4rem", overflowY: "auto" }}
-        onInput={(e) => {
-          // Auto-grow the textarea up to maxHeight.
-          const el = e.currentTarget
-          el.style.height = "auto"
-          el.style.height = `${Math.min(el.scrollHeight, 64)}px`
-        }}
+        style={{ minHeight: "1.4rem", overflowY: "hidden" }}
       />
       {saveState !== "idle" && (
         <span className="text-[10px] text-zinc-600 tabular-nums">

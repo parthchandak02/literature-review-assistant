@@ -325,7 +325,7 @@ def _dedup_citation_rows_by_doi(rows: list[tuple]) -> list[tuple]:
     seen_dois: set[str] = set()
     deduped: list[tuple] = []
     for row in rows:
-        # row layout: (cid, citekey, doi, title, authors_json, year, journal, bibtex)
+        # row layout: (cid, citekey, doi, title, authors_json, year, journal, bibtex, url)
         raw_doi = row[2] if len(row) > 2 else None
         norm = _normalize_doi(raw_doi) if raw_doi else ""
         if norm and norm in seen_dois:
@@ -1128,7 +1128,7 @@ def build_markdown_references_section(
 
     if numbered:
         for idx, row in enumerate(citation_rows, start=1):
-            _cid, citekey, doi, title, authors_json, year, journal, _bibtex = row
+            _cid, citekey, doi, title, authors_json, year, journal, _bibtex, _url = row
             authors = _fmt_authors(authors_json)
             year_str = str(year) if year else "n.d."
             if authors == "Unknown" and not doi and not year:
@@ -1155,7 +1155,7 @@ def build_markdown_references_section(
             row = citekey_map.get(key)
             if not row:
                 continue
-            _cid, citekey, doi, title, authors_json, year, journal, _bibtex = row
+            _cid, citekey, doi, title, authors_json, year, journal, _bibtex, _url = row
             authors = _fmt_authors(authors_json)
             year_str = str(year) if year else "n.d."
             if authors == "Unknown" and not doi and not year:

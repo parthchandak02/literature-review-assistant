@@ -118,7 +118,8 @@ export function Pagination({ page, pageSize, total, onPrev, onNext }: Pagination
           variant="outline"
           onClick={onPrev}
           disabled={!hasPrev}
-          className="h-7 w-7 p-0 border-zinc-800"
+          className="h-9 w-9 p-0 border-zinc-800"
+          aria-label="Previous page"
         >
           <ChevronLeft className="h-3.5 w-3.5" />
         </Button>
@@ -127,7 +128,8 @@ export function Pagination({ page, pageSize, total, onPrev, onNext }: Pagination
           variant="outline"
           onClick={onNext}
           disabled={!hasNext}
-          className="h-7 w-7 p-0 border-zinc-800"
+          className="h-9 w-9 p-0 border-zinc-800"
+          aria-label="Next page"
         >
           <ChevronRight className="h-3.5 w-3.5" />
         </Button>

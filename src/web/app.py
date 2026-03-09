@@ -40,6 +40,7 @@ from pydantic import BaseModel
 from sse_starlette.sse import EventSourceResponse
 
 from src.config.loader import load_configs as _load_configs
+from src.db.workflow_registry import _open_registry as _open_registry_db
 from src.db.workflow_registry import update_heartbeat as _update_registry_heartbeat
 from src.db.workflow_registry import update_notes as _update_registry_notes
 from src.db.workflow_registry import update_status as _update_registry_status
@@ -120,7 +121,7 @@ async def _refresh_allowed_roots() -> None:
     registry = pathlib.Path("runs") / "workflows_registry.db"
     if registry.exists():
         try:
-            async with aiosqlite.connect(str(registry)) as db:
+            async with _open_registry_db(str(registry)) as db:
                 async with db.execute("SELECT db_path FROM workflows_registry") as cur:
                     rows = await cur.fetchall()
             for (db_path,) in rows:
@@ -151,7 +152,7 @@ async def lifespan(_app: FastAPI) -> AsyncGenerator[None, None]:
     try:
         _registry_path = pathlib.Path("runs") / "workflows_registry.db"
         if _registry_path.exists():
-            async with aiosqlite.connect(str(_registry_path)) as _reg_db:
+            async with _open_registry_db(str(_registry_path)) as _reg_db:
                 await _reg_db.execute(
                     "UPDATE workflows_registry SET status='interrupted', updated_at=datetime('now')"
                     " WHERE status='running'"
@@ -295,7 +296,7 @@ async def _resolve_db_path(run_root: str, workflow_id: str) -> str | None:
     if not registry.exists():
         return None
     try:
-        async with aiosqlite.connect(str(registry)) as db:
+        async with _open_registry_db(str(registry)) as db:
             async with db.execute(
                 "SELECT db_path FROM workflows_registry WHERE workflow_id = ?",
                 (workflow_id,),
@@ -946,7 +947,7 @@ async def list_history(run_root: str = "runs") -> list[HistoryEntry]:
     if not registry.exists():
         return []
     try:
-        async with aiosqlite.connect(str(registry)) as db:
+        async with _open_registry_db(str(registry)) as db:
             db.row_factory = aiosqlite.Row
             async with db.execute(
                 """SELECT workflow_id, topic, status, db_path,
@@ -1079,7 +1080,7 @@ async def get_run_config(workflow_id: str, run_root: str = "runs") -> dict[str, 
     db_path: str | None = None
     if registry.exists():
         try:
-            async with aiosqlite.connect(str(registry)) as db:
+            async with _open_registry_db(str(registry)) as db:
                 db.row_factory = aiosqlite.Row
                 async with db.execute(
                     "SELECT db_path FROM workflows_registry WHERE workflow_id = ?",
@@ -1386,7 +1387,7 @@ async def delete_run(workflow_id: str, run_root: str = "runs") -> dict[str, bool
 
     # Delete from registry first so the run disappears from history immediately
     try:
-        async with aiosqlite.connect(str(registry)) as db:
+        async with _open_registry_db(str(registry)) as db:
             await db.execute(
                 "DELETE FROM workflows_registry WHERE workflow_id = ?",
                 (workflow_id,),
