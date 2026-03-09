@@ -2978,9 +2978,7 @@ class WritingNode(BaseNode[ReviewState]):
                 _cov_repo = CitationRepository(_cov_db)
                 _included_keys = set(await _cov_repo.get_included_citekeys())
             if _included_keys:
-                _cited_in_body = set(
-                    re.findall(r"\[([A-Za-z][A-Za-z0-9_\-']+\d{4}[a-z]?)\]", body)
-                )
+                _cited_in_body = set(re.findall(r"\[([A-Za-z][A-Za-z0-9_\-']+\d{4}[a-z]?)\]", body))
                 _uncited = sorted(_included_keys - _cited_in_body)
                 if _uncited:
                     logger.warning(

@@ -9,8 +9,6 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-import pytest
-
 # Make the scripts directory importable
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 
@@ -20,7 +18,6 @@ from inject_missing_citations import (
     _find_uncited_included_keys,
     _patch_results_draft,
 )
-
 
 # ---------------------------------------------------------------------------
 # _find_uncited_included_keys
@@ -130,10 +127,7 @@ def test_build_coverage_paragraph_large_group_chunks() -> None:
 
 def test_patch_inserts_before_rob_heading() -> None:
     """Patch is injected just before ### Risk of Bias."""
-    draft = (
-        "### Study Characteristics\n\nSome studies [Smith2023].\n\n"
-        "### Risk of Bias Assessment\n\nLow bias."
-    )
+    draft = "### Study Characteristics\n\nSome studies [Smith2023].\n\n### Risk of Bias Assessment\n\nLow bias."
     para = "Additional studies [Jones2024]."
     patched = _patch_results_draft(draft, para)
     rob_idx = patched.index("### Risk of Bias")

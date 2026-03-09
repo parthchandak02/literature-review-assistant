@@ -239,7 +239,7 @@ _CITATION_MATCH_SYSTEM = (
     "You are a bibliography matching assistant for a systematic literature review.\n"
     "Your task: match each numbered reference entry to the correct citekey from the provided database.\n\n"
     "RESPONSE FORMAT: Return ONLY a valid JSON object where keys are reference numbers (as strings)\n"
-    "and values are exact citekeys from the database. Example: {\"3\": \"Brown2021\", \"7\": \"ClinTrial2019\"}\n\n"
+    'and values are exact citekeys from the database. Example: {"3": "Brown2021", "7": "ClinTrial2019"}\n\n'
     "RULES:\n"
     "- Match only when confident (>=85% certainty based on author, year, and title similarity).\n"
     "- Omit entries where you cannot find a confident match -- do NOT guess.\n"

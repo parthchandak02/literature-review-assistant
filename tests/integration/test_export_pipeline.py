@@ -124,7 +124,17 @@ def test_assemble_manuscript_produces_document(tmp_path: Path) -> None:
 
     # citation_rows: (citation_id, citekey, doi, title, authors_json, year, journal, bibtex, url)
     citation_rows = [
-        ("cid-1", "Smith2023", "10.1000/s", "Intervention efficacy study", '["Smith, J."]', "2023", "J Health Res", "", None),
+        (
+            "cid-1",
+            "Smith2023",
+            "10.1000/s",
+            "Intervention efficacy study",
+            '["Smith, J."]',
+            "2023",
+            "J Health Res",
+            "",
+            None,
+        ),
         ("cid-2", "Jones2022", "10.1000/j", "Systematic review methods", '["Jones, A."]', "2022", "J Health", "", None),
         ("cid-3", "Brown2021", "10.1000/b", "Outcome analysis study", '["Brown, B."]', "2021", "J Qual", "", None),
     ]
@@ -177,7 +187,17 @@ def test_build_references_section_formats_entries() -> None:
             "",
             None,
         ),
-        ("cid-2", "Jones2022", "10.1000/j", "Outcome measurement review", '["Jones, B."]', "2022", "Health Informatics", "", None),
+        (
+            "cid-2",
+            "Jones2022",
+            "10.1000/j",
+            "Outcome measurement review",
+            '["Jones, B."]',
+            "2022",
+            "Health Informatics",
+            "",
+            None,
+        ),
     ]
     text_with_citekeys = "Claim one [Smith2023]. Claim two [Jones2022]."
     section = build_markdown_references_section(text_with_citekeys, citation_rows)
@@ -197,7 +217,9 @@ def test_build_references_section_formats_entries() -> None:
 
 def test_search_appendix_appended_when_file_present(tmp_path: Path) -> None:
     appendix_path = tmp_path / "search_strategies.md"
-    appendix_path.write_text("## Appendix B: Search Strategies\n\nPubMed query: intervention[tiab] AND outcome[tiab]", encoding="utf-8")
+    appendix_path.write_text(
+        "## Appendix B: Search Strategies\n\nPubMed query: intervention[tiab] AND outcome[tiab]", encoding="utf-8"
+    )
 
     body = "## Introduction\n\nSome text.\n"
     result = assemble_submission_manuscript(
@@ -247,12 +269,22 @@ def test_prisma_counts_fields_are_correct() -> None:
 def test_build_number_to_citekey_doi_match() -> None:
     """Standard case: DOI present -> mapped correctly."""
     citations = [
-        ("cid-1", "Smith2023", "10.1000/s", "Intervention efficacy study", '["Smith, J."]', 2023, "J Health Res", "", None),
+        (
+            "cid-1",
+            "Smith2023",
+            "10.1000/s",
+            "Intervention efficacy study",
+            '["Smith, J."]',
+            2023,
+            "J Health Res",
+            "",
+            None,
+        ),
     ]
     md = (
         "## Introduction\n\nSee [1].\n\n"
         "## References\n\n"
-        "[1] Smith, J., \"Intervention efficacy study,\" J Health Res, 2023. doi: 10.1000/s\n"
+        '[1] Smith, J., "Intervention efficacy study," J Health Res, 2023. doi: 10.1000/s\n'
     )
     num_to_ck = _build_number_to_citekey(md, citations)
     assert num_to_ck.get("1") == "Smith2023"
@@ -266,12 +298,22 @@ def test_build_number_to_citekey_doi_match() -> None:
 def test_build_number_to_citekey_url_fallback() -> None:
     """URL-only paper (no DOI) is still mapped via the URL fallback."""
     citations = [
-        ("cid-2", "ClinTrial2022", None, "Clinical Trial", '["Anon"]', 2022, None, "", "https://clinicaltrials.gov/ct2/show/NCT123"),
+        (
+            "cid-2",
+            "ClinTrial2022",
+            None,
+            "Clinical Trial",
+            '["Anon"]',
+            2022,
+            None,
+            "",
+            "https://clinicaltrials.gov/ct2/show/NCT123",
+        ),
     ]
     md = (
         "## Introduction\n\nSee [1].\n\n"
         "## References\n\n"
-        "[1] Anon, \"Clinical Trial,\" 2022. https://clinicaltrials.gov/ct2/show/NCT123\n"
+        '[1] Anon, "Clinical Trial," 2022. https://clinicaltrials.gov/ct2/show/NCT123\n'
     )
     num_to_ck = _build_number_to_citekey(md, citations)
     assert num_to_ck.get("1") == "ClinTrial2022"
@@ -287,11 +329,7 @@ def test_build_number_to_citekey_title_fallback() -> None:
     citations = [
         ("cid-3", "Grey2021", None, "Grey literature study on outcomes", '["Grey, A."]', 2021, None, "", None),
     ]
-    md = (
-        "## Introduction\n\nSee [1].\n\n"
-        "## References\n\n"
-        "[1] Grey, A., \"Grey literature study on outcomes,\" 2021.\n"
-    )
+    md = '## Introduction\n\nSee [1].\n\n## References\n\n[1] Grey, A., "Grey literature study on outcomes," 2021.\n'
     num_to_ck = _build_number_to_citekey(md, citations)
     assert num_to_ck.get("1") == "Grey2021"
 
@@ -334,12 +372,19 @@ def test_convert_to_numbered_semicolon_separator() -> None:
 
 def test_assemble_manuscript_doi_less_paper(tmp_path: Path) -> None:
     """A citation_rows entry with doi=None but url present appears in References."""
-    body = (
-        "## Introduction\n\nSome claim [NoDoiPaper2020].\n\n"
-        "## Results\n\nResults confirmed [NoDoiPaper2020].\n"
-    )
+    body = "## Introduction\n\nSome claim [NoDoiPaper2020].\n\n## Results\n\nResults confirmed [NoDoiPaper2020].\n"
     citation_rows = [
-        ("cid-1", "NoDoiPaper2020", None, "A Grey Literature Report", '["Author, A."]', 2020, None, "", "https://example.org/report"),
+        (
+            "cid-1",
+            "NoDoiPaper2020",
+            None,
+            "A Grey Literature Report",
+            '["Author, A."]',
+            2020,
+            None,
+            "",
+            "https://example.org/report",
+        ),
     ]
     result = assemble_submission_manuscript(
         body=body,

@@ -2,15 +2,12 @@
 
 from __future__ import annotations
 
-import pytest
-
 from src.writing.citation_grounding import (
     _fuzzy_match_citekey,
     extract_used_citekeys,
     repair_hallucinated_citekeys,
     verify_citation_grounding,
 )
-
 
 # ---------------------------------------------------------------------------
 # extract_used_citekeys

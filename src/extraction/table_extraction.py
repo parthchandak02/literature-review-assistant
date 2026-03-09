@@ -1524,7 +1524,7 @@ You are a systematic review data extractor specializing in extracting quantitati
 
 Examine ALL tables in this document and extract structured outcome data.
 For each table row that reports a quantitative result, output one JSON object with:
-  - name: outcome measure name (exact from paper, e.g. "HbA1c reduction", "30-day mortality")
+  - name: outcome measure name (exact from paper, e.g. "anxiety score reduction", "quality of life improvement")
   - description: brief description of the outcome
   - effect_size: the reported effect (e.g. "SMD=0.45", "OR=2.1 (95% CI 1.3-3.4)", "MD=-0.8")
   - se: standard error if reported (numeric string, e.g. "0.12")

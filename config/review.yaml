@@ -1,4 +1,11 @@
-research_question: "What is the educational efficacy, user experience, and implementation impact of generative conversational AI tutoring systems on health science students within clinical and didactic learning environments?"
+# ============================================================
+# review.yaml -- Per-review configuration template
+# Replace ALL placeholder values below with your review topic.
+# This file is the single source of truth for your research
+# question, PICO, keywords, and search strategy.
+# ============================================================
+
+research_question: "What is the effect of [INTERVENTION] on [OUTCOME] in [POPULATION]?"
 review_type: "systematic"
 
 # Living review settings (optional)
@@ -8,70 +15,40 @@ living_review: false
 last_search_date: null
 
 pico:
-  population: "Health science students including medical, nursing, pharmacy, allied health, dental, and public health trainees."
-  intervention: "Conversational AI tutors, Large Language Models (LLMs), and generative AI-driven pedagogical agents."
-  comparison: "Traditional educational methods, non-AI-based virtual patients, static learning materials, or pre-implementation baselines."
-  outcome: "Educational efficacy (test scores, diagnostic accuracy), user experience (satisfaction, trust, empathy), and implementation metrics (hallucination rates, latency, workflow integration)."
+  population: "Describe the target population (e.g., adults with condition X, students in setting Y)."
+  intervention: "Describe the intervention or exposure (e.g., technology Z, treatment A)."
+  comparison: "Describe the comparator (e.g., standard care, placebo, pre-intervention baseline)."
+  outcome: "Describe the primary and secondary outcomes (e.g., clinical measure, quality of life, cost)."
 
 keywords:
-  - "conversational AI"
-  - "generative AI"
-  - "LLM"
-  - "chatbot"
-  - "virtual patient"
-  - "pedagogical agent"
-  - "ChatGPT"
-  - "Claude"
-  - "Gemini"
-  - "AMIE"
-  - "tutor"
-  - "tutoring"
-  - "didactic"
-  - "clinical"
-  - "OSCE"
-  - "hallucination"
-  - "diagnostic"
-  - "reasoning"
-  - "medical education"
-  - "nursing education"
-  - "pharmacy education"
-  - "health science"
-  - "conversational"
-  - "generative"
-  - "virtual"
-  - "agent"
-  - "education"
-  - "nursing"
-  - "pharmacy"
-  - "science"
+  - "keyword one"
+  - "keyword two"
+  - "keyword three"
+  - "synonym or related term"
+  - "another keyword"
 
-domain: "Health professions education and medical training technology."
-scope: "This review covers the application of generative conversational AI systems in the training of health science students. It examines both didactic knowledge acquisition and clinical reasoning practice in simulated environments. The scope includes educational outcomes, user-perceived experience, and technical implementation challenges such as hallucination and workflow integration."
+domain: "Briefly describe the subject domain (e.g., public health, engineering, education)."
+scope: "Describe the scope of this review in 2-3 sentences: what is included, what is excluded, and why."
 
 inclusion_criteria:
-  - "Studies must evaluate a generative conversational AI system used for educational purposes."
-  - "The target population must be students enrolled in health science degree programs."
-  - "The study must report quantitative or qualitative data on educational efficacy, user experience, or implementation impact."
-  - "Peer-reviewed journal articles, conference proceedings, and preprints are eligible for inclusion."
+  - "Studies must evaluate [INTERVENTION] in [POPULATION]."
+  - "Studies must report [OUTCOME MEASURE]."
+  - "Peer-reviewed journal articles and conference proceedings are eligible."
   - "Studies must be published in the English language."
-  - "Research must be conducted in either clinical simulation or didactic learning settings."
 
 exclusion_criteria:
-  - "Studies focusing on rule-based chatbots or non-generative decision-tree scripts are excluded."
-  - "Research involving static virtual patient software without conversational AI capabilities is excluded."
-  - "Papers evaluating AI tools used solely for administrative tasks like scheduling or billing are excluded."
-  - "Studies focusing on non-conversational clinical decision support systems (CDSS) are excluded."
-  - "Editorials, opinion pieces, and non-empirical literature reviews are excluded."
-  - "Studies where the AI intervention is not specifically applied to health science student training are excluded."
+  - "Studies that do not evaluate [INTERVENTION] are excluded."
+  - "Editorials, opinion pieces, and non-empirical literature are excluded."
+  - "Studies not reporting [OUTCOME MEASURE] are excluded."
 
 date_range_start: 2000
 date_range_end: 2026
 
 target_databases:
-  - scopus
   - openalex
   - pubmed
   - semantic_scholar
+  - scopus
   - ieee_xplore
   - clinicaltrials_gov
 
@@ -97,11 +74,12 @@ funding:
 conflicts_of_interest: "The authors declare no conflicts of interest."
 author_name: ""  # Fill in: full name of the corresponding/first author (used in CRediT and LaTeX \author{})
 
-# Optional: override auto-generated queries per database. Omit a database to use default.
-search_overrides:
-  pubmed: "(Artificial Intelligence[MeSH Terms] OR \"conversational AI\"[Title/Abstract] OR \"generative AI\"[Title/Abstract] OR \"large language model\"[Title/Abstract]) AND (student[Title/Abstract] OR education[Title/Abstract] OR clinical[Title/Abstract] OR diagnostic[Title/Abstract] OR tutoring[Title/Abstract])"
-  scopus: "TITLE-ABS-KEY(\"conversational AI\" OR \"generative AI\" OR \"large language model\" OR \"chatbot\" OR \"virtual patient\") AND TITLE-ABS-KEY(\"medical education\" OR \"nursing education\" OR \"clinical reasoning\" OR \"OSCE\" OR \"tutoring\") AND PUBYEAR > 2019 AND PUBYEAR < 2027"
-  ieee_xplore: "(\"conversational AI\" OR \"generative AI\" OR \"large language model\" OR \"intelligent tutoring system\") AND (\"medical education\" OR \"clinical training\" OR \"health science\")"
-  semantic_scholar: "generative AI medical education student learning outcomes implementation"
-  openalex: "conversational AI health science education student learning outcomes effectiveness"
-  clinicaltrials_gov: "\"conversational AI\" OR \"generative AI\" OR \"large language model\" OR \"chatbot\" OR \"virtual patient\" OR \"medical education\" OR \"clinical training\""
+# Optional: override auto-generated queries per database.
+# Omit a database to use the auto-generated boolean query.
+# search_overrides:
+#   pubmed: "(MeSH Term[MeSH Terms] OR \"keyword\"[Title/Abstract]) AND (\"intervention\"[Title/Abstract])"
+#   scopus: "TITLE-ABS-KEY(\"keyword\" OR \"synonym\") AND TITLE-ABS-KEY(\"outcome\")"
+#   ieee_xplore: "(\"keyword\") AND (\"application domain\")"
+#   semantic_scholar: "keyword intervention outcome population"
+#   openalex: "keyword intervention outcome effectiveness"
+#   clinicaltrials_gov: "\"keyword\" OR \"intervention\" OR \"outcome\""

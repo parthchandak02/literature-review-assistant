@@ -1503,7 +1503,7 @@ def _make_download_slug(workflow_id: str, topic: str, max_words: int = 5) -> str
     lowercases them, strips non-alphanumeric characters, and joins with
     hyphens. Falls back gracefully if topic is empty.
 
-    Example: 'wf-ba930803-robotic-medication-dispensing-accuracy-patient'
+    Example: 'wf-ba930803-mindfulness-anxiety-adults-systematic-review'
     """
     import re
 

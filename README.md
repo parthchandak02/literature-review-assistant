@@ -408,7 +408,7 @@ cd frontend && pnpm fix && pnpm typecheck
 
 **"No papers found":** Check that your keywords are broad enough and that `OPENALEX_API_KEY` is set. Try lowering `keyword_filter_min_matches` to `0` in `config/settings.yaml` to disable pre-filtering.
 
-**PubMed returns far fewer papers than a previous run:** Check `doc_search_strategies_appendix.md` in the run directory to see the exact query used. Exact-phrase requirements in the `search_overrides.pubmed` AND group kill recall -- `"outpatient pharmacy"[Title/Abstract]` (2-word phrase) returns ~6 records while `"outpatient"[Title/Abstract]` (single word) returns ~300+ for the same topic. Use single-word setting terms in the second AND group of the PubMed override. Also avoid `"Medication Errors"[MeSH Terms]` and `"Pharmacy Service, Hospital"[MeSH Terms]` in the AND group -- many pharmacy automation papers are not indexed under these MeSH terms.
+**PubMed returns far fewer papers than a previous run:** Check `doc_search_strategies_appendix.md` in the run directory to see the exact query used. Exact-phrase requirements in the `search_overrides.pubmed` AND group kill recall -- `"mindfulness-based stress reduction"[Title/Abstract]` (multi-word phrase) may return far fewer records than `"mindfulness"[Title/Abstract]` (single word). Use single-word or short root-form terms in the second AND group of the PubMed override. Also avoid MeSH terms that are too narrow or too broad for your specific topic -- verify coverage by checking PubMed directly.
 
 ---
 

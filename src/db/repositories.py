@@ -1140,8 +1140,7 @@ class CitationRepository:
             )
             # Background SR keys follow the pattern citekey LIKE '%SR' (e.g. Jones2021SR).
             await self.db.execute(
-                "UPDATE citations SET source_type='background_sr'"
-                " WHERE citekey LIKE '%SR' AND source_type='included'"
+                "UPDATE citations SET source_type='background_sr' WHERE citekey LIKE '%SR' AND source_type='included'"
             )
             await self.db.commit()
         except Exception:

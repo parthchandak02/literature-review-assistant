@@ -101,8 +101,8 @@ class OpenAlexConnector:
         # - primary_location.source.type:journal  -- venue must be a journal (excludes repos/proceedings)
         # - is_retracted:false      -- exclude retracted papers
         # NOTE: is_core:true was deliberately removed (March 2026). The CWTS Core list
-        # (Scopus/WoS equivalent) excludes most pharmacy-robotics journals, capping OpenAlex
-        # results at exactly 6 for niche topics regardless of query. Broad-first search with
+        # (Scopus/WoS equivalent) excludes many specialist journals, capping OpenAlex
+        # results for niche topics regardless of query. Broad-first search with
         # dual-LLM screening is the correct approach -- the screeners apply inclusion criteria
         # and filter low-quality papers. See gotchas-agent.mdc for full explanation.
         filter_parts: list[str] = [

@@ -37,9 +37,7 @@ console = Console()
 _BASE_URL = "https://api.openalex.org/works"
 _SELECT = "id,display_name,doi,publication_year,primary_location,cited_by_count,is_retracted"
 
-_DEFAULT_QUERY = (
-    "systematic review intervention effectiveness outcome population"
-)
+_DEFAULT_QUERY = "systematic review intervention effectiveness outcome population"
 
 
 async def _fetch(session: aiohttp.ClientSession, params: dict) -> dict:
