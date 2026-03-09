@@ -228,10 +228,11 @@ def test_trim_abstract_trims_over_limit() -> None:
     result = _trim_abstract_to_limit(abstract, limit=230)
     # Keywords must be preserved
     assert "Keywords:" in result or "keywords:" in result.lower()
-    # Body word count (excluding Keywords) should now be <= 240
+    # Body word count (excluding Keywords, with bold labels counted as tokens)
+    # must be <= 230 per IEEE/PRISMA abstract limit
     kw_split = result.rfind("**Keywords:")
     body_after = result[:kw_split].strip() if kw_split > 0 else result
-    assert len(body_after.split()) <= 240, f"Still too long: {len(body_after.split())} words"
+    assert len(body_after.split()) <= 230, f"Still too long: {len(body_after.split())} words"
 
 
 def test_trim_abstract_no_bold_fields() -> None:

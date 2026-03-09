@@ -2989,10 +2989,17 @@ class WritingNode(BaseNode[ReviewState]):
                 # Abstract post-trim: enforce word limit after LLM generation.
                 # The LLM is instructed not to exceed 230 words but routinely writes
                 # 250-280. Apply a deterministic trim as a hard backstop.
+                #
+                # Root cause of off-by-one (~250 vs 230): (1) settings.ieee_export
+                # max_abstract_words is 250, so we previously trimmed to 250; (2)
+                # assemble_submission_manuscript expands words (e.g. SR citekey
+                # [Author2021SR] -> "(Author, 2021)", sanitize disclosure injection).
+                # Use a conservative target: trim to ABSTRACT_WORD_LIMIT - 20 to leave
+                # headroom, with floor at 210.
                 _abs_idx = SECTIONS.index("abstract") if "abstract" in SECTIONS else -1
                 if _abs_idx >= 0 and sections_written[_abs_idx]:
                     from src.writing.prompts.sections import ABSTRACT_WORD_LIMIT
-                    _abs_limit = max(ABSTRACT_WORD_LIMIT, 230)
+                    _abs_limit = max(ABSTRACT_WORD_LIMIT - 20, 210)
                     _trimmed_abs = _trim_abstract_to_limit(sections_written[_abs_idx], limit=_abs_limit)
                     if _trimmed_abs != sections_written[_abs_idx]:
                         logger.info(

@@ -178,24 +178,66 @@ async def render_evidence_network(
     # ------------------------------------------------------------------
     # Layout
     # ------------------------------------------------------------------
+    import math
+
     n_nodes = G.number_of_nodes()
-    if n_nodes <= 30:
+    components = list(nx.connected_components(G))
+    n_components = len(components)
+
+    def _kamada_kawai_for_subgraph(sub: nx.Graph, seed_offset: int = 0) -> dict:
+        """Kamada-Kawai with weight-derived distance map; falls back to spring."""
+        sub_n = sub.number_of_nodes()
         try:
             dist_map: dict[str, dict[str, float]] = {}
-            for u in G.nodes():
+            for u in sub.nodes():
                 dist_map[u] = {}
-                for v in G.nodes():
+                for v in sub.nodes():
                     if u == v:
                         dist_map[u][v] = 0.0
-                    elif G.has_edge(u, v):
-                        dist_map[u][v] = max(0.05, 1.0 - G[u][v]["weight"])
+                    elif sub.has_edge(u, v):
+                        dist_map[u][v] = max(0.05, 1.0 - sub[u][v]["weight"])
                     else:
                         dist_map[u][v] = 1.5
-            pos = nx.kamada_kawai_layout(G, dist=dist_map)
+            return nx.kamada_kawai_layout(sub, dist=dist_map)
         except Exception:
-            pos = nx.spring_layout(G, seed=42, k=2.0 / max(1, n_nodes**0.5))
+            return nx.spring_layout(
+                sub,
+                seed=42 + seed_offset,
+                k=1.5 / max(1, sub_n**0.5),
+                iterations=100,
+                weight="weight",
+            )
+
+    if n_components == 1:
+        # Single connected component -- use existing logic unchanged.
+        if n_nodes <= 30:
+            pos = _kamada_kawai_for_subgraph(G)
+        else:
+            pos = nx.spring_layout(G, seed=42, k=2.0 / max(1, n_nodes**0.5), weight="weight")
     else:
-        pos = nx.spring_layout(G, seed=42, k=2.0 / max(1, n_nodes**0.5), weight="weight")
+        # Multiple disconnected components: layout each separately, then tile
+        # them in a compact grid so the figure matches the frontend appearance
+        # (where a center-gravity term keeps all components near each other).
+        pos = {}
+        grid_cols = math.ceil(math.sqrt(n_components))
+        cell_size = 2.4  # spacing between component bounding-box origins
+        # Sort largest component first so the biggest cluster gets the top-left cell.
+        sorted_comps = sorted(components, key=len, reverse=True)
+        for idx, comp in enumerate(sorted_comps):
+            col = idx % grid_cols
+            row = idx // grid_cols
+            sub = G.subgraph(comp)
+            sub_pos = _kamada_kawai_for_subgraph(sub, seed_offset=idx)
+            xs = [p[0] for p in sub_pos.values()]
+            ys = [p[1] for p in sub_pos.values()]
+            x_range = max(max(xs) - min(xs), 0.1)
+            y_range = max(max(ys) - min(ys), 0.1)
+            for n in comp:
+                nx_, ny_ = sub_pos[n]
+                pos[n] = (
+                    (nx_ - min(xs)) / x_range * 1.6 + col * cell_size,
+                    (ny_ - min(ys)) / y_range * 1.6 + row * cell_size,
+                )
 
     # ------------------------------------------------------------------
     # Figure setup -- white background, generous size for label legibility
