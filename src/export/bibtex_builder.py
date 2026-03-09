@@ -4,25 +4,73 @@ from __future__ import annotations
 
 import json
 import re
-import unicodedata
 
 # Words that BibTeX processors treat as lowercase in titles -- do NOT wrap these.
-_LOWERCASE_TITLE_WORDS = frozenset({
-    "a", "an", "the",
-    "and", "but", "or", "nor", "for", "so", "yet",
-    "at", "by", "in", "of", "on", "to", "up", "as", "is",
-    "via", "vs", "per",
-})
+_LOWERCASE_TITLE_WORDS = frozenset(
+    {
+        "a",
+        "an",
+        "the",
+        "and",
+        "but",
+        "or",
+        "nor",
+        "for",
+        "so",
+        "yet",
+        "at",
+        "by",
+        "in",
+        "of",
+        "on",
+        "to",
+        "up",
+        "as",
+        "is",
+        "via",
+        "vs",
+        "per",
+    }
+)
 
 # Keywords that strongly suggest an institutional/organisation author name.
-_INSTITUTIONAL_KEYWORDS = frozenset({
-    "university", "institute", "college", "department", "association",
-    "society", "national", "international", "hospital", "clinic",
-    "center", "centre", "corporation", "inc", "ltd", "llc", "group",
-    "committee", "organization", "organisation", "ministry", "agency",
-    "foundation", "consortium", "network", "authority", "office",
-    "bureau", "division", "school", "faculty", "board", "council",
-})
+_INSTITUTIONAL_KEYWORDS = frozenset(
+    {
+        "university",
+        "institute",
+        "college",
+        "department",
+        "association",
+        "society",
+        "national",
+        "international",
+        "hospital",
+        "clinic",
+        "center",
+        "centre",
+        "corporation",
+        "inc",
+        "ltd",
+        "llc",
+        "group",
+        "committee",
+        "organization",
+        "organisation",
+        "ministry",
+        "agency",
+        "foundation",
+        "consortium",
+        "network",
+        "authority",
+        "office",
+        "bureau",
+        "division",
+        "school",
+        "faculty",
+        "board",
+        "council",
+    }
+)
 
 # DOI URL prefixes to strip when normalising a DOI string.
 _DOI_URL_PREFIXES = (
@@ -35,17 +83,17 @@ _DOI_URL_PREFIXES = (
 # LaTeX special characters that need escaping (order matters: backslash first).
 _LATEX_SPECIAL = [
     ("\\", "\\textbackslash{}"),
-    ("{",  "\\{"),
-    ("}",  "\\}"),
-    ("&",  "\\&"),
-    ("%",  "\\%"),
-    ("#",  "\\#"),
-    ("_",  "\\_"),
-    ("^",  "\\textasciicircum{}"),
-    ("~",  "\\textasciitilde{}"),
-    ("|",  "{\\textbar}"),
-    ("<",  "{\\textless}"),
-    (">",  "{\\textgreater}"),
+    ("{", "\\{"),
+    ("}", "\\}"),
+    ("&", "\\&"),
+    ("%", "\\%"),
+    ("#", "\\#"),
+    ("_", "\\_"),
+    ("^", "\\textasciicircum{}"),
+    ("~", "\\textasciitilde{}"),
+    ("|", "{\\textbar}"),
+    ("<", "{\\textless}"),
+    (">", "{\\textgreater}"),
 ]
 
 
@@ -83,7 +131,7 @@ def _bibtex_protect_title(title: str) -> str:
         prefix = word[: len(word) - len(stripped)]
         # Strip trailing punctuation.
         core = stripped.rstrip(")}]\"',.;:!?")
-        suffix = stripped[len(core):]
+        suffix = stripped[len(core) :]
 
         # Wrap if: first word, or core starts uppercase, or core looks like
         # an acronym (all-caps >= 2 letters), and it's not a stop word.
@@ -163,26 +211,18 @@ def _authors_to_bibtex(authors_json: str) -> str:
                     first_tok, second_tok = name_parts
                     # "LastName Initials" -> "LastName, Initials"   e.g. "Cohen J", "Page MJ"
                     if _looks_like_initials(second_tok):
-                        parts.append(
-                            f"{_escape_bibtex(first_tok)}, {_escape_bibtex(second_tok)}"
-                        )
+                        parts.append(f"{_escape_bibtex(first_tok)}, {_escape_bibtex(second_tok)}")
                     # "Initials LastName" -> "LastName, Initials"   e.g. "MJ Page"
                     elif _looks_like_initials(first_tok):
-                        parts.append(
-                            f"{_escape_bibtex(second_tok)}, {_escape_bibtex(first_tok)}"
-                        )
+                        parts.append(f"{_escape_bibtex(second_tok)}, {_escape_bibtex(first_tok)}")
                     # "FirstName LastName" -> flip   e.g. "John Smith"
                     else:
-                        parts.append(
-                            f"{_escape_bibtex(second_tok)}, {_escape_bibtex(first_tok)}"
-                        )
+                        parts.append(f"{_escape_bibtex(second_tok)}, {_escape_bibtex(first_tok)}")
                 elif len(name_parts) == 3 and _looks_like_initials(name_parts[1]):
                     # "FirstName Middle LastName" -> "LastName, FirstName Middle"
                     # e.g. "Stephanie R. Beldick" -> "Beldick, Stephanie R."
                     first, mid, last = name_parts
-                    parts.append(
-                        f"{_escape_bibtex(last)}, {_escape_bibtex(first)} {_escape_bibtex(mid)}"
-                    )
+                    parts.append(f"{_escape_bibtex(last)}, {_escape_bibtex(first)} {_escape_bibtex(mid)}")
                 elif _is_institutional_name(name_parts):
                     parts.append(_wrap_institutional(_escape_bibtex(name)))
                 else:
@@ -229,16 +269,25 @@ def _normalize_doi(doi: str) -> str:
     """Return bare DOI, stripping any leading URL prefix."""
     for prefix in _DOI_URL_PREFIXES:
         if doi.startswith(prefix):
-            return doi[len(prefix):]
+            return doi[len(prefix) :]
     return doi.lstrip("/")
 
 
 def _month_int_to_abbr(month: int | None) -> str | None:
     """Convert a 1-12 integer to the lowercase BibTeX month abbreviation."""
     _ABBRS = {
-        1: "jan", 2: "feb", 3: "mar", 4: "apr",
-        5: "may", 6: "jun", 7: "jul", 8: "aug",
-        9: "sep", 10: "oct", 11: "nov", 12: "dec",
+        1: "jan",
+        2: "feb",
+        3: "mar",
+        4: "apr",
+        5: "may",
+        6: "jun",
+        7: "jul",
+        8: "aug",
+        9: "sep",
+        10: "oct",
+        11: "nov",
+        12: "dec",
     }
     return _ABBRS.get(month) if month is not None else None
 
@@ -319,8 +368,6 @@ def build_bibtex(
     for row in citations:
         _cid, citekey, doi, title, authors_json, year, journal, bibtex = row[:8]
         url: str | None = row[8] if len(row) > 8 else None  # type: ignore[misc]
-        entry = _build_single_entry(
-            citekey, doi, title, authors_json, year, journal, bibtex, url=url
-        )
+        entry = _build_single_entry(citekey, doi, title, authors_json, year, journal, bibtex, url=url)
         entries.append(entry)
     return "\n\n".join(entries) if entries else "% No citations\n"

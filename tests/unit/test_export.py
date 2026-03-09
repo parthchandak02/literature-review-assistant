@@ -87,16 +87,14 @@ def test_escape_latex_always_ascii_output(text: str) -> None:
     """
     result = _escape_latex(text)
     non_ascii = [c for c in result if ord(c) > 126]
-    assert non_ascii == [], (
-        f"Non-ASCII chars remain in _escape_latex output: {non_ascii!r} "
-        f"(input was: {text!r})"
-    )
+    assert non_ascii == [], f"Non-ASCII chars remain in _escape_latex output: {non_ascii!r} (input was: {text!r})"
 
 
 # ---------------------------------------------------------------------------
 # Specific behavioural assertions (NOT example-based, but spec assertions):
 # these test the CONTRACT of the function, not specific Unicode codepoints.
 # ---------------------------------------------------------------------------
+
 
 @given(st.just("\u2014"))
 def test_escape_latex_emdash_uses_triple_dash(dash: str) -> None:
@@ -122,9 +120,7 @@ def test_escape_latex_smart_quotes_use_standard_ligatures() -> None:
     assert "\\textquotedblright" not in _escape_latex("\u201d")
 
 
-@given(
-    st.from_regex(r"\\(?:cite|textbf|textit|emph)\{[A-Za-z0-9_:]+\}", fullmatch=True)
-)
+@given(st.from_regex(r"\\(?:cite|textbf|textit|emph)\{[A-Za-z0-9_:]+\}", fullmatch=True))
 def test_escape_latex_preserves_latex_commands(cmd: str) -> None:
     """PROPERTY: any \\cite{...} / \\textbf{...} command must survive unchanged.
 
@@ -133,10 +129,7 @@ def test_escape_latex_preserves_latex_commands(cmd: str) -> None:
     not just the specific example we happened to encounter in real manuscripts.
     """
     result = _escape_latex(f"prefix {cmd} suffix_word")
-    assert cmd in result, (
-        f"LaTeX command {cmd!r} was corrupted by _escape_latex.\n"
-        f"Output: {result!r}"
-    )
+    assert cmd in result, f"LaTeX command {cmd!r} was corrupted by _escape_latex.\nOutput: {result!r}"
 
 
 def test_escape_latex_special_chars_are_escaped() -> None:
@@ -153,6 +146,7 @@ def test_escape_latex_special_chars_are_escaped() -> None:
 # ---------------------------------------------------------------------------
 # Table generation -- tabularx invariants
 # ---------------------------------------------------------------------------
+
 
 def test_md_table_uses_tabularx() -> None:
     """_convert_md_table_to_latex must emit tabularx, never bare tabular."""

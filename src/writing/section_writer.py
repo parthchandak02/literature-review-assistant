@@ -102,5 +102,3 @@ class SectionWriter:
             cache_write_tokens=cache_write,
         )
         return content, metadata
-
-

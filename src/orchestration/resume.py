@@ -162,9 +162,7 @@ async def load_resume_state(
                         "clearing checkpoint so WritingNode re-runs assembly.",
                         manuscript_md_path,
                     )
-                    await repo.delete_checkpoints_for_phases(
-                        workflow_id, ["phase_6_writing"]
-                    )
+                    await repo.delete_checkpoints_for_phases(workflow_id, ["phase_6_writing"])
                     next_phase = "phase_6_writing"
 
     artifacts = {

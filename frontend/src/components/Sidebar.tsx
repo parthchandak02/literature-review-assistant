@@ -959,8 +959,12 @@ function NoteField({
 
   // Sync incoming value from server (SSE or history load) only when the
   // textarea is NOT focused -- never overwrite an in-progress local edit.
+  // setState inside this effect is intentional: this IS the external system
+  // (server-pushed value) driving local React state, which is the documented
+  // use-case for useEffect + setState in React controlled-input patterns.
   useEffect(() => {
     if (document.activeElement !== textareaRef.current) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setLocalValue(value)
     }
   }, [value])

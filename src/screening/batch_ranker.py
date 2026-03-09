@@ -364,8 +364,7 @@ class BatchLLMRanker:
             self.validation_sampled_n = len(sample_papers)
             self.validation_npv = round(confirmed / len(sample_papers), 3) if sample_papers else 0.0
             logger.info(
-                "BatchLLMRanker: cross-validation on %d excluded abstracts: "
-                "%d confirmed excluded (NPV=%.1f%%)",
+                "BatchLLMRanker: cross-validation on %d excluded abstracts: %d confirmed excluded (NPV=%.1f%%)",
                 len(sample_papers),
                 confirmed,
                 self.validation_npv * 100,

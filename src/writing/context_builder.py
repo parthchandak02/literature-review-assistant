@@ -911,9 +911,7 @@ def format_grounding_block(data: WritingGroundingData) -> str:
     # Treat nan as not-computable: sklearn's cohen_kappa_score returns nan when
     # all labels are the same class (e.g. N=1 or unanimous perfect agreement),
     # and writing "Cohen's kappa = nan" in the prose is incorrect.
-    _kappa_valid = (
-        data.cohens_kappa is not None and not math.isnan(data.cohens_kappa)
-    )
+    _kappa_valid = data.cohens_kappa is not None and not math.isnan(data.cohens_kappa)
     if _kappa_valid:
         kappa_str = f"{data.cohens_kappa:.3f}"
         stage_str = f" ({data.kappa_stage} stage)" if data.kappa_stage else ""

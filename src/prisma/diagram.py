@@ -276,6 +276,12 @@ async def build_prisma_counts(
     # consistent; fall back to the DB value if they diverge (e.g. mid-run).
     if records_screened == 0 and records_after_dedup > 0:
         records_screened = records_after_dedup
+    # Safety cap: records_screened cannot exceed records_after_dedup because you
+    # cannot screen more papers than exist after deduplication. If the DB value is
+    # inflated (e.g. older runs where batch_screened_low rows were counted in
+    # ta_screened before the repository fix), cap it here to keep arithmetic valid.
+    if records_after_dedup > 0 and records_screened > records_after_dedup:
+        records_screened = records_after_dedup
 
     included_total = included_qualitative + included_quantitative
 

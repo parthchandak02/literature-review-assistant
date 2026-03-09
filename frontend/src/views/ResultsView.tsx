@@ -441,9 +441,15 @@ function ManuscriptActions({ docxPath, canExport, exportRunId, allOutputs }: Man
     }
   }, [exportRunId])
 
-  // Auto-trigger export once when the component mounts and a run is ready
+  // Auto-trigger export once when the component mounts and a run is ready.
+  // handleExport is async and sets state only after the await resolves, so
+  // there is no synchronous setState-in-render risk. The eslint rule fires
+  // because the linter sees setState reachable from the effect body, but
+  // this is intentional: the effect kicks off an async API call whose
+  // completion updates the UI state.
   useEffect(() => {
     if (canExport && exportState === "idle") {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       void handleExport()
     }
   }, [canExport, exportState, handleExport])

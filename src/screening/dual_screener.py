@@ -772,10 +772,12 @@ class DualReviewerScreener:
         """Build a single prompt that asks the LLM to screen all papers in one call."""
         from src.screening.prompts import _topic_header
 
-        role = "Reviewer A (recall-biased)" if spec.reviewer_type == ReviewerType.REVIEWER_A else "Reviewer B (precision-biased)"
-        goal = (
-            f"Screen papers for inclusion in a systematic review on: {self.review.research_question}"
+        role = (
+            "Reviewer A (recall-biased)"
+            if spec.reviewer_type == ReviewerType.REVIEWER_A
+            else "Reviewer B (precision-biased)"
         )
+        goal = f"Screen papers for inclusion in a systematic review on: {self.review.research_question}"
         backstory = f"Domain: {self.review.domain}. Favour recall when uncertain."
 
         header = _topic_header(self.review, role, goal, backstory)
@@ -783,9 +785,7 @@ class DualReviewerScreener:
         for i, paper in enumerate(papers, start=1):
             text = full_texts.get(paper.paper_id, "") if stage == "fulltext" else ""
             content = (text[:1200] if text else (paper.abstract or ""))[:600].replace("\n", " ")
-            lines.append(
-                f"[{i}] paper_id={paper.paper_id} | {paper.title} | {content}"
-            )
+            lines.append(f"[{i}] paper_id={paper.paper_id} | {paper.title} | {content}")
         return "\n".join(lines)
 
     def _parse_batch_response(
@@ -859,13 +859,11 @@ class DualReviewerScreener:
         started = time.perf_counter()
         try:
             if hasattr(self.llm_client, "complete_json_with_usage"):
-                raw, tokens_in, tokens_out, cache_write, cache_read = (
-                    await self.llm_client.complete_json_with_usage(
-                        prompt,
-                        agent_name=spec.agent_name,
-                        model=runtime.model,
-                        temperature=runtime.temperature,
-                    )
+                raw, tokens_in, tokens_out, cache_write, cache_read = await self.llm_client.complete_json_with_usage(
+                    prompt,
+                    agent_name=spec.agent_name,
+                    model=runtime.model,
+                    temperature=runtime.temperature,
                 )
             else:
                 raw = await self.llm_client.complete_json(
@@ -878,7 +876,9 @@ class DualReviewerScreener:
                 tokens_out = max(1, len(raw.split()))
                 cache_write = cache_read = 0
         except Exception as exc:
-            _log.warning("Batch reviewer call failed (%s) -- all %d papers fall back to individual calls", exc, len(papers))
+            _log.warning(
+                "Batch reviewer call failed (%s) -- all %d papers fall back to individual calls", exc, len(papers)
+            )
             return {}
         elapsed_ms = int((time.perf_counter() - started) * 1000)
         cost_usd = self.provider.estimate_cost(runtime.model, tokens_in, tokens_out, cache_write, cache_read)
@@ -898,9 +898,7 @@ class DualReviewerScreener:
             decision = parsed_map.get(paper.paper_id)
             if decision is None:
                 continue
-            await self.repository.save_screening_decision(
-                workflow_id=workflow_id, stage=stage, decision=decision
-            )
+            await self.repository.save_screening_decision(workflow_id=workflow_id, stage=stage, decision=decision)
             await self.repository.append_decision_log(
                 DecisionLogEntry(
                     decision_type="screening_reviewer_decision",
@@ -991,8 +989,11 @@ class DualReviewerScreener:
                 )
                 if self.on_screening_decision:
                     self.on_screening_decision(
-                        paper.paper_id, stage, "exclude",
-                        f"insufficient_content_heuristic|{wc}w", 0.90,
+                        paper.paper_id,
+                        stage,
+                        "exclude",
+                        f"insufficient_content_heuristic|{wc}w",
+                        0.90,
                     )
                 heuristic_decisions[paper.paper_id] = d
                 continue
@@ -1008,8 +1009,7 @@ class DualReviewerScreener:
             if self.on_status:
                 papers_done = len(heuristic_decisions) + chunk_idx * batch_size
                 self.on_status(
-                    f"Reviewer A: batch {chunk_idx + 1}/{n_chunks} "
-                    f"({papers_done}/{len(papers)} papers reviewed so far)"
+                    f"Reviewer A: batch {chunk_idx + 1}/{n_chunks} ({papers_done}/{len(papers)} papers reviewed so far)"
                 )
             batch_result = await self._batch_run_reviewer(workflow_id, chunk, stage, ft, spec_a)
             reviewer_a_map.update(batch_result)
@@ -1028,9 +1028,8 @@ class DualReviewerScreener:
         uncertain_reviewer_a: dict[str, ScreeningDecision] = {}
         for paper in llm_candidates:
             a = reviewer_a_map[paper.paper_id]
-            is_fast = (
-                (a.confidence >= include_thresh and a.decision == ScreeningDecisionType.INCLUDE)
-                or (a.confidence >= exclude_thresh and a.decision == ScreeningDecisionType.EXCLUDE)
+            is_fast = (a.confidence >= include_thresh and a.decision == ScreeningDecisionType.INCLUDE) or (
+                a.confidence >= exclude_thresh and a.decision == ScreeningDecisionType.EXCLUDE
             )
             if is_fast:
                 fast_path_decisions[paper.paper_id] = a
@@ -1047,8 +1046,7 @@ class DualReviewerScreener:
             n_b_chunks = len(b_chunks)
             if self.on_status:
                 self.on_status(
-                    f"Reviewer B: {len(uncertain_papers)} uncertain papers need cross-review "
-                    f"({n_b_chunks} batches)"
+                    f"Reviewer B: {len(uncertain_papers)} uncertain papers need cross-review ({n_b_chunks} batches)"
                 )
             for b_idx, chunk in enumerate(b_chunks):
                 if self.on_status:
@@ -1062,7 +1060,11 @@ class DualReviewerScreener:
                     if paper.paper_id not in reviewer_b_map:
                         _log.warning("Batch B missing paper %s -- falling back to individual call", paper.paper_id)
                         d = await self._run_reviewer(
-                            workflow_id, paper, stage, ft.get(paper.paper_id), spec_b,
+                            workflow_id,
+                            paper,
+                            stage,
+                            ft.get(paper.paper_id),
+                            spec_b,
                             other_reviewer_decision=uncertain_reviewer_a[paper.paper_id].decision,
                         )
                         reviewer_b_map[paper.paper_id] = d
@@ -1073,10 +1075,7 @@ class DualReviewerScreener:
         if self.on_status:
             n_fast = len(fast_path_decisions)
             n_uncertain = len(uncertain_papers)
-            self.on_status(
-                f"Adjudicating {len(papers)} papers: "
-                f"{n_fast} fast-path, {n_uncertain} needed cross-review"
-            )
+            self.on_status(f"Adjudicating {len(papers)} papers: {n_fast} fast-path, {n_uncertain} needed cross-review")
         final_decisions: list[ScreeningDecision] = []
         completed = [0]
         total = len(papers)

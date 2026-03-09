@@ -129,9 +129,7 @@ def _add_synthesis_software_disclosure(body: str) -> str:
     thematic analysis software. Appended to the first sentence of the Synthesis
     Methods subsection. Idempotent.
     """
-    disclosure = (
-        "Narrative synthesis was conducted manually without dedicated thematic analysis software."
-    )
+    disclosure = "Narrative synthesis was conducted manually without dedicated thematic analysis software."
     if disclosure in body:
         return body
     # Find the first sentence after ### Synthesis Methods heading
@@ -155,9 +153,7 @@ def _fix_figure_references_from_map(body: str, full_text_with_figures: str) -> s
     No-op when the Figures section is absent or empty (safe to call always).
     """
     # Parse the ## Figures section from the assembled manuscript
-    fig_section_match = re.search(
-        r"## Figures\n(.+?)(?:\n---|\Z)", full_text_with_figures, re.DOTALL
-    )
+    fig_section_match = re.search(r"## Figures\n(.+?)(?:\n---|\Z)", full_text_with_figures, re.DOTALL)
     if not fig_section_match:
         return body
 

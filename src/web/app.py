@@ -855,10 +855,9 @@ async def _fetch_run_stats(db_path: str) -> dict[str, Any]:
             # reads phase_done("phase_3_screening").summary.included from the SSE event stream.
             # The old query (dual_screening_results WHERE final_decision='include') over-counts because
             # it includes abstract-stage "include" decisions for papers later excluded at full-text.
-            included_from_event = (
-                await (
-                    await db.execute(
-                        """
+            included_from_event = await (
+                await db.execute(
+                    """
                         SELECT json_extract(payload, '$.summary.included')
                         FROM event_log
                         WHERE event_type = 'phase_done'
@@ -866,18 +865,16 @@ async def _fetch_run_stats(db_path: str) -> dict[str, Any]:
                         ORDER BY id DESC
                         LIMIT 1
                         """
-                    )
-                ).fetchone()
-            )
+                )
+            ).fetchone()
             if included_from_event and included_from_event[0] is not None:
                 papers_included = int(included_from_event[0])
             else:
                 # Fallback for in-progress runs: count papers included at their most advanced
                 # screening stage (fulltext takes priority over title_abstract).
-                fallback_row = (
-                    await (
-                        await db.execute(
-                            """
+                fallback_row = await (
+                    await db.execute(
+                        """
                             SELECT COUNT(DISTINCT paper_id) FROM dual_screening_results d
                             WHERE final_decision = 'include'
                               AND stage = (
@@ -887,9 +884,8 @@ async def _fetch_run_stats(db_path: str) -> dict[str, Any]:
                                 LIMIT 1
                               )
                             """
-                        )
-                    ).fetchone()
-                )
+                    )
+                ).fetchone()
                 papers_included = int(fallback_row[0]) if fallback_row else 0
 
             total_cost = (await (await db.execute("SELECT COALESCE(SUM(cost_usd), 0.0) FROM cost_records")).fetchone())[

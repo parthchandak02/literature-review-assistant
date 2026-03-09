@@ -368,11 +368,16 @@ class WorkflowRepository:
         ft_excluded = 0
         exclusion_reasons: dict[str, int] = {}
 
+        # Exclude batch_screened_low rows from the PRISMA counts. Those papers were
+        # auto-excluded by the batch LLM pre-ranker and belong in PRISMA "automation_excluded"
+        # (before screening), not in "records_screened". Including them inflated ta_screened
+        # above records_after_dedup, causing arithmetic failures in the PRISMA flow diagram.
         cursor = await self.db.execute(
             """
             SELECT stage, final_decision, COUNT(*)
             FROM dual_screening_results
             WHERE workflow_id = ?
+              AND final_decision != 'batch_screened_low'
             GROUP BY stage, final_decision
             """,
             (workflow_id,),

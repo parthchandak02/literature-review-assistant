@@ -127,8 +127,19 @@ def get_abstract_prompt_context(
         + meta_constraint
         + "\n\n"
         + kappa_instruction
-        + "Write the structured abstract. Format it with bold field labels on separate lines: "
-        "**Objectives:**, **Methods:**, **Results:**, **Conclusion:**, **Keywords:**\n\n"
+        + "Write the structured abstract following PRISMA 2020 abstract reporting (items 2-17). "
+        "Format it with bold field labels on separate lines -- include ALL six fields:\n\n"
+        "**Background:** (1-2 sentences: why this topic matters and what gap this review fills)\n"
+        "**Objectives:** (the specific research question with PICO)\n"
+        "**Methods:** (databases searched, date range, eligibility criteria, screening process, "
+        "risk-of-bias tool, and synthesis approach)\n"
+        "**Results:** (exact included studies count from the FACTUAL DATA BLOCK, key findings "
+        "grouped by outcome domain, synthesis direction)\n"
+        "**Conclusion:** (main implication and GRADE certainty qualifier)\n"
+        "**Keywords:** (5-7 comma-separated keywords drawn from the research topic)\n\n"
+        "WORD COUNT: Target 200-220 words for the abstract body (Background through Conclusion, "
+        "excluding the Keywords line). This is safe for both IEEE Transactions (hard limit 250) "
+        "and IEEE Access (best practice). Do NOT exceed 230 words in the body.\n\n"
         "Use the FACTUAL DATA BLOCK above for all numbers -- "
         "do NOT invent participant counts, effect sizes, or confidence intervals. "
         "Cover: (1) Objectives with PICO, (2) Eligibility criteria, "
@@ -136,9 +147,7 @@ def get_abstract_prompt_context(
         "(4) Risk of bias methods, (5) Exact included studies count from the block, "
         "(6) Synthesis results (narrative only -- see constraint above), "
         "(7) Key findings grounded in included studies list, "
-        "(8) Limitations and funding.\n\n"
-        "After the Conclusion field, add: "
-        "'**Keywords:** [5-7 comma-separated keywords drawn from the research topic]'"
+        "(8) Limitations and funding."
     )
 
 

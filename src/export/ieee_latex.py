@@ -63,12 +63,12 @@ def _escape_latex(s: str) -> str:
     # pdflatex, and pylatexenc (step 5) covers any that slip through.
     for old, new in [
         ("\u2014", "---"),  # em-dash
-        ("\u2013", "--"),    # en-dash
-        ("\u2019", "'"),     # right single quotation mark
-        ("\u2018", "`"),     # left single quotation mark
-        ("\u201c", "``"),    # left double quotation mark
-        ("\u201d", "''"),    # right double quotation mark
-        ("\u2011", "-"),     # non-breaking hyphen
+        ("\u2013", "--"),  # en-dash
+        ("\u2019", "'"),  # right single quotation mark
+        ("\u2018", "`"),  # left single quotation mark
+        ("\u201c", "``"),  # left double quotation mark
+        ("\u201d", "''"),  # right double quotation mark
+        ("\u2011", "-"),  # non-breaking hyphen
     ]:
         s = s.replace(old, new)
 
@@ -84,7 +84,7 @@ def _escape_latex(s: str) -> str:
 
     # Step 4: Degree sign -- math mode, inserted AFTER $ is escaped so the new
     # $ delimiters are not themselves re-escaped by step 3.
-    s = s.replace("\u00B0", "$^{\\circ}$")
+    s = s.replace("\u00b0", "$^{\\circ}$")
 
     # Step 5: pylatexenc fallback for all remaining non-ASCII characters.
     # non_ascii_only=True means ASCII chars we emitted in steps 2-4 (---, \\&,
@@ -285,6 +285,10 @@ def _convert_md_table_to_latex(
     col_spec = " ".join([">{\\raggedright\\arraybackslash}X"] * n_cols)
 
     def convert_cell(cell: str) -> str:
+        # Strip HTML tags that leak from upstream extraction data (e.g. <i>, <b>,
+        # <sub>, <sup>, <em>) into cell content. LaTeX cannot render raw HTML and
+        # it triggers undefined command errors during pdflatex compilation.
+        cell = re.sub(r"<[^>]+>", "", cell)
         # Strip leaked markdown heading markers (##, ###, #) that sometimes
         # appear when study abstracts are used as cell content verbatim.
         cell = re.sub(r"^#{1,6}\s*", "", cell)
@@ -308,9 +312,7 @@ def _convert_md_table_to_latex(
     #
     # For wide tables (>5 cols) reduce inter-column padding so the 9-11 column
     # GRADE/MMAT/Appendix B tables do not overflow the page margins.
-    tabcolsep_override = (
-        ["\\setlength{\\tabcolsep}{4pt}"] if n_cols > 5 else []
-    )
+    tabcolsep_override = ["\\setlength{\\tabcolsep}{4pt}"] if n_cols > 5 else []
     result: list[str] = [
         "\\begin{table*}[!t]",
         "\\centering",
@@ -389,11 +391,7 @@ def _md_section_to_latex(
             flush_list()
             # Accumulate all consecutive table rows
             table_lines = [stripped]
-            while (
-                i + 1 < len(lines)
-                and lines[i + 1].strip().startswith("|")
-                and lines[i + 1].strip().endswith("|")
-            ):
+            while i + 1 < len(lines) and lines[i + 1].strip().startswith("|") and lines[i + 1].strip().endswith("|"):
                 i += 1
                 table_lines.append(lines[i].strip())
             table_latex = _convert_md_table_to_latex(table_lines, citekeys, num_to_citekey)

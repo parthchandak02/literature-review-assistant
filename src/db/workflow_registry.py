@@ -96,9 +96,7 @@ async def _ensure_registry(run_root: str) -> str:
                 "CREATE TABLE IF NOT EXISTS workflow_counter "
                 "(id INTEGER PRIMARY KEY CHECK (id = 1), last_seq INTEGER NOT NULL DEFAULT 0)"
             )
-            await db.execute(
-                "INSERT OR IGNORE INTO workflow_counter (id, last_seq) VALUES (1, 0)"
-            )
+            await db.execute("INSERT OR IGNORE INTO workflow_counter (id, last_seq) VALUES (1, 0)")
         except Exception:
             pass
         await db.commit()
@@ -308,8 +306,6 @@ async def allocate_workflow_id(run_root: str) -> str:
         cursor = await db.execute("SELECT last_seq FROM workflow_counter WHERE id = 1")
         row = await cursor.fetchone()
         next_seq = (row[0] if row else 0) + 1
-        await db.execute(
-            "UPDATE workflow_counter SET last_seq = ? WHERE id = 1", (next_seq,)
-        )
+        await db.execute("UPDATE workflow_counter SET last_seq = ? WHERE id = 1", (next_seq,))
         await db.commit()
     return f"wf-{next_seq:04d}"

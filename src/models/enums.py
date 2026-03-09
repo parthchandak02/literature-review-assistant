@@ -72,18 +72,24 @@ class GRADECertainty(str, Enum):
 class StudyDesign(str, Enum):
     RCT = "rct"
     NON_RANDOMIZED = "non_randomized"
-    QUASI_EXPERIMENTAL = "quasi_experimental"  # non-equivalent groups or interrupted time series; has comparator but not randomized
+    QUASI_EXPERIMENTAL = (
+        "quasi_experimental"  # non-equivalent groups or interrupted time series; has comparator but not randomized
+    )
     COHORT = "cohort"
     CASE_CONTROL = "case_control"
     PRE_POST = "pre_post"  # single-group before/after study with no control arm (MMAT quantitative descriptive)
     QUALITATIVE = "qualitative"
     MIXED_METHODS = "mixed_methods"
     CROSS_SECTIONAL = "cross_sectional"
-    USABILITY_STUDY = "usability_study"  # UX/acceptability evaluation only (SUS, TAM, think-aloud, heuristic); no learning outcome
+    USABILITY_STUDY = (
+        "usability_study"  # UX/acceptability evaluation only (SUS, TAM, think-aloud, heuristic); no learning outcome
+    )
     PROTOCOL = "protocol"  # registered trial protocol or study design paper with no results
     CONFERENCE_ABSTRACT = "conference_abstract"  # conference poster/abstract (not full peer-reviewed paper)
     NARRATIVE_REVIEW = "narrative_review"  # narrative or scoping review (not primary evidence)
-    DEVELOPMENT_STUDY = "development_study"  # system design/architecture/proof-of-concept paper; primary contribution is the system
+    DEVELOPMENT_STUDY = (
+        "development_study"  # system design/architecture/proof-of-concept paper; primary contribution is the system
+    )
     OTHER = "other"
 
 

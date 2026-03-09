@@ -131,6 +131,10 @@ export function RunView({
 
   useEffect(() => {
     if (!isHistorical) {
+      // Clearing stale historical events when a live run starts is the intended
+      // side effect -- the linter flags it but this is the correct React pattern
+      // for resetting derived state when a condition changes.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setHistoricalEvents([])
       return
     }

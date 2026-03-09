@@ -285,7 +285,12 @@ async def test_batch_reviewer_missing_paper_fallback(tmp_path) -> None:
         _batch_item("p2", "include", 0.92),
     ]
     # Fallback individual call for pmissing (Reviewer A format: single dict).
-    fallback_a = {"decision": "exclude", "confidence": 0.88, "reasoning": "out of scope", "exclusion_reason": "wrong_population"}
+    fallback_a = {
+        "decision": "exclude",
+        "confidence": 0.88,
+        "reasoning": "out of scope",
+        "exclusion_reason": "wrong_population",
+    }
     responses: list[object] = [batch_a_partial, fallback_a]
     async with get_db(str(tmp_path / "batch_missing.db")) as db:
         repo = WorkflowRepository(db)

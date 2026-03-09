@@ -32,6 +32,7 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+
 def _get_default_model() -> str:
     try:
         from src.config.loader import load_configs
