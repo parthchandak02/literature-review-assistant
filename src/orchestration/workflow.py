@@ -269,7 +269,11 @@ class StartNode(BaseNode[ReviewState]):
         state.run_id = _now_utc()
         state.workflow_id = await allocate_workflow_id(state.run_root)
 
-        run_paths = create_run_paths(run_root=state.run_root, workflow_description=review.research_question)
+        run_paths = create_run_paths(
+            run_root=state.run_root,
+            workflow_description=review.research_question,
+            workflow_id=state.workflow_id,
+        )
         state.log_dir = str(run_paths.run_dir)
         state.output_dir = str(run_paths.run_dir)
         state.db_path = str(run_paths.runtime_db)
@@ -1015,6 +1019,10 @@ class ScreeningNode(BaseNode[ReviewState]):
                             client=PydanticAIBatchRankerClient(),
                         )
                         _batch_forwarded, _batch_excluded_decisions = await _br.rank_and_split(_papers_for_batch)
+                        state.batch_screener_model = _batch_agent.model
+                        state.batch_screen_threshold = screening_cfg.batch_screen_threshold
+                        state.batch_screen_validation_n = _br.validation_sampled_n
+                        state.batch_screen_validation_npv = _br.validation_npv
 
                         if _batch_excluded_decisions:
                             _batch_excl_papers = [
@@ -2519,6 +2527,10 @@ class WritingNode(BaseNode[ReviewState]):
                     failed_databases=_failed_dbs,
                     batch_screen_forwarded=state.batch_screen_forwarded,
                     batch_screen_excluded=state.batch_screen_excluded,
+                    batch_screener_model=state.batch_screener_model,
+                    batch_screen_threshold=state.batch_screen_threshold,
+                    batch_screen_validation_n=state.batch_screen_validation_n,
+                    batch_screen_validation_npv=state.batch_screen_validation_npv,
                     fulltext_sought=state.fulltext_sought,
                     fulltext_not_retrieved=state.fulltext_not_retrieved,
                     rob2_assessments=_rob2_rows_w or None,
@@ -3208,6 +3220,18 @@ class FinalizeNode(BaseNode[ReviewState]):
                 logger.info("FinalizeNode: wrote doc_manuscript.tex and references.bib")
             except Exception as _tex_err:  # noqa: BLE001
                 logger.warning("FinalizeNode: LaTeX artifact generation failed (non-fatal): %s", _tex_err)
+
+        # Pre-populate submission/ so the Results tab is instant on first load.
+        # POST /export will detect existing files and skip re-packaging (unless forced).
+        # Best-effort: pdflatex absence or any other failure must never block finalization.
+        if state.workflow_id and state.run_root:
+            try:
+                from src.export.submission_packager import package_submission as _pkg_sub
+
+                await _pkg_sub(state.workflow_id, state.run_root)
+                logger.info("FinalizeNode: submission/ pre-populated")
+            except Exception as _sub_err:  # noqa: BLE001
+                logger.warning("FinalizeNode: submission pre-packaging failed (non-fatal): %s", _sub_err)
 
         # Filter artifact paths: only include entries that either are the run_summary
         # itself (written below) or point to a file that actually exists on disk.

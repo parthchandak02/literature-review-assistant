@@ -429,11 +429,11 @@ function ManuscriptActions({ docxPath, canExport, exportRunId, allOutputs }: Man
   const [exportState, setExportState] = useState<ExportState>("idle")
   const [exportFiles, setExportFiles] = useState<string[]>([])
 
-  const handleExport = useCallback(async () => {
+  const handleExport = useCallback(async (force = false) => {
     if (!exportRunId) return
     setExportState("loading")
     try {
-      const result = await triggerExport(exportRunId)
+      const result = await triggerExport(exportRunId, force)
       setExportFiles(result.files)
       setExportState("done")
     } catch {
@@ -549,7 +549,7 @@ function ManuscriptActions({ docxPath, canExport, exportRunId, allOutputs }: Man
           {exportState === "done" && (
             <Button
               size="sm"
-              onClick={() => { setExportState("idle"); void handleExport(); }}
+              onClick={() => { setExportState("idle"); void handleExport(true); }}
               className="h-7 gap-1 text-xs bg-zinc-800 hover:bg-zinc-700 text-zinc-300 hover:text-zinc-100 border-0 shadow-none"
               title="Regenerate manuscript, .tex, .bib, and DOCX"
             >

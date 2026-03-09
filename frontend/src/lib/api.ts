@@ -549,9 +549,13 @@ export async function fetchPdfsForRun(
 /**
  * Trigger IEEE LaTeX export for a completed run.
  * Returns the submission directory path and a sorted list of generated file paths.
+ *
+ * When force=false (default), the backend returns existing files immediately if
+ * submission/ was already pre-populated by FinalizeNode, skipping pdflatex/DOCX.
+ * Pass force=true (Refresh button) to force a full re-package.
  */
-export async function triggerExport(runId: string): Promise<ExportResult> {
-  const res = await fetch(`${BASE}/run/${runId}/export`, { method: "POST" })
+export async function triggerExport(runId: string, force = false): Promise<ExportResult> {
+  const res = await fetch(`${BASE}/run/${runId}/export?force=${force}`, { method: "POST" })
   if (!res.ok) throw await _apiError(res, "Export failed")
   return res.json() as Promise<ExportResult>
 }

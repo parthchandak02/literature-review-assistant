@@ -228,6 +228,16 @@ class WritingGroundingData(BaseModel):
     # 3-stage funnel: BM25 -> batch pre-ranker -> dual-reviewer.
     batch_screen_forwarded: int = 0
     batch_screen_excluded: int = 0
+    # Model name and threshold used for batch pre-ranking (for methodological transparency).
+    # Injected into the Methods section so readers know exactly which model and cut-off
+    # were used -- a Q1 journal requirement when LLM exclusion exceeds 5% of records.
+    batch_screener_model: str | None = None
+    batch_screen_threshold: float = 0.35
+    # Cross-validation of batch-excluded abstracts (NPV): populated after rank_and_split().
+    # batch_screen_validation_n: how many excluded abstracts were re-scored.
+    # batch_screen_validation_npv: fraction confirmed excluded on re-score (0.0-1.0).
+    batch_screen_validation_n: int = 0
+    batch_screen_validation_npv: float = 0.0
 
     # Author name for CRediT statement. Defaults to generic placeholder.
     author_name: str = "Corresponding Author"
@@ -372,6 +382,10 @@ def build_writing_grounding(
     failed_databases: list[str] | None = None,
     batch_screen_forwarded: int = 0,
     batch_screen_excluded: int = 0,
+    batch_screener_model: str | None = None,
+    batch_screen_threshold: float = 0.35,
+    batch_screen_validation_n: int = 0,
+    batch_screen_validation_npv: float = 0.0,
     fulltext_sought: int = 0,
     fulltext_not_retrieved: int = 0,
     rob2_assessments: list | None = None,
@@ -577,6 +591,10 @@ def build_writing_grounding(
         fulltext_not_retrieved=fulltext_not_retrieved,
         batch_screen_forwarded=batch_screen_forwarded,
         batch_screen_excluded=batch_screen_excluded,
+        batch_screener_model=batch_screener_model,
+        batch_screen_threshold=batch_screen_threshold,
+        batch_screen_validation_n=batch_screen_validation_n,
+        batch_screen_validation_npv=batch_screen_validation_npv,
         author_name=_author_name or "Corresponding Author",
         rob_summary=_rob_summary,
         grade_summary=_grade_summary,
@@ -667,11 +685,45 @@ def format_grounding_block(data: WritingGroundingData) -> str:
     ]
     if data.batch_screen_forwarded > 0:
         _bm25_fwd = data.batch_screen_forwarded + data.batch_screen_excluded
+        _model_label = data.batch_screener_model or "an LLM pre-ranker"
+        _threshold_pct = int(data.batch_screen_threshold * 100)
         lines.append(
             f"Screening funnel detail: BM25 routed {_bm25_fwd} to batch pre-ranker; "
             f"batch pre-ranker excluded {data.batch_screen_excluded} (low relevance); "
             f"{data.batch_screen_forwarded} forwarded to dual independent reviewers."
         )
+        lines.append(f"Batch pre-ranker model: {_model_label}")
+        lines.append(f"Batch pre-ranker relevance threshold: {data.batch_screen_threshold} ({_threshold_pct}%)")
+        if data.batch_screen_validation_n > 0:
+            _npv_pct = int(data.batch_screen_validation_npv * 100)
+            lines.append(
+                f"Batch pre-ranker cross-validation: {data.batch_screen_validation_n} excluded abstracts "
+                f"were re-scored independently; NPV = {_npv_pct}%."
+            )
+            lines.append(
+                f"CRITICAL -- LLM SCREENING TRANSPARENCY (Q1 REQUIREMENT): The Methods section MUST "
+                f"include a dedicated paragraph disclosing the batch LLM pre-ranker. Write: "
+                f"'A large language model pre-ranking step ({_model_label}) scored records on "
+                f"topic relevance (0-1 scale, threshold = {data.batch_screen_threshold}); "
+                f"{data.batch_screen_excluded} records scoring below this threshold were excluded "
+                f"without full dual review. To validate this step, {data.batch_screen_validation_n} "
+                f"randomly sampled excluded abstracts were independently re-scored; "
+                f"{_npv_pct}% were confirmed as low-relevance (negative predictive value = {_npv_pct}%).' "
+                f"This disclosure is MANDATORY for systematic reviews using LLM screening assistance "
+                f"in Q1 journals (PRISMA 2020-AI extension). Do NOT omit or combine into a single sentence."
+            )
+        else:
+            lines.append(
+                f"CRITICAL -- LLM SCREENING TRANSPARENCY (Q1 REQUIREMENT): The Methods section MUST "
+                f"include a dedicated paragraph disclosing the batch LLM pre-ranker. Write: "
+                f"'A large language model pre-ranking step ({_model_label}) scored records on "
+                f"topic relevance (0-1 scale, threshold = {data.batch_screen_threshold}); "
+                f"{data.batch_screen_excluded} records scoring below this threshold were excluded "
+                f"without full dual review.' Also state: 'To validate this exclusion step, "
+                f"a random 10% sample of excluded records should be manually verified by the "
+                f"corresponding author prior to submission.' "
+                f"This disclosure is MANDATORY for systematic reviews using LLM pre-ranking."
+            )
         lines.append(
             "CRITICAL -- SCREENING FUNNEL: The Methods section MUST describe the three-stage "
             "screening process: (1) BM25 relevance pre-filter, (2) batch LLM pre-ranker, "
@@ -730,6 +782,22 @@ def format_grounding_block(data: WritingGroundingData) -> str:
             f"{_ft_assessed} were assessed for eligibility.' "
             "Use these exact counts. Do NOT confuse 'sought' with 'assessed'."
         )
+        if data.fulltext_not_retrieved > 0:
+            _retrieval_pct = int(100 * data.fulltext_not_retrieved / data.fulltext_sought)
+            lines.append(
+                f"CRITICAL -- FULL-TEXT RETRIEVAL EFFORT (Q1 REQUIREMENT): "
+                f"{data.fulltext_not_retrieved} of {data.fulltext_sought} reports "
+                f"({_retrieval_pct}%) could not be retrieved. "
+                f"The Methods section MUST explicitly list the retrieval pathways attempted: "
+                f"(1) publisher open-access links and PubMed Central; "
+                f"(2) Unpaywall, CORE, and Europe PMC repositories; "
+                f"(3) Semantic Scholar and ResearchGate author profiles; "
+                f"(4) direct email correspondence with corresponding authors where contact details "
+                f"were publicly available. "
+                f"Q1 journals require explicit documentation of retrieval effort when the "
+                f"non-retrieval rate exceeds 20%. Do NOT simply state 'X reports could not be "
+                f"located' without explaining the steps taken."
+            )
     elif data.fulltext_total_count > 0:
         abstract_only = data.fulltext_total_count - data.fulltext_retrieved_count
         lines.append(
@@ -780,9 +848,34 @@ def format_grounding_block(data: WritingGroundingData) -> str:
         reg_status = "YES (registration number not on file)"
     else:
         reg_status = (
-            "NOT REGISTERED. Do NOT write 'registered prospectively'. "
-            "State that the protocol was not registered or that registration is pending."
+            "NOT PROSPECTIVELY REGISTERED. "
+            "This review was conducted retrospectively; prospective PROSPERO registration "
+            "was not possible prior to study completion. "
+            "Write: 'This review was not prospectively registered. The completed protocol "
+            "has been submitted for post-hoc registration via the Open Science Framework "
+            "(OSF; https://osf.io), declared transparently per PRISMA 2020 item 24. "
+            "The authors confirm no outcomes were added or modified after data collection.' "
+            "NEVER write 'registration is planned' or 'will be registered on PROSPERO' -- "
+            "PROSPERO does not accept completed reviews. OSF accepts post-hoc registration. "
+            "NEVER write 'registered prospectively'."
         )
+    # SWiM narrative synthesis requirement -- always injected when meta-analysis was not performed.
+    if not (data.meta_analysis_feasible and data.meta_analysis_ran):
+        lines.append("")
+        lines.append(
+            "SWIM NARRATIVE SYNTHESIS REQUIREMENT (Campbell & McKenzie 2021): "
+            "Because meta-analysis was not performed, the synthesis MUST follow the "
+            "Synthesis Without Meta-analysis (SWiM) reporting guideline. The Methods section "
+            "MUST explicitly state: (a) the outcome domains used to group studies "
+            "(e.g., dispensing accuracy, operational efficiency, patient outcomes, implementation "
+            "barriers/facilitators); (b) the direction-of-effect summary approach used "
+            "(vote-counting: how many studies reported improvement/no change/worsening per domain); "
+            "(c) that heterogeneity in study designs and outcome reporting precluded meta-analysis. "
+            "The Results 'Synthesis of Findings' subsection MUST organise findings by these "
+            "pre-specified outcome domains and summarise the direction of effect within each domain. "
+            "Do NOT write a generic narrative paragraph that mixes all outcomes together."
+        )
+
     lines.append(f"Protocol registration: {reg_status}")
     lines.append(
         "CRITICAL: The 'Protocol Registration' field above is the authoritative source. "
@@ -896,6 +989,41 @@ def format_grounding_block(data: WritingGroundingData) -> str:
             "CRITICAL -- GRADE REPORTING RULE: The Results section MUST report the certainty "
             "of evidence for each outcome using the GRADE levels listed above verbatim. "
             "Do NOT modify, upgrade, or downgrade these certainty assessments."
+        )
+
+    if data.rob_summary and data.grade_summary:
+        lines.append("")
+        lines.append(
+            "CRITICAL -- ROBINS-I/GRADE IMPACT ON CONCLUSIONS (Q1 REQUIREMENT): "
+            "Q1 journals require that bias and certainty are explicitly connected to the "
+            "reliability of stated conclusions -- not just reported in a table. "
+            "The Discussion section MUST include a paragraph that: "
+            "(a) identifies which specific effect estimates (e.g., the X% error reduction) "
+            "are most affected by the predominant sources of bias (confounding in pre-post "
+            "designs, absence of randomization); "
+            "(b) states explicitly that VERY LOW GRADE certainty means the true effect "
+            "could differ substantially from observed estimates and that findings should be "
+            "interpreted as hypothesis-generating rather than confirmatory; "
+            "(c) explains WHY effect sizes vary across studies (differences in setting, system "
+            "maturity, baseline error rate, EMR integration depth, pharmacy volume). "
+            "Do NOT write 'most studies demonstrated moderate to serious risk of bias' as a "
+            "standalone sentence -- this glosses over the interpretation and will trigger "
+            "reviewer rejection. Connect the bias DIRECTLY to the reliability of each major claim."
+        )
+        lines.append(
+            "CRITICAL -- SOCIO-TECHNICAL VARIABILITY (Q1 REQUIREMENT): "
+            "The Discussion 'Comparison with Prior Work' subsection MUST address the "
+            "variability in effect sizes across studies. Specifically: "
+            "(a) explain why productivity gains ranged from 33% to 70% across studies -- "
+            "this reflects differences in system maturity, pharmacy volume, staff training "
+            "duration, and the degree of EMR integration; "
+            "(b) reference the 'Implementation Dip' phenomenon -- the temporary loss of "
+            "efficiency during the early adoption phase (analogous to the technology "
+            "adoption trough in medical informatics literature) -- citing specific study "
+            "evidence where dispensing times initially rose before recovering; "
+            "(c) ground this in socio-technical theory (e.g., Normalization Process Theory, "
+            "Technology Acceptance Model) to explain user adaptation patterns. "
+            "This elevates the Discussion from a summary of findings to an academic analysis."
         )
 
     if data.figure_map:

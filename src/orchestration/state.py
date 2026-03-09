@@ -47,6 +47,16 @@ class ReviewState:
     # Used by the writing grounding block to describe the 3-stage screening funnel.
     batch_screen_forwarded: int = 0
     batch_screen_excluded: int = 0
+    # Model name and threshold used for batch pre-ranking (surfaced in Methods grounding block
+    # so the writing LLM can cite the exact model and threshold for methodological transparency).
+    batch_screener_model: str | None = None
+    batch_screen_threshold: float = 0.35
+    # Validation of batch-excluded abstracts: a random sample re-scored to compute NPV.
+    # batch_screen_validation_n: number of excluded abstracts sampled for cross-validation.
+    # batch_screen_validation_npv: negative predictive value (0.0-1.0) of the validation.
+    # Both are 0 when no validation was performed.
+    batch_screen_validation_n: int = 0
+    batch_screen_validation_npv: float = 0.0
     # PRISMA full-text retrieval counts (set after PDF retrieval).
     # fulltext_sought: papers sent to stage-2 full-text screening.
     # fulltext_not_retrieved: papers excluded because no PDF could be obtained.

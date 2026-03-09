@@ -18,6 +18,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import random
 from typing import Protocol, runtime_checkable
 
 from src.models.config import ScreeningConfig
@@ -154,6 +155,10 @@ class BatchLLMRanker:
         self._intervention = intervention
         self._outcome = outcome
         self._client: BatchRankerClient = client or PydanticAIBatchRankerClient()
+        # Validation state: populated by rank_and_split() after cross-checking a sample
+        # of excluded papers. Callers read these to surface NPV in the Methods section.
+        self.validation_sampled_n: int = 0
+        self.validation_npv: float = 0.0
 
     async def _score_batch(self, batch: list[CandidatePaper]) -> dict[str, float]:
         """Call LLM once for this batch; return {paper_id -> score}.
@@ -324,4 +329,46 @@ class BatchLLMRanker:
             len(excluded),
             threshold,
         )
+
+        # Cross-validation: re-score a random 10% sample of excluded papers to estimate NPV.
+        # A paper is "confirmed excluded" if the re-score still falls below the threshold.
+        # This produces a methodological transparency metric for the Methods section.
+        # Min sample 5, max 30 to balance cost and precision.
+        await self._validate_exclusion_sample(papers, excluded, threshold)
+
         return forwarded, excluded
+
+    async def _validate_exclusion_sample(
+        self,
+        all_papers: list[CandidatePaper],
+        excluded_decisions: list[ScreeningDecision],
+        threshold: float,
+    ) -> None:
+        """Cross-validate a random 10% sample of excluded papers via an independent re-score.
+
+        Computes the negative predictive value (NPV) of the batch pre-ranker and stores
+        it in self.validation_sampled_n and self.validation_npv so callers can surface
+        it in the Methods section for PRISMA 2020 methodological transparency.
+        """
+        if not excluded_decisions:
+            return
+        paper_by_id = {p.paper_id: p for p in all_papers}
+        sample_size = max(5, min(30, round(len(excluded_decisions) * 0.10)))
+        sample_decisions = random.sample(excluded_decisions, min(sample_size, len(excluded_decisions)))
+        sample_papers = [paper_by_id[d.paper_id] for d in sample_decisions if d.paper_id in paper_by_id]
+        if not sample_papers:
+            return
+        try:
+            rescored = await self._score_batch(sample_papers)
+            confirmed = sum(1 for p in sample_papers if rescored.get(p.paper_id, 0.0) < threshold)
+            self.validation_sampled_n = len(sample_papers)
+            self.validation_npv = round(confirmed / len(sample_papers), 3) if sample_papers else 0.0
+            logger.info(
+                "BatchLLMRanker: cross-validation on %d excluded abstracts: "
+                "%d confirmed excluded (NPV=%.1f%%)",
+                len(sample_papers),
+                confirmed,
+                self.validation_npv * 100,
+            )
+        except Exception as exc:
+            logger.warning("BatchLLMRanker: cross-validation failed (%s); skipping.", exc)

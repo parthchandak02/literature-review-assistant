@@ -2318,11 +2318,17 @@ async def get_workflow_events(
 
 
 @app.post("/api/run/{run_id}/export")
-async def trigger_export(run_id: str, run_root: str = "runs") -> dict[str, Any]:
+async def trigger_export(run_id: str, run_root: str = "runs", force: bool = False) -> dict[str, Any]:
     """Package the IEEE LaTeX submission for a completed run.
 
     Reads workflow_id from run_summary.json, calls package_submission(),
     and returns the submission directory path plus a list of output files.
+
+    If force=False (default) and all key files already exist in submission/
+    (e.g. pre-populated by FinalizeNode), returns the existing paths immediately
+    without re-running pdflatex or DOCX generation.
+
+    Pass force=True to force a full re-package (used by the Refresh button).
     """
     db_path = _get_db_path(run_id)
     summary_path = pathlib.Path(db_path).parent / "run_summary.json"
@@ -2332,6 +2338,20 @@ async def trigger_export(run_id: str, run_root: str = "runs") -> dict[str, Any]:
     workflow_id: str | None = summary.get("workflow_id")
     if not workflow_id:
         raise HTTPException(status_code=422, detail="workflow_id not found in run_summary")
+    # Fast path: if key files are already present and caller did not force a rebuild,
+    # return existing paths immediately (avoids re-running pdflatex and DOCX generation).
+    if not force:
+        output_dir = summary.get("output_dir", "")
+        if output_dir:
+            _sub_dir = pathlib.Path(output_dir) / "submission"
+            _key_files = [
+                _sub_dir / "manuscript.tex",
+                _sub_dir / "references.bib",
+                _sub_dir / "manuscript.docx",
+            ]
+            if all(f.exists() for f in _key_files):
+                files = sorted(str(f) for f in _sub_dir.rglob("*") if f.is_file())
+                return {"submission_dir": str(_sub_dir), "files": files}
     try:
         submission_dir = await package_submission(workflow_id, run_root)
     except Exception as exc:

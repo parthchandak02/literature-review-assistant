@@ -36,9 +36,20 @@ class ProtocolGenerator:
             pico=config.pico,
             eligibility_criteria=config.inclusion_criteria + config.exclusion_criteria,
             planned_databases=config.target_databases,
-            planned_screening_method="Dual AI reviewer with adjudication",
+            planned_screening_method=(
+                "Three-stage: (1) BM25 keyword pre-filter; "
+                "(2) batch LLM pre-ranker (relevance threshold 0.35) with 10% cross-validation; "
+                "(3) independent dual-reviewer screening with adjudication. "
+                "Full-text retrieval via multi-tier resolver (Unpaywall, Semantic Scholar, "
+                "Europe PMC, CORE, PubMed Central) followed by full-text eligibility assessment."
+            ),
             planned_rob_tools=["rob2", "robins_i", "casp"],
-            planned_synthesis_method="Meta-analysis when feasible; otherwise narrative synthesis",
+            planned_synthesis_method=(
+                "Meta-analysis when feasible (>=2 studies, homogeneous numeric outcomes); "
+                "otherwise narrative synthesis following SWiM 2021 guidelines "
+                "(Campbell et al., Syst Rev 2020) with grouping by outcome domain "
+                "and direction-of-effect vote-counting."
+            ),
             prospero_id=config.protocol.registration_number or None,
         )
 

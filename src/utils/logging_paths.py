@@ -41,16 +41,22 @@ class RunPaths:
     protocol_markdown: Path
 
 
-def create_run_paths(run_root: str, workflow_description: str) -> RunPaths:
+def create_run_paths(run_root: str, workflow_description: str, workflow_id: str = "") -> RunPaths:
     """Create and return all paths for a new workflow run.
 
     Creates the run directory on disk. Every log and output artifact for
     this run lives inside the returned run_dir.
+
+    If workflow_id is provided (e.g. "wf-0007"), it is prepended to the
+    topic slug so the folder is easily identifiable:
+        runs/YYYY-MM-DD/wf-0007-<topic-slug>/run_<HH-MM-SSAM>/
     """
     now = datetime.now()
     date_folder = now.strftime("%Y-%m-%d")
     run_dir_name = f"run_{now.strftime('%I-%M-%S%p')}"
-    run_dir = Path(run_root) / date_folder / workflow_slug(workflow_description) / run_dir_name
+    slug = workflow_slug(workflow_description)
+    folder_name = f"{workflow_id}-{slug}" if workflow_id else slug
+    run_dir = Path(run_root) / date_folder / folder_name / run_dir_name
     run_dir.mkdir(parents=True, exist_ok=True)
     return RunPaths(
         run_dir=run_dir,

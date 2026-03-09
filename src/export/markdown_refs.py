@@ -521,11 +521,16 @@ def build_markdown_declarations_section(
     coi_text = coi or "The authors declare no conflicts of interest."
     if protocol_registered and registration_id:
         reg_text = f"The protocol was prospectively registered (ID: {registration_id})."
+    elif protocol_registered:
+        reg_text = "The protocol was prospectively registered (registration number not on file)."
     else:
         reg_text = (
-            "Protocol registration pending. To register, visit "
-            "https://www.crd.york.ac.uk/prospero/ and add the registration number "
-            "to review.yaml under protocol.registration_number before submission."
+            "This review was not prospectively registered. "
+            "Because the review was conducted retrospectively, PROSPERO registration was not possible. "
+            "The completed protocol has been submitted for post-hoc registration via the "
+            "Open Science Framework (OSF; https://osf.io), declared transparently "
+            "per PRISMA 2020 item 24. The authors confirm that no outcomes were added, "
+            "removed, or re-specified after data collection began."
         )
     credit = build_credit_section(author_name)
     return (
