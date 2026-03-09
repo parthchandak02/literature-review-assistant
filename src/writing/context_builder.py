@@ -815,6 +815,7 @@ def format_grounding_block(data: WritingGroundingData) -> str:
             )
     elif data.fulltext_total_count > 0:
         abstract_only = data.fulltext_total_count - data.fulltext_retrieved_count
+        abstract_only_rate = abstract_only / data.fulltext_total_count if data.fulltext_total_count else 0.0
         lines.append(
             f"Full-text retrieval: {data.fulltext_retrieved_count} of {data.fulltext_total_count} "
             f"included papers had full text retrieved; {abstract_only} were extracted from "
@@ -826,6 +827,19 @@ def format_grounding_block(data: WritingGroundingData) -> str:
             f"{data.fulltext_total_count}) and that the remainder were extracted from abstracts "
             "only. This is a MANDATORY disclosure. Include this in the Limitations paragraph too."
         )
+        # Abstract-only rate quality gate: when >40% of included papers had no full text,
+        # inject a strong synthesis caution to prevent over-confident claims.
+        if abstract_only_rate > 0.40:
+            lines.append(
+                f"CAUTION -- HIGH ABSTRACT-ONLY RATE: {abstract_only_rate:.0%} of included studies "
+                f"({abstract_only} of {data.fulltext_total_count}) lacked full text. "
+                "This materially limits synthesis depth. You MUST: "
+                "(1) Restrict all claims strictly to what is explicitly stated in the provided study summaries. "
+                "(2) Do NOT extrapolate, infer, or generalise beyond the available data. "
+                "(3) Use hedged language throughout: 'limited evidence suggests', 'based on abstracts alone', "
+                "'further full-text review is needed before drawing firm conclusions'. "
+                "(4) Flag this limitation prominently in both the Methods and Limitations sections."
+            )
 
     if data.author_name and data.author_name != "Corresponding Author":
         lines.append(f"Primary author: {data.author_name}")

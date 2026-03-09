@@ -337,6 +337,7 @@ async def test_fetch_full_text_tier6_called_when_all_apis_miss():
     )
 
     with (
+        patch("src.extraction.table_extraction._quick_citation_pdf_url", new=AsyncMock(return_value=None)),
         patch("src.extraction.table_extraction._fetch_unpaywall", new=AsyncMock(return_value=None)),
         patch("src.extraction.table_extraction._fetch_arxiv", new=AsyncMock(return_value=None)),
         patch("src.extraction.table_extraction._fetch_semanticscholar", new=AsyncMock(return_value=None)),
@@ -367,6 +368,7 @@ async def test_fetch_full_text_tier6_called_when_all_apis_miss():
 async def test_fetch_full_text_tier6_skipped_when_disabled():
     """use_landing_page=False must skip the landing-page tier entirely."""
     with (
+        patch("src.extraction.table_extraction._quick_citation_pdf_url", new=AsyncMock(return_value=None)),
         patch("src.extraction.table_extraction._fetch_unpaywall", new=AsyncMock(return_value=None)),
         patch("src.extraction.table_extraction._fetch_arxiv", new=AsyncMock(return_value=None)),
         patch("src.extraction.table_extraction._fetch_semanticscholar", new=AsyncMock(return_value=None)),

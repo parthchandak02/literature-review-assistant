@@ -163,7 +163,7 @@ export function ReferencesView({ runId, isDone }: ReferencesViewProps) {
             {papers.length} {papers.length === 1 ? "paper" : "papers"} included in this review
             {abstractOnlyCount > 0 && (
               <span className="text-amber-500/80 ml-1">
-                -- {abstractOnlyCount} abstract-only (no full text retrieved)
+                -- {abstractOnlyCount} without full text (abstract-only extraction)
               </span>
             )}
           </p>

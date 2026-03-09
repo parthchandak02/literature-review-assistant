@@ -1021,7 +1021,7 @@ async def _fetch_url_direct(
 # ---------------------------------------------------------------------------
 
 _PDF_HREF_RE = re.compile(
-    r"(/pdf|\.pdf(?:[?#]|$)|/download|article/download|article/view/[^\"'#]+/pdf)",
+    r"(/pdf|pdfft|\.pdf(?:[?#]|$)|/download|article/download|article/view/[^\"'#]+/pdf)",
     re.IGNORECASE,
 )
 
@@ -1170,6 +1170,17 @@ def _publisher_direct_pdf_url(url: str) -> str | None:
     # PeerJ: https://peerj.com/articles/{id}
     if "peerj.com" in host and "/articles/" in path and not path.endswith(".pdf"):
         return urlunparse(parsed._replace(path=path + ".pdf", query="", fragment=""))
+
+    # JoVE: https://app.jove.com/t/{id}/{slug}  ->  .../pdf/{id}/{slug}
+    # Tier 0 will fast-fail (Cloudflare + auth), falling through to Tier 0.5.
+    if "app.jove.com" in host and path.startswith("/t/"):
+        return urlunparse(parsed._replace(path="/pdf" + path[2:], query="", fragment=""))
+
+    # ScienceDirect: strip /abs from abstract page URL to get the full article URL.
+    # The pdfft endpoint requires a dynamic md5 we cannot derive; stripping /abs gives
+    # Tier 0.5 the best URL for citation_pdf_url extraction.
+    if "sciencedirect.com" in host and "/abs/pii/" in path:
+        return urlunparse(parsed._replace(path=path.replace("/abs/pii/", "/pii/", 1), query="", fragment=""))
 
     return None
 
@@ -1320,6 +1331,74 @@ async def _resolve_landing_page(
 
 
 # ---------------------------------------------------------------------------
+# Tier 0.5 helper: generic citation_pdf_url meta extraction
+# ---------------------------------------------------------------------------
+
+_CITATION_PDF_META_RE = re.compile(
+    r'<meta[^>]+name=["\']citation_pdf_url["\'][^>]+content=["\']([^"\']+)["\']',
+    re.IGNORECASE,
+)
+_CITATION_PDF_META_RE2 = re.compile(
+    r'<meta[^>]+content=["\']([^"\']+)["\'][^>]+name=["\']citation_pdf_url["\']',
+    re.IGNORECASE,
+)
+
+_QUICK_LP_TIMEOUT = 8  # seconds -- short; this is a speculative fast-path
+
+
+async def _quick_citation_pdf_url(
+    url: str,
+    diagnostics: list[str] | None = None,
+) -> str | None:
+    """Fetch the landing page and extract the citation_pdf_url meta tag value.
+
+    This is the HighWire/OJS/Scholix scholarly metadata standard used by Wiley,
+    Springer, Nature, Sage, Taylor & Francis, OJS journals, JoVE, and others.
+    Extracts ONLY the citation_pdf_url meta -- no JSON-LD scan, no anchor scan --
+    keeping this helper fast (one HTTP GET, regex only).
+
+    Returns the absolute PDF URL string, or None when not found.
+    """
+    if not url or not url.startswith("http"):
+        return None
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(
+                url,
+                headers=_LP_BROWSER_HEADERS,
+                timeout=aiohttp.ClientTimeout(total=_QUICK_LP_TIMEOUT),
+                allow_redirects=True,
+            ) as resp:
+                if resp.status != 200:
+                    _append_diag(diagnostics, "QuickCitPDF", f"HTTP {resp.status} for {url[:60]}")
+                    return None
+                ct = resp.headers.get("Content-Type", "").lower()
+                if "html" not in ct:
+                    return None
+                # Read only first 32 KB -- meta tags are always in <head>
+                chunk = await resp.content.read(32768)
+        html_head = chunk.decode("utf-8", errors="replace")
+        for pat in (_CITATION_PDF_META_RE, _CITATION_PDF_META_RE2):
+            m = pat.search(html_head)
+            if m:
+                candidate = m.group(1).strip()
+                if candidate.startswith("http"):
+                    _append_diag(diagnostics, "QuickCitPDF", f"found {candidate[:80]}")
+                    return candidate
+                # Resolve relative URL
+                resolved = urljoin(url, candidate)
+                if resolved.startswith("http"):
+                    _append_diag(diagnostics, "QuickCitPDF", f"found (relative) {resolved[:80]}")
+                    return resolved
+        _append_diag(diagnostics, "QuickCitPDF", "no citation_pdf_url meta found")
+        return None
+    except Exception as exc:
+        _append_diag(diagnostics, "QuickCitPDF", str(exc)[:80])
+        logger.debug("_quick_citation_pdf_url error for url=%s: %s", url, exc)
+        return None
+
+
+# ---------------------------------------------------------------------------
 # Public: tiered full-text retrieval
 # ---------------------------------------------------------------------------
 
@@ -1382,6 +1461,24 @@ async def fetch_full_text(
                     "fetch_full_text: tier 0 PublisherDirect success for url=%s source=%s",
                     url[:60],
                     result.source,
+                )
+                return result
+
+    # Tier 0.5: Generic citation_pdf_url meta extraction from publisher landing page.
+    # Covers JoVE, OJS journals, Wiley, Springer, Nature, Sage, Taylor & Francis, and
+    # any publisher using the HighWire/Scholix meta standard -- no per-site hardcoding.
+    # Uses the URL already normalised by Tier 0 (e.g. ScienceDirect /abs stripped).
+    # _fetch_url_direct rejects non-PDF responses, so false positives are impossible.
+    if url:
+        _tier05_url = _publisher_direct_pdf_url(url) or url
+        _cit_pdf = await _quick_citation_pdf_url(_tier05_url, diagnostics=diagnostics)
+        if _cit_pdf:
+            result = await _fetch_url_direct(_cit_pdf, diagnostics=diagnostics)
+            if result:
+                logger.info(
+                    "fetch_full_text: tier 0.5 citation_pdf_url success for url=%s cit=%s",
+                    url[:60],
+                    _cit_pdf[:60],
                 )
                 return result
 

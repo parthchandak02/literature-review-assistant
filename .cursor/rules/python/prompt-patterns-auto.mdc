@@ -54,5 +54,17 @@ Every writing section prompt includes a FACTUAL DATA BLOCK built by `format_grou
 - screening_method_description: injected verbatim; states that full-text PDFs were not retrieved
 - rob_summary: structured text block listing each paper's RoB2/ROBINS-I tool, judgment (low/some_concerns/high), and domains; injected so the LLM can write the risk-of-bias subsection with actual data instead of generic language
 - grade_summary: table of GRADE outcomes with certainty level (high/moderate/low/very_low); injected so the Discussion/Conclusion can cite actual GRADE ratings
-- VALID CITATION KEYS: includes both included study citekeys AND methodology citekeys
-  (Page2021, Sterne2019, Sterne2016, Guyatt2011, Cohen1960) from register_methodology_citations()
+- CITATION CATALOG: two separate labeled blocks -- "INCLUDED STUDIES -- CITATION COVERAGE REQUIRED" (included study citekeys + title snippet) and "METHODOLOGY REFERENCES" (Page2021, Sterne2019, Sterne2016, Guyatt2011, Cohen1960). Writing LLM must use ONLY citekeys from these blocks.
+- Abstract-only rate quality gate: when (fulltext_total - fulltext_retrieved) / fulltext_total > 0.40, a CAUTION block is injected mandating hedged language ("limited evidence suggests", "based on abstracts alone") in all sections and prominent Limitations disclosure. Do NOT remove this gate.
+
+## Cross-Section Context Chaining (PRIOR SECTIONS RULE)
+WritingNode uses a two-phase approach (see src/orchestration/workflow.py):
+- Phase A (abstract, intro, methods, results): run concurrently
+- Phase B (discussion, conclusion): run after Phase A; each receives a PRIOR SECTIONS CONTEXT block summarising Results (and Discussion for Conclusion) injected as extra context via write_section_with_validation(prior_sections_context=...)
+The PRIOR SECTIONS RULE in src/writing/prompts/sections.py instructs the LLM to synthesise and extend prior content rather than repeat it. Never bypass this by re-running Phase B sections without prior context -- it causes mechanical repetition.
+
+## Section Word Limits (SECTION_WORD_LIMITS in src/writing/prompts/sections.py)
+abstract: 230 words (enforced deterministically by _trim_abstract_to_limit() post-LLM)
+introduction: 700, methods: 900, results: 1400, discussion: 900, conclusion: 350
+Do NOT lower results below 1400 for reviews with >50 included papers -- the word budget is needed
+to mention all included studies at least once to satisfy the MANDATORY CITATION COVERAGE RULE.

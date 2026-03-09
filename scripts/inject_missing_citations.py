@@ -47,7 +47,6 @@ from src.export.ieee_latex import markdown_to_latex
 from src.export.markdown_refs import (
     assemble_submission_manuscript,
     is_extraction_failed,
-    strip_appended_sections,
 )
 from src.export.submission_packager import _build_number_to_citekey, llm_resolve_unmatched_citations
 from src.writing.prompts.sections import SECTIONS
@@ -428,7 +427,6 @@ async def main(run_dir_str: str) -> int:
     # ------------------------------------------------------------------
     # 7. Report final citation coverage
     # ------------------------------------------------------------------
-    all_drafts_after = manuscript_path.read_text(encoding="utf-8")
     import re as _re2
 
     cited_in_tex = set()
@@ -436,7 +434,7 @@ async def main(run_dir_str: str) -> int:
         for k in raw.split(","):
             cited_in_tex.add(k.strip())
     still_uncited = [k for k in uncited if k not in cited_in_tex]
-    print(f"\nCoverage report:")
+    print("\nCoverage report:")
     print(f"  Uncited before: {len(uncited)}")
     print(f"  Uncited after:  {len(still_uncited)}")
     if still_uncited:

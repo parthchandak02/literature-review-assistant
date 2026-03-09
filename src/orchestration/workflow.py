@@ -2897,7 +2897,6 @@ class WritingNode(BaseNode[ReviewState]):
                     ordered: list[tuple[int, str]] = []
                     failed: list[str] = []
                     for sec, res in zip(phase_sections, phase_results):
-                        idx = SECTIONS.index(sec) if sec in SECTIONS else -1
                         if isinstance(res, BaseException):
                             logger.error(
                                 "Writing task failed for section '%s' (%s: %s). "
