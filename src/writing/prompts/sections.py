@@ -24,9 +24,9 @@ ABSTRACT_WORD_LIMIT = _get_abstract_word_limit()
 SECTION_WORD_LIMITS: dict[str, int] = {
     "abstract": ABSTRACT_WORD_LIMIT,
     "introduction": 700,
-    "methods": 750,
-    "results": 900,
-    "discussion": 850,
+    "methods": 900,
+    "results": 1400,
+    "discussion": 900,
     "conclusion": 350,
 }
 
@@ -172,7 +172,7 @@ def get_methods_prompt_context(
     """Context for methods. PRISMA Items 3-16."""
     prefix = _grounding_prefix(grounding)
     return (
-        prefix + _NO_HEADING_RULE + "\n\n" + "Write a thorough methods section of approximately 750 words. "
+        prefix + _NO_HEADING_RULE + "\n\n" + "Write a thorough methods section of approximately 900 words. "
         "Do not truncate or summarise -- describe each step fully. "
         "Use the FACTUAL DATA BLOCK for all database names and dates. "
         "PRISMA Items 3-16: "
@@ -231,7 +231,7 @@ def get_results_prompt_context(
     """Context for results."""
     prefix = _grounding_prefix(grounding)
     return (
-        prefix + _NO_HEADING_RULE + "\n\n" + "Write a thorough results section of approximately 900 words. "
+        prefix + _NO_HEADING_RULE + "\n\n" + "Write a thorough results section of approximately 1400 words. "
         "ALL counts MUST come from the FACTUAL DATA BLOCK above -- "
         "do NOT invent records identified, screened, or excluded counts. "
         "Begin immediately with '### Study Selection' as the first line -- "
@@ -283,13 +283,20 @@ def get_discussion_prompt_context(
     """Context for discussion."""
     prefix = _grounding_prefix(grounding)
     return (
-        prefix + _NO_HEADING_RULE + "\n\n" + "Write a thorough discussion section of approximately 850 words. "
+        prefix + _NO_HEADING_RULE + "\n\n"
+        "PRIOR SECTIONS RULE: If a 'PRIOR SECTIONS CONTEXT' block appears above, you MUST "
+        "use it to inform this Discussion -- but do NOT copy or re-state sentences from it. "
+        "Instead, interpret the findings: what do they mean? How do they compare to prior "
+        "literature? What implications do they have for practice and future research? "
+        "The Discussion must BUILD on the Results, not repeat them.\n\n"
+        "Write a thorough discussion section of approximately 900 words. "
         "Do not truncate. "
         "Begin immediately with '### Principal Findings' as the first line -- "
         "do NOT add a parent 'Discussion' heading before it. "
         "Use explicit sub-headings:\n"
         "### Principal Findings\n"
-        "Summarise the main results and their implications.\n"
+        "Interpret and synthesize the main results -- explain what the overall pattern of "
+        "evidence means, not just what was found.\n"
         "### Comparison with Prior Work\n"
         "Compare findings to earlier reviews and the broader literature. "
         "Ground all claims in the INCLUDED STUDIES list. "
@@ -331,9 +338,13 @@ def get_conclusion_prompt_context(
     """Context for conclusion."""
     prefix = _grounding_prefix(grounding)
     return (
-        prefix + _NO_HEADING_RULE + "\n\n" + "Write a concise conclusion of approximately 350 words. "
-        "Provide a clear summary of findings grounded in the INCLUDED STUDIES list, "
-        "key implications for practice and future research, and a closing statement. "
+        prefix + _NO_HEADING_RULE + "\n\n"
+        "PRIOR SECTIONS RULE: If a 'PRIOR SECTIONS CONTEXT' block appears above, use it "
+        "only to inform the synthesis -- do NOT re-state the same statistics or sentences. "
+        "The Conclusion must synthesize and close, not recap. Provide the 'so what' answer.\n\n"
+        "Write a concise conclusion of approximately 350 words. "
+        "Provide a high-level synthesis of what the evidence means, key implications for "
+        "practice and future research, and a strong closing statement. "
         "Do NOT introduce new statistics. Cite only from the VALID CITATION KEYS list."
     )
 

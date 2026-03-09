@@ -563,6 +563,7 @@ async def write_section_with_validation(
     provider=None,
     grounding: WritingGroundingData | None = None,
     rag_context: str = "",
+    prior_sections_context: str = "",
 ) -> str:
     """Write a section, validate with citation ledger, return content.
 
@@ -571,11 +572,19 @@ async def write_section_with_validation(
     context so the LLM cannot hallucinate counts or statistics.
     The rag_context parameter appends semantically retrieved chunks from
     the paper embedding store so the LLM has targeted evidence for the section.
+    The prior_sections_context parameter injects already-written sections
+    (e.g. Results) so that Discussion/Conclusion can build on them rather
+    than repeating the same statistics verbatim.
     """
     from src.writing.prompts.sections import get_section_context
 
     # Build context from grounding data if provided; otherwise use the passed context
     effective_context = get_section_context(section, grounding=grounding) if grounding is not None else context
+
+    # Inject prior-sections context block BEFORE RAG chunks so the LLM
+    # sees the narrative spine of already-written sections first.
+    if prior_sections_context:
+        effective_context = effective_context + "\n\n" + prior_sections_context
 
     # Append RAG-retrieved evidence chunks when available
     if rag_context:

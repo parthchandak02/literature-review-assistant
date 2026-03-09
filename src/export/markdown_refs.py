@@ -592,6 +592,99 @@ def is_extraction_failed(rec: Any) -> bool:
     return all_placeholder and design_is_other and no_participant_count
 
 
+def build_compact_study_table(
+    papers: list[Any],
+    extraction_records: list[Any],
+    max_rows: int = 78,
+) -> str:
+    """Build a compact 5-column GFM table for the Results body (PRISMA 2020 Item 19).
+
+    Columns: Study (Year) | Country | Design | N | Key Finding
+
+    This is a concise in-body table, not the full Appendix B table.  It covers
+    all included studies and is inserted right after the Study Characteristics
+    heading in the assembled Results section so PRISMA Item 19 is satisfied.
+
+    Returns an empty string when no usable data is available.
+    """
+    paper_map: dict[str, Any] = {p.paper_id: p for p in papers}
+    extraction_map: dict[str, Any] = {r.paper_id: r for r in extraction_records}
+
+    rows: list[tuple[str, str, str, str, str]] = []
+    for paper_id, paper in paper_map.items():
+        rec = extraction_map.get(paper_id)
+        if rec is None or is_extraction_failed(rec):
+            continue
+
+        # Author (Year) column
+        if paper.authors:
+            first = _extract_surname(paper.authors[0])
+            author_str = f"{first} et al." if len(paper.authors) > 1 else first
+        else:
+            author_str = "NR"
+        year_str = str(paper.year) if getattr(paper, "year", None) else "n.d."
+        study_col = f"{author_str} ({year_str})"
+
+        # Country -- prefer paper.country, fall back to setting
+        country = str(getattr(paper, "country", None) or "").strip()
+        if not country:
+            setting = str(getattr(rec, "setting", None) or "").strip()
+            # Extract the first word that looks like a country (title-case, >3 chars)
+            for word in setting.split(","):
+                w = word.strip()
+                if len(w) > 3 and w[0].isupper():
+                    country = w
+                    break
+        country = country[:30] if country else "NR"
+
+        # Study design
+        design_val = getattr(rec, "study_design", None)
+        if design_val is None:
+            design_str = "NR"
+        elif hasattr(design_val, "value"):
+            raw = design_val.value.replace("_", " ")
+            design_str = raw.title() if raw else "NR"
+        else:
+            design_str = str(design_val).replace("_", " ").title() or "NR"
+        # Shorten very long labels for table readability
+        _DESIGN_SHORT: dict[str, str] = {
+            "Randomized Controlled Trial": "RCT",
+            "Non Randomized Interventional": "Non-RCT",
+            "Prospective Cohort": "Cohort",
+            "Retrospective Cohort": "Retro Cohort",
+        }
+        design_str = _DESIGN_SHORT.get(design_str, design_str)
+
+        # N (participant count)
+        n_val = getattr(rec, "participant_count", None)
+        n_str = str(n_val) if n_val else "NR"
+
+        # Key finding (truncate to ~100 chars for table cell readability)
+        finding = str(getattr(rec, "key_finding", None) or "").strip()
+        if len(finding) > 100:
+            finding = finding[:97] + "..."
+        finding = finding if finding else "NR"
+
+        rows.append((study_col, country, design_str, n_str, finding))
+        if len(rows) >= max_rows:
+            break
+
+    if not rows:
+        return ""
+
+    header = "| Study (Year) | Country | Design | N | Key Finding |"
+    sep = "|---|---|---|---|---|"
+    data_lines = [
+        f"| {r[0]} | {r[1]} | {r[2]} | {r[3]} | {r[4]} |"
+        for r in rows
+    ]
+    note = (
+        f"\n_Table 1. Summary of {len(rows)} included studies. "
+        "See Appendix B for full characteristics._"
+    )
+    return "\n".join([header, sep] + data_lines) + note
+
+
 def build_study_characteristics_table(
     papers: list[Any],
     extraction_records: list[Any],
@@ -1272,6 +1365,7 @@ def assemble_submission_manuscript(
     research_question: str = "",
     title: str | None = None,
     fulltext_paper_ids: set[str] | None = None,
+    include_rq_block: bool = False,
 ) -> str:
     """Combine all manuscript sections with HR separators.
 
@@ -1294,6 +1388,9 @@ def assemble_submission_manuscript(
     research_question: from review.yaml; prepended at top with title when provided.
     title: optional manuscript title; if None and research_question given, derived as
     "A Systematic Review: " + research_question (full text, no truncation).
+    include_rq_block: when True, prepend "Research Question: <question>" between the
+    title and the abstract body. Defaults to False (omit for IEEE submissions where
+    this non-standard prefix would appear before the structured abstract).
     """
     clean_body = _sanitize_body(body)
 
@@ -1332,7 +1429,7 @@ def assemble_submission_manuscript(
             _title = f"A Systematic Review: {research_question}"
         if _title:
             header_block = f"# {_title}\n\n"
-        if research_question:
+        if research_question and include_rq_block:
             header_block += f"**Research Question:** {research_question}\n\n---\n\n"
         if header_block:
             numbered_body = header_block + numbered_body
@@ -1394,6 +1491,26 @@ def assemble_submission_manuscript(
     mmat_section = ""
     if mmat_assessments:
         mmat_section = generate_mmat_table(mmat_assessments, paper_id_to_label=_pid_to_label)
+
+    # Inject compact study table into the Results body right after the
+    # "### Study Characteristics" heading (PRISMA 2020 Item 19).
+    if papers and extraction_records:
+        _compact_table = build_compact_study_table(papers, extraction_records)
+        if _compact_table:
+            _study_char_marker = "### Study Characteristics"
+            if _study_char_marker in numbered_body:
+                # Find end of the Study Characteristics heading line and insert table.
+                _sc_pos = numbered_body.index(_study_char_marker) + len(_study_char_marker)
+                # Skip to the next blank line after the heading
+                _sc_newline = numbered_body.find("\n", _sc_pos)
+                if _sc_newline >= 0:
+                    numbered_body = (
+                        numbered_body[: _sc_newline + 1]
+                        + "\n"
+                        + _compact_table
+                        + "\n"
+                        + numbered_body[_sc_newline + 1 :]
+                    )
 
     study_table_section = ""
     if papers and extraction_records:

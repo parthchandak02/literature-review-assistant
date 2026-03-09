@@ -2275,27 +2275,116 @@ def _reconcile_manuscript_consistency(body: str, state: ReviewState) -> str:  # 
     return body
 
 
-def _build_citation_coverage_patch(uncited_keys: list[str]) -> str:
-    """Build a brief Study Characteristics paragraph citing all uncited included-study keys.
+def _build_citation_coverage_patch(
+    uncited_keys: list[str],
+    citekey_to_design: dict[str, str] | None = None,
+) -> str:
+    """Build a Study Characteristics paragraph citing all uncited included-study keys.
 
-    Groups keys alphabetically into one paragraph so every included study citekey
-    appears at least once in the Results section. The paragraph is injected just
-    before the Risk of Bias subsection by the coverage-check caller.
+    When citekey_to_design is provided, groups keys by study design to produce
+    natural prose (e.g. 'Randomized trials include [A2021, B2022].'). Falls back
+    to simple chunking when no design mapping is available.
 
     This is a programmatic safety net: the LLM prompt already instructs comprehensive
-    citation coverage, but if the model omits any keys this function ensures the
-    final manuscript is complete.
+    citation coverage, but if the model omits any keys this ensures the final
+    manuscript is complete.
     """
     if not uncited_keys:
         return ""
-    # Chunk into groups of up to 8 for readability
+
+    if citekey_to_design:
+        # Group by study design label for natural prose output.
+        _design_buckets: dict[str, list[str]] = {}
+        _ungrouped: list[str] = []
+        for key in uncited_keys:
+            design = citekey_to_design.get(key, "")
+            # Normalize design labels to broad human-readable categories.
+            d_lower = design.lower().replace("_", " ").strip()
+            if "randomized" in d_lower or "rct" in d_lower or "controlled trial" in d_lower:
+                bucket = "Randomized controlled trials"
+            elif "non-randomized" in d_lower or "quasi" in d_lower or "non randomized" in d_lower:
+                bucket = "Non-randomized studies"
+            elif "pre" in d_lower and "post" in d_lower:
+                bucket = "Pre-post studies"
+            elif "qualitative" in d_lower:
+                bucket = "Qualitative studies"
+            elif "cross" in d_lower and "section" in d_lower:
+                bucket = "Cross-sectional studies"
+            elif "case" in d_lower:
+                bucket = "Case reports and case series"
+            elif "development" in d_lower or "feasibility" in d_lower or "usability" in d_lower:
+                bucket = "Developmental and feasibility studies"
+            elif "review" in d_lower and "system" not in d_lower:
+                bucket = "Narrative reviews"
+            elif design:
+                bucket = f"{design.capitalize()} studies"
+            else:
+                _ungrouped.append(key)
+                continue
+            _design_buckets.setdefault(bucket, []).append(key)
+        if _ungrouped:
+            _design_buckets.setdefault("Additional included studies", []).extend(_ungrouped)
+
+        sentences = []
+        for label, keys in _design_buckets.items():
+            _CHUNK = 8
+            groups = [keys[i : i + _CHUNK] for i in range(0, len(keys), _CHUNK)]
+            clusters = "; ".join("[" + ", ".join(g) + "]" for g in groups)
+            sentences.append(f"{label} in this review also include {clusters}.")
+        return " ".join(sentences)
+
+    # Fallback: simple chunking with improved prose
     _CHUNK = 8
     groups = [uncited_keys[i : i + _CHUNK] for i in range(0, len(uncited_keys), _CHUNK)]
-    cite_clusters = "; ".join("[" + ", ".join(g) + "]" for g in groups)
-    return (
-        "Additional included studies contributing to the evidence base are "
-        f"acknowledged here to ensure complete citation coverage: {cite_clusters}."
-    )
+    sentences = [f"Studies contributing to the evidence base include [{', '.join(groups[0])}]."]
+    for g in groups[1:]:
+        sentences.append(f"Further included studies are [{', '.join(g)}].")
+    return " ".join(sentences)
+
+
+def _trim_abstract_to_limit(abstract: str, limit: int = 230) -> str:
+    """Trim abstract body to at most `limit` words, excluding the Keywords line.
+
+    Counts words in the labelled fields (Background through Conclusion) and,
+    if over limit, shortens the longest field by removing words from its end
+    until the total fits. The Keywords line is never trimmed or counted.
+    """
+    # Separate Keywords line from the rest (always last)
+    lines = abstract.split("\n")
+    kw_line = ""
+    body_lines: list[str] = []
+    for line in lines:
+        stripped = line.lstrip("*").lstrip().lower()
+        if stripped.startswith("keywords:") or stripped.startswith("**keywords"):
+            kw_line = line
+        else:
+            body_lines.append(line)
+    body = "\n".join(body_lines).strip()
+
+    # Count words in body only
+    body_words = body.split()
+    if len(body_words) <= limit:
+        return abstract  # Already within limit; no trimming needed.
+
+    # Identify the field that contributes the most words and trim it.
+    # Fields are separated by **Label:** markers in bold.
+    import re as _re
+    field_re = _re.compile(r"(\*\*[A-Za-z ]+:\*\*[^\n]*(?:\n(?!\*\*)[^\n]*)*)", _re.MULTILINE)
+    fields = field_re.findall(body)
+    if not fields:
+        # No bold fields found: just truncate at word limit
+        trimmed = " ".join(body_words[:limit])
+        return (trimmed + ("\n\n" + kw_line if kw_line else "")).strip()
+
+    # Find which field is longest and trim it by the excess
+    excess = len(body_words) - limit
+    longest_idx = max(range(len(fields)), key=lambda i: len(fields[i].split()))
+    field_words = fields[longest_idx].split()
+    trim_target = max(1, len(field_words) - excess)
+    trimmed_field = " ".join(field_words[:trim_target])
+    body = body.replace(fields[longest_idx], trimmed_field, 1)
+
+    return (body.strip() + ("\n\n" + kw_line if kw_line else "")).strip()
 
 
 def _build_minimal_sections_for_zero_papers(
@@ -2634,8 +2723,17 @@ class WritingNode(BaseNode[ReviewState]):
                 _write_sem = asyncio.Semaphore(_write_concurrency)
                 _sections_done: list[int] = [0]
 
-                async def _write_one_section(i: int, section: str) -> tuple[int, str]:
-                    """Produce (index, content) for one section, already draft-saved."""
+                async def _write_one_section(
+                    i: int,
+                    section: str,
+                    prior_sections_context: str = "",
+                ) -> tuple[int, str]:
+                    """Produce (index, content) for one section, already draft-saved.
+
+                    prior_sections_context: optional block injected into the LLM prompt
+                    so that Discussion/Conclusion can build on the already-written Results
+                    rather than repeating the same statistics.
+                    """
                     async with _write_sem:
                         if section in completed:
                             if rc and rc.verbose:
@@ -2747,6 +2845,7 @@ class WritingNode(BaseNode[ReviewState]):
                             provider=provider,
                             grounding=grounding,
                             rag_context=rag_context,
+                            prior_sections_context=prior_sections_context,
                         )
 
                         # Humanization pass: apply configured number of iterations
@@ -2783,29 +2882,127 @@ class WritingNode(BaseNode[ReviewState]):
                             rc.advance_screening("phase_6_writing", _sections_done[0], len(SECTIONS))
                         return i, _content
 
-                _section_results = await asyncio.gather(
-                    *[_write_one_section(i, section) for i, section in enumerate(SECTIONS)],
+                # Two-phase writing: Phase A (abstract/intro/methods/results) runs
+                # concurrently. Phase B (discussion/conclusion) runs after Phase A
+                # so it can receive the Results draft as a PRIOR SECTIONS CONTEXT
+                # block, enabling Discussion to interpret rather than re-state Results.
+                _PHASE_A_SECTIONS = ["abstract", "introduction", "methods", "results"]
+                _PHASE_B_SECTIONS = ["discussion", "conclusion"]
+
+                def _collect_results(
+                    phase_sections: list[str],
+                    phase_results: list,
+                ) -> tuple[list[tuple[int, str]], list[str]]:
+                    """Extract (index, content) pairs and failed section names."""
+                    ordered: list[tuple[int, str]] = []
+                    failed: list[str] = []
+                    for sec, res in zip(phase_sections, phase_results):
+                        idx = SECTIONS.index(sec) if sec in SECTIONS else -1
+                        if isinstance(res, BaseException):
+                            logger.error(
+                                "Writing task failed for section '%s' (%s: %s). "
+                                "Check API quota for the writing model.",
+                                sec, type(res).__name__, str(res)[:200],
+                            )
+                            failed.append(sec)
+                        elif isinstance(res, tuple):
+                            ordered.append(res)
+                    return ordered, failed
+
+                # Phase A: run concurrently
+                _phase_a_results = await asyncio.gather(
+                    *[
+                        _write_one_section(SECTIONS.index(s), s)
+                        for s in _PHASE_A_SECTIONS
+                        if s in SECTIONS
+                    ],
                     return_exceptions=True,
                 )
-                # Reassemble in canonical SECTIONS order (gather returns in submission order,
-                # but we sort by index to be explicit and handle any exception entries).
-                _ordered: list[tuple[int, str]] = []
-                _failed_sections: list[str] = []
-                for _idx, _res in enumerate(_section_results):
-                    if isinstance(_res, BaseException):
-                        _sec_name = SECTIONS[_idx] if _idx < len(SECTIONS) else f"section_{_idx}"
-                        # Log full exception so quota/auth errors appear in server log.
-                        logger.error(
-                            "Writing task failed for section '%s' (%s: %s). Check API quota for the writing model.",
-                            _sec_name,
-                            type(_res).__name__,
-                            str(_res)[:200],
+                _ordered_a, _failed_a = _collect_results(
+                    [s for s in _PHASE_A_SECTIONS if s in SECTIONS],
+                    _phase_a_results,
+                )
+
+                # Build prior-sections context from Phase A results.
+                _section_a_cache: dict[str, str] = {}
+                for _, _acontent in _ordered_a:
+                    pass  # need to correlate by index
+                for sec, res in zip(
+                    [s for s in _PHASE_A_SECTIONS if s in SECTIONS], _phase_a_results
+                ):
+                    if isinstance(res, tuple):
+                        _section_a_cache[sec] = res[1]
+
+                _results_draft = _section_a_cache.get("results", "")
+
+                def _build_prior_ctx(for_section: str) -> str:
+                    """Build PRIOR SECTIONS CONTEXT block for Discussion/Conclusion."""
+                    if not _results_draft:
+                        return ""
+                    _max_chars = 2000 if for_section == "discussion" else 900
+                    _rule = (
+                        "PRIOR SECTIONS RULE: The Results section is summarised above. "
+                        "Do NOT re-state or copy these statistics. Instead, interpret them: "
+                        "what does this evidence mean clinically and methodologically? "
+                        "Compare with prior literature and synthesize implications. "
+                        "Build forward -- do not look back."
+                    ) if for_section == "discussion" else (
+                        "PRIOR SECTIONS RULE: A Results summary is provided above for context. "
+                        "The Conclusion must NOT recite these findings again. Instead, provide "
+                        "the high-level 'so what' answer: what does this body of evidence mean "
+                        "for practice and future research? Close with a strong final statement."
+                    )
+                    return (
+                        "---\n"
+                        "PRIOR SECTIONS CONTEXT (do not re-state; build on this):\n\n"
+                        "=== RESULTS SUMMARY (first ~2000 chars) ===\n"
+                        + _results_draft[:_max_chars]
+                        + "\n=== END PRIOR SECTIONS ===\n\n"
+                        + _rule
+                        + "\n---"
+                    )
+
+                # Phase B: run concurrently with prior context injected
+                _phase_b_results = await asyncio.gather(
+                    *[
+                        _write_one_section(
+                            SECTIONS.index(s), s, _build_prior_ctx(s)
                         )
-                        _failed_sections.append(_sec_name)
-                    else:
-                        _ordered.append(_res)
-                _ordered.sort(key=lambda t: t[0])
-                sections_written = [content for _, content in _ordered]
+                        for s in _PHASE_B_SECTIONS
+                        if s in SECTIONS
+                    ],
+                    return_exceptions=True,
+                )
+                _ordered_b, _failed_b = _collect_results(
+                    [s for s in _PHASE_B_SECTIONS if s in SECTIONS],
+                    _phase_b_results,
+                )
+
+                # Merge and sort by canonical SECTIONS order
+                _ordered = sorted(_ordered_a + _ordered_b, key=lambda t: t[0])
+                _failed_sections = _failed_a + _failed_b
+                sections_written_raw = {idx: content for idx, content in _ordered}
+                sections_written = [
+                    sections_written_raw.get(i, "")
+                    for i in range(len(SECTIONS))
+                ]
+
+                # Abstract post-trim: enforce word limit after LLM generation.
+                # The LLM is instructed not to exceed 230 words but routinely writes
+                # 250-280. Apply a deterministic trim as a hard backstop.
+                _abs_idx = SECTIONS.index("abstract") if "abstract" in SECTIONS else -1
+                if _abs_idx >= 0 and sections_written[_abs_idx]:
+                    from src.writing.prompts.sections import ABSTRACT_WORD_LIMIT
+                    _abs_limit = max(ABSTRACT_WORD_LIMIT, 230)
+                    _trimmed_abs = _trim_abstract_to_limit(sections_written[_abs_idx], limit=_abs_limit)
+                    if _trimmed_abs != sections_written[_abs_idx]:
+                        logger.info(
+                            "WritingNode: abstract trimmed from %d to ~%d words",
+                            len(sections_written[_abs_idx].split()),
+                            len(_trimmed_abs.split()),
+                        )
+                        sections_written[_abs_idx] = _trimmed_abs
+
                 if _failed_sections and rc and hasattr(rc, "_emit"):
                     rc._emit(
                         {
@@ -2986,9 +3183,32 @@ class WritingNode(BaseNode[ReviewState]):
                         len(_uncited),
                         _uncited[:10],
                     )
+                    # Build citekey->design map from citation_rows + extraction_records
+                    # so the coverage patch groups uncited keys by study design.
+                    _pid_to_design_cov: dict[str, str] = {}
+                    for _er in (extraction_records_for_table or []):
+                        _dv = getattr(_er, "study_design", None)
+                        _ds = str(_dv.value if hasattr(_dv, "value") else _dv) if _dv else ""
+                        if _ds:
+                            _pid_to_design_cov[str(_er.paper_id)] = _ds
+                    _citekey_to_design_cov: dict[str, str] = {}
+                    for _crow in (citation_rows or []):
+                        _ckey = (
+                            _crow.get("citekey", "") if isinstance(_crow, dict)
+                            else getattr(_crow, "citekey", "")
+                        )
+                        _cpid = (
+                            _crow.get("paper_id", "") if isinstance(_crow, dict)
+                            else getattr(_crow, "paper_id", "")
+                        )
+                        if _ckey and _cpid and str(_cpid) in _pid_to_design_cov:
+                            _citekey_to_design_cov[str(_ckey)] = _pid_to_design_cov[str(_cpid)]
+
                     # Build a grouped coverage paragraph and inject into Results body.
-                    # Grouping uses paper_id_to_citekey; falls back to a flat list.
-                    _cov_patch = _build_citation_coverage_patch(_uncited)
+                    _cov_patch = _build_citation_coverage_patch(
+                        _uncited,
+                        citekey_to_design=_citekey_to_design_cov if _citekey_to_design_cov else None,
+                    )
                     # Inject before '### Risk of Bias' in the body; append to Results if absent.
                     _rob_marker = "### Risk of Bias"
                     if _rob_marker in body:
