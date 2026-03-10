@@ -16,10 +16,12 @@ export const PHASE_ORDER = [
 export type PhaseKey = (typeof PHASE_ORDER)[number]
 
 export const PHASE_LABELS: Record<string, string> = {
+  start: "Start",
   phase_2_search: "Search",
   phase_3_screening: "Screening",
   screening_calibration: "Threshold Calibration",
-  fulltext_pdf_retrieval: "PDF Retrieval",
+  fulltext_pdf_retrieval: "Full-Text PDF Retrieval",
+  citation_chasing: "Citation Chasing",
   phase_4_extraction_quality: "Extraction & Quality",
   phase_4b_embedding: "Embedding",
   phase_5_synthesis: "Synthesis",

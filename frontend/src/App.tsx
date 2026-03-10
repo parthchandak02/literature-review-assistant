@@ -302,16 +302,33 @@ export default function App() {
     setActiveRunTab(urlTab)
 
     if (stored?.workflowId === urlWfId) {
-      // URL points to the currently-live run -- restore from localStorage.
-      setSelectedRun({
-        runId: stored.runId,
-        workflowId: stored.workflowId ?? null,
-        topic: stored.topic,
-        dbPath: null,
-        isDone: false,
-        startedAt: new Date(stored.startedAt),
-        createdAt: stored.startedAt,
-      })
+      // URL points to the currently-live run in localStorage. Probe backend
+      // first to avoid trusting stale run_ids after restart/resume.
+      void (async () => {
+        const active = await fetchActiveRun(urlWfId)
+        if (aborted) return
+
+        if (active && active.run_id === stored.runId) {
+          setSelectedRun({
+            runId: stored.runId,
+            workflowId: stored.workflowId ?? null,
+            topic: stored.topic,
+            dbPath: null,
+            isDone: false,
+            startedAt: new Date(stored.startedAt),
+            createdAt: stored.startedAt,
+          })
+          return
+        }
+
+        // Stale local run state: clear and restore from registry/attach flow.
+        clearLiveRun()
+        setLiveRunId(null)
+        setLiveWorkflowId(null)
+        setLiveTopic(null)
+        setLiveStartedAt(null)
+        void restoreRunFromUrl(urlWfId, urlTab, () => aborted)
+      })()
     } else {
       // URL points to a historical run -- load from the history API.
       void restoreRunFromUrl(urlWfId, urlTab, () => aborted)

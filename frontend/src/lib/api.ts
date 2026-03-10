@@ -438,8 +438,19 @@ export interface PaperReference {
   file_type: "pdf" | "txt" | null
 }
 
-export async function fetchPapersReference(runId: string): Promise<PaperReference[]> {
-  const res = await fetch(`${BASE}/run/${runId}/papers-reference`)
+/**
+ * Fetch included papers for the References tab.
+ * When runId fails with 404 (evicted from _active_runs), retry with workflowId
+ * so the backend can resolve via workflows_registry.
+ */
+export async function fetchPapersReference(
+  runId: string,
+  workflowIdFallback?: string | null,
+): Promise<PaperReference[]> {
+  let res = await fetch(`${BASE}/run/${runId}/papers-reference`)
+  if (res.status === 404 && workflowIdFallback && workflowIdFallback !== runId) {
+    res = await fetch(`${BASE}/run/${encodeURIComponent(workflowIdFallback)}/papers-reference`)
+  }
   if (!res.ok) throw await _apiError(res, "Papers reference fetch failed")
   const data = await res.json() as { papers?: PaperReference[] }
   return data.papers ?? []
@@ -478,12 +489,19 @@ export interface FetchPdfsProgressEvent {
  * Retroactively fetch full-text PDFs/text for all included papers in a completed run.
  * Streams SSE progress events as each paper is processed.
  * onProgress is called after each paper with the current count and result.
+ * When runId fails with 404, retries with workflowIdFallback (registry lookup).
  */
 export async function fetchPdfsForRun(
   runId: string,
   onProgress?: (evt: FetchPdfsProgressEvent) => void,
+  workflowIdFallback?: string | null,
 ): Promise<FetchPdfsResult> {
-  const res = await fetch(`${BASE}/run/${runId}/fetch-pdfs`, { method: "POST" })
+  let res = await fetch(`${BASE}/run/${runId}/fetch-pdfs`, { method: "POST" })
+  if (res.status === 404 && workflowIdFallback && workflowIdFallback !== runId) {
+    res = await fetch(`${BASE}/run/${encodeURIComponent(workflowIdFallback)}/fetch-pdfs`, {
+      method: "POST",
+    })
+  }
   if (!res.ok) throw await _apiError(res, "PDF fetch failed")
 
   const reader = res.body?.getReader()

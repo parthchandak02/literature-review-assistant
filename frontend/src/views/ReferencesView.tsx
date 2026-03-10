@@ -6,6 +6,8 @@ import { cn } from "@/lib/utils"
 
 interface ReferencesViewProps {
   runId: string
+  /** workflow_id (e.g. wf-0007) for 404 retry when runId evicted from _active_runs */
+  workflowId?: string | null
   isDone: boolean
 }
 
@@ -61,7 +63,7 @@ interface FetchProgress {
   skipped: number
 }
 
-export function ReferencesView({ runId, isDone }: ReferencesViewProps) {
+export function ReferencesView({ runId, workflowId, isDone }: ReferencesViewProps) {
   const [papers, setPapers] = useState<PaperReference[]>([])
   const [loading, setLoading] = useState(isDone)
   const [error, setError] = useState<string | null>(null)
@@ -70,20 +72,22 @@ export function ReferencesView({ runId, isDone }: ReferencesViewProps) {
   const [fetchResult, setFetchResult] = useState<FetchPdfsResult | null>(null)
   const [fetchError, setFetchError] = useState<string | null>(null)
   const [refreshKey, setRefreshKey] = useState(0)
+  /** For historical runs, use workflowId (registry-stable); for live runs use runId */
+  const effectiveId = (isDone && workflowId) ? workflowId : runId
 
   const fetchPapers = useCallback(() => {
-    return fetchPapersReference(runId)
+    setLoading(true)
+    return fetchPapersReference(effectiveId, workflowId)
       .then(setPapers)
       .catch((e: unknown) => setError(e instanceof Error ? e.message : "Failed to load references"))
       .finally(() => setLoading(false))
-  }, [runId])
+  }, [effectiveId, workflowId])
 
   useEffect(() => {
     if (!isDone) return
-    setLoading(true)
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- fetchPapers intentionally manages loading/error state for this view
     void fetchPapers()
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isDone, runId, refreshKey])
+  }, [isDone, effectiveId, refreshKey, fetchPapers])
 
   const handleFetchPdfs = () => {
     setFetching(true)
@@ -102,7 +106,7 @@ export function ReferencesView({ runId, isDone }: ReferencesViewProps) {
       }))
     }
 
-    fetchPdfsForRun(runId, onProgress)
+    fetchPdfsForRun(effectiveId, onProgress, workflowId)
       .then((result) => {
         setFetchResult(result)
         setFetchProgress(null)
@@ -238,7 +242,7 @@ export function ReferencesView({ runId, isDone }: ReferencesViewProps) {
             key={paper.paper_id}
             paper={paper}
             index={idx + 1}
-            runId={runId}
+            runId={effectiveId}
           />
         ))}
       </div>

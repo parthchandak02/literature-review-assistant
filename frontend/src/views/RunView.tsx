@@ -127,6 +127,7 @@ export function RunView({
   // For historical runs, events prop is [] (only live runs get the SSE stream).
   // Fetch stored events once so the funnel can be computed for completed runs too.
   const [historicalEvents, setHistoricalEvents] = useState<ReviewEvent[]>([])
+  const [historicalEventsLoading, setHistoricalEventsLoading] = useState(false)
   const isHistorical = events.length === 0
 
   useEffect(() => {
@@ -136,12 +137,19 @@ export function RunView({
       // for resetting derived state when a condition changes.
       // eslint-disable-next-line react-hooks/set-state-in-effect
       setHistoricalEvents([])
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setHistoricalEventsLoading(false)
       return
     }
     let cancelled = false
-    void fetchRunEvents(run.runId).then((evts) => {
-      if (!cancelled) setHistoricalEvents(evts)
-    })
+    setHistoricalEventsLoading(true)
+    void fetchRunEvents(run.runId)
+      .then((evts) => {
+        if (!cancelled) setHistoricalEvents(evts)
+      })
+      .finally(() => {
+        if (!cancelled) setHistoricalEventsLoading(false)
+      })
     return () => { cancelled = true }
   }, [run.runId, isHistorical])
 
@@ -368,6 +376,8 @@ export function RunView({
           {activeTab === "activity" && (
             <ActivityView
               events={events}
+              prefetchedHistoricalEvents={isHistorical ? historicalEvents : null}
+              historicalEventsLoading={isHistorical ? historicalEventsLoading : false}
               status={status}
               runId={run.runId}
               workflowId={run.workflowId}
@@ -415,7 +425,11 @@ export function RunView({
           )}
 
           {activeTab === "references" && (
-            <ReferencesView runId={run.runId} isDone={isDone} />
+            <ReferencesView
+              runId={run.runId}
+              workflowId={run.workflowId}
+              isDone={isDone}
+            />
           )}
         </Suspense>
       </div>
