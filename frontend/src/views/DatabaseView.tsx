@@ -58,7 +58,6 @@ export function DatabaseView({ runId, isDone, dbAvailable, isLive }: DatabaseVie
   const [yearFilter, setYearFilter] = useState("")
   const [sourceFilter, setSourceFilter] = useState("")
   const [countryFilter, setCountryFilter] = useState("")
-  const [showHeuristicOnly, setShowHeuristicOnly] = useState(false)
   const [page, setPage] = useState(0)
 
   const [papers, setPapers] = useState<PaperAllRow[]>([])
@@ -201,7 +200,6 @@ export function DatabaseView({ runId, isDone, dbAvailable, isLive }: DatabaseVie
     setYearFilter("")
     setSourceFilter("")
     setCountryFilter("")
-    setShowHeuristicOnly(false)
     setTitleSuggestions([])
     setAuthorSuggestions([])
   }
@@ -210,15 +208,10 @@ export function DatabaseView({ runId, isDone, dbAvailable, isLive }: DatabaseVie
     return <LoadingPane message="Database initializing..." className="h-64" />
   }
 
-  const activeFilters = [titleFilter, authorFilter, taFilter, ftFilter, yearFilter, sourceFilter, countryFilter].filter(Boolean).length + (showHeuristicOnly ? 1 : 0)
-
-  // Apply client-side heuristic filter after fetch
-  const displayedPapers = showHeuristicOnly
-    ? papers.filter((p) => p.assessment_source === "heuristic")
-    : papers
+  const activeFilters = [titleFilter, authorFilter, taFilter, ftFilter, yearFilter, sourceFilter, countryFilter].filter(Boolean).length
 
   // Hide the Confidence column when no paper on the current page has a value.
-  const hasConfidenceData = displayedPapers.some((p) => p.extraction_confidence != null)
+  const hasConfidenceData = papers.some((p) => p.extraction_confidence != null)
 
   return (
     <div className="flex flex-col gap-4">
@@ -232,18 +225,6 @@ export function DatabaseView({ runId, isDone, dbAvailable, isLive }: DatabaseVie
             Clear {activeFilters} filter{activeFilters > 1 ? "s" : ""}
           </button>
         )}
-        <button
-          onClick={() => setShowHeuristicOnly((v) => !v)}
-          className={cn(
-            "flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-full border transition-colors",
-            showHeuristicOnly
-              ? "border-amber-600 bg-amber-900/30 text-amber-400"
-              : "border-zinc-700 text-zinc-500 hover:text-zinc-300 hover:border-zinc-600",
-          )}
-        >
-          <AlertTriangle className="h-3 w-3" />
-          Heuristic screen only
-        </button>
         <div className="flex items-center gap-3 ml-auto">
           {!error && (
             <span className="text-xs text-zinc-500 tabular-nums">
@@ -266,20 +247,20 @@ export function DatabaseView({ runId, isDone, dbAvailable, isLive }: DatabaseVie
       </div>
 
       {/* Table */}
-      <div className="card-surface overflow-hidden">
+      <div className="glass-table-shell">
         {error ? (
           <div className="p-4">
             <FetchError message={error} onRetry={loadPapers} />
           </div>
         ) : loading ? (
           <TableSkeleton cols={9} rows={8} />
-        ) : displayedPapers.length === 0 ? (
+        ) : papers.length === 0 ? (
           <EmptyState icon={Database} heading="No papers found." className="py-12" />
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-xs">
               <thead>
-                <tr className="border-b border-zinc-800">
+                <tr className="glass-table-head border-b border-zinc-800/70">
                   <Th
                     filter={
                       <FilterComboboxPopover
@@ -373,12 +354,12 @@ export function DatabaseView({ runId, isDone, dbAvailable, isLive }: DatabaseVie
                 </tr>
               </thead>
               <tbody>
-                {displayedPapers.map((p, i) => (
+                {papers.map((p, i) => (
                   <tr
                     key={p.paper_id}
                     className={cn(
-                      "border-b border-zinc-800/50 hover:bg-zinc-800/40 transition-colors",
-                      i === displayedPapers.length - 1 && "border-0",
+                      "glass-table-row border-b border-zinc-800/40",
+                      i === papers.length - 1 && "border-0",
                     )}
                   >
                     <Td className="max-w-xs">
@@ -401,12 +382,12 @@ export function DatabaseView({ runId, isDone, dbAvailable, isLive }: DatabaseVie
                         )
                       })()}
                     </Td>
-                    <Td className="text-zinc-500 max-w-[160px]">
+                    <Td className="glass-table-cell-muted max-w-[160px]">
                       <span className="line-clamp-1">{p.authors}</span>
                     </Td>
-                    <Td className="tabular-nums text-zinc-400">{p.year ?? "--"}</Td>
-                    <Td className="text-zinc-500">{p.source_database}</Td>
-                    <Td className="text-zinc-600">{p.country ?? "--"}</Td>
+                    <Td className="tabular-nums glass-table-cell-muted">{p.year ?? "--"}</Td>
+                    <Td className="glass-table-cell-muted">{p.source_database}</Td>
+                    <Td className="glass-table-cell-muted">{p.country ?? "--"}</Td>
                     <DecisionCell value={p.ta_decision} />
                     <DecisionCell value={p.ft_decision} />
                     {hasConfidenceData && <ExtractionConfidenceCell value={p.extraction_confidence} />}
@@ -518,12 +499,12 @@ function FilterComboboxPopover({
           sideOffset={6}
           onInteractOutside={() => setOpen(false)}
           className={cn(
-            "z-50 w-56 bg-zinc-900 border border-zinc-800 rounded-xl shadow-2xl shadow-black/60",
+            "z-50 w-56 glass-panel-strong border border-zinc-700/80 rounded-xl shadow-2xl shadow-black/60",
             "overflow-hidden",
           )}
         >
           <Command shouldFilter={false}>
-            <div className="relative flex items-center border-b border-zinc-800 px-2">
+            <div className="relative flex items-center border-b border-zinc-700/80 px-2 glass-toolbar">
               <CommandInput
                 value={local}
                 onValueChange={(v) => setLocal(v)}
@@ -538,7 +519,7 @@ function FilterComboboxPopover({
                     setOpen(false)
                   }
                 }}
-                className="border-0 focus:ring-0 h-8 text-xs bg-transparent text-zinc-200 placeholder:text-zinc-600 py-0"
+                className="border-0 focus:ring-0 h-8 text-xs bg-transparent text-zinc-100 placeholder:text-zinc-500 py-0"
               />
               {local && (
                 <button
@@ -571,8 +552,8 @@ function FilterComboboxPopover({
                       value={s}
                       onSelect={() => applyValue(s)}
                       className={cn(
-                        "text-xs text-zinc-300 cursor-pointer rounded-md px-2 py-1.5",
-                        "data-[selected=true]:bg-zinc-800 data-[selected=true]:text-zinc-100",
+                        "text-xs text-zinc-200 cursor-pointer rounded-md px-2 py-1.5",
+                        "data-[selected=true]:bg-violet-900/40 data-[selected=true]:text-violet-100",
                       )}
                     >
                       <span className="truncate">{s}</span>

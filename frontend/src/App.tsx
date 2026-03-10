@@ -699,9 +699,43 @@ export default function App() {
     navigate(`/run/${workflowId}/activity`, { replace: true })
   }
 
-  async function handleSidebarResume(entry: HistoryEntry) {
-    const res = await resumeRun(entry)
-    handleResumeRun(res, entry.workflow_id)
+  async function handleSidebarResume(entry: HistoryEntry, fromPhase?: string | null) {
+    try {
+      const res = await resumeRun(entry, fromPhase)
+      handleResumeRun(res, entry.workflow_id)
+      if (fromPhase) {
+        toast.success("Resumed from selected phase")
+      } else {
+        toast.success("Run resumed")
+      }
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : String(error)
+      if (msg.includes("400")) {
+        toast.error("Invalid resume phase. Try a different phase.")
+      } else if (msg.includes("409")) {
+        toast.error("This run is already active.")
+      } else {
+        toast.error(msg || "Failed to resume run")
+      }
+      throw error
+    }
+  }
+
+  async function handleTimelineResumePhase(phase: string) {
+    if (!selectedRun?.workflowId || !selectedRun.dbPath) return
+    const entry: HistoryEntry = {
+      workflow_id: selectedRun.workflowId,
+      topic: selectedRun.topic,
+      status: selectedRun.historicalStatus ?? "stale",
+      db_path: selectedRun.dbPath,
+      created_at: selectedRun.createdAt ?? new Date().toISOString(),
+      papers_found: selectedRun.papersFound ?? null,
+      papers_included: selectedRun.papersIncluded ?? null,
+      total_cost: selectedRun.historicalCost ?? null,
+      live_run_id: null,
+      notes: null,
+    }
+    await handleSidebarResume(entry, phase)
   }
 
   async function handleSidebarDelete(workflowId: string) {
@@ -772,6 +806,7 @@ export default function App() {
         liveOutputs={isViewingLiveRun ? liveOutputs : {}}
         dbUnlocked={Boolean(dbUnlocked)}
         isLive={isViewingLiveRun && isRunning && Boolean(dbUnlocked)}
+        onResumeFromPhase={!isViewingLiveRun ? handleTimelineResumePhase : undefined}
       />
     )
   }
@@ -820,7 +855,7 @@ export default function App() {
       >
         {/* Top bar -- paddingTop pushes content below the iOS status bar when viewport-fit=cover is active */}
         <header
-          className="sticky top-0 z-10 bg-background/80 backdrop-blur-sm border-b border-zinc-800 shrink-0"
+          className="sticky top-0 z-10 glass-toolbar border-b border-zinc-800/70 shrink-0"
           style={{ paddingTop: 'env(safe-area-inset-top)' }}
         >
           <div className="h-14 flex items-center px-4 gap-3">

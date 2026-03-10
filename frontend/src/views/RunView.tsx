@@ -1,8 +1,9 @@
 import { Suspense, lazy, useEffect, useMemo, useState } from "react"
-import { Activity, BarChart3, BookOpen, ChevronRight, Database, FileText, FileCode2, ClipboardCheck } from "lucide-react"
+import { Activity, BarChart3, BookOpen, Database, FileText, FileCode2, ClipboardCheck } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { formatRunDate, formatWorkflowId } from "@/lib/format"
 import { Spinner } from "@/components/ui/feedback"
+import { GlassTabs } from "@/components/ui/glass-tabs"
 import { ActivityView } from "@/views/ActivityView"
 import type { ReviewEvent } from "@/lib/api"
 import { fetchRunEvents } from "@/lib/api"
@@ -52,13 +53,13 @@ export interface SelectedRun {
 }
 
 /** Tab order follows the review workflow: Config (YAML) -> Activity -> Data -> Cost -> Results -> References */
-const TAB_ITEMS: { id: RunTab; label: string; icon: React.ElementType; step: number }[] = [
-  { id: "config", label: "Config", icon: FileCode2, step: 1 },
-  { id: "activity", label: "Activity", icon: Activity, step: 2 },
-  { id: "database", label: "Data", icon: Database, step: 3 },
-  { id: "cost", label: "Cost", icon: BarChart3, step: 4 },
-  { id: "results", label: "Results", icon: FileText, step: 5 },
-  { id: "references", label: "References", icon: BookOpen, step: 6 },
+const TAB_ITEMS: { id: RunTab; label: string; icon: React.ElementType }[] = [
+  { id: "config", label: "Config", icon: FileCode2 },
+  { id: "activity", label: "Activity", icon: Activity },
+  { id: "database", label: "Data", icon: Database },
+  { id: "cost", label: "Cost", icon: BarChart3 },
+  { id: "results", label: "Results", icon: FileText },
+  { id: "references", label: "References", icon: BookOpen },
 ]
 
 function ViewLoader() {
@@ -108,6 +109,8 @@ interface RunViewProps {
   dbUnlocked: boolean
   /** True while the run is still streaming (for DatabaseView auto-refresh). */
   isLive: boolean
+  /** Resume from a specific phase (historical runs only). */
+  onResumeFromPhase?: (phase: string) => Promise<void>
 }
 
 export function RunView({
@@ -122,6 +125,7 @@ export function RunView({
   liveOutputs,
   dbUnlocked,
   isLive,
+  onResumeFromPhase,
 }: RunViewProps) {
   const [wfIdCopied, setWfIdCopied] = useState(false)
   // For historical runs, events prop is [] (only live runs get the SSE stream).
@@ -229,10 +233,32 @@ export function RunView({
   return (
     <div className="flex flex-col gap-0 h-full">
       {/* Run info strip */}
-      <div className="flex items-center gap-2 px-6 py-2 border-b border-zinc-800/60 bg-zinc-900/30 shrink-0 overflow-x-auto scrollbar-none text-meta" style={{ touchAction: 'pan-x' }}>
+      <div className="glass-toolbar flex items-center gap-2 px-6 py-2 border-b border-zinc-800/60 shrink-0 overflow-x-auto scrollbar-none text-meta" style={{ touchAction: 'pan-x' }}>
         <span className={cn("font-semibold shrink-0", statusClass)}>
           {statusLabel}
         </span>
+        {(run.workflowId ?? run.runId) && (
+          <>
+            <InfoPill dim>|</InfoPill>
+            <InfoPill dim>
+              <button
+                type="button"
+                onClick={async () => {
+                  const id = run.workflowId ?? run.runId
+                  if (id) {
+                    await navigator.clipboard.writeText(id)
+                    setWfIdCopied(true)
+                    setTimeout(() => setWfIdCopied(false), 1500)
+                  }
+                }}
+                className="hover:text-zinc-400 transition-colors cursor-pointer"
+                title="Copy workflow ID"
+              >
+                {wfIdCopied ? "Copied!" : formatWorkflowId(run.workflowId ?? run.runId)}
+              </button>
+            </InfoPill>
+          </>
+        )}
         {run.createdAt && (
           <>
             <InfoPill dim>|</InfoPill>
@@ -294,80 +320,21 @@ export function RunView({
             </InfoPill>
           </>
         )}
-        {(run.workflowId ?? run.runId) && (
-          <>
-            <InfoPill dim>|</InfoPill>
-            <InfoPill dim>
-              <button
-                type="button"
-                onClick={async () => {
-                  const id = run.workflowId ?? run.runId
-                  if (id) {
-                    await navigator.clipboard.writeText(id)
-                    setWfIdCopied(true)
-                    setTimeout(() => setWfIdCopied(false), 1500)
-                  }
-                }}
-                className="hover:text-zinc-400 transition-colors cursor-pointer"
-                title="Copy workflow ID"
-              >
-                {wfIdCopied ? "Copied!" : formatWorkflowId(run.workflowId ?? run.runId)}
-              </button>
-            </InfoPill>
-          </>
-        )}
       </div>
 
-      {/* Tab bar -- workflow order: Config -> Activity -> Data -> Cost -> Results */}
-      {/* touch-action: pan-x locks iOS touch to horizontal-only scrolling on this bar */}
-      <div className="flex items-center gap-0 px-3 pt-4 pb-0 border-b border-zinc-800 shrink-0 overflow-x-auto scrollbar-none" style={{ touchAction: 'pan-x' }}>
-        {TAB_ITEMS.map((tab, idx) => (
-          <div key={tab.id} className="flex items-center shrink-0">
-            {idx > 0 && (
-              <ChevronRight
-                className={cn(
-                  "h-3.5 w-3.5 mx-0.5 shrink-0",
-                  activeTab === tab.id ? "text-violet-500" : "text-zinc-600",
-                )}
-                aria-hidden
-              />
-            )}
-            <button
-              onClick={() => onTabChange(tab.id)}
-              className={cn(
-                "flex items-center gap-1.5 px-3 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors whitespace-nowrap shrink-0",
-                activeTab === tab.id
-                  ? "border-violet-500 text-white"
-                  : "border-transparent text-zinc-500 hover:text-zinc-300",
-              )}
-              title={`Step ${tab.step}: ${tab.label}`}
-            >
-              <span className="text-[10px] font-mono tabular-nums text-zinc-600 w-3.5 shrink-0">
-                {tab.step}
-              </span>
-              <tab.icon className="h-3.5 w-3.5" />
-              {tab.label}
-            </button>
-          </div>
-        ))}
-        {/* Review Screening: conditional HITL step, shown when awaiting human approval */}
-        {isAwaitingReview && (
-          <>
-            <span className="text-zinc-600 mx-2 shrink-0" aria-hidden>|</span>
-            <button
-              onClick={() => onTabChange("review-screening")}
-              className={cn(
-                "flex items-center gap-1.5 px-3 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors whitespace-nowrap shrink-0",
-                activeTab === "review-screening"
-                  ? "border-amber-500 text-amber-400"
-                  : "border-amber-700 text-amber-600 hover:text-amber-400",
-              )}
-            >
-              <ClipboardCheck className="h-3.5 w-3.5" />
-              Review Screening
-            </button>
-          </>
-        )}
+      {/* Glass tabs module */}
+      <div className="glass-toolbar px-3 py-2 border-b border-zinc-800/70 shrink-0" style={{ touchAction: "pan-x" }}>
+        <GlassTabs
+          items={[
+            ...TAB_ITEMS.map((tab) => ({ id: tab.id, label: tab.label, icon: tab.icon })),
+            ...(isAwaitingReview
+              ? [{ id: "review-screening" as RunTab, label: "Review Screening", icon: ClipboardCheck, accent: "amber" as const }]
+              : []),
+          ]}
+          activeTab={activeTab}
+          onTabChange={onTabChange}
+          equalWidth
+        />
       </div>
 
       {/* Tab content -- pb accounts for iOS/Chrome bottom safe area (home bar, bottom nav) */}
@@ -381,8 +348,10 @@ export function RunView({
               status={status}
               runId={run.runId}
               workflowId={run.workflowId}
+              historicalStatus={run.historicalStatus}
               isDone={isDone}
               onCancel={onCancel}
+              onResumeFromPhase={onResumeFromPhase}
             />
           )}
 

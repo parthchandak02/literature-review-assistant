@@ -43,10 +43,10 @@ function SourceBadge({ source }: { source: string }) {
   return (
     <span
       className={cn(
-        "inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-mono",
+        "glass-chip inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-mono",
         isAbstract
-          ? "bg-zinc-800 text-zinc-500"
-          : "bg-emerald-900/40 text-emerald-400",
+          ? "text-zinc-400"
+          : "text-emerald-300 border-emerald-700/70",
       )}
     >
       {label}
@@ -188,10 +188,10 @@ export function ReferencesView({ runId, workflowId, isDone }: ReferencesViewProp
               onClick={handleFetchPdfs}
               disabled={fetching}
               className={cn(
-                "inline-flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-medium transition-colors",
+                "inline-flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-medium transition-colors glass-interactive",
                 fetching
-                  ? "bg-zinc-800 text-zinc-500 cursor-not-allowed"
-                  : "bg-zinc-800 text-zinc-300 hover:bg-zinc-700 hover:text-zinc-100",
+                  ? "glass-panel text-zinc-500 cursor-not-allowed"
+                  : "glass-panel text-zinc-300 hover:text-zinc-100",
               )}
             >
               <RefreshCw className={cn("h-3 w-3", fetching && "animate-spin")} />
@@ -269,10 +269,10 @@ function PaperCard({ paper, index, runId }: PaperCardProps) {
   return (
     <div
       className={cn(
-        "group relative rounded-lg border p-4 transition-colors",
+        "group relative rounded-lg border p-4 transition-colors glass-panel",
         hasFullText
-          ? "border-zinc-700/60 bg-zinc-900/40 hover:border-zinc-600"
-          : "border-zinc-800/60 bg-zinc-900/20",
+          ? "border-zinc-700/70 hover:border-zinc-500"
+          : "border-zinc-800/70",
       )}
     >
       <div className="flex items-start gap-3">
@@ -302,7 +302,7 @@ function PaperCard({ paper, index, runId }: PaperCardProps) {
           <div className="flex flex-wrap items-center gap-1.5 mt-2">
             <SourceBadge source={paper.retrieval_source} />
             {paper.source_database && (
-              <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-mono bg-zinc-800 text-zinc-500">
+            <span className="glass-chip inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-mono text-zinc-400">
                 {paper.source_database}
               </span>
             )}

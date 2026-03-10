@@ -222,6 +222,19 @@ the dedup fingerprint -- replay order shifts and index-based keys cause duplicat
 after refresh/reconnect. Use semantic fields (type, ts, phase/paper/section, status/tokens) and
 stable-stringify fallback for unknown event shapes.
 
+## Activity Log Is Event Stream, Not Raw Process Log
+The Activity tab renders structured `ReviewEvent` rows from `/api/stream/{run_id}` plus
+`event_log` replay. Plain process log lines (for example warnings printed by module loggers)
+do not appear there unless they are emitted through the run event callback path. If users
+report "terminal shows it but Activity does not", verify whether that message is a structured
+event or only a backend log line; `/api/logs/stream?run_id=` is the raw PM2 log channel.
+
+## Frontend Freeze Guardrails: Bounded Events + Always-Eligible Virtualization
+`useSSEStream.ts` now enforces a UI cap (`MAX_UI_EVENTS`) with safe trimming and chunked
+prefetch append. `LogStream.tsx` virtualization is enabled by row count (`renderItems > 350`)
+regardless of viewport width when rows are not expanded. Do NOT reintroduce width-gated
+virtualization or unbounded event arrays; both patterns caused replay-time UI freezes on resume.
+
 ## Background SR Citekeys Must Be ASCII (No Accented Characters)
 `register_background_sr_citations()` in `src/writing/orchestration.py` builds citekeys
 as `{first_surname}{year}SR`. Author surnames with accented characters (e.g. "Perez"

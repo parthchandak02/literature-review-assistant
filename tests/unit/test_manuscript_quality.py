@@ -208,6 +208,34 @@ def test_compact_table_reports_truncation_count() -> None:
     assert "Summary of 2 of 3 included studies" in result
 
 
+def test_compact_table_replaces_html_css_artifact_finding_with_nr() -> None:
+    from src.export.markdown_refs import build_compact_study_table
+
+    papers = [_make_paper("p1", ["Smith A"], 2021)]
+    rec = _make_extraction(
+        "p1",
+        "rct",
+        10,
+        "The provided text consists primarily of CSS and HTML code and does not contain findings.",
+    )
+    result = build_compact_study_table(papers, [rec])
+    assert "| NR |" in result
+    assert "CSS and HTML code" not in result
+
+
+def test_compact_table_sanitizes_artifact_from_main_finding_fallback() -> None:
+    from src.export.markdown_refs import build_compact_study_table
+
+    papers = [_make_paper("p1", ["Smith A"], 2021)]
+    rec = _make_extraction("p1", "rct", 10, "")
+    rec.results_summary = {
+        "main_finding": "The provided text is an editorial header and does not contain the study findings."
+    }
+    result = build_compact_study_table(papers, [rec])
+    assert "| NR |" in result
+    assert "editorial header" not in result.lower()
+
+
 def test_compact_table_injected_in_body(tmp_path: Path) -> None:
     """Compact table is injected after '### Study Characteristics' in assembled manuscript."""
     from src.export.markdown_refs import assemble_submission_manuscript
@@ -531,6 +559,47 @@ def test_enforce_prisma_sentence_counts_enforces_invariants() -> None:
     out = _enforce_prisma_sentence_counts(text, 49, 92, 49, 141)
     assert "Of the 233 reports sought for retrieval" in out
     assert "92 were not retrieved and 141 were assessed for eligibility" in out
+
+
+def test_enforce_prisma_screening_sentence_rewrites_remaining_variant() -> None:
+    from src.orchestration.workflow import _enforce_prisma_screening_sentence
+
+    text = (
+        "An automated relevance pre-screening step excluded 83 records before title/abstract review. "
+        "The remaining 291 records were then screened at the title and abstract level."
+    )
+    out = _enforce_prisma_screening_sentence(
+        text,
+        records_after_deduplication=291,
+        automation_excluded=83,
+        records_screened=291,
+    )
+    assert "excluded 83 records" in out
+    assert "208 records were screened" in out
+
+
+def test_enforce_abstract_retrieval_caution_appends_for_high_nonretrieval() -> None:
+    from src.orchestration.workflow import _enforce_abstract_retrieval_caution
+
+    abstract = (
+        "**Background:** A.\n\n"
+        "**Objectives:** B.\n\n"
+        "**Methods:** C.\n\n"
+        "**Results:** D.\n\n"
+        "**Conclusion:** E.\n\n"
+        "**Keywords:** x, y"
+    )
+    out = _enforce_abstract_retrieval_caution(abstract, fulltext_sought=57, fulltext_not_retrieved=38)
+    assert "Limited evidence suggests" in out
+    assert "38 of 57 reports" in out
+
+
+def test_enforce_abstract_retrieval_caution_noop_when_already_hedged() -> None:
+    from src.orchestration.workflow import _enforce_abstract_retrieval_caution
+
+    abstract = "**Conclusion:** Limited evidence suggests caution.\n\n**Keywords:** x"
+    out = _enforce_abstract_retrieval_caution(abstract, fulltext_sought=57, fulltext_not_retrieved=38)
+    assert out == abstract
 
 
 def test_zero_papers_minimal_abstract_contains_all_structured_fields() -> None:

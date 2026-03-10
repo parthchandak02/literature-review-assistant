@@ -2705,6 +2705,72 @@ def _enforce_prisma_sentence_counts(
     return loose_pattern.sub(canonical, text)
 
 
+def _enforce_prisma_screening_sentence(
+    text: str,
+    records_after_deduplication: int,
+    automation_excluded: int,
+    records_screened: int,
+) -> str:
+    """Normalize screening-stage prose so automation and screened counts cannot conflict."""
+    import re as _re
+
+    records_after_deduplication = max(0, records_after_deduplication)
+    automation_excluded = max(0, min(automation_excluded, records_after_deduplication))
+    records_screened = max(0, records_screened)
+    if automation_excluded > 0:
+        records_screened = max(0, records_after_deduplication - automation_excluded)
+        canonical = (
+            f"After deduplication, {records_after_deduplication} records remained. "
+            f"An automated relevance pre-screening step excluded {automation_excluded} records, "
+            f"and {records_screened} records were screened at the title and abstract level."
+        )
+    else:
+        canonical = (
+            f"After deduplication, {records_after_deduplication} records remained, "
+            f"and {records_screened} records were screened at the title and abstract level."
+        )
+
+    # Replace common LLM variants that drift to records_after_deduplication as screened count.
+    strong_pattern = _re.compile(
+        r"(?:The\s+remaining|Consequently,|After\s+deduplication,)\s+\d+\s+records[^.]{0,260}"
+        r"screened(?:\s+at\s+the\s+title\s+and\s+abstract\s+level)?\.",
+        _re.IGNORECASE,
+    )
+    text = strong_pattern.sub(canonical, text)
+    return text
+
+
+def _enforce_abstract_retrieval_caution(
+    text: str,
+    fulltext_sought: int,
+    fulltext_not_retrieved: int,
+    threshold: float = 0.40,
+) -> str:
+    """Ensure abstract uses hedged language when full-text non-retrieval is high."""
+    if fulltext_sought <= 0:
+        return text
+    rate = fulltext_not_retrieved / fulltext_sought
+    if rate <= threshold:
+        return text
+    lower = text.lower()
+    has_hedge = (
+        "limited evidence suggests" in lower
+        or "findings are constrained by missing full texts" in lower
+        or "based on abstracts alone" in lower
+    )
+    if has_hedge:
+        return text
+
+    caution_sentence = (
+        f" Limited evidence suggests these findings should be interpreted cautiously, "
+        f"as {fulltext_not_retrieved} of {fulltext_sought} reports had no retrievable full text."
+    )
+    # Prefer appending in the Conclusion field for structured abstracts.
+    if "**Conclusion:**" in text:
+        return text.replace("**Conclusion:**", f"**Conclusion:**{caution_sentence} ", 1)
+    return text + caution_sentence
+
+
 def _build_minimal_sections_for_zero_papers(
     research_question: str,
     minimal_paragraph: str,
@@ -2950,8 +3016,9 @@ class WritingNode(BaseNode[ReviewState]):
                     ) as _date_cur:
                         _date_row = await _date_cur.fetchone()
                     if _date_row and _date_row[0]:
-                        # search_date is stored as ISO date (YYYY-MM-DD); extract year only.
-                        _actual_search_date = str(_date_row[0])[:4]
+                        # search_date is stored as ISO date (YYYY-MM-DD); keep full date
+                        # so Methods can report a concrete search date.
+                        _actual_search_date = str(_date_row[0])
                 except Exception as _date_err:
                     logger.debug("WritingNode: could not fetch search_date: %s", _date_err)
 
@@ -3552,12 +3619,24 @@ class WritingNode(BaseNode[ReviewState]):
                 )
                 _norm_assessed = max(prisma_counts.reports_assessed, _included_total)
                 _norm_sought = max(prisma_counts.reports_sought, prisma_counts.reports_not_retrieved + _norm_assessed)
+                _records_after_dedup = (
+                    prisma_counts.total_identified_databases
+                    + prisma_counts.total_identified_other
+                    - prisma_counts.duplicates_removed
+                )
+                _automation_excluded = max(0, min(prisma_counts.automation_excluded, _records_after_dedup))
+                _screened_count = (
+                    max(0, _records_after_dedup - _automation_excluded)
+                    if _automation_excluded > 0
+                    else max(0, prisma_counts.records_screened)
+                )
                 _prisma_sentence = (
                     f"Of the {_norm_sought} reports sought for retrieval, "
                     f"{prisma_counts.reports_not_retrieved} were not retrieved and {_norm_assessed} "
                     f"were assessed for eligibility, with {_included_total} studies ultimately included."
                 )
                 _abs_idx = SECTIONS.index("abstract") if "abstract" in SECTIONS else -1
+                _results_idx = SECTIONS.index("results") if "results" in SECTIONS else -1
                 if _abs_idx >= 0 and not sections_written[_abs_idx].strip():
                     sections_written[_abs_idx] = (
                         "**Background:** This review synthesizes the available evidence for the topic. "
@@ -3605,6 +3684,17 @@ class WritingNode(BaseNode[ReviewState]):
                         reports_assessed=prisma_counts.reports_assessed,
                         included_total=_included_total,
                     )
+                    sections_written[_abs_idx] = _enforce_prisma_screening_sentence(
+                        sections_written[_abs_idx],
+                        records_after_deduplication=_records_after_dedup,
+                        automation_excluded=_automation_excluded,
+                        records_screened=_screened_count,
+                    )
+                    sections_written[_abs_idx] = _enforce_abstract_retrieval_caution(
+                        sections_written[_abs_idx],
+                        fulltext_sought=prisma_counts.reports_sought,
+                        fulltext_not_retrieved=prisma_counts.reports_not_retrieved,
+                    )
 
                 # Also normalize the same PRISMA sentence in Methods if present.
                 if _methods_idx >= 0 and sections_written[_methods_idx]:
@@ -3614,6 +3704,19 @@ class WritingNode(BaseNode[ReviewState]):
                         reports_not_retrieved=prisma_counts.reports_not_retrieved,
                         reports_assessed=prisma_counts.reports_assessed,
                         included_total=_included_total,
+                    )
+                    sections_written[_methods_idx] = _enforce_prisma_screening_sentence(
+                        sections_written[_methods_idx],
+                        records_after_deduplication=_records_after_dedup,
+                        automation_excluded=_automation_excluded,
+                        records_screened=_screened_count,
+                    )
+                if _results_idx >= 0 and sections_written[_results_idx]:
+                    sections_written[_results_idx] = _enforce_prisma_screening_sentence(
+                        sections_written[_results_idx],
+                        records_after_deduplication=_records_after_dedup,
+                        automation_excluded=_automation_excluded,
+                        records_screened=_screened_count,
                     )
 
                 if _failed_sections and rc and hasattr(rc, "_emit"):

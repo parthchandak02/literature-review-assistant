@@ -14,9 +14,6 @@ import {
   BookOpen,
   FileType,
   FileCode,
-  GripVertical,
-  Maximize2,
-  Minimize2,
   RefreshCw,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
@@ -172,7 +169,7 @@ function ManuscriptViewer({ filePath }: { filePath: string }) {
   return (
     <div className="overflow-hidden">
       {/* Toolbar: outline toggle + zoom control */}
-      <div className="flex items-center justify-between px-4 h-9 border-b border-zinc-800 bg-zinc-950/60 shrink-0">
+      <div className="glass-toolbar flex items-center justify-between px-4 h-9 border-b border-zinc-800/70 shrink-0">
         {/* Outline toggle */}
         <button
           onClick={() => setShowOutline((v) => !v)}
@@ -210,7 +207,7 @@ function ManuscriptViewer({ filePath }: { filePath: string }) {
 
       {/* Vertical outline panel -- collapsible */}
       {showOutline && headings.length > 0 && (
-        <div className="border-b border-zinc-800 bg-zinc-950/40 max-h-52 overflow-y-auto">
+        <div className="glass-toolbar border-b border-zinc-800/70 max-h-52 overflow-y-auto">
           <nav className="py-1">
             {headings.map((h) => (
               <button
@@ -332,7 +329,7 @@ function PrismaCard({ runId }: { runId: string }) {
           {data && data.total > 0 && (
             <>
               {/* Summary bar */}
-              <div className="flex items-center gap-4 text-xs flex-wrap p-3 rounded-lg bg-zinc-800/50">
+            <div className="flex items-center gap-4 text-xs flex-wrap p-3 rounded-lg glass-panel">
                 <span className="text-emerald-400 font-semibold">{data.reported_count} Reported</span>
                 <span className="text-amber-400 font-semibold">{data.partial_count} Partial</span>
                 <span className="text-red-400 font-semibold">{data.missing_count} Missing</span>
@@ -542,16 +539,6 @@ function ManuscriptActions({ docxPath, canExport, exportRunId, allOutputs }: Man
   )
 }
 
-// ---------------------------------------------------------------------------
-// ResultsView
-// ---------------------------------------------------------------------------
-
-type ResultsLayout = "split" | "left" | "right"
-
-const MIN_RIGHT_WIDTH = 220
-const MAX_RIGHT_WIDTH = 520
-const DEFAULT_RIGHT_WIDTH = 300
-
 interface ResultsViewProps {
   outputs: Record<string, unknown>
   isDone: boolean
@@ -565,49 +552,6 @@ export function ResultsView({
   historyOutputs = {},
   exportRunId,
 }: ResultsViewProps) {
-  const [layout, setLayout] = useState<ResultsLayout>("split")
-  const [rightWidth, setRightWidth] = useState(DEFAULT_RIGHT_WIDTH)
-  const [isMobile, setIsMobile] = useState(
-    () => window.matchMedia("(max-width: 767px)").matches,
-  )
-  const containerRef = useRef<HTMLDivElement>(null)
-  const isDragging = useRef(false)
-
-  // Track mobile breakpoint (md = 768px) -- on mobile stack panels vertically.
-  useEffect(() => {
-    const mq = window.matchMedia("(max-width: 767px)")
-    const handler = (e: MediaQueryListEvent) => setIsMobile(e.matches)
-    mq.addEventListener("change", handler)
-    return () => mq.removeEventListener("change", handler)
-  }, [])
-
-  // Drag-to-resize the right panel (inverse of ActivityView: right is fixed, left is flex-1)
-  const handleDividerMouseDown = useCallback((e: React.MouseEvent) => {
-    e.preventDefault()
-    isDragging.current = true
-    document.body.style.cursor = "col-resize"
-    document.body.style.userSelect = "none"
-
-    const handleMouseMove = (ev: MouseEvent) => {
-      if (!isDragging.current || !containerRef.current) return
-      const rect = containerRef.current.getBoundingClientRect()
-      const distFromRight = rect.right - ev.clientX
-      const newWidth = Math.max(MIN_RIGHT_WIDTH, Math.min(MAX_RIGHT_WIDTH, distFromRight))
-      setRightWidth(newWidth)
-    }
-
-    const handleMouseUp = () => {
-      isDragging.current = false
-      document.body.style.cursor = ""
-      document.body.style.userSelect = ""
-      document.removeEventListener("mousemove", handleMouseMove)
-      document.removeEventListener("mouseup", handleMouseUp)
-    }
-
-    document.addEventListener("mousemove", handleMouseMove)
-    document.addEventListener("mouseup", handleMouseUp)
-  }, [])
-
   const effectiveOutputs = useMemo<Record<string, unknown>>(() => {
     const base =
       Object.keys(outputs).length > 0
@@ -670,134 +614,44 @@ export function ResultsView({
   }
 
   return (
-    <div
-      ref={containerRef}
-      className={cn("flex", isMobile ? "flex-col gap-3" : "flex-row")}
-      style={isMobile ? undefined : { minHeight: "520px", alignItems: "stretch" }}
-    >
-      {/* ---- LEFT: Manuscript + Artifacts ---- */}
-      {layout !== "right" && (
-        <div
-          className="flex flex-col min-w-0 flex-1"
-          style={isMobile ? { minHeight: "480px" } : undefined}
-        >
-          <div className="card-surface overflow-hidden flex flex-col flex-1 min-h-0">
-            {/* Panel header -- always visible; download actions live here */}
-            <div className="flex items-center justify-between px-4 h-11 border-b border-zinc-800 shrink-0 gap-2">
-              <span className="label-caps shrink-0">Manuscript</span>
-              <div
-                className="flex items-center gap-1.5 flex-1 justify-end overflow-hidden"
-                onClick={(e) => e.stopPropagation()}
-              >
-                <ManuscriptActions
-                  docxPath={docxPath}
-                  canExport={canExport}
-                  exportRunId={exportRunId}
-                  allOutputs={effectiveOutputs}
-                />
-                <button
-                  onClick={() => setLayout(layout === "left" ? "split" : "left")}
-                  className="text-zinc-500 hover:text-zinc-300 transition-colors p-0.5 rounded shrink-0 ml-1"
-                  title={layout === "left" ? "Restore split view" : "Expand manuscript panel"}
-                >
-                  {layout === "left"
-                    ? <Minimize2 className="h-3.5 w-3.5" />
-                    : <Maximize2 className="h-3.5 w-3.5" />
-                  }
-                </button>
-              </div>
-            </div>
-
-            {/* Scrollable body: Manuscript viewer + Artifacts list */}
-            <div className="flex-1 overflow-y-auto min-h-0">
-              {manuscriptPath && (
-                <CollapsibleSection
-                  icon={FileText}
-                  title="Manuscript"
-                  defaultOpen={true}
-                >
-                  <ManuscriptViewer filePath={manuscriptPath} />
-                </CollapsibleSection>
-              )}
-
-              <CollapsibleSection
-                icon={FileText}
-                title="Artifacts"
-                description="Protocol, data files, figures"
-              >
-                <div className="p-4">
-                  <ResultsPanel
-                    outputs={effectiveOutputs}
-                    excludePaths={manuscriptExcludePaths}
-                  />
-                </div>
-              </CollapsibleSection>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* ---- Drag handle (split only, desktop only) ---- */}
-      {layout === "split" && !isMobile && (
-        <div
-          className="flex items-center justify-center w-3 shrink-0 cursor-col-resize group relative"
-          onMouseDown={handleDividerMouseDown}
-        >
-          <div className="absolute inset-y-0 -inset-x-1 z-10" />
-          <div className="flex flex-col items-center gap-1 relative z-20 h-full justify-center">
-            <div className="w-px flex-1 bg-zinc-800 group-hover:bg-violet-500/40 transition-colors" />
-            <GripVertical className="h-4 w-4 text-zinc-700 group-hover:text-violet-400 transition-colors shrink-0" />
-            <div className="w-px flex-1 bg-zinc-800 group-hover:bg-violet-500/40 transition-colors" />
-          </div>
-        </div>
-      )}
-
-      {/* ---- RIGHT: PRISMA + Evidence Network ---- */}
-      {layout !== "left" && (
-        <div
-          className="flex flex-col min-w-0"
-          style={
-            isMobile
-              ? { minHeight: "300px" }
-              : layout === "split"
-                ? { width: rightWidth, flexShrink: 0 }
-                : { flex: 1 }
+    <div className="flex flex-col gap-3 min-h-[520px]">
+      {manuscriptPath && (
+        <CollapsibleSection
+          icon={FileText}
+          title="Manuscript"
+          defaultOpen={false}
+          actions={
+            <ManuscriptActions
+              docxPath={docxPath}
+              canExport={canExport}
+              exportRunId={exportRunId}
+              allOutputs={effectiveOutputs}
+            />
           }
         >
-          <div className="card-surface overflow-hidden flex flex-col flex-1 min-h-0">
-            {/* Panel header */}
-            <div className="flex items-center justify-between px-4 h-11 border-b border-zinc-800 shrink-0">
-              <span className="label-caps">Analysis</span>
-              <button
-                onClick={() => setLayout(layout === "right" ? "split" : "right")}
-                className="text-zinc-500 hover:text-zinc-300 transition-colors p-0.5 rounded"
-                title={layout === "right" ? "Restore split view" : "Expand analysis panel"}
-              >
-                {layout === "right"
-                  ? <Minimize2 className="h-3.5 w-3.5" />
-                  : <Maximize2 className="h-3.5 w-3.5" />
-                }
-              </button>
-            </div>
+          <ManuscriptViewer filePath={manuscriptPath} />
+        </CollapsibleSection>
+      )}
 
-            {/* Scrollable body: PRISMA + Evidence Network */}
-            <div className="flex-1 overflow-y-auto min-h-0">
-              {exportRunId
-                ? <PrismaCard runId={exportRunId} />
-                : (
-                  <div className="px-4 py-3 text-xs text-zinc-600">
-                    PRISMA compliance available after run completes.
-                  </div>
-                )
-              }
-              {exportRunId
-                ? <EvidenceNetworkSection runId={exportRunId} />
-                : null
-              }
-            </div>
-          </div>
+      {exportRunId ? (
+        <PrismaCard runId={exportRunId} />
+      ) : (
+        <div className="card-surface px-4 py-3 text-xs text-zinc-500">
+          PRISMA compliance available after run completes.
         </div>
       )}
+
+      {exportRunId ? <EvidenceNetworkSection runId={exportRunId} /> : null}
+
+      <CollapsibleSection
+        icon={FileText}
+        title="Artifacts"
+        description="Protocol, data files, figures"
+      >
+        <div className="p-4">
+          <ResultsPanel outputs={effectiveOutputs} excludePaths={manuscriptExcludePaths} />
+        </div>
+      </CollapsibleSection>
     </div>
   )
 }

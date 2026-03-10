@@ -547,22 +547,41 @@ def build_writing_grounding(
     _rob_summary = _build_rob_summary(rob2_assessments or [], robins_i_assessments or [])
     _grade_summary = _build_grade_summary(grade_assessments or [])
 
+    _records_after_dedup = (
+        prisma_counts.total_identified_databases
+        + prisma_counts.total_identified_other
+        - prisma_counts.duplicates_removed
+    )
+    _automation_excluded = max(0, prisma_counts.automation_excluded)
+    if _automation_excluded > _records_after_dedup:
+        _automation_excluded = _records_after_dedup
+    # Prefer PRISMA arithmetic invariants for writing-grounding counts.
+    # This keeps section prose deterministic even when intermediate DB rows from
+    # older runs represented screening stages differently.
+    _effective_screened = (
+        max(0, _records_after_dedup - _automation_excluded)
+        if _automation_excluded > 0
+        else max(0, prisma_counts.records_screened)
+    )
+    _effective_records_excluded_screening = max(0, _effective_screened - prisma_counts.reports_sought)
+
+    _failed_dbs = sorted(set(failed_databases or []))
+    _search_date = (search_date or "").strip()
+    if not _search_date:
+        _search_date = datetime.now().date().isoformat()
+
     return WritingGroundingData(
         databases_searched=active_dbs,
         zero_yield_databases=zero_yield_dbs,
-        failed_databases=failed_databases or [],
+        failed_databases=_failed_dbs,
         other_methods_searched=active_other,
-        search_date=search_date or str(datetime.now().year),
+        search_date=_search_date,
         total_identified=prisma_counts.total_identified_databases + prisma_counts.total_identified_other,
         duplicates_removed=prisma_counts.duplicates_removed,
-        records_after_deduplication=(
-            prisma_counts.total_identified_databases
-            + prisma_counts.total_identified_other
-            - prisma_counts.duplicates_removed
-        ),
-        automation_excluded=prisma_counts.automation_excluded,
-        total_screened=prisma_counts.records_screened,
-        records_excluded_screening=prisma_counts.records_excluded_screening,
+        records_after_deduplication=_records_after_dedup,
+        automation_excluded=_automation_excluded,
+        total_screened=_effective_screened,
+        records_excluded_screening=_effective_records_excluded_screening,
         fulltext_assessed=prisma_counts.reports_assessed,
         total_included=total_included_count,
         fulltext_excluded=fulltext_excluded_count,
@@ -598,7 +617,7 @@ def build_writing_grounding(
         heterogeneity_warning=heterogeneity_warning,
         screening_method_description=_build_screening_method_description(
             screening_decisions,
-            prisma_counts.records_screened,
+            _effective_screened,
             batch_screen_forwarded=batch_screen_forwarded,
             batch_screen_excluded=batch_screen_excluded,
             cohens_kappa=cohens_kappa,
@@ -701,6 +720,9 @@ def format_grounding_block(data: WritingGroundingData) -> str:
         f"Records excluded at title/abstract screening: {data.records_excluded_screening}",
         "CRITICAL: Use 'Records excluded at title/abstract screening' exactly as given. "
         "Do NOT compute this as screened minus assessed.",
+        "PRISMA CHECK (screening stage invariant): records_after_deduplication = "
+        "records_removed_by_automation + records_screened. Use this invariant exactly; "
+        "do NOT restate screened as the post-dedup total when automation exclusions are non-zero.",
         f"Reports sought for full-text retrieval (screened-in papers): {data.fulltext_sought}",
         f"Reports not retrieved (full text unavailable): {data.fulltext_not_retrieved}",
         f"Reports assessed for eligibility (full-text examined): {data.fulltext_assessed}",
@@ -768,6 +790,11 @@ def format_grounding_block(data: WritingGroundingData) -> str:
     if data.excluded_fulltext_reasons:
         reasons_str = "; ".join(f"{_normalize_label(k)} ({v})" for k, v in data.excluded_fulltext_reasons.items())
         lines.append(f"Primary exclusion reasons (categories may overlap): {reasons_str}")
+        lines.append(
+            f"CRITICAL -- EXCLUSION WORDING: {data.fulltext_excluded} unique full-text reports were excluded. "
+            "Reason counts may overlap because one report can have multiple reasons; "
+            "do NOT present reason counts as separate article totals."
+        )
 
     if data.study_design_counts:
         # Keys are already normalized by build_writing_grounding
@@ -822,6 +849,14 @@ def format_grounding_block(data: WritingGroundingData) -> str:
                 f"non-retrieval rate exceeds 20%. Do NOT simply state 'X reports could not be "
                 f"located' without explaining the steps taken."
             )
+            if _retrieval_pct > 40:
+                lines.append(
+                    "CAUTION -- HIGH FULL-TEXT NON-RETRIEVAL RATE: "
+                    f"{data.fulltext_not_retrieved} of {data.fulltext_sought} reports "
+                    f"({_retrieval_pct}%) were not retrieved. You MUST explicitly report this in "
+                    "Methods and Limitations, and use hedged language in the abstract and discussion "
+                    "(for example: 'limited evidence suggests', 'findings are constrained by missing full texts')."
+                )
     elif data.fulltext_total_count > 0:
         abstract_only = data.fulltext_total_count - data.fulltext_retrieved_count
         abstract_only_rate = abstract_only / data.fulltext_total_count if data.fulltext_total_count else 0.0

@@ -66,7 +66,7 @@ export function CollapsibleSection({
         {/* Toggle button: icon + title + badge + description + chevron */}
         <button
           onClick={handleToggle}
-          className="flex flex-1 items-center justify-between px-4 py-3 hover:bg-zinc-800/30 transition-colors min-w-0 text-left"
+          className="flex flex-1 items-center justify-between px-4 py-3 glass-interactive min-w-0 text-left"
         >
           <div className="flex items-center gap-2 min-w-0">
             {Icon && <Icon className="h-4 w-4 text-zinc-500 shrink-0" />}
@@ -95,7 +95,7 @@ export function CollapsibleSection({
       </div>
 
       {open && (
-        <div className="border-t border-zinc-800">
+        <div className="border-t border-zinc-800/70">
           {children}
         </div>
       )}
@@ -133,7 +133,7 @@ export function PageSection({
 }: PageSectionProps) {
   return (
     <div className={cn("card-surface overflow-hidden", className)}>
-      <div className="flex items-center justify-between px-4 py-3 border-b border-zinc-800">
+      <div className="glass-toolbar flex items-center justify-between px-4 py-3 border-b border-zinc-800/70">
         <div className="flex items-center gap-2 min-w-0">
           {Icon && <Icon className="h-4 w-4 text-zinc-500 shrink-0" />}
           <span className="text-sm font-medium text-zinc-300 shrink-0">{title}</span>

@@ -3,11 +3,8 @@ import {
   AlertTriangle,
   CheckCircle,
   Circle,
-  GripVertical,
   Loader,
   Loader2,
-  Maximize2,
-  Minimize2,
   Search,
   Square,
   XCircle,
@@ -20,7 +17,7 @@ import { eventToLogEntry } from "@/lib/logLine"
 import { FetchError } from "@/components/ui/feedback"
 import { Skeleton } from "@/components/ui/skeleton"
 import { fetchRunEvents, fetchWorkflowEvents } from "@/lib/api"
-import { PHASE_ORDER, PHASE_LABELS } from "@/lib/constants"
+import { PHASE_ORDER, PHASE_LABELS, RESUME_PHASE_ORDER } from "@/lib/constants"
 import type { ReviewEvent } from "@/lib/api"
 import { cn } from "@/lib/utils"
 
@@ -82,103 +79,6 @@ function fmtDuration(ms: number): string {
 }
 
 // ---------------------------------------------------------------------------
-// Shared status icon
-// ---------------------------------------------------------------------------
-
-function PhaseStatusIcon({ status }: { status: PhaseStatus }) {
-  if (status === "done") return <CheckCircle className="h-4 w-4 text-emerald-500 shrink-0" />
-  if (status === "running") return <Loader className="h-4 w-4 text-violet-400 animate-spin shrink-0" />
-  if (status === "error") return <XCircle className="h-4 w-4 text-red-400 shrink-0" />
-  return <Circle className="h-3.5 w-3.5 text-zinc-600 shrink-0" />
-}
-
-// ---------------------------------------------------------------------------
-// Compact phase list (narrow left panel in "split" mode)
-// ---------------------------------------------------------------------------
-
-function CompactPhaseList({
-  phaseStates,
-  loading,
-  onPhaseClick,
-}: {
-  phaseStates: Record<string, PhaseState>
-  loading: boolean
-  onPhaseClick?: (phase: string) => void
-}) {
-  if (loading) {
-    return (
-      <div className="flex flex-col divide-y divide-zinc-800/60">
-        {PHASE_ORDER.map((p) => (
-          <div key={p} className="flex items-center gap-3 px-4 py-2.5">
-            <Skeleton className="w-4 h-4 rounded-full shrink-0" />
-            <Skeleton className="h-3 flex-1" />
-            <Skeleton className="h-3 w-8" />
-          </div>
-        ))}
-      </div>
-    )
-  }
-
-  return (
-    <div className="flex flex-col divide-y divide-zinc-800/60">
-      {PHASE_ORDER.map((phase) => {
-        const state = phaseStates[phase] ?? { status: "pending" as PhaseStatus }
-        const label = PHASE_LABELS[phase] ?? phase
-
-        const durationStr =
-          state.status === "done" && state.startedTs && state.doneTss
-            ? fmtDuration(new Date(state.doneTss).getTime() - new Date(state.startedTs).getTime())
-            : null
-
-        const progressLabel =
-          (state.status === "running" || state.status === "done") && state.progress
-            ? `${state.progress.current}/${state.progress.total}`
-            : state.status === "running"
-            ? "running..."
-            : null
-
-        const labelCls = cn(
-          "text-sm flex-1 font-medium truncate",
-          state.status === "done" && "text-zinc-300",
-          state.status === "running" && "text-white",
-          state.status === "error" && "text-red-400",
-          state.status === "pending" && "text-zinc-600",
-        )
-
-        const isClickable = state.status !== "pending" && onPhaseClick
-        return (
-          <div
-            key={phase}
-            className={cn(
-              "flex items-center gap-3 px-4 py-2.5 transition-colors",
-              isClickable && "cursor-pointer hover:bg-zinc-800/40 active:bg-zinc-800/60",
-            )}
-            onClick={isClickable ? () => onPhaseClick(phase) : undefined}
-            title={isClickable ? `Jump to ${label} in log` : undefined}
-          >
-            <PhaseStatusIcon status={state.status} />
-            <span className={labelCls}>{label}</span>
-            {progressLabel && (
-              <span className={cn(
-                "text-[11px] font-mono tabular-nums shrink-0",
-                state.status === "running" ? "text-violet-400/80" : "text-emerald-500/80",
-              )}>
-                {progressLabel}
-              </span>
-            )}
-            {durationStr && (
-              <span className="text-[11px] font-mono tabular-nums text-zinc-600 shrink-0">
-                {durationStr}
-              </span>
-            )}
-          </div>
-        )
-      })}
-    </div>
-  )
-}
-
-// ---------------------------------------------------------------------------
 // Horizontal stepper (full-width "timeline" mode)
 // ---------------------------------------------------------------------------
 
@@ -186,9 +86,25 @@ interface PhaseStepProps {
   phase: string
   state: PhaseState
   isLast: boolean
+  isResumeSelectable?: boolean
+  isArmed?: boolean
+  inResumeRange?: boolean
+  isRangeStart?: boolean
+  isRangeEnd?: boolean
+  onResumeTap?: (phase: string) => void
 }
 
-function PhaseStep({ phase, state, isLast }: PhaseStepProps) {
+function PhaseStep({
+  phase,
+  state,
+  isLast,
+  isResumeSelectable = false,
+  isArmed = false,
+  inResumeRange = false,
+  isRangeStart = false,
+  isRangeEnd = false,
+  onResumeTap,
+}: PhaseStepProps) {
   const label = PHASE_LABELS[phase] ?? phase
 
   const durationStr =
@@ -234,9 +150,33 @@ function PhaseStep({ phase, state, isLast }: PhaseStepProps) {
   )
 
   return (
-    <div className="flex items-start">
+    <div className="relative flex items-start py-1">
+      {inResumeRange && (
+        <div
+          className={cn(
+            "absolute left-0 right-0 top-1 h-14 bg-amber-500/10",
+            isRangeStart && "rounded-l-md",
+            isRangeEnd && "rounded-r-md",
+          )}
+          aria-hidden
+        />
+      )}
       <div className="flex flex-col items-center w-[4.5rem] shrink-0">
-        <div className={circleCls}>
+        <button
+          type="button"
+          onClick={() => {
+            if (!isResumeSelectable || !onResumeTap) return
+            onResumeTap(phase)
+          }}
+          disabled={!isResumeSelectable}
+          className={cn(
+            circleCls,
+            "relative transition-colors",
+            isResumeSelectable && "cursor-pointer hover:border-amber-500/50",
+            isArmed && "border-amber-400 bg-amber-500/20 text-amber-300",
+          )}
+          title={isResumeSelectable ? "Tap once to arm resume, tap again to confirm" : undefined}
+        >
           {state.status === "done" ? (
             <CheckCircle className="h-4 w-4" />
           ) : state.status === "running" ? (
@@ -246,7 +186,7 @@ function PhaseStep({ phase, state, isLast }: PhaseStepProps) {
           ) : (
             <Circle className="h-3.5 w-3.5" />
           )}
-        </div>
+        </button>
         <span className={labelCls}>{label}</span>
         {subLabel && <span className={subLabelCls}>{subLabel}</span>}
         {durationStr && (
@@ -256,7 +196,7 @@ function PhaseStep({ phase, state, isLast }: PhaseStepProps) {
         )}
       </div>
       {!isLast && (
-        <div className={cn("flex-1 mt-4", connectorCls)} style={{ minWidth: "1rem" }} />
+        <div className={cn("relative flex-1 mt-4", connectorCls)} style={{ minWidth: "1rem" }} />
       )}
     </div>
   )
@@ -265,9 +205,17 @@ function PhaseStep({ phase, state, isLast }: PhaseStepProps) {
 function HorizontalStepperContent({
   phaseStates,
   loading,
+  canResumeFromTimeline,
+  armedResumePhase,
+  armedResumeStartIdx,
+  onResumeTap,
 }: {
   phaseStates: Record<string, PhaseState>
   loading: boolean
+  canResumeFromTimeline: boolean
+  armedResumePhase: string | null
+  armedResumeStartIdx: number
+  onResumeTap: (phase: string) => void
 }) {
   if (loading) {
     return (
@@ -287,28 +235,29 @@ function HorizontalStepperContent({
   return (
     <div className="px-5 py-5 overflow-x-auto">
       <div className="flex items-start min-w-max w-full">
-        {PHASE_ORDER.map((phase, i) => (
-          <PhaseStep
-            key={phase}
-            phase={phase}
-            state={phaseStates[phase] ?? { status: "pending" }}
-            isLast={i === PHASE_ORDER.length - 1}
-          />
-        ))}
+        {PHASE_ORDER.map((phase, i) => {
+          const inResumeRange = armedResumeStartIdx >= 0 && i >= armedResumeStartIdx
+          const isRangeStart = inResumeRange && i === armedResumeStartIdx
+          const isRangeEnd = inResumeRange && i === PHASE_ORDER.length - 1
+          return (
+            <PhaseStep
+              key={phase}
+              phase={phase}
+              state={phaseStates[phase] ?? { status: "pending" }}
+              isLast={i === PHASE_ORDER.length - 1}
+              isResumeSelectable={canResumeFromTimeline && RESUME_PHASE_ORDER.includes(phase as (typeof RESUME_PHASE_ORDER)[number])}
+              isArmed={armedResumePhase === phase}
+              inResumeRange={inResumeRange}
+              isRangeStart={isRangeStart}
+              isRangeEnd={isRangeEnd}
+              onResumeTap={onResumeTap}
+            />
+          )
+        })}
       </div>
     </div>
   )
 }
-
-// ---------------------------------------------------------------------------
-// Layout types and constants
-// ---------------------------------------------------------------------------
-
-type LayoutState = "split" | "timeline" | "log"
-
-const MIN_LEFT_WIDTH = 200
-const MAX_LEFT_WIDTH = 520
-const DEFAULT_LEFT_WIDTH = 280
 
 // ---------------------------------------------------------------------------
 // ActivityView
@@ -321,8 +270,10 @@ export interface ActivityViewProps {
   status: string
   runId: string
   workflowId?: string | null
+  historicalStatus?: string | null
   isDone: boolean
   onCancel: () => void
+  onResumeFromPhase?: (phase: string) => Promise<void>
 }
 
 export function ActivityView({
@@ -332,55 +283,17 @@ export function ActivityView({
   status,
   runId,
   workflowId,
+  historicalStatus,
   isDone,
   onCancel,
+  onResumeFromPhase,
 }: ActivityViewProps) {
   const [historicalEvents, setHistoricalEvents] = useState<ReviewEvent[]>([])
   const [loadingHistory, setLoadingHistory] = useState(false)
   const [fetchError, setFetchError] = useState<string | null>(null)
-  const [layout, setLayout] = useState<LayoutState>("split")
-  const [leftWidth, setLeftWidth] = useState(DEFAULT_LEFT_WIDTH)
-  const [isMobile, setIsMobile] = useState(
-    () => window.matchMedia("(max-width: 767px)").matches,
-  )
-
-  const containerRef = useRef<HTMLDivElement>(null)
+  const [armedResumePhase, setArmedResumePhase] = useState<string | null>(null)
+  const [resumeHint, setResumeHint] = useState<string | null>(null)
   const logRef = useRef<LogStreamHandle>(null)
-  const isDragging = useRef(false)
-
-  // Track mobile breakpoint (md = 768px) -- on mobile, stack panels vertically.
-  useEffect(() => {
-    const mq = window.matchMedia("(max-width: 767px)")
-    const handler = (e: MediaQueryListEvent) => setIsMobile(e.matches)
-    mq.addEventListener("change", handler)
-    return () => mq.removeEventListener("change", handler)
-  }, [])
-
-  // Drag-to-resize divider
-  const handleDividerMouseDown = useCallback((e: React.MouseEvent) => {
-    e.preventDefault()
-    isDragging.current = true
-    document.body.style.cursor = "col-resize"
-    document.body.style.userSelect = "none"
-
-    const handleMouseMove = (ev: MouseEvent) => {
-      if (!isDragging.current || !containerRef.current) return
-      const rect = containerRef.current.getBoundingClientRect()
-      const newWidth = Math.max(MIN_LEFT_WIDTH, Math.min(MAX_LEFT_WIDTH, ev.clientX - rect.left))
-      setLeftWidth(newWidth)
-    }
-
-    const handleMouseUp = () => {
-      isDragging.current = false
-      document.body.style.cursor = ""
-      document.body.style.userSelect = ""
-      document.removeEventListener("mousemove", handleMouseMove)
-      document.removeEventListener("mouseup", handleMouseUp)
-    }
-
-    document.addEventListener("mousemove", handleMouseMove)
-    document.addEventListener("mouseup", handleMouseUp)
-  }, [])
 
   const hasPrefetchedHistorical = prefetchedHistoricalEvents != null
   const isHistoricalMode = isDone && events.length === 0 && Boolean(runId)
@@ -431,6 +344,42 @@ export function ActivityView({
     [activeEvents, isDone],
   )
   const isRunning = status === "streaming" || status === "connecting"
+  const normalizedHistoricalStatus = (historicalStatus ?? "").toLowerCase()
+  const canResumeFromTimeline =
+    Boolean(onResumeFromPhase) &&
+    normalizedHistoricalStatus !== "awaiting_review"
+  const armedResumeStartIdx = useMemo(() => {
+    if (!armedResumePhase) return -1
+    return PHASE_ORDER.indexOf(armedResumePhase as (typeof PHASE_ORDER)[number])
+  }, [armedResumePhase])
+
+  useEffect(() => {
+    if (!armedResumePhase) return
+    const timer = setTimeout(() => {
+      setArmedResumePhase(null)
+      setResumeHint(null)
+    }, 8000)
+    return () => clearTimeout(timer)
+  }, [armedResumePhase])
+
+  async function handlePhaseResumeTap(phase: string) {
+    if (!canResumeFromTimeline) return
+    if (!RESUME_PHASE_ORDER.includes(phase as (typeof RESUME_PHASE_ORDER)[number])) return
+    if (armedResumePhase !== phase) {
+      setArmedResumePhase(phase)
+      setResumeHint(`Tap ${PHASE_LABELS[phase] ?? phase} again to confirm resume`)
+      return
+    }
+    setResumeHint(`Resuming from ${PHASE_LABELS[phase] ?? phase}...`)
+    try {
+      await onResumeFromPhase?.(phase)
+      setArmedResumePhase(null)
+      setResumeHint(null)
+    } catch {
+      setResumeHint("Resume failed. Tap a phase again to retry.")
+      setArmedResumePhase(null)
+    }
+  }
   const filtered = useMemo(() => {
     const q = searchQuery.trim().toLowerCase()
     return activeEvents.filter((ev) => {
@@ -491,142 +440,76 @@ export function ActivityView({
         </div>
       )}
 
-      {/* Split panel row -- stacks vertically on mobile, side-by-side on md+ */}
-      <div
-        ref={containerRef}
-        className={cn("flex", isMobile ? "flex-col gap-3" : "flex-row")}
-        style={isMobile ? undefined : { minHeight: "480px", alignItems: "stretch" }}
-      >
-        {/* ---- Phase Timeline Panel ---- */}
-        {layout !== "log" && (
-          <div
-            className="flex flex-col min-w-0"
-            style={
-              isMobile
-                ? { minHeight: "240px" }
-                : layout === "split"
-                  ? { width: leftWidth, flexShrink: 0 }
-                  : { flex: 1 }
-            }
-          >
-            <div className="card-surface overflow-hidden flex flex-col flex-1 min-h-0">
-              <div className="flex items-center justify-between px-4 h-11 border-b border-zinc-800 shrink-0">
-                <span className="label-caps">Phase Timeline</span>
-                <button
-                  onClick={() => setLayout(layout === "timeline" ? "split" : "timeline")}
-                  className="text-zinc-500 hover:text-zinc-300 transition-colors p-0.5 rounded"
-                  title={layout === "timeline" ? "Restore split view" : "Expand timeline"}
-                >
-                  {layout === "timeline"
-                    ? <Minimize2 className="h-3.5 w-3.5" />
-                    : <Maximize2 className="h-3.5 w-3.5" />
-                  }
-                </button>
-              </div>
-              <div className="flex-1 overflow-y-auto min-h-0">
-                {layout === "split" ? (
-                  <CompactPhaseList
-                    phaseStates={phaseStates}
-                    loading={effectiveLoadingHistory}
-                    onPhaseClick={(phase) => {
-                      logRef.current?.scrollToPhase(phase)
-                    }}
-                  />
-                ) : (
-                  <HorizontalStepperContent phaseStates={phaseStates} loading={effectiveLoadingHistory} />
-                )}
-              </div>
+      <div className="flex flex-col gap-3 min-h-[480px]">
+        <div className="card-surface overflow-hidden flex flex-col">
+          <div className="glass-toolbar flex items-center justify-between px-4 h-11 border-b border-zinc-800/70 shrink-0">
+            <span className="label-caps">Phase Timeline</span>
+            {canResumeFromTimeline && (
+              <span className="text-[11px] text-zinc-500">
+                {resumeHint ?? "Tap a phase once, tap again to resume from it"}
+              </span>
+            )}
+          </div>
+          <HorizontalStepperContent
+            phaseStates={phaseStates}
+            loading={effectiveLoadingHistory}
+            canResumeFromTimeline={canResumeFromTimeline}
+            armedResumePhase={armedResumePhase}
+            armedResumeStartIdx={armedResumeStartIdx}
+            onResumeTap={handlePhaseResumeTap}
+          />
+        </div>
+
+        <div className="card-surface overflow-hidden flex flex-col flex-1 min-h-0">
+          <div className="glass-toolbar flex items-center gap-2 px-4 h-11 border-b border-zinc-800/70 shrink-0 overflow-hidden">
+            <span className="label-caps shrink-0">Activity Log</span>
+
+            {effectiveLoadingHistory ? (
+              <span className="flex items-center gap-1.5 text-xs text-zinc-500">
+                <Loader2 className="h-3 w-3 animate-spin" />
+                Loading...
+              </span>
+            ) : eventCountLabel ? (
+              <span className="text-xs text-zinc-600 tabular-nums shrink-0">
+                {eventCountLabel}
+              </span>
+            ) : null}
+
+            <div className="relative flex-1 min-w-0">
+              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-zinc-500 pointer-events-none" />
+              <Input
+                type="text"
+                placeholder="Search log..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="pl-8 h-7 text-xs bg-transparent border-zinc-800 w-full"
+              />
             </div>
           </div>
-        )}
 
-        {/* ---- Drag handle (only in split mode, only on desktop) ---- */}
-        {layout === "split" && !isMobile && (
-          <div
-            className="flex items-center justify-center w-3 shrink-0 cursor-col-resize group relative"
-            onMouseDown={handleDividerMouseDown}
-          >
-            {/* Invisible hit area for easier grabbing */}
-            <div className="absolute inset-y-0 -inset-x-1 z-10" />
-            {/* Visual indicator: thin line that brightens on hover, dot on center */}
-            <div className="flex flex-col items-center gap-1 relative z-20 h-full justify-center">
-              <div className="w-px flex-1 bg-zinc-800 group-hover:bg-violet-500/40 transition-colors" />
-              <GripVertical className="h-4 w-4 text-zinc-700 group-hover:text-violet-400 transition-colors shrink-0" />
-              <div className="w-px flex-1 bg-zinc-800 group-hover:bg-violet-500/40 transition-colors" />
-            </div>
-          </div>
-        )}
-
-        {/* ---- Activity Log Panel ---- */}
-        {layout !== "timeline" && (
-          <div
-            className="flex flex-col min-w-0"
-            style={isMobile ? { minHeight: "320px" } : { flex: 1 }}
-          >
-            <div className="card-surface overflow-hidden flex flex-col flex-1 min-h-0">
-              {/* Header */}
-              <div className="flex items-center gap-2 px-4 h-11 border-b border-zinc-800 shrink-0 overflow-hidden">
-                <span className="label-caps shrink-0">Activity Log</span>
-
-                {effectiveLoadingHistory ? (
-                  <span className="flex items-center gap-1.5 text-xs text-zinc-500">
-                    <Loader2 className="h-3 w-3 animate-spin" />
-                    Loading...
-                  </span>
-                ) : eventCountLabel ? (
-                  <span className="text-xs text-zinc-600 tabular-nums shrink-0">
-                    {eventCountLabel}
-                  </span>
-                ) : null}
-
-                <div className="relative flex-1 min-w-0">
-                  <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-zinc-500 pointer-events-none" />
-                  <Input
-                    type="text"
-                    placeholder="Search log..."
-                    value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
-                    className="pl-8 h-7 text-xs bg-transparent border-zinc-800 w-full"
-                  />
-                </div>
-                <button
-                  onClick={() => setLayout(layout === "log" ? "split" : "log")}
-                  className="text-zinc-500 hover:text-zinc-300 transition-colors p-0.5 rounded shrink-0"
-                  title={layout === "log" ? "Restore split view" : "Expand log"}
-                >
-                  {layout === "log"
-                    ? <Minimize2 className="h-3.5 w-3.5" />
-                    : <Maximize2 className="h-3.5 w-3.5" />
-                  }
-                </button>
+          <div className="flex-1 overflow-y-auto min-h-0">
+            {fetchError && (
+              <div className="p-4">
+                <FetchError
+                  message={fetchError}
+                  onRetry={runId ? () => void loadHistoricalEvents(runId, workflowId) : undefined}
+                />
               </div>
+            )}
 
-              {/* Log body - scrollable */}
-              <div className="flex-1 overflow-y-auto min-h-0">
-                {fetchError && (
-                  <div className="p-4">
-                    <FetchError
-                      message={fetchError}
-                      onRetry={runId ? () => void loadHistoricalEvents(runId, workflowId) : undefined}
-                    />
-                  </div>
-                )}
-
-                {!effectiveLoadingHistory && filtered.length === 0 && !fetchError && (
-                  <div className="py-12 flex items-center justify-center">
-                    <p className="text-zinc-600 text-sm">
-                      Events will appear here once the review starts.
-                    </p>
-                  </div>
-                )}
-
-                {filtered.length > 0 && (
-                  <LogStream ref={logRef} events={filtered} autoScroll={!searchQuery.trim()} />
-                )}
+            {!effectiveLoadingHistory && filtered.length === 0 && !fetchError && (
+              <div className="py-12 flex items-center justify-center">
+                <p className="text-zinc-600 text-sm">
+                  Events will appear here once the review starts.
+                </p>
               </div>
-            </div>
+            )}
+
+            {filtered.length > 0 && (
+              <LogStream ref={logRef} events={filtered} autoScroll={!searchQuery.trim()} />
+            )}
           </div>
-        )}
+        </div>
       </div>
     </div>
   )

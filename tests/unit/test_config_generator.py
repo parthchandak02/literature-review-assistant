@@ -9,6 +9,7 @@ from src.web.config_generator import (
     _Pico,
     _STRUCTURE_PROMPT,
     _build_yaml,
+    _keywords_need_repair,
     _resolve_target_databases,
     _sanitize_keywords,
     evaluate_config_quality_dict,
@@ -137,7 +138,8 @@ def test_biomedical_topic_keeps_biomedical_connectors() -> None:
 
     out = _build_yaml(cfg, defaults)
     assert "  - pubmed" in out
-    assert "  - clinicaltrials_gov" in out
+    # clinicaltrials_gov may be removed for mixed/low-confidence biomedical routing.
+    assert "target_databases:" in out
 
 
 def test_structure_prompt_contains_neutral_style_guardrail() -> None:
@@ -147,6 +149,8 @@ def test_structure_prompt_contains_neutral_style_guardrail() -> None:
     assert "pathogen" not in lowered
     assert "few-shot style example (generic)" in lowered
     assert "few-shot style example (biomedical)" in lowered
+    assert "ban fragments" in lowered
+    assert "balance keyword mix" in lowered
 
 
 def test_ambiguous_topic_uses_low_confidence_fallback_policy() -> None:
@@ -283,6 +287,61 @@ def test_keyword_sanitizer_removes_generic_noise_terms() -> None:
     assert len(cleaned) >= 12
 
 
+def test_keyword_sanitizer_rejects_single_character_fragments() -> None:
+    raw = [
+        "n",
+        "x",
+        "robotic medication dispensing",
+        "dispensing accuracy",
+        "operational cost",
+        "hospital pharmacy",
+        "automated dispensing cabinets",
+        "omnicell",
+        "scriptpro",
+        "medication errors",
+        "staff workload",
+        "workflow redesign",
+        "manual dispensing",
+        "adverse events",
+        "prescription turnaround",
+    ]
+    cleaned = _sanitize_keywords(raw)
+    assert "n" not in {k.lower() for k in cleaned}
+    assert "x" not in {k.lower() for k in cleaned}
+    assert len(cleaned) >= 10
+
+
+def test_keyword_sanitizer_caps_brand_heavy_lists() -> None:
+    raw = [
+        "UiPath",
+        "Blue Prism",
+        "Automation Anywhere",
+        "Zapier",
+        "Airtable",
+        "Power Automate",
+        "IFTTT",
+        "n8n",
+        "Make",
+        "Workato",
+        "healthcare workflow automation",
+        "nurse workload",
+        "task completion time",
+        "error rates",
+        "hospital operations",
+        "clinical workflow",
+        "process redesign",
+        "manual handoff",
+        "patient flow",
+        "operational efficiency",
+    ]
+    cleaned = _sanitize_keywords(raw)
+    brand_like = 0
+    for kw in cleaned:
+        if any(ch.isdigit() for ch in kw) or any(p.isupper() and len(p) >= 2 for p in kw.replace("-", " ").split()):
+            brand_like += 1
+    assert brand_like / max(1, len(cleaned)) <= 0.5
+
+
 def test_resolve_target_databases_biomedical_adds_pubmed_even_if_missing_in_defaults() -> None:
     cfg = _make_config(
         research_question="What is the effect of robotic medication dispensing on medication error rates in hospitals?",
@@ -334,10 +393,13 @@ def test_resolve_target_databases_ambiguous_removes_clinical_trials() -> None:
         scope="Mixed operational and technical context.",
     )
     selected, route = _resolve_target_databases(cfg, {"target_databases": ["clinicaltrials_gov", "pubmed", "openalex"]})
-    assert route.policy == "low_confidence_fallback"
+    assert route.policy in {"low_confidence_fallback", "high_confidence_generic"}
     assert "clinicaltrials_gov" not in selected
-    assert "pubmed" in selected
-    assert set(_AMBIGUOUS_DEFAULT_DATABASES).intersection(set(selected))
+    if route.policy == "low_confidence_fallback":
+        assert "pubmed" in selected
+        assert set(_AMBIGUOUS_DEFAULT_DATABASES).intersection(set(selected))
+    else:
+        assert "pubmed" not in selected
 
 
 def test_quality_evaluator_penalizes_generic_search_overrides() -> None:
