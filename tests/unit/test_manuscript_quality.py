@@ -89,11 +89,7 @@ def test_assemble_strips_existing_rq_block(tmp_path: Path) -> None:
 def test_assemble_dedupes_repeated_leading_h1_titles(tmp_path: Path) -> None:
     from src.export.markdown_refs import assemble_submission_manuscript
 
-    body = (
-        "# A Systematic Review: X\n\n"
-        "# A Systematic Review: X\n\n"
-        "## Introduction\n\nHello [Smith2021].\n"
-    )
+    body = "# A Systematic Review: X\n\n# A Systematic Review: X\n\n## Introduction\n\nHello [Smith2021].\n"
     result = assemble_submission_manuscript(
         body=body,
         manuscript_path=tmp_path / "ms.md",
@@ -334,12 +330,7 @@ def test_assemble_splits_multiple_inline_headings_on_same_line(tmp_path: Path) -
 def test_assemble_merges_split_heading_lines(tmp_path: Path) -> None:
     from src.export.markdown_refs import assemble_submission_manuscript
 
-    body = (
-        "## Results\n\n"
-        "### Risk of\n"
-        "Bias Assessment\n\n"
-        "Study text [Smith2021].\n"
-    )
+    body = "## Results\n\n### Risk of\nBias Assessment\n\nStudy text [Smith2021].\n"
     row = (1, "Smith2021", None, "Study", '["Smith A"]', 2021, "J", None, None)
     result = assemble_submission_manuscript(
         body=body,
@@ -350,6 +341,26 @@ def test_assemble_merges_split_heading_lines(tmp_path: Path) -> None:
         extraction_records=[_make_extraction("pid-1", "randomized_controlled_trial", 30, "Positive result found")],
     )
     assert "### Risk of Bias Assessment" in result
+
+
+def test_assemble_merges_split_heading_lines_with_blank_gap(tmp_path: Path) -> None:
+    from src.export.markdown_refs import assemble_submission_manuscript
+
+    body = (
+        "## Results\n\n"
+        "### Synthesis of\n\n"
+        "Findings This section summarizes outcomes [Smith2021].\n"
+    )
+    row = (1, "Smith2021", None, "Study", '["Smith A"]', 2021, "J", None, None)
+    result = assemble_submission_manuscript(
+        body=body,
+        manuscript_path=tmp_path / "ms.md",
+        artifacts={},
+        citation_rows=[row],
+        papers=[_make_paper("pid-1", ["Smith A"], 2021)],
+        extraction_records=[_make_extraction("pid-1", "randomized_controlled_trial", 30, "Positive result found")],
+    )
+    assert "### Synthesis of Findings" in result
 
 
 def test_assemble_strips_section_block_markers(tmp_path: Path) -> None:
@@ -401,11 +412,7 @@ def test_assemble_strips_inline_section_block_markers(tmp_path: Path) -> None:
 def test_assemble_compact_table_injection_is_idempotent(tmp_path: Path) -> None:
     from src.export.markdown_refs import assemble_submission_manuscript
 
-    base_body = (
-        "## Results\n\n"
-        "### Study Characteristics\n\n"
-        "Study text [Smith2021].\n"
-    )
+    base_body = "## Results\n\n### Study Characteristics\n\nStudy text [Smith2021].\n"
     row = (1, "Smith2021", None, "Study", '["Smith A"]', 2021, "J", None, None)
     kwargs = dict(
         manuscript_path=tmp_path / "ms.md",

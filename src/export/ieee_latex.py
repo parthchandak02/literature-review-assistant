@@ -482,7 +482,10 @@ def _normalize_subsection_heading_layout(text: str) -> str:
         if m:
             level = m.group(1)
             tail = m.group(2).strip()
-            next_line = lines[i + 1].strip() if i + 1 < len(lines) else ""
+            next_idx = i + 1
+            while next_idx < len(lines) and not lines[next_idx].strip():
+                next_idx += 1
+            next_line = lines[next_idx].strip() if next_idx < len(lines) else ""
             if next_line and not next_line.startswith("#"):
                 tail_words = tail.split()
                 if tail_words and tail_words[-1].lower() in connector_tail:
@@ -503,16 +506,16 @@ def _normalize_subsection_heading_layout(text: str) -> str:
                             out.append(line)
                             out.append("")
                             out.append(body_rest)
-                            i += 2
+                            i = next_idx + 1
                             continue
                         out.append(line)
-                        i += 2
+                        i = next_idx + 1
                         continue
                 if (tail_words and tail_words[-1].lower() in connector_tail and _looks_title_fragment(next_line)) or (
                     len(tail_words) <= 3 and _looks_title_fragment(next_line) and not sentence_start_re.match(next_line)
                 ):
                     line = f"{level} {tail} {next_line}".strip()
-                    i += 1
+                    i = next_idx + 1
             words = line.strip().split()
             if len(words) >= 4 and words[0].startswith("#"):
                 split_found = False
@@ -523,9 +526,29 @@ def _normalize_subsection_heading_layout(text: str) -> str:
                     if not left_ok:
                         continue
                     right_lower = right.lower()
-                    if sentence_start_re.match(right) or (
-                        right_lower.startswith(("for ", "in ", "across ", "to ", "from ", "with ", "is ", "are ", "was ", "were ", "followed ", "defined ", "developed "))
-                    ) or (right and right[0].isupper() and any(c in right for c in ".,")):
+                    if (
+                        sentence_start_re.match(right)
+                        or (
+                            right_lower.startswith(
+                                (
+                                    "for ",
+                                    "in ",
+                                    "across ",
+                                    "to ",
+                                    "from ",
+                                    "with ",
+                                    "is ",
+                                    "are ",
+                                    "was ",
+                                    "were ",
+                                    "followed ",
+                                    "defined ",
+                                    "developed ",
+                                )
+                            )
+                        )
+                        or (right and right[0].isupper() and any(c in right for c in ".,"))
+                    ):
                         out.append(f"{words[0]} {' '.join(left_words)}")
                         out.append("")
                         out.append(right)
@@ -591,7 +614,9 @@ def _md_section_to_latex(
         for idx in range(2, min(len(words), 12)):
             left_words = words[:idx]
             right_words = words[idx:]
-            left_ok = all(_title_token_re.match(w) or w.lower() in {"and", "of", "for", "to", "with"} for w in left_words)
+            left_ok = all(
+                _title_token_re.match(w) or w.lower() in {"and", "of", "for", "to", "with"} for w in left_words
+            )
             if not left_ok:
                 continue
             right = " ".join(right_words).strip()

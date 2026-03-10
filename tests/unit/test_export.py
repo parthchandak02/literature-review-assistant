@@ -209,6 +209,23 @@ def test_markdown_to_latex_merges_split_h3_heading_lines() -> None:
     assert "\\subsection{Risk of Bias Assessment}" in out
 
 
+def test_markdown_to_latex_merges_split_heading_with_blank_line() -> None:
+    md = (
+        "# Title\n\n"
+        "**Background:** Background.\n"
+        "**Objectives:** Objective.\n"
+        "**Methods:** Methods.\n"
+        "**Results:** Results.\n"
+        "**Conclusion:** Conclusion.\n"
+        "**Keywords:** a, b\n\n"
+        "## Results\n\n"
+        "### Synthesis of\n\n"
+        "Findings This section summarizes outcomes.\n"
+    )
+    out = markdown_to_latex(md, citekeys=set())
+    assert "\\subsection{Synthesis of Findings}" in out
+
+
 def test_markdown_to_latex_splits_lowercase_run_on_heading_body() -> None:
     md = (
         "# Title\n\n"

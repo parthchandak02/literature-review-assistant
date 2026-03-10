@@ -11,7 +11,7 @@ import subprocess
 from pathlib import Path
 
 from src.db.database import get_db
-from src.db.repositories import CitationRepository
+from src.db.repositories import CitationRepository, WorkflowRepository
 from src.db.workflow_registry import find_by_workflow_id, find_by_workflow_id_fallback
 from src.export.bibtex_builder import build_bibtex
 from src.export.docx_exporter import generate_docx
