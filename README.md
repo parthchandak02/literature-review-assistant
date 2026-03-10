@@ -370,7 +370,7 @@ cd frontend && pnpm fix && pnpm typecheck
 | `src/synthesis/` | Feasibility checker, meta-analysis, narrative synthesis |
 | `src/rag/` | RAG pipeline: chunker, embedder (PydanticAI), hybrid BM25+dense retriever (RRF), HyDE query expansion, Gemini listwise reranker |
 | `src/knowledge_graph/` | Builder, community (Louvain), gap detector |
-| `src/writing/` | Section writer, humanizer, grounding |
+| `src/writing/` | Section writer, humanizer, deterministic guardrails, grounding |
 | `src/citation/` | Citation ledger -- claim-to-evidence-to-BibTeX lineage |
 | `src/export/` | IEEE LaTeX exporter, Word DOCX exporter, BibTeX builder, PRISMA validator |
 | `src/visualization/` | Forest plot, funnel plot, RoB figure, timeline, geographic |
@@ -396,6 +396,7 @@ cd frontend && pnpm fix && pnpm typecheck
 | `scripts/validate_scopus_key.py` | Validate SCOPUS_API_KEY against Elsevier API. Usage: `uv run python scripts/validate_scopus_key.py` |
 | `scripts/show_run_info.py` | Print run metadata (status, included papers, cost) for a workflow ID without opening the browser. Usage: `uv run python scripts/show_run_info.py --workflow-id wf-xxx` |
 | `scripts/build_benchmark.py` | Build or update the gold-standard benchmark from reference/ PDFs using the PDF vision LLM. Extracts structured quality dimensions and computes derived thresholds. Usage: `uv run python scripts/build_benchmark.py` or `--fetch-web` to pull additional published SRs. |
+| `scripts/test_humanizer_pipeline.py` | Stage-wise validator for humanizer integrity. Runs deterministic guardrails (and optional LLM humanizer pass) and verifies citation blocks and numeric tokens are unchanged. Usage: `uv run python scripts/test_humanizer_pipeline.py --input-file sample.txt [--citation-catalog-file catalog.txt] [--run-llm]` |
 | `scripts/test_search_connectors.py` | Live smoke-test for all configured search connectors. Loads API keys from .env and config from review.yaml, runs a real query per connector, and reports record counts and errors. Usage: `uv run python scripts/test_search_connectors.py` |
 | `scripts/inject_missing_citations.py` | Post-hoc CLI: reads a completed run's section drafts, identifies uncited citekeys, patches the Results section with a design-grouped coverage paragraph, and regenerates the manuscript. Accepts `--workflow-id`. Uses LLM batch resolver as fallback for unmatched keys. Usage: `uv run python scripts/inject_missing_citations.py --workflow-id wf-xxx` |
 | `scripts/test_openalex_quality.py` | Diagnostic: checks OpenAlex filter quality for a query (journal vs. preprint ratio, core vs. broad coverage). Usage: `uv run python scripts/test_openalex_quality.py` |

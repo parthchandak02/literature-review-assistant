@@ -480,3 +480,9 @@ makes a real HTTP GET to the paper's landing page to extract the `citation_pdf_u
 Any test that expects a specific later tier (e.g. Tier 6 landing page) to be called when earlier
 tiers miss MUST also mock `_quick_citation_pdf_url` to return None, or the real HTTP call may
 succeed and return `source="publisher_direct_pdf"` instead of the expected tier's source value.
+
+## Humanizer Guardrails Must Preserve Citekeys and Numeric Tokens
+`src/writing/humanizer_guardrails.py` applies deterministic cleanup before/after LLM humanization.
+It splits around bracket blocks and reverts to the original text if either bracketed blocks or
+numeric/statistical token counts change. Do NOT add rewrite rules that can mutate citation keys
+or values like OR, CI, percentages, p-values, sample sizes, or unit-bearing numbers.

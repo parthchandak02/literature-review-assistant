@@ -1,7 +1,8 @@
 # Session Bootstrap
 
 Orient yourself at the start of every new chat session before making any plans or edits.
-Execute ALL steps below immediately -- do not skip any step even for seemingly simple requests.
+For planning or editing tasks, execute all steps below before proceeding.
+For quick read-only questions, Steps 1-2 are required and Steps 3-5 are optional.
 
 ---
 
@@ -48,11 +49,12 @@ Pay special attention to any uncommitted modifications (M) and untracked files (
 
 ```bash
 pm2 list
-pm2 logs litreview-api --lines 20
+pm2 logs litreview-api --lines 20 --nostream
 ```
 
 Verify `litreview-api` (port 8001 dev / 8000 prod) and `litreview-ui` are online.
 PM2 process names are `litreview-api`, `litreview-ui`, and `litreview-tunnel`.
+`litreview-tunnel` is optional unless you are validating the production URL path.
 Do NOT use shorthand aliases like `api` or `ui` -- those are NOT configured.
 If `litreview-api` is stopped or erroring, fix that before starting new work.
 
@@ -76,9 +78,13 @@ The Vite dev server (localhost:5173) picks up changes automatically; the product
 
 ## Step 5 -- Lint and fix (high-level health)
 
+WARNING: these commands modify files (`ruff format`, `pnpm fix`).
+If `git status --short` is not clean, run this step only when you intend to keep those edits
+or after you stash/commit current work.
+
 ```bash
 uv run ruff check . --fix && uv run ruff format .
-cd frontend && pnpm fix
+cd frontend && pnpm fix && pnpm typecheck
 ```
 
 ---
@@ -91,4 +97,4 @@ cd frontend && pnpm fix
 - [ ] Reviewed last 5 commit messages and touched files
 - [ ] Noted any uncommitted changes in git status
 - [ ] Confirmed pm2 process health
-- [ ] Ran ruff + pnpm fix (or confirmed clean)
+- [ ] Ran ruff + pnpm fix + pnpm typecheck (or intentionally deferred on dirty tree)
