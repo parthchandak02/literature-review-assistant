@@ -309,6 +309,49 @@ def test_assemble_splits_multiple_inline_headings_on_same_line(tmp_path: Path) -
     assert "### Information Sources\n\nThe search ran in PubMed." in result
 
 
+def test_assemble_merges_split_heading_lines(tmp_path: Path) -> None:
+    from src.export.markdown_refs import assemble_submission_manuscript
+
+    body = (
+        "## Results\n\n"
+        "### Risk of\n"
+        "Bias Assessment\n\n"
+        "Study text [Smith2021].\n"
+    )
+    row = (1, "Smith2021", None, "Study", '["Smith A"]', 2021, "J", None, None)
+    result = assemble_submission_manuscript(
+        body=body,
+        manuscript_path=tmp_path / "ms.md",
+        artifacts={},
+        citation_rows=[row],
+        papers=[_make_paper("pid-1", ["Smith A"], 2021)],
+        extraction_records=[_make_extraction("pid-1", "randomized_controlled_trial", 30, "Positive result found")],
+    )
+    assert "### Risk of Bias Assessment" in result
+
+
+def test_assemble_strips_section_block_markers(tmp_path: Path) -> None:
+    from src.export.markdown_refs import assemble_submission_manuscript
+
+    body = (
+        "## Methods\n\n"
+        "<!-- SECTION_BLOCK:eligibility_criteria -->\n"
+        "### Eligibility Criteria\n\n"
+        "Study text [Smith2021].\n"
+    )
+    row = (1, "Smith2021", None, "Study", '["Smith A"]', 2021, "J", None, None)
+    result = assemble_submission_manuscript(
+        body=body,
+        manuscript_path=tmp_path / "ms.md",
+        artifacts={},
+        citation_rows=[row],
+        papers=[_make_paper("pid-1", ["Smith A"], 2021)],
+        extraction_records=[_make_extraction("pid-1", "randomized_controlled_trial", 30, "Positive result found")],
+    )
+    assert "SECTION_BLOCK" not in result
+    assert "<!--" not in result
+
+
 def test_assemble_compact_table_injection_is_idempotent(tmp_path: Path) -> None:
     from src.export.markdown_refs import assemble_submission_manuscript
 
