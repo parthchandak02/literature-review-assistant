@@ -27,7 +27,9 @@ from __future__ import annotations
 import datetime
 import json
 import logging
+import re
 from collections.abc import Callable
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -71,6 +73,23 @@ _DEFAULT_DATABASES = [
     "openalex",
     "pubmed",
     "semantic_scholar",
+    "ieee_xplore",
+    "clinicaltrials_gov",
+]
+_NON_BIOMED_DEFAULT_DATABASES = [
+    "scopus",
+    "web_of_science",
+    "openalex",
+    "semantic_scholar",
+    "ieee_xplore",
+]
+_AMBIGUOUS_DEFAULT_DATABASES = [
+    "scopus",
+    "web_of_science",
+    "openalex",
+    "semantic_scholar",
+    "ieee_xplore",
+    "pubmed",
 ]
 _DEFAULT_SECTIONS = [
     "abstract",
@@ -79,6 +98,40 @@ _DEFAULT_SECTIONS = [
     "results",
     "discussion",
     "conclusion",
+]
+
+_GENERIC_NOISE_TERMS = {
+    "automation",
+    "automations",
+    "efficiency",
+    "outcomes",
+    "intervention",
+    "implementation",
+    "effectiveness",
+    "quality",
+    "performance",
+    "analysis",
+    "evaluation",
+    "approach",
+    "system",
+    "systems",
+    "tool",
+    "tools",
+    "workflow",
+    "workflows",
+    "technology",
+    "technologies",
+    "methods",
+}
+
+_SUPPORTED_DATABASES = [
+    "openalex",
+    "pubmed",
+    "semantic_scholar",
+    "scopus",
+    "web_of_science",
+    "ieee_xplore",
+    "clinicaltrials_gov",
 ]
 
 
@@ -334,7 +387,161 @@ def _yaml_str(s: str) -> str:
     return '"' + s.replace("\\", "\\\\").replace('"', '\\"') + '"'
 
 
-def _build_yaml(cfg: _GeneratedConfig, defaults: _DefaultConfigDict | None = None) -> str:
+_BIOMEDICAL_HINTS = {
+    "clinical",
+    "medicine",
+    "medical",
+    "medication",
+    "patient",
+    "hospital",
+    "nursing",
+    "oncology",
+    "cardiology",
+    "psychiatry",
+    "diagnosis",
+    "therapy",
+    "treatment",
+    "public health",
+    "healthcare",
+    "pharmac",
+    "disease",
+    "trial",
+    "biomedical",
+    "elderly",
+}
+
+_GENERIC_HINTS = {
+    "software",
+    "developer",
+    "education",
+    "students",
+    "manufacturing",
+    "supply chain",
+    "finance",
+    "retail",
+    "logistics",
+    "marketing",
+    "productivity",
+    "agriculture",
+    "transportation",
+}
+
+
+@dataclass
+class _DomainRoute:
+    domain: str  # biomedical | generic | ambiguous
+    confidence: float
+    matched_biomedical_terms: list[str]
+    matched_generic_terms: list[str]
+    policy: str
+
+
+def _is_biomedical_topic(cfg: _GeneratedConfig) -> bool:
+    """Heuristic detector used to keep non-medical defaults neutral."""
+    text = " ".join(
+        [
+            cfg.research_question,
+            cfg.domain,
+            cfg.scope,
+            cfg.pico.population,
+            cfg.pico.intervention,
+            cfg.pico.outcome,
+        ]
+    ).lower()
+    return any(token in text for token in _BIOMEDICAL_HINTS)
+
+
+def _match_terms(text: str, terms: set[str]) -> list[str]:
+    matched: list[str] = []
+    for term in terms:
+        if re.search(rf"\b{re.escape(term)}\b", text):
+            matched.append(term)
+    return sorted(matched)
+
+
+def _route_topic_with_confidence(cfg: _GeneratedConfig) -> _DomainRoute:
+    """Route topic domain with confidence and explicit fallback policy."""
+    text = " ".join(
+        [
+            cfg.research_question,
+            cfg.domain,
+            cfg.scope,
+            cfg.pico.population,
+            cfg.pico.intervention,
+            cfg.pico.outcome,
+        ]
+    ).lower()
+    matched_bio = _match_terms(text, _BIOMEDICAL_HINTS)
+    matched_generic = _match_terms(text, _GENERIC_HINTS)
+
+    bio_score = float(len(matched_bio))
+    generic_score = float(len(matched_generic))
+    total_signal = max(1.0, bio_score + generic_score)
+
+    if bio_score >= generic_score and bio_score >= 2.0:
+        confidence = round(bio_score / total_signal, 3)
+        if confidence >= 0.6:
+            return _DomainRoute(
+                domain="biomedical",
+                confidence=confidence,
+                matched_biomedical_terms=matched_bio,
+                matched_generic_terms=matched_generic,
+                policy="high_confidence_biomedical",
+            )
+    if generic_score > bio_score and generic_score >= 2.0:
+        confidence = round(generic_score / total_signal, 3)
+        if confidence >= 0.6:
+            return _DomainRoute(
+                domain="generic",
+                confidence=confidence,
+                matched_biomedical_terms=matched_bio,
+                matched_generic_terms=matched_generic,
+                policy="high_confidence_generic",
+            )
+
+    confidence = round(abs(bio_score - generic_score) / total_signal, 3)
+    return _DomainRoute(
+        domain="ambiguous",
+        confidence=confidence,
+        matched_biomedical_terms=matched_bio,
+        matched_generic_terms=matched_generic,
+        policy="low_confidence_fallback",
+    )
+
+
+def _resolve_target_databases(
+    cfg: _GeneratedConfig,
+    defaults: _DefaultConfigDict | None = None,
+) -> tuple[list[str], _DomainRoute]:
+    """Apply confidence-routed domain policy for target databases."""
+    configured = list((defaults or {}).get("target_databases") or [])
+    known_configured = [db for db in configured if db in _SUPPORTED_DATABASES]
+    databases = list(dict.fromkeys(known_configured + _SUPPORTED_DATABASES))
+
+    route = _route_topic_with_confidence(cfg)
+    if route.policy == "high_confidence_biomedical":
+        selected = [db for db in databases if db in _DEFAULT_DATABASES]
+        for must_have in ("pubmed",):
+            if must_have not in selected:
+                selected.append(must_have)
+    elif route.policy == "high_confidence_generic":
+        selected = [db for db in databases if db not in {"pubmed", "clinicaltrials_gov"}]
+        if not selected:
+            selected = list(_NON_BIOMED_DEFAULT_DATABASES)
+    else:
+        # Low-confidence fallback keeps broad discovery but avoids niche clinical trials.
+        selected = [db for db in databases if db != "clinicaltrials_gov"]
+        if not selected:
+            selected = list(_AMBIGUOUS_DEFAULT_DATABASES)
+
+    return list(dict.fromkeys(selected)), route
+
+
+def _build_yaml(
+    cfg: _GeneratedConfig,
+    defaults: _DefaultConfigDict | None = None,
+    resolved_databases: list[str] | None = None,
+) -> str:
     """Build YAML from LLM output, using defaults for structural settings when provided."""
     if defaults is not None:
         date_start = defaults.get("date_range_start", _DEFAULT_DATE_START)
@@ -348,8 +555,10 @@ def _build_yaml(cfg: _GeneratedConfig, defaults: _DefaultConfigDict | None = Non
         sections = _DEFAULT_SECTIONS
 
     # Ensure lists are non-empty (defensive)
-    if not databases:
-        databases = _DEFAULT_DATABASES
+    if resolved_databases is not None:
+        databases = list(resolved_databases)
+    else:
+        databases, _ = _resolve_target_databases(cfg, defaults)
     if not sections:
         sections = _DEFAULT_SECTIONS
 
@@ -447,6 +656,8 @@ def _build_yaml(cfg: _GeneratedConfig, defaults: _DefaultConfigDict | None = Non
                     if isinstance(v, str) and k not in llm_overrides:
                         default_overrides[k] = v
         merged_overrides = {**default_overrides, **llm_overrides}
+        allowed_db_names = set(databases)
+        merged_overrides = {k: v for k, v in merged_overrides.items() if k in allowed_db_names}
         if merged_overrides:
             lines.append("")
             lines.append("# Optional: override auto-generated queries per database. Omit a database to use default.")
@@ -480,7 +691,7 @@ _RESEARCH_PROMPT = (
     "6. Any adjacent or overlapping technologies that should be distinguished from the\n"
     "   main intervention (so they can be excluded from the review).\n\n"
     "Format as a concise bullet-point brief. Be specific. Include real brand names,\n"
-    "real pathogen names, real metric names. Do not generalize."
+    "real domain terms, and real metric names. Do not generalize."
 )
 
 # ---------------------------------------------------------------------------
@@ -488,8 +699,8 @@ _RESEARCH_PROMPT = (
 # ---------------------------------------------------------------------------
 
 _STRUCTURE_PROMPT = (
-    "You are an expert systematic review methodologist. Using the research brief\n"
-    "below, generate a complete, publication-quality systematic review configuration.\n\n"
+    "You are an expert in systematic review configuration design. Using the research brief\n"
+    "below, generate a complete systematic review configuration with neutral language.\n\n"
     "Original research question:\n"
     "{research_question}\n\n"
     "Research brief (from web search):\n"
@@ -498,6 +709,16 @@ _STRUCTURE_PROMPT = (
     "- Refine the research question into a precise, well-formed systematic review\n"
     "  research question that follows PICO structure. Keep it close to the user's\n"
     "  intent but make it specific and academically precise.\n"
+    "- Language style guardrail: Use plain, neutral wording. Do NOT inject clinical\n"
+    "  or medical phrasing unless the user topic is explicitly biomedical.\n"
+    "- Few-shot style example (generic):\n"
+    "  Input topic: 'AI code assistants for software teams'\n"
+    "  Good question style: 'What is the impact of AI code assistants on developer productivity and code quality in software teams?'\n"
+    "  Good scope style: concise, non-clinical, focused on engineering workflows.\n"
+    "- Few-shot style example (biomedical):\n"
+    "  Input topic: 'voice reminder robots for medication adherence'\n"
+    "  Good question style: 'What is the effectiveness of voice reminder systems for improving medication adherence in older adults?'\n"
+    "  Good scope style: clinical wording allowed because topic is biomedical.\n"
     "- Generate all PICO components: population (who/what is studied), intervention\n"
     "  (technology/treatment/system being evaluated), comparison (controls, baselines,\n"
     "  alternatives, or pre-implementation state), outcome (all relevant measurable\n"
@@ -510,7 +731,7 @@ _STRUCTURE_PROMPT = (
     "      research brief -- these MUST be included verbatim,\n"
     "  (c) the population, setting, and context keywords from the research brief,\n"
     "  (d) the specific outcome measure terms and measurable targets found in the\n"
-    "      research brief (e.g. exact pathogen names, metric names),\n"
+    "      research brief (e.g. exact metric names),\n"
     "  (e) implementation-related terms (barriers, facilitators, adoption, workflow).\n"
     "  CRITICAL -- these keywords are used to pre-filter paper ABSTRACTS via substring\n"
     "  matching, NOT as database query strings. Two mandatory rules:\n"
@@ -541,11 +762,10 @@ _STRUCTURE_PROMPT = (
     "  adjacent technologies identified in the research brief that should be excluded.\n"
     "- Generate a one-line domain description and a 2-4 sentence scope statement.\n"
     "- Set review_type to exactly 'systematic'.\n"
-    "- Generate search_overrides with database-optimized queries for ALL seven databases\n"
-    "  (pubmed, scopus, web_of_science, ieee_xplore, semantic_scholar, openalex,\n"
-    "  clinicaltrials_gov). Use the actual keywords and terms from this review's topic --\n"
-    "  do NOT use generic placeholder keywords. Tailor every query to the specific\n"
-    "  intervention, population, and outcomes identified in the research brief above.\n"
+    "- Generate search_overrides with database-optimized queries for databases relevant\n"
+    "  to this topic. Always include scopus, web_of_science, ieee_xplore, semantic_scholar,\n"
+    "  and openalex. Include pubmed and clinicaltrials_gov only when the topic is clearly\n"
+    "  biomedical/clinical. Use actual terms from this review's topic, not placeholders.\n"
     "  * pubmed: Use MeSH terms where available plus [Title/Abstract] field codes.\n"
     "    Pattern: (MeSHTerm[MeSH Terms] OR keyword[Title/Abstract] OR ...) AND\n"
     "    (setting_term[Title/Abstract] OR outcome_term[Title/Abstract] OR ...)\n"
@@ -699,6 +919,49 @@ def _extract_root_terms(keywords: list[str]) -> list[str]:
     return keywords + additions
 
 
+def _sanitize_keywords(keywords: list[str]) -> list[str]:
+    """De-noise and de-duplicate keywords while preserving schema minimum size."""
+
+    def _normalize(text: str) -> str:
+        return " ".join(text.strip().split())
+
+    cleaned: list[str] = []
+    seen: set[str] = set()
+    for raw in keywords:
+        kw = _normalize(str(raw))
+        if not kw:
+            continue
+        lowered = kw.lower()
+        parts = [p for p in re.split(r"[^a-z0-9]+", lowered) if p]
+        if lowered in _GENERIC_NOISE_TERMS:
+            continue
+        if parts and all(part in _GENERIC_NOISE_TERMS for part in parts):
+            continue
+        if lowered in seen:
+            continue
+        cleaned.append(kw)
+        seen.add(lowered)
+
+    # Keep the schema-safe minimum by backfilling from originals if needed.
+    if len(cleaned) < 15:
+        for raw in keywords:
+            kw = _normalize(str(raw))
+            lowered = kw.lower()
+            parts = [p for p in re.split(r"[^a-z0-9]+", lowered) if p]
+            if not kw or lowered in seen:
+                continue
+            if lowered in _GENERIC_NOISE_TERMS:
+                continue
+            if parts and all(part in _GENERIC_NOISE_TERMS for part in parts):
+                continue
+            cleaned.append(kw)
+            seen.add(lowered)
+            if len(cleaned) >= 15:
+                break
+
+    return cleaned[:24]
+
+
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
@@ -706,7 +969,7 @@ def _extract_root_terms(keywords: list[str]) -> list[str]:
 
 async def generate_config_yaml(
     research_question: str,
-    progress_cb: Callable[[str], None] | None = None,
+    progress_cb: Callable[[dict[str, Any]], None] | None = None,
 ) -> str:
     """Generate a complete review config YAML from a research question.
 
@@ -722,10 +985,12 @@ async def generate_config_yaml(
     Raises RuntimeError on LLM or validation failure.
     """
 
-    def emit(step: str) -> None:
+    def emit(step: str, **metadata: Any) -> None:
         if progress_cb:
             try:
-                progress_cb(step)
+                payload: dict[str, Any] = {"step": step}
+                payload.update(metadata)
+                progress_cb(payload)
             except Exception:
                 pass
 
@@ -750,6 +1015,7 @@ async def generate_config_yaml(
         logger.warning("Config gen Stage 1 (web search+fetch) failed, falling back to model knowledge: %s", exc)
         # Graceful degradation: skip the research brief, rely on model knowledge.
         research_brief = "(Web search unavailable -- rely on training knowledge only.)"
+        emit("web_research_fallback")
 
     emit("web_research_done")
 
@@ -793,7 +1059,170 @@ async def generate_config_yaml(
     # Post-process: add short root forms for multi-word keywords so the
     # abstract substring pre-filter catches phrasing variants the LLM missed.
     enriched_keywords = _extract_root_terms(list(parsed.keywords))
-    parsed = parsed.model_copy(update={"keywords": enriched_keywords})
+    sanitized_keywords = _sanitize_keywords(enriched_keywords)
+    parsed = parsed.model_copy(update={"keywords": sanitized_keywords})
 
     defaults = _load_default_config()
-    return _build_yaml(parsed, defaults)
+    resolved_databases, route = _resolve_target_databases(parsed, defaults)
+    emit(
+        "topic_routing",
+        domain=route.domain,
+        confidence=route.confidence,
+        policy=route.policy,
+        matched_biomedical_terms=route.matched_biomedical_terms,
+        matched_generic_terms=route.matched_generic_terms,
+    )
+    return _build_yaml(parsed, defaults, resolved_databases=resolved_databases)
+
+
+def evaluate_config_quality_dict(raw_cfg: dict[str, Any]) -> dict[str, Any]:
+    """Deterministic quality score for generated config dictionaries."""
+    keywords_raw = raw_cfg.get("keywords") or []
+    keywords = [str(k).strip().lower() for k in keywords_raw if str(k).strip()]
+    unique_keywords = set(keywords)
+    diversity = len(unique_keywords) / max(1, len(keywords))
+    generic_hits = sum(1 for k in unique_keywords if k in _GENERIC_NOISE_TERMS)
+    specificity = 1.0 - (generic_hits / max(1, len(unique_keywords)))
+    keyword_quality = max(0.0, min(100.0, 100.0 * (0.6 * diversity + 0.4 * specificity)))
+
+    overrides = raw_cfg.get("search_overrides") or {}
+    override_values = [str(v) for v in overrides.values() if isinstance(v, str)]
+
+    def _is_balanced(text: str) -> bool:
+        stack: list[str] = []
+        pairs = {")": "(", "]": "["}
+        for ch in text:
+            if ch in ("(", "["):
+                stack.append(ch)
+            elif ch in pairs:
+                if not stack or stack.pop() != pairs[ch]:
+                    return False
+        return not stack
+
+    if override_values:
+        valid_syntax = [1.0 if _is_balanced(v) else 0.0 for v in override_values]
+        syntax_sanity = 100.0 * (sum(valid_syntax) / len(valid_syntax))
+        avg_len = sum(len(v) for v in override_values) / len(override_values)
+    else:
+        syntax_sanity = 75.0
+        avg_len = 0.0
+
+    if avg_len == 0.0:
+        length_complexity = 70.0
+    elif avg_len < 40:
+        length_complexity = 45.0
+    elif avg_len <= 900:
+        length_complexity = 100.0
+    elif avg_len <= 1800:
+        length_complexity = 70.0
+    else:
+        length_complexity = 45.0
+
+    dbs_raw = raw_cfg.get("target_databases") or _DEFAULT_DATABASES
+    dbs = [str(db) for db in dbs_raw]
+
+    cfg_like = _GeneratedConfig(
+        research_question=str(raw_cfg.get("research_question") or ""),
+        review_type="systematic",
+        pico=_Pico(
+            population=str(((raw_cfg.get("pico") or {}).get("population") or "")),
+            intervention=str(((raw_cfg.get("pico") or {}).get("intervention") or "")),
+            comparison=str(((raw_cfg.get("pico") or {}).get("comparison") or "")),
+            outcome=str(((raw_cfg.get("pico") or {}).get("outcome") or "")),
+        ),
+        keywords=(keywords[:28] if keywords else ["placeholder"] * 15),
+        domain=str(raw_cfg.get("domain") or ""),
+        scope=str(raw_cfg.get("scope") or ""),
+        inclusion_criteria=["placeholder inclusion"] * 4,
+        exclusion_criteria=["placeholder exclusion"] * 3,
+        search_overrides=None,
+    )
+    route = _route_topic_with_confidence(cfg_like)
+    topic_blob = " ".join(
+        [
+            cfg_like.research_question,
+            cfg_like.domain,
+            cfg_like.scope,
+            cfg_like.pico.population,
+            cfg_like.pico.intervention,
+            cfg_like.pico.outcome,
+            " ".join(list(unique_keywords)),
+        ]
+    ).lower()
+    topic_terms = {
+        tok
+        for tok in re.findall(r"[a-z0-9]+", topic_blob)
+        if len(tok) >= 4 and tok not in _GENERIC_NOISE_TERMS
+    }
+    topic_anchor_floor = max(8, min(20, len(topic_terms)))
+    specificity_scores: list[float] = []
+    for override in override_values:
+        override_terms = {tok for tok in re.findall(r"[a-z0-9]+", override.lower()) if len(tok) >= 4}
+        anchored = len(override_terms & topic_terms)
+        generic_penalty = len(override_terms & _GENERIC_NOISE_TERMS)
+        raw_specificity = (100.0 * anchored / topic_anchor_floor) - (7.0 * generic_penalty)
+        specificity_scores.append(max(0.0, min(100.0, raw_specificity)))
+    specificity_score = (
+        sum(specificity_scores) / len(specificity_scores) if specificity_scores else 70.0
+    )
+    override_complexity = round((0.6 * length_complexity) + (0.4 * specificity_score), 2)
+    db_relevance = 100.0
+    if route.policy == "high_confidence_generic":
+        if "pubmed" in dbs:
+            db_relevance -= 20.0
+        if "clinicaltrials_gov" in dbs:
+            db_relevance -= 35.0
+    elif route.policy == "high_confidence_biomedical":
+        if "pubmed" not in dbs:
+            db_relevance -= 30.0
+    else:
+        if "clinicaltrials_gov" in dbs:
+            db_relevance -= 20.0
+    db_relevance = max(0.0, db_relevance)
+
+    total = (
+        0.35 * syntax_sanity
+        + 0.3 * keyword_quality
+        + 0.2 * db_relevance
+        + 0.15 * override_complexity
+    )
+
+    return {
+        "total": round(total, 2),
+        "syntax_sanity": round(syntax_sanity, 2),
+        "keyword_quality": round(keyword_quality, 2),
+        "database_relevance": round(db_relevance, 2),
+        "override_complexity": round(override_complexity, 2),
+        "route_domain": route.domain,
+        "route_confidence": route.confidence,
+        "route_policy": route.policy,
+    }
+
+
+def evaluate_config_quality_yaml(yaml_text: str) -> dict[str, Any]:
+    """Deterministic quality score for generated config YAML snapshots."""
+    try:
+        raw = yaml.safe_load(yaml_text) or {}
+    except Exception:
+        return {
+            "total": 0.0,
+            "syntax_sanity": 0.0,
+            "keyword_quality": 0.0,
+            "database_relevance": 0.0,
+            "override_complexity": 0.0,
+            "route_domain": "ambiguous",
+            "route_confidence": 0.0,
+            "route_policy": "invalid_yaml",
+        }
+    if not isinstance(raw, dict):
+        return {
+            "total": 0.0,
+            "syntax_sanity": 0.0,
+            "keyword_quality": 0.0,
+            "database_relevance": 0.0,
+            "override_complexity": 0.0,
+            "route_domain": "ambiguous",
+            "route_confidence": 0.0,
+            "route_policy": "invalid_shape",
+        }
+    return evaluate_config_quality_dict(raw)

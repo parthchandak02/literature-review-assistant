@@ -898,3 +898,83 @@ async def test_generate_config_stream_includes_topic_routing_metadata(
     assert routing.get("domain") == "ambiguous"
     assert routing.get("policy") == "low_confidence_fallback"
     assert routing.get("confidence") == 0.41
+
+
+@pytest.mark.asyncio
+async def test_generate_config_stream_done_event_includes_quality_metrics(
+    client: httpx.AsyncClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def _fake_generate_config_yaml(
+        research_question: str,
+        progress_cb=None,
+    ) -> str:
+        assert research_question
+        if progress_cb is not None:
+            progress_cb({"step": "structuring"})
+            progress_cb({"step": "finalizing"})
+        return """
+research_question: "What is the impact of robotic dispensing systems?"
+review_type: "systematic"
+pico:
+  population: "University health centers"
+  intervention: "Robotic dispensing systems"
+  comparison: "Manual dispensing"
+  outcome: "Accuracy and cost"
+keywords:
+  - "robotic dispensing"
+  - "automated dispensing cabinets"
+  - "omnicell"
+  - "scriptpro"
+  - "university health centers"
+  - "dispensing accuracy"
+  - "operational costs"
+  - "medication errors"
+  - "staff workload"
+  - "pharmacy workflow"
+  - "manual dispensing"
+  - "prescription turnaround"
+  - "automation tools"
+  - "pharmacy operations"
+  - "workflow efficiency"
+domain: "Pharmacy automation in healthcare settings"
+scope: "Robotic dispensing impact on accuracy and operational costs."
+inclusion_criteria:
+  - "Empirical studies."
+  - "Comparative design."
+  - "Healthcare settings."
+  - "Quantitative outcomes."
+exclusion_criteria:
+  - "Opinion pieces."
+  - "No measurable outcomes."
+  - "No intervention details."
+target_databases:
+  - openalex
+  - scopus
+search_overrides:
+  openalex: "robotic dispensing university health center dispensing accuracy operational costs"
+"""
+
+    monkeypatch.setattr(
+        "src.web.config_generator.generate_config_yaml",
+        _fake_generate_config_yaml,
+    )
+
+    resp = await client.post(
+        "/api/config/generate/stream",
+        json={"research_question": "test question", "gemini_api_key": "test-key"},
+    )
+    assert resp.status_code == 200
+    payloads: list[dict[str, object]] = []
+    for line in resp.text.splitlines():
+        if line.startswith("data: "):
+            payloads.append(json.loads(line[6:]))
+
+    done_events = [p for p in payloads if p.get("type") == "done"]
+    assert len(done_events) == 1
+    done = done_events[0]
+    quality = done.get("quality")
+    assert isinstance(quality, dict)
+    assert "total" in quality
+    assert "keyword_quality" in quality
+    assert "database_relevance" in quality
