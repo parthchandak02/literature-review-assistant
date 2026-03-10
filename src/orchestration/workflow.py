@@ -772,7 +772,11 @@ class ScreeningNode(BaseNode[ReviewState]):
                 # Reason prefixes emitted by pre-LLM heuristics (no LLM call was made).
                 # Use startswith so extended reasons like "insufficient_content_heuristic|3w"
                 # (which encode word count for the UI) still classify as heuristic.
-                _heuristic_prefixes = ("insufficient_content_heuristic", "protocol_only_heuristic")
+                _heuristic_prefixes = (
+                    "insufficient_content_heuristic",
+                    "protocol_only_heuristic",
+                    "fulltext_no_pdf_heuristic",
+                )
 
                 def _on_screening_decision(
                     pid: object,
@@ -913,6 +917,12 @@ class ScreeningNode(BaseNode[ReviewState]):
             if rc and hasattr(rc, "_emit"):
                 import datetime as _dt_pf
 
+                _prefilter_reason_breakdown: dict[str, int] = {}
+                for _d in pre_excluded:
+                    _raw = getattr(getattr(_d, "exclusion_reason", None), "value", None)
+                    if _raw is None:
+                        _raw = "other"
+                    _prefilter_reason_breakdown[str(_raw)] = _prefilter_reason_breakdown.get(str(_raw), 0) + 1
                 rc._emit(
                     {
                         "type": "screening_prefilter_done",
@@ -921,6 +931,12 @@ class ScreeningNode(BaseNode[ReviewState]):
                         "after_metadata": len(meta_acceptable),
                         "automation_excluded": len(pre_excluded),
                         "to_llm": len(papers_for_llm),
+                        "reason_breakdown": _prefilter_reason_breakdown,
+                        "action": "skipped",
+                        "entity_type": "phase",
+                        "entity_id": "phase_3_screening",
+                        "reason_code": "prefilter_applied",
+                        "reason_label": "Automated pre-screening exclusions applied",
                         "ts": _dt_pf.datetime.utcnow().isoformat(),
                     }
                 )
@@ -1120,6 +1136,15 @@ class ScreeningNode(BaseNode[ReviewState]):
                                 "excluded": _batch_n_excl,
                                 "skipped_resume": _batch_n_skip,
                                 "threshold": screening_cfg.batch_screen_threshold,
+                                "action": "skipped" if _batch_n_excl > 0 else "included",
+                                "entity_type": "phase",
+                                "entity_id": "phase_3_screening",
+                                "reason_code": "batch_screened_low" if _batch_n_excl > 0 else None,
+                                "reason_label": (
+                                    "Auto-excluded by batch pre-ranker score threshold"
+                                    if _batch_n_excl > 0
+                                    else None
+                                ),
                                 "ts": _dt_bs.datetime.utcnow().isoformat(),
                             }
                         )
@@ -1188,9 +1213,15 @@ class ScreeningNode(BaseNode[ReviewState]):
                     if rc:
                         rc.advance_screening("fulltext_pdf_retrieval", done, total)
 
-                def _on_pdf_result(paper_id: str, title: str, source: str, success: bool) -> None:
+                def _on_pdf_result(
+                    paper_id: str,
+                    title: str,
+                    source: str,
+                    success: bool,
+                    reason_code: str | None,
+                ) -> None:
                     if rc:
-                        rc.log_pdf_result(paper_id, title, source, success)
+                        rc.log_pdf_result(paper_id, title, source, success, reason_code=reason_code)
 
                 stage2 = await screener.screen_batch(
                     workflow_id=state.workflow_id,

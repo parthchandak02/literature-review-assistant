@@ -147,6 +147,50 @@ def test_convert_citations_numeric_list_uses_number_map() -> None:
     assert "\\cite{A2020,B2021}" in out
 
 
+def test_convert_citations_numeric_with_spaces_and_punctuation() -> None:
+    text = "Selection process reports Cohen's kappa = 0.091 [ 1 ]."
+    out = _convert_citations(text, {"Cohen1960"}, {"1": "Cohen1960"})
+    assert "\\cite{Cohen1960}" in out
+    assert "[ 1 ]" not in out
+
+
+def test_markdown_to_latex_strips_section_block_markers() -> None:
+    md = (
+        "# Title\n\n"
+        "**Background:** Background.\n"
+        "**Objectives:** Objective.\n"
+        "**Methods:** Methods.\n"
+        "**Results:** Results.\n"
+        "**Conclusion:** Conclusion.\n"
+        "**Keywords:** a, b\n\n"
+        "## Methods\n\n"
+        "<!-- SECTION_BLOCK:eligibility_criteria -->\n"
+        "### Eligibility Criteria\n\n"
+        "Study details.\n"
+    )
+    out = markdown_to_latex(md, citekeys=set())
+    assert "SECTION_BLOCK" not in out
+    assert "<!--" not in out
+
+
+def test_markdown_to_latex_merges_split_h3_heading_lines() -> None:
+    md = (
+        "# Title\n\n"
+        "**Background:** Background.\n"
+        "**Objectives:** Objective.\n"
+        "**Methods:** Methods.\n"
+        "**Results:** Results.\n"
+        "**Conclusion:** Conclusion.\n"
+        "**Keywords:** a, b\n\n"
+        "## Results\n\n"
+        "### Risk of\n"
+        "Bias Assessment\n\n"
+        "Findings text.\n"
+    )
+    out = markdown_to_latex(md, citekeys=set())
+    assert "\\subsection{Risk of Bias Assessment}" in out
+
+
 def test_validate_ieee_no_abstract():
     tex = "\\begin{document}\\end{document}"
     bib = ""
