@@ -13,8 +13,11 @@ than any single doc:
 
 - `spec.md` -- full technical specification (all 8 phases, acceptance criteria, implementation status)
 - `README.md` -- quick-start, production URLs, PM2 process names
-- `.cursor/rules/core/project-overview-always.mdc` -- maps every directory; ALWAYS-ON so it loads automatically
-- `.cursor/rules/core/gotchas-agent.mdc` -- operational gotchas (PRISMA, run directories, frontend builds, runtime quirks). Check before assuming any behavior that "should work but doesn't."
+- `.cursor/rules/core/project-overview-always.mdc` -- maps every directory; ALWAYS-ON so it loads automatically.
+  Pay special attention to the **"Fix Processes, Not Individual Runs"** section -- the most important
+  engineering constraint in this codebase. Never manually edit files under `runs/`.
+- `.cursor/rules/core/gotchas-agent.mdc` -- operational gotchas (PRISMA, run directories, frontend builds,
+  runtime quirks, and known pipeline bug fix locations). Check before assuming any behavior that "should work but doesn't."
 
 NOTE: `spec.md` and `README.md` are maintained manually and may lag recent code changes.
 When they contradict the code, trust the code. When they contradict `.cursor/rules/core/project-overview-always.mdc`,
@@ -84,6 +87,7 @@ cd frontend && pnpm fix
 
 - [ ] Read spec.md and README.md
 - [ ] Read .cursor/rules/core/project-overview-always.mdc and gotchas-agent.mdc
+- [ ] Understood the "Fix Processes, Not Individual Runs" principle from project-overview-always.mdc
 - [ ] Reviewed last 5 commit messages and touched files
 - [ ] Noted any uncommitted changes in git status
 - [ ] Confirmed pm2 process health
