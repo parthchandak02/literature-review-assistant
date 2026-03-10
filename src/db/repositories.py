@@ -395,31 +395,40 @@ class WorkflowRepository:
                 if decision == "exclude":
                     ft_excluded += c
 
-        # When full-text exclusions exist, query their reasons from screening_decisions.
-        # The dual_screening_results table records counts but not per-paper exclusion reasons;
-        # the screening_decisions table has the exclusion_reason column populated by the LLM.
-        if ft_excluded > 0:
-            reason_cursor = await self.db.execute(
-                """
-                SELECT COALESCE(exclusion_reason, 'other'), COUNT(DISTINCT paper_id)
-                FROM screening_decisions
-                WHERE workflow_id = ? AND stage = 'fulltext' AND decision = 'exclude'
-                GROUP BY exclusion_reason
-                """,
-                (workflow_id,),
-            )
-            for reason, cnt in await reason_cursor.fetchall():
-                key = str(reason).strip().lower().replace(" ", "_") if reason else "other"
-                exclusion_reasons[key] = exclusion_reasons.get(key, 0) + int(cnt)
+        # Query fulltext exclusion reasons from screening_decisions.
+        # Do this unconditionally instead of gating on ft_excluded from
+        # dual_screening_results because resume/interrupted runs may have
+        # sparse dual rows while screening_decisions already contains final
+        # fulltext exclusion reasons (including no_full_text).
+        reason_cursor = await self.db.execute(
+            """
+            SELECT COALESCE(exclusion_reason, 'other'), COUNT(DISTINCT paper_id)
+            FROM screening_decisions
+            WHERE workflow_id = ? AND stage = 'fulltext' AND decision = 'exclude'
+            GROUP BY exclusion_reason
+            """,
+            (workflow_id,),
+        )
+        for reason, cnt in await reason_cursor.fetchall():
+            key = str(reason).strip().lower().replace(" ", "_") if reason else "other"
+            exclusion_reasons[key] = exclusion_reasons.get(key, 0) + int(cnt)
 
         # Separate "not retrieved" from "assessed but excluded".
         # no_full_text papers were never read -- they belong in the PRISMA
         # "Reports not retrieved" box, not in "Reports excluded with reasons".
         reports_not_retrieved = exclusion_reasons.pop("no_full_text", 0)
-        # Adjust ft_assessed and ft_excluded to exclude the not-retrieved papers
-        # so that: reports_sought == reports_not_retrieved + reports_assessed
+        # Adjust ft_assessed and ft_excluded to exclude the not-retrieved papers.
         ft_assessed = max(0, ft_assessed - reports_not_retrieved)
         ft_excluded = max(0, ft_excluded - reports_not_retrieved)
+        # Resume/partial-run edge case: full-text retrieval can be persisted in
+        # extraction_records while fulltext-stage dual_screening_results rows are
+        # sparse or absent. In that case, relying only on fulltext rows collapses
+        # reports_assessed to 0, which breaks PRISMA arithmetic in writing/export.
+        # Keep the invariant:
+        #   reports_sought == reports_not_retrieved + reports_assessed
+        expected_assessed = max(0, ft_sought - reports_not_retrieved)
+        if expected_assessed > ft_assessed:
+            ft_assessed = expected_assessed
 
         return ta_screened, ta_excluded, ft_sought, reports_not_retrieved, ft_assessed, exclusion_reasons
 
@@ -587,6 +596,34 @@ class WorkflowRepository:
             ),
         )
         await self.db.commit()
+
+    async def delete_section_drafts(self, workflow_id: str, sections: set[str] | None = None) -> int:
+        """Delete saved section drafts for a workflow.
+
+        Returns number of rows deleted. When sections is None, removes all drafts
+        for the workflow; otherwise only the specified section names.
+        """
+        if sections:
+            placeholders = ",".join("?" for _ in sections)
+            params = [workflow_id, *sorted(sections)]
+            cursor = await self.db.execute(
+                f"""
+                DELETE FROM section_drafts
+                WHERE workflow_id = ?
+                  AND section IN ({placeholders})
+                """,
+                params,
+            )
+        else:
+            cursor = await self.db.execute(
+                """
+                DELETE FROM section_drafts
+                WHERE workflow_id = ?
+                """,
+                (workflow_id,),
+            )
+        await self.db.commit()
+        return int(cursor.rowcount or 0)
 
     async def save_gate_result(self, result: GateResult) -> None:
         await self.db.execute(
@@ -945,8 +982,15 @@ class WorkflowRepository:
             INSERT INTO checkpoints (workflow_id, phase, status, papers_processed)
             VALUES (?, ?, ?, ?)
             ON CONFLICT(workflow_id, phase) DO UPDATE SET
-                status=excluded.status,
-                papers_processed=excluded.papers_processed
+                status = CASE
+                    WHEN excluded.status = 'completed' THEN 'completed'
+                    WHEN checkpoints.status = 'completed' THEN 'completed'
+                    ELSE excluded.status
+                END,
+                papers_processed = CASE
+                    WHEN excluded.status = 'completed' THEN excluded.papers_processed
+                    ELSE MAX(checkpoints.papers_processed, excluded.papers_processed)
+                END
             """,
             (workflow_id, phase, status, papers_processed),
         )

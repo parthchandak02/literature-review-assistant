@@ -27,9 +27,13 @@ PHASE_ORDER = [
 
 
 def _next_phase(checkpoints: dict[str, str]) -> str:
-    """Return the first phase not in checkpoints, or 'finalize' if all done."""
+    """Return first phase that is missing or not completed.
+
+    Checkpoint status matters: `partial` must be treated as incomplete so resume
+    re-enters that phase instead of skipping ahead.
+    """
     for phase in PHASE_ORDER:
-        if phase not in checkpoints:
+        if checkpoints.get(phase) != "completed":
             return phase
     return "finalize"
 
@@ -129,6 +133,13 @@ async def load_resume_state(
         # These are mid-phase markers not in PHASE_ORDER but used for resume skipping.
         _SUB_PHASE_CHECKPOINTS: dict[str, list[str]] = {
             "phase_3_screening": ["phase_3b_fulltext"],
+            "phase_6_writing": [
+                "phase_6a_hyde",
+                "phase_6b_phase_a",
+                "phase_6c_phase_b",
+                "phase_6d_assembly",
+                "phase_6e_concepts",
+            ],
         }
 
         if from_phase is not None:
@@ -158,6 +169,11 @@ async def load_resume_state(
                     extra.extend(_SUB_PHASE_CHECKPOINTS.get(phase, []))
                 phases_to_clear = list(phases_to_clear) + extra
                 await repo.delete_checkpoints_for_phases(workflow_id, phases_to_clear)
+                # Re-running writing (or any earlier phase that includes writing)
+                # must clear persisted section_drafts; otherwise WritingNode sees
+                # sections as already completed and skips regeneration.
+                if "phase_6_writing" in phases_to_clear:
+                    await repo.delete_section_drafts(workflow_id)
                 next_phase = from_phase
         else:
             next_phase = _next_phase(checkpoints)
@@ -200,6 +216,8 @@ async def load_resume_state(
         "concept_taxonomy": str(run_dir / "fig_concept_taxonomy.svg"),
         "conceptual_framework": str(run_dir / "fig_conceptual_framework.svg"),
         "methodology_flow": str(run_dir / "fig_methodology_flow.svg"),
+        "prospero_form_md": str(run_dir / "doc_prospero_registration.md"),
+        "prospero_form": str(run_dir / "doc_prospero_registration.docx"),
     }
 
     state = ReviewState(

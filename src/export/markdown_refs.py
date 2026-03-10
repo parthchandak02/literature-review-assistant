@@ -271,6 +271,17 @@ def _sanitize_body(text: str) -> str:
         )
         text = _two_rev_re.sub(r"\1 " + _disclosure, text, count=1)
 
+    # Remove unresolved citation placeholders from final manuscript prose.
+    text = text.replace("(citation unavailable)", "")
+    text = re.sub(r"\bRef\d+\b", "", text)
+    text = re.sub(r"\bPaper_[A-Za-z0-9_\-]+\b", "", text)
+    text = re.sub(r"\[\s*Ref\d+\s*\]", "", text)
+    text = re.sub(r"\[\s*Paper_[A-Za-z0-9_\-]+\s*\]", "", text)
+    text = text.replace(" ,", ",")
+    text = text.replace(" .", ".")
+    text = re.sub(r"[ \t]{2,}", " ", text)
+    text = re.sub(r"\[\s*,\s*\]", "", text)
+
     lines = text.split("\n")
     clean: list[str] = []
     # Orphaned fragment: line starts with optional whitespace then a comma then citekey tokens
@@ -363,9 +374,29 @@ def convert_to_numbered_citations(
     Perez-Encinas) are normalized to ASCII before catalog lookup so they resolve
     correctly regardless of how they appear in the manuscript text.
     """
-    # Build catalog map keyed by ASCII-normalized citekey for robust lookup
+    def _canonical_key(raw: str) -> str:
+        # Forgiving key for matching legacy variants (spaces/punctuation/accents).
+        return re.sub(r"[^A-Za-z0-9]", "", _ascii_citekey(raw)).lower()
+
+    # Build catalog maps for robust lookup.
     citekey_map: dict[str, tuple] = {_ascii_citekey(row[1]): row for row in citation_rows}
+    canonical_map: dict[str, str] = {}
+    for row in citation_rows:
+        key = _ascii_citekey(row[1])
+        canonical_map[_canonical_key(key)] = key
     ordered_keys = extract_citekeys_in_order(body)  # already returns ASCII-normalized keys
+    # Augment with legacy space-containing keys that extract_citekeys_in_order
+    # intentionally skips (it expects citekey-like tokens).
+    seen_ordered = set(ordered_keys)
+    for m in re.finditer(r"\[([^\]\[]{1,120})\]", body):
+        for part in [p.strip() for p in re.split(r"[,;]", m.group(1))]:
+            if not part:
+                continue
+            canon = _canonical_key(part)
+            mapped = canonical_map.get(canon)
+            if mapped and mapped not in seen_ordered:
+                ordered_keys.append(mapped)
+                seen_ordered.add(mapped)
     key_to_number: dict[str, int] = {}
     ordered_rows: list[tuple] = []
     n = 1
@@ -376,7 +407,7 @@ def convert_to_numbered_citations(
             n += 1
 
     # Accept Unicode word chars so accented citekeys in the text are captured by the pattern
-    _valid_key = re.compile(r"^[\w][\w0-9_:-]*$", re.UNICODE)
+    _valid_key = re.compile(r"^[\w][\w0-9_:\- '.]*$", re.UNICODE)
 
     def _replacer(match: re.Match) -> str:  # type: ignore[type-arg]
         bracket_content = match.group(1)
@@ -385,8 +416,17 @@ def convert_to_numbered_citations(
         valid_parts = [p for p in parts if _valid_key.match(p)]
         if not valid_parts:
             return match.group(0)
-        # Normalize each part to ASCII before catalog lookup
-        nums = [key_to_number[_ascii_citekey(p)] for p in valid_parts if _ascii_citekey(p) in key_to_number]
+        # Normalize each part before catalog lookup (supports space-containing legacy keys).
+        nums: list[int] = []
+        for p in valid_parts:
+            ascii_key = _ascii_citekey(p)
+            if ascii_key in key_to_number:
+                nums.append(key_to_number[ascii_key])
+                continue
+            canon = _canonical_key(ascii_key)
+            mapped = canonical_map.get(canon)
+            if mapped and mapped in key_to_number:
+                nums.append(key_to_number[mapped])
         if not nums:
             return match.group(0)
         return ", ".join(f"[{num}]" for num in nums)
@@ -601,9 +641,9 @@ def build_compact_study_table(
 
     Columns: Study (Year) | Country | Design | N | Key Finding
 
-    This is a concise in-body table, not the full Appendix B table.  It covers
-    all included studies and is inserted right after the Study Characteristics
-    heading in the assembled Results section so PRISMA Item 19 is satisfied.
+    This is a concise in-body table, not the full Appendix B table. It is
+    inserted right after the Study Characteristics heading in the assembled
+    Results section so PRISMA Item 19 is satisfied.
 
     Returns an empty string when no usable data is available.
     """
@@ -667,16 +707,23 @@ def build_compact_study_table(
         finding = finding if finding else "NR"
 
         rows.append((study_col, country, design_str, n_str, finding))
-        if len(rows) >= max_rows:
-            break
 
     if not rows:
         return ""
 
+    total_usable = len(rows)
+    rows = rows[:max_rows]
+
     header = "| Study (Year) | Country | Design | N | Key Finding |"
     sep = "|---|---|---|---|---|"
     data_lines = [f"| {r[0]} | {r[1]} | {r[2]} | {r[3]} | {r[4]} |" for r in rows]
-    note = f"\n_Table 1. Summary of {len(rows)} included studies. See Appendix B for full characteristics._"
+    if total_usable > len(rows):
+        note = (
+            f"\n_Table 1. Summary of {len(rows)} of {total_usable} included studies "
+            f"(compact in-body view). See Appendix B for full characteristics._"
+        )
+    else:
+        note = f"\n_Table 1. Summary of {len(rows)} included studies. See Appendix B for full characteristics._"
     return "\n".join([header, sep] + data_lines) + note
 
 

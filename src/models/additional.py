@@ -71,6 +71,17 @@ class ProtocolDocument(BaseModel):
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
 
+class ProsperoRunData(BaseModel):
+    """Post-run data collected from ReviewState to populate the PROSPERO registration form."""
+
+    search_counts: dict[str, int] = Field(default_factory=dict)
+    search_queries: dict[str, str] = Field(default_factory=dict)
+    included_count: int = 0
+    fulltext_retrieved_count: int = 0
+    run_id: str = ""
+    synthesis_method: str = ""
+
+
 class SummaryOfFindingsRow(BaseModel):
     outcome: str
     participants_studies: str

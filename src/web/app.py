@@ -1272,21 +1272,53 @@ async def _resume_wrapper(
     except Exception as exc:
         import traceback
 
-        record.done = True
-        record.error = str(exc)
         _tb = traceback.format_exc()
         _logger.exception("Resume failed: %s", exc)
-        _error_resume_evt: dict[str, Any] = {
-            "type": "error",
-            "msg": str(exc),
-            "traceback": _tb,
-        }
-        record.event_log.append(_error_resume_evt)
-        await record.queue.put(_error_resume_evt)
+        # Safety net: if workflow status is already completed in runtime.db,
+        # treat this as a post-finalize/non-fatal exception and avoid flipping
+        # registry status back to failed.
+        _runtime_completed = False
         try:
-            await _update_registry_status(run_root, workflow_id, "failed")
+            async with aiosqlite.connect(db_path) as _db:
+                async with _db.execute(
+                    "SELECT status FROM workflows WHERE workflow_id = ?",
+                    (workflow_id,),
+                ) as _cur:
+                    _row = await _cur.fetchone()
+                    _runtime_completed = bool(_row and str(_row[0]) == "completed")
         except Exception:
-            pass
+            _runtime_completed = False
+
+        if _runtime_completed:
+            record.done = True
+            record.error = None
+            try:
+                _summary_path = pathlib.Path(db_path).parent / "run_summary.json"
+                if _summary_path.exists():
+                    record.outputs = json.loads(_summary_path.read_text(encoding="utf-8"))
+            except Exception:
+                pass
+            _done_resume_evt: dict[str, Any] = {"type": "done", "outputs": record.outputs}
+            record.event_log.append(_done_resume_evt)
+            await record.queue.put(_done_resume_evt)
+            try:
+                await _update_registry_status(run_root, workflow_id, "completed")
+            except Exception:
+                pass
+        else:
+            record.done = True
+            record.error = str(exc)
+            _error_resume_evt: dict[str, Any] = {
+                "type": "error",
+                "msg": str(exc),
+                "traceback": _tb,
+            }
+            record.event_log.append(_error_resume_evt)
+            await record.queue.put(_error_resume_evt)
+            try:
+                await _update_registry_status(run_root, workflow_id, "failed")
+            except Exception:
+                pass
     finally:
         heartbeat_task.cancel()
         flusher_task.cancel()
@@ -1462,6 +1494,40 @@ def _get_db_path(run_id: str) -> str:
             headers={"Retry-After": "2"},
         )
     return record.db_path
+
+
+async def _resolve_db_path_from_run_or_workflow(identifier: str, run_root: str = "runs") -> str:
+    """Resolve a db_path from either an active run_id or a workflow_id."""
+    record = _active_runs.get(identifier)
+    if record is not None:
+        if not record.db_path:
+            raise HTTPException(
+                status_code=503,
+                detail="Database initializing -- retry in a moment",
+                headers={"Retry-After": "2"},
+            )
+        return record.db_path
+
+    from src.db.workflow_registry import find_by_workflow_id, find_by_workflow_id_fallback
+
+    # Support workflow-id lookups even when the API process cwd differs from
+    # the repository root by trying multiple run-root candidates.
+    _candidate_roots = [run_root]
+    _repo_runs = pathlib.Path(__file__).resolve().parents[2] / "runs"
+    _repo_runs_str = str(_repo_runs)
+    if _repo_runs_str not in _candidate_roots:
+        _candidate_roots.append(_repo_runs_str)
+
+    entry = None
+    for _root in _candidate_roots:
+        entry = await find_by_workflow_id(_root, identifier)
+        if entry is None:
+            entry = await find_by_workflow_id_fallback(_root, identifier)
+        if entry is not None and entry.db_path:
+            break
+    if entry is None or not entry.db_path:
+        raise HTTPException(status_code=404, detail="Run not found")
+    return entry.db_path
 
 
 _STOP_WORDS = frozenset(
@@ -1980,8 +2046,11 @@ async def get_papers_reference(run_id: str) -> dict[str, Any]:
     Reads from the papers_manifest.json saved during extraction and merges with
     dual_screening_results to filter to included papers only. Falls back to
     querying the DB when no manifest exists (for older runs).
+
+    Supports both run_id (from _active_runs) and workflow_id (wf-NNNN) for
+    historical runs after eviction or server restart.
     """
-    db_path = _get_db_path(run_id)
+    db_path = await _resolve_db_path_from_run_or_workflow(run_id)
     run_dir = pathlib.Path(db_path).parent
     manifest_path = run_dir / "data_papers_manifest.json"
 
@@ -1998,6 +2067,11 @@ async def get_papers_reference(run_id: str) -> dict[str, Any]:
             await db.execute("PRAGMA journal_mode = WAL")
             await db.execute("PRAGMA synchronous = NORMAL")
             await db.execute("PRAGMA foreign_keys = ON")
+            _resolved_workflow_id = run_id
+            async with db.execute("SELECT workflow_id FROM workflows ORDER BY rowid DESC LIMIT 1") as _wf_cur:
+                _wf_row = await _wf_cur.fetchone()
+                if _wf_row and _wf_row[0]:
+                    _resolved_workflow_id = str(_wf_row[0])
             async with db.execute(
                 """
                 SELECT p.paper_id, p.title, p.authors, p.year,
@@ -2011,6 +2085,25 @@ async def get_papers_reference(run_id: str) -> dict[str, Any]:
                 """
             ) as cur:
                 rows = await cur.fetchall()
+
+            # One-off-resume inconsistency guard:
+            # Some historical runs can contain extraction_records but miss
+            # fulltext-stage include rows. Fall back to extraction_records so
+            # References remains usable without requiring manual DB patching.
+            if not rows:
+                async with db.execute(
+                    """
+                    SELECT p.paper_id, p.title, p.authors, p.year,
+                           p.source_database, p.doi, p.url, p.country,
+                           'include' AS final_decision
+                    FROM papers p
+                    JOIN extraction_records er
+                      ON p.paper_id = er.paper_id AND er.workflow_id = ?
+                    ORDER BY p.year DESC
+                    """,
+                    (_resolved_workflow_id,),
+                ) as _fallback_cur:
+                    rows = await _fallback_cur.fetchall()
 
         papers_out = []
         for row in rows:
@@ -2058,8 +2151,10 @@ async def get_paper_file(run_id: str, paper_id: str) -> StreamingResponse:
 
     Returns the file with appropriate Content-Type. Returns 404 when the file
     was not retrieved during extraction (abstract-only extraction run).
+
+    Supports both run_id and workflow_id (wf-NNNN) for historical runs.
     """
-    db_path = _get_db_path(run_id)
+    db_path = await _resolve_db_path_from_run_or_workflow(run_id)
     run_dir = pathlib.Path(db_path).parent
     manifest_path = run_dir / "data_papers_manifest.json"
 
@@ -2114,11 +2209,13 @@ async def fetch_pdfs_for_run(run_id: str) -> StreamingResponse:
     direct URL download fallback). Saves PDF bytes to {run_dir}/papers/{paper_id}.pdf or
     full text to {paper_id}.txt, then updates data_papers_manifest.json. Safe to call
     multiple times; skips papers that already have a file saved.
+
+    Supports both run_id and workflow_id (wf-NNNN) for historical runs.
     """
     from src.models.papers import CandidatePaper
     from src.search.pdf_retrieval import PDFRetriever
 
-    db_path = _get_db_path(run_id)
+    db_path = await _resolve_db_path_from_run_or_workflow(run_id)
     run_dir = pathlib.Path(db_path).parent
     papers_dir = run_dir / "papers"
     manifest_path = run_dir / "data_papers_manifest.json"
@@ -2138,6 +2235,11 @@ async def fetch_pdfs_for_run(run_id: str) -> StreamingResponse:
             await db.execute("PRAGMA journal_mode = WAL")
             await db.execute("PRAGMA synchronous = NORMAL")
             await db.execute("PRAGMA foreign_keys = ON")
+            _resolved_workflow_id = run_id
+            async with db.execute("SELECT workflow_id FROM workflows ORDER BY rowid DESC LIMIT 1") as _wf_cur:
+                _wf_row = await _wf_cur.fetchone()
+                if _wf_row and _wf_row[0]:
+                    _resolved_workflow_id = str(_wf_row[0])
             async with db.execute(
                 """
                 SELECT p.paper_id, p.title, p.authors, p.year, p.doi, p.url,
@@ -2150,6 +2252,23 @@ async def fetch_pdfs_for_run(run_id: str) -> StreamingResponse:
                 """
             ) as cur:
                 rows = await cur.fetchall()
+
+            # Same guard as References endpoint: when fulltext include rows are
+            # absent but extraction records exist, use extraction_records as the
+            # canonical included set so retroactive fetch remains functional.
+            if not rows:
+                async with db.execute(
+                    """
+                    SELECT p.paper_id, p.title, p.authors, p.year, p.doi, p.url,
+                           p.source_database
+                    FROM papers p
+                    JOIN extraction_records er
+                      ON p.paper_id = er.paper_id AND er.workflow_id = ?
+                    ORDER BY p.paper_id
+                    """,
+                    (_resolved_workflow_id,),
+                ) as _fallback_cur:
+                    rows = await _fallback_cur.fetchall()
     except Exception as exc:
         _fetch_err = str(exc)
 
@@ -2182,7 +2301,15 @@ async def fetch_pdfs_for_run(run_id: str) -> StreamingResponse:
             existing_path = existing.get("file_path")
             if existing_path and pathlib.Path(existing_path).exists():
                 skipped += 1
-                results.append({"paper_id": paper_id, "status": "skipped", "source": existing.get("source")})
+                results.append(
+                    {
+                        "paper_id": paper_id,
+                        "status": "skipped",
+                        "source": existing.get("source"),
+                        "reason_code": existing.get("reason_code"),
+                        "diagnostics": existing.get("diagnostics", []),
+                    }
+                )
                 yield f"data: {_json.dumps({'type': 'progress', 'current': idx + 1, 'total': total, 'paper_id': paper_id, 'title': title, 'status': 'skipped', 'source': existing.get('source')})}\n\n"
             else:
                 fetch_work.append((idx, row))
@@ -2197,6 +2324,8 @@ async def fetch_pdfs_for_run(run_id: str) -> StreamingResponse:
                 title = row["title"] or "Untitled"
                 saved_path: str | None = None
                 source: str = "abstract"
+                reason_code: str | None = None
+                diagnostics: list[str] = []
                 error_msg: str | None = None
                 async with _sem:
                     try:
@@ -2210,6 +2339,8 @@ async def fetch_pdfs_for_run(run_id: str) -> StreamingResponse:
                             url=url or None,
                         )
                         ft_result = await retriever.retrieve(paper)
+                        reason_code = ft_result.reason_code
+                        diagnostics = list(ft_result.diagnostics or [])
                         if ft_result.success and ft_result.pdf_bytes and len(ft_result.pdf_bytes) > 1000:
                             pdf_dest = papers_dir / f"{paper_id}.pdf"
                             pdf_dest.write_bytes(ft_result.pdf_bytes)
@@ -2226,8 +2357,9 @@ async def fetch_pdfs_for_run(run_id: str) -> StreamingResponse:
                                 error_msg = ft_result.error
                     except Exception as exc:  # noqa: BLE001
                         error_msg = str(exc)
+                        reason_code = "exception"
                         _logger.warning("fetch-pdfs: failed for %s: %s", paper_id, exc)
-                return (orig_idx, paper_id, title, saved_path, source, error_msg)
+                return (orig_idx, paper_id, title, saved_path, source, reason_code, diagnostics, error_msg)
 
             gathered = await _asyncio.gather(
                 *[_fetch_one(idx, row) for idx, row in fetch_work],
@@ -2238,7 +2370,7 @@ async def fetch_pdfs_for_run(run_id: str) -> StreamingResponse:
                 (r for r in gathered if not isinstance(r, BaseException)),
                 key=lambda t: t[0],
             ):
-                orig_idx, paper_id, title, saved_path, source, error_msg = item
+                orig_idx, paper_id, title, saved_path, source, reason_code, diagnostics, error_msg = item
                 doi = rows[orig_idx]["doi"] or ""
                 url = rows[orig_idx]["url"] or ""
                 file_type = "pdf" if (saved_path and saved_path.endswith(".pdf")) else ("txt" if saved_path else None)
@@ -2249,6 +2381,8 @@ async def fetch_pdfs_for_run(run_id: str) -> StreamingResponse:
                     "doi": doi,
                     "url": url,
                     "source": source,
+                    "reason_code": reason_code,
+                    "diagnostics": diagnostics[-8:] if diagnostics else [],
                     "file_path": saved_path,
                     "file_type": file_type,
                 }
@@ -2260,7 +2394,9 @@ async def fetch_pdfs_for_run(run_id: str) -> StreamingResponse:
                         "paper_id": paper_id,
                         "status": result_status,
                         "source": source,
+                        "reason_code": reason_code,
                         "file_type": file_type,
+                        "diagnostics": diagnostics[-6:] if diagnostics else [],
                         "error": error_msg,
                     }
                 )
@@ -2271,7 +2407,13 @@ async def fetch_pdfs_for_run(run_id: str) -> StreamingResponse:
 
         attempted = total - skipped
         failed = attempted - succeeded
-        yield f"data: {_json.dumps({'type': 'done', 'attempted': attempted, 'succeeded': succeeded, 'failed': failed, 'skipped': skipped, 'results': results})}\n\n"
+        reason_counts: dict[str, int] = {}
+        for r in results:
+            reason = r.get("reason_code")
+            if not reason:
+                continue
+            reason_counts[reason] = reason_counts.get(reason, 0) + 1
+        yield f"data: {_json.dumps({'type': 'done', 'attempted': attempted, 'succeeded': succeeded, 'failed': failed, 'skipped': skipped, 'reason_counts': reason_counts, 'results': results})}\n\n"
 
     return StreamingResponse(
         _pdf_fetch_stream(),
@@ -2426,6 +2568,65 @@ async def download_manuscript_docx(run_id: str) -> FileResponse:
         path=str(docx_path),
         filename=download_name,
         media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    )
+
+
+# ---------------------------------------------------------------------------
+# PROSPERO registration form endpoint
+# ---------------------------------------------------------------------------
+
+
+@app.get("/api/run/{run_id}/prospero-form.docx")
+async def download_prospero_form(run_id: str) -> FileResponse:
+    """Stream the PROSPERO registration form (.docx) generated at run finalization."""
+    db_path = await _resolve_db_path_from_run_or_workflow(run_id)
+    summary_path = pathlib.Path(db_path).parent / "run_summary.json"
+    if not summary_path.exists():
+        raise HTTPException(status_code=404, detail="run_summary.json not found")
+    summary = _json.loads(summary_path.read_text(encoding="utf-8"))
+    output_dir: str | None = summary.get("output_dir")
+    if not output_dir:
+        raise HTTPException(status_code=404, detail="output_dir not in run_summary")
+    docx_path = pathlib.Path(output_dir) / "doc_prospero_registration.docx"
+    if not docx_path.exists():
+        raise HTTPException(
+            status_code=404,
+            detail="doc_prospero_registration.docx not found -- run must have completed finalization",
+        )
+    workflow_id: str = summary.get("workflow_id", run_id)
+    topic = await _get_topic_for_db(db_path)
+    download_name = _make_download_slug(workflow_id, topic) + "_prospero.docx"
+    return FileResponse(
+        path=str(docx_path),
+        filename=download_name,
+        media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    )
+
+
+@app.get("/api/run/{run_id}/prospero-form.md")
+async def download_prospero_form_markdown(run_id: str) -> FileResponse:
+    """Stream the PROSPERO registration form markdown generated at run finalization."""
+    db_path = await _resolve_db_path_from_run_or_workflow(run_id)
+    summary_path = pathlib.Path(db_path).parent / "run_summary.json"
+    if not summary_path.exists():
+        raise HTTPException(status_code=404, detail="run_summary.json not found")
+    summary = _json.loads(summary_path.read_text(encoding="utf-8"))
+    output_dir: str | None = summary.get("output_dir")
+    if not output_dir:
+        raise HTTPException(status_code=404, detail="output_dir not in run_summary")
+    md_path = pathlib.Path(output_dir) / "doc_prospero_registration.md"
+    if not md_path.exists():
+        raise HTTPException(
+            status_code=404,
+            detail="doc_prospero_registration.md not found -- run must have completed finalization",
+        )
+    workflow_id: str = summary.get("workflow_id", run_id)
+    topic = await _get_topic_for_db(db_path)
+    download_name = _make_download_slug(workflow_id, topic) + "_prospero.md"
+    return FileResponse(
+        path=str(md_path),
+        filename=download_name,
+        media_type="text/markdown; charset=utf-8",
     )
 
 

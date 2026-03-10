@@ -64,6 +64,9 @@ _OPENALEX_WORKS_URL = "https://api.openalex.org/works"
 _OPENALEX_CONTENT_BASE = "https://content.openalex.org/works"
 _CROSSREF_WORKS_URL = "https://api.crossref.org/works"
 _FT_TIMEOUT = 20  # seconds per individual tier HTTP request (kept for tier functions)
+_DOI_RE = re.compile(r"10\.\d{4,9}/[-._;()/:A-Z0-9]+", re.IGNORECASE)
+_TRANSIENT_HTTP_STATUSES = {408, 425, 429, 500, 502, 503, 504}
+_AUTH_OR_BOT_BLOCKED_STATUSES = {401, 403, 429}
 
 
 def _get_tier_timeout() -> int:
@@ -965,6 +968,141 @@ async def _fetch_crossref_links(
         return None
 
 
+@dataclass(frozen=True)
+class _DomainPolicy:
+    mode: str
+    max_attempts: int
+    retry_statuses: frozenset[int]
+
+
+_DEFAULT_POLICY = _DomainPolicy(
+    mode="direct_pdf_allowed",
+    max_attempts=2,
+    retry_statuses=frozenset(_TRANSIENT_HTTP_STATUSES),
+)
+_DOMAIN_POLICIES: dict[str, _DomainPolicy] = {
+    # Common bot-protected hosts where repeated direct retries are usually futile.
+    "bmj.com": _DomainPolicy(mode="likely_bot_blocked", max_attempts=1, retry_statuses=frozenset()),
+    "mdpi.com": _DomainPolicy(mode="likely_bot_blocked", max_attempts=1, retry_statuses=frozenset()),
+    # Prefer metadata extraction over direct PDF assumptions.
+    "sciencedirect.com": _DomainPolicy(mode="landing_required", max_attempts=1, retry_statuses=frozenset()),
+}
+
+
+def _domain_policy_for_url(url: str | None) -> _DomainPolicy:
+    if not url:
+        return _DEFAULT_POLICY
+    host = urlparse(url).netloc.lower()
+    for suffix, policy in _DOMAIN_POLICIES.items():
+        if host.endswith(suffix):
+            return policy
+    return _DEFAULT_POLICY
+
+
+def _url_match_tokens(url: str | None) -> set[str]:
+    """Generate normalized URL tokens for matching metadata/link variants."""
+    if not url:
+        return set()
+    p = urlparse(url.strip())
+    host = p.netloc.lower().lstrip("www.")
+    path = p.path.lower()
+    base = f"{host}{path.rstrip('/')}" if path else host
+    tokens = {base}
+    if path and path.endswith("/"):
+        tokens.add(f"{host}{path[:-1]}")
+    if p.query:
+        params = parse_qsl(p.query, keep_blank_values=True)
+        if params:
+            normalized_q = urlencode(sorted(params))
+            tokens.add(f"{base}?{normalized_q}")
+    return {t for t in tokens if t}
+
+
+def _status_from_diag(diagnostics: list[str] | None, tier: str) -> int | None:
+    """Return latest HTTP status captured for a given tier diagnostics prefix."""
+    if not diagnostics:
+        return None
+    prefix = f"{tier}: HTTP "
+    for line in reversed(diagnostics):
+        if line.startswith(prefix):
+            status_txt = line[len(prefix) :].strip().split(" ", 1)[0]
+            if status_txt.isdigit():
+                return int(status_txt)
+    return None
+
+
+def _extract_doi_from_text(value: str | None) -> str:
+    """Extract bare DOI from free text or URL string."""
+    if not value:
+        return ""
+    decoded = value.replace("%2F", "/").replace("%2f", "/")
+    m = _DOI_RE.search(decoded)
+    if not m:
+        return ""
+    doi = m.group(0).strip().rstrip(".,);")
+    return doi
+
+
+def _norm_url_for_match(url: str | None) -> str:
+    """Normalize URL for lightweight matching across metadata providers."""
+    if not url:
+        return ""
+    p = urlparse(url.strip())
+    host = p.netloc.lower().lstrip("www.")
+    path = p.path.rstrip("/").lower()
+    return f"{host}{path}"
+
+
+async def _resolve_doi_from_url_crossref(url: str, diagnostics: list[str] | None = None) -> str:
+    """Resolve DOI from landing-page URL using Crossref works search."""
+    if not url or not url.startswith("http"):
+        return ""
+    query_tokens = _url_match_tokens(url)
+    if not query_tokens:
+        return ""
+    try:
+        email = os.environ.get("CROSSREF_EMAIL") or os.environ.get("PUBMED_EMAIL") or "unknown@example.com"
+        async with aiohttp.ClientSession(connector=tcp_connector_with_certifi()) as session:
+            # Capture redirect-normalized final URL for better matching against Crossref
+            # resource/link records when the user-provided URL is a pre-redirect form.
+            try:
+                async with session.get(
+                    url,
+                    headers=_LP_BROWSER_HEADERS,
+                    timeout=aiohttp.ClientTimeout(total=8),
+                    allow_redirects=True,
+                ) as preq:
+                    query_tokens.update(_url_match_tokens(str(preq.url)))
+            except Exception:
+                pass
+            async with session.get(
+                _CROSSREF_WORKS_URL,
+                params={"query.bibliographic": url, "rows": "6", "mailto": email},
+                timeout=aiohttp.ClientTimeout(total=_FT_TIMEOUT),
+            ) as resp:
+                if resp.status != 200:
+                    _append_diag(diagnostics, "DOIResolve", f"Crossref HTTP {resp.status}")
+                    return ""
+                data = await resp.json(content_type=None)
+        for item in (data.get("message", {}) or {}).get("items", []):
+            doi = _extract_doi_from_text(item.get("DOI"))
+            if not doi:
+                continue
+            resource_url = (((item.get("resource") or {}).get("primary") or {}).get("URL")) or ""
+            if _url_match_tokens(resource_url).intersection(query_tokens):
+                _append_diag(diagnostics, "DOIResolve", f"Crossref exact URL match -> {doi}")
+                return doi
+            for link in item.get("link", []):
+                if _url_match_tokens(link.get("URL")).intersection(query_tokens):
+                    _append_diag(diagnostics, "DOIResolve", f"Crossref link URL match -> {doi}")
+                    return doi
+        _append_diag(diagnostics, "DOIResolve", "Crossref query returned no URL-matched DOI")
+        return ""
+    except Exception as exc:
+        _append_diag(diagnostics, "DOIResolve", str(exc)[:80])
+        return ""
+
+
 # ---------------------------------------------------------------------------
 # Tier 0 helper: direct PDF fetch for known-pattern OA publisher URLs
 # ---------------------------------------------------------------------------
@@ -972,6 +1110,7 @@ async def _fetch_crossref_links(
 
 async def _fetch_url_direct(
     pdf_url: str,
+    referer_url: str | None = None,
     diagnostics: list[str] | None = None,
 ) -> FullTextResult | None:
     """Fetch a URL that is expected to serve a PDF directly.
@@ -986,20 +1125,32 @@ async def _fetch_url_direct(
             "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
         ),
         "Accept": "application/pdf,*/*",
+        "Accept-Language": "en-US,en;q=0.9",
     }
+    if referer_url and referer_url.startswith("http"):
+        pdf_headers["Referer"] = referer_url
+    policy = _domain_policy_for_url(pdf_url)
     try:
         async with aiohttp.ClientSession(connector=tcp_connector_with_certifi()) as session:
-            async with session.get(
-                pdf_url,
-                headers=pdf_headers,
-                timeout=aiohttp.ClientTimeout(total=_FT_TIMEOUT),
-                allow_redirects=True,
-            ) as resp:
-                if resp.status != 200:
-                    _append_diag(diagnostics, "PublisherDirect", f"HTTP {resp.status} for {pdf_url[:60]}")
-                    return None
-                pct = resp.headers.get("Content-Type", "").lower()
-                body = await resp.read()
+            body = b""
+            pct = ""
+            for attempt in range(1, policy.max_attempts + 1):
+                async with session.get(
+                    pdf_url,
+                    headers=pdf_headers,
+                    timeout=aiohttp.ClientTimeout(total=_FT_TIMEOUT),
+                    allow_redirects=True,
+                ) as resp:
+                    if resp.status != 200:
+                        _append_diag(diagnostics, "PublisherDirect", f"HTTP {resp.status} for {pdf_url[:60]}")
+                        if resp.status in _AUTH_OR_BOT_BLOCKED_STATUSES:
+                            _append_diag(diagnostics, "Policy", f"{policy.mode} blocked at status {resp.status}")
+                        if resp.status in policy.retry_statuses and attempt < policy.max_attempts:
+                            continue
+                        return None
+                    pct = resp.headers.get("Content-Type", "").lower()
+                    body = await resp.read()
+                    break
         if not body or len(body) < 500:
             _append_diag(diagnostics, "PublisherDirect", "response too short")
             return None
@@ -1195,6 +1346,16 @@ def _publisher_direct_pdf_url(url: str) -> str | None:
     # Tier 0.5 the best URL for citation_pdf_url extraction.
     if "sciencedirect.com" in host and "/abs/pii/" in path:
         return urlunparse(parsed._replace(path=path.replace("/abs/pii/", "/pii/", 1), query="", fragment=""))
+
+    # BMJ journals: article page to direct full PDF.
+    # Example: /content/82/Suppl_1/1660.1 -> /content/82/Suppl_1/1660.1.full.pdf
+    if host.endswith("bmj.com") and path.startswith("/content/"):
+        if path.endswith(".full.pdf"):
+            return None
+        if path.endswith(".full"):
+            return urlunparse(parsed._replace(path=path + ".pdf", query="", fragment=""))
+        if path and "." in path.rsplit("/", 1)[-1]:
+            return urlunparse(parsed._replace(path=path + ".full.pdf", query="", fragment=""))
 
     return None
 
@@ -1511,7 +1672,11 @@ async def fetch_full_text(
     """
     key = scopus_api_key or os.environ.get("SCOPUS_API_KEY", "")
     insttoken = (scopus_insttoken or os.environ.get("SCOPUS_INSTTOKEN", "")).strip() or None
-    effective_doi = doi or ""
+    effective_doi = _normalize_doi(doi) if doi else ""
+    if not effective_doi and url:
+        effective_doi = _extract_doi_from_text(url)
+    if not effective_doi and url:
+        effective_doi = await _resolve_doi_from_url_crossref(url, diagnostics=diagnostics)
     t = _get_tier_timeout()
 
     # -----------------------------------------------------------------------
@@ -1520,9 +1685,10 @@ async def fetch_full_text(
     # Tried first to avoid wasting a race slot on a trivially fast hit.
     # -----------------------------------------------------------------------
     if url:
+        policy = _domain_policy_for_url(url)
         direct_pdf_url = _publisher_direct_pdf_url(url)
-        if direct_pdf_url:
-            result = await _fetch_url_direct(direct_pdf_url, diagnostics=diagnostics)
+        if direct_pdf_url and policy.mode == "direct_pdf_allowed":
+            result = await _fetch_url_direct(direct_pdf_url, referer_url=url, diagnostics=diagnostics)
             if result:
                 logger.info(
                     "fetch_full_text: Group A PublisherDirect success for url=%s source=%s",
@@ -1530,6 +1696,8 @@ async def fetch_full_text(
                     result.source,
                 )
                 return result
+        elif direct_pdf_url and diagnostics is not None:
+            _append_diag(diagnostics, "Policy", f"skipped Group A direct PDF due to mode={policy.mode}")
 
     # -----------------------------------------------------------------------
     # Group B: Race all open-access HTTP sources in parallel.
@@ -1543,12 +1711,12 @@ async def fetch_full_text(
     # Covers JoVE, OJS journals, Wiley, Springer, Nature, Sage, Taylor & Francis, and
     # any publisher using the HighWire/Scholix meta standard.
     if url and use_landing_page:
-        _tier05_url = _publisher_direct_pdf_url(url) or url
+        _tier05_url = url
 
         async def _tier05_coro(_u: str = _tier05_url) -> FullTextResult | None:
             _cit_pdf = await _quick_citation_pdf_url(_u, diagnostics=diagnostics)
             if _cit_pdf:
-                return await _fetch_url_direct(_cit_pdf, diagnostics=diagnostics)
+                return await _fetch_url_direct(_cit_pdf, referer_url=_u, diagnostics=diagnostics)
             return None
 
         oa_coros.append(_tier05_coro())

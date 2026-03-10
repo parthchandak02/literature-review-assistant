@@ -61,3 +61,50 @@ async def test_get_included_paper_ids_includes_uncertain(tmp_path) -> None:
         await repo.save_dual_screening_result("wf-inc", "p2", "fulltext", True, ScreeningDecisionType.UNCERTAIN, False)
         included = await repo.get_included_paper_ids("wf-inc")
         assert included == {"p1", "p2"}
+
+
+@pytest.mark.asyncio
+async def test_prisma_counts_assessed_falls_back_to_sought_minus_not_retrieved(tmp_path) -> None:
+    """reports_assessed should not collapse to 0 when fulltext rows are sparse."""
+    db_path = tmp_path / "prisma_counts.db"
+    async with get_db(str(db_path)) as db:
+        repo = WorkflowRepository(db)
+        await repo.create_workflow("wf-prisma", "topic", "hash")
+        # papers table rows for FK integrity
+        await db.executemany(
+            "INSERT INTO papers (paper_id, title, authors, source_database) VALUES (?, ?, ?, ?)",
+            [
+                ("p1", "t1", "[]", "openalex"),
+                ("p2", "t2", "[]", "openalex"),
+                ("p3", "t3", "[]", "openalex"),
+            ],
+        )
+        # title/abstract: all 3 included -> fulltext sought = 3
+        await db.executemany(
+            "INSERT INTO dual_screening_results (workflow_id, paper_id, stage, agreement, final_decision, adjudication_needed) VALUES (?, ?, ?, ?, ?, ?)",
+            [
+                ("wf-prisma", "p1", "title_abstract", 1, "include", 0),
+                ("wf-prisma", "p2", "title_abstract", 1, "include", 0),
+                ("wf-prisma", "p3", "title_abstract", 1, "include", 0),
+            ],
+        )
+        # fulltext-stage rows are absent/sparse, but one no_full_text exclusion exists.
+        await db.execute(
+            """
+            INSERT INTO screening_decisions
+                (workflow_id, paper_id, stage, decision, reason, exclusion_reason, reviewer_type, confidence)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            ("wf-prisma", "p1", "fulltext", "exclude", "no pdf", "no_full_text", "adjudicator", 0.9),
+        )
+        await db.commit()
+
+        screened, excluded, sought, not_retrieved, assessed, reasons = await repo.get_prisma_screening_counts(
+            "wf-prisma"
+        )
+        assert screened == 3
+        assert excluded == 0
+        assert sought == 3
+        assert not_retrieved == 1
+        assert assessed == 2
+        assert reasons == {}

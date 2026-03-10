@@ -606,4 +606,18 @@ async def package_submission(
     except Exception:
         pass  # docx generation is best-effort; do not fail the whole export
 
+    # Copy PROSPERO registration artifacts into supplementary/ if they were generated.
+    _prospero_md_src = output_path / "doc_prospero_registration.md"
+    if _prospero_md_src.exists():
+        try:
+            shutil.copy2(_prospero_md_src, supp_dir / "prospero_registration_form.md")
+        except Exception:
+            pass  # best-effort; do not fail the whole export
+    _prospero_docx_src = output_path / "doc_prospero_registration.docx"
+    if _prospero_docx_src.exists():
+        try:
+            shutil.copy2(_prospero_docx_src, supp_dir / "prospero_registration_form.docx")
+        except Exception:
+            pass  # best-effort; do not fail the whole export
+
     return submission_dir

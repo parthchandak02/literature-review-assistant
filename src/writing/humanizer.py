@@ -7,6 +7,7 @@ import time
 from typing import TYPE_CHECKING
 
 from src.llm.pydantic_client import PydanticAIClient
+from src.writing.humanizer_guardrails import extract_citation_blocks, extract_numeric_tokens
 
 if TYPE_CHECKING:
     from src.llm.provider import LLMProvider
@@ -34,6 +35,7 @@ Do NOT change the factual content, statistics, or citation keys (text inside squ
 brackets like [AuthorYear] must be preserved exactly).
 Do NOT add or remove citations.
 Do NOT change section structure or headings.
+Do NOT change numeric values, confidence intervals, p-values, percentages, or units.
 
 Improvements to make:
 - Vary sentence length and structure for natural rhythm
@@ -42,6 +44,7 @@ Improvements to make:
   it is important to mention")
 - Maintain formal academic register throughout
 - Keep all numerical values and statistical results unchanged
+- Keep edits bounded and local; avoid full rewrites when not necessary.
 
 Section text:
 
@@ -49,6 +52,18 @@ Section text:
 
 Return ONLY the revised section text. Do not include any commentary or explanation.
 """
+
+
+def _passes_integrity_checks(before: str, after: str) -> bool:
+    """Validate that humanization did not alter protected artifacts."""
+    if extract_citation_blocks(before) != extract_citation_blocks(after):
+        return False
+    if extract_numeric_tokens(before) != extract_numeric_tokens(after):
+        return False
+    if not before.strip():
+        return True
+    ratio = len(after) / max(len(before), 1)
+    return 0.60 <= ratio <= 1.50
 
 
 async def humanize_async(
@@ -99,6 +114,9 @@ async def humanize_async(
         # Re-attach any text that was beyond the cut point.
         if cut < len(text):
             refined = refined + " " + text[cut:].lstrip()
+        if not _passes_integrity_checks(text, refined):
+            logger.warning("Humanizer integrity check failed; returning original text.")
+            return text
         return refined
     except Exception as exc:
         logger.warning("Humanizer LLM call failed (%s); returning original text.", type(exc).__name__)

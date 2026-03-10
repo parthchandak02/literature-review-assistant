@@ -5,6 +5,7 @@ from src.models.additional import (
     InterRaterReliability,
     MetaAnalysisResult,
     PRISMACounts,
+    ProsperoRunData,
     ProtocolDocument,
     SummaryOfFindingsRow,
 )
@@ -88,6 +89,7 @@ __all__ = [
     "MetaAnalysisResult",
     "PICOConfig",
     "PRISMACounts",
+    "ProsperoRunData",
     "ProtocolDocument",
     "ProtocolRegistration",
     "ReviewConfig",

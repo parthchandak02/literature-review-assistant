@@ -36,6 +36,54 @@ class _ScriptedClient(ScreeningLLMClient):
         return json.dumps(payload)
 
 
+class _SchemaAwareBatchClient:
+    """Scripted client that exposes batch-array usage method for dual_screener."""
+
+    def __init__(self, responses: list[object]):
+        self._responses = responses
+        self.array_schema_calls = 0
+        self.last_item_schema: dict[str, object] | None = None
+
+    async def complete_json_array_with_usage(
+        self,
+        prompt: str,
+        *,
+        agent_name: str,
+        model: str,
+        temperature: float,
+        item_schema: dict[str, object],
+    ) -> tuple[str, int, int, int, int]:
+        _ = (prompt, agent_name, model, temperature)
+        self.array_schema_calls += 1
+        self.last_item_schema = item_schema
+        payload = self._responses.pop(0)
+        return (json.dumps(payload), 10, 10, 0, 0)
+
+    async def complete_json_with_usage(
+        self,
+        prompt: str,
+        *,
+        agent_name: str,
+        model: str,
+        temperature: float,
+    ) -> tuple[str, int, int, int, int]:
+        _ = (prompt, agent_name, model, temperature)
+        payload = self._responses.pop(0)
+        return (json.dumps(payload), 10, 10, 0, 0)
+
+    async def complete_json(
+        self,
+        prompt: str,
+        *,
+        agent_name: str,
+        model: str,
+        temperature: float,
+    ) -> str:
+        _ = (prompt, agent_name, model, temperature)
+        payload = self._responses.pop(0)
+        return json.dumps(payload)
+
+
 def _review() -> ReviewConfig:
     return ReviewConfig(
         research_question="rq",
@@ -319,6 +367,17 @@ async def test_batch_reviewer_missing_paper_fallback(tmp_path) -> None:
         )
         row = await cur.fetchone()
         assert int(row[0]) >= 1
+        # Parse coverage diagnostic should record parsed 2/3 with one fallback.
+        cur = await db.execute(
+            """
+            SELECT COUNT(*)
+            FROM decision_log
+            WHERE decision_type = 'screening_batch_parse_coverage'
+              AND decision = 'parsed_2_of_3'
+            """
+        )
+        row = await cur.fetchone()
+        assert int(row[0]) == 1
 
 
 # ---------------------------------------------------------------------------
@@ -469,3 +528,93 @@ async def test_batch_reviewer_progress_fires_per_paper(tmp_path) -> None:
         assert counters == list(range(1, 6))
         # Total reported in every call must equal 5.
         assert all(call[2] == 5 for call in progress_calls)
+
+
+@pytest.mark.asyncio
+async def test_batch_reviewer_uses_array_schema_method_when_available(tmp_path) -> None:
+    """Batch path should call complete_json_array_with_usage with item schema."""
+    papers = [_paper("p1"), _paper("p2"), _paper("p3")]
+    responses: list[object] = [
+        [
+            _batch_item("p1", "include", 0.95),
+            _batch_item("p2", "include", 0.92),
+            _batch_item("p3", "include", 0.90),
+        ]
+    ]
+    client = _SchemaAwareBatchClient(responses)
+    async with get_db(str(tmp_path / "batch_array_schema.db")) as db:
+        repo = WorkflowRepository(db)
+        await repo.create_workflow("wf-batch-array-schema", "topic", "hash")
+        provider = LLMProvider(_batch_settings(batch_size=10), repo)
+        screener = DualReviewerScreener(
+            repository=repo,
+            provider=provider,
+            review=_review(),
+            settings=_batch_settings(batch_size=10),
+            llm_client=client,
+        )
+        results = await screener.screen_batch(
+            workflow_id="wf-batch-array-schema",
+            stage="title_abstract",
+            papers=papers,
+        )
+        assert len(results) == 3
+        assert client.array_schema_calls == 1
+        assert client.last_item_schema is not None
+        props = client.last_item_schema.get("properties", {})
+        assert isinstance(props, dict)
+        assert "paper_id" in props
+        assert "decision" in props
+
+
+@pytest.mark.asyncio
+async def test_batch_reviewer_parses_id_alias_and_missing_optional_fields(tmp_path) -> None:
+    """Batch parser should tolerate id alias and missing confidence/reasoning."""
+    papers = [_paper("p1"), _paper("p2")]
+    # p1 uses id alias and omits confidence/reasoning; p2 uses standard fields.
+    variant_batch = [
+        {
+            "id": "p1",
+            "decision": "include",
+            "score": 0.95,
+            "reason": "alias id accepted",
+        },
+        {
+            "paper_id": "p2",
+            "decision": "exclude",
+            "confidence": 0.9,
+            "reasoning": "out of scope",
+            "exclusion_reason": "wrong_population",
+        },
+    ]
+    responses: list[object] = [variant_batch]
+    async with get_db(str(tmp_path / "batch_variant_parse.db")) as db:
+        repo = WorkflowRepository(db)
+        await repo.create_workflow("wf-batch-variant", "topic", "hash")
+        provider = LLMProvider(_batch_settings(batch_size=10), repo)
+        screener = DualReviewerScreener(
+            repository=repo,
+            provider=provider,
+            review=_review(),
+            settings=_batch_settings(batch_size=10),
+            llm_client=_ScriptedClient(responses),
+        )
+        results = await screener.screen_batch(
+            workflow_id="wf-batch-variant",
+            stage="title_abstract",
+            papers=papers,
+        )
+        assert len(results) == 2
+        decision_map = {r.paper_id: r.decision for r in results}
+        assert decision_map["p1"] == ScreeningDecisionType.INCLUDE
+        assert decision_map["p2"] == ScreeningDecisionType.EXCLUDE
+        # No parse degradation entry should be emitted when both entries parse.
+        cur = await db.execute(
+            """
+            SELECT COUNT(*)
+            FROM decision_log
+            WHERE decision_type = 'screening_batch_parse_coverage'
+            """
+        )
+        row = await cur.fetchone()
+        assert int(row[0]) == 0

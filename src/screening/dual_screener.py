@@ -14,7 +14,7 @@ from typing import Protocol
 
 _log = logging.getLogger(__name__)
 
-from pydantic import BaseModel, Field, ValidationError
+from pydantic import AliasChoices, BaseModel, Field, ValidationError
 
 from src.db.repositories import WorkflowRepository
 from src.llm.provider import LLMProvider
@@ -47,11 +47,11 @@ class ScreeningResponse(BaseModel):
 class _BatchScreeningItem(BaseModel):
     """One paper's decision within a batch LLM response array."""
 
-    paper_id: str
+    paper_id: str = Field(validation_alias=AliasChoices("paper_id", "paperId", "id"))
     decision: ScreeningDecisionType
-    confidence: float = Field(ge=0.0, le=1.0)
+    confidence: float = Field(default=0.5, ge=0.0, le=1.0)
     short_reason: str | None = None
-    reasoning: str
+    reasoning: str = "Batch response omitted reasoning."
     exclusion_reason: ExclusionReason | None = None
 
 
@@ -839,8 +839,11 @@ class DualReviewerScreener:
         for item in items:
             if not isinstance(item, dict):
                 continue
+            normalized = self._normalize_batch_item(item)
+            if normalized is None:
+                continue
             try:
-                parsed = _BatchScreeningItem.model_validate(item)
+                parsed = _BatchScreeningItem.model_validate(normalized)
             except Exception:
                 continue
             decision = ScreeningDecision(
@@ -855,6 +858,60 @@ class DualReviewerScreener:
                 decision = self._enforce_fulltext_exclusion_reason(decision)
             result[parsed.paper_id] = decision
         return result
+
+    @staticmethod
+    def _normalize_batch_item(item: dict[str, object]) -> dict[str, object] | None:
+        """Normalize a loose batch item into _BatchScreeningItem-compatible keys.
+
+        Keeps decision and exclusion_reason strongly typed while tolerating
+        common output drift (id key variants, missing confidence/reasoning).
+        """
+        pid = item.get("paper_id") or item.get("paperId") or item.get("id")
+        if not isinstance(pid, str) or not pid.strip():
+            return None
+
+        raw_decision = item.get("decision") or item.get("final_decision")
+        if not isinstance(raw_decision, str):
+            return None
+        decision = raw_decision.strip().lower()
+
+        confidence_value = item.get("confidence", item.get("score", 0.5))
+        try:
+            confidence = float(confidence_value)
+        except (TypeError, ValueError):
+            confidence = 0.5
+        confidence = max(0.0, min(1.0, confidence))
+
+        short_reason = item.get("short_reason")
+        if short_reason is None:
+            short_reason = item.get("reason")
+        if short_reason is not None:
+            short_reason = str(short_reason)
+
+        reasoning_value = item.get("reasoning")
+        if reasoning_value is None:
+            reasoning_value = item.get("reason")
+        if reasoning_value is None:
+            reasoning = "Batch response omitted reasoning."
+        else:
+            reasoning = str(reasoning_value)
+
+        normalized: dict[str, object] = {
+            "paper_id": pid.strip(),
+            "decision": decision,
+            "confidence": confidence,
+            "short_reason": short_reason,
+            "reasoning": reasoning,
+        }
+
+        raw_exclusion = item.get("exclusion_reason")
+        if isinstance(raw_exclusion, str):
+            exclusion_candidate = raw_exclusion.strip().lower()
+            valid_reasons = {reason.value for reason in ExclusionReason}
+            normalized["exclusion_reason"] = exclusion_candidate if exclusion_candidate in valid_reasons else None
+        else:
+            normalized["exclusion_reason"] = None
+        return normalized
 
     async def _batch_run_reviewer(
         self,
@@ -879,12 +936,21 @@ class DualReviewerScreener:
         started = time.perf_counter()
         try:
             if hasattr(self.llm_client, "complete_json_with_usage"):
-                raw, tokens_in, tokens_out, cache_write, cache_read = await self.llm_client.complete_json_with_usage(
-                    prompt,
-                    agent_name=spec.agent_name,
-                    model=runtime.model,
-                    temperature=runtime.temperature,
-                )
+                if hasattr(self.llm_client, "complete_json_array_with_usage"):
+                    raw, tokens_in, tokens_out, cache_write, cache_read = await self.llm_client.complete_json_array_with_usage(
+                        prompt,
+                        agent_name=spec.agent_name,
+                        model=runtime.model,
+                        temperature=runtime.temperature,
+                        item_schema=_BatchScreeningItem.model_json_schema(),
+                    )
+                else:
+                    raw, tokens_in, tokens_out, cache_write, cache_read = await self.llm_client.complete_json_with_usage(
+                        prompt,
+                        agent_name=spec.agent_name,
+                        model=runtime.model,
+                        temperature=runtime.temperature,
+                    )
             else:
                 raw = await self.llm_client.complete_json(
                     prompt,
@@ -925,6 +991,31 @@ class DualReviewerScreener:
                 cost_usd=cost_usd,
             )
         parsed_map = self._parse_batch_response(raw, papers, spec, stage)
+        parsed_count = len(parsed_map)
+        fallback_count = max(0, len(papers) - parsed_count)
+        if fallback_count > 0:
+            _log.warning(
+                "Batch %s parse coverage degraded: parsed %d/%d; %d papers require fallback",
+                spec.reviewer_type.value,
+                parsed_count,
+                len(papers),
+                fallback_count,
+            )
+            if self.on_status:
+                self.on_status(
+                    f"Batch {spec.reviewer_type.value} parse degraded: parsed {parsed_count}/{len(papers)}; "
+                    f"fallback {fallback_count}"
+                )
+            await self.repository.append_decision_log(
+                DecisionLogEntry(
+                    decision_type="screening_batch_parse_coverage",
+                    paper_id=None,
+                    decision=f"parsed_{parsed_count}_of_{len(papers)}",
+                    rationale=f"fallback_count={fallback_count}, stage={stage}, reviewer={spec.reviewer_type.value}",
+                    actor=spec.reviewer_type.value,
+                    phase="phase_3_screening",
+                )
+            )
         # Persist decisions + decision log for papers that were parsed.
         for paper in papers:
             decision = parsed_map.get(paper.paper_id)

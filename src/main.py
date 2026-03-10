@@ -40,6 +40,43 @@ async def _run_export(workflow_id: str, run_root: str) -> str | None:
     return str(result) if result else None
 
 
+async def _run_prospero(
+    workflow_id: str,
+    run_root: str,
+    review_path: str,
+    settings_path: str,
+    run_context: RunContext,
+) -> str:
+    """Regenerate the PROSPERO DOCX by rerunning only finalize for a workflow."""
+    # Use the run's own config snapshot when available so finalize-only
+    # regeneration reflects the original workflow inputs, not the current
+    # global config/review.yaml that may have changed since the run.
+    _entry = await find_by_workflow_id(run_root, workflow_id)
+    if _entry is None:
+        _entry = await find_by_workflow_id_fallback(run_root, workflow_id)
+    if _entry is not None:
+        _snapshot = Path(_entry.db_path).parent / "config_snapshot.yaml"
+        if _snapshot.exists():
+            review_path = str(_snapshot)
+
+    summary = await run_workflow_resume(
+        workflow_id=workflow_id,
+        topic=None,
+        review_path=review_path,
+        settings_path=settings_path,
+        run_root=run_root,
+        run_context=run_context,
+        from_phase="finalize",
+    )
+    artifacts = summary.get("artifacts", {})
+    path = artifacts.get("prospero_form")
+    if not path:
+        raise FileNotFoundError("PROSPERO artifact path not found in run summary")
+    if not Path(path).exists():
+        raise FileNotFoundError(f"PROSPERO artifact not found on disk: {path}")
+    return str(path)
+
+
 async def _run_validate(workflow_id: str, run_root: str, console: Console) -> bool:
     """Run validators. Returns True if all pass."""
     import json
@@ -214,6 +251,14 @@ def build_parser() -> argparse.ArgumentParser:
     export = sub.add_parser("export")
     export.add_argument("--workflow-id", required=True)
     export.add_argument("--run-root", default="runs")
+
+    prospero = sub.add_parser("prospero")
+    prospero.add_argument("--workflow-id", required=True)
+    prospero.add_argument("--run-root", default="runs")
+    prospero.add_argument("--config", default="config/review.yaml")
+    prospero.add_argument("--settings", default="config/settings.yaml")
+    prospero.add_argument("--verbose", "-v", action="store_true")
+    prospero.add_argument("--debug", "-d", action="store_true")
 
     status = sub.add_parser("status")
     status.add_argument("--workflow-id", required=True)
@@ -442,6 +487,35 @@ def main(argv: Sequence[str] | None = None) -> int:
                 )
             )
             return 0 if ok else 1
+        except Exception as e:
+            console.print(f"[red]Error:[/] {e}")
+            return 1
+
+    if args.command == "prospero":
+        try:
+            verbose = getattr(args, "verbose", False)
+            debug = getattr(args, "debug", False)
+            if debug:
+                verbose = True
+            with create_progress(console) as progress:
+                run_context = RunContext(
+                    console=console,
+                    verbose=verbose,
+                    debug=debug,
+                    offline=False,
+                    progress=progress,
+                )
+                prospero_path = asyncio.run(
+                    _run_prospero(
+                        workflow_id=args.workflow_id,
+                        run_root=args.run_root,
+                        review_path=args.config,
+                        settings_path=args.settings,
+                        run_context=run_context,
+                    )
+                )
+            console.print(f"[green]PROSPERO DOCX ready:[/] {prospero_path}")
+            return 0
         except Exception as e:
             console.print(f"[red]Error:[/] {e}")
             return 1

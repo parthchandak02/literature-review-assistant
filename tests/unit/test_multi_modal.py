@@ -178,6 +178,36 @@ async def test_fetch_full_text_returns_pdf_bytes_from_unpaywall(monkeypatch):
     assert result.text == ""
 
 
+@pytest.mark.asyncio
+async def test_fetch_full_text_resolves_doi_from_url_for_oa_race(monkeypatch):
+    """When DOI is missing, resolve from URL and still run OA DOI-based tiers."""
+    monkeypatch.delenv("SCOPUS_API_KEY", raising=False)
+    uw_result = _ft(text="E" * 700, source="unpaywall_text")
+    mdpi_url = "https://www.mdpi.com/2313-7673/9/9/540"
+    resolved_doi = "10.3390/bioengineering9090540"
+    with (
+        patch(
+            "src.extraction.table_extraction._resolve_doi_from_url_crossref",
+            new=AsyncMock(return_value=resolved_doi),
+        ),
+        patch("src.extraction.table_extraction._fetch_url_direct", new=AsyncMock(return_value=None)),
+        patch("src.extraction.table_extraction._quick_citation_pdf_url", new=AsyncMock(return_value=None)),
+        patch("src.extraction.table_extraction._fetch_unpaywall", new=AsyncMock(return_value=uw_result)) as mock_uw,
+        patch("src.extraction.table_extraction._fetch_semanticscholar", new=AsyncMock(return_value=None)),
+        patch("src.extraction.table_extraction._fetch_biorxiv_medrxiv", new=AsyncMock(return_value=None)),
+        patch("src.extraction.table_extraction._fetch_core", new=AsyncMock(return_value=None)),
+        patch("src.extraction.table_extraction._fetch_openalex_content", new=AsyncMock(return_value=None)),
+        patch("src.extraction.table_extraction._fetch_europepmc", new=AsyncMock(return_value=None)),
+        patch("src.extraction.table_extraction._fetch_pmc", new=AsyncMock(return_value=None)),
+        patch("src.extraction.table_extraction._fetch_crossref_links", new=AsyncMock(return_value=None)),
+        patch("src.extraction.table_extraction._resolve_landing_page", new=AsyncMock(return_value=None)),
+    ):
+        result = await fetch_full_text(url=mdpi_url)
+
+    assert result.source == "unpaywall_text"
+    mock_uw.assert_called_once_with(resolved_doi, diagnostics=None)
+
+
 # ---------------------------------------------------------------------------
 # merge_outcomes: conflict resolution
 # ---------------------------------------------------------------------------

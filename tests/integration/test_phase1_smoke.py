@@ -204,6 +204,27 @@ async def test_workflow_repository_checkpoint_roundtrip(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
+async def test_workflow_repository_checkpoint_partial_progress_is_monotonic(tmp_path: Path) -> None:
+    """Out-of-order partial checkpoint writes must never decrease persisted progress."""
+    async with get_db(str(tmp_path / "checkpoint_monotonic.db")) as db:
+        repo = WorkflowRepository(db)
+        await repo.create_workflow("wf-ckpt-monotonic", "topic", "hash")
+
+        # Simulate concurrent section finishes arriving out-of-order.
+        await repo.save_checkpoint("wf-ckpt-monotonic", "phase_6_writing", papers_processed=3, status="partial")
+        await repo.save_checkpoint("wf-ckpt-monotonic", "phase_6_writing", papers_processed=2, status="partial")
+
+        cursor = await db.execute(
+            "SELECT papers_processed, status FROM checkpoints WHERE workflow_id = ? AND phase = ?",
+            ("wf-ckpt-monotonic", "phase_6_writing"),
+        )
+        row = await cursor.fetchone()
+        assert row is not None
+        assert int(row[0]) == 3
+        assert str(row[1]) == "partial"
+
+
+@pytest.mark.asyncio
 async def test_workflow_repository_decision_log_write(tmp_path: Path) -> None:
     """append_decision_log persists a DecisionLogEntry to the decision_log table."""
     from src.models.workflow import DecisionLogEntry

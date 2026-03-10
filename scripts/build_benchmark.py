@@ -145,11 +145,16 @@ async def extract_metrics_with_llm(pdf_text: str, filename: str) -> dict[str, An
     _, settings = load_configs()
     model = settings.extraction.pdf_vision_model
 
-    client = GeminiClient(model=model)
+    client = GeminiClient()
     prompt = f"{_EXTRACTION_PROMPT}\n\nPDF TEXT:\n{pdf_text[:60000]}"
 
     try:
-        response = await client.generate(prompt)
+        response = await client.complete(
+            prompt,
+            model=model,
+            temperature=0.1,
+            json_schema=None,
+        )
         # Strip markdown code fences if present
         text = response.strip()
         if text.startswith("```"):
@@ -195,19 +200,130 @@ def _determine_quality_tier(metrics: dict[str, Any]) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Web fetch (Exa/Perplexity)
+# Web fetch helpers (full-text retrieval tiers)
+# ---------------------------------------------------------------------------
+
+_EXA_FULL_TEXT_MIN_CHARS = 5_000
+_UNPAYWALL_EMAIL = "benchmark@litreview.local"
+
+
+async def _exa_get_full_text(url: str, api_key: str) -> str:
+    """Fetch up to 60,000 chars of clean text from a URL via Exa get_contents.
+
+    Returns empty string on any failure.
+    """
+    import aiohttp
+
+    headers = {"x-api-key": api_key, "Content-Type": "application/json"}
+    payload = {"urls": [url], "text": {"maxCharacters": 60000}}
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.post(
+                "https://api.exa.ai/contents",
+                headers=headers,
+                json=payload,
+                timeout=aiohttp.ClientTimeout(total=30),
+            ) as resp:
+                if resp.status != 200:
+                    return ""
+                data = await resp.json()
+        results = data.get("results", [])
+        if results:
+            return results[0].get("text", "") or ""
+    except Exception as exc:
+        console.print(f"  [dim]Exa get_contents failed for {url}: {exc}[/dim]")
+    return ""
+
+
+async def _unpaywall_pdf_url(doi: str) -> str | None:
+    """Return a direct PDF download URL for a DOI via Unpaywall, or None if unavailable."""
+    import aiohttp
+
+    if not doi:
+        return None
+    encoded = doi.lstrip("https://doi.org/").lstrip("http://doi.org/")
+    url = f"https://api.unpaywall.org/v2/{encoded}?email={_UNPAYWALL_EMAIL}"
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(url, timeout=aiohttp.ClientTimeout(total=20)) as resp:
+                if resp.status != 200:
+                    return None
+                data = await resp.json()
+        best = data.get("best_oa_location") or {}
+        return best.get("url_for_pdf") or None
+    except Exception as exc:
+        console.print(f"  [dim]Unpaywall lookup failed for doi={doi}: {exc}[/dim]")
+    return None
+
+
+async def _semantic_scholar_pdf_url(doi: str) -> str | None:
+    """Return a direct PDF download URL from Semantic Scholar openAccessPdf, or None."""
+    import aiohttp
+
+    if not doi:
+        return None
+    encoded = doi.lstrip("https://doi.org/").lstrip("http://doi.org/")
+    url = f"https://api.semanticscholar.org/graph/v1/paper/DOI:{encoded}?fields=openAccessPdf"
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(url, timeout=aiohttp.ClientTimeout(total=20)) as resp:
+                if resp.status != 200:
+                    return None
+                data = await resp.json()
+        oa = data.get("openAccessPdf") or {}
+        return oa.get("url") or None
+    except Exception as exc:
+        console.print(f"  [dim]Semantic Scholar lookup failed for doi={doi}: {exc}[/dim]")
+    return None
+
+
+async def _download_pdf_bytes(url: str) -> bytes | None:
+    """Download raw bytes from a PDF URL. Returns None on any failure."""
+    import aiohttp
+
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(
+                url,
+                timeout=aiohttp.ClientTimeout(total=60),
+                headers={"User-Agent": "LitReviewBenchmarkBuilder/1.0"},
+            ) as resp:
+                if resp.status != 200:
+                    return None
+                content_type = resp.headers.get("Content-Type", "")
+                if "pdf" not in content_type and not url.lower().endswith(".pdf"):
+                    body = await resp.read()
+                    if not body.startswith(b"%PDF"):
+                        return None
+                    return body
+                return await resp.read()
+    except Exception as exc:
+        console.print(f"  [dim]PDF download failed for {url}: {exc}[/dim]")
+    return None
+
+
+def _slugify(text: str, max_len: int = 60) -> str:
+    """Convert a title to a safe filename slug."""
+    slug = re.sub(r"[^a-zA-Z0-9]+", "-", text.lower()).strip("-")
+    return slug[:max_len]
+
+
+# ---------------------------------------------------------------------------
+# Web fetch (Exa/Perplexity) -- now with full-text extraction
 # ---------------------------------------------------------------------------
 
 
-async def fetch_web_srs(topic: str, n: int = 3) -> list[dict[str, Any]]:
-    """Fetch additional published systematic reviews from the web via Exa or Perplexity.
+async def fetch_web_srs(topic: str, n: int = 3) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Fetch additional published systematic reviews from the web.
 
-    Returns a list of dicts with title, doi, abstract, and source metadata.
-    These are added to gold_standard_benchmark.json under web_sourced_papers.
+    Returns (source_papers, web_stubs):
+      - source_papers: papers where full-text was obtained and LLM extraction succeeded;
+        these are merged into the main source_papers list and contribute to derived_thresholds.
+      - web_stubs: papers where full-text could not be obtained; stored under web_sourced_papers
+        as pointers only (no metric contribution).
     """
     console.print(f"\n[cyan]Fetching {n} additional SRs from web for topic: '{topic}'[/cyan]")
 
-    # Try Exa first (preferred for academic papers)
     try:
         return await _fetch_via_exa(topic, n)
     except Exception as exc:
@@ -216,19 +332,28 @@ async def fetch_web_srs(topic: str, n: int = 3) -> list[dict[str, Any]]:
     try:
         return await _fetch_via_perplexity(topic, n)
     except Exception as exc:
-        console.print(f"[red]Perplexity fetch also failed: {exc}[/red]")
-        return []
+        console.print(f"[red]Perplexity also failed: {exc}[/red]")
+        return [], []
 
 
-async def _fetch_via_exa(topic: str, n: int) -> list[dict[str, Any]]:
-    """Fetch SRs via Exa academic search."""
+async def _fetch_via_exa(topic: str, n: int) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Exa neural search + tiered full-text retrieval for each result.
+
+    Tier 1: Exa get_contents (60K chars) -- fast, no download.
+    Tier 2: Unpaywall PDF URL -> download -> pypdf.
+    Tier 3: Semantic Scholar openAccessPdf URL -> download -> pypdf.
+    Fallback: store as stub in web_sourced_papers.
+    """
     import aiohttp
 
     exa_api_key = __import__("os").environ.get("EXA_API_KEY", "")
     if not exa_api_key:
         raise RuntimeError("EXA_API_KEY not set")
 
-    query = f'systematic review "{topic}" PRISMA 2020 PROSPERO site:bmj.com OR site:bmcmedicine.com OR site:pubmed.ncbi.nlm.nih.gov'
+    query = (
+        f'systematic review "{topic}" PRISMA 2020 PROSPERO '
+        "site:bmj.com OR site:biomedcentral.com OR site:pubmed.ncbi.nlm.nih.gov"
+    )
     headers = {"x-api-key": exa_api_key, "Content-Type": "application/json"}
     payload = {
         "query": query,
@@ -236,38 +361,112 @@ async def _fetch_via_exa(topic: str, n: int) -> list[dict[str, Any]]:
         "type": "neural",
         "useAutoprompt": True,
         "includeDomains": ["bmj.com", "biomedcentral.com", "pubmed.ncbi.nlm.nih.gov"],
-        "contents": {"text": {"maxCharacters": 5000}},
+        "contents": {"text": {"maxCharacters": 2000}},
     }
 
     async with aiohttp.ClientSession() as session:
         async with session.post(
-            "https://api.exa.ai/search", headers=headers, json=payload, timeout=aiohttp.ClientTimeout(total=30)
+            "https://api.exa.ai/search",
+            headers=headers,
+            json=payload,
+            timeout=aiohttp.ClientTimeout(total=30),
         ) as resp:
             data = await resp.json()
 
     results = data.get("results", [])
-    papers = []
+    source_papers: list[dict[str, Any]] = []
+    web_stubs: list[dict[str, Any]] = []
+
     for r in results:
-        papers.append(
+        title = r.get("title", "") or ""
+        url = r.get("url", "") or ""
+        doi = r.get("doi") or None
+        abstract_snippet = (r.get("text", "") or "")[:2000]
+
+        console.print(f"  [green]Found:[/green] {title[:80]}")
+
+        # -- Tier 1: Exa get_contents (60K chars) --
+        text = ""
+        text_source = ""
+        if url:
+            console.print(f"    Tier 1: Exa get_contents for {url[:60]}...")
+            text = await _exa_get_full_text(url, exa_api_key)
+            if len(text) >= _EXA_FULL_TEXT_MIN_CHARS:
+                text_source = "exa_full_text"
+                console.print(f"    [green]OK[/green] Got {len(text):,} chars via Exa")
+
+        # -- Tier 2: Unpaywall --
+        pdf_bytes: bytes | None = None
+        pdf_save_path: pathlib.Path | None = None
+        if len(text) < _EXA_FULL_TEXT_MIN_CHARS and doi:
+            console.print(f"    Tier 2: Unpaywall for doi={doi}...")
+            pdf_url = await _unpaywall_pdf_url(doi)
+            if pdf_url:
+                console.print(f"    [green]OK[/green] Unpaywall PDF: {pdf_url[:60]}...")
+                pdf_bytes = await _download_pdf_bytes(pdf_url)
+                if pdf_bytes:
+                    text_source = "unpaywall_pdf"
+
+        # -- Tier 3: Semantic Scholar --
+        if len(text) < _EXA_FULL_TEXT_MIN_CHARS and pdf_bytes is None and doi:
+            console.print(f"    Tier 3: Semantic Scholar for doi={doi}...")
+            pdf_url = await _semantic_scholar_pdf_url(doi)
+            if pdf_url:
+                console.print(f"    [green]OK[/green] S2 PDF: {pdf_url[:60]}...")
+                pdf_bytes = await _download_pdf_bytes(pdf_url)
+                if pdf_bytes:
+                    text_source = "semantic_scholar_pdf"
+
+        # -- Convert PDF bytes to text if we got them --
+        if pdf_bytes:
+            slug = _slugify(title) if title else "web_sr"
+            pdf_save_path = REFERENCE_DIR / f"{slug}.pdf"
+            pdf_save_path.write_bytes(pdf_bytes)
+            console.print(f"    Saved PDF -> reference/{pdf_save_path.name}")
+            text = read_pdf_text(pdf_save_path)
+
+        # -- LLM extraction if we have enough text --
+        if len(text) >= _EXA_FULL_TEXT_MIN_CHARS:
+            console.print(f"    Running LLM extraction ({len(text):,} chars, source={text_source})...")
+            metrics = await extract_metrics_with_llm(text, title or url)
+            if "error" not in metrics:
+                metrics["quality_tier"] = _determine_quality_tier(metrics)
+                metrics["web_source"] = text_source
+                metrics.setdefault("title", title)
+                metrics.setdefault("doi", doi)
+                console.print(f"    [bold green]Extracted[/bold green] quality_tier={metrics['quality_tier']}")
+                source_papers.append(metrics)
+                continue
+            else:
+                console.print(f"    [red]LLM extraction failed: {metrics.get('error')}[/red]")
+                if pdf_save_path and pdf_save_path.exists():
+                    pdf_save_path.unlink()
+
+        # -- Fallback: store as stub --
+        console.print("    [yellow]Storing as stub (not enough text)[/yellow]")
+        web_stubs.append(
             {
                 "source": "exa_web_fetch",
-                "title": r.get("title", ""),
-                "url": r.get("url", ""),
-                "doi": r.get("doi"),
-                "abstract": r.get("text", "")[:2000],
+                "title": title,
+                "url": url,
+                "doi": doi,
+                "abstract": abstract_snippet,
                 "note": "Web-fetched SR -- add PDF to reference/ and re-run to extract full metrics",
             }
         )
-    return papers
+
+    return source_papers, web_stubs
 
 
-async def _fetch_via_perplexity(topic: str, n: int) -> list[dict[str, Any]]:
-    """Fetch SRs via Perplexity search."""
+async def _fetch_via_perplexity(topic: str, n: int) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Fetch SRs via Perplexity search (fallback, returns stubs only -- no PDF retrieval)."""
     import aiohttp
 
-    api_key = __import__("os").environ.get("PERPLEXITY_API_KEY", "")
+    api_key = __import__("os").environ.get("PERPLEXITY_SEARCH_API_KEY", "") or __import__("os").environ.get(
+        "PERPLEXITY_API_KEY", ""
+    )
     if not api_key:
-        raise RuntimeError("PERPLEXITY_API_KEY not set")
+        raise RuntimeError("PERPLEXITY_SEARCH_API_KEY not set")
 
     query = (
         f"List {n} recent (2023-2025) high-quality systematic reviews on '{topic}'. "
@@ -292,13 +491,14 @@ async def _fetch_via_perplexity(topic: str, n: int) -> list[dict[str, Any]]:
             data = await resp.json()
 
     content = data.get("choices", [{}])[0].get("message", {}).get("content", "")
-    return [
+    stubs = [
         {
             "source": "perplexity_web_fetch",
             "raw_content": content,
             "note": "Parse manually and add PDFs to reference/ to extract full structured metrics",
         }
     ]
+    return [], stubs
 
 
 # ---------------------------------------------------------------------------
@@ -323,22 +523,34 @@ def _safe_any(values: list[Any]) -> bool:
 def derive_thresholds(source_papers: list[dict[str, Any]]) -> dict[str, Any]:
     """Compute derived thresholds from the source_papers list.
 
-    Uses tier_1 papers as primary reference, tier_2 as floor.
+    Uses tier_1 papers as primary reference, then falls back to tier_2,
+    then all SRs when higher-quality pools are empty.
     """
     tier1 = [p for p in source_papers if p.get("quality_tier") == "tier_1"]
+    tier2 = [p for p in source_papers if p.get("quality_tier") == "tier_2"]
     all_srs = [p for p in source_papers if p.get("study_type") in ("systematic_review", "scoping_review")]
+
+    if tier1:
+        primary_pool = tier1
+        primary_label = "tier_1"
+    elif tier2:
+        primary_pool = tier2
+        primary_label = "tier_2"
+    else:
+        primary_pool = all_srs
+        primary_label = "all_srs"
 
     def field(papers: list[dict], key: str) -> list[Any]:
         return [p[key] for p in papers if key in p and p[key] is not None]
 
-    pages = field(tier1, "pages")
-    n_dbs = field(tier1, "n_databases")
-    n_studies = field(tier1, "n_included_studies")
-    n_refs = field(tier1, "n_total_references")
-    n_tables = field(tier1, "n_tables")
-    n_figures = field(tier1, "n_figures")
+    pages = field(primary_pool, "pages")
+    n_dbs = field(primary_pool, "n_databases")
+    n_studies = field(primary_pool, "n_included_studies")
+    n_refs = field(primary_pool, "n_total_references")
+    n_tables = field(primary_pool, "n_tables")
+    n_figures = field(primary_pool, "n_figures")
 
-    all_db_lists = [p.get("databases_searched") or [] for p in tier1]
+    all_db_lists = [p.get("databases_searched") or [] for p in primary_pool]
     common_dbs: list[str] = []
     if all_db_lists:
         first = set(all_db_lists[0])
@@ -347,7 +559,11 @@ def derive_thresholds(source_papers: list[dict[str, Any]]) -> dict[str, Any]:
         common_dbs = sorted(first)
 
     return {
-        "_derivation_note": f"Computed from {len(tier1)} tier_1 source paper(s). Update by running scripts/build_benchmark.py after adding more PDFs to reference/.",
+        "_derivation_note": (
+            f"Computed from {len(primary_pool)} {primary_label} source paper(s) "
+            f"(tier_1={len(tier1)}, tier_2={len(tier2)}, all_srs={len(all_srs)}). "
+            "Update by running scripts/build_benchmark.py after adding more PDFs to reference/."
+        ),
         "pages": {
             "minimum": _safe_min(pages),
             "recommended": _safe_max(pages),
@@ -377,34 +593,34 @@ def derive_thresholds(source_papers: list[dict[str, Any]]) -> dict[str, Any]:
             "required_figures": ["PRISMA 2020 flow diagram"],
         },
         "prospero_registration": {
-            "required": _safe_any(field(tier1, "prospero_registered")),
+            "required": _safe_any(field(primary_pool, "prospero_registered")),
         },
         "n_independent_reviewers": {
-            "minimum": _safe_min(field(tier1, "n_independent_reviewers")),
+            "minimum": _safe_min(field(primary_pool, "n_independent_reviewers")),
             "required": True,
         },
         "third_reviewer_conflict_resolution": {
-            "required": _safe_any(field(tier1, "third_reviewer_conflict_resolution")),
+            "required": _safe_any(field(primary_pool, "third_reviewer_conflict_resolution")),
         },
         "rob_tools": {
             "required": True,
-            "must_be_design_specific": _safe_any(field(tier1, "rob_design_specific")),
+            "must_be_design_specific": _safe_any(field(primary_pool, "rob_design_specific")),
         },
         "grade": {
-            "recommended": _safe_any(field(tier1, "grade_used")),
+            "recommended": _safe_any(field(primary_pool, "grade_used")),
         },
         "thematic_synthesis_software": {
             "recommended": True,
             "examples": list(
-                {p.get("thematic_synthesis_software") for p in tier1 if p.get("thematic_synthesis_software")}
+                {p.get("thematic_synthesis_software") for p in primary_pool if p.get("thematic_synthesis_software")}
             ),
         },
         "publication_bias_test": {
-            "recommended": _safe_any(field(tier1, "publication_bias_test")),
+            "recommended": _safe_any(field(primary_pool, "publication_bias_test")),
         },
         "theoretical_framework": {
             "recommended": True,
-            "examples": [fw for p in tier1 for fw in (p.get("theoretical_framework") or [])],
+            "examples": [fw for p in primary_pool for fw in (p.get("theoretical_framework") or [])],
         },
         "required_manuscript_sections": [
             "Introduction",
@@ -456,8 +672,9 @@ def print_summary_table(source_papers: list[dict[str, Any]]) -> None:
     table.add_column("Tier")
 
     for p in source_papers:
+        label = p.get("filename") or p.get("title") or p.get("url") or ""
         table.add_row(
-            p.get("filename", "")[:35],
+            label[:35],
             (p.get("journal") or "")[:20],
             str(p.get("year") or ""),
             str(p.get("n_databases") or ""),
@@ -537,15 +754,33 @@ async def main(args: argparse.Namespace) -> None:
         merged_source_papers = [p for p in merged_source_papers if p.get("filename") not in new_filenames]
     merged_source_papers.extend(new_papers)
 
-    # Fetch from web if requested
-    web_papers: list[dict[str, Any]] = []
+    # Fetch from web if requested.
+    # fetch_web_srs now returns (source_papers_from_web, web_stubs):
+    #   source_papers_from_web -- papers where full-text was retrieved and LLM extraction
+    #     succeeded; merged into merged_source_papers so they feed derive_thresholds().
+    #   web_stubs -- papers where full-text could not be obtained; stored as reference
+    #     pointers only under web_sourced_papers.
+    web_stubs: list[dict[str, Any]] = []
     if args.fetch_web:
         topic = args.topic or "systematic review healthcare"
-        web_papers = await fetch_web_srs(topic, n=3)
-        for wp in web_papers:
-            console.print(f"  [green]Web:[/green] {wp.get('title', wp.get('url', ''))[:80]}")
+        source_papers_from_web, web_stubs = await fetch_web_srs(topic, n=3)
 
-    # Derive thresholds
+        if source_papers_from_web:
+            console.print(
+                f"\n[green]Web extraction succeeded for {len(source_papers_from_web)} paper(s) -- "
+                "adding to source_papers.[/green]"
+            )
+            # Avoid duplicates: skip if a paper with the same title is already present.
+            existing_titles = {p.get("title", "").lower() for p in merged_source_papers}
+            for wp in source_papers_from_web:
+                if wp.get("title", "").lower() not in existing_titles:
+                    merged_source_papers.append(wp)
+                    console.print(f"  [green]+[/green] {wp.get('title', '')[:80]}")
+
+        if web_stubs:
+            console.print(f"\n[yellow]{len(web_stubs)} paper(s) stored as stubs (no full text).[/yellow]")
+
+    # Derive thresholds from all source_papers (PDF-extracted + web-extracted).
     derived = derive_thresholds(merged_source_papers)
 
     # Assemble final benchmark
@@ -562,7 +797,7 @@ async def main(args: argparse.Namespace) -> None:
             },
         },
         "source_papers": merged_source_papers,
-        "web_sourced_papers": web_papers if web_papers else existing.get("web_sourced_papers", []),
+        "web_sourced_papers": web_stubs if args.fetch_web else existing.get("web_sourced_papers", []),
         "non_sr_reference_papers": existing.get("non_sr_reference_papers", []),
         "derived_thresholds": derived,
     }

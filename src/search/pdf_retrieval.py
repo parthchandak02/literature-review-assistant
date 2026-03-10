@@ -10,7 +10,7 @@ from collections.abc import Callable, Sequence
 from urllib.parse import quote
 
 import aiohttp
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from src.models import CandidatePaper
 from src.utils.ssl_context import tcp_connector_with_certifi
@@ -48,6 +48,8 @@ class PDFRetrievalResult(BaseModel):
     full_text: str = ""
     pdf_bytes: bytes | None = None
     source: str = "abstract"
+    reason_code: str | None = None
+    diagnostics: list[str] = Field(default_factory=list)
     success: bool = False
     error: str | None = None
 
@@ -64,6 +66,28 @@ class PDFRetriever:
     def __init__(self, timeout_seconds: int = 20):
         self.timeout_seconds = timeout_seconds
 
+    @staticmethod
+    def _infer_reason_code(source: str, diagnostics: list[str], error: str | None) -> str:
+        if source and source != "abstract":
+            return "oa_recovered"
+        d = " | ".join(diagnostics).lower()
+        e = (error or "").lower()
+        if "per-paper timeout" in e:
+            return "timeout"
+        if "http 403" in d or "status 403" in d:
+            return "publisher_403"
+        if "http 401" in d or "status 401" in d:
+            return "publisher_401"
+        if "http 429" in d or "status 429" in d:
+            return "rate_limited"
+        if "doiresolve" in d and "no url-matched doi" in d:
+            return "doi_unresolved"
+        if "no pdf signals in html" in d:
+            return "no_pdf_signal"
+        if "no paper url or doi resolver result available" in e:
+            return "no_identifier"
+        return "no_oa_path"
+
     async def retrieve(self, paper: CandidatePaper) -> PDFRetrievalResult:
         # Primary: use unified fetch_full_text (Unpaywall, Semantic Scholar, CORE,
         # Europe PMC, ScienceDirect, PMC, arXiv, landing-page resolver) for papers
@@ -74,11 +98,13 @@ class PDFRetriever:
 
                 # Enable OpenAlex Content tier when the API key is available.
                 _use_openalex = bool(os.getenv("OPENALEX_API_KEY", "").strip())
+                _diag: list[str] = []
                 ft_result = await fetch_full_text(
                     doi=paper.doi,
                     url=paper.url,
                     pmid=getattr(paper, "pmid", None),
                     use_openalex_content=_use_openalex,
+                    diagnostics=_diag,
                 )
                 if ft_result and ft_result.source != "abstract":
                     if ft_result.text and len(ft_result.text) >= 500:
@@ -90,6 +116,8 @@ class PDFRetriever:
                             if ft_result.pdf_bytes and len(ft_result.pdf_bytes) > 1000
                             else None,
                             source=ft_result.source,
+                            reason_code=self._infer_reason_code(ft_result.source, _diag, None),
+                            diagnostics=_diag,
                             success=True,
                         )
                     if ft_result.pdf_bytes and len(ft_result.pdf_bytes) > 1000:
@@ -100,8 +128,21 @@ class PDFRetriever:
                             full_text=parsed,
                             pdf_bytes=ft_result.pdf_bytes,
                             source=ft_result.source,
+                            reason_code=self._infer_reason_code(ft_result.source, _diag, None),
+                            diagnostics=_diag,
                             success=True,
                         )
+                if _diag:
+                    _err = "; ".join(_diag[-4:])
+                    return PDFRetrievalResult(
+                        paper_id=paper.paper_id,
+                        resolved_url=paper.url,
+                        source=ft_result.source if ft_result else "abstract",
+                        reason_code=self._infer_reason_code("abstract", _diag, _err),
+                        diagnostics=_diag,
+                        success=False,
+                        error=_err,
+                    )
             except Exception as exc:
                 logger.debug("PDFRetriever: fetch_full_text failed for %s: %s", paper.paper_id, exc)
 
@@ -110,6 +151,7 @@ class PDFRetriever:
         if not candidate_urls:
             return PDFRetrievalResult(
                 paper_id=paper.paper_id,
+                reason_code="no_identifier",
                 success=False,
                 error="No paper URL or DOI resolver result available.",
             )
@@ -130,6 +172,7 @@ class PDFRetriever:
                         full_text=parsed_text,
                         pdf_bytes=body,
                         source="url_direct_pdf",
+                        reason_code="oa_recovered",
                         success=True,
                     )
                 # For HTML responses use the landing-page resolver to find the
@@ -151,6 +194,7 @@ class PDFRetriever:
                                 full_text=full_text[:_PDF_MAX_CHARS],
                                 pdf_bytes=lp_pdf,
                                 source=lp.source if lp.source else "landing_page",
+                                reason_code="oa_recovered",
                                 success=True,
                             )
                     continue  # Skip -- raw HTML is not usable article text
@@ -162,6 +206,7 @@ class PDFRetriever:
                         resolved_url=url,
                         full_text=decoded,
                         source="url_direct_text",
+                        reason_code="oa_recovered",
                         success=True,
                     )
             except Exception:
@@ -169,6 +214,7 @@ class PDFRetriever:
         return PDFRetrievalResult(
             paper_id=paper.paper_id,
             resolved_url=candidate_urls[0],
+            reason_code="no_oa_path",
             success=False,
             error="Unable to resolve downloadable full text.",
         )
@@ -203,6 +249,7 @@ class PDFRetriever:
                 except TimeoutError:
                     outcome = PDFRetrievalResult(
                         paper_id=paper.paper_id,
+                        reason_code="timeout",
                         success=False,
                         error=f"per-paper timeout after {per_paper_timeout}s",
                     )

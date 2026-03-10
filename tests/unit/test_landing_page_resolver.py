@@ -20,10 +20,13 @@ import pytest
 
 from src.extraction.table_extraction import (
     FullTextResult,
+    _domain_policy_for_url,
     _extract_jsonld_pdf_urls,
     _is_pdf_like_href,
     _PDFLinkParser,
+    _publisher_direct_pdf_url,
     _resolve_landing_page,
+    _url_match_tokens,
 )
 
 # ---------------------------------------------------------------------------
@@ -143,6 +146,29 @@ def test_pdflink_parser_ignores_non_pdf_link_rel():
     parser = _PDFLinkParser("https://example.com")
     parser.feed(html)
     assert parser.candidates == []
+
+
+def test_publisher_direct_pdf_url_mdpi():
+    url = "https://www.mdpi.com/2313-7673/9/9/540"
+    out = _publisher_direct_pdf_url(url)
+    assert out == "https://www.mdpi.com/2313-7673/9/9/540/pdf"
+
+
+def test_publisher_direct_pdf_url_bmj():
+    url = "https://ard.bmj.com/content/82/Suppl_1/1660.1"
+    out = _publisher_direct_pdf_url(url)
+    assert out == "https://ard.bmj.com/content/82/Suppl_1/1660.1.full.pdf"
+
+
+def test_domain_policy_marks_known_blocked_publishers():
+    mdpi = _domain_policy_for_url("https://www.mdpi.com/2313-7673/9/9/540")
+    assert mdpi.mode == "likely_bot_blocked"
+    assert mdpi.max_attempts == 1
+
+
+def test_url_match_tokens_normalize_query_order():
+    tokens = _url_match_tokens("https://example.org/path/?b=2&a=1")
+    assert "example.org/path?a=1&b=2" in tokens
 
 
 # ---------------------------------------------------------------------------
@@ -394,3 +420,33 @@ async def test_fetch_full_text_tier6_skipped_when_disabled():
 
     assert result.source == "abstract"
     mock_lp.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_fetch_full_text_tier05_uses_original_landing_url():
+    """Tier 0.5 should read citation_pdf_url from the landing URL, not /pdf variant."""
+    with (
+        patch("src.extraction.table_extraction._fetch_url_direct", new=AsyncMock(return_value=None)),
+        patch(
+            "src.extraction.table_extraction._quick_citation_pdf_url",
+            new=AsyncMock(return_value=None),
+        ) as mock_quick,
+        patch("src.extraction.table_extraction._fetch_unpaywall", new=AsyncMock(return_value=None)),
+        patch("src.extraction.table_extraction._fetch_arxiv", new=AsyncMock(return_value=None)),
+        patch("src.extraction.table_extraction._fetch_semanticscholar", new=AsyncMock(return_value=None)),
+        patch("src.extraction.table_extraction._fetch_biorxiv_medrxiv", new=AsyncMock(return_value=None)),
+        patch("src.extraction.table_extraction._fetch_core", new=AsyncMock(return_value=None)),
+        patch("src.extraction.table_extraction._fetch_openalex_content", new=AsyncMock(return_value=None)),
+        patch("src.extraction.table_extraction._fetch_europepmc", new=AsyncMock(return_value=None)),
+        patch("src.extraction.table_extraction._fetch_sciencedirect", new=AsyncMock(return_value=None)),
+        patch("src.extraction.table_extraction._fetch_pmc", new=AsyncMock(return_value=None)),
+        patch("src.extraction.table_extraction._fetch_crossref_links", new=AsyncMock(return_value=None)),
+        patch("src.extraction.table_extraction._resolve_landing_page", new=AsyncMock(return_value=None)),
+    ):
+        from src.extraction.table_extraction import fetch_full_text
+
+        source_url = "https://www.mdpi.com/2313-7673/9/9/540"
+        result = await fetch_full_text(url=source_url)
+
+    assert result.source == "abstract"
+    mock_quick.assert_called_once_with(source_url, diagnostics=None)

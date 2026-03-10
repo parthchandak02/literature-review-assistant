@@ -56,5 +56,32 @@ class PydanticAIScreeningClient:
             json_schema=schema,
         )
 
+    async def complete_json_array_with_usage(
+        self,
+        prompt: str,
+        *,
+        agent_name: str,
+        model: str,
+        temperature: float,
+        item_schema: dict[str, object],
+    ) -> tuple[str, int, int, int, int]:
+        """Return usage-aware JSON for an array response schema.
+
+        Batch screening expects an array of per-paper decisions, not a single
+        ScreeningResponse object. This method enforces that shape explicitly.
+        """
+        _ = agent_name
+        array_schema: dict[str, object] = {
+            "type": "array",
+            "items": item_schema,
+        }
+        client = PydanticAIClient()
+        return await client.complete_with_usage(
+            prompt,
+            model=model,
+            temperature=temperature,
+            json_schema=array_schema,
+        )
+
 
 __all__ = ["PydanticAIScreeningClient"]
