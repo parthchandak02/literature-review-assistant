@@ -15,9 +15,7 @@ from collections import Counter
 _BRACKET_BLOCK_RE = re.compile(r"(\[[^\]]*\])")
 _MULTISPACE_RE = re.compile(r"[ \t]{2,}")
 _SPACE_BEFORE_PUNCT_RE = re.compile(r"\s+([,.;:!?])")
-_NUMERIC_TOKEN_RE = re.compile(
-    r"\b(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?(?:%|mmHg|kg/m2|g/dL|mg/dL|mm|mIU/L)?\b"
-)
+_NUMERIC_TOKEN_RE = re.compile(r"\b(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?(?:%|mmHg|kg/m2|g/dL|mg/dL|mm|mIU/L)?\b")
 
 # Generic filler patterns observed repeatedly in high-AI reports.
 _FILLER_REPLACEMENTS: tuple[tuple[re.Pattern[str], str], ...] = (

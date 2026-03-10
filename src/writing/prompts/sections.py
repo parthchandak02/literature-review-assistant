@@ -182,7 +182,11 @@ def get_methods_prompt_context(
     """Context for methods. PRISMA Items 3-16."""
     prefix = _grounding_prefix(grounding)
     return (
-        prefix + _NO_HEADING_RULE + "\n\n" + _BOUNDARY_MARKER_RULE + "\n\n"
+        prefix
+        + _NO_HEADING_RULE
+        + "\n\n"
+        + _BOUNDARY_MARKER_RULE
+        + "\n\n"
         + "Write a thorough methods section of approximately 900 words. "
         "Do not truncate or summarise -- describe each step fully. "
         "Use the FACTUAL DATA BLOCK for all database names and dates. "
@@ -242,7 +246,11 @@ def get_results_prompt_context(
     """Context for results."""
     prefix = _grounding_prefix(grounding)
     return (
-        prefix + _NO_HEADING_RULE + "\n\n" + _BOUNDARY_MARKER_RULE + "\n\n"
+        prefix
+        + _NO_HEADING_RULE
+        + "\n\n"
+        + _BOUNDARY_MARKER_RULE
+        + "\n\n"
         + "Write a thorough results section of approximately 1400 words. "
         "ALL counts MUST come from the FACTUAL DATA BLOCK above -- "
         "do NOT invent records identified, screened, or excluded counts. "

@@ -17,6 +17,7 @@ import asyncio
 import logging
 
 from pydantic_ai.embeddings import Embedder
+
 from src.llm.model_fallback import get_fallback_model
 
 logger = logging.getLogger(__name__)

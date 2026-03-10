@@ -5,8 +5,14 @@ import pytest
 
 from src.db.database import get_db
 from src.db.repositories import WorkflowRepository
-from src.models import DecisionLogEntry, ManuscriptAssembly, SectionDraft
-from src.models import ReviewerType, ScreeningDecision, ScreeningDecisionType
+from src.models import (
+    DecisionLogEntry,
+    ManuscriptAssembly,
+    ReviewerType,
+    ScreeningDecision,
+    ScreeningDecisionType,
+    SectionDraft,
+)
 
 
 @pytest.mark.asyncio

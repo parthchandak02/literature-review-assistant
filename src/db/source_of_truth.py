@@ -8,7 +8,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-
 TABLE_OWNERSHIP: dict[str, str] = {
     "event_log": "activity_feed",
     "cost_records": "llm_cost_accounting",
@@ -52,4 +51,3 @@ class RunStatsPrecedence:
 
 
 RUN_STATS_PRECEDENCE = RunStatsPrecedence()
-

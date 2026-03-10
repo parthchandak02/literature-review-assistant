@@ -23,6 +23,7 @@ _log = logging.getLogger(__name__)
 _price_updater = UpdatePrices(update_interval=3600)
 _price_updater.start(wait=False)
 
+
 @dataclass
 class AgentRuntimeConfig:
     model: str
