@@ -147,6 +147,10 @@ class DualReviewerScreener:
         # Accumulates DualScreeningResult objects where both reviewers participated.
         # Used by the workflow to compute Cohen's kappa after screening completes.
         self._dual_results: list = []
+        # Screening diagnostics surfaced in phase summaries.
+        self.fast_path_include_count: int = 0
+        self.fast_path_exclude_count: int = 0
+        self.cross_review_count: int = 0
 
     async def screen_title_abstract(self, workflow_id: str, paper: CandidatePaper) -> ScreeningDecision:
         result = await self._screen_one(
@@ -672,14 +676,19 @@ class DualReviewerScreener:
         if stage == "fulltext":
             fast_path = False
         else:
-            fast_path = (
-                reviewer_a.confidence >= include_thresh and reviewer_a.decision == ScreeningDecisionType.INCLUDE
-            ) or (reviewer_a.confidence >= exclude_thresh and reviewer_a.decision == ScreeningDecisionType.EXCLUDE)
+            include_fast_path = reviewer_a.confidence >= include_thresh and reviewer_a.decision == ScreeningDecisionType.INCLUDE
+            exclude_fast_path = reviewer_a.confidence >= exclude_thresh and reviewer_a.decision == ScreeningDecisionType.EXCLUDE
+            require_dual_for_exclude = getattr(self.settings.screening, "exclude_fast_path_requires_dual", False)
+            fast_path = include_fast_path or (exclude_fast_path and not require_dual_for_exclude)
 
         if fast_path:
             final_decision = reviewer_a
             adjudication_needed = False
             agreement = True
+            if final_decision.decision == ScreeningDecisionType.INCLUDE:
+                self.fast_path_include_count += 1
+            else:
+                self.fast_path_exclude_count += 1
         else:
             reviewer_b = await self._run_reviewer(
                 workflow_id=workflow_id,
@@ -718,6 +727,7 @@ class DualReviewerScreener:
                 )
                 final_decision = adjudication
                 adjudication_needed = True
+            self.cross_review_count += 1
 
         if stage == "fulltext" and final_decision.decision == ScreeningDecisionType.EXCLUDE:
             final_decision = self._enforce_fulltext_exclusion_reason(final_decision)
@@ -937,7 +947,13 @@ class DualReviewerScreener:
         try:
             if hasattr(self.llm_client, "complete_json_with_usage"):
                 if hasattr(self.llm_client, "complete_json_array_with_usage"):
-                    raw, tokens_in, tokens_out, cache_write, cache_read = await self.llm_client.complete_json_array_with_usage(
+                    (
+                        raw,
+                        tokens_in,
+                        tokens_out,
+                        cache_write,
+                        cache_read,
+                    ) = await self.llm_client.complete_json_array_with_usage(
                         prompt,
                         agent_name=spec.agent_name,
                         model=runtime.model,
@@ -945,7 +961,13 @@ class DualReviewerScreener:
                         item_schema=_BatchScreeningItem.model_json_schema(),
                     )
                 else:
-                    raw, tokens_in, tokens_out, cache_write, cache_read = await self.llm_client.complete_json_with_usage(
+                    (
+                        raw,
+                        tokens_in,
+                        tokens_out,
+                        cache_write,
+                        cache_read,
+                    ) = await self.llm_client.complete_json_with_usage(
                         prompt,
                         agent_name=spec.agent_name,
                         model=runtime.model,
@@ -1197,6 +1219,7 @@ class DualReviewerScreener:
         fast_path_decisions: dict[str, ScreeningDecision] = {}
         uncertain_papers: list[CandidatePaper] = []
         uncertain_reviewer_a: dict[str, ScreeningDecision] = {}
+        require_dual_for_exclude = getattr(self.settings.screening, "exclude_fast_path_requires_dual", False)
         for paper in llm_candidates:
             a = reviewer_a_map[paper.paper_id]
             # Fast-path applies to title/abstract only.
@@ -1204,9 +1227,9 @@ class DualReviewerScreener:
             if stage == "fulltext":
                 is_fast = False
             else:
-                is_fast = (a.confidence >= include_thresh and a.decision == ScreeningDecisionType.INCLUDE) or (
-                    a.confidence >= exclude_thresh and a.decision == ScreeningDecisionType.EXCLUDE
-                )
+                include_fast = a.confidence >= include_thresh and a.decision == ScreeningDecisionType.INCLUDE
+                exclude_fast = a.confidence >= exclude_thresh and a.decision == ScreeningDecisionType.EXCLUDE
+                is_fast = include_fast or (exclude_fast and not require_dual_for_exclude)
             if is_fast:
                 fast_path_decisions[paper.paper_id] = a
             else:
@@ -1269,6 +1292,13 @@ class DualReviewerScreener:
             n_fast = len(fast_path_decisions)
             n_uncertain = len(uncertain_papers)
             self.on_status(f"Adjudicating {len(papers)} papers: {n_fast} fast-path, {n_uncertain} needed cross-review")
+        self.fast_path_include_count += sum(
+            1 for d in fast_path_decisions.values() if d.decision == ScreeningDecisionType.INCLUDE
+        )
+        self.fast_path_exclude_count += sum(
+            1 for d in fast_path_decisions.values() if d.decision == ScreeningDecisionType.EXCLUDE
+        )
+        self.cross_review_count += len(uncertain_papers)
         final_decisions: list[ScreeningDecision] = []
         completed = [0]
         total = len(papers)

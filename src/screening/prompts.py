@@ -97,7 +97,11 @@ def reviewer_a_prompt(review: ReviewConfig, paper: CandidatePaper, stage: str, f
             ),
             _quality_criteria_block(),
             _paper_block(paper, stage, full_text),
-            "Screening policy: Inclusion-emphasis reviewer. Apply mandatory data quality criteria above first.",
+            (
+                "Screening policy: Inclusion-emphasis reviewer. Apply mandatory data quality criteria above first. "
+                "At title/abstract stage, when intervention alignment is plausible but not explicit, use uncertain "
+                "instead of exclude so the paper can reach full-text review."
+            ),
             _output_schema_block(),
         ]
     )
@@ -114,7 +118,11 @@ def reviewer_b_prompt(review: ReviewConfig, paper: CandidatePaper, stage: str, f
             ),
             _quality_criteria_block(),
             _paper_block(paper, stage, full_text),
-            "Screening policy: Exclusion-emphasis reviewer. Apply mandatory data quality criteria above first. When evidence is ambiguous on topic, prefer uncertain over exclude.",
+            (
+                "Screening policy: Exclusion-emphasis reviewer. Apply mandatory data quality criteria above first. "
+                "When title/abstract evidence is ambiguous or intervention wording is incomplete, prefer uncertain "
+                "over exclude."
+            ),
             _output_schema_block(),
         ]
     )

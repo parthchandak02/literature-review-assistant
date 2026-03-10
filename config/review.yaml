@@ -21,23 +21,24 @@ pico:
   outcome: "Describe the primary and secondary outcomes (e.g., clinical measure, quality of life, cost)."
 
 keywords:
-  - "keyword one"
-  - "keyword two"
-  - "keyword three"
-  - "synonym or related term"
-  - "another keyword"
+  - "primary intervention keyword"
+  - "broad synonym for intervention"
+  - "device or platform synonym"
+  - "population synonym (e.g., older adult, elderly)"
+  - "outcome synonym (e.g., adherence, compliance, persistence)"
+  - "setting synonym (e.g., community, long-term care)"
 
 domain: "Briefly describe the subject domain (e.g., public health, engineering, education)."
 scope: "Describe the scope of this review in 2-3 sentences: what is included, what is excluded, and why."
 
 inclusion_criteria:
-  - "Studies must evaluate [INTERVENTION] in [POPULATION]."
+  - "Studies must evaluate [INTERVENTION] in [POPULATION]; include studies where intervention wording is conceptually aligned even if terminology differs."
   - "Studies must report [OUTCOME MEASURE]."
   - "Peer-reviewed journal articles and conference proceedings are eligible."
   - "Studies must be published in the English language."
 
 exclusion_criteria:
-  - "Studies that do not evaluate [INTERVENTION] are excluded."
+  - "Studies that clearly do not evaluate [INTERVENTION] are excluded."
   - "Editorials, opinion pieces, and non-empirical literature are excluded."
   - "Studies not reporting [OUTCOME MEASURE] are excluded."
 

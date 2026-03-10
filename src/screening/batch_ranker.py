@@ -163,6 +163,8 @@ class BatchLLMRanker:
         # of excluded papers. Callers read these to surface NPV in the Methods section.
         self.validation_sampled_n: int = 0
         self.validation_npv: float = 0.0
+        # Number of near-threshold papers forwarded by uncertain-band logic.
+        self.borderline_forwarded_n: int = 0
 
     async def _score_batch(self, batch: list[CandidatePaper]) -> dict[str, float]:
         """Call LLM once for this batch; return {paper_id -> score}.
@@ -274,6 +276,8 @@ class BatchLLMRanker:
             return [], []
 
         threshold = self._screening.batch_screen_threshold
+        uncertain_band = max(0.0, min(getattr(self._screening, "batch_screen_uncertain_band", 0.0), threshold))
+        uncertain_floor = max(0.0, threshold - uncertain_band)
         batch_size = self._screening.batch_screen_size
 
         # Split into batches
@@ -282,11 +286,12 @@ class BatchLLMRanker:
             batches.append(papers[i : i + batch_size])
 
         logger.info(
-            "BatchLLMRanker: scoring %d papers in %d batches (size=%d, threshold=%.2f)",
+            "BatchLLMRanker: scoring %d papers in %d batches (size=%d, threshold=%.2f, uncertain_band=%.2f)",
             len(papers),
             len(batches),
             batch_size,
             threshold,
+            uncertain_band,
         )
 
         # Run batches concurrently up to batch_screen_concurrency to reduce wall-clock time.
@@ -326,10 +331,15 @@ class BatchLLMRanker:
         # Split on threshold
         forwarded: list[CandidatePaper] = []
         excluded: list[ScreeningDecision] = []
+        self.borderline_forwarded_n = 0
         for paper in papers:
             score = all_scores.get(paper.paper_id, 1.0)
             if score >= threshold:
                 forwarded.append(paper)
+            elif score >= uncertain_floor:
+                # Recall-first safety band: keep near-threshold records for dual review.
+                forwarded.append(paper)
+                self.borderline_forwarded_n += 1
             else:
                 excluded.append(
                     ScreeningDecision(
@@ -343,10 +353,11 @@ class BatchLLMRanker:
                 )
 
         logger.info(
-            "BatchLLMRanker: %d forwarded to dual-review, %d auto-excluded (below %.2f threshold)",
+            "BatchLLMRanker: %d forwarded to dual-review (%d in uncertain band), %d auto-excluded (below %.2f threshold)",
             len(forwarded),
+            self.borderline_forwarded_n,
             len(excluded),
-            threshold,
+            uncertain_floor,
         )
 
         # Cross-validation: re-score a random 10% sample of excluded papers to estimate NPV.

@@ -859,6 +859,7 @@ class ScreeningNode(BaseNode[ReviewState]):
 
             # --- Pre-screening: BM25 ranking (when cap is set) or keyword filter ---
             cap = state.settings.screening.max_llm_screen
+            bm25_validation_forwarded = 0
             paper_by_id = {p.paper_id: p for p in meta_acceptable}
 
             if cap is not None:
@@ -886,6 +887,8 @@ class ScreeningNode(BaseNode[ReviewState]):
 
                 # BM25 ranks keyword-accepted papers; top N go to LLM, tail auto-excluded.
                 papers_for_llm, bm25_excluded = bm25_rank_and_cap(to_rank, state.review, state.settings.screening)
+                if cap is not None:
+                    bm25_validation_forwarded = max(len(papers_for_llm) - min(cap, len(to_rank)), 0)
                 pre_excluded = kw_excluded + bm25_excluded
 
                 if kw_excluded:
@@ -906,7 +909,8 @@ class ScreeningNode(BaseNode[ReviewState]):
                     rc.log_status(
                         f"Keyword pre-filter: {len(kw_excluded)} auto-excluded. "
                         f"BM25 ranking: {len(to_rank)} scored, {len(papers_for_llm)} top-ranked to LLM, "
-                        f"{len(bm25_excluded)} auto-excluded (low relevance)."
+                        f"{len(bm25_excluded)} auto-excluded (low relevance), "
+                        f"{bm25_validation_forwarded} near-cutoff forwarded for validation."
                     )
             else:
                 # No cap set: keyword hard-gate -> all passers go to LLM.
@@ -1072,6 +1076,18 @@ class ScreeningNode(BaseNode[ReviewState]):
                                 "sample_size": calibrated.sample_size,
                             }
                         )
+                    await repository.save_screening_metric(
+                        state.workflow_id,
+                        "calibration_include_threshold",
+                        calibrated.include_threshold,
+                        phase="screening_calibration",
+                    )
+                    await repository.save_screening_metric(
+                        state.workflow_id,
+                        "calibration_kappa",
+                        calibrated.achieved_kappa,
+                        phase="screening_calibration",
+                    )
                 except Exception as _cal_err:
                     logger.warning("Screening calibration failed (%s) -- using default thresholds", _cal_err)
                     if rc:
@@ -1125,6 +1141,7 @@ class ScreeningNode(BaseNode[ReviewState]):
                         state.batch_screen_threshold = screening_cfg.batch_screen_threshold
                         state.batch_screen_validation_n = _br.validation_sampled_n
                         state.batch_screen_validation_npv = _br.validation_npv
+                        state.batch_screen_borderline_forwarded = _br.borderline_forwarded_n
 
                         if _batch_excluded_decisions:
                             _batch_excl_papers = [
@@ -1150,6 +1167,7 @@ class ScreeningNode(BaseNode[ReviewState]):
                     _batch_n_scored = len(_papers_for_batch)
                     _batch_n_excl = len(_batch_excluded_decisions)
                     _batch_n_fwd = len(_batch_forwarded)
+                    _batch_n_borderline = int(getattr(state, "batch_screen_borderline_forwarded", 0))
                     _batch_n_skip = len(_already_screened.intersection({p.paper_id for p in papers_for_llm}))
                     # Persist batch stats to state so the Writing phase can describe
                     # the 3-stage funnel in the Methods section grounding block.
@@ -1165,6 +1183,7 @@ class ScreeningNode(BaseNode[ReviewState]):
                                 "scored": _batch_n_scored,
                                 "forwarded": _batch_n_fwd,
                                 "excluded": _batch_n_excl,
+                                "borderline_forwarded": _batch_n_borderline,
                                 "skipped_resume": _batch_n_skip,
                                 "threshold": screening_cfg.batch_screen_threshold,
                                 "action": "skipped" if _batch_n_excl > 0 else "included",
@@ -1172,9 +1191,7 @@ class ScreeningNode(BaseNode[ReviewState]):
                                 "entity_id": "phase_3_screening",
                                 "reason_code": "batch_screened_low" if _batch_n_excl > 0 else None,
                                 "reason_label": (
-                                    "Auto-excluded by batch pre-ranker score threshold"
-                                    if _batch_n_excl > 0
-                                    else None
+                                    "Auto-excluded by batch pre-ranker score threshold" if _batch_n_excl > 0 else None
                                 ),
                                 "ts": _dt_bs.datetime.utcnow().isoformat(),
                             }
@@ -1185,6 +1202,7 @@ class ScreeningNode(BaseNode[ReviewState]):
                             f"Batch LLM pre-ranker: {_batch_n_scored} scored in "
                             f"{(_batch_n_scored + screening_cfg.batch_screen_size - 1) // max(screening_cfg.batch_screen_size, 1)} "
                             f"batches, {_batch_n_fwd} forwarded to dual-reviewer, "
+                            f"{_batch_n_borderline} forwarded by uncertain band, "
                             f"{_batch_n_excl} auto-excluded "
                             f"(score < {screening_cfg.batch_screen_threshold:.2f})"
                             + (f", {_batch_n_skip} skipped (resume)." if _batch_n_skip else ".")
@@ -1384,6 +1402,33 @@ class ScreeningNode(BaseNode[ReviewState]):
                 state.kappa_n = len(screener._dual_results)
                 await log_reliability_to_decision_log(repository, reliability)
 
+            # Persist screening QA counters for auditability and run-to-run comparison.
+            await repository.save_screening_metric(
+                state.workflow_id,
+                "bm25_validation_forwarded",
+                bm25_validation_forwarded,
+            )
+            await repository.save_screening_metric(
+                state.workflow_id,
+                "batch_borderline_forwarded",
+                state.batch_screen_borderline_forwarded,
+            )
+            await repository.save_screening_metric(
+                state.workflow_id,
+                "title_abstract_fast_path_include",
+                getattr(screener, "fast_path_include_count", 0),
+            )
+            await repository.save_screening_metric(
+                state.workflow_id,
+                "title_abstract_fast_path_exclude",
+                getattr(screener, "fast_path_exclude_count", 0),
+            )
+            await repository.save_screening_metric(
+                state.workflow_id,
+                "title_abstract_cross_reviewed",
+                getattr(screener, "cross_review_count", 0),
+            )
+
             # -- Forward citation chasing (PRISMA 2020 snowball supplement) --
             # Chased papers are immediately screened through both stages so they contribute
             # to dual_screening_results and PRISMA math is accurate.
@@ -1512,6 +1557,11 @@ class ScreeningNode(BaseNode[ReviewState]):
                     "kappa": state.cohens_kappa,
                     "excluded": max(len(state.deduped_papers) - len(state.included_papers), 0),
                     "reason_breakdown": _screening_reason_breakdown,
+                    "bm25_validation_forwarded": bm25_validation_forwarded,
+                    "batch_borderline_forwarded": state.batch_screen_borderline_forwarded,
+                    "fast_path_include": getattr(screener, "fast_path_include_count", 0),
+                    "fast_path_exclude": getattr(screener, "fast_path_exclude_count", 0),
+                    "cross_reviewed": getattr(screener, "cross_review_count", 0),
                 },
             )
             if rc.debug:
@@ -3935,6 +3985,7 @@ class WritingNode(BaseNode[ReviewState]):
         )
         manuscript_path.write_text(full_manuscript, encoding="utf-8")
         try:
+
             def _extract_md_section(text: str, heading: str) -> str:
                 pat = re.compile(rf"(^## {re.escape(heading)}\n.*?)(?=\n\n---\n\n## |\Z)", re.MULTILINE | re.DOTALL)
                 m = pat.search(text)
@@ -4010,10 +4061,7 @@ class WritingNode(BaseNode[ReviewState]):
                         }
                         for s in _latest_sections
                     ],
-                    "assets": [
-                        {"asset_key": a.asset_key, "version": a.version}
-                        for a in _assets
-                    ],
+                    "assets": [{"asset_key": a.asset_key, "version": a.version} for a in _assets],
                 }
                 await _asm_repo.save_manuscript_assembly(
                     ManuscriptAssembly(

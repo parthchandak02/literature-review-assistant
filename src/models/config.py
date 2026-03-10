@@ -140,6 +140,16 @@ class ScreeningConfig(BaseModel):
             "Set to null (or omit) to screen all candidate papers."
         ),
     )
+    bm25_validation_tail_size: int = Field(
+        default=0,
+        ge=0,
+        le=500,
+        description=(
+            "Number of near-cutoff papers (just below max_llm_screen) to forward to LLM "
+            "for validation instead of hard auto-excluding by BM25. "
+            "0 keeps legacy behavior (all tail papers auto-excluded)."
+        ),
+    )
     calibrate_threshold: bool = Field(
         default=True,
         description=(
@@ -199,6 +209,16 @@ class ScreeningConfig(BaseModel):
             "batch_screened_low. Set deliberately low (0.35) to err on the side of recall."
         ),
     )
+    batch_screen_uncertain_band: float = Field(
+        default=0.0,
+        ge=0.0,
+        le=0.5,
+        description=(
+            "Recall-first buffer below batch_screen_threshold. "
+            "Papers with scores in [threshold - band, threshold) are forwarded as uncertain "
+            "instead of auto-excluded. 0 keeps legacy behavior."
+        ),
+    )
     batch_screen_concurrency: int = Field(
         default=3,
         ge=1,
@@ -238,6 +258,13 @@ class ScreeningConfig(BaseModel):
             "0 = per-paper mode (current behavior, one call per paper). "
             "10 = send 10 papers per batch call, then apply fast-path and adjudicate disagreements. "
             "Reduces dual-reviewer LLM calls by ~5x at batch_size=10 while preserving all decisions."
+        ),
+    )
+    exclude_fast_path_requires_dual: bool = Field(
+        default=False,
+        description=(
+            "When true, title/abstract exclude decisions never fast-path on Reviewer A alone; "
+            "Reviewer B or adjudication is required for exclusion finalization."
         ),
     )
 
