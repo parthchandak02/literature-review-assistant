@@ -897,9 +897,9 @@ async def generate_config_stream(req: _GenerateConfigRequest) -> StreamingRespon
 
     Progress steps: start -> web_research -> web_research_done -> structuring -> finalizing -> done
     Error: {"type": "error", "detail": "..."}
-    Done:  {"type": "done", "yaml": "..."}
+    Done:  {"type": "done", "yaml": "...", "quality": {...}}
     """
-    from src.web.config_generator import generate_config_yaml
+    from src.web.config_generator import evaluate_config_quality_yaml, generate_config_yaml
 
     if not req.research_question.strip():
         raise HTTPException(status_code=422, detail="research_question must not be empty")
@@ -923,7 +923,8 @@ async def generate_config_stream(req: _GenerateConfigRequest) -> StreamingRespon
     async def run_generation() -> None:
         try:
             yaml_content = await generate_config_yaml(req.research_question, progress_cb=progress_cb)
-            queue.put_nowait({"type": "done", "yaml": yaml_content})
+            quality = evaluate_config_quality_yaml(yaml_content)
+            queue.put_nowait({"type": "done", "yaml": yaml_content, "quality": quality})
         except RuntimeError as exc:
             queue.put_nowait({"type": "error", "detail": str(exc)})
         except Exception as exc:

@@ -221,7 +221,7 @@ export async function generateConfig(researchQuestion: string, geminiApiKey = ""
 
 /**
  * Streaming version of generateConfig. Calls the SSE endpoint, invoking
- * onProgress with each step key as the backend progresses through stages.
+ * onProgress with each step key and metadata as the backend progresses through stages.
  * Resolves with the final YAML string when done.
  *
  * Steps emitted by backend: "start" -> "web_research" -> "web_research_done"
@@ -230,7 +230,7 @@ export async function generateConfig(researchQuestion: string, geminiApiKey = ""
 export async function generateConfigStream(
   researchQuestion: string,
   geminiApiKey: string,
-  onProgress: (step: string) => void,
+  onProgress: (step: string, metadata?: Record<string, unknown>) => void,
 ): Promise<string> {
   const res = await fetch(`${BASE}/config/generate/stream`, {
     method: "POST",
@@ -263,10 +263,18 @@ export async function generateConfigStream(
           type: string
           step?: string
           yaml?: string
+          quality?: Record<string, unknown>
           detail?: string
+          [key: string]: unknown
         }
         if (msg.type === "progress" && msg.step) {
-          onProgress(msg.step)
+          const metadata: Record<string, unknown> = {}
+          for (const [key, value] of Object.entries(msg)) {
+            if (key !== "type" && key !== "step") {
+              metadata[key] = value
+            }
+          }
+          onProgress(msg.step, metadata)
         } else if (msg.type === "done" && msg.yaml) {
           yaml = msg.yaml
         } else if (msg.type === "error") {

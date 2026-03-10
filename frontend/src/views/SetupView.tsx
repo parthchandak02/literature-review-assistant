@@ -54,14 +54,30 @@ type SetupMode = "search" | "masterlist"
 const GEN_STEPS: { key: string; label: string; detail: string }[] = [
   { key: "start",            label: "Analyzing your research question", detail: "Understanding scope, domain, and intent" },
   { key: "web_research",     label: "Searching the web",                detail: "Discovering brand names, synonyms, and domain terminology" },
+  { key: "web_research_fallback", label: "Web search unavailable",      detail: "Falling back to model knowledge for this generation" },
   { key: "web_research_done",label: "Processing search results",        detail: "Building research brief from web findings" },
   { key: "structuring",      label: "Generating PICO and criteria",     detail: "Keywords, inclusion/exclusion criteria, domain and scope" },
+  { key: "topic_routing",    label: "Applying domain routing policy",   detail: "Selecting connector policy from confidence-scored topic signals" },
   { key: "finalizing",       label: "Finalizing your config",           detail: "Validating and serializing to YAML" },
 ]
 
-function GeneratingScreen({ activeStepKey }: { activeStepKey: string }) {
+function GeneratingScreen({
+  activeStepKey,
+  stepMetadata,
+}: {
+  activeStepKey: string
+  stepMetadata: Record<string, unknown>
+}) {
   const activeIdx = GEN_STEPS.findIndex((s) => s.key === activeStepKey)
   const activeStep = activeIdx === -1 ? GEN_STEPS.length - 1 : activeIdx
+  const routeDetail = (() => {
+    const domain = typeof stepMetadata.domain === "string" ? stepMetadata.domain : null
+    const confidence = typeof stepMetadata.confidence === "number" ? stepMetadata.confidence : null
+    const policy = typeof stepMetadata.policy === "string" ? stepMetadata.policy : null
+    if (!domain && !policy && confidence === null) return null
+    const confidenceTxt = confidence === null ? "n/a" : confidence.toFixed(2)
+    return `Domain=${domain ?? "unknown"}, confidence=${confidenceTxt}, policy=${policy ?? "unknown"}`
+  })()
 
   return (
     <div className="flex flex-col items-center py-8 gap-6 max-w-md mx-auto w-full">
@@ -116,7 +132,7 @@ function GeneratingScreen({ activeStepKey }: { activeStepKey: string }) {
                   <p className={`text-xs mt-0.5 leading-snug ${
                     done ? "text-emerald-400/50" : "text-zinc-500"
                   }`}>
-                    {step.detail}
+                    {step.key === "topic_routing" && routeDetail ? routeDetail : step.detail}
                   </p>
                 )}
               </div>
@@ -549,10 +565,11 @@ function QuestionStage({
   useEffect(() => {
     if (geminiKey) return
     fetchEnvKeys().then((env) => { if (env.gemini) setGeminiKey(env.gemini) })
-  }, [])
+  }, [geminiKey])
   const [showKey, setShowKey] = useState(false)
   const [generating, setGenerating] = useState(false)
   const [activeGenStep, setActiveGenStep] = useState("start")
+  const [activeStepMetadata, setActiveStepMetadata] = useState<Record<string, unknown>>({})
   const [error, setError] = useState<string | null>(null)
   const [showHistory, setShowHistory] = useState(false)
   const [csvFile, setCsvFile] = useState<File | null>(null)
@@ -573,12 +590,16 @@ function QuestionStage({
     if (mode === "masterlist" && !csvFile) return
     setError(null)
     setActiveGenStep("start")
+    setActiveStepMetadata({})
     setGenerating(true)
     try {
       const yaml = await generateConfigStream(
         question.trim(),
         geminiKey.trim(),
-        (step) => setActiveGenStep(step),
+        (step, metadata) => {
+          setActiveGenStep(step)
+          setActiveStepMetadata(metadata ?? {})
+        },
       )
       onGenerated(yaml, question.trim(), mode === "masterlist" ? csvFile ?? undefined : undefined)
     } catch (err) {
@@ -588,7 +609,7 @@ function QuestionStage({
   }
 
   if (generating) {
-    return <GeneratingScreen activeStepKey={activeGenStep} />
+    return <GeneratingScreen activeStepKey={activeGenStep} stepMetadata={activeStepMetadata} />
   }
 
   const completedRuns = history.filter((h) => h.status === "completed").slice(0, 10)
