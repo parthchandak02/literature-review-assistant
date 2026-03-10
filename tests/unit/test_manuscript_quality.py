@@ -161,6 +161,16 @@ def test_compact_table_truncates_long_finding() -> None:
     assert "..." in result
 
 
+def test_compact_table_reports_truncation_count() -> None:
+    """When max_rows truncates output, note must include shown and total counts."""
+    from src.export.markdown_refs import build_compact_study_table
+
+    papers = [_make_paper(f"p{i}", [f"Author{i} A"], 2020 + (i % 5)) for i in range(3)]
+    records = [_make_extraction(f"p{i}", "rct", 10 + i, f"finding {i}") for i in range(3)]
+    result = build_compact_study_table(papers, records, max_rows=2)
+    assert "Summary of 2 of 3 included studies" in result
+
+
 def test_compact_table_injected_in_body(tmp_path: Path) -> None:
     """Compact table is injected after '### Study Characteristics' in assembled manuscript."""
     from src.export.markdown_refs import assemble_submission_manuscript
@@ -243,6 +253,82 @@ def test_trim_abstract_no_bold_fields() -> None:
     assert len(result.split()) <= 230
 
 
+def test_trim_abstract_iterative_enforcement_never_exceeds_limit() -> None:
+    """Sentence-boundary trimming must still converge to <= limit words."""
+    from src.orchestration.workflow import _trim_abstract_to_limit
+
+    long_sentence = " ".join(["result"] * 80) + "."
+    abstract = (
+        f"**Background:** {long_sentence}\n\n"
+        f"**Objectives:** {long_sentence}\n\n"
+        f"**Methods:** {long_sentence}\n\n"
+        f"**Results:** {long_sentence}\n\n"
+        f"**Conclusion:** {long_sentence}\n\n"
+        f"**Keywords:** alpha, beta"
+    )
+    out = _trim_abstract_to_limit(abstract, limit=120)
+    kw_idx = out.rfind("**Keywords:")
+    body = out[:kw_idx].strip() if kw_idx > 0 else out
+    assert len(body.split()) <= 120
+
+
+def test_enforce_prisma_sentence_counts_rewrites_numbers() -> None:
+    from src.orchestration.workflow import _enforce_prisma_sentence_counts
+
+    text = (
+        "Methods section. Of the 141 reports sought for retrieval, 92 were not "
+        "retrieved and 0 were assessed for eligibility, with 141 studies ultimately included."
+    )
+    out = _enforce_prisma_sentence_counts(text, 141, 92, 49, 141)
+    assert "and 141 were assessed for eligibility" in out
+
+
+def test_enforce_prisma_sentence_counts_rewrites_loose_variant() -> None:
+    from src.orchestration.workflow import _enforce_prisma_sentence_counts
+
+    text = (
+        "Of 49 reports sought, 0 were not retrieved, 49 were assessed and 141 studies were included. "
+        "The remaining details are unchanged."
+    )
+    out = _enforce_prisma_sentence_counts(text, 141, 92, 49, 141)
+    assert "Of the 233 reports sought for retrieval" in out
+    assert "and 141 were assessed for eligibility" in out
+
+
+def test_enforce_prisma_sentence_counts_enforces_invariants() -> None:
+    from src.orchestration.workflow import _enforce_prisma_sentence_counts
+
+    text = (
+        "Of the 49 reports sought for retrieval, 92 were not retrieved and 49 were assessed "
+        "for eligibility, with 141 studies ultimately included."
+    )
+    out = _enforce_prisma_sentence_counts(text, 49, 92, 49, 141)
+    assert "Of the 233 reports sought for retrieval" in out
+    assert "92 were not retrieved and 141 were assessed for eligibility" in out
+
+
+def test_zero_papers_minimal_abstract_contains_all_structured_fields() -> None:
+    from src.orchestration.workflow import _build_minimal_sections_for_zero_papers
+
+    out = _build_minimal_sections_for_zero_papers(
+        research_question="what works",
+        minimal_paragraph="none",
+        sections=["abstract", "methods"],
+    )
+    abstract = out[0]
+    for field in ["Background", "Objectives", "Methods", "Results", "Conclusion", "Keywords"]:
+        assert f"**{field}:**" in abstract
+
+
+def test_ensure_structured_abstract_adds_missing_fields() -> None:
+    from src.writing.orchestration import _ensure_structured_abstract
+
+    abstract = "**Objectives:** Goal.\n\n**Methods:** Method."
+    out = _ensure_structured_abstract(abstract, "RQ")
+    for field in ["Background", "Objectives", "Methods", "Results", "Conclusion", "Keywords"]:
+        assert f"**{field}:**" in out
+
+
 # ---------------------------------------------------------------------------
 # _build_citation_coverage_patch -- design grouping
 # ---------------------------------------------------------------------------
@@ -279,3 +365,50 @@ def test_coverage_patch_groups_by_design() -> None:
     assert "Randomized" in result or "randomized" in result.lower()
     assert "Smith2021" in result
     assert "Jones2022" in result and "Brown2020" in result
+
+
+def test_make_citekey_base_sanitizes_display_label_spaces() -> None:
+    from src.writing.orchestration import _make_citekey_base
+
+    paper = SimpleNamespace(
+        paper_id="p1",
+        display_label="Engineering Inclusiv",
+        year=2024,
+        authors=["Smith A"],
+        title="Assistive Study",
+    )
+    key = _make_citekey_base(paper, 0)
+    assert " " not in key
+    assert key.startswith("Engineering_Inclus")
+
+
+def test_convert_to_numbered_citations_resolves_space_key_variant() -> None:
+    from src.export.markdown_refs import convert_to_numbered_citations
+
+    body = "Evidence from [Engineering Inclusiv] and [Smith2021]."
+    rows = [
+        (1, "Engineering_Inclusiv", None, "t1", '["A"]', 2024, "J", None, None),
+        (2, "Smith2021", None, "t2", '["B"]', 2021, "J", None, None),
+    ]
+    out, ordered = convert_to_numbered_citations(body, rows)
+    assert "[1]" in out and "[2]" in out
+    assert "Engineering Inclusiv" not in out
+    assert len(ordered) == 2
+
+
+def test_sanitize_body_strips_citation_unavailable_placeholder() -> None:
+    from src.export.markdown_refs import _sanitize_body
+
+    text = "Some claim (citation unavailable). Another sentence."
+    out = _sanitize_body(text)
+    assert "(citation unavailable)" not in out
+
+
+def test_sanitize_body_strips_ref_and_paper_placeholders() -> None:
+    from src.export.markdown_refs import _sanitize_body
+
+    text = "Evidence Ref141 remains [Paper_abc123] and [Ref7] in text."
+    out = _sanitize_body(text)
+    assert "Ref141" not in out
+    assert "Paper_abc123" not in out
+    assert "[Ref7]" not in out

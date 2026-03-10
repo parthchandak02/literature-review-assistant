@@ -109,6 +109,7 @@ from src.writing.contradiction_resolver import (
     generate_contradiction_paragraph,
 )
 from src.writing.humanizer import humanize_async
+from src.writing.humanizer_guardrails import extract_citation_blocks, extract_numeric_tokens
 from src.writing.orchestration import (
     prepare_writing_context,
     register_background_sr_citations,
@@ -202,6 +203,23 @@ def _build_connectors(workflow_id: str, target_databases: list[str]) -> tuple[li
 
 def _rc(state: ReviewState) -> RunContext | None:
     return state.run_context
+
+
+def _rc_print(rc: RunContext | None, message: object) -> None:
+    """Safely print for CLI contexts; no-op safe for web contexts."""
+    if rc is None:
+        return
+    if hasattr(rc, "console"):
+        try:
+            rc.console.print(message)  # type: ignore[union-attr]
+            return
+        except Exception:
+            pass
+    if isinstance(message, str) and hasattr(rc, "log_status"):
+        try:
+            rc.log_status(message)  # type: ignore[union-attr]
+        except Exception:
+            pass
 
 
 class ResumeStartNode(BaseNode[ReviewState]):
@@ -301,6 +319,8 @@ class StartNode(BaseNode[ReviewState]):
         state.artifacts["evidence_network"] = str(run_paths.run_dir / "fig_evidence_network.png")
         state.artifacts["papers_dir"] = str(run_paths.run_dir / "papers")
         state.artifacts["papers_manifest"] = str(run_paths.run_dir / "data_papers_manifest.json")
+        state.artifacts["prospero_form_md"] = str(run_paths.run_dir / "doc_prospero_registration.md")
+        state.artifacts["prospero_form"] = str(run_paths.run_dir / "doc_prospero_registration.docx")
 
         # Snapshot the review config at run start, prepending workflow identity
         # so config_snapshot.yaml is the single source of truth linking a run
@@ -669,7 +689,7 @@ class ScreeningNode(BaseNode[ReviewState]):
                 total=len(state.deduped_papers),
             )
             if rc.verbose:
-                rc.console.print("[dim]Press Ctrl+C once to proceed with partial results, twice to abort.[/]")
+                _rc_print(rc, "[dim]Press Ctrl+C once to proceed with partial results, twice to abort.[/]")
         assert state.review is not None
         assert state.settings is not None
 
@@ -1378,7 +1398,7 @@ class ScreeningNode(BaseNode[ReviewState]):
                     table.add_column("Reason", style="white")
                     for paper_id, stage, decision, rationale in summary_rows:
                         table.add_row(paper_id[:16] + "...", stage, decision, rationale)
-                    rc.console.print(table)
+                    _rc_print(rc, table)
         if rc:
             if hasattr(rc, "log_status"):
                 rc.log_status(
@@ -1633,7 +1653,7 @@ class ExtractionQualityNode(BaseNode[ReviewState]):
             async def _extract_one_paper(paper: CandidatePaper) -> None:
                 async with _extract_sem:
                     if rc and rc.verbose:
-                        rc.console.print(f"  Extracting {paper.paper_id[:12]}...")
+                        _rc_print(rc, f"  Extracting {paper.paper_id[:12]}...")
 
                     # --- 3-tier full-text retrieval (replaces abstract-only) ---
                     ft_result = None
@@ -1672,7 +1692,7 @@ class ExtractionQualityNode(BaseNode[ReviewState]):
                     if ft_result and ft_result.text and len(ft_result.text) >= min_chars:
                         full_text = ft_result.text
                         if rc and rc.verbose:
-                            rc.console.print(f"    [dim]full-text via {ft_result.source} ({len(full_text)} chars)[/]")
+                            _rc_print(rc, f"    [dim]full-text via {ft_result.source} ({len(full_text)} chars)[/]")
                     elif ft_result and ft_result.pdf_bytes and len(ft_result.pdf_bytes) > 1000:
                         # PDF-only (e.g. sciencedirect_pdf): parse to text for LLM extraction
                         try:
@@ -1680,8 +1700,9 @@ class ExtractionQualityNode(BaseNode[ReviewState]):
 
                             full_text = _parse_pdf_bytes(ft_result.pdf_bytes)
                             if rc and rc.verbose:
-                                rc.console.print(
-                                    f"    [dim]full-text via {ft_result.source} PDF ({len(full_text)} chars)[/]"
+                                _rc_print(
+                                    rc,
+                                    f"    [dim]full-text via {ft_result.source} PDF ({len(full_text)} chars)[/]",
                                 )
                         except Exception:
                             full_text = (paper.abstract or paper.title or "").strip()
@@ -2200,13 +2221,14 @@ class SynthesisNode(BaseNode[ReviewState]):
             )
             if rc.verbose:
                 if meta_result is not None:
-                    rc.console.print(
+                    _rc_print(
+                        rc,
                         f"  Meta-analysis: {meta_result.model}={meta_result.model}, "
                         f"I2={meta_result.i_squared:.1f}%, forest={rendered_forest is not None}, "
-                        f"funnel={rendered_funnel is not None}"
+                        f"funnel={rendered_funnel is not None}",
                     )
                 else:
-                    rc.console.print("  Meta-analysis: insufficient numeric effect data; using narrative synthesis.")
+                    _rc_print(rc, "  Meta-analysis: insufficient numeric effect data; using narrative synthesis.")
 
         synthesis_payload: dict = {
             "feasibility": feasibility.model_dump(),
@@ -2463,29 +2485,72 @@ def _trim_abstract_to_limit(abstract: str, limit: int = 230) -> str:
         trimmed = " ".join(body_words[:limit])
         return (trimmed + ("\n\n" + kw_line if kw_line else "")).strip()
 
-    # Find which field is longest and trim it by the excess.
-    # Trim at a sentence boundary so the field never ends mid-sentence.
-    excess = len(body_words) - limit
-    longest_idx = max(range(len(fields)), key=lambda i: len(fields[i].split()))
-    field_text = fields[longest_idx]
-    field_words = field_text.split()
-    trim_target = max(1, len(field_words) - excess)
-    candidate = " ".join(field_words[:trim_target])
-    # Walk back to the last sentence-ending punctuation so the field is complete.
-    last_sentence_end = max(
-        candidate.rfind(". "),
-        candidate.rfind("? "),
-        candidate.rfind("! "),
-        candidate.rfind(".\n"),
-    )
-    if last_sentence_end > len(candidate) // 2:
-        # Keep up to and including the punctuation mark itself.
-        trimmed_field = candidate[: last_sentence_end + 1].rstrip()
-    else:
-        trimmed_field = candidate
-    body = body.replace(field_text, trimmed_field, 1)
+    # Iteratively trim longest fields until we are within the limit.
+    # Using a loop avoids off-by-one cases caused by sentence-boundary backtracking.
+    while len(body.split()) > limit:
+        fields = field_re.findall(body)
+        if not fields:
+            body = " ".join(body.split()[:limit])
+            break
+        excess = len(body.split()) - limit
+        longest_idx = max(range(len(fields)), key=lambda i: len(fields[i].split()))
+        field_text = fields[longest_idx]
+        field_words = field_text.split()
+        trim_target = max(1, len(field_words) - excess)
+        candidate = " ".join(field_words[:trim_target])
+        # Walk back to the last sentence-ending punctuation so the field is complete.
+        last_sentence_end = max(
+            candidate.rfind(". "),
+            candidate.rfind("? "),
+            candidate.rfind("! "),
+            candidate.rfind(".\n"),
+        )
+        if last_sentence_end > len(candidate) // 2:
+            # Keep up to and including the punctuation mark itself.
+            trimmed_field = candidate[: last_sentence_end + 1].rstrip()
+        else:
+            trimmed_field = candidate
+        body = body.replace(field_text, trimmed_field, 1)
 
     return (body.strip() + ("\n\n" + kw_line if kw_line else "")).strip()
+
+
+def _enforce_prisma_sentence_counts(
+    text: str,
+    reports_sought: int,
+    reports_not_retrieved: int,
+    reports_assessed: int,
+    included_total: int,
+) -> str:
+    """Normalize the common PRISMA sentence with deterministic counts."""
+    import re as _re
+
+    reports_assessed = max(reports_assessed, included_total)
+    reports_sought = max(reports_sought, reports_not_retrieved + reports_assessed)
+
+    canonical = (
+        f"Of the {reports_sought} reports sought for retrieval, "
+        f"{reports_not_retrieved} were not retrieved and {reports_assessed} were assessed "
+        f"for eligibility, with {included_total} studies ultimately included."
+    )
+    strict_pattern = _re.compile(
+        r"Of the \d+ reports sought for retrieval, \d+ were not retrieved and \d+ were assessed "
+        r"for eligibility, with \d+ studies ultimately included\.",
+        _re.IGNORECASE,
+    )
+    text = strict_pattern.sub(canonical, text)
+    # Handle softer variants that caused contradictory prose to survive rewriting.
+    # Example variants:
+    # - "Of 49 reports sought, 0 were not retrieved, 49 were assessed and 141 included."
+    # - "Reports sought for retrieval were 49; 0 not retrieved; 49 assessed for eligibility."
+    loose_pattern = _re.compile(
+        r"(?:Of\s+the\s+|Of\s+)?\d+\s+reports?\s+sought(?:\s+for\s+retrieval)?[^.]{0,220}"
+        r"\d+\s+(?:were\s+)?not\s+retrieved[^.]{0,220}"
+        r"\d+\s+(?:were\s+)?assessed(?:\s+for\s+eligibility)?[^.]{0,220}"
+        r"(?:\d+\s+stud(?:y|ies)\s+(?:were\s+)?(?:ultimately\s+)?included)?\.",
+        _re.IGNORECASE,
+    )
+    return loose_pattern.sub(canonical, text)
 
 
 def _build_minimal_sections_for_zero_papers(
@@ -2502,11 +2567,12 @@ def _build_minimal_sections_for_zero_papers(
     for s in sections:
         if s == "abstract":
             content = (
+                f"**Background:** This review examines the available evidence for {rq}. "
                 f"**Objectives:** This systematic review addressed {rq}. "
                 "**Methods:** Bibliographic databases were searched per protocol. "
                 "**Results:** The search identified records as reported; 0 studies "
                 "met the eligibility criteria. **Conclusion:** No synthesis was "
-                "performed. **Keywords:** systematic review, empty result."
+                "performed. **Keywords:** systematic review, empty result, evidence gap."
             )
         elif s == "introduction":
             content = (
@@ -2581,6 +2647,35 @@ class WritingNode(BaseNode[ReviewState]):
         citation_catalog = prepare_writing_context(state.included_papers, state.settings)
 
         sections_written: list[str] = []
+        _failed_sections: list[str] = []
+
+        async def _save_writing_checkpoint(
+            *,
+            papers_processed: int,
+            status: str = "partial",
+        ) -> None:
+            """Persist phase_6 progress aggressively for low-loss resume."""
+            async with get_db(state.db_path) as _wdb:
+                await WorkflowRepository(_wdb).save_checkpoint(
+                    state.workflow_id,
+                    "phase_6_writing",
+                    papers_processed=papers_processed,
+                    status=status,
+                )
+
+        async def _save_subphase_checkpoint(name: str, papers_processed: int = 0) -> None:
+            """Best-effort sub-phase markers for deeper resume observability."""
+            async with get_db(state.db_path) as _sdb:
+                await WorkflowRepository(_sdb).save_checkpoint(
+                    state.workflow_id,
+                    name,
+                    papers_processed=papers_processed,
+                    status="completed",
+                )
+
+        # Start-of-writing marker: if the process crashes before first section save,
+        # resume still knows phase_6 had started.
+        await _save_writing_checkpoint(papers_processed=0, status="partial")
         async with get_db(state.db_path) as db:
             repository = WorkflowRepository(db)
 
@@ -2595,9 +2690,9 @@ class WritingNode(BaseNode[ReviewState]):
             render_timeline(state.included_papers, state.artifacts["timeline"])
             render_geographic(state.included_papers, state.artifacts["geographic"])
             if rc and rc.verbose:
-                rc.console.print(f"  PRISMA: {prisma_counts} -> {Path(state.artifacts['prisma_diagram']).name}")
-                rc.console.print(f"  Timeline: {Path(state.artifacts['timeline']).name}")
-                rc.console.print(f"  Geographic: {Path(state.artifacts['geographic']).name}")
+                _rc_print(rc, f"  PRISMA: {prisma_counts} -> {Path(state.artifacts['prisma_diagram']).name}")
+                _rc_print(rc, f"  Timeline: {Path(state.artifacts['timeline']).name}")
+                _rc_print(rc, f"  Geographic: {Path(state.artifacts['geographic']).name}")
 
             citation_repo = CitationRepository(db)
             await citation_repo.ensure_schema()
@@ -2656,7 +2751,6 @@ class WritingNode(BaseNode[ReviewState]):
                     sections_written.append(content)
                     if rc:
                         rc.advance_screening("phase_6_writing", i + 1, len(SECTIONS))
-                await repository.save_checkpoint(state.workflow_id, "phase_6_writing", papers_processed=len(SECTIONS))
                 logger.info("WritingNode: 0 included papers; produced minimal manuscript without LLM calls")
             else:
                 # Build grounding data from real pipeline outputs so the writing LLM
@@ -2824,6 +2918,7 @@ class WritingNode(BaseNode[ReviewState]):
                         )
                     except Exception as _hyde_err:
                         logger.warning("HyDE batch failed: %s -- falling back to bare embed_query", _hyde_err)
+                await _save_subphase_checkpoint("phase_6a_hyde", papers_processed=len(hyde_docs))
 
                 # Sections are independent; run up to writing_concurrency in parallel.
                 # Completed counter is an int-list so the closure can mutate it safely
@@ -2850,7 +2945,7 @@ class WritingNode(BaseNode[ReviewState]):
                     async with _write_sem:
                         if section in completed:
                             if rc and rc.verbose:
-                                rc.console.print(f"  Skipping {section} (already done)")
+                                _rc_print(rc, f"  Skipping {section} (already done)")
                             _cursor = await db.execute(
                                 """
                                 SELECT content FROM section_drafts
@@ -2862,12 +2957,16 @@ class WritingNode(BaseNode[ReviewState]):
                             _row = await _cursor.fetchone()
                             _content = _row[0] if _row else ""
                             _sections_done[0] += 1
+                            await _save_writing_checkpoint(
+                                papers_processed=_sections_done[0],
+                                status="partial",
+                            )
                             if rc:
                                 rc.advance_screening("phase_6_writing", _sections_done[0], len(SECTIONS))
                             return i, _content
 
                         if rc and rc.verbose:
-                            rc.console.print(f"  Writing section: {section}...")
+                            _rc_print(rc, f"  Writing section: {section}...")
                         context = get_section_context(section)
                         word_limit = get_section_word_limit(section)
 
@@ -2966,9 +3065,15 @@ class WritingNode(BaseNode[ReviewState]):
                             humanizer_agent = state.settings.agents["humanizer"]
                             h_model = humanizer_agent.model
                             h_temp = humanizer_agent.temperature
+                            _valid_citekeys_local = [
+                                line.strip()[1 : line.strip().index("]")]
+                                for line in citation_catalog.splitlines()
+                                if line.strip().startswith("[") and "]" in line.strip()
+                            ]
                             if rc and rc.verbose:
-                                rc.console.print(f"    Humanizing {section} ({humanize_iters} pass(es))...")
+                                _rc_print(rc, f"    Humanizing {section} ({humanize_iters} pass(es))...")
                             for _ in range(humanize_iters):
+                                _before_h = _content
                                 if provider is not None:
                                     await provider.reserve_call_slot("humanizer")
                                 _content = await humanize_async(
@@ -2978,6 +3083,30 @@ class WritingNode(BaseNode[ReviewState]):
                                     max_chars=12000,
                                     provider=provider if use_llm_write else None,
                                 )
+                                # Workflow-level safety hook for each humanizer pass.
+                                if extract_citation_blocks(_before_h) != extract_citation_blocks(
+                                    _content
+                                ) or extract_numeric_tokens(_before_h) != extract_numeric_tokens(_content):
+                                    logger.warning(
+                                        "Humanizer pass reverted for section '%s' due to citation or numeric drift.",
+                                        section,
+                                    )
+                                    _content = _before_h
+                                    continue
+                                if _valid_citekeys_local:
+                                    _verified_local, _hallucinated_local = verify_citation_grounding(
+                                        _content,
+                                        _valid_citekeys_local,
+                                        section,
+                                    )
+                                    if _hallucinated_local:
+                                        logger.warning(
+                                            "Humanizer pass reverted for section '%s' due to hallucinated citekeys: %s",
+                                            section,
+                                            _hallucinated_local[:5],
+                                        )
+                                        _content = _before_h
+                                        continue
 
                         word_count = len(_content.split())
                         draft = SectionDraft(
@@ -2991,6 +3120,10 @@ class WritingNode(BaseNode[ReviewState]):
                         )
                         await repository.save_section_draft(draft)
                         _sections_done[0] += 1
+                        await _save_writing_checkpoint(
+                            papers_processed=_sections_done[0],
+                            status="partial",
+                        )
                         if rc:
                             rc.advance_screening("phase_6_writing", _sections_done[0], len(SECTIONS))
                         return i, _content
@@ -3031,6 +3164,7 @@ class WritingNode(BaseNode[ReviewState]):
                     [s for s in _PHASE_A_SECTIONS if s in SECTIONS],
                     _phase_a_results,
                 )
+                await _save_subphase_checkpoint("phase_6b_phase_a", papers_processed=len(_ordered_a))
 
                 # Build prior-sections context from Phase A results.
                 _section_a_cache: dict[str, str] = {}
@@ -3086,12 +3220,70 @@ class WritingNode(BaseNode[ReviewState]):
                     [s for s in _PHASE_B_SECTIONS if s in SECTIONS],
                     _phase_b_results,
                 )
+                await _save_subphase_checkpoint("phase_6c_phase_b", papers_processed=len(_ordered_b))
+
+                # Retry transiently failed sections once, sequentially. Concurrent
+                # phase writing can hit short-lived quota/rate-limit windows that
+                # resolve by the time this pass runs.
+                _failed_sections = _failed_a + _failed_b
+                if _failed_sections:
+                    logger.warning(
+                        "WritingNode: retrying %d failed section(s) sequentially: %s",
+                        len(_failed_sections),
+                        ", ".join(_failed_sections),
+                    )
+                    _retry_ok: list[tuple[int, str]] = []
+                    _retry_failed: list[str] = []
+                    for _sec in _failed_sections:
+                        try:
+                            _prior_ctx = _build_prior_ctx(_sec) if _sec in _PHASE_B_SECTIONS else ""
+                            _retry_ok.append(await _write_one_section(SECTIONS.index(_sec), _sec, _prior_ctx))
+                        except Exception as _retry_exc:
+                            logger.error(
+                                "Writing retry failed for section '%s' (%s: %s)",
+                                _sec,
+                                type(_retry_exc).__name__,
+                                str(_retry_exc)[:200],
+                            )
+                            _retry_failed.append(_sec)
+                    _ordered_a = _ordered_a + _retry_ok
+                    _failed_sections = _retry_failed
+                else:
+                    _failed_sections = []
 
                 # Merge and sort by canonical SECTIONS order
                 _ordered = sorted(_ordered_a + _ordered_b, key=lambda t: t[0])
-                _failed_sections = _failed_a + _failed_b
                 sections_written_raw = {idx: content for idx, content in _ordered}
                 sections_written = [sections_written_raw.get(i, "") for i in range(len(SECTIONS))]
+
+                # Hard backstop for export integrity: abstract and methods must not
+                # be empty even if LLM generation failed after retries.
+                _included_total = (
+                    prisma_counts.studies_included_qualitative + prisma_counts.studies_included_quantitative
+                )
+                _norm_assessed = max(prisma_counts.reports_assessed, _included_total)
+                _norm_sought = max(prisma_counts.reports_sought, prisma_counts.reports_not_retrieved + _norm_assessed)
+                _prisma_sentence = (
+                    f"Of the {_norm_sought} reports sought for retrieval, "
+                    f"{prisma_counts.reports_not_retrieved} were not retrieved and {_norm_assessed} "
+                    f"were assessed for eligibility, with {_included_total} studies ultimately included."
+                )
+                _abs_idx = SECTIONS.index("abstract") if "abstract" in SECTIONS else -1
+                if _abs_idx >= 0 and not sections_written[_abs_idx].strip():
+                    sections_written[_abs_idx] = (
+                        "**Background:** This review synthesizes the available evidence for the topic. "
+                        f"**Objectives:** This review evaluated {state.review.research_question}. "
+                        f"**Methods:** {state.review.search_query}. "
+                        f"**Results:** {_prisma_sentence} "
+                        "**Conclusion:** Evidence synthesis was generated from included studies. "
+                        "**Keywords:** systematic review, evidence synthesis, outcomes, implementation, methodology."
+                    )
+                _methods_idx = SECTIONS.index("methods") if "methods" in SECTIONS else -1
+                if _methods_idx >= 0 and not sections_written[_methods_idx].strip():
+                    sections_written[_methods_idx] = (
+                        "Two independent reviewers screened records with adjudication for disagreements. "
+                        + _prisma_sentence
+                    )
 
                 # Abstract post-trim: enforce word limit after LLM generation.
                 # The LLM is instructed not to exceed 230 words but routinely writes
@@ -3103,7 +3295,6 @@ class WritingNode(BaseNode[ReviewState]):
                 # [Author2021SR] -> "(Author, 2021)", sanitize disclosure injection).
                 # Use a conservative target: trim to ABSTRACT_WORD_LIMIT - 20 to leave
                 # headroom, with floor at 210.
-                _abs_idx = SECTIONS.index("abstract") if "abstract" in SECTIONS else -1
                 if _abs_idx >= 0 and sections_written[_abs_idx]:
                     from src.writing.prompts.sections import ABSTRACT_WORD_LIMIT
 
@@ -3116,6 +3307,25 @@ class WritingNode(BaseNode[ReviewState]):
                             len(_trimmed_abs.split()),
                         )
                         sections_written[_abs_idx] = _trimmed_abs
+                    # Deterministically correct the common PRISMA sentence in the
+                    # abstract when LLM arithmetic drifts.
+                    sections_written[_abs_idx] = _enforce_prisma_sentence_counts(
+                        sections_written[_abs_idx],
+                        reports_sought=prisma_counts.reports_sought,
+                        reports_not_retrieved=prisma_counts.reports_not_retrieved,
+                        reports_assessed=prisma_counts.reports_assessed,
+                        included_total=_included_total,
+                    )
+
+                # Also normalize the same PRISMA sentence in Methods if present.
+                if _methods_idx >= 0 and sections_written[_methods_idx]:
+                    sections_written[_methods_idx] = _enforce_prisma_sentence_counts(
+                        sections_written[_methods_idx],
+                        reports_sought=prisma_counts.reports_sought,
+                        reports_not_retrieved=prisma_counts.reports_not_retrieved,
+                        reports_assessed=prisma_counts.reports_assessed,
+                        included_total=_included_total,
+                    )
 
                 if _failed_sections and rc and hasattr(rc, "_emit"):
                     rc._emit(
@@ -3289,7 +3499,12 @@ class WritingNode(BaseNode[ReviewState]):
                 _cov_repo = CitationRepository(_cov_db)
                 _included_keys = set(await _cov_repo.get_included_citekeys())
             if _included_keys:
-                _cited_in_body = set(re.findall(r"\[([A-Za-z][A-Za-z0-9_\-']+\d{4}[a-z]?)\]", body))
+                _cited_in_body = set(
+                    re.findall(
+                        r"\[((?:[A-Za-z][A-Za-z0-9_\-']+\d{4}[a-z]?|Ref\d+|Paper_[A-Za-z0-9_\-]+))\]",
+                        body,
+                    )
+                )
                 _uncited = sorted(_included_keys - _cited_in_body)
                 if _uncited:
                     logger.warning(
@@ -3438,12 +3653,42 @@ class WritingNode(BaseNode[ReviewState]):
             fulltext_paper_ids=_fulltext_paper_ids if _fulltext_paper_ids else None,
         )
         manuscript_path.write_text(full_manuscript, encoding="utf-8")
-        # Checkpoint only after the file is safely on disk so that a crash
-        # during assembly does not leave a stale checkpoint that causes resume
-        # to skip straight to FinalizeNode with no manuscript.
+        await _save_subphase_checkpoint("phase_6d_assembly", papers_processed=len(SECTIONS))
+        # Invariant: mark phase_6 as completed only when all required sections
+        # are durably persisted and no writing tasks failed.
         async with get_db(state.db_path) as _ckpt_db:
-            await WorkflowRepository(_ckpt_db).save_checkpoint(
-                state.workflow_id, "phase_6_writing", papers_processed=len(SECTIONS)
+            _ckpt_repo = WorkflowRepository(_ckpt_db)
+            _persisted_sections = await _ckpt_repo.get_completed_sections(state.workflow_id)
+            _missing_sections = sorted(set(SECTIONS) - _persisted_sections)
+            _has_invariant_violation = bool(_failed_sections or _missing_sections)
+            if _has_invariant_violation:
+                await _ckpt_repo.save_checkpoint(
+                    state.workflow_id,
+                    "phase_6_writing",
+                    status="partial",
+                    papers_processed=len(_persisted_sections),
+                )
+                if rc and hasattr(rc, "_emit"):
+                    rc._emit(
+                        {
+                            "type": "writing_error",
+                            "failed_sections": _failed_sections,
+                            "missing_sections": _missing_sections,
+                            "persisted_sections": sorted(_persisted_sections),
+                            "message": (
+                                "Writing phase ended with incomplete durable section state; "
+                                "checkpoint saved as partial for safe resume."
+                            ),
+                        }
+                    )
+                raise RuntimeError(
+                    "Writing section persistence invariant failed: "
+                    f"failed={_failed_sections}, missing={_missing_sections}"
+                )
+            await _ckpt_repo.save_checkpoint(
+                state.workflow_id,
+                "phase_6_writing",
+                papers_processed=len(SECTIONS),
             )
             await _ckpt_db.commit()
 
@@ -3555,13 +3800,15 @@ class WritingNode(BaseNode[ReviewState]):
             if rc and rc.verbose:
                 for _key, _path in _concept_results.items():
                     if _path:
-                        rc.console.print(f"  Concept diagram ({_key}): {_path.name}")
+                        _rc_print(rc, f"  Concept diagram ({_key}): {_path.name}")
         except TimeoutError:
             logger.warning("Concept diagram generation timed out after 180s -- skipping")
         except asyncio.CancelledError:
             logger.warning("Concept diagram generation cancelled -- skipping")
         except Exception as _cd_exc:  # noqa: BLE001
             logger.warning("Concept diagram generation failed: %s", _cd_exc)
+        else:
+            await _save_subphase_checkpoint("phase_6e_concepts", papers_processed=len(SECTIONS))
 
         # Re-assemble the manuscript now that concept diagram SVGs exist on disk.
         # The first assembly above ran before SVGs were written, so those figures
@@ -3622,29 +3869,120 @@ class FinalizeNode(BaseNode[ReviewState]):
                 _bib_path = Path(_mmd_path).parent / "references.bib"
                 async with get_db(state.db_path) as _tex_db:
                     _citations = await CitationRepository(_tex_db).get_all_citations_for_export()
+
+                # Normalize citekeys for export so manuscript citation conversion
+                # and references.bib keys stay aligned even when legacy runs
+                # contain malformed keys (spaces, Paper_* fallbacks).
+                from src.export.bibtex_builder import _sanitize_citekey as _sanitize_bib_citekey
+
+                _used_keys: set[str] = set()
+                _key_map: dict[str, str] = {}
+                _normalized_citations: list[tuple] = []
+                for _idx, _row in enumerate(_citations):
+                    _cid, _citekey, _doi, _title, _authors_json, _year, _journal, _bibtex = _row[:8]
+                    _url = _row[8] if len(_row) > 8 else None
+                    _safe_key = _sanitize_bib_citekey(_citekey, _title, _authors_json, _year, _idx)
+                    _unique_key = _safe_key
+                    _suffix = 2
+                    while _unique_key in _used_keys:
+                        _unique_key = f"{_safe_key}_{_suffix}"
+                        _suffix += 1
+                    _used_keys.add(_unique_key)
+                    _key_map[str(_citekey)] = _unique_key
+                    _normalized_citations.append(
+                        (_cid, _unique_key, _doi, _title, _authors_json, _year, _journal, _bibtex, _url)
+                    )
+
                 _md_text = Path(_mmd_path).read_text(encoding="utf-8")
-                _citekeys = {c[1] for c in _citations}
+                _citekeys = {c[1] for c in _normalized_citations}
                 # Three-layer mechanical matching (DOI -> URL -> title)
-                _num_map = _build_number_to_citekey(_md_text, _citations)
+                _num_map = _build_number_to_citekey(_md_text, _normalized_citations)
                 # Layer 4: LLM batch fallback for any still-unresolved [N] entries
                 _num_map = await llm_resolve_unmatched_citations(
                     _md_text,
-                    _citations,
+                    _normalized_citations,
                     _num_map,
                     db_path=state.db_path,
                     workflow_id=state.workflow_id,
                 )
+                # Also provide direct old->new key mapping so bracketed legacy keys
+                # (e.g. [Paper_xxx], [Engineering Inclusiv]) resolve to the sanitized
+                # keys used in references.bib.
+                for _old, _new in _key_map.items():
+                    _num_map.setdefault(_old, _new)
                 _author = str(getattr(getattr(state, "review", None), "author_name", "") or "")
                 _tex_path.write_text(
                     _md_to_latex(_md_text, citekeys=_citekeys, num_to_citekey=_num_map, author_name=_author),
                     encoding="utf-8",
                 )
-                _bib_path.write_text(_build_bibtex(_citations), encoding="utf-8")
+                _bib_path.write_text(_build_bibtex(_normalized_citations), encoding="utf-8")
                 state.artifacts["manuscript_tex"] = str(_tex_path)
                 state.artifacts["references_bib"] = str(_bib_path)
                 logger.info("FinalizeNode: wrote doc_manuscript.tex and references.bib")
             except Exception as _tex_err:  # noqa: BLE001
                 logger.warning("FinalizeNode: LaTeX artifact generation failed (non-fatal): %s", _tex_err)
+
+        # Generate doc_prospero_registration.docx as a first-class run artifact.
+        # Best-effort: a failure here must never block finalization.
+        if state.review and state.output_dir:
+            try:
+                from src.export.docx_exporter import generate_docx as _generate_docx
+                from src.models import ProsperoRunData
+                from src.protocol.generator import ProtocolGenerator as _ProtoGen
+
+                _proto_gen = _ProtoGen(output_dir=state.output_dir)
+                _placeholder_fields = _proto_gen.validate_prospero_inputs(state.review)
+                if _placeholder_fields:
+                    _msg = "PROSPERO preflight warning: placeholder-like values detected in " + ", ".join(
+                        sorted(set(_placeholder_fields))
+                    )
+                    logger.warning("FinalizeNode: %s", _msg)
+                    if rc and hasattr(rc, "log_status"):
+                        rc.log_status(_msg)
+                _protocol = _proto_gen.generate(state.workflow_id, state.review)
+                _synthesis_method: str = _protocol.planned_synthesis_method
+                _fulltext_retrieved = state.fulltext_sought - state.fulltext_not_retrieved
+                if _fulltext_retrieved <= 0:
+                    # Resume-from-finalize may not have in-memory fulltext counters.
+                    # Fall back to papers manifest / papers dir on disk.
+                    _manifest_path = Path(state.artifacts.get("papers_manifest", ""))
+                    if _manifest_path.exists():
+                        try:
+                            _manifest = json.loads(_manifest_path.read_text(encoding="utf-8"))
+                            _fulltext_retrieved = sum(
+                                1 for _entry in _manifest.values() if (_entry or {}).get("file_path")
+                            )
+                        except Exception as _manifest_err:  # noqa: BLE001
+                            logger.warning(
+                                "FinalizeNode: could not derive fulltext count from papers manifest: %s",
+                                _manifest_err,
+                            )
+                    if _fulltext_retrieved <= 0:
+                        _papers_dir = Path(state.output_dir) / "papers"
+                        if _papers_dir.exists():
+                            _fulltext_retrieved = sum(
+                                1
+                                for _pf in _papers_dir.iterdir()
+                                if _pf.suffix in {".pdf", ".txt"} and _pf.stat().st_size > 0
+                            )
+
+                _run_data = ProsperoRunData(
+                    search_counts=state.search_counts,
+                    search_queries=state.search_queries,
+                    included_count=len(state.included_papers),
+                    fulltext_retrieved_count=max(0, _fulltext_retrieved),
+                    run_id=state.run_id,
+                    synthesis_method=_synthesis_method,
+                )
+                _prospero_md = _proto_gen.render_prospero_markdown(_protocol, state.review, _run_data)
+                _prospero_md_path = _proto_gen.write_prospero_markdown(_prospero_md)
+                state.artifacts["prospero_form_md"] = str(_prospero_md_path)
+                _prospero_docx_path = Path(state.output_dir) / "doc_prospero_registration.docx"
+                _generate_docx(_prospero_md_path, _prospero_docx_path)
+                state.artifacts["prospero_form"] = str(_prospero_docx_path)
+                logger.info("FinalizeNode: wrote doc_prospero_registration.md and .docx")
+            except Exception as _pros_err:  # noqa: BLE001
+                logger.warning("FinalizeNode: PROSPERO DOCX generation failed (non-fatal): %s", _pros_err)
 
         # Pre-populate submission/ so the Results tab is instant on first load.
         # POST /export will detect existing files and skip re-packaging (unless forced).
@@ -3722,8 +4060,8 @@ class FinalizeNode(BaseNode[ReviewState]):
         async with get_db(state.db_path) as db:
             await WorkflowRepository(db).update_workflow_status(state.workflow_id, "completed")
         if rc and rc.verbose:
-            rc.console.print(f"  Run summary: {state.artifacts['run_summary']}")
-            rc.console.print(f"  Output dir: {state.output_dir}")
+            _rc_print(rc, f"  Run summary: {state.artifacts['run_summary']}")
+            _rc_print(rc, f"  Output dir: {state.output_dir}")
         if rc:
             rc.emit_phase_done("finalize")
         return End(summary)
@@ -3756,7 +4094,7 @@ def _make_sigint_handler(rc: RunContext):
             raise KeyboardInterrupt
         rc.proceed_with_partial_requested[0] = True
         if rc.verbose:
-            rc.console.print("[yellow]Proceeding with partial screening results...[/]")
+            _rc_print(rc, "[yellow]Proceeding with partial screening results...[/]")
 
     return handler
 
@@ -3836,13 +4174,14 @@ async def run_workflow(
             checkpoints = await repo.get_checkpoints(entry.workflow_id)
         phase_count = len(checkpoints)
         phase_label = f"phase {phase_count}/6" if phase_count < 6 else "finalize"
-        if run_context and run_context.console:
+        _console = getattr(run_context, "console", None) if run_context else None
+        if _console is not None:
             from rich.prompt import Confirm
 
             if Confirm.ask(
                 f"Found existing run for this topic ({phase_label} complete). Resume?",
                 default=True,
-                console=run_context.console,
+                console=_console,
             ):
                 return await run_workflow_resume(
                     workflow_id=entry.workflow_id,

@@ -607,10 +607,10 @@ def build_writing_grounding(
         search_eligibility_window=search_eligibility_window,
         fulltext_retrieved_count=fulltext_retrieved,
         fulltext_total_count=fulltext_total,
-        # Prefer prisma_counts (computed from DB) over the external parameter,
-        # which can be 0 in resume/re-run scenarios where state is not fully replayed.
-        fulltext_sought=prisma_counts.reports_sought or fulltext_sought,
-        fulltext_not_retrieved=prisma_counts.reports_not_retrieved or fulltext_not_retrieved,
+        # Use prisma_counts as the authoritative source of full-text funnel counts.
+        # External parameters can be stale in resume/re-run scenarios.
+        fulltext_sought=prisma_counts.reports_sought,
+        fulltext_not_retrieved=prisma_counts.reports_not_retrieved,
         batch_screen_forwarded=batch_screen_forwarded,
         batch_screen_excluded=batch_screen_excluded,
         batch_screener_model=batch_screener_model,

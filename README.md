@@ -45,8 +45,8 @@ The web UI is the easiest way to get started. No config files needed -- you fill
 **1. Clone the repo**
 
 ```bash
-git clone https://github.com/yourusername/research-article-writer
-cd research-article-writer
+git clone https://github.com/parthchandak/literature-review-assistant
+cd literature-review-assistant
 ```
 
 **2. Install Python dependencies**
@@ -99,8 +99,8 @@ Prefer the terminal? Use this path.
 **1. Clone and install**
 
 ```bash
-git clone https://github.com/yourusername/research-article-writer
-cd research-article-writer
+git clone https://github.com/parthchandak/literature-review-assistant
+cd literature-review-assistant
 uv sync
 ```
 
@@ -287,7 +287,7 @@ Every factual claim in the manuscript is traced back to a citation via the citat
 
 ## Development
 
-**Dev servers (hot-reload):**
+**Dev servers:**
 
 The primary dev workflow uses [PM2](https://pm2.keymetrics.io/). Install it once:
 

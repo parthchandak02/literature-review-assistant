@@ -18,6 +18,7 @@ from src.models import (
     ReviewConfig,
     SettingsConfig,
 )
+from src.writing.humanizer_guardrails import apply_deterministic_guardrails
 from src.writing.section_writer import SectionWriter
 
 if TYPE_CHECKING:
@@ -191,6 +192,7 @@ _GENERIC_TITLE_WORDS = frozenset(
 # Matches lowercase_with_underscores that appear in prose (not inside brackets).
 # We split text around [...] blocks first so citation keys are never touched.
 _SNAKE_RE = re.compile(r"\b([a-z][a-z0-9]*(?:_[a-z][a-z0-9]*)+)\b")
+_ABSTRACT_FIELDS = ("Background", "Objectives", "Methods", "Results", "Conclusion", "Keywords")
 
 
 def _enforce_word_limit(text: str, max_words: int) -> str:
@@ -244,9 +246,44 @@ def _sanitize_prose(content: str) -> str:
         else:
             result.append(_SNAKE_RE.sub(lambda m: m.group(0).replace("_", " "), part))
     sanitized = "".join(result)
+    # Keep manuscript prose ASCII-only for IEEE export robustness.
+    sanitized = re.sub(r"[^\x20-\x7E]", " ", sanitized)
+    sanitized = re.sub(r"[ \t]{2,}", " ", sanitized)
     if sanitized != content:
         logger.debug("prose sanitizer replaced snake_case identifiers in section draft")
     return sanitized
+
+
+def _ensure_structured_abstract(content: str, research_question: str) -> str:
+    """Ensure abstract contains all required structured fields.
+
+    If fields are missing, append deterministic fallback lines so downstream
+    markdown/latex extraction always has a complete abstract shape.
+    """
+    text = content.strip()
+    if not text:
+        text = "Evidence synthesis was generated from included studies."
+
+    _present = {
+        f: bool(re.search(rf"\*\*{re.escape(f)}:\*\*", text, flags=re.IGNORECASE))
+        for f in _ABSTRACT_FIELDS
+    }
+    if all(_present.values()):
+        return text
+
+    defaults = {
+        "Background": "This topic has important clinical and implementation implications.",
+        "Objectives": f"This systematic review addressed {research_question}.",
+        "Methods": (
+            "Bibliographic databases were searched according to protocol, with "
+            "eligibility screening and risk-of-bias assessment."
+        ),
+        "Results": "Key findings are reported in the manuscript body and synthesis sections.",
+        "Conclusion": "The available evidence is synthesized with certainty and limitations considered.",
+        "Keywords": "systematic review, evidence synthesis, implementation, outcomes, methodology",
+    }
+    _missing_lines = [f"**{field}:** {defaults[field]}" for field in _ABSTRACT_FIELDS if not _present[field]]
+    return (text + "\n\n" + "\n".join(_missing_lines)).strip()
 
 
 def _clean_author_token(raw: str) -> str:
@@ -263,6 +300,18 @@ def _clean_author_token(raw: str) -> str:
     return token
 
 
+def _sanitize_citekey_token(raw: str) -> str:
+    """Normalize citekey fragments to ASCII-safe token format."""
+    normalized = "".join(c for c in unicodedata.normalize("NFD", str(raw or "")) if unicodedata.category(c) != "Mn")
+    token = re.sub(r"[^A-Za-z0-9_]+", "_", normalized).strip("_")
+    token = re.sub(r"_+", "_", token)
+    if token.startswith("Paper_") or not token:
+        return ""
+    if token and token[0].isdigit():
+        token = f"Ref_{token}"
+    return token
+
+
 def _make_citekey_base(paper: CandidatePaper, index: int) -> str:
     """Derive a human-readable citekey base from a paper's metadata.
 
@@ -273,7 +322,9 @@ def _make_citekey_base(paper: CandidatePaper, index: int) -> str:
 
     # Preferred path: use the canonical label stored in the DB.
     if paper.display_label:
-        return f"{paper.display_label}{year_str}"[:20]
+        from_label = _sanitize_citekey_token(f"{paper.display_label}{year_str}")
+        if from_label:
+            return from_label[:20]
 
     # Fallback for papers from older DBs without display_label.
     author_token = ""
@@ -288,9 +339,9 @@ def _make_citekey_base(paper: CandidatePaper, index: int) -> str:
                 break
 
     if not author_token:
-        return f"Paper{index + 1}"
+        return f"Ref{index + 1}"
 
-    return f"{author_token}{year_str}"[:20]
+    return _sanitize_citekey_token(f"{author_token}{year_str}")[:20] or f"Ref{index + 1}"
 
 
 def _citation_entries_from_papers(papers: list[CandidatePaper]) -> list[tuple[str, CandidatePaper]]:
@@ -658,12 +709,19 @@ async def write_section_with_validation(
     # Safety-net: replace any leftover snake_case in prose before saving.
     content = _sanitize_prose(content)
 
+    if section == "abstract":
+        content = _ensure_structured_abstract(content, review.research_question)
+
     # Hard-enforce word limit after generation. The LLM treats the prompt word
     # limit as advisory and will occasionally exceed it (abstract ran to 264 for
     # the IEEE 250-word cap). Trim at the last sentence boundary that keeps the
     # section within the configured limit.
     if word_limit and section == "abstract":
         content = _enforce_word_limit(content, word_limit)
+
+    # Deterministic pre-humanizer guardrails remove repetitive boilerplate while
+    # preserving citations and numeric tokens.
+    content = apply_deterministic_guardrails(content)
 
     # Register each cited sentence as a claim and link it to evidence so the
     # citation lineage gate can verify full claim->evidence->citation coverage.

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import re
+import unicodedata
 
 # Words that BibTeX processors treat as lowercase in titles -- do NOT wrap these.
 _LOWERCASE_TITLE_WORDS = frozenset(
@@ -292,6 +293,85 @@ def _month_int_to_abbr(month: int | None) -> str | None:
     return _ABBRS.get(month) if month is not None else None
 
 
+def _normalize_ascii_token(text: str) -> str:
+    """Return ASCII alnum-only token candidate for citekey construction."""
+    ascii_text = "".join(c for c in unicodedata.normalize("NFD", text) if unicodedata.category(c) != "Mn")
+    return re.sub(r"[^A-Za-z0-9]+", "", ascii_text)
+
+
+def _fallback_citekey_from_metadata(
+    title: str,
+    authors_json: str,
+    year: int | None,
+    index: int,
+) -> str:
+    """Build a deterministic fallback key when stored citekey is malformed."""
+    year_part = str(year) if year else "nd"
+    surname = ""
+    try:
+        authors = json.loads(authors_json) if authors_json else []
+    except (json.JSONDecodeError, TypeError):
+        authors = []
+    if isinstance(authors, list) and authors:
+        first = authors[0]
+        if isinstance(first, dict):
+            surname = str(first.get("last") or first.get("family") or "")
+        else:
+            s = str(first).strip()
+            if "," in s:
+                surname = s.split(",")[0].strip()
+            else:
+                parts = s.split()
+                if len(parts) == 2:
+                    first_tok, second_tok = parts
+                    first_is_initial = len(first_tok.rstrip(".")) <= 3 and first_tok.rstrip(".").isupper()
+                    second_is_initial = len(second_tok.rstrip(".")) <= 3 and second_tok.rstrip(".").isupper()
+                    if second_is_initial and not first_is_initial:
+                        surname = first_tok
+                    elif first_is_initial and not second_is_initial:
+                        surname = second_tok
+                    else:
+                        surname = parts[-1]
+                else:
+                    surname = parts[-1] if parts else ""
+    surname_token = _normalize_ascii_token(surname)
+    if surname_token:
+        return f"{surname_token[:18]}{year_part}"
+
+    title_token = ""
+    for word in str(title or "").split():
+        cand = _normalize_ascii_token(word)
+        if len(cand) >= 4:
+            title_token = cand
+            break
+    if title_token:
+        return f"{title_token[:18]}{year_part}"
+    return f"Ref{index + 1}{year_part}"
+
+
+def _sanitize_citekey(
+    citekey: str,
+    title: str,
+    authors_json: str,
+    year: int | None,
+    index: int,
+) -> str:
+    """Normalize citekey and replace unsafe/internal fallback keys."""
+    raw = "".join(c for c in unicodedata.normalize("NFD", str(citekey or "")) if unicodedata.category(c) != "Mn")
+    raw = raw.strip()
+    # Replace internal fallback keys with metadata-derived citekeys.
+    if not raw or raw.startswith("Paper_") or re.fullmatch(r"Ref\d+", raw):
+        return _fallback_citekey_from_metadata(title, authors_json, year, index)
+
+    cleaned = re.sub(r"[^A-Za-z0-9_]+", "_", raw)
+    cleaned = re.sub(r"_+", "_", cleaned).strip("_")
+    if not cleaned or cleaned.startswith("Paper_") or re.fullmatch(r"Ref\d+", cleaned):
+        return _fallback_citekey_from_metadata(title, authors_json, year, index)
+    if cleaned[0].isdigit():
+        cleaned = f"Ref_{cleaned}"
+    return cleaned
+
+
 def _build_single_entry(
     citekey: str,
     doi: str | None,
@@ -365,9 +445,17 @@ def build_bibtex(
                bibtex[, url]).
     """
     entries: list[str] = []
-    for row in citations:
+    used: set[str] = set()
+    for idx, row in enumerate(citations):
         _cid, citekey, doi, title, authors_json, year, journal, bibtex = row[:8]
         url: str | None = row[8] if len(row) > 8 else None  # type: ignore[misc]
-        entry = _build_single_entry(citekey, doi, title, authors_json, year, journal, bibtex, url=url)
+        safe_key = _sanitize_citekey(citekey, title, authors_json, year, idx)
+        unique_key = safe_key
+        suffix = 2
+        while unique_key in used:
+            unique_key = f"{safe_key}_{suffix}"
+            suffix += 1
+        used.add(unique_key)
+        entry = _build_single_entry(unique_key, doi, title, authors_json, year, journal, bibtex, url=url)
         entries.append(entry)
     return "\n\n".join(entries) if entries else "% No citations\n"

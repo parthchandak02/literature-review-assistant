@@ -13,7 +13,13 @@ import re
 
 logger = logging.getLogger(__name__)
 
-_CITEKEY_RE = re.compile(r"\[([A-Za-z][A-Za-z0-9_\-']+\d{4}[a-z]?)\]")
+# Accepted citation token patterns in brackets:
+# - canonical AuthorYear keys: [Smith2023], [DeVries2021a]
+# - placeholder fallback keys: [Ref141], [Paper_ab12cd]
+_CITEKEY_RE = re.compile(
+    r"\[((?:[A-Za-z][A-Za-z0-9_\-']+\d{4}[a-z]?|Ref\d+|Paper_[A-Za-z0-9_\-]+))\]"
+)
+_PLACEHOLDER_CITEKEY_RE = re.compile(r"^(Ref\d+|Paper_[A-Za-z0-9_\-]+)$")
 
 
 def extract_used_citekeys(text: str) -> list[str]:
@@ -61,6 +67,11 @@ def _fuzzy_match_citekey(
        case-insensitive substring of the valid citekey (or vice-versa).
     4. Return the best single match when confidence is high; None otherwise.
     """
+    # Placeholder keys are internal/generated identifiers and do not carry
+    # reliable author-year semantics for fuzzy matching.
+    if _PLACEHOLDER_CITEKEY_RE.fullmatch(unknown):
+        return None
+
     _year_m = re.search(r"(\d{4})", unknown)
     if not _year_m:
         return None
@@ -99,11 +110,12 @@ def repair_hallucinated_citekeys(
     hallucinated: list[str],
     valid_citekeys: list[str],
 ) -> str:
-    """Replace hallucinated citekeys with fuzzy-matched valid keys or a placeholder.
+    """Replace hallucinated citekeys with fuzzy-matched valid keys or safe prose.
 
     For each hallucinated key, attempt fuzzy matching using author+year tokens:
     - If a unique match is found in valid_citekeys, substitute it and log the repair.
-    - Otherwise replace with [CITATION_NEEDED] so human reviewers can correct it.
+    - Otherwise replace with "(citation unavailable)" to avoid unresolved
+      bracket placeholders leaking into final manuscript/LaTeX output.
     All occurrences of each hallucinated key in the text are replaced (not just the first).
     """
     if not hallucinated:
@@ -112,7 +124,7 @@ def repair_hallucinated_citekeys(
     result = text
     for key in hallucinated:
         matched = _fuzzy_match_citekey(key, valid_citekeys)
-        replacement = f"[{matched}]" if matched else "[CITATION_NEEDED]"
+        replacement = f"[{matched}]" if matched else "(citation unavailable)"
         if matched:
             logger.info(
                 "Fuzzy-matched hallucinated citekey [%s] -> [%s]",

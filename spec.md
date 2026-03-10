@@ -139,7 +139,7 @@ literature-review-assistant/
 |   `-- utils/                      # structured_log, logging_paths (RunPaths + create_run_paths), ssl_context
 |-- tests/
 |   |-- unit/                       # unit test suite (run `uv run pytest tests/unit -q`)
-|   `-- integration/                # 7 integration test files
+|   `-- integration/                # integration pipeline test suite
 `-- runs/                           # All per-run artifacts + central registry (gitignored)
 ```
 
@@ -242,7 +242,7 @@ Change rarely. Values are tuned from real runs.
 |---------|-----------|
 | `llm.*` | `flash_rpm`, `flash_lite_rpm`, `pro_rpm` -- free-tier rate limits enforced by rate limiter |
 | `agents.*` | Per-agent model string (e.g. `google-gla:gemini-3.1-flash-lite-preview`) and temperature. Changing a model requires only a YAML edit. |
-| `screening.*` | `stage1_include_threshold` (0.85), `stage1_exclude_threshold` (0.80), `screening_concurrency` (asyncio.Semaphore), `max_llm_screen` (optional BM25 cap), `skip_fulltext_if_no_pdf`, `pdf_retrieval_concurrency` (8 -- concurrent PDF fetches), `batch_screen_concurrency` (3 -- concurrent batch ranker batches), `reviewer_batch_size` (default 10 -- papers per dual-reviewer LLM call; 0 = per-paper legacy mode) |
+| `screening.*` | `stage1_include_threshold` (0.85), `stage1_exclude_threshold` (0.80), `screening_concurrency` (asyncio.Semaphore), `max_llm_screen` (optional BM25 cap), `skip_fulltext_if_no_pdf`, `pdf_retrieval_concurrency` (20 -- concurrent PDF fetches), `batch_screen_concurrency` (3 -- concurrent batch ranker batches), `reviewer_batch_size` (default 10 -- papers per dual-reviewer LLM call; 0 = per-paper legacy mode) |
 | `dual_review.*` | `enabled`, `kappa_warning_threshold` (0.4) |
 | `gates.*` | `profile` (strict / warning), `search_volume_minimum` (50), `screening_minimum` (5), `extraction_completeness_threshold` (0.80), `cost_budget_max` (USD) |
 | `writing.*` | `humanization`, `humanization_iterations` (2), `checkpoint_per_section`, `llm_timeout` (120s) |
@@ -317,7 +317,9 @@ Phase 1: Foundation        -> no checkpoint (workflow row serves as marker)
 Phase 2: Search            -> checkpoint key: "phase_2_search"
 Phase 3: Screening         -> checkpoint key: "phase_3_screening"
 Phase 4: Extraction+Quality -> checkpoint key: "phase_4_extraction_quality"
+Phase 4b: Embedding        -> checkpoint key: "phase_4b_embedding"
 Phase 5: Synthesis         -> checkpoint key: "phase_5_synthesis"
+Phase 5b: Knowledge Graph  -> checkpoint key: "phase_5b_knowledge_graph"
 Phase 6: Writing           -> checkpoint key: "phase_6_writing"
 Finalize                   -> writes run_summary.json + registry status = "completed"
 ```
@@ -475,7 +477,7 @@ Each completed section is saved to the `section_drafts` table immediately. On re
 
 **What happens:** PRISMA 2020 flow diagram rendered using the `prisma-flow-diagram` library (`plot_prisma2020_new`) with a matplotlib fallback on ImportError. Two-column structure: databases left, other sources right. Per-database counts in the identification box. Exclusion reasons categorized from `ExclusionReason` enum. Arithmetic validation runs (records in = records out at every stage).
 
-Known v1 limitation: The "other sources" right-hand column is currently disabled in `render_prisma_diagram()` because all papers pass through a single unified screening pipeline. Restoring the two-column split requires a deduplication-aware PRISMA count builder that can separate already-screened other-source papers.
+Current behavior: the right-hand "other sources" column is active in `render_prisma_diagram()` through `other_methods` mapping. Counts are sourced from `PRISMACounts` category splits.
 
 Publication timeline and geographic distribution figures are also generated here.
 
@@ -519,9 +521,9 @@ Registry status updated to "completed". `run_summary.json` written to log dir wi
 
 | Tier | Model | Input / Output per 1M tokens | Agent Assignments |
 |------|-------|------------------------------|-------------------|
-| Bulk | gemini-3.1-flash-lite-preview | $0.25 / $1.50 | screening_reviewer_a, search, study_type_detection, abstract_generation, hyde generation, rag reranker |
-| Fast | gemini-3-flash-preview | lower cost | screening_reviewer_b |
-| Quality | gemini-3.1-pro-preview | $1.25 / $10.00 | screening_adjudicator, extraction, quality_assessment, writing, humanizer |
+| Bulk | Config-driven (`settings.yaml`) | Provider-dependent | High-volume agents (screening/search/RAG helpers) |
+| Fast | Config-driven (`settings.yaml`) | Provider-dependent | Moderate-volume reviewers and adjudication paths |
+| Quality | Config-driven (`settings.yaml`) | Provider-dependent | High-quality extraction/writing/assessment paths |
 
 Reviewer A (gemini-3.1-flash-lite-preview) and Reviewer B (gemini-3-flash-preview) use different models intentionally -- this provides genuine cross-model validation rather than intra-model temperature variation. Flash-Lite-Preview is optimal for bulk classification at scale; gemini-3-flash-preview provides a different model perspective for Reviewer B without the cost of Pro. HyDE generation and listwise reranking also use flash-lite-preview for speed and cost efficiency.
 
@@ -529,10 +531,7 @@ Model assignments per agent are in `settings.yaml` under `agents.*`. Changing a 
 
 ### 7.2 Rate Limiting
 
-A token-bucket rate limiter in `src/llm/rate_limiter.py` enforces free-tier Gemini limits:
-- Flash-Lite: 15 RPM
-- Flash: 10 RPM
-- Pro: 5 RPM
+A token-bucket rate limiter in `src/llm/rate_limiter.py` enforces configured limits from `settings.yaml llm.*` (current defaults in this repo: Flash-Lite 30 RPM, Flash 20 RPM, Pro 10 RPM).
 
 `reserve_call_slot(agent_name)` blocks until a slot is available. A `rate_limit_wait` SSE event (fields: `tier`, `slots_used`, `limit`, `waited_seconds`) is emitted on the first poll and every 10s thereafter. When the slot is acquired after waiting, a `rate_limit_resolved` SSE event (fields: `tier`, `waited_seconds`) is emitted. Both events are wired for ScreeningNode, ExtractionQualityNode, and WritingNode. The `on_waiting`/`on_resolved` callbacks are registered whenever a `RunContext` or `WebRunContext` is present -- the `verbose` flag only gates the CLI console print, not the SSE emission. These limits can be relaxed in `settings.yaml` for paid-tier keys (paid Flash: 2,000 RPM).
 
@@ -1199,7 +1198,7 @@ All of the following must be true before the first submission:
 - All claims traceable via citation ledger (ClaimRecord -> EvidenceLinkRecord -> CitationEntryRecord)
 - Zero unresolved citations at export
 - IEEE LaTeX compiles with IEEEtran.cls without errors
-- Abstract <= 300 words
+- Abstract <= 250 words
 - PRISMA checklist >= 24/27 items reported
 - All 6 quality gates pass in strict mode
 - All unit and integration tests pass

@@ -34,6 +34,11 @@ def test_extract_used_citekeys_no_matches() -> None:
     assert extract_used_citekeys(text) == []
 
 
+def test_extract_used_citekeys_includes_placeholder_patterns() -> None:
+    text = "See [Ref141] and [Paper_ab12cd] plus [Smith2023]."
+    assert extract_used_citekeys(text) == ["Ref141", "Paper_ab12cd", "Smith2023"]
+
+
 # ---------------------------------------------------------------------------
 # _fuzzy_match_citekey
 # ---------------------------------------------------------------------------
@@ -100,7 +105,7 @@ def test_repair_exact_fuzzy_match() -> None:
 def test_repair_no_match_replaced_with_placeholder() -> None:
     text = "See [Xyz9999] for details."
     result = repair_hallucinated_citekeys(text, ["Xyz9999"], ["Smith2023", "Jones2024"])
-    assert "[CITATION_NEEDED]" in result
+    assert "(citation unavailable)" in result
     assert "[Xyz9999]" not in result
 
 

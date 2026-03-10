@@ -6,7 +6,7 @@ from hypothesis import given, settings
 from hypothesis import strategies as st
 
 from src.export.bibtex_builder import build_bibtex
-from src.export.ieee_latex import _convert_md_table_to_latex, _escape_latex, markdown_to_latex
+from src.export.ieee_latex import _convert_citations, _convert_md_table_to_latex, _escape_latex, markdown_to_latex
 from src.export.ieee_validator import validate_ieee
 from src.export.prisma_checklist import validate_prisma
 
@@ -28,12 +28,77 @@ def test_build_bibtex_single():
     assert "2024" in out
 
 
+def test_build_bibtex_sanitizes_space_citekey() -> None:
+    citations = [
+        (1, "Engineering Inclusiv", None, "A title", '["Smith A"]', 2024, "J", None),
+    ]
+    out = build_bibtex(citations)
+    assert "@article{Engineering_Inclusiv," in out
+
+
+def test_build_bibtex_replaces_internal_paper_key() -> None:
+    citations = [
+        (1, "Paper_709c9b2024", None, "Assistive Device Study", '["Atallah A"]', 2025, "J", None),
+    ]
+    out = build_bibtex(citations)
+    assert "Paper_709c9b2024" not in out
+    assert "@article{Atallah2025," in out
+
+
+def test_build_bibtex_replaces_ref_numeric_placeholder_key() -> None:
+    citations = [
+        (1, "Ref141", None, "Assistive Device Study", '["Atallah A"]', 2025, "J", None),
+    ]
+    out = build_bibtex(citations)
+    assert "@article{Ref141," not in out
+    assert "@article{Atallah2025," in out
+
+
 def test_markdown_to_latex_basic():
     md = "**Title:** My Review\n\n**Abstract**\n\nShort abstract.\n\n## Introduction\n\nSome text."
     out = markdown_to_latex(md, citekeys=set())
     assert "\\documentclass" in out
     assert "My Review" in out
     assert "Introduction" in out and ("\\section{" in out or "\\subsection{" in out)
+
+
+def test_markdown_to_latex_extracts_structured_abstract_from_background_block() -> None:
+    md = (
+        "# Test Title\n\n"
+        "**Background:** A background sentence.\n"
+        "**Objectives:** Objective sentence.\n"
+        "**Methods:** Method sentence.\n"
+        "**Results:** Results sentence.\n"
+        "**Conclusion:** Conclusion sentence.\n"
+        "**Keywords:** one, two, three\n\n"
+        "## Introduction\n\n"
+        "Body text.\n"
+    )
+    out = markdown_to_latex(md, citekeys=set())
+    assert "\\begin{abstract}" in out
+    assert "Background" in out
+
+
+def test_convert_citations_resolves_mixed_list_with_space_key() -> None:
+    text = "[Abdallah2017, Engineering Inclusiv, UnknownKey]"
+    citekeys = {"Abdallah2017", "Engineering_Inclusiv"}
+    out = _convert_citations(text, citekeys)
+    assert out == "\\cite{Abdallah2017,Engineering_Inclusiv}"
+
+
+def test_convert_citations_resolves_single_space_key() -> None:
+    text = "Evidence from [Engineering Inclusiv] supports this."
+    citekeys = {"Engineering_Inclusiv"}
+    out = _convert_citations(text, citekeys)
+    assert "\\cite{Engineering_Inclusiv}" in out
+
+
+def test_convert_citations_rewrites_ref_and_paper_placeholders() -> None:
+    text = "Legacy [Ref141] and [Paper_abc123] remain."
+    out = _convert_citations(text, set())
+    assert "[Ref141]" not in out
+    assert "[Paper_abc123]" not in out
+    assert "(citation unavailable)" in out
 
 
 def test_validate_ieee_no_abstract():

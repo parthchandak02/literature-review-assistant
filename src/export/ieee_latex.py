@@ -145,27 +145,67 @@ def _convert_citations(
     per-key handler can then clean up any remaining single-key brackets.
     """
     num_to_citekey = num_to_citekey or {}
+    # Remove unresolved placeholder markers from final LaTeX prose.
+    text = text.replace("[CITATION_NEEDED]", "(citation unavailable)")
+    text = re.sub(r"\[\s*Ref\d+\s*\]", "(citation unavailable)", text)
+    text = re.sub(r"\bRef\d+\b", "(citation unavailable)", text)
+    text = re.sub(r"\[\s*Paper_[A-Za-z0-9_\-]+\s*\]", "(citation unavailable)", text)
+    text = re.sub(r"\bPaper_[A-Za-z0-9_\-]+\b", "(citation unavailable)", text)
 
-    # Pass 1: comma-separated list brackets -> \cite{key1,key2,...}
-    # Pattern: [ followed by citekey-like tokens separated by ", " ]
-    _list_re = re.compile(
-        r"\[([A-Za-z][A-Za-z0-9_\-']*\d{4}[a-z]?"
-        r"(?:,\s*[A-Za-z][A-Za-z0-9_\-']*\d{4}[a-z]?)+)\]"
-    )
+    def _norm_token(token: str) -> str:
+        # Canonical key for forgiving lookup (spaces/punctuation-insensitive).
+        return re.sub(r"[^A-Za-z0-9]", "", token).lower()
+
+    # Canonical lookup maps to resolve legacy/malformed tokens such as
+    # "Engineering Inclusiv" -> "EngineeringInclusiv".
+    _norm_citekey_map: dict[str, str] = {}
+    for ck in citekeys:
+        _norm_citekey_map[_norm_token(ck)] = ck
+    _norm_num_key_map: dict[str, str] = {}
+    for key, val in num_to_citekey.items():
+        _norm_num_key_map[_norm_token(key)] = val
+
+    def _resolve_token(token: str) -> str | None:
+        stripped = token.strip()
+        if not stripped:
+            return None
+        if stripped in citekeys:
+            return stripped
+        if stripped in num_to_citekey:
+            return num_to_citekey[stripped]
+        norm = _norm_token(stripped)
+        if norm in _norm_citekey_map:
+            return _norm_citekey_map[norm]
+        if norm in _norm_num_key_map:
+            return _norm_num_key_map[norm]
+        return None
+
+    def _looks_like_citation_placeholder(token: str) -> bool:
+        stripped = token.strip()
+        return bool(
+            re.fullmatch(r"Ref\d+", stripped)
+            or re.fullmatch(r"Paper_[A-Za-z0-9_\-]+", stripped)
+            or re.fullmatch(r"[A-Za-z][A-Za-z0-9_\-']+\d{4}[a-z]?", stripped)
+        )
+
+    # Pass 1: comma-separated bracket lists -> \cite{key1,key2,...}
+    # Use a permissive pattern so one malformed key does not block valid keys.
+    _list_re = re.compile(r"\[([^\[\]\n]*,[^\[\]\n]*)\]")
 
     def list_repl(m: re.Match) -> str:
         raw_keys = [k.strip() for k in m.group(1).split(",")]
-        # Resolve each key; skip keys that are entirely unknown.
+        # Resolve each key; skip unknown keys, dedupe while preserving order.
         resolved: list[str] = []
+        seen_resolved: set[str] = set()
         for k in raw_keys:
-            if k in citekeys:
-                resolved.append(k)
-            elif k in num_to_citekey:
-                resolved.append(num_to_citekey[k])
-            # Unknown keys are dropped from the merged cite; the single-key pass
-            # below would not have converted them either.
+            rk = _resolve_token(k)
+            if rk and rk not in seen_resolved:
+                resolved.append(rk)
+                seen_resolved.add(rk)
         if resolved:
             return f"\\cite{{{','.join(resolved)}}}"
+        if any(_looks_like_citation_placeholder(k) for k in raw_keys):
+            return "(citation unavailable)"
         return m.group(0)  # Nothing resolved -- leave as-is.
 
     text = _list_re.sub(list_repl, text)
@@ -173,13 +213,14 @@ def _convert_citations(
     # Pass 2: single-key brackets -> \cite{key}
     def repl(m: re.Match) -> str:
         key = m.group(1)
-        if key in citekeys:
-            return f"\\cite{{{key}}}"
-        if key in num_to_citekey:
-            return f"\\cite{{{num_to_citekey[key]}}}"
+        resolved = _resolve_token(key)
+        if resolved:
+            return f"\\cite{{{resolved}}}"
+        if _looks_like_citation_placeholder(key):
+            return "(citation unavailable)"
         return m.group(0)
 
-    return re.sub(r"\[([A-Za-z0-9_]+)\]", repl, text)
+    return re.sub(r"\[([A-Za-z0-9_\-:' ]+)\]", repl, text)
 
 
 def _convert_inline_formatting(
@@ -265,7 +306,12 @@ def _extract_title_and_abstract(md: str) -> tuple[str | None, str | None, str]:
                 fallback_title = ln.strip()[2:].strip()
                 if fallback_title.endswith("..."):
                     fallback_title = fallback_title[:-3].strip()
-            if "**Objectives:**" in ln or ln.strip() == "**Objectives:**":
+            if (
+                "**Background:**" in ln
+                or ln.strip() == "**Background:**"
+                or "**Objectives:**" in ln
+                or ln.strip() == "**Objectives:**"
+            ) and fallback_abstract_start < 0:
                 fallback_abstract_start = idx
             if "**Keywords:**" in ln or ln.strip().startswith("**Keywords:**"):
                 fallback_abstract_end = idx
@@ -556,6 +602,8 @@ def markdown_to_latex(
         preamble += "\\begin{abstract}\n"
         preamble += abstract_esc + "\n"
         preamble += "\\end{abstract}\n\n"
+    else:
+        logger.warning("markdown_to_latex: abstract block missing; LaTeX output will omit \\begin{abstract}.")
 
     body = _md_section_to_latex(rest, citekeys, num_to_citekey)
     body = _merge_consecutive_cites(body)
