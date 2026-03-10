@@ -42,7 +42,6 @@ export function fmtTs(ts: string | null | undefined): string {
 // ---------------------------------------------------------------------------
 
 export type LogLevel = "info" | "warn" | "error" | "dim" | "include" | "exclude" | "exclude-heuristic" | "status"
-export type ActivityLogMode = "user" | "technical"
 
 function eventTs(ev: ReviewEvent): string | undefined {
   return "ts" in ev ? ev.ts : undefined
@@ -137,7 +136,7 @@ function asPercentLabel(threshold: number | null | undefined): string {
 // Event -> log line conversion
 // ---------------------------------------------------------------------------
 
-export function eventToLogEntry(ev: ReviewEvent, mode: ActivityLogMode = "technical"): LogRenderEntry {
+export function eventToLogEntry(ev: ReviewEvent): LogRenderEntry {
   const finalize = (
     data: Omit<LogRenderEntry, "eventType">,
   ): LogRenderEntry => ({
@@ -220,18 +219,6 @@ export function eventToLogEntry(ev: ReviewEvent, mode: ActivityLogMode = "techni
       const msg = ev.message ?? ""
       const isTimer = msg.includes("done in") || msg.includes("elapsed") || msg.includes("starting (")
       const resumeMessage = msg.trim().toLowerCase() === "resume"
-      if (mode === "user" && isTimer) {
-        return finalize({
-          text: `[${fmtTs(ev.ts)}] TIMER  background processing in progress`,
-          level: "dim",
-          severity: "dim",
-          kind: "status",
-          compactable: true,
-          groupKey: "timer-user",
-          isResumeRelated: resumeMessage,
-          isResumeNoOp: resumeMessage,
-        })
-      }
       return finalize({
         text: `[${fmtTs(ev.ts)}] ${isTimer ? "TIMER  " : "...    "} ${msg}`,
         level: isTimer ? "dim" : "status",
@@ -261,19 +248,6 @@ export function eventToLogEntry(ev: ReviewEvent, mode: ActivityLogMode = "techni
     }
 
     case "api_call": {
-      if (mode === "user") {
-        return finalize({
-          text: `[${fmtTs(ev.ts)}] LLM    background model call`,
-          level: "dim",
-          severity: "dim",
-          kind: "llm",
-          phase: ev.phase,
-          compactable: true,
-          groupKey: `llm:${ev.phase}:${ev.call_type}`,
-          isResumeRelated: false,
-          isResumeNoOp: false,
-        })
-      }
       const tokStr =
         ev.tokens_in != null && ev.tokens_in > 0
           ? ` | ${ev.tokens_in}in/${ev.tokens_out ?? 0}out tok`
@@ -522,7 +496,7 @@ export function eventToLogEntry(ev: ReviewEvent, mode: ActivityLogMode = "techni
   }
 }
 
-export function eventToLogLine(ev: ReviewEvent, mode: ActivityLogMode = "technical"): { text: string; level: LogLevel } {
-  const entry = eventToLogEntry(ev, mode)
+export function eventToLogLine(ev: ReviewEvent): { text: string; level: LogLevel } {
+  const entry = eventToLogEntry(ev)
   return { text: entry.text, level: entry.level }
 }

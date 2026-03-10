@@ -6,9 +6,9 @@ from src.utils.structured_log import load_events_from_jsonl, normalize_jsonl_eve
 def test_load_events_from_jsonl_supports_double_encoded_lines(tmp_path: Path) -> None:
     path = tmp_path / "app.jsonl"
     line = (
-        "\"{\\\"phase\\\": \\\"phase_2_search\\\", \\\"action\\\": \\\"start\\\", "
-        "\\\"description\\\": \\\"Running connectors...\\\", \\\"event\\\": \\\"phase\\\", "
-        "\\\"timestamp\\\": \\\"2026-03-10T17:41:24.600698Z\\\"}\""
+        '"{\\"phase\\": \\"phase_2_search\\", \\"action\\": \\"start\\", '
+        '\\"description\\": \\"Running connectors...\\", \\"event\\": \\"phase\\", '
+        '\\"timestamp\\": \\"2026-03-10T17:41:24.600698Z\\"}"'
     )
     path.write_text(line + "\n", encoding="utf-8")
 
@@ -41,3 +41,25 @@ def test_normalize_jsonl_event_preserves_contract_fields() -> None:
     assert normalized["entity_type"] == "connector"
     assert normalized["entity_id"] == "pubmed"
 
+
+def test_normalize_jsonl_event_preserves_phase_contract_fields() -> None:
+    normalized = normalize_jsonl_event(
+        {
+            "event": "phase",
+            "timestamp": "2026-03-10T17:41:24.600698Z",
+            "phase": "phase_3_screening",
+            "action": "done",
+            "summary": {"included": 7},
+            "reason_code": "phase_summary",
+            "reason_label": "Phase completed",
+            "entity_type": "phase",
+            "entity_id": "phase_3_screening",
+        }
+    )
+    assert normalized is not None
+    assert normalized["type"] == "phase_done"
+    assert normalized["reason_code"] == "phase_summary"
+    assert normalized["reason_label"] == "Phase completed"
+    assert normalized["action"] == "done"
+    assert normalized["entity_type"] == "phase"
+    assert normalized["entity_id"] == "phase_3_screening"
