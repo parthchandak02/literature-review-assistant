@@ -14,10 +14,12 @@ from the manuscript prose. This script:
 
 Usage:
     uv run python scripts/inject_missing_citations.py --run-dir <path-to-run-directory>
+    uv run python scripts/inject_missing_citations.py --workflow-id <workflow-id>
 
 Example:
     uv run python scripts/inject_missing_citations.py \\
         --run-dir runs/2026-03-08/wf-0004-.../run_10-41-36PM
+    uv run python scripts/inject_missing_citations.py --workflow-id wf-0005
 
 The script is idempotent: re-running it will not double-inject citations.
 
@@ -447,14 +449,69 @@ async def main(run_dir_str: str) -> int:
     return 0
 
 
+def _resolve_run_dir(args: argparse.Namespace) -> pathlib.Path:
+    """Resolve run directory from --run-dir or --workflow-id."""
+    if args.run_dir:
+        return pathlib.Path(args.run_dir)
+
+    # Look up the workflow in the central registry DB.
+    import sqlite3
+
+    registry_candidates = [
+        pathlib.Path("runs/workflows_registry.db"),
+        pathlib.Path.home() / "runs" / "workflows_registry.db",
+    ]
+    # Also search under runs/ for any workflows_registry.db
+    runs_root = pathlib.Path("runs")
+    if runs_root.exists():
+        for candidate in runs_root.rglob("workflows_registry.db"):
+            registry_candidates.insert(0, candidate)
+
+    registry_db: pathlib.Path | None = None
+    for candidate in registry_candidates:
+        if candidate.exists():
+            registry_db = candidate
+            break
+
+    if registry_db is None:
+        print(
+            f"ERROR: Could not find workflows_registry.db to resolve workflow-id '{args.workflow_id}'."
+            " Use --run-dir to pass the path directly."
+        )
+        sys.exit(1)
+
+    conn = sqlite3.connect(str(registry_db))
+    try:
+        row = conn.execute(
+            "SELECT db_path FROM workflows_registry WHERE workflow_id = ?",
+            (args.workflow_id,),
+        ).fetchone()
+    finally:
+        conn.close()
+
+    if row is None:
+        print(
+            f"ERROR: workflow_id '{args.workflow_id}' not found in registry at {registry_db}."
+        )
+        sys.exit(1)
+
+    # db_path points to runtime.db; run dir is its parent.
+    return pathlib.Path(row[0]).parent
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
         description="Inject missing included-study citations into a completed run's manuscript."
     )
-    parser.add_argument(
+    group = parser.add_mutually_exclusive_group(required=True)
+    group.add_argument(
         "--run-dir",
-        required=True,
         help="Path to the run directory containing runtime.db and doc_manuscript.md",
     )
+    group.add_argument(
+        "--workflow-id",
+        help="Workflow ID (e.g. wf-0005) to look up in the central registry",
+    )
     args = parser.parse_args()
-    sys.exit(asyncio.run(main(args.run_dir)))
+    run_dir = _resolve_run_dir(args)
+    sys.exit(asyncio.run(main(run_dir)))

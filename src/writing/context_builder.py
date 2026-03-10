@@ -112,6 +112,14 @@ class WritingGroundingData(BaseModel):
     # Pre-computed: total_screened - fulltext_assessed (records excluded at T/A stage).
     # Injected verbatim so the LLM does not compute it.
     records_excluded_screening: int = 0
+    # PRISMA 2020 full-text stage -- three distinct numbers:
+    #   reports_sought      = papers that screened positive (needed full-text retrieval)
+    #   reports_not_retrieved = papers sought but full text could not be obtained
+    #   fulltext_assessed   = papers actually examined at full text (sought - not_retrieved)
+    # These are DIFFERENT values. Writing LLMs confuse "sought" with "assessed" when only
+    # one number is injected. All three must be injected explicitly and labeled clearly.
+    reports_sought: int = 0
+    reports_not_retrieved: int = 0
     fulltext_assessed: int
     total_included: int
     fulltext_excluded: int  # derived: fulltext_assessed - total_included
@@ -558,6 +566,8 @@ def build_writing_grounding(
         automation_excluded=prisma_counts.automation_excluded,
         total_screened=prisma_counts.records_screened,
         records_excluded_screening=prisma_counts.records_excluded_screening,
+        reports_sought=prisma_counts.reports_sought,
+        reports_not_retrieved=prisma_counts.reports_not_retrieved,
         fulltext_assessed=prisma_counts.reports_assessed,
         total_included=total_included_count,
         fulltext_excluded=fulltext_excluded_count,
@@ -694,8 +704,17 @@ def format_grounding_block(data: WritingGroundingData) -> str:
         f"Records excluded at title/abstract screening: {data.records_excluded_screening}",
         "CRITICAL: Use 'Records excluded at title/abstract screening' exactly as given. "
         "Do NOT compute this as screened minus assessed.",
-        f"Full-text assessed: {data.fulltext_assessed}",
-        f"Full-text articles excluded: {data.fulltext_excluded}",
+        f"Reports sought for full-text retrieval (screened-in papers): {data.reports_sought}",
+        f"Reports not retrieved (full text unavailable): {data.reports_not_retrieved}",
+        f"Reports assessed for eligibility (full-text examined): {data.fulltext_assessed}",
+        f"CRITICAL -- PRISMA TERMINOLOGY: 'Reports sought' ({data.reports_sought}) and "
+        f"'Reports assessed' ({data.fulltext_assessed}) are TWO DIFFERENT numbers. "
+        f"'Sought' = papers that screened positive and needed full text. "
+        f"'Assessed' = papers where full text was actually obtained and examined. "
+        f"Use EXACTLY: sought={data.reports_sought}, "
+        f"not_retrieved={data.reports_not_retrieved}, "
+        f"assessed={data.fulltext_assessed}. NEVER label the assessed count as 'sought'.",
+        f"Full-text articles excluded after assessment: {data.fulltext_excluded}",
         f"Studies included: {data.total_included}",
     ]
     if data.batch_screen_forwarded > 0:

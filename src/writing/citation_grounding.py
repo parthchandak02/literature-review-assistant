@@ -85,6 +85,12 @@ def _fuzzy_match_citekey(
     if len(prefix_matches) == 1:
         return prefix_matches[0]
 
+    # Last resort: if only one candidate exists for the year, accept it
+    # (avoids [CITATION_NEEDED] when the LLM abbreviates an author name
+    # not ambiguously -- e.g. "Prev2020" -> only "PreviousSR2020" has year 2020).
+    if len(year_candidates) == 1:
+        return year_candidates[0]
+
     return None
 
 

@@ -134,9 +134,43 @@ def _convert_citations(
     citekeys: set[str],
     num_to_citekey: dict[str, str] | None = None,
 ) -> str:
-    """Convert [citekey] or [N] to \\cite{citekey} when valid."""
+    """Convert [citekey] or [N] to \\cite{citekey} when valid.
+
+    Also handles comma-separated citekey lists emitted by the writing LLM:
+        [YangKun2020, Keaton2019, Leigh2025]  ->  \\cite{YangKun2020,Keaton2019,Leigh2025}
+
+    These lists appear when the LLM groups several citations in one bracket instead
+    of using individual \\cite{} calls. The regex below matches the list pattern first
+    (all entries must look like citekeys and at least one must be known) so the
+    per-key handler can then clean up any remaining single-key brackets.
+    """
     num_to_citekey = num_to_citekey or {}
 
+    # Pass 1: comma-separated list brackets -> \cite{key1,key2,...}
+    # Pattern: [ followed by citekey-like tokens separated by ", " ]
+    _list_re = re.compile(
+        r"\[([A-Za-z][A-Za-z0-9_\-']*\d{4}[a-z]?"
+        r"(?:,\s*[A-Za-z][A-Za-z0-9_\-']*\d{4}[a-z]?)+)\]"
+    )
+
+    def list_repl(m: re.Match) -> str:
+        raw_keys = [k.strip() for k in m.group(1).split(",")]
+        # Resolve each key; skip keys that are entirely unknown.
+        resolved: list[str] = []
+        for k in raw_keys:
+            if k in citekeys:
+                resolved.append(k)
+            elif k in num_to_citekey:
+                resolved.append(num_to_citekey[k])
+            # Unknown keys are dropped from the merged cite; the single-key pass
+            # below would not have converted them either.
+        if resolved:
+            return f"\\cite{{{','.join(resolved)}}}"
+        return m.group(0)  # Nothing resolved -- leave as-is.
+
+    text = _list_re.sub(list_repl, text)
+
+    # Pass 2: single-key brackets -> \cite{key}
     def repl(m: re.Match) -> str:
         key = m.group(1)
         if key in citekeys:

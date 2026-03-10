@@ -2376,13 +2376,27 @@ def _trim_abstract_to_limit(abstract: str, limit: int = 230) -> str:
         trimmed = " ".join(body_words[:limit])
         return (trimmed + ("\n\n" + kw_line if kw_line else "")).strip()
 
-    # Find which field is longest and trim it by the excess
+    # Find which field is longest and trim it by the excess.
+    # Trim at a sentence boundary so the field never ends mid-sentence.
     excess = len(body_words) - limit
     longest_idx = max(range(len(fields)), key=lambda i: len(fields[i].split()))
-    field_words = fields[longest_idx].split()
+    field_text = fields[longest_idx]
+    field_words = field_text.split()
     trim_target = max(1, len(field_words) - excess)
-    trimmed_field = " ".join(field_words[:trim_target])
-    body = body.replace(fields[longest_idx], trimmed_field, 1)
+    candidate = " ".join(field_words[:trim_target])
+    # Walk back to the last sentence-ending punctuation so the field is complete.
+    last_sentence_end = max(
+        candidate.rfind(". "),
+        candidate.rfind("? "),
+        candidate.rfind("! "),
+        candidate.rfind(".\n"),
+    )
+    if last_sentence_end > len(candidate) // 2:
+        # Keep up to and including the punctuation mark itself.
+        trimmed_field = candidate[: last_sentence_end + 1].rstrip()
+    else:
+        trimmed_field = candidate
+    body = body.replace(field_text, trimmed_field, 1)
 
     return (body.strip() + ("\n\n" + kw_line if kw_line else "")).strip()
 
