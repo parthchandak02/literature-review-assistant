@@ -178,7 +178,18 @@ class PDFRetriever:
         papers: Sequence[CandidatePaper],
         on_progress: Callable[[int, int], None] | None = None,
         concurrency: int = 8,
+        per_paper_timeout: int = 45,
+        on_result: Callable[[str, str, str, bool], None] | None = None,
     ) -> tuple[dict[str, PDFRetrievalResult], FullTextCoverageSummary]:
+        """Retrieve full text for a batch of papers with bounded concurrency.
+
+        Args:
+            per_paper_timeout: Maximum wall-clock seconds for one paper across all tiers.
+                Papers that exhaust all retrieval tiers (or hit a slow host) are capped
+                at this value instead of blocking the semaphore slot for 260+ seconds.
+            on_result: Optional per-paper callback fired after retrieval resolves.
+                Signature: (paper_id, title, source, success).
+        """
         results: dict[str, PDFRetrievalResult] = {}
         failed_ids: list[str] = []
         done_count: list[int] = [0]
@@ -187,7 +198,14 @@ class PDFRetriever:
 
         async def _fetch_one(paper: CandidatePaper) -> None:
             async with sem:
-                outcome = await self.retrieve(paper)
+                try:
+                    outcome = await asyncio.wait_for(self.retrieve(paper), timeout=per_paper_timeout)
+                except TimeoutError:
+                    outcome = PDFRetrievalResult(
+                        paper_id=paper.paper_id,
+                        success=False,
+                        error=f"per-paper timeout after {per_paper_timeout}s",
+                    )
             # asyncio is single-threaded: dict/list mutations here are safe
             results[paper.paper_id] = outcome
             if not outcome.success:
@@ -196,6 +214,11 @@ class PDFRetriever:
             if on_progress is not None:
                 try:
                     on_progress(done_count[0], total)
+                except Exception:
+                    pass
+            if on_result is not None:
+                try:
+                    on_result(paper.paper_id, paper.title, outcome.source, outcome.success)
                 except Exception:
                     pass
 

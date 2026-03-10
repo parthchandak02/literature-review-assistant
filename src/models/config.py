@@ -211,11 +211,23 @@ class ScreeningConfig(BaseModel):
     pdf_retrieval_concurrency: int = Field(
         ge=1,
         le=32,
-        default=8,
+        default=20,
         description=(
             "Number of PDFs fetched concurrently during full-text retrieval (phase 3). "
-            "Each fetch hits a different upstream host so 8 concurrent requests are safe. "
-            "Lower to 3-4 if rate-limit errors appear in the activity log."
+            "Each fetch hits a different upstream host (Unpaywall, CORE, S2, EuropePMC) "
+            "so 20 concurrent async requests are safe. "
+            "Lower to 8-10 if rate-limit errors appear in the activity log."
+        ),
+    )
+    pdf_retrieval_per_paper_timeout: int = Field(
+        ge=10,
+        le=300,
+        default=45,
+        description=(
+            "Maximum wall-clock seconds allowed per paper across all retrieval tiers. "
+            "Prevents a slow-responding host from holding a semaphore slot for 260+ seconds "
+            "(13 tiers x 20s worst-case). Paper is marked failed-timeout and the next paper "
+            "in the batch claims the semaphore slot immediately."
         ),
     )
     reviewer_batch_size: int = Field(
@@ -454,6 +466,17 @@ class ExtractionConfig(BaseModel):
         le=16,
         default=4,
         description="Number of papers extracted concurrently in phase 4. Each paper runs classify+extract+RoB sequentially; papers run in parallel.",
+    )
+    pdf_tier_timeout_seconds: int = Field(
+        ge=5,
+        le=60,
+        default=12,
+        description=(
+            "Per-tier HTTP timeout (seconds) used inside fetch_full_text(). "
+            "Open-access tiers (Unpaywall, CORE, S2, EuropePMC) are raced in parallel, "
+            "so this timeout applies to the entire race group rather than per-request. "
+            "Set lower (e.g. 8) to fail fast; set higher (e.g. 20) to trade speed for coverage."
+        ),
     )
 
 

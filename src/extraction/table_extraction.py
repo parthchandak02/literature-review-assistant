@@ -16,6 +16,7 @@ Every LLM call is the caller's responsibility for cost tracking.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import os
@@ -62,7 +63,20 @@ _MEDRXIV_PDF_BASE = "https://www.medrxiv.org/content"
 _OPENALEX_WORKS_URL = "https://api.openalex.org/works"
 _OPENALEX_CONTENT_BASE = "https://content.openalex.org/works"
 _CROSSREF_WORKS_URL = "https://api.crossref.org/works"
-_FT_TIMEOUT = 20  # seconds per tier
+_FT_TIMEOUT = 20  # seconds per individual tier HTTP request (kept for tier functions)
+
+
+def _get_tier_timeout() -> int:
+    """Read pdf_tier_timeout_seconds from settings.yaml; fall back to 12."""
+    try:
+        from src.config.loader import load_configs
+
+        _, s = load_configs(settings_path="config/settings.yaml")
+        return getattr(s.extraction, "pdf_tier_timeout_seconds", 12)
+    except Exception:
+        return 12
+
+
 # ScienceDirect returns non-OA papers as <500 chars -- treat as miss.
 _SD_MIN_CHARS = 500
 # Maximum chars returned from a landing-page HTML resolution.
@@ -1403,6 +1417,55 @@ async def _quick_citation_pdf_url(
 # ---------------------------------------------------------------------------
 
 
+async def _race_first_success(
+    coroutines: list,
+    timeout: float,
+) -> FullTextResult | None:
+    """Race coroutines in parallel; return the first non-None result; cancel the rest.
+
+    Python equivalent of Promise.race for full-text retrieval. Fires all coroutines
+    simultaneously and returns as soon as any one produces a non-None result. All
+    pending coroutines are cancelled immediately on first success or on timeout.
+
+    Args:
+        coroutines: List of awaitable coroutines (already created, not tasks).
+        timeout: Maximum seconds to wait for any success across all coroutines.
+
+    Returns:
+        First FullTextResult that is non-None, or None if all fail or timeout.
+    """
+    if not coroutines:
+        return None
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + timeout
+    tasks: set[asyncio.Task] = {asyncio.create_task(c) for c in coroutines}
+    found: FullTextResult | None = None
+    try:
+        while tasks:
+            remaining = deadline - loop.time()
+            if remaining <= 0:
+                break
+            done, tasks = await asyncio.wait(
+                tasks,
+                timeout=remaining,
+                return_when=asyncio.FIRST_COMPLETED,
+            )
+            for task in done:
+                try:
+                    r = task.result()
+                    if r is not None:
+                        found = r
+                        return found
+                except Exception:
+                    pass
+        return None
+    finally:
+        for t in tasks:
+            t.cancel()
+        if tasks:
+            await asyncio.gather(*tasks, return_exceptions=True)
+
+
 async def fetch_full_text(
     doi: str | None = None,
     url: str | None = None,
@@ -1422,14 +1485,15 @@ async def fetch_full_text(
     use_landing_page: bool = True,
     diagnostics: list[str] | None = None,
 ) -> FullTextResult:
-    """Retrieve full text using a tiered resolver.
+    """Retrieve full text using a tiered resolver with parallel open-access racing.
 
-    Priority:
-      1. Unpaywall -- OA PDFs/text, no auth, ~50% of recent papers
-      2. CORE -- institutional repos (~43M hosted), requires CORE_API_KEY
-      3. ScienceDirect -- Elsevier DOIs only (10.1016, etc.); skip non-Elsevier
-      4. PubMed Central -- NIH-funded OA XML
-      Fallback: abstract
+    Priority groups:
+      Group A (sequential, instant): Publisher-direct URL construction.
+      Group B (parallel race, OA sources): Unpaywall, arXiv, Semantic Scholar,
+          bioRxiv/medRxiv, CORE, OpenAlex Content, EuropePMC, citation_pdf_url.
+          Returns on first success; all others are cancelled immediately.
+      Group C (sequential, auth/slow): ScienceDirect, PMC, Crossref, landing page.
+      Fallback: abstract text.
 
     Args:
         doi: Paper DOI (preferred identifier for all tiers).
@@ -1438,127 +1502,100 @@ async def fetch_full_text(
         scopus_api_key: Elsevier API key. Falls back to SCOPUS_API_KEY env var.
         scopus_insttoken: Institutional token for ScienceDirect PDF. Falls back to
             SCOPUS_INSTTOKEN env var. Contact Elsevier support to request one.
-        use_sciencedirect: Enable tier 2 (ScienceDirect, Elsevier DOIs only).
-        use_unpaywall: Enable tier 1 (Unpaywall).
-        use_pmc: Enable tier 3 (PMC).
+        use_sciencedirect: Enable Group C ScienceDirect (Elsevier DOIs only).
+        use_unpaywall: Enable Group B Unpaywall.
+        use_pmc: Enable Group C PMC.
 
     Returns:
-        FullTextResult with text (and optionally pdf_bytes for Unpaywall/Elsevier PDFs).
+        FullTextResult with text (and optionally pdf_bytes for PDF sources).
     """
     key = scopus_api_key or os.environ.get("SCOPUS_API_KEY", "")
     insttoken = (scopus_insttoken or os.environ.get("SCOPUS_INSTTOKEN", "")).strip() or None
     effective_doi = doi or ""
+    t = _get_tier_timeout()
 
-    # Tier 0: Publisher-direct PDF for known OA publisher URL patterns.
+    # -----------------------------------------------------------------------
+    # Group A: Publisher-direct PDF URL (instant URL construction, no API round-trip).
     # Applies to MDPI, Frontiers, BioMedCentral, SpringerOpen, JMIR, PLoS, PeerJ.
-    # Skips all API round-trips for papers whose landing URL maps to a direct PDF endpoint.
+    # Tried first to avoid wasting a race slot on a trivially fast hit.
+    # -----------------------------------------------------------------------
     if url:
         direct_pdf_url = _publisher_direct_pdf_url(url)
         if direct_pdf_url:
             result = await _fetch_url_direct(direct_pdf_url, diagnostics=diagnostics)
             if result:
                 logger.info(
-                    "fetch_full_text: tier 0 PublisherDirect success for url=%s source=%s",
+                    "fetch_full_text: Group A PublisherDirect success for url=%s source=%s",
                     url[:60],
                     result.source,
                 )
                 return result
 
+    # -----------------------------------------------------------------------
+    # Group B: Race all open-access HTTP sources in parallel.
+    # Returns the first successful result; all pending coroutines are cancelled.
+    # Timeout `t` (pdf_tier_timeout_seconds from settings) caps the entire race.
+    # Parallel racing gives ~t-second total wait instead of n*t worst-case.
+    # -----------------------------------------------------------------------
+    oa_coros: list = []
+
     # Tier 0.5: Generic citation_pdf_url meta extraction from publisher landing page.
     # Covers JoVE, OJS journals, Wiley, Springer, Nature, Sage, Taylor & Francis, and
-    # any publisher using the HighWire/Scholix meta standard -- no per-site hardcoding.
-    # Uses the URL already normalised by Tier 0 (e.g. ScienceDirect /abs stripped).
-    # _fetch_url_direct rejects non-PDF responses, so false positives are impossible.
-    if url:
+    # any publisher using the HighWire/Scholix meta standard.
+    if url and use_landing_page:
         _tier05_url = _publisher_direct_pdf_url(url) or url
-        _cit_pdf = await _quick_citation_pdf_url(_tier05_url, diagnostics=diagnostics)
-        if _cit_pdf:
-            result = await _fetch_url_direct(_cit_pdf, diagnostics=diagnostics)
-            if result:
-                logger.info(
-                    "fetch_full_text: tier 0.5 citation_pdf_url success for url=%s cit=%s",
-                    url[:60],
-                    _cit_pdf[:60],
-                )
-                return result
+
+        async def _tier05_coro(_u: str = _tier05_url) -> FullTextResult | None:
+            _cit_pdf = await _quick_citation_pdf_url(_u, diagnostics=diagnostics)
+            if _cit_pdf:
+                return await _fetch_url_direct(_cit_pdf, diagnostics=diagnostics)
+            return None
+
+        oa_coros.append(_tier05_coro())
 
     # Tier 1: Unpaywall (OA first, no API key, no quota)
     if use_unpaywall and effective_doi:
-        result = await _fetch_unpaywall(effective_doi, diagnostics=diagnostics)
-        if result:
-            logger.info(
-                "fetch_full_text: tier 1 Unpaywall success for doi=%s source=%s",
-                effective_doi,
-                result.source,
-            )
-            return result
+        oa_coros.append(_fetch_unpaywall(effective_doi, diagnostics=diagnostics))
 
-    # Tier 1b: arXiv PDF (for papers from arXiv connector; url must be arxiv.org/abs/...)
+    # Tier 1b: arXiv PDF (for papers from arXiv connector)
     if use_arxiv_pdf and url:
-        result = await _fetch_arxiv(url, diagnostics=diagnostics)
-        if result:
-            logger.info(
-                "fetch_full_text: tier 1b arXiv success for url=%s source=%s",
-                url[:50],
-                result.source,
-            )
-            return result
+        oa_coros.append(_fetch_arxiv(url, diagnostics=diagnostics))
 
     # Tier 2a: Semantic Scholar (openAccessPdf, optional API key)
     if use_semanticscholar and effective_doi:
-        result = await _fetch_semanticscholar(effective_doi, diagnostics=diagnostics)
-        if result:
-            logger.info(
-                "fetch_full_text: tier 2a Semantic Scholar success for doi=%s source=%s",
-                effective_doi,
-                result.source,
-            )
-            return result
+        oa_coros.append(_fetch_semanticscholar(effective_doi, diagnostics=diagnostics))
 
     # Tier 2b: bioRxiv/medRxiv (DOIs 10.1101/...; life sciences preprints)
     if use_biorxiv_medrxiv and effective_doi:
-        result = await _fetch_biorxiv_medrxiv(effective_doi, diagnostics=diagnostics)
-        if result:
-            logger.info(
-                "fetch_full_text: tier 2b bioRxiv/medRxiv success for doi=%s source=%s",
-                effective_doi,
-                result.source,
-            )
-            return result
+        oa_coros.append(_fetch_biorxiv_medrxiv(effective_doi, diagnostics=diagnostics))
 
-    # Tier 2: CORE (institutional repos; helps "no OA location" papers)
-    core_key = os.environ.get("CORE_API_KEY", "").strip()
-    if use_core and core_key and effective_doi:
-        result = await _fetch_core(effective_doi, core_key, diagnostics=diagnostics)
-        if result:
-            logger.info(
-                "fetch_full_text: tier 2 CORE success for doi=%s source=%s",
-                effective_doi,
-                result.source,
-            )
-            return result
+    # Tier 2c: CORE (institutional repos; ~43M hosted; requires CORE_API_KEY)
+    _core_key = os.environ.get("CORE_API_KEY", "").strip()
+    if use_core and _core_key and effective_doi:
+        oa_coros.append(_fetch_core(effective_doi, _core_key, diagnostics=diagnostics))
 
-    # Tier 2c: OpenAlex Content (paid $0.01/file; ~60M OA works; opt-in)
+    # Tier 2d: OpenAlex Content (paid $0.01/file; ~60M OA works; opt-in)
     if use_openalex_content and effective_doi:
-        result = await _fetch_openalex_content(effective_doi, diagnostics=diagnostics)
+        oa_coros.append(_fetch_openalex_content(effective_doi, diagnostics=diagnostics))
+
+    # Tier 2e: Europe PMC (OA subset, no auth)
+    if use_europepmc and (effective_doi or pmid):
+        oa_coros.append(_fetch_europepmc(effective_doi, pmid, diagnostics=diagnostics))
+
+    if oa_coros:
+        result = await _race_first_success(oa_coros, timeout=float(t))
         if result:
             logger.info(
-                "fetch_full_text: tier 2c OpenAlex Content success for doi=%s source=%s",
+                "fetch_full_text: Group B (OA race) success for doi=%s source=%s",
                 effective_doi,
                 result.source,
             )
             return result
 
-    # Tier 2d: Europe PMC (OA subset, no auth)
-    if use_europepmc and (effective_doi or pmid):
-        result = await _fetch_europepmc(effective_doi, pmid, diagnostics=diagnostics)
-        if result:
-            logger.info(
-                "fetch_full_text: tier Europe PMC success for doi=%s source=%s",
-                effective_doi,
-                result.source,
-            )
-            return result
+    # -----------------------------------------------------------------------
+    # Group C: Auth-required or inherently slow sources (sequential).
+    # Only reached when all open-access sources in Group B return nothing.
+    # -----------------------------------------------------------------------
 
     # Tier 3: ScienceDirect (Elsevier DOIs only; skip non-Elsevier to save quota)
     if use_sciencedirect and effective_doi and key:
@@ -1568,12 +1605,12 @@ async def fetch_full_text(
             result = await _fetch_sciencedirect(effective_doi, key, insttoken, diagnostics=diagnostics)
             if result:
                 logger.info(
-                    "fetch_full_text: tier 2 ScienceDirect success for doi=%s",
+                    "fetch_full_text: tier 3 ScienceDirect success for doi=%s",
                     effective_doi,
                 )
                 return result
 
-    # Tier 4: PMC
+    # Tier 4: PMC (NCBI E-utilities; NIH-funded OA papers)
     if use_pmc and (effective_doi or pmid):
         result = await _fetch_pmc(effective_doi, pmid, diagnostics=diagnostics)
         if result:
@@ -1584,7 +1621,7 @@ async def fetch_full_text(
             )
             return result
 
-    # Tier 5: Crossref link discovery (fallback; many paywalled)
+    # Tier 5: Crossref link discovery (fallback; many results are paywalled)
     if use_crossref_links and effective_doi:
         result = await _fetch_crossref_links(effective_doi, diagnostics=diagnostics)
         if result:

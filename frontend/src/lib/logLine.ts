@@ -61,8 +61,10 @@ export function eventToLogLine(ev: ReviewEvent): { text: string; level: LogLevel
     case "phase_done": {
       const s = ev.summary as Record<string, unknown> | null | undefined
       let detail = ""
-      if (s?.included != null && s?.screened != null)
-        detail = `  ${s.included} included of ${s.screened} papers`
+      if (s?.included != null && s?.screened != null) {
+        const kappaStr = s?.kappa != null ? `  kappa=${Number(s.kappa).toFixed(2)}` : ""
+        detail = `  ${s.included} included of ${s.screened} papers${kappaStr}`
+      }
       else if (s?.new_papers != null)
         detail = `  ${Number(s.new_papers) > 0 ? s.new_papers + " new papers found" : "no new papers"}`
       else if (s?.fetched != null)
@@ -78,11 +80,14 @@ export function eventToLogLine(ev: ReviewEvent): { text: string; level: LogLevel
     case "progress":
       return { text: `[${fmtTs(ev.ts)}] PROG   ${ev.phase}: ${ev.current}/${ev.total}`, level: "dim" }
 
-    case "status":
+    case "status": {
+      const msg = ev.message ?? ""
+      const isTimer = msg.includes("done in") || msg.includes("elapsed") || msg.includes("starting (")
       return {
-        text: `[${fmtTs(ev.ts)}] ...    ${ev.message}`,
-        level: "status",
+        text: `[${fmtTs(ev.ts)}] ${isTimer ? "TIMER " : "...   "} ${msg}`,
+        level: isTimer ? "dim" : "status",
       }
+    }
 
     case "screening_calibration": {
       const inc = Math.round(ev.include_threshold * 100)
@@ -93,17 +98,24 @@ export function eventToLogLine(ev: ReviewEvent): { text: string; level: LogLevel
       }
     }
 
-    case "api_call":
+    case "api_call": {
+      const tokStr =
+        ev.tokens_in != null && ev.tokens_in > 0
+          ? ` | ${ev.tokens_in}in/${ev.tokens_out ?? 0}out tok`
+          : ""
       return {
-        text: `[${fmtTs(ev.ts)}] LLM    ${ev.status.toUpperCase().padEnd(7)} ${ev.source} | ${ev.call_type}${ev.model ? " | " + ev.model.split(":").pop() : ""}${ev.section_name ? " | section=" + ev.section_name : ""}${ev.latency_ms != null ? " | " + ev.latency_ms + "ms" : ""}${ev.cost_usd != null && ev.cost_usd > 0 ? " | $" + ev.cost_usd.toFixed(4) : ""}`,
+        text: `[${fmtTs(ev.ts)}] LLM    ${ev.status.toUpperCase().padEnd(7)} ${ev.source} | ${ev.call_type}${ev.model ? " | " + ev.model.split(":").pop() : ""}${ev.section_name ? " | section=" + ev.section_name : ""}${ev.latency_ms != null ? " | " + ev.latency_ms + "ms" : ""}${tokStr}${ev.cost_usd != null && ev.cost_usd > 0 ? " | $" + ev.cost_usd.toFixed(4) : ""}`,
         level: ev.status === "success" ? "dim" : "error",
       }
+    }
 
-    case "connector_result":
+    case "connector_result": {
+      const queryStr = ev.query ? `  |  query: ${ev.query}` : ""
       return {
-        text: `[${fmtTs(ev.ts)}] SEARCH ${ev.status === "success" ? "OK     " : "FAIL   "} ${ev.name}: ${ev.status === "success" ? ev.records + " records" : (ev.error ?? "unknown error")}`,
+        text: `[${fmtTs(ev.ts)}] SEARCH ${ev.status === "success" ? "OK     " : "FAIL   "} ${ev.name}: ${ev.status === "success" ? ev.records + " records" : (ev.error ?? "unknown error")}${queryStr}`,
         level: ev.status === "success" ? "info" : "warn",
       }
+    }
 
     case "screening_decision": {
       const REASON_LABELS: Record<string, string> = {
@@ -127,6 +139,15 @@ export function eventToLogLine(ev: ReviewEvent): { text: string; level: LogLevel
       return {
         text: `[${fmtTs(ev.ts)}] ${verb.padEnd(7)} ${methodBadge}${label}${conf}${reasonText}`,
         level: ev.decision === "include" ? "include" : ev.method === "heuristic" ? "exclude-heuristic" : "exclude",
+      }
+    }
+
+    case "pdf_result": {
+      const tier = ev.source && ev.source !== "abstract" ? ev.source : "no-pdf"
+      const label = ev.title ? ev.title.slice(0, 60) : ev.paper_id?.slice(0, 16) ?? ""
+      return {
+        text: `[${fmtTs(ev.ts)}] PDF    ${ev.success ? "OK  " : "FAIL"}  ${label}  (${tier})`,
+        level: ev.success ? "dim" : "warn",
       }
     }
 

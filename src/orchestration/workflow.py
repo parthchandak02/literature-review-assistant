@@ -1017,6 +1017,7 @@ class ScreeningNode(BaseNode[ReviewState]):
                             intervention=state.review.pico.intervention,
                             outcome=state.review.pico.outcome,
                             client=PydanticAIBatchRankerClient(),
+                            on_status=_on_status,
                         )
                         _batch_forwarded, _batch_excluded_decisions = await _br.rank_and_split(_papers_for_batch)
                         state.batch_screener_model = _batch_agent.model
@@ -1117,6 +1118,10 @@ class ScreeningNode(BaseNode[ReviewState]):
                 if rc:
                     rc.advance_screening("fulltext_pdf_retrieval", done, total)
 
+            def _on_pdf_result(paper_id: str, title: str, source: str, success: bool) -> None:
+                if rc:
+                    rc.log_pdf_result(paper_id, title, source, success)
+
             stage2 = await screener.screen_batch(
                 workflow_id=state.workflow_id,
                 stage="fulltext",
@@ -1125,6 +1130,7 @@ class ScreeningNode(BaseNode[ReviewState]):
                 retriever=PDFRetriever(),
                 coverage_report_path=state.artifacts["coverage_report"],
                 on_pdf_progress=_pdf_progress if rc else None,
+                on_pdf_result=_on_pdf_result if rc else None,
             )
 
             if rc:
@@ -1327,7 +1333,11 @@ class ScreeningNode(BaseNode[ReviewState]):
                 )
             rc.emit_phase_done(
                 "phase_3_screening",
-                {"included": len(state.included_papers), "screened": len(state.deduped_papers)},
+                {
+                    "included": len(state.included_papers),
+                    "screened": len(state.deduped_papers),
+                    "kappa": state.cohens_kappa,
+                },
             )
             if rc.debug:
                 rc.emit_debug_state(
@@ -2353,6 +2363,7 @@ def _trim_abstract_to_limit(abstract: str, limit: int = 230) -> str:
     the grounding block into the abstract text (e.g. "google-gla:gemini-2.5-flash").
     """
     import re as _re
+
     # Remove raw model identifier strings before word counting / trimming.
     # Pattern covers Google Vertex/GenAI model IDs like "google-gla:gemini-2.5-flash-lite-preview"
     # and any variant. Replace with a safe generic term.
@@ -2379,6 +2390,7 @@ def _trim_abstract_to_limit(abstract: str, limit: int = 230) -> str:
     # Identify the field that contributes the most words and trim it.
     # Fields are separated by **Label:** markers in bold.
     import re as _re
+
     field_re = _re.compile(r"(\*\*[A-Za-z ]+:\*\*[^\n]*(?:\n(?!\*\*)[^\n]*)*)", _re.MULTILINE)
     fields = field_re.findall(body)
     if not fields:
@@ -2923,9 +2935,10 @@ class WritingNode(BaseNode[ReviewState]):
                     for sec, res in zip(phase_sections, phase_results):
                         if isinstance(res, BaseException):
                             logger.error(
-                                "Writing task failed for section '%s' (%s: %s). "
-                                "Check API quota for the writing model.",
-                                sec, type(res).__name__, str(res)[:200],
+                                "Writing task failed for section '%s' (%s: %s). Check API quota for the writing model.",
+                                sec,
+                                type(res).__name__,
+                                str(res)[:200],
                             )
                             failed.append(sec)
                         elif isinstance(res, tuple):
@@ -2934,11 +2947,7 @@ class WritingNode(BaseNode[ReviewState]):
 
                 # Phase A: run concurrently
                 _phase_a_results = await asyncio.gather(
-                    *[
-                        _write_one_section(SECTIONS.index(s), s)
-                        for s in _PHASE_A_SECTIONS
-                        if s in SECTIONS
-                    ],
+                    *[_write_one_section(SECTIONS.index(s), s) for s in _PHASE_A_SECTIONS if s in SECTIONS],
                     return_exceptions=True,
                 )
                 _ordered_a, _failed_a = _collect_results(
@@ -2950,9 +2959,7 @@ class WritingNode(BaseNode[ReviewState]):
                 _section_a_cache: dict[str, str] = {}
                 for _, _acontent in _ordered_a:
                     pass  # need to correlate by index
-                for sec, res in zip(
-                    [s for s in _PHASE_A_SECTIONS if s in SECTIONS], _phase_a_results
-                ):
+                for sec, res in zip([s for s in _PHASE_A_SECTIONS if s in SECTIONS], _phase_a_results):
                     if isinstance(res, tuple):
                         _section_a_cache[sec] = res[1]
 
@@ -2964,16 +2971,20 @@ class WritingNode(BaseNode[ReviewState]):
                         return ""
                     _max_chars = 2000 if for_section == "discussion" else 900
                     _rule = (
-                        "PRIOR SECTIONS RULE: The Results section is summarised above. "
-                        "Do NOT re-state or copy these statistics. Instead, interpret them: "
-                        "what does this evidence mean clinically and methodologically? "
-                        "Compare with prior literature and synthesize implications. "
-                        "Build forward -- do not look back."
-                    ) if for_section == "discussion" else (
-                        "PRIOR SECTIONS RULE: A Results summary is provided above for context. "
-                        "The Conclusion must NOT recite these findings again. Instead, provide "
-                        "the high-level 'so what' answer: what does this body of evidence mean "
-                        "for practice and future research? Close with a strong final statement."
+                        (
+                            "PRIOR SECTIONS RULE: The Results section is summarised above. "
+                            "Do NOT re-state or copy these statistics. Instead, interpret them: "
+                            "what does this evidence mean clinically and methodologically? "
+                            "Compare with prior literature and synthesize implications. "
+                            "Build forward -- do not look back."
+                        )
+                        if for_section == "discussion"
+                        else (
+                            "PRIOR SECTIONS RULE: A Results summary is provided above for context. "
+                            "The Conclusion must NOT recite these findings again. Instead, provide "
+                            "the high-level 'so what' answer: what does this body of evidence mean "
+                            "for practice and future research? Close with a strong final statement."
+                        )
                     )
                     return (
                         "---\n"
@@ -2988,9 +2999,7 @@ class WritingNode(BaseNode[ReviewState]):
                 # Phase B: run concurrently with prior context injected
                 _phase_b_results = await asyncio.gather(
                     *[
-                        _write_one_section(
-                            SECTIONS.index(s), s, _build_prior_ctx(s)
-                        )
+                        _write_one_section(SECTIONS.index(s), s, _build_prior_ctx(s))
                         for s in _PHASE_B_SECTIONS
                         if s in SECTIONS
                     ],
@@ -3005,10 +3014,7 @@ class WritingNode(BaseNode[ReviewState]):
                 _ordered = sorted(_ordered_a + _ordered_b, key=lambda t: t[0])
                 _failed_sections = _failed_a + _failed_b
                 sections_written_raw = {idx: content for idx, content in _ordered}
-                sections_written = [
-                    sections_written_raw.get(i, "")
-                    for i in range(len(SECTIONS))
-                ]
+                sections_written = [sections_written_raw.get(i, "") for i in range(len(SECTIONS))]
 
                 # Abstract post-trim: enforce word limit after LLM generation.
                 # The LLM is instructed not to exceed 230 words but routinely writes
@@ -3023,6 +3029,7 @@ class WritingNode(BaseNode[ReviewState]):
                 _abs_idx = SECTIONS.index("abstract") if "abstract" in SECTIONS else -1
                 if _abs_idx >= 0 and sections_written[_abs_idx]:
                     from src.writing.prompts.sections import ABSTRACT_WORD_LIMIT
+
                     _abs_limit = max(ABSTRACT_WORD_LIMIT - 20, 210)
                     _trimmed_abs = _trim_abstract_to_limit(sections_written[_abs_idx], limit=_abs_limit)
                     if _trimmed_abs != sections_written[_abs_idx]:
@@ -3216,21 +3223,15 @@ class WritingNode(BaseNode[ReviewState]):
                     # Build citekey->design map from citation_rows + extraction_records
                     # so the coverage patch groups uncited keys by study design.
                     _pid_to_design_cov: dict[str, str] = {}
-                    for _er in (extraction_records_for_table or []):
+                    for _er in extraction_records_for_table or []:
                         _dv = getattr(_er, "study_design", None)
                         _ds = str(_dv.value if hasattr(_dv, "value") else _dv) if _dv else ""
                         if _ds:
                             _pid_to_design_cov[str(_er.paper_id)] = _ds
                     _citekey_to_design_cov: dict[str, str] = {}
-                    for _crow in (citation_rows or []):
-                        _ckey = (
-                            _crow.get("citekey", "") if isinstance(_crow, dict)
-                            else getattr(_crow, "citekey", "")
-                        )
-                        _cpid = (
-                            _crow.get("paper_id", "") if isinstance(_crow, dict)
-                            else getattr(_crow, "paper_id", "")
-                        )
+                    for _crow in citation_rows or []:
+                        _ckey = _crow.get("citekey", "") if isinstance(_crow, dict) else getattr(_crow, "citekey", "")
+                        _cpid = _crow.get("paper_id", "") if isinstance(_crow, dict) else getattr(_crow, "paper_id", "")
                         if _ckey and _cpid and str(_cpid) in _pid_to_design_cov:
                             _citekey_to_design_cov[str(_ckey)] = _pid_to_design_cov[str(_cpid)]
 

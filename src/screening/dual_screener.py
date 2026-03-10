@@ -366,6 +366,7 @@ class DualReviewerScreener:
         retriever: PDFRetriever | None = None,
         coverage_report_path: str | None = None,
         on_pdf_progress: Callable[[int, int], None] | None = None,
+        on_pdf_result: Callable[[str, str, str, bool], None] | None = None,
     ) -> list[ScreeningDecision]:
         # Clear consumed flag at the start of every new batch so subsequent
         # Ctrl+C events (after a reset) are still honoured.
@@ -375,8 +376,13 @@ class DualReviewerScreener:
             if full_text_by_paper is None:
                 active_retriever = retriever or PDFRetriever()
                 _pdf_concurrency = getattr(self.settings.screening, "pdf_retrieval_concurrency", 8)
+                _pdf_timeout = getattr(self.settings.screening, "pdf_retrieval_per_paper_timeout", 45)
                 retrieval_results, coverage = await active_retriever.retrieve_batch(
-                    papers, on_progress=on_pdf_progress, concurrency=_pdf_concurrency
+                    papers,
+                    on_progress=on_pdf_progress,
+                    concurrency=_pdf_concurrency,
+                    per_paper_timeout=_pdf_timeout,
+                    on_result=on_pdf_result,
                 )
                 full_text_by_paper = {
                     paper_id: result.full_text for paper_id, result in retrieval_results.items() if result.success
@@ -651,10 +657,14 @@ class DualReviewerScreener:
         )
 
         # Confidence fast-path: skip reviewer B when reviewer A is sufficiently certain.
-        # This saves ~40-50% of LLM calls on high-confidence decisions.
-        fast_path = (
-            reviewer_a.confidence >= include_thresh and reviewer_a.decision == ScreeningDecisionType.INCLUDE
-        ) or (reviewer_a.confidence >= exclude_thresh and reviewer_a.decision == ScreeningDecisionType.EXCLUDE)
+        # Applies to title/abstract only -- full-text screening requires dual review
+        # for each study per Cochrane MECIR C39.
+        if stage == "fulltext":
+            fast_path = False
+        else:
+            fast_path = (
+                reviewer_a.confidence >= include_thresh and reviewer_a.decision == ScreeningDecisionType.INCLUDE
+            ) or (reviewer_a.confidence >= exclude_thresh and reviewer_a.decision == ScreeningDecisionType.EXCLUDE)
 
         if fast_path:
             final_decision = reviewer_a
@@ -892,6 +902,18 @@ class DualReviewerScreener:
             cache_read_tokens=cache_read,
             cache_write_tokens=cache_write,
         )
+        if self.on_llm_call:
+            self.on_llm_call(
+                source=spec.agent_name,
+                status="success",
+                phase="phase_3_screening",
+                call_type=f"batch_reviewer_{len(papers)}p",
+                model=runtime.model,
+                latency_ms=elapsed_ms,
+                tokens_in=tokens_in,
+                tokens_out=tokens_out,
+                cost_usd=cost_usd,
+            )
         parsed_map = self._parse_batch_response(raw, papers, spec, stage)
         # Persist decisions + decision log for papers that were parsed.
         for paper in papers:
@@ -1041,13 +1063,18 @@ class DualReviewerScreener:
         reviewer_a_map: dict[str, ScreeningDecision] = {}
         chunks = [llm_candidates[i : i + batch_size] for i in range(0, len(llm_candidates), batch_size)]
         n_chunks = len(chunks)
+        phase_started = time.perf_counter()
         for chunk_idx, chunk in enumerate(chunks):
+            papers_done = len(heuristic_decisions) + chunk_idx * batch_size
             if self.on_status:
-                papers_done = len(heuristic_decisions) + chunk_idx * batch_size
                 self.on_status(
-                    f"Reviewer A: batch {chunk_idx + 1}/{n_chunks} ({papers_done}/{len(papers)} papers reviewed so far)"
+                    f"Reviewer A: batch {chunk_idx + 1}/{n_chunks} starting "
+                    f"({papers_done}/{len(papers)} papers done, "
+                    f"phase elapsed {int(time.perf_counter() - phase_started)}s)"
                 )
+            batch_start = time.perf_counter()
             batch_result = await self._batch_run_reviewer(workflow_id, chunk, stage, ft, spec_a)
+            batch_elapsed_ms = int((time.perf_counter() - batch_start) * 1000)
             reviewer_a_map.update(batch_result)
             # Fallback: any paper missing from the batch response is individually reviewed.
             for paper in chunk:
@@ -1055,6 +1082,13 @@ class DualReviewerScreener:
                     _log.warning("Batch A missing paper %s -- falling back to individual call", paper.paper_id)
                     d = await self._run_reviewer(workflow_id, paper, stage, ft.get(paper.paper_id), spec_a)
                     reviewer_a_map[paper.paper_id] = d
+            papers_done_after = len(heuristic_decisions) + (chunk_idx + 1) * batch_size
+            if self.on_status:
+                self.on_status(
+                    f"Reviewer A: batch {chunk_idx + 1}/{n_chunks} done in {batch_elapsed_ms}ms "
+                    f"({min(papers_done_after, len(papers))}/{len(papers)} papers, "
+                    f"phase elapsed {int(time.perf_counter() - phase_started)}s)"
+                )
 
         # ------------------------------------------------------------------
         # Phase 2: Apply fast-path; collect uncertain papers for Reviewer B
@@ -1064,9 +1098,14 @@ class DualReviewerScreener:
         uncertain_reviewer_a: dict[str, ScreeningDecision] = {}
         for paper in llm_candidates:
             a = reviewer_a_map[paper.paper_id]
-            is_fast = (a.confidence >= include_thresh and a.decision == ScreeningDecisionType.INCLUDE) or (
-                a.confidence >= exclude_thresh and a.decision == ScreeningDecisionType.EXCLUDE
-            )
+            # Fast-path applies to title/abstract only.
+            # Full-text screening requires dual review for all papers (Cochrane MECIR C39).
+            if stage == "fulltext":
+                is_fast = False
+            else:
+                is_fast = (a.confidence >= include_thresh and a.decision == ScreeningDecisionType.INCLUDE) or (
+                    a.confidence >= exclude_thresh and a.decision == ScreeningDecisionType.EXCLUDE
+                )
             if is_fast:
                 fast_path_decisions[paper.paper_id] = a
             else:
@@ -1087,10 +1126,13 @@ class DualReviewerScreener:
             for b_idx, chunk in enumerate(b_chunks):
                 if self.on_status:
                     self.on_status(
-                        f"Reviewer B: batch {b_idx + 1}/{n_b_chunks} "
-                        f"({b_idx * batch_size}/{len(uncertain_papers)} cross-reviewed so far)"
+                        f"Reviewer B: batch {b_idx + 1}/{n_b_chunks} starting "
+                        f"({b_idx * batch_size}/{len(uncertain_papers)} cross-reviewed, "
+                        f"phase elapsed {int(time.perf_counter() - phase_started)}s)"
                     )
+                b_batch_start = time.perf_counter()
                 batch_result = await self._batch_run_reviewer(workflow_id, chunk, stage, ft, spec_b)
+                b_batch_elapsed_ms = int((time.perf_counter() - b_batch_start) * 1000)
                 reviewer_b_map.update(batch_result)
                 for paper in chunk:
                     if paper.paper_id not in reviewer_b_map:
@@ -1104,6 +1146,20 @@ class DualReviewerScreener:
                             other_reviewer_decision=uncertain_reviewer_a[paper.paper_id].decision,
                         )
                         reviewer_b_map[paper.paper_id] = d
+                if self.on_status:
+                    self.on_status(
+                        f"Reviewer B: batch {b_idx + 1}/{n_b_chunks} done in {b_batch_elapsed_ms}ms "
+                        f"({min((b_idx + 1) * batch_size, len(uncertain_papers))}/{len(uncertain_papers)} cross-reviewed, "
+                        f"phase elapsed {int(time.perf_counter() - phase_started)}s)"
+                    )
+        else:
+            if self.on_status and stage != "fulltext":
+                self.on_status(
+                    f"Reviewer B: skipped for title/abstract stage -- all {len(fast_path_decisions)} "
+                    f"papers had high-confidence Reviewer A decisions "
+                    f"(thresholds: include>={round(include_thresh * 100)}%, "
+                    f"exclude>={round(exclude_thresh * 100)}%)"
+                )
 
         # ------------------------------------------------------------------
         # Phase 4: Adjudication, dual_screening_results, callbacks -- all per-paper

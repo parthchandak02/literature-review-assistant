@@ -110,7 +110,6 @@ def _make_extraction(pid: str, design: str, n: int, finding: str) -> SimpleNames
         paper_id=pid,
         study_design=design_ns,
         participant_count=n,
-        key_finding=finding,
         setting="Hospital, USA",
         title="A test title",
         objectives="Test objectives",
@@ -118,7 +117,7 @@ def _make_extraction(pid: str, design: str, n: int, finding: str) -> SimpleNames
         intervention="Treatment X",
         comparison="Control",
         outcomes=[_make_outcome("functional outcome")],
-        results_summary="Results here",
+        results_summary={"summary": finding},
         authors_conclusions="Positive",
         limitations="Small sample",
     )

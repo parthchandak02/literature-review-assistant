@@ -78,6 +78,9 @@ class IEEEXploreConnector:
                     payload = await response.json()
                     for article in payload.get("articles", []):
                         papers.append(self._to_candidate(article))
+                else:
+                    body_snippet = (await response.text())[:300]
+                    raise RuntimeError(f"IEEE Xplore API returned HTTP {response.status}: {body_snippet}")
 
         return SearchResult(
             workflow_id=self.workflow_id,

@@ -166,27 +166,39 @@ async def test_year_as_string_is_parsed(monkeypatch: pytest.MonkeyPatch) -> None
 
 
 # ---------------------------------------------------------------------------
-# Test 5: Non-200 HTTP response returns empty papers list (no exception)
+# Test 5: Non-200 HTTP response raises RuntimeError (visible in Activity log as SEARCH FAIL)
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.asyncio
-async def test_non_200_response_returns_empty(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_non_200_response_raises(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("IEEE_API_KEY", "fake-ieee-key")
     connector = IEEEXploreConnector("wf-test")
+
+    @asynccontextmanager
+    async def _mock_session_with_text(payload: dict, status: int = 403):
+        @asynccontextmanager
+        async def _get(*args, **kwargs):
+            mock_resp = MagicMock()
+            mock_resp.status = status
+            mock_resp.json = AsyncMock(return_value=payload)
+            mock_resp.text = AsyncMock(return_value='{"error": "Forbidden"}')
+            yield mock_resp
+
+        session = MagicMock()
+        session.get = _get
+        yield session
 
     with (
         patch("src.search.ieee_xplore.aiohttp.ClientSession") as mock_cls,
         patch("src.search.ieee_xplore.tcp_connector_with_certifi", return_value=MagicMock()),
     ):
-        async with _mock_session({}, status=403) as mock_session:
+        async with _mock_session_with_text({}, status=403) as mock_session:
             mock_cls.return_value.__aenter__ = AsyncMock(return_value=mock_session)
             mock_cls.return_value.__aexit__ = AsyncMock(return_value=False)
 
-            result = await connector.search("population intervention outcome", max_results=5)
-
-    assert result.records_retrieved == 0
-    assert result.papers == []
+            with pytest.raises(RuntimeError, match="HTTP 403"):
+                await connector.search("population intervention outcome", max_results=5)
 
 
 # ---------------------------------------------------------------------------

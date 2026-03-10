@@ -176,6 +176,12 @@ def log_connector_result(
     logger.info("connector_result", **payload)
 
 
+def log_pdf_result(paper_id: str, title: str, source: str, success: bool) -> None:
+    """Log per-paper PDF retrieval outcome."""
+    logger = structlog.get_logger()
+    logger.info("pdf_result", paper_id=paper_id, title=title, source=source, success=success)
+
+
 # ---------------------------------------------------------------------------
 # JSONL replay helpers
 # ---------------------------------------------------------------------------
@@ -221,6 +227,16 @@ def normalize_jsonl_event(entry: dict[str, Any]) -> dict[str, Any] | None:
             "status": entry.get("status"),
             "records": entry.get("records"),
             "error": entry.get("error"),
+            "ts": ts,
+        }
+
+    if ev == "pdf_result":
+        return {
+            "type": "pdf_result",
+            "paper_id": entry.get("paper_id"),
+            "title": entry.get("title"),
+            "source": entry.get("source"),
+            "success": entry.get("success"),
             "ts": ts,
         }
 

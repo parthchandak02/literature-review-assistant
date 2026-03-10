@@ -649,7 +649,21 @@ class WebRunContext:
                 "name": name,
                 "status": status,
                 "records": records,
+                "query": query,
                 "error": error,
+            }
+        )
+
+    def log_pdf_result(self, paper_id: str, title: str, source: str, success: bool) -> None:
+        """Emit a per-paper PDF retrieval outcome SSE event."""
+        structured_log.log_pdf_result(paper_id=paper_id, title=title, source=source, success=success)
+        self._emit(
+            {
+                "type": "pdf_result",
+                "paper_id": paper_id,
+                "title": title,
+                "source": source,
+                "success": success,
             }
         )
 
