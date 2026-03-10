@@ -353,7 +353,10 @@ def _normalize_subsection_heading_layout(text: str) -> str:
         if m:
             level = m.group(1)
             tail = m.group(2).strip()
-            nxt = lines[i + 1].strip() if i + 1 < len(lines) else ""
+            nxt_idx = i + 1
+            while nxt_idx < len(lines) and not lines[nxt_idx].strip():
+                nxt_idx += 1
+            nxt = lines[nxt_idx].strip() if nxt_idx < len(lines) else ""
             tail_words = tail.split()
             if nxt and not nxt.startswith("#"):
                 if tail_words and tail_words[-1].lower() in _connector_tail:
@@ -372,16 +375,16 @@ def _normalize_subsection_heading_layout(text: str) -> str:
                         line = f"{level} {tail} {title_join}".strip()
                         if body_rest:
                             out_lines.extend([line, "", body_rest])
-                            i += 2
+                            i = nxt_idx + 1
                             continue
                         out_lines.append(line)
-                        i += 2
+                        i = nxt_idx + 1
                         continue
                 if (tail_words and tail_words[-1].lower() in _connector_tail and _looks_title_fragment(nxt)) or (
                     len(tail_words) <= 3 and _looks_title_fragment(nxt) and not _sentence_start_re.match(nxt)
                 ):
                     line = f"{level} {tail} {nxt}".strip()
-                    i += 1
+                    i = nxt_idx + 1
 
             words = line.strip().split()
             split_applied = False
@@ -393,11 +396,29 @@ def _normalize_subsection_heading_layout(text: str) -> str:
                     if not left_ok:
                         continue
                     right_lower = right.lower()
-                    if _sentence_start_re.match(right) or (
-                        right_lower.startswith(
-                            ("for ", "in ", "across ", "to ", "from ", "with ", "is ", "are ", "was ", "were ", "followed ", "defined ", "developed ")
+                    if (
+                        _sentence_start_re.match(right)
+                        or (
+                            right_lower.startswith(
+                                (
+                                    "for ",
+                                    "in ",
+                                    "across ",
+                                    "to ",
+                                    "from ",
+                                    "with ",
+                                    "is ",
+                                    "are ",
+                                    "was ",
+                                    "were ",
+                                    "followed ",
+                                    "defined ",
+                                    "developed ",
+                                )
+                            )
                         )
-                    ) or (right and right[0].isupper() and any(c in right for c in ".,")):
+                        or (right and right[0].isupper() and any(c in right for c in ".,"))
+                    ):
                         out_lines.extend([f"{words[0]} {' '.join(left_words)}", "", right])
                         split_applied = True
                         break
@@ -487,6 +508,7 @@ def convert_to_numbered_citations(
     Perez-Encinas) are normalized to ASCII before catalog lookup so they resolve
     correctly regardless of how they appear in the manuscript text.
     """
+
     def _canonical_key(raw: str) -> str:
         # Forgiving key for matching legacy variants (spaces/punctuation/accents).
         return re.sub(r"[^A-Za-z0-9]", "", _ascii_citekey(raw)).lower()
