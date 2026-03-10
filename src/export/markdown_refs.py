@@ -279,6 +279,8 @@ def _sanitize_body(text: str) -> str:
     text = re.sub(r"\[\s*Paper_[A-Za-z0-9_\-]+\s*\]", "", text)
     text = text.replace(" ,", ",")
     text = text.replace(" .", ".")
+    text = re.sub(r"\bCohen s kappa\b", "Cohen's kappa", text, flags=re.IGNORECASE)
+    text = re.sub(r"\bclinicaltrials gov\b", "clinicaltrials.gov", text, flags=re.IGNORECASE)
     text = re.sub(r"[ \t]{2,}", " ", text)
     text = re.sub(r"\[\s*,\s*\]", "", text)
 
@@ -295,6 +297,117 @@ def _sanitize_body(text: str) -> str:
             continue
         clean.append(line)
     return "\n".join(clean)
+
+
+def _strip_compact_study_tables(text: str) -> str:
+    """Remove previously injected compact Study Characteristics tables."""
+    _compact_block_re = re.compile(
+        r"\| Study \(Year\) \| Country \| Design \| N \| Key Finding \|\n"
+        r"\|---\|---\|---\|---\|---\|\n"
+        r"(?:\|.*\|\n)+"
+        r"\n?_Table 1\. Summary of .*?included studies.*?_",
+        re.DOTALL,
+    )
+    return _compact_block_re.sub("", text)
+
+
+def _strip_section_block_markers(text: str) -> str:
+    """Remove deterministic writing boundary markers from export-facing markdown."""
+    text = re.sub(r"(?m)^\s*<!--\s*SECTION_BLOCK:[^>]+-->\s*\n?", "", text)
+    return re.sub(r"\s*<!--\s*SECTION_BLOCK:[^>]+-->\s*", "\n\n", text)
+
+
+def _normalize_subsection_heading_layout(text: str) -> str:
+    """Split inline subsection heading+body into canonical multiline markdown.
+
+    wf-0009 showed patterns like:
+      "### Information Sources The systematic search was conducted ..."
+    which should be:
+      "### Information Sources"
+      ""
+      "The systematic search was conducted ..."
+
+    This transform is deterministic and idempotent.
+    """
+    # Some legacy runs collapse multiple markdown headings into a single line.
+    # Insert hard line breaks before each heading marker first.
+    text = re.sub(r"\s+(#{3,4}\s+)", r"\n\n\1", text)
+
+    _heading_re = re.compile(r"^(#{3,6})\s+(.+)$")
+    _sentence_start_re = re.compile(r"^(The|This|These|We|Our|In|Across|To|A|An|Studies|Study|Data)\b")
+    _title_token_re = re.compile(r"^[A-Z][A-Za-z0-9()/:,\-']*$")
+    _connector_tail = {"and", "or", "of", "for", "to", "with"}
+
+    def _looks_title_fragment(s: str) -> bool:
+        words = s.strip().split()
+        if not words or len(words) > 5:
+            return False
+        return all(_title_token_re.match(w) or w.lower() in _connector_tail for w in words)
+
+    out_lines: list[str] = []
+    lines = text.splitlines()
+    i = 0
+    while i < len(lines):
+        line = lines[i]
+        m = _heading_re.match(line.strip())
+        if m:
+            level = m.group(1)
+            tail = m.group(2).strip()
+            nxt = lines[i + 1].strip() if i + 1 < len(lines) else ""
+            tail_words = tail.split()
+            if nxt and not nxt.startswith("#"):
+                if tail_words and tail_words[-1].lower() in _connector_tail:
+                    nxt_words = nxt.split()
+                    consumed = 0
+                    for j, w in enumerate(nxt_words):
+                        if _title_token_re.match(w):
+                            consumed = j + 1
+                            if consumed >= 4:
+                                break
+                            continue
+                        break
+                    if consumed > 0:
+                        title_join = " ".join(nxt_words[:consumed]).strip()
+                        body_rest = " ".join(nxt_words[consumed:]).strip()
+                        line = f"{level} {tail} {title_join}".strip()
+                        if body_rest:
+                            out_lines.extend([line, "", body_rest])
+                            i += 2
+                            continue
+                        out_lines.append(line)
+                        i += 2
+                        continue
+                if (tail_words and tail_words[-1].lower() in _connector_tail and _looks_title_fragment(nxt)) or (
+                    len(tail_words) <= 3 and _looks_title_fragment(nxt) and not _sentence_start_re.match(nxt)
+                ):
+                    line = f"{level} {tail} {nxt}".strip()
+                    i += 1
+
+            words = line.strip().split()
+            split_applied = False
+            if len(words) >= 4 and words[0].startswith("#"):
+                for idx in range(3, min(len(words), 12)):
+                    left_words = words[1:idx]
+                    right = " ".join(words[idx:]).strip()
+                    left_ok = all(_title_token_re.match(w) or w.lower() in _connector_tail for w in left_words)
+                    if not left_ok:
+                        continue
+                    right_lower = right.lower()
+                    if _sentence_start_re.match(right) or (
+                        right_lower.startswith(
+                            ("for ", "in ", "across ", "to ", "from ", "with ", "is ", "are ", "was ", "were ", "followed ", "defined ", "developed ")
+                        )
+                    ) or (right and right[0].isupper() and any(c in right for c in ".,")):
+                        out_lines.extend([f"{words[0]} {' '.join(left_words)}", "", right])
+                        split_applied = True
+                        break
+            if not split_applied:
+                out_lines.append(line)
+        else:
+            out_lines.append(line)
+        i += 1
+
+    return "\n".join(out_lines)
 
 
 # SR citekeys follow the pattern SurnameYYYYSR[N] (background systematic review
@@ -1434,7 +1547,9 @@ def assemble_submission_manuscript(
     title and the abstract body. Defaults to False (omit for IEEE submissions where
     this non-standard prefix would appear before the structured abstract).
     """
-    clean_body = _sanitize_body(body)
+    clean_body = _strip_compact_study_tables(
+        _sanitize_body(_strip_section_block_markers(_normalize_subsection_heading_layout(body)))
+    )
 
     # Normalize date range in Methods section to the authoritative protocol values
     # before citation conversion so the Methods text is consistent with PICOS table.
@@ -1458,6 +1573,15 @@ def assemble_submission_manuscript(
 
     # Prepend title and research question block when provided
     header_block = ""
+    # Deduplicate repeated leading H1 title lines from legacy reruns.
+    _lines = numbered_body.splitlines()
+    if _lines and _lines[0].startswith("# "):
+        _title_line = _lines[0]
+        _idx = 1
+        while _idx < len(_lines) and (_lines[_idx].strip() == "" or _lines[_idx] == _title_line):
+            _idx += 1
+        numbered_body = "\n".join([_title_line, ""] + _lines[_idx:]).lstrip("\n")
+
     if research_question or title:
         # Strip any existing title block to avoid duplication when re-running finalize
         _title_block_re = re.compile(

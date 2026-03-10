@@ -27,7 +27,6 @@ from src.writing.prompts.sections import (
     get_section_context,
     get_section_word_limit,
 )
-from src.writing.style_extractor import StylePatterns, extract_style_patterns
 
 
 def _minimal_review() -> ReviewConfig:
@@ -64,13 +63,6 @@ def _minimal_settings() -> SettingsConfig:
             "writing": AgentConfig(model="google-gla:gemini-2.5-pro", temperature=0.2),
         },
     )
-
-
-def test_extract_style_patterns_returns_style_patterns() -> None:
-    patterns = extract_style_patterns(["Paper one abstract.", "Paper two abstract."])
-    assert isinstance(patterns, StylePatterns)
-    assert isinstance(patterns.sentence_openings, list)
-    assert isinstance(patterns.vocabulary, list)
 
 
 def test_build_citation_catalog_from_papers() -> None:

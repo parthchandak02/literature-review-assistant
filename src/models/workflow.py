@@ -21,6 +21,7 @@ class GateResult(BaseModel):
 
 
 class DecisionLogEntry(BaseModel):
+    workflow_id: str = ""
     decision_type: str
     paper_id: str | None = None
     decision: str

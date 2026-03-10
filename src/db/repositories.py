@@ -5,6 +5,8 @@ from __future__ import annotations
 import json
 import logging
 import sqlite3
+from hashlib import sha256
+import re
 from typing import Any
 
 import aiosqlite
@@ -20,6 +22,11 @@ from src.models import (
     ExtractionRecord,
     GateResult,
     GRADEOutcomeAssessment,
+    ManuscriptAssembly,
+    ManuscriptAsset,
+    ManuscriptBlock,
+    ManuscriptSection,
+    RagRetrievalDiagnostic,
     RoB2Assessment,
     RobinsIAssessment,
     ScreeningDecision,
@@ -33,6 +40,9 @@ from src.synthesis.feasibility import SynthesisFeasibility
 from src.synthesis.narrative import NarrativeSynthesis
 
 _logger = logging.getLogger(__name__)
+_HEADING_RE = re.compile(r"^(#{2,6})\s+(.+)$")
+_MARKER_RE = re.compile(r"^<!--\s*SECTION_BLOCK:([a-zA-Z0-9_.-]+)\s*-->$")
+_CITE_RE = re.compile(r"\[(\d+|[A-Za-z][A-Za-z0-9_:-]*)\]")
 
 
 def _row_to_candidate_paper(row: tuple[Any, ...]) -> CandidatePaper:
@@ -332,7 +342,7 @@ class WorkflowRepository:
         cursor = await self.db.execute(
             """
             SELECT rationale FROM decision_log
-            WHERE workflow_id = ? AND decision_type = 'search_connector_error'
+            WHERE decision_type = 'search_connector_error' AND workflow_id = ?
             """,
             (workflow_id,),
         )
@@ -597,6 +607,404 @@ class WorkflowRepository:
         )
         await self.db.commit()
 
+    def _to_manuscript_blocks(
+        self,
+        workflow_id: str,
+        section_key: str,
+        section_version: int,
+        content: str,
+    ) -> list[ManuscriptBlock]:
+        """Parse section text into generic ordered blocks.
+
+        Deterministic parser:
+        1) explicit SECTION_BLOCK markers (highest priority),
+        2) markdown heading boundaries,
+        3) paragraph fallback.
+        """
+        blocks: list[ManuscriptBlock] = []
+        order = 0
+        lines = content.splitlines()
+        para_buf: list[str] = []
+
+        def _flush_para() -> None:
+            nonlocal order, para_buf
+            text = "\n".join(x for x in para_buf if x.strip()).strip()
+            para_buf = []
+            if not text:
+                return
+            blocks.append(
+                ManuscriptBlock(
+                    workflow_id=workflow_id,
+                    section_key=section_key,
+                    section_version=section_version,
+                    block_order=order,
+                    block_type="paragraph",
+                    text=text,
+                )
+            )
+            order += 1
+
+        for raw in lines:
+            line = raw.rstrip()
+            if _MARKER_RE.match(line.strip()):
+                _flush_para()
+                blocks.append(
+                    ManuscriptBlock(
+                        workflow_id=workflow_id,
+                        section_key=section_key,
+                        section_version=section_version,
+                        block_order=order,
+                        block_type="marker",
+                        text=line.strip(),
+                    )
+                )
+                order += 1
+                continue
+            hm = _HEADING_RE.match(line.strip())
+            if hm:
+                _flush_para()
+                blocks.append(
+                    ManuscriptBlock(
+                        workflow_id=workflow_id,
+                        section_key=section_key,
+                        section_version=section_version,
+                        block_order=order,
+                        block_type="heading",
+                        text=line.strip(),
+                        meta_json=json.dumps({"level": len(hm.group(1)), "title": hm.group(2).strip()}),
+                    )
+                )
+                order += 1
+                continue
+            if not line.strip():
+                _flush_para()
+                continue
+            para_buf.append(line)
+        _flush_para()
+        if not blocks:
+            blocks.append(
+                ManuscriptBlock(
+                    workflow_id=workflow_id,
+                    section_key=section_key,
+                    section_version=section_version,
+                    block_order=0,
+                    block_type="paragraph",
+                    text=content.strip(),
+                )
+            )
+        return blocks
+
+    async def save_manuscript_section_from_draft(self, draft: SectionDraft, section_order: int) -> None:
+        """Dual-write section draft into DB-first manuscript section/block tables."""
+        section = ManuscriptSection(
+            workflow_id=draft.workflow_id,
+            section_key=draft.section,
+            section_order=section_order,
+            version=draft.version,
+            title=draft.section.replace("_", " ").title(),
+            source="parser",
+            boundary_confidence=1.0,
+            content_hash=sha256(draft.content.encode("utf-8")).hexdigest(),
+            content=draft.content,
+        )
+        blocks = self._to_manuscript_blocks(
+            workflow_id=draft.workflow_id,
+            section_key=draft.section,
+            section_version=draft.version,
+            content=draft.content,
+        )
+        await self.db.execute(
+            """
+            INSERT INTO manuscript_sections
+                (workflow_id, section_key, section_order, version, title, status, source,
+                 boundary_confidence, content_hash, content)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(workflow_id, section_key, version) DO UPDATE SET
+                section_order = excluded.section_order,
+                title = excluded.title,
+                status = excluded.status,
+                source = excluded.source,
+                boundary_confidence = excluded.boundary_confidence,
+                content_hash = excluded.content_hash,
+                content = excluded.content,
+                updated_at = CURRENT_TIMESTAMP
+            """,
+            (
+                section.workflow_id,
+                section.section_key,
+                section.section_order,
+                section.version,
+                section.title,
+                section.status,
+                section.source,
+                section.boundary_confidence,
+                section.content_hash,
+                section.content,
+            ),
+        )
+        await self.db.execute(
+            """
+            DELETE FROM manuscript_blocks
+            WHERE workflow_id = ? AND section_key = ? AND section_version = ?
+            """,
+            (draft.workflow_id, draft.section, draft.version),
+        )
+        await self.db.executemany(
+            """
+            INSERT INTO manuscript_blocks
+                (workflow_id, section_key, section_version, block_order, block_type, text, meta_json)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            [
+                (
+                    b.workflow_id,
+                    b.section_key,
+                    b.section_version,
+                    b.block_order,
+                    b.block_type,
+                    b.text,
+                    b.meta_json,
+                )
+                for b in blocks
+            ],
+        )
+        await self.db.commit()
+
+    async def load_latest_manuscript_sections(self, workflow_id: str) -> list[ManuscriptSection]:
+        cursor = await self.db.execute(
+            """
+            SELECT s.workflow_id, s.section_key, s.section_order, s.version, s.title, s.status,
+                   s.source, s.boundary_confidence, s.content_hash, s.content
+            FROM manuscript_sections s
+            JOIN (
+                SELECT workflow_id, section_key, MAX(version) AS max_version
+                FROM manuscript_sections
+                WHERE workflow_id = ?
+                GROUP BY workflow_id, section_key
+            ) lv
+              ON s.workflow_id = lv.workflow_id
+             AND s.section_key = lv.section_key
+             AND s.version = lv.max_version
+            WHERE s.workflow_id = ?
+            ORDER BY s.section_order ASC
+            """,
+            (workflow_id, workflow_id),
+        )
+        rows = await cursor.fetchall()
+        out: list[ManuscriptSection] = []
+        for row in rows:
+            out.append(
+                ManuscriptSection(
+                    workflow_id=str(row[0]),
+                    section_key=str(row[1]),
+                    section_order=int(row[2]),
+                    version=int(row[3]),
+                    title=str(row[4]),
+                    status=str(row[5]),
+                    source=str(row[6]),
+                    boundary_confidence=float(row[7]),
+                    content_hash=str(row[8]),
+                    content=str(row[9]),
+                )
+            )
+        return out
+
+    async def load_latest_manuscript_assembly(self, workflow_id: str, target_format: str) -> ManuscriptAssembly | None:
+        cursor = await self.db.execute(
+            """
+            SELECT workflow_id, assembly_id, target_format, content, manifest_json
+            FROM manuscript_assemblies
+            WHERE workflow_id = ? AND target_format = ?
+            ORDER BY created_at DESC
+            LIMIT 1
+            """,
+            (workflow_id, target_format),
+        )
+        row = await cursor.fetchone()
+        if not row:
+            return None
+        return ManuscriptAssembly(
+            workflow_id=str(row[0]),
+            assembly_id=str(row[1]),
+            target_format=str(row[2]),
+            content=str(row[3]),
+            manifest_json=str(row[4]),
+        )
+
+    async def save_manuscript_asset(self, asset: ManuscriptAsset) -> None:
+        await self.db.execute(
+            """
+            INSERT INTO manuscript_assets
+                (workflow_id, asset_key, asset_type, format, content, source_path, version)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(workflow_id, asset_key, version) DO UPDATE SET
+                asset_type = excluded.asset_type,
+                format = excluded.format,
+                content = excluded.content,
+                source_path = excluded.source_path
+            """,
+            (
+                asset.workflow_id,
+                asset.asset_key,
+                asset.asset_type,
+                asset.format,
+                asset.content,
+                asset.source_path,
+                asset.version,
+            ),
+        )
+        await self.db.commit()
+
+    async def load_latest_manuscript_asset(self, workflow_id: str, asset_key: str) -> ManuscriptAsset | None:
+        cursor = await self.db.execute(
+            """
+            SELECT workflow_id, asset_key, asset_type, format, content, source_path, version
+            FROM manuscript_assets
+            WHERE workflow_id = ? AND asset_key = ?
+            ORDER BY version DESC
+            LIMIT 1
+            """,
+            (workflow_id, asset_key),
+        )
+        row = await cursor.fetchone()
+        if not row:
+            return None
+        return ManuscriptAsset(
+            workflow_id=str(row[0]),
+            asset_key=str(row[1]),
+            asset_type=str(row[2]),
+            format=str(row[3]),
+            content=str(row[4]),
+            source_path=str(row[5]) if row[5] is not None else None,
+            version=int(row[6]),
+        )
+
+    async def _validate_assembly_manifest(self, workflow_id: str, manifest_json: str) -> None:
+        try:
+            manifest = json.loads(manifest_json or "{}")
+        except Exception as exc:
+            raise RuntimeError("Invalid manuscript assembly manifest JSON") from exc
+        sections = manifest.get("sections", [])
+        if sections:
+            declared_orders = [int(s.get("order", i)) for i, s in enumerate(sections)]
+            if sorted(declared_orders) != list(range(min(declared_orders), min(declared_orders) + len(declared_orders))):
+                raise RuntimeError("Assembly manifest section order is not contiguous")
+            for s in sections:
+                key = str(s.get("section_key", ""))
+                ver = int(s.get("version", 0))
+                if not key or ver <= 0:
+                    raise RuntimeError("Assembly manifest section reference is invalid")
+                cur = await self.db.execute(
+                    """
+                    SELECT 1 FROM manuscript_sections
+                    WHERE workflow_id = ? AND section_key = ? AND version = ?
+                    LIMIT 1
+                    """,
+                    (workflow_id, key, ver),
+                )
+                row = await cur.fetchone()
+                if row is None:
+                    raise RuntimeError(f"Assembly manifest references missing section: {key}@v{ver}")
+        assets = manifest.get("assets", [])
+        for a in assets:
+            key = str(a.get("asset_key", ""))
+            ver = int(a.get("version", 0))
+            if not key or ver <= 0:
+                raise RuntimeError("Assembly manifest asset reference is invalid")
+            cur = await self.db.execute(
+                """
+                SELECT 1 FROM manuscript_assets
+                WHERE workflow_id = ? AND asset_key = ? AND version = ?
+                LIMIT 1
+                """,
+                (workflow_id, key, ver),
+            )
+            row = await cur.fetchone()
+            if row is None:
+                raise RuntimeError(f"Assembly manifest references missing asset: {key}@v{ver}")
+
+    async def save_manuscript_assembly(self, assembly: ManuscriptAssembly) -> None:
+        if assembly.target_format not in {"md", "tex"}:
+            raise RuntimeError(f"Unsupported manuscript assembly format: {assembly.target_format}")
+        await self._validate_assembly_manifest(assembly.workflow_id, assembly.manifest_json)
+        await self.db.execute(
+            """
+            INSERT INTO manuscript_assemblies
+                (workflow_id, assembly_id, target_format, content, manifest_json)
+            VALUES (?, ?, ?, ?, ?)
+            ON CONFLICT(workflow_id, assembly_id, target_format) DO UPDATE SET
+                content = excluded.content,
+                manifest_json = excluded.manifest_json
+            """,
+            (
+                assembly.workflow_id,
+                assembly.assembly_id,
+                assembly.target_format,
+                assembly.content,
+                assembly.manifest_json,
+            ),
+        )
+        await self.db.commit()
+
+    async def backfill_manuscript_sections_from_drafts(self, workflow_id: str) -> int:
+        """Backfill DB-first section tables from latest section_drafts rows."""
+        cursor = await self.db.execute(
+            """
+            SELECT sd.workflow_id, sd.section, sd.version, sd.content, sd.word_count
+            FROM section_drafts sd
+            JOIN (
+                SELECT workflow_id, section, MAX(version) AS max_version
+                FROM section_drafts
+                WHERE workflow_id = ?
+                GROUP BY workflow_id, section
+            ) latest
+              ON sd.workflow_id = latest.workflow_id
+             AND sd.section = latest.section
+             AND sd.version = latest.max_version
+            WHERE sd.workflow_id = ?
+            ORDER BY sd.section
+            """,
+            (workflow_id, workflow_id),
+        )
+        rows = await cursor.fetchall()
+        if not rows:
+            return 0
+        count = 0
+        for order, row in enumerate(rows):
+            draft = SectionDraft(
+                workflow_id=str(row[0]),
+                section=str(row[1]),
+                version=int(row[2]),
+                content=str(row[3]),
+                claims_used=[],
+                citations_used=[],
+                word_count=int(row[4]) if row[4] is not None else len(str(row[3]).split()),
+            )
+            await self.save_manuscript_section_from_draft(draft, section_order=order)
+            count += 1
+        return count
+
+    async def validate_manuscript_md_parity(self, workflow_id: str, legacy_md: str) -> dict[str, Any]:
+        """Compare legacy markdown and latest DB markdown assembly for migration safety."""
+        assembly = await self.load_latest_manuscript_assembly(workflow_id, "md")
+        if assembly is None:
+            return {"has_assembly": False, "hash_match": False, "citation_set_match": False, "section_count_match": False}
+
+        legacy_hash = sha256(legacy_md.encode("utf-8")).hexdigest()
+        assembly_hash = sha256(assembly.content.encode("utf-8")).hexdigest()
+        legacy_cites = sorted(set(_CITE_RE.findall(legacy_md)))
+        assembly_cites = sorted(set(_CITE_RE.findall(assembly.content)))
+        legacy_sections = len(re.findall(r"^##\s+", legacy_md, flags=re.MULTILINE))
+        assembly_sections = len(re.findall(r"^##\s+", assembly.content, flags=re.MULTILINE))
+        return {
+            "has_assembly": True,
+            "hash_match": legacy_hash == assembly_hash,
+            "citation_set_match": legacy_cites == assembly_cites,
+            "section_count_match": legacy_sections == assembly_sections,
+            "legacy_hash": legacy_hash,
+            "assembly_hash": assembly_hash,
+        }
+
     async def delete_section_drafts(self, workflow_id: str, sections: set[str] | None = None) -> int:
         """Delete saved section drafts for a workflow.
 
@@ -694,10 +1102,11 @@ class WorkflowRepository:
     async def append_decision_log(self, entry: DecisionLogEntry) -> None:
         await self.db.execute(
             """
-            INSERT INTO decision_log (decision_type, paper_id, decision, rationale, actor, phase)
-            VALUES (?, ?, ?, ?, ?, ?)
+            INSERT INTO decision_log (workflow_id, decision_type, paper_id, decision, rationale, actor, phase)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
             """,
             (
+                entry.workflow_id,
                 entry.decision_type,
                 entry.paper_id,
                 entry.decision,
@@ -712,11 +1121,12 @@ class WorkflowRepository:
         await self.db.execute(
             """
             INSERT INTO cost_records
-                (model, tokens_in, tokens_out, cost_usd, latency_ms, phase,
+                (workflow_id, model, tokens_in, tokens_out, cost_usd, latency_ms, phase,
                  cache_read_tokens, cache_write_tokens)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
+                record.workflow_id,
                 record.model,
                 record.tokens_in,
                 record.tokens_out,
@@ -729,6 +1139,65 @@ class WorkflowRepository:
         )
         await self.db.commit()
 
+    async def save_rag_retrieval_diagnostic(self, record: RagRetrievalDiagnostic) -> None:
+        """Persist per-section RAG retrieval diagnostics for auditability."""
+        await self.db.execute(
+            """
+            INSERT INTO rag_retrieval_diagnostics (
+                workflow_id, section, query_type, rerank_enabled, candidate_k, final_k,
+                retrieved_count, status, selected_chunks_json, error_message, latency_ms
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                record.workflow_id,
+                record.section,
+                record.query_type,
+                1 if record.rerank_enabled else 0,
+                record.candidate_k,
+                record.final_k,
+                record.retrieved_count,
+                record.status,
+                record.selected_chunks_json,
+                record.error_message,
+                record.latency_ms,
+            ),
+        )
+        await self.db.commit()
+
+    async def get_rag_retrieval_diagnostics(self, workflow_id: str) -> list[dict[str, Any]]:
+        """Load per-section RAG diagnostics ordered by creation time."""
+        cursor = await self.db.execute(
+            """
+            SELECT section, query_type, rerank_enabled, candidate_k, final_k,
+                   retrieved_count, status, selected_chunks_json, error_message,
+                   latency_ms, created_at
+            FROM rag_retrieval_diagnostics
+            WHERE workflow_id = ?
+            ORDER BY created_at ASC
+            """,
+            (workflow_id,),
+        )
+        rows = await cursor.fetchall()
+        out: list[dict[str, Any]] = []
+        for row in rows:
+            out.append(
+                {
+                    "section": str(row[0]),
+                    "query_type": str(row[1]),
+                    "rerank_enabled": bool(row[2]),
+                    "candidate_k": int(row[3]),
+                    "final_k": int(row[4]),
+                    "retrieved_count": int(row[5]),
+                    "status": str(row[6]),
+                    "selected_chunks_json": str(row[7] or "[]"),
+                    "error_message": str(row[8]) if row[8] else None,
+                    "latency_ms": int(row[9]) if row[9] is not None else None,
+                    "created_at": str(row[10]),
+                }
+            )
+        return out
+
     async def get_total_cost(self) -> float:
         cursor = await self.db.execute("SELECT COALESCE(SUM(cost_usd), 0.0) FROM cost_records")
         row = await cursor.fetchone()
@@ -737,16 +1206,18 @@ class WorkflowRepository:
     async def save_extraction_record(self, workflow_id: str, record: ExtractionRecord) -> None:
         await self.db.execute(
             """
-            INSERT INTO extraction_records (workflow_id, paper_id, study_design, data)
-            VALUES (?, ?, ?, ?)
+            INSERT INTO extraction_records (workflow_id, paper_id, study_design, extraction_source, data)
+            VALUES (?, ?, ?, ?, ?)
             ON CONFLICT(workflow_id, paper_id) DO UPDATE SET
                 study_design = excluded.study_design,
+                extraction_source = excluded.extraction_source,
                 data = excluded.data
             """,
             (
                 workflow_id,
                 record.paper_id,
                 record.study_design.value,
+                (record.extraction_source or "text"),
                 record.model_dump_json(),
             ),
         )
@@ -1282,15 +1753,17 @@ class CitationRepository:
 
         Excludes methodology references (Page2021, Cohen1960, etc.) and background
         SR citations so callers can enforce citation coverage only over actual
-        included studies. Falls back to all citekeys for older DBs that predate
-        the source_type column migration.
+        included studies. For pre-migration DBs that truly lack source_type,
+        falls back to all citekeys.
         """
         try:
             cursor = await self.db.execute(
                 "SELECT citekey FROM citations WHERE source_type = 'included' ORDER BY citekey"
             )
-        except Exception:
-            # source_type column absent on old DB -- return all citekeys as fallback
+        except aiosqlite.OperationalError as exc:
+            # Only keep fallback behavior for the expected legacy schema gap.
+            if "no such column: source_type" not in str(exc).lower():
+                raise
             cursor = await self.db.execute("SELECT citekey FROM citations ORDER BY citekey")
         rows = await cursor.fetchall()
         return [str(row[0]) for row in rows]

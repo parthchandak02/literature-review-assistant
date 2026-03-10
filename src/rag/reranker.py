@@ -72,6 +72,7 @@ async def rerank_chunks(
     top_k: int = 8,
     model: str = _DEFAULT_MODEL,
     repository: WorkflowRepository | None = None,
+    workflow_id: str = "",
 ) -> list[RetrievedChunk]:
     """Rerank chunks by relevance using Gemini listwise ranking.
 
@@ -145,6 +146,7 @@ async def rerank_chunks(
             cost_usd = LLMProvider.estimate_cost_usd(model, tokens_in, tokens_out)
             await repository.save_cost_record(
                 CostRecord(
+                    workflow_id=workflow_id,
                     model=model,
                     tokens_in=tokens_in,
                     tokens_out=tokens_out,

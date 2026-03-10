@@ -366,7 +366,7 @@ class DualReviewerScreener:
         retriever: PDFRetriever | None = None,
         coverage_report_path: str | None = None,
         on_pdf_progress: Callable[[int, int], None] | None = None,
-        on_pdf_result: Callable[[str, str, str, bool], None] | None = None,
+        on_pdf_result: Callable[[str, str, str, bool, str | None], None] | None = None,
     ) -> list[ScreeningDecision]:
         # Clear consumed flag at the start of every new batch so subsequent
         # Ctrl+C events (after a reset) are still honoured.

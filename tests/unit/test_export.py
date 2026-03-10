@@ -79,6 +79,40 @@ def test_markdown_to_latex_extracts_structured_abstract_from_background_block() 
     assert "Background" in out
 
 
+def test_markdown_to_latex_splits_inline_h3_heading_body() -> None:
+    md = (
+        "# Title\n\n"
+        "**Background:** Background.\n"
+        "**Objectives:** Objective.\n"
+        "**Methods:** Methods.\n"
+        "**Results:** Results.\n"
+        "**Conclusion:** Conclusion.\n"
+        "**Keywords:** a, b\n\n"
+        "## Methods\n\n"
+        "### Information Sources The systematic search was conducted in 2026.\n"
+    )
+    out = markdown_to_latex(md, citekeys=set())
+    assert "\\subsection{Information Sources}" in out
+    assert "The systematic search was conducted in 2026." in out
+
+
+def test_markdown_to_latex_splits_inline_h4_heading_body() -> None:
+    md = (
+        "# Title\n\n"
+        "**Background:** Background.\n"
+        "**Objectives:** Objective.\n"
+        "**Methods:** Methods.\n"
+        "**Results:** Results.\n"
+        "**Conclusion:** Conclusion.\n"
+        "**Keywords:** a, b\n\n"
+        "## Methods\n\n"
+        "#### Eligibility Details This subsection defines inclusion rules.\n"
+    )
+    out = markdown_to_latex(md, citekeys=set())
+    assert "\\subsubsection{Eligibility Details}" in out
+    assert "This subsection defines inclusion rules." in out
+
+
 def test_convert_citations_resolves_mixed_list_with_space_key() -> None:
     text = "[Abdallah2017, Engineering Inclusiv, UnknownKey]"
     citekeys = {"Abdallah2017", "Engineering_Inclusiv"}
@@ -99,6 +133,97 @@ def test_convert_citations_rewrites_ref_and_paper_placeholders() -> None:
     assert "[Ref141]" not in out
     assert "[Paper_abc123]" not in out
     assert "(citation unavailable)" in out
+
+
+def test_convert_citations_numeric_single_uses_number_map() -> None:
+    text = "Evidence [12] supports this."
+    out = _convert_citations(text, {"Smith2021"}, {"12": "Smith2021"})
+    assert "\\cite{Smith2021}" in out
+
+
+def test_convert_citations_numeric_list_uses_number_map() -> None:
+    text = "Evidence [2, 3] supports this."
+    out = _convert_citations(text, {"A2020", "B2021"}, {"2": "A2020", "3": "B2021"})
+    assert "\\cite{A2020,B2021}" in out
+
+
+def test_convert_citations_numeric_with_spaces_and_punctuation() -> None:
+    text = "Selection process reports Cohen's kappa = 0.091 [ 1 ]."
+    out = _convert_citations(text, {"Cohen1960"}, {"1": "Cohen1960"})
+    assert "\\cite{Cohen1960}" in out
+    assert "[ 1 ]" not in out
+
+
+def test_markdown_to_latex_strips_section_block_markers() -> None:
+    md = (
+        "# Title\n\n"
+        "**Background:** Background.\n"
+        "**Objectives:** Objective.\n"
+        "**Methods:** Methods.\n"
+        "**Results:** Results.\n"
+        "**Conclusion:** Conclusion.\n"
+        "**Keywords:** a, b\n\n"
+        "## Methods\n\n"
+        "<!-- SECTION_BLOCK:eligibility_criteria -->\n"
+        "### Eligibility Criteria\n\n"
+        "Study details.\n"
+    )
+    out = markdown_to_latex(md, citekeys=set())
+    assert "SECTION_BLOCK" not in out
+    assert "<!--" not in out
+
+
+def test_markdown_to_latex_strips_inline_section_block_markers() -> None:
+    md = (
+        "# Title\n\n"
+        "**Background:** Background.\n"
+        "**Objectives:** Objective.\n"
+        "**Methods:** Methods.\n"
+        "**Results:** Results.\n"
+        "**Conclusion:** Conclusion.\n"
+        "**Keywords:** a, b\n\n"
+        "## Methods\n\n"
+        "A paragraph. <!-- SECTION_BLOCK:selection_process -->\n"
+        "### Selection Process followed a staged funnel.\n"
+    )
+    out = markdown_to_latex(md, citekeys=set())
+    assert "SECTION_BLOCK" not in out
+    assert "<!--" not in out
+
+
+def test_markdown_to_latex_merges_split_h3_heading_lines() -> None:
+    md = (
+        "# Title\n\n"
+        "**Background:** Background.\n"
+        "**Objectives:** Objective.\n"
+        "**Methods:** Methods.\n"
+        "**Results:** Results.\n"
+        "**Conclusion:** Conclusion.\n"
+        "**Keywords:** a, b\n\n"
+        "## Results\n\n"
+        "### Risk of\n"
+        "Bias Assessment\n\n"
+        "Findings text.\n"
+    )
+    out = markdown_to_latex(md, citekeys=set())
+    assert "\\subsection{Risk of Bias Assessment}" in out
+
+
+def test_markdown_to_latex_splits_lowercase_run_on_heading_body() -> None:
+    md = (
+        "# Title\n\n"
+        "**Background:** Background.\n"
+        "**Objectives:** Objective.\n"
+        "**Methods:** Methods.\n"
+        "**Results:** Results.\n"
+        "**Conclusion:** Conclusion.\n"
+        "**Keywords:** a, b\n\n"
+        "## Methods\n\n"
+        "### Eligibility Criteria for this systematic review were predefined.\n"
+    )
+    out = markdown_to_latex(md, citekeys=set())
+    assert "\\subsection{Eligibility Criteria}" in out
+    assert "for this systematic review were predefined." in out
 
 
 def test_validate_ieee_no_abstract():
@@ -250,3 +375,20 @@ def test_md_table_arraystretch_always_present() -> None:
 def test_md_table_empty_returns_empty() -> None:
     """An empty input produces no output without raising."""
     assert _convert_md_table_to_latex([], set(), {}) == []
+
+
+def test_markdown_to_latex_splits_known_run_on_methods_heading() -> None:
+    md = (
+        "# Title\n\n"
+        "**Background:** Background.\n"
+        "**Objectives:** Objective.\n"
+        "**Methods:** Methods.\n"
+        "**Results:** Results.\n"
+        "**Conclusion:** Conclusion.\n"
+        "**Keywords:** a, b\n\n"
+        "## Methods\n\n"
+        "### Eligibility Criteria Studies were included between 2000 and 2026.\n"
+    )
+    out = markdown_to_latex(md, citekeys=set())
+    assert "\\subsection{Eligibility Criteria}" in out
+    assert "Studies were included between 2000 and 2026." in out

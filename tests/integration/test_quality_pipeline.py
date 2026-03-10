@@ -8,6 +8,7 @@ from src.models import CandidatePaper, GateStatus, SettingsConfig, StudyDesign
 from src.models.extraction import ExtractionRecord, OutcomeRecord
 from src.orchestration.gates import GateRunner
 from src.quality.grade import GradeAssessor
+from src.quality.mmat import MmatAssessor
 from src.quality.rob2 import Rob2Assessor
 from src.quality.robins_i import RobinsIAssessor
 from src.quality.study_router import StudyRouter
@@ -107,3 +108,56 @@ async def test_quality_pipeline_routes_assesses_and_persists(tmp_path) -> None:
         )
         gate_count = await cursor.fetchone()
         assert int(gate_count[0]) >= 2
+
+
+@pytest.mark.asyncio
+async def test_quality_pipeline_routes_mmat_eligible_designs_and_persists(tmp_path) -> None:
+    async with get_db(str(tmp_path / "quality_mmat_pipeline.db")) as db:
+        repo = WorkflowRepository(db)
+        await repo.create_workflow("wf-quality-mmat", "topic", "hash")
+
+        mixed_paper = CandidatePaper(title="Mixed study", authors=["A"], source_database="pubmed")
+        prepost_paper = CandidatePaper(title="Pre-post study", authors=["B"], source_database="crossref")
+        rct_paper = CandidatePaper(title="RCT study", authors=["C"], source_database="pubmed")
+        await repo.save_paper(mixed_paper)
+        await repo.save_paper(prepost_paper)
+        await repo.save_paper(rct_paper)
+
+        mixed_record = _record(
+            paper_id=mixed_paper.paper_id,
+            design=StudyDesign.MIXED_METHODS,
+            summary="Mixed-methods implementation evaluation with workflow outcomes.",
+        )
+        prepost_record = _record(
+            paper_id=prepost_paper.paper_id,
+            design=StudyDesign.PRE_POST,
+            summary="Pre-post implementation with operational outcome measurements.",
+        )
+        rct_record = _record(
+            paper_id=rct_paper.paper_id,
+            design=StudyDesign.RCT,
+            summary="Randomized trial with comparator outcomes.",
+        )
+        await repo.save_extraction_record("wf-quality-mmat", mixed_record)
+        await repo.save_extraction_record("wf-quality-mmat", prepost_record)
+        await repo.save_extraction_record("wf-quality-mmat", rct_record)
+
+        router = StudyRouter()
+        assert router.route_tool(mixed_record) == "mmat"
+        assert router.route_tool(prepost_record) == "mmat"
+        assert router.route_tool(rct_record) == "rob2"
+
+        # No LLM client/settings -> heuristic MMAT, which is enough to validate
+        # eligibility routing and persistence behavior.
+        mmat = MmatAssessor()
+        mixed_assessment = await mmat.assess(mixed_record)
+        prepost_assessment = await mmat.assess(prepost_record)
+        await repo.save_mmat_assessment("wf-quality-mmat", mixed_record.paper_id, mixed_assessment)
+        await repo.save_mmat_assessment("wf-quality-mmat", prepost_record.paper_id, prepost_assessment)
+
+        cursor = await db.execute(
+            "SELECT COUNT(*) FROM mmat_assessments WHERE workflow_id = ?",
+            ("wf-quality-mmat",),
+        )
+        mmat_count = await cursor.fetchone()
+        assert int(mmat_count[0]) == 2

@@ -62,3 +62,10 @@ class ReviewState:
     # fulltext_not_retrieved: papers excluded because no PDF could be obtained.
     fulltext_sought: int = 0
     fulltext_not_retrieved: int = 0
+    # RAG retrieval health counters recorded during writing.
+    rag_sections_total: int = 0
+    rag_sections_success: int = 0
+    rag_sections_empty: int = 0
+    rag_sections_error: int = 0
+    rag_sections_skipped: int = 0
+    rag_threshold_breached: bool = False

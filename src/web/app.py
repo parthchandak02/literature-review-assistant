@@ -40,6 +40,7 @@ from pydantic import BaseModel
 from sse_starlette.sse import EventSourceResponse
 
 from src.config.loader import load_configs as _load_configs
+from src.db.source_of_truth import RUN_STATS_PRECEDENCE
 from src.db.workflow_registry import _open_registry as _open_registry_db
 from src.db.workflow_registry import update_heartbeat as _update_registry_heartbeat
 from src.db.workflow_registry import update_notes as _update_registry_notes
@@ -72,7 +73,6 @@ class _RunRecord:
     def __init__(self, run_id: str, topic: str) -> None:
         self.run_id = run_id
         self.topic = topic
-        self.queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue()
         self.task: asyncio.Task[Any] | None = None
         self.done = False
         self.error: str | None = None
@@ -86,6 +86,8 @@ class _RunRecord:
         # Index into event_log up to which events have already been flushed to SQLite.
         # The flusher task advances this so the final flush only writes the tail.
         self._flush_index: int = 0
+        self._flush_lock: asyncio.Lock = asyncio.Lock()
+        self._event_cond: asyncio.Condition = asyncio.Condition()
         # Original review YAML submitted by the user -- saved to run dir after completion.
         self.review_yaml: str = ""
 
@@ -101,6 +103,21 @@ _notes_subscribers: set[asyncio.Queue[dict[str, Any] | None]] = set()
 
 # Evict completed run records older than run_ttl_seconds (from settings.yaml web.run_ttl_seconds).
 _RUN_TTL_SECONDS = _web_cfg.run_ttl_seconds
+_STALE_THRESHOLD_SECONDS = 2 * 60  # 2 minutes
+_STALE_GRACE_SECONDS = 2 * 60  # avoid startup/resume races
+
+_TERMINAL_REGISTRY_STATUSES = {"completed", "failed", "interrupted", "stale"}
+_TERMINAL_EVENT_TO_STATUS = {
+    "done": "completed",
+    "error": "failed",
+    "cancelled": "interrupted",
+}
+
+_lifecycle_metrics: dict[str, int] = {
+    "stale_detections": 0,
+    "stale_reversals": 0,
+    "missing_heartbeat_with_terminal_evidence": 0,
+}
 
 # ---------------------------------------------------------------------------
 # Download security: set of allowed root directories (str of resolved paths).
@@ -160,6 +177,7 @@ async def lifespan(_app: FastAPI) -> AsyncGenerator[None, None]:
                 await _reg_db.commit()
     except Exception:
         pass
+    await _repair_registry_statuses_from_runtime("runs")
     eviction = asyncio.create_task(_eviction_loop())
     yield
     # Graceful shutdown: cancel active tasks and mark workflows as 'interrupted'.
@@ -307,6 +325,40 @@ async def _resolve_db_path(run_root: str, workflow_id: str) -> str | None:
         return None
 
 
+async def _repair_registry_statuses_from_runtime(run_root: str = "runs") -> None:
+    """Repair stale/running registry rows when runtime.db has durable terminal evidence."""
+    registry = pathlib.Path(run_root) / "workflows_registry.db"
+    if not registry.exists():
+        return
+    try:
+        async with _open_registry_db(str(registry)) as db:
+            db.row_factory = aiosqlite.Row
+            async with db.execute(
+                """
+                SELECT workflow_id, status, db_path
+                FROM workflows_registry
+                WHERE status IN ('running', 'stale', 'awaiting_review')
+                """
+            ) as cur:
+                rows = await cur.fetchall()
+    except Exception:
+        return
+    repaired = 0
+    for row in rows:
+        db_path = str(row["db_path"])
+        status = _normalize_status(str(row["status"]))
+        evidence = await _collect_terminal_evidence(db_path)
+        terminal = evidence.get("terminal_status")
+        if terminal in {"completed", "failed", "interrupted"} and status in {"running", "stale", "awaiting_review"}:
+            try:
+                await _update_registry_status(run_root, str(row["workflow_id"]), str(terminal))
+                repaired += 1
+            except Exception:
+                continue
+    if repaired > 0:
+        _logger.info("Lifecycle startup repair: updated %d registry rows using durable terminal evidence", repaired)
+
+
 async def _persist_event_log(db_path: str, workflow_id: str, events: list[dict[str, Any]]) -> None:
     """Write buffered SSE events to the run's SQLite database for historical replay."""
     if not events or not workflow_id:
@@ -314,7 +366,7 @@ async def _persist_event_log(db_path: str, workflow_id: str, events: list[dict[s
     try:
         async with aiosqlite.connect(db_path) as db:
             await db.executemany(
-                "INSERT OR IGNORE INTO event_log (workflow_id, event_type, payload, ts) VALUES (?, ?, ?, ?)",
+                "INSERT INTO event_log (workflow_id, event_type, payload, ts) VALUES (?, ?, ?, ?)",
                 [
                     (
                         workflow_id,
@@ -328,6 +380,39 @@ async def _persist_event_log(db_path: str, workflow_id: str, events: list[dict[s
             await db.commit()
     except Exception:
         pass
+
+
+async def _notify_new_event(record: _RunRecord) -> None:
+    async with record._event_cond:
+        record._event_cond.notify_all()
+
+
+async def _flush_pending_events(record: _RunRecord) -> None:
+    """Flush unpersisted tail events in record.event_log to SQLite."""
+    if not (record.db_path and record.workflow_id):
+        return
+    async with record._flush_lock:
+        new = record.event_log[record._flush_index :]
+        if not new:
+            return
+        await _persist_event_log(record.db_path, record.workflow_id, new)
+        record._flush_index += len(new)
+
+
+def _append_event(record: _RunRecord, event: dict[str, Any]) -> None:
+    """Append event to replay log and notify all live stream subscribers."""
+    record.event_log.append(event)
+    try:
+        asyncio.create_task(_notify_new_event(record))
+    except Exception:
+        pass
+
+    # Persist critical events immediately to reduce loss window on abrupt exits.
+    if event.get("type") in {"phase_done", "done", "error", "cancelled"}:
+        try:
+            asyncio.create_task(_flush_pending_events(record))
+        except Exception:
+            pass
 
 
 async def _load_event_log_from_db(db_path: str) -> list[dict[str, Any]]:
@@ -354,6 +439,47 @@ async def _load_event_log_from_db(db_path: str) -> list[dict[str, Any]]:
     return events
 
 
+async def _ensure_runtime_db_migrated(db_path: str) -> None:
+    """Run runtime.db migrations once before historical read endpoints use it."""
+    try:
+        from src.db.database import get_db as _get_db
+        from src.db.repositories import WorkflowRepository as _WorkflowRepository
+
+        async with _get_db(db_path) as _db:
+            # Best-effort backfill: legacy runs with section_drafts but no
+            # DB-first manuscript rows are upgraded on first attach/read.
+            try:
+                _repo = _WorkflowRepository(_db)
+                async with _db.execute("SELECT workflow_id FROM workflows ORDER BY created_at DESC LIMIT 1") as _cur:
+                    _row = await _cur.fetchone()
+                if _row and _row[0]:
+                    _wid = str(_row[0])
+                    await _repo.backfill_manuscript_sections_from_drafts(_wid)
+                    _legacy_md = pathlib.Path(db_path).parent / "doc_manuscript.md"
+                    if _legacy_md.exists():
+                        try:
+                            parity = await _repo.validate_manuscript_md_parity(
+                                _wid, _legacy_md.read_text(encoding="utf-8")
+                            )
+                            if parity.get("has_assembly") and not (
+                                parity.get("citation_set_match") and parity.get("section_count_match")
+                            ):
+                                _logger.warning(
+                                    "runtime.db manuscript parity warning for %s: %s",
+                                    _wid,
+                                    parity,
+                                )
+                        except Exception as _parity_exc:
+                            _logger.debug("runtime.db manuscript parity check skipped: %s", _parity_exc)
+            except Exception as _bf_exc:
+                _logger.debug("runtime.db manuscript backfill skipped: %s", _bf_exc)
+    except Exception as exc:
+        # Historical runs may predate newer schema contracts. Keep attach/replay
+        # available instead of hard-failing, and let endpoint-level queries
+        # degrade gracefully if a specific table/column is truly unavailable.
+        _logger.warning("Historical runtime.db migration skipped for %s: %s", db_path, exc)
+
+
 async def _heartbeat_loop(run_root: str, workflow_id: str, interval: int = 60) -> None:
     """Background task: update heartbeat_at every `interval` seconds while a workflow runs."""
     try:
@@ -376,11 +502,7 @@ async def _event_flusher_loop(record: _RunRecord, interval: int = 5) -> None:
     try:
         while True:
             await asyncio.sleep(interval)
-            if record.db_path and record.workflow_id:
-                new = record.event_log[record._flush_index :]
-                if new:
-                    await _persist_event_log(record.db_path, record.workflow_id, new)
-                    record._flush_index += len(new)
+            await _flush_pending_events(record)
     except asyncio.CancelledError:
         pass
 
@@ -404,8 +526,7 @@ async def _run_wrapper(record: _RunRecord, review_path: str, req: RunRequest) ->
         record.run_root = run_root
         # Emit early so the frontend can deduplicate the sidebar before the run completes.
         event: dict[str, Any] = {"type": "workflow_id_ready", "workflow_id": workflow_id}
-        record.queue.put_nowait(event)
-        record.event_log.append(event)
+        _append_event(record, event)
         nonlocal heartbeat_task
         if heartbeat_task is None or heartbeat_task.done():
             heartbeat_task = asyncio.create_task(
@@ -413,9 +534,8 @@ async def _run_wrapper(record: _RunRecord, review_path: str, req: RunRequest) ->
             )
 
     ctx = WebRunContext(
-        queue=record.queue,
         on_db_ready=_on_db_ready,
-        on_event=record.event_log.append,
+        on_event=lambda e: _append_event(record, e),
         on_workflow_id_ready=_on_workflow_id_ready,
     )
     # Flusher starts immediately; no-ops until db_path and workflow_id are set.
@@ -448,17 +568,31 @@ async def _run_wrapper(record: _RunRecord, review_path: str, req: RunRequest) ->
                 except Exception:
                     pass
 
+        # Ensure registry terminal status is durable even if orchestration status
+        # updates were skipped by an earlier exception path.
+        if record.workflow_id and record.run_root:
+            terminal_status = _normalize_status(str(record.outputs.get("status", "")))
+            if terminal_status == "failed":
+                record.error = str(record.outputs.get("error", "Workflow failed"))
+                try:
+                    await _update_registry_status(record.run_root, record.workflow_id, "failed")
+                except Exception:
+                    pass
+            else:
+                try:
+                    await _update_registry_status(record.run_root, record.workflow_id, "completed")
+                except Exception:
+                    pass
+
         # Append "done" to event_log so final flush persists it (avoids Search stuck
         # as "running" when event_log is replayed for historical view).
         _done_evt: dict[str, Any] = {"type": "done", "outputs": record.outputs}
-        record.event_log.append(_done_evt)
-        await record.queue.put(_done_evt)
+        _append_event(record, _done_evt)
     except asyncio.CancelledError:
         record.done = True
         record.error = "Cancelled"
         _cancelled_evt: dict[str, Any] = {"type": "cancelled"}
-        record.event_log.append(_cancelled_evt)
-        await record.queue.put(_cancelled_evt)
+        _append_event(record, _cancelled_evt)
         if record.workflow_id and record.run_root:
             try:
                 await _update_registry_status(record.run_root, record.workflow_id, "interrupted")
@@ -476,8 +610,7 @@ async def _run_wrapper(record: _RunRecord, review_path: str, req: RunRequest) ->
             "msg": str(exc),
             "traceback": _tb,
         }
-        record.event_log.append(_error_evt)
-        await record.queue.put(_error_evt)
+        _append_event(record, _error_evt)
         if record.workflow_id and record.run_root:
             try:
                 await _update_registry_status(record.run_root, record.workflow_id, "failed")
@@ -493,10 +626,7 @@ async def _run_wrapper(record: _RunRecord, review_path: str, req: RunRequest) ->
             pass
         # Final flush: persist any events not yet written by the flusher loop,
         # including the terminal error/cancelled event appended above.
-        if record.db_path and record.workflow_id:
-            remaining = record.event_log[record._flush_index :]
-            if remaining:
-                await _persist_event_log(record.db_path, record.workflow_id, remaining)
+        await _flush_pending_events(record)
 
 
 # ---------------------------------------------------------------------------
@@ -627,44 +757,29 @@ async def stream_run(run_id: str, request: Request) -> EventSourceResponse:
             resume_from = 0
 
     async def _generator() -> AsyncGenerator[dict[str, Any], None]:
-        # Replay buffered events the client has not yet seen. Each event is
-        # tagged with its sequential id so the browser can send Last-Event-ID
-        # on reconnect to skip already-received events.
-        snapshot = list(record.event_log)
-        for idx, event in enumerate(snapshot):
-            if idx < resume_from:
-                continue
-            yield {"id": str(idx), "data": _json_safe(event)}
-
-        # Discard events from queue that were already replayed. _emit writes to
-        # both event_log and queue; without this we send each event twice.
-        for _ in range(len(snapshot)):
-            try:
-                record.queue.get_nowait()
-            except asyncio.QueueEmpty:
-                break
-
-        replay_index = len(snapshot)
-
-        # Fast-path: already completed and queue is empty after replay.
-        if record.done and record.queue.empty():
-            # Only emit the terminal done event if it wasn't already replayed.
-            already_has_terminal = any(e.get("type") in ("done", "error", "cancelled") for e in record.event_log)
-            if not already_has_terminal:
-                yield {"id": str(replay_index), "data": _json_safe({"type": "done", "outputs": record.outputs})}
-            return
+        replay_index = max(0, resume_from)
+        # Replay buffered events first.
+        while replay_index < len(record.event_log):
+            yield {"id": str(replay_index), "data": _json_safe(record.event_log[replay_index])}
+            replay_index += 1
 
         while True:
-            try:
-                event = await asyncio.wait_for(record.queue.get(), timeout=15.0)
+            # Emit newly appended events for this subscriber.
+            while replay_index < len(record.event_log):
+                event = record.event_log[replay_index]
                 yield {"id": str(replay_index), "data": _json_safe(event)}
                 replay_index += 1
                 if event.get("type") in ("done", "error", "cancelled"):
-                    break
+                    return
+
+            if record.done:
+                return
+
+            try:
+                async with record._event_cond:
+                    await asyncio.wait_for(record._event_cond.wait(), timeout=15.0)
             except TimeoutError:
                 yield {"event": "heartbeat", "data": "{}"}
-                if record.done:
-                    break
 
     return EventSourceResponse(_generator())
 
@@ -851,13 +966,25 @@ async def _fetch_run_stats(db_path: str) -> dict[str, Any]:
             await db.execute("PRAGMA journal_mode=WAL")
             papers_found = (await (await db.execute("SELECT COUNT(*) FROM papers")).fetchone())[0]
 
-            # Prefer the terminal phase_done event count -- this matches the top progress bar which
-            # reads phase_done("phase_3_screening").summary.included from the SSE event stream.
-            # The old query (dual_screening_results WHERE final_decision='include') over-counts because
-            # it includes abstract-stage "include" decisions for papers later excluded at full-text.
-            included_from_event = await (
+            # Canonical source order is defined in src/db/source_of_truth.py.
+            # 1) fulltext-stage dual_screening_results (durable factual table)
+            # 2) event_log phase_3_screening summary (historical fallback)
+            # 3) extraction_records count (legacy fallback)
+            included_from_dual = await (
                 await db.execute(
                     """
+                    SELECT COUNT(DISTINCT paper_id)
+                    FROM dual_screening_results
+                    WHERE stage = 'fulltext' AND final_decision IN ('include', 'uncertain')
+                    """
+                )
+            ).fetchone()
+            if included_from_dual and included_from_dual[0] is not None and int(included_from_dual[0]) > 0:
+                papers_included = int(included_from_dual[0])
+            else:
+                included_from_event = await (
+                    await db.execute(
+                        """
                         SELECT json_extract(payload, '$.summary.included')
                         FROM event_log
                         WHERE event_type = 'phase_done'
@@ -865,28 +992,45 @@ async def _fetch_run_stats(db_path: str) -> dict[str, Any]:
                         ORDER BY id DESC
                         LIMIT 1
                         """
-                )
-            ).fetchone()
-            if included_from_event and included_from_event[0] is not None:
-                papers_included = int(included_from_event[0])
-            else:
-                # Fallback for in-progress runs: count papers included at their most advanced
-                # screening stage (fulltext takes priority over title_abstract).
-                fallback_row = await (
-                    await db.execute(
-                        """
-                            SELECT COUNT(DISTINCT paper_id) FROM dual_screening_results d
-                            WHERE final_decision = 'include'
-                              AND stage = (
-                                SELECT stage FROM dual_screening_results d2
-                                WHERE d2.workflow_id = d.workflow_id AND d2.paper_id = d.paper_id
-                                ORDER BY CASE stage WHEN 'fulltext' THEN 2 ELSE 1 END DESC
-                                LIMIT 1
-                              )
-                            """
                     )
                 ).fetchone()
-                papers_included = int(fallback_row[0]) if fallback_row else 0
+                if included_from_event and included_from_event[0] is not None:
+                    papers_included = int(included_from_event[0])
+                else:
+                    fallback_row = await (
+                        await db.execute(
+                            """
+                            SELECT COUNT(*) FROM extraction_records
+                            """
+                        )
+                    ).fetchone()
+                    papers_included = int(fallback_row[0]) if fallback_row else 0
+
+            # Guardrail: detect divergence between durable screening table and event summary.
+            try:
+                _event_inc_row = await (
+                    await db.execute(
+                        """
+                        SELECT json_extract(payload, '$.summary.included')
+                        FROM event_log
+                        WHERE event_type = 'phase_done'
+                          AND json_extract(payload, '$.phase') = 'phase_3_screening'
+                        ORDER BY id DESC
+                        LIMIT 1
+                        """
+                    )
+                ).fetchone()
+                _event_inc = int(_event_inc_row[0]) if (_event_inc_row and _event_inc_row[0] is not None) else None
+                _dual_inc = int(included_from_dual[0]) if (included_from_dual and included_from_dual[0] is not None) else 0
+                if _event_inc is not None and _dual_inc > 0 and _event_inc != _dual_inc:
+                    _logger.warning(
+                        "run-stats divergence: dual_screening_results=%s event_log=%s for db=%s",
+                        _dual_inc,
+                        _event_inc,
+                        db_path,
+                    )
+            except Exception:
+                pass
 
             total_cost = (await (await db.execute("SELECT COALESCE(SUM(cost_usd), 0.0) FROM cost_records")).fetchone())[
                 0
@@ -905,34 +1049,192 @@ async def _fetch_run_stats(db_path: str) -> dict[str, Any]:
             "papers_found": int(papers_found),
             "papers_included": int(papers_included),
             "total_cost": float(total_cost),
+            "papers_included_precedence": list(RUN_STATS_PRECEDENCE.papers_included_order),
             "artifacts_count": artifacts_count,
         }
     except Exception:
         return {}
 
 
-_STALE_THRESHOLD_SECONDS = 2 * 60  # 2 minutes
+def _bump_lifecycle_metric(name: str) -> None:
+    _lifecycle_metrics[name] = _lifecycle_metrics.get(name, 0) + 1
 
 
-def _is_stale(row: aiosqlite.Row) -> bool:
-    """Return True if a 'running' row has not received a heartbeat in 2 minutes.
+def _normalize_status(value: str | None) -> str:
+    s = (value or "").strip().lower()
+    if s in ("done", "completed", "success"):
+        return "completed"
+    if s in ("failed", "error"):
+        return "failed"
+    if s in ("cancelled", "interrupted"):
+        return "interrupted"
+    return s
+
+
+def _parse_sqlite_ts(value: Any) -> datetime.datetime | None:
+    if value is None:
+        return None
+    try:
+        ts = datetime.datetime.fromisoformat(str(value))
+    except Exception:
+        return None
+    if ts.tzinfo is None:
+        ts = ts.replace(tzinfo=datetime.UTC)
+    return ts
+
+
+def _age_seconds(value: Any) -> float | None:
+    ts = _parse_sqlite_ts(value)
+    if ts is None:
+        return None
+    return (datetime.datetime.now(datetime.UTC) - ts).total_seconds()
+
+
+def _running_heartbeat_stale(row: aiosqlite.Row) -> bool:
+    """Return True if a running workflow heartbeat is stale with grace windows.
 
     Falls back to updated_at if heartbeat_at is NULL (runs that pre-date the heartbeat column).
     """
-    heartbeat = row["heartbeat_at"] or row["updated_at"]
-    if not heartbeat:
-        return True
-    try:
-        import datetime
+    heartbeat_age = _age_seconds(row["heartbeat_at"])
+    updated_age = _age_seconds(row["updated_at"])
+    created_age = _age_seconds(row["created_at"])
+    fresh = min(
+        x for x in (heartbeat_age, updated_age, created_age) if x is not None
+    ) if any(x is not None for x in (heartbeat_age, updated_age, created_age)) else None
+    if fresh is not None and fresh <= _STALE_GRACE_SECONDS:
+        return False
+    if heartbeat_age is not None:
+        return heartbeat_age > _STALE_THRESHOLD_SECONDS
+    if updated_age is not None:
+        return updated_age > _STALE_THRESHOLD_SECONDS
+    if created_age is not None:
+        return created_age > _STALE_THRESHOLD_SECONDS
+    return True
 
-        ts = datetime.datetime.fromisoformat(str(heartbeat))
-        # SQLite datetime() produces naive UTC strings; treat them as UTC.
-        if ts.tzinfo is None:
-            ts = ts.replace(tzinfo=datetime.UTC)
-        age = (datetime.datetime.now(datetime.UTC) - ts).total_seconds()
-        return age > _STALE_THRESHOLD_SECONDS
+
+async def _collect_terminal_evidence(db_path: str) -> dict[str, Any]:
+    """Collect durable terminal evidence from runtime.db and run_summary.json."""
+    out: dict[str, Any] = {
+        "terminal_status": None,
+        "source": None,
+        "event_type": None,
+        "workflow_status": None,
+        "summary_status": None,
+        "finalize_checkpoint_status": None,
+    }
+    try:
+        async with aiosqlite.connect(db_path) as db:
+            db.row_factory = aiosqlite.Row
+            try:
+                async with db.execute(
+                    "SELECT event_type FROM event_log WHERE event_type IN ('done','error','cancelled') ORDER BY id DESC LIMIT 1"
+                ) as cur:
+                    ev_row = await cur.fetchone()
+                if ev_row and ev_row["event_type"]:
+                    ev_type = str(ev_row["event_type"])
+                    out["event_type"] = ev_type
+                    ev_status = _TERMINAL_EVENT_TO_STATUS.get(ev_type)
+                    if ev_status:
+                        out["terminal_status"] = ev_status
+                        out["source"] = "event_log"
+            except Exception:
+                pass
+            if out["terminal_status"] is None:
+                try:
+                    async with db.execute(
+                        "SELECT status FROM workflows ORDER BY updated_at DESC, rowid DESC LIMIT 1"
+                    ) as cur:
+                        wf_row = await cur.fetchone()
+                    wf_status = _normalize_status(str(wf_row["status"])) if wf_row and wf_row["status"] else ""
+                    out["workflow_status"] = wf_status
+                    if wf_status in {"completed", "failed", "interrupted"}:
+                        out["terminal_status"] = wf_status
+                        out["source"] = "workflows_table"
+                except Exception:
+                    pass
+            if out["terminal_status"] is None:
+                try:
+                    async with db.execute(
+                        "SELECT status FROM checkpoints WHERE phase='finalize' ORDER BY rowid DESC LIMIT 1"
+                    ) as cur:
+                        cp_row = await cur.fetchone()
+                    cp_status = _normalize_status(str(cp_row["status"])) if cp_row and cp_row["status"] else ""
+                    out["finalize_checkpoint_status"] = cp_status
+                    if cp_status == "completed":
+                        out["terminal_status"] = "completed"
+                        out["source"] = "finalize_checkpoint"
+                except Exception:
+                    pass
     except Exception:
-        return True
+        return out
+    summary_path = pathlib.Path(db_path).parent / "run_summary.json"
+    if summary_path.exists():
+        try:
+            summary = _json.loads(summary_path.read_text(encoding="utf-8"))
+            summary_status = _normalize_status(str(summary.get("status", "")))
+            out["summary_status"] = summary_status
+            if out["terminal_status"] is None and summary_status in {"completed", "failed", "interrupted"}:
+                out["terminal_status"] = summary_status
+                out["source"] = "run_summary"
+        except Exception:
+            pass
+    return out
+
+
+async def _resolve_effective_status(
+    row: aiosqlite.Row,
+    live_run_id: str | None,
+    run_root: str,
+) -> tuple[str, dict[str, Any]]:
+    """Resolve effective status from registry + live-memory + durable runtime evidence."""
+    registry_status = _normalize_status(str(row["status"]))
+    diagnostics: dict[str, Any] = {
+        "registry_status": registry_status,
+        "live_run_id": live_run_id,
+        "source": "registry",
+    }
+    if live_run_id and registry_status in {"running", "awaiting_review"}:
+        diagnostics["source"] = "active_run"
+        return registry_status, diagnostics
+    evidence = await _collect_terminal_evidence(str(row["db_path"]))
+    diagnostics["evidence"] = evidence
+    terminal = evidence.get("terminal_status")
+    if terminal in {"completed", "failed", "interrupted"} and registry_status in {"running", "stale", "awaiting_review"}:
+        diagnostics["source"] = str(evidence.get("source") or "runtime")
+        diagnostics["override"] = f"{registry_status}->{terminal}"
+        if registry_status == "stale":
+            _bump_lifecycle_metric("stale_reversals")
+        heartbeat_age = _age_seconds(row["heartbeat_at"])
+        updated_age = _age_seconds(row["updated_at"])
+        if heartbeat_age is None or heartbeat_age > _STALE_THRESHOLD_SECONDS:
+            if updated_age is None or updated_age > _STALE_THRESHOLD_SECONDS:
+                _bump_lifecycle_metric("missing_heartbeat_with_terminal_evidence")
+        if registry_status == "running":
+            try:
+                await _update_registry_status(run_root, str(row["workflow_id"]), terminal)
+            except Exception:
+                pass
+            else:
+                _logger.info(
+                    "Lifecycle repair: workflow %s status running -> %s (%s)",
+                    row["workflow_id"],
+                    terminal,
+                    evidence.get("source"),
+                )
+        return terminal, diagnostics
+    if registry_status == "running" and not live_run_id:
+        if _running_heartbeat_stale(row):
+            _bump_lifecycle_metric("stale_detections")
+            diagnostics["source"] = "heartbeat_timeout"
+            _logger.info(
+                "Lifecycle stale classification: workflow=%s heartbeat_at=%s updated_at=%s metrics=%s",
+                row["workflow_id"],
+                row["heartbeat_at"],
+                row["updated_at"],
+                _lifecycle_metrics,
+            )
+            return "stale", diagnostics
+    return registry_status, diagnostics
 
 
 @app.get("/api/history")
@@ -979,11 +1281,15 @@ async def list_history(run_root: str = "runs") -> list[HistoryEntry]:
     for row, stats in zip(rows, stat_results):
         s = stats if isinstance(stats, dict) else {}
         live_run_id = active_run_id_by_workflow.get(row["workflow_id"])
-        # For in-process active runs the registry status is already "running".
-        # For registry rows whose status is "running" but no live task exists, check stale.
-        effective_status = row["status"]
-        if effective_status.lower() == "running" and not live_run_id and _is_stale(row):
-            effective_status = "stale"
+        effective_status, diag = await _resolve_effective_status(row, live_run_id, run_root)
+        if diag.get("override"):
+            _logger.info(
+                "Lifecycle reconcile override workflow=%s override=%s source=%s metrics=%s",
+                row["workflow_id"],
+                diag.get("override"),
+                diag.get("source"),
+                _lifecycle_metrics,
+            )
         enriched.append(
             HistoryEntry(
                 workflow_id=row["workflow_id"],
@@ -1229,9 +1535,8 @@ async def _resume_wrapper(
         record.db_path = path
 
     ctx = WebRunContext(
-        queue=record.queue,
         on_db_ready=_on_db_ready,
-        on_event=record.event_log.append,
+        on_event=lambda e: _append_event(record, e),
         verbose=verbose,
         debug=debug,
     )
@@ -1254,17 +1559,23 @@ async def _resume_wrapper(
             err_msg = record.outputs.get("error", "Workflow failed")
             record.error = err_msg
             _gate_err_evt: dict[str, Any] = {"type": "error", "msg": err_msg}
-            record.event_log.append(_gate_err_evt)
-            await record.queue.put(_gate_err_evt)
+            _append_event(record, _gate_err_evt)
+            try:
+                await _update_registry_status(run_root, workflow_id, "failed")
+            except Exception:
+                pass
+        else:
+            try:
+                await _update_registry_status(run_root, workflow_id, "completed")
+            except Exception:
+                pass
         _done_resume_evt: dict[str, Any] = {"type": "done", "outputs": record.outputs}
-        record.event_log.append(_done_resume_evt)
-        await record.queue.put(_done_resume_evt)
+        _append_event(record, _done_resume_evt)
     except asyncio.CancelledError:
         record.done = True
         record.error = "Cancelled"
         _cancelled_resume_evt: dict[str, Any] = {"type": "cancelled"}
-        record.event_log.append(_cancelled_resume_evt)
-        await record.queue.put(_cancelled_resume_evt)
+        _append_event(record, _cancelled_resume_evt)
         try:
             await _update_registry_status(run_root, workflow_id, "interrupted")
         except Exception:
@@ -1295,12 +1606,11 @@ async def _resume_wrapper(
             try:
                 _summary_path = pathlib.Path(db_path).parent / "run_summary.json"
                 if _summary_path.exists():
-                    record.outputs = json.loads(_summary_path.read_text(encoding="utf-8"))
+                    record.outputs = _json.loads(_summary_path.read_text(encoding="utf-8"))
             except Exception:
                 pass
             _done_resume_evt: dict[str, Any] = {"type": "done", "outputs": record.outputs}
-            record.event_log.append(_done_resume_evt)
-            await record.queue.put(_done_resume_evt)
+            _append_event(record, _done_resume_evt)
             try:
                 await _update_registry_status(run_root, workflow_id, "completed")
             except Exception:
@@ -1313,8 +1623,7 @@ async def _resume_wrapper(
                 "msg": str(exc),
                 "traceback": _tb,
             }
-            record.event_log.append(_error_resume_evt)
-            await record.queue.put(_error_resume_evt)
+            _append_event(record, _error_resume_evt)
             try:
                 await _update_registry_status(run_root, workflow_id, "failed")
             except Exception:
@@ -1324,10 +1633,7 @@ async def _resume_wrapper(
         flusher_task.cancel()
         # Final flush: persist any events not yet written by the flusher loop,
         # including the terminal error/cancelled event appended above.
-        if record.db_path and record.workflow_id:
-            remaining = record.event_log[record._flush_index :]
-            if remaining:
-                await _persist_event_log(record.db_path, record.workflow_id, remaining)
+        await _flush_pending_events(record)
 
 
 _RESUME_PHASE_ORDER = [
@@ -1444,9 +1750,7 @@ async def attach_history(req: AttachRequest) -> RunResponse:
     record.done = True
     record.db_path = req.db_path
     record.workflow_id = req.workflow_id
-    # Reflect non-completed status so the frontend can differentiate failed/interrupted runs.
-    if req.status not in ("completed", "done"):
-        record.error = f"Workflow {req.status}"
+    await _ensure_runtime_db_migrated(req.db_path)
     # FinalizeNode writes run_summary.json in the same directory as runtime.db.
     # It contains output_dir and the full artifacts dict (all output file paths).
     summary_path = pathlib.Path(req.db_path).parent / "run_summary.json"
@@ -1457,10 +1761,32 @@ async def attach_history(req: AttachRequest) -> RunResponse:
             pass  # graceful -- outputs stays {}
     # Load persisted events from SQLite for the historical event log viewer.
     record.event_log = await _load_event_log_from_db(req.db_path)
-    # Inject a synthetic terminal event when the event log has no terminal event
-    # (type "done"/"error"/"cancelled") and the run did not complete normally.
-    # This ensures the ActivityView phase timeline settles into a final state.
-    if req.status not in ("completed", "done"):
+    # Reconcile status against durable runtime evidence so attach does not
+    # fabricate stale failures for workflows that actually terminated.
+    try:
+        evidence = await _collect_terminal_evidence(req.db_path)
+    except Exception:
+        evidence = {"terminal_status": None, "source": None}
+    normalized_req_status = _normalize_status(req.status)
+    effective_attach_status = normalized_req_status
+    evidence_terminal = evidence.get("terminal_status")
+    if evidence_terminal in {"completed", "failed", "interrupted"} and normalized_req_status in {
+        "running",
+        "stale",
+        "awaiting_review",
+    }:
+        effective_attach_status = str(evidence_terminal)
+        _logger.info(
+            "Attach status override for %s: %s -> %s (source=%s)",
+            req.workflow_id,
+            normalized_req_status,
+            evidence_terminal,
+            evidence.get("source"),
+        )
+    if effective_attach_status not in ("completed", "done"):
+        record.error = f"Workflow {effective_attach_status}"
+    # Inject a synthetic terminal event only as a last resort for unresolved runs.
+    if effective_attach_status not in ("completed", "done"):
         has_terminal = any(
             isinstance(e, dict) and e.get("type") in ("done", "error", "cancelled") for e in record.event_log
         )
@@ -1468,7 +1794,11 @@ async def attach_history(req: AttachRequest) -> RunResponse:
             record.event_log.append(
                 {
                     "type": "error",
-                    "msg": f"Run ended with status: {req.status}",
+                    "msg": (
+                        "Workflow appears orphaned (no terminal event persisted)"
+                        if effective_attach_status == "stale"
+                        else f"Run ended with status: {effective_attach_status}"
+                    ),
                     "ts": datetime.datetime.now(tz=datetime.UTC).isoformat(),
                 }
             )
@@ -1508,6 +1838,11 @@ async def _resolve_db_path_from_run_or_workflow(identifier: str, run_root: str =
             )
         return record.db_path
 
+    # Historical read endpoints resolve by workflow_id. Do not run registry
+    # fallback scans for short-lived run_id values that are not active.
+    if not identifier.startswith("wf-"):
+        raise HTTPException(status_code=404, detail="Run not found")
+
     from src.db.workflow_registry import find_by_workflow_id, find_by_workflow_id_fallback
 
     # Support workflow-id lookups even when the API process cwd differs from
@@ -1528,6 +1863,65 @@ async def _resolve_db_path_from_run_or_workflow(identifier: str, run_root: str =
     if entry is None or not entry.db_path:
         raise HTTPException(status_code=404, detail="Run not found")
     return entry.db_path
+
+
+async def _resolve_workflow_id_from_db(db_path: str) -> str | None:
+    try:
+        async with aiosqlite.connect(db_path) as db:
+            async with db.execute("SELECT workflow_id FROM workflows ORDER BY rowid DESC LIMIT 1") as cur:
+                row = await cur.fetchone()
+                if row and row[0]:
+                    return str(row[0])
+    except Exception:
+        return None
+    return None
+
+
+async def _query_included_papers_rows(
+    db: aiosqlite.Connection,
+    workflow_id: str,
+    *,
+    for_fetch: bool,
+) -> list[aiosqlite.Row]:
+    """Return included-paper rows with fulltext->extraction fallback precedence."""
+    if for_fetch:
+        select_cols = "p.paper_id, p.title, p.authors, p.year, p.doi, p.url, p.source_database"
+        order_by = "p.paper_id"
+        fallback_select_cols = select_cols
+    else:
+        select_cols = (
+            "p.paper_id, p.title, p.authors, p.year, p.source_database, p.doi, p.url, p.country, "
+            "ft.final_decision"
+        )
+        order_by = "p.year DESC"
+        fallback_select_cols = (
+            "p.paper_id, p.title, p.authors, p.year, p.source_database, p.doi, p.url, p.country, "
+            "'include' AS final_decision"
+        )
+
+    primary_query = f"""
+        SELECT {select_cols}
+        FROM papers p
+        JOIN dual_screening_results ft
+          ON p.paper_id = ft.paper_id AND ft.stage = 'fulltext'
+        WHERE ft.final_decision = 'include'
+        ORDER BY {order_by}
+    """
+    async with db.execute(primary_query) as cur:
+        rows = await cur.fetchall()
+
+    if rows:
+        return rows
+
+    fallback_query = f"""
+        SELECT {fallback_select_cols}
+        FROM papers p
+        JOIN extraction_records er
+          ON p.paper_id = er.paper_id AND er.workflow_id = ?
+        ORDER BY {order_by}
+    """
+    async with db.execute(fallback_query, (workflow_id,)) as fallback_cur:
+        return await fallback_cur.fetchall()
 
 
 _STOP_WORDS = frozenset(
@@ -1984,7 +2378,7 @@ async def get_db_tables(run_id: str) -> dict[str, Any]:
             # Load extraction records (data column holds full ExtractionRecord JSON)
             async with db.execute(
                 """
-                SELECT er.paper_id, er.data, p.title, p.doi
+                SELECT er.paper_id, er.data, er.extraction_source, p.title, p.doi
                 FROM extraction_records er
                 LEFT JOIN papers p USING (paper_id)
                 WHERE er.data IS NOT NULL
@@ -2001,7 +2395,7 @@ async def get_db_tables(run_id: str) -> dict[str, Any]:
             except Exception:
                 record_data = {}
             outcomes: list[dict[str, Any]] = record_data.get("outcomes") or []
-            extraction_source: str = record_data.get("extraction_source") or "text"
+            extraction_source: str = str(row["extraction_source"] or record_data.get("extraction_source") or "text")
             # Keep only rows with at least one numeric field
             numeric_outcomes = [o for o in outcomes if o.get("effect_size") or o.get("p_value") or o.get("ci_lower")]
             if not numeric_outcomes:
@@ -2024,6 +2418,52 @@ async def get_db_tables(run_id: str) -> dict[str, Any]:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
+@app.get("/api/db/{run_id}/rag-diagnostics")
+async def get_db_rag_diagnostics(run_id: str) -> dict[str, Any]:
+    """Return per-section RAG retrieval diagnostics for a run."""
+    db_path = _get_db_path(run_id)
+    try:
+        async with aiosqlite.connect(db_path) as db:
+            db.row_factory = aiosqlite.Row
+            async with db.execute(
+                """
+                SELECT section, query_type, rerank_enabled, candidate_k, final_k,
+                       retrieved_count, status, selected_chunks_json, error_message,
+                       latency_ms, created_at
+                FROM rag_retrieval_diagnostics
+                ORDER BY created_at ASC
+                """
+            ) as cur:
+                rows = await cur.fetchall()
+        records: list[dict[str, Any]] = []
+        for row in rows:
+            chunks: list[dict[str, Any]] = []
+            try:
+                chunks = _json.loads(row["selected_chunks_json"] or "[]")
+            except Exception:
+                chunks = []
+            records.append(
+                {
+                    "section": row["section"],
+                    "query_type": row["query_type"],
+                    "rerank_enabled": bool(row["rerank_enabled"]),
+                    "candidate_k": row["candidate_k"],
+                    "final_k": row["final_k"],
+                    "retrieved_count": row["retrieved_count"],
+                    "status": row["status"],
+                    "selected_chunks": chunks,
+                    "error_message": row["error_message"],
+                    "latency_ms": row["latency_ms"],
+                    "created_at": row["created_at"],
+                }
+            )
+        return {"total": len(records), "records": records}
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
 # ---------------------------------------------------------------------------
 # Run artifacts + export endpoints
 # ---------------------------------------------------------------------------
@@ -2037,6 +2477,45 @@ async def get_run_artifacts(run_id: str) -> dict[str, Any]:
     if not summary.exists():
         raise HTTPException(status_code=404, detail="run_summary.json not found")
     return _json.loads(summary.read_text(encoding="utf-8"))
+
+
+@app.get("/api/run/{run_id}/manuscript")
+async def get_run_manuscript(run_id: str, fmt: str = "md") -> dict[str, Any]:
+    """Return manuscript content, preferring DB assembly over filesystem artifacts."""
+    if fmt not in {"md", "tex"}:
+        raise HTTPException(status_code=422, detail="fmt must be 'md' or 'tex'")
+    db_path = await _resolve_db_path_from_run_or_workflow(run_id)
+    workflow_id = await _resolve_workflow_id_from_db(db_path)
+    if workflow_id:
+        try:
+            from src.db.database import get_db as _get_db
+            from src.db.repositories import WorkflowRepository as _WorkflowRepository
+
+            async with _get_db(db_path) as db:
+                repo = _WorkflowRepository(db)
+                assembly = await repo.load_latest_manuscript_assembly(workflow_id, fmt)
+            if assembly:
+                return {
+                    "source": "assembly",
+                    "format": fmt,
+                    "workflow_id": workflow_id,
+                    "content": assembly.content,
+                    "assembly_id": assembly.assembly_id,
+                }
+        except Exception:
+            pass
+
+    run_dir = pathlib.Path(db_path).parent
+    file_path = run_dir / ("doc_manuscript.md" if fmt == "md" else "doc_manuscript.tex")
+    if file_path.exists():
+        return {
+            "source": "file",
+            "format": fmt,
+            "workflow_id": workflow_id or "",
+            "content": file_path.read_text(encoding="utf-8"),
+            "path": str(file_path),
+        }
+    raise HTTPException(status_code=404, detail=f"manuscript ({fmt}) not found")
 
 
 @app.get("/api/run/{run_id}/papers-reference")
@@ -2072,38 +2551,11 @@ async def get_papers_reference(run_id: str) -> dict[str, Any]:
                 _wf_row = await _wf_cur.fetchone()
                 if _wf_row and _wf_row[0]:
                     _resolved_workflow_id = str(_wf_row[0])
-            async with db.execute(
-                """
-                SELECT p.paper_id, p.title, p.authors, p.year,
-                       p.source_database, p.doi, p.url, p.country,
-                       ft.final_decision
-                FROM papers p
-                JOIN dual_screening_results ft
-                  ON p.paper_id = ft.paper_id AND ft.stage = 'fulltext'
-                WHERE ft.final_decision = 'include'
-                ORDER BY p.year DESC
-                """
-            ) as cur:
-                rows = await cur.fetchall()
-
-            # One-off-resume inconsistency guard:
-            # Some historical runs can contain extraction_records but miss
-            # fulltext-stage include rows. Fall back to extraction_records so
-            # References remains usable without requiring manual DB patching.
-            if not rows:
-                async with db.execute(
-                    """
-                    SELECT p.paper_id, p.title, p.authors, p.year,
-                           p.source_database, p.doi, p.url, p.country,
-                           'include' AS final_decision
-                    FROM papers p
-                    JOIN extraction_records er
-                      ON p.paper_id = er.paper_id AND er.workflow_id = ?
-                    ORDER BY p.year DESC
-                    """,
-                    (_resolved_workflow_id,),
-                ) as _fallback_cur:
-                    rows = await _fallback_cur.fetchall()
+            rows = await _query_included_papers_rows(
+                db,
+                _resolved_workflow_id,
+                for_fetch=False,
+            )
 
         papers_out = []
         for row in rows:
@@ -2240,35 +2692,11 @@ async def fetch_pdfs_for_run(run_id: str) -> StreamingResponse:
                 _wf_row = await _wf_cur.fetchone()
                 if _wf_row and _wf_row[0]:
                     _resolved_workflow_id = str(_wf_row[0])
-            async with db.execute(
-                """
-                SELECT p.paper_id, p.title, p.authors, p.year, p.doi, p.url,
-                       p.source_database
-                FROM papers p
-                JOIN dual_screening_results ft
-                  ON p.paper_id = ft.paper_id AND ft.stage = 'fulltext'
-                WHERE ft.final_decision = 'include'
-                ORDER BY p.paper_id
-                """
-            ) as cur:
-                rows = await cur.fetchall()
-
-            # Same guard as References endpoint: when fulltext include rows are
-            # absent but extraction records exist, use extraction_records as the
-            # canonical included set so retroactive fetch remains functional.
-            if not rows:
-                async with db.execute(
-                    """
-                    SELECT p.paper_id, p.title, p.authors, p.year, p.doi, p.url,
-                           p.source_database
-                    FROM papers p
-                    JOIN extraction_records er
-                      ON p.paper_id = er.paper_id AND er.workflow_id = ?
-                    ORDER BY p.paper_id
-                    """,
-                    (_resolved_workflow_id,),
-                ) as _fallback_cur:
-                    rows = await _fallback_cur.fetchall()
+            rows = await _query_included_papers_rows(
+                db,
+                _resolved_workflow_id,
+                for_fetch=True,
+            )
     except Exception as exc:
         _fetch_err = str(exc)
 

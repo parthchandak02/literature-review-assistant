@@ -43,6 +43,14 @@ class RAGRetriever:
     def __init__(self, db: aiosqlite.Connection, workflow_id: str) -> None:
         self._db = db
         self._workflow_id = workflow_id
+        self._chunk_ids: list[str] = []
+        self._paper_ids: list[str] = []
+        self._chunk_indices: list[int] = []
+        self._contents: list[str] = []
+        self._embeddings: list[list[float]] = []
+        self._corpus_loaded = False
+        self._bm25_model = None
+        self._bm25_available = True
 
     async def _load_all_chunks(
         self,
@@ -75,6 +83,19 @@ class RAGRetriever:
 
         return chunk_ids, paper_ids, chunk_indices, contents, embeddings
 
+    async def _ensure_corpus_loaded(self) -> None:
+        """Load chunk corpus once per retriever instance."""
+        if self._corpus_loaded:
+            return
+        (
+            self._chunk_ids,
+            self._paper_ids,
+            self._chunk_indices,
+            self._contents,
+            self._embeddings,
+        ) = await self._load_all_chunks()
+        self._corpus_loaded = True
+
     def _compute_bm25_scores(
         self,
         query_text: str,
@@ -85,10 +106,14 @@ class RAGRetriever:
         Uses bm25s with sorted=False so that result indices map back to the
         original corpus positions.
         """
+        if not self._bm25_available:
+            return [0.0] * len(contents)
+
         try:
             import bm25s  # project dependency; lazy import for startup perf
         except ImportError:
             logger.warning("bm25s not available; skipping BM25 retrieval")
+            self._bm25_available = False
             return [0.0] * len(contents)
 
         try:
@@ -99,14 +124,23 @@ class RAGRetriever:
         if not contents:
             return []
 
-        corpus_tokens = bm25s.tokenize(contents, show_progress=False)
+        # Build and cache BM25 index once for this retriever instance.
+        if self._bm25_model is None:
+            corpus_tokens = bm25s.tokenize(contents, show_progress=False)
+            model = bm25s.BM25()
+            model.index(corpus_tokens, show_progress=False)
+            self._bm25_model = model
+
         query_tokens = bm25s.tokenize([query_text], show_progress=False)
-        model = bm25s.BM25()
-        model.index(corpus_tokens, show_progress=False)
 
         # sorted=False: result_indices[0] are corpus positions in arbitrary order;
         # result_scores[0] are their corresponding BM25 scores.
-        result_indices, result_scores = model.retrieve(query_tokens, k=len(contents), sorted=False, show_progress=False)
+        result_indices, result_scores = self._bm25_model.retrieve(
+            query_tokens,
+            k=len(contents),
+            sorted=False,
+            show_progress=False,
+        )
 
         # Reconstruct scores in original corpus order.
         scores = np.zeros(len(contents), dtype=np.float32)
@@ -188,7 +222,12 @@ class RAGRetriever:
             logger.warning("numpy not available; returning empty retrieval results")
             return []
 
-        chunk_ids, paper_ids, chunk_indices, contents, embeddings = await self._load_all_chunks()
+        await self._ensure_corpus_loaded()
+        chunk_ids = self._chunk_ids
+        paper_ids = self._paper_ids
+        chunk_indices = self._chunk_indices
+        contents = self._contents
+        embeddings = self._embeddings
 
         if not embeddings:
             return []

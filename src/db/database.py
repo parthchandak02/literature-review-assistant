@@ -23,133 +23,203 @@ async def _init_connection(db: aiosqlite.Connection) -> None:
 
 async def run_migrations(db: aiosqlite.Connection) -> None:
     schema_sql = SCHEMA_PATH.read_text(encoding="utf-8")
-    await db.executescript(schema_sql)
+    try:
+        await db.executescript(schema_sql)
+    except Exception as exc:
+        msg = str(exc).lower()
+        # Historical DBs can fail on new desired-state indexes that reference columns
+        # introduced by later ordered migrations. Apply a compatibility pass and
+        # then let ordered migrations bring the DB up to date.
+        if "no such column: workflow_id" in msg:
+            compat_sql = schema_sql.replace(
+                "CREATE INDEX IF NOT EXISTS idx_decision_log_workflow_phase ON decision_log(workflow_id, phase);",
+                "",
+            )
+            await db.executescript(compat_sql)
+        else:
+            raise
+    await db.execute("CREATE TABLE IF NOT EXISTS schema_version (version INTEGER NOT NULL)")
+    async with db.execute("SELECT COALESCE(MAX(version), 0) FROM schema_version") as cur:
+        row = await cur.fetchone()
+    current_version = int(row[0]) if row and row[0] is not None else 0
+
+    async def _apply(version: int, sql: str) -> None:
+        nonlocal current_version
+        if current_version >= version:
+            return
+        for stmt in (s.strip() for s in sql.split(";")):
+            if not stmt:
+                continue
+            try:
+                await db.execute(stmt)
+            except Exception as exc:
+                msg = str(exc).lower()
+                # Idempotent re-runs on older/newer DBs may already have these columns.
+                if "duplicate column name" in msg or "already exists" in msg:
+                    continue
+                raise
+        await db.execute("INSERT INTO schema_version (version) VALUES (?)", (version,))
+        current_version = version
+
+    # 1. Add canonical papers metadata fields used by UI and export.
+    await _apply(
+        1,
+        """
+        ALTER TABLE papers ADD COLUMN country TEXT;
+        ALTER TABLE papers ADD COLUMN display_label TEXT;
+        """,
+    )
+    # 2. Persist dedup count for PRISMA accounting.
+    await _apply(2, "ALTER TABLE workflows ADD COLUMN dedup_count INTEGER;")
+    # 3. Ensure extraction source is first-class in extraction_records.
+    await _apply(
+        3,
+        "ALTER TABLE extraction_records ADD COLUMN extraction_source TEXT NOT NULL DEFAULT 'text';",
+    )
+    # 4. Add workflow_id to cost_records for cross-run analytics and robust attribution.
+    await _apply(
+        4,
+        "ALTER TABLE cost_records ADD COLUMN workflow_id TEXT NOT NULL DEFAULT '';",
+    )
+    # 5. Performance and activity-log indexes for production workloads.
+    await _apply(
+        5,
+        """
+        CREATE INDEX IF NOT EXISTS idx_search_results_workflow ON search_results(workflow_id);
+        CREATE INDEX IF NOT EXISTS idx_dual_screening_stage_decision
+            ON dual_screening_results(workflow_id, stage, final_decision);
+        CREATE INDEX IF NOT EXISTS idx_extraction_records_workflow ON extraction_records(workflow_id);
+        CREATE INDEX IF NOT EXISTS idx_event_log_workflow_type ON event_log(workflow_id, event_type);
+        CREATE INDEX IF NOT EXISTS idx_section_drafts_workflow ON section_drafts(workflow_id);
+        CREATE INDEX IF NOT EXISTS idx_cost_records_phase_model ON cost_records(phase, model);
+        """,
+    )
+    # 6. Add workflow attribution to decision log for deterministic per-run audit queries.
+    await _apply(
+        6,
+        """
+        ALTER TABLE decision_log ADD COLUMN workflow_id TEXT NOT NULL DEFAULT '';
+        CREATE INDEX IF NOT EXISTS idx_decision_log_workflow_phase ON decision_log(workflow_id, phase);
+        """,
+    )
+    # 7. Persist per-section RAG retrieval diagnostics.
+    await _apply(
+        7,
+        """
+        CREATE TABLE IF NOT EXISTS rag_retrieval_diagnostics (
+            id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+            workflow_id         TEXT NOT NULL,
+            section             TEXT NOT NULL,
+            query_type          TEXT NOT NULL,
+            rerank_enabled      INTEGER NOT NULL DEFAULT 1,
+            candidate_k         INTEGER NOT NULL,
+            final_k             INTEGER NOT NULL,
+            retrieved_count     INTEGER NOT NULL DEFAULT 0,
+            status              TEXT NOT NULL,
+            selected_chunks_json TEXT NOT NULL DEFAULT '[]',
+            error_message       TEXT,
+            latency_ms          INTEGER,
+            created_at          TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE INDEX IF NOT EXISTS idx_rag_diag_workflow_section
+            ON rag_retrieval_diagnostics(workflow_id, section, created_at);
+        """,
+    )
+    # 8. DB-first manuscript source-of-truth tables.
+    await _apply(
+        8,
+        """
+        CREATE TABLE IF NOT EXISTS manuscript_sections (
+            workflow_id TEXT NOT NULL,
+            section_key TEXT NOT NULL,
+            section_order INTEGER NOT NULL,
+            version INTEGER NOT NULL,
+            title TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'draft',
+            source TEXT NOT NULL,
+            boundary_confidence REAL NOT NULL DEFAULT 1.0,
+            content_hash TEXT NOT NULL,
+            content TEXT NOT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (workflow_id, section_key, version)
+        );
+        CREATE TABLE IF NOT EXISTS manuscript_blocks (
+            workflow_id TEXT NOT NULL,
+            section_key TEXT NOT NULL,
+            section_version INTEGER NOT NULL,
+            block_order INTEGER NOT NULL,
+            block_type TEXT NOT NULL,
+            text TEXT NOT NULL,
+            meta_json TEXT NOT NULL DEFAULT '{}',
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (workflow_id, section_key, section_version, block_order)
+        );
+        CREATE TABLE IF NOT EXISTS manuscript_assets (
+            workflow_id TEXT NOT NULL,
+            asset_key TEXT NOT NULL,
+            asset_type TEXT NOT NULL,
+            format TEXT NOT NULL,
+            content TEXT NOT NULL,
+            source_path TEXT,
+            version INTEGER NOT NULL DEFAULT 1,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (workflow_id, asset_key, version)
+        );
+        CREATE TABLE IF NOT EXISTS manuscript_assemblies (
+            workflow_id TEXT NOT NULL,
+            assembly_id TEXT NOT NULL,
+            target_format TEXT NOT NULL,
+            content TEXT NOT NULL,
+            manifest_json TEXT NOT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (workflow_id, assembly_id, target_format)
+        );
+        CREATE INDEX IF NOT EXISTS idx_manuscript_sections_workflow_order
+            ON manuscript_sections(workflow_id, section_order);
+        CREATE INDEX IF NOT EXISTS idx_manuscript_blocks_workflow_section_order
+            ON manuscript_blocks(workflow_id, section_key, section_version, block_order);
+        CREATE INDEX IF NOT EXISTS idx_manuscript_assets_workflow_type_key
+            ON manuscript_assets(workflow_id, asset_type, asset_key);
+        """,
+    )
+    # 9. Deterministic ordering semantics for manuscript sections.
+    await _apply(
+        9,
+        """
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_manuscript_sections_workflow_order_version
+            ON manuscript_sections(workflow_id, section_order, version);
+        """,
+    )
+    await _validate_schema_contract(db)
     await db.commit()
-    # Migration: add country column to papers if missing (existing databases)
-    try:
-        await db.execute("ALTER TABLE papers ADD COLUMN country TEXT")
-        await db.commit()
-    except Exception:
-        pass
-    # Migration: add display_label column to papers (canonical human-readable label)
-    try:
-        await db.execute("ALTER TABLE papers ADD COLUMN display_label TEXT")
-        await db.commit()
-    except Exception:
-        pass
-    # Migration: add dedup_count column to workflows
-    try:
-        await db.execute("ALTER TABLE workflows ADD COLUMN dedup_count INTEGER")
-        await db.commit()
-    except Exception:
-        pass
-    # Migration: add event_log table for SSE event replay on existing databases
-    try:
-        await db.execute("""
-            CREATE TABLE IF NOT EXISTS event_log (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                workflow_id TEXT NOT NULL,
-                event_type TEXT NOT NULL,
-                payload TEXT NOT NULL,
-                ts TEXT NOT NULL,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            )
-        """)
-        await db.execute("CREATE INDEX IF NOT EXISTS idx_event_log_workflow ON event_log(workflow_id)")
-        await db.commit()
-    except Exception:
-        pass
-    # Migration: add extraction_source column to extraction_records (Idea 2)
-    try:
-        await db.execute("ALTER TABLE extraction_records ADD COLUMN extraction_source TEXT DEFAULT 'text'")
-        await db.commit()
-    except Exception:
-        pass
-    # Migration: add paper_chunks_meta table (Idea 1 - RAG)
-    try:
-        await db.execute("""
-            CREATE TABLE IF NOT EXISTS paper_chunks_meta (
-                chunk_id    TEXT PRIMARY KEY,
-                workflow_id TEXT NOT NULL,
-                paper_id    TEXT NOT NULL,
-                chunk_index INTEGER NOT NULL,
-                content     TEXT NOT NULL,
-                embedding   TEXT,
-                created_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                FOREIGN KEY (paper_id) REFERENCES papers(paper_id)
-            )
-        """)
-        await db.execute("CREATE INDEX IF NOT EXISTS idx_chunks_workflow ON paper_chunks_meta(workflow_id)")
-        await db.execute("CREATE INDEX IF NOT EXISTS idx_chunks_paper ON paper_chunks_meta(paper_id)")
-        await db.commit()
-    except Exception:
-        pass
-    # Migration: add screening_corrections and learned_criteria (Idea 4 - Active Learning)
-    try:
-        await db.execute("""
-            CREATE TABLE IF NOT EXISTS screening_corrections (
-                id              INTEGER PRIMARY KEY AUTOINCREMENT,
-                workflow_id     TEXT NOT NULL,
-                paper_id        TEXT NOT NULL,
-                ai_decision     TEXT NOT NULL,
-                human_decision  TEXT NOT NULL,
-                human_reason    TEXT,
-                created_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            )
-        """)
-        await db.execute("""
-            CREATE TABLE IF NOT EXISTS learned_criteria (
-                id              INTEGER PRIMARY KEY AUTOINCREMENT,
-                workflow_id     TEXT NOT NULL,
-                criterion_type  TEXT NOT NULL,
-                criterion_text  TEXT NOT NULL,
-                source_paper_ids TEXT,
-                version         INTEGER DEFAULT 1,
-                created_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            )
-        """)
-        await db.execute("CREATE INDEX IF NOT EXISTS idx_corrections_workflow ON screening_corrections(workflow_id)")
-        await db.execute("CREATE INDEX IF NOT EXISTS idx_criteria_workflow ON learned_criteria(workflow_id)")
-        await db.commit()
-    except Exception:
-        pass
-    # Migration: add knowledge graph tables (Idea 5)
-    try:
-        await db.execute("""
-            CREATE TABLE IF NOT EXISTS paper_relationships (
-                workflow_id     TEXT NOT NULL,
-                source_paper_id TEXT NOT NULL,
-                target_paper_id TEXT NOT NULL,
-                rel_type        TEXT NOT NULL,
-                weight          REAL,
-                PRIMARY KEY (workflow_id, source_paper_id, target_paper_id, rel_type),
-                FOREIGN KEY (source_paper_id) REFERENCES papers(paper_id),
-                FOREIGN KEY (target_paper_id) REFERENCES papers(paper_id)
-            )
-        """)
-        await db.execute("""
-            CREATE TABLE IF NOT EXISTS graph_communities (
-                workflow_id     TEXT NOT NULL,
-                community_id    INTEGER NOT NULL,
-                paper_ids       TEXT NOT NULL,
-                label           TEXT,
-                PRIMARY KEY (workflow_id, community_id)
-            )
-        """)
-        await db.execute("""
-            CREATE TABLE IF NOT EXISTS research_gaps (
-                gap_id          TEXT PRIMARY KEY,
-                workflow_id     TEXT NOT NULL,
-                description     TEXT NOT NULL,
-                related_paper_ids TEXT,
-                gap_type        TEXT NOT NULL,
-                created_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            )
-        """)
-        await db.execute("CREATE INDEX IF NOT EXISTS idx_gaps_workflow ON research_gaps(workflow_id)")
-        await db.commit()
-    except Exception:
-        pass
+
+
+async def _table_columns(db: aiosqlite.Connection, table: str) -> set[str]:
+    async with db.execute(f"PRAGMA table_info({table})") as cur:
+        rows = await cur.fetchall()
+    return {str(row[1]) for row in rows}
+
+
+async def _validate_schema_contract(db: aiosqlite.Connection) -> None:
+    """Fail fast when critical runtime.db contract columns are missing."""
+    required: dict[str, set[str]] = {
+        "event_log": {"workflow_id", "event_type", "payload", "ts"},
+        "cost_records": {"workflow_id", "model", "phase", "tokens_in", "tokens_out", "cost_usd", "latency_ms"},
+        "decision_log": {"workflow_id", "decision_type", "phase", "actor"},
+        "dual_screening_results": {"workflow_id", "paper_id", "stage", "final_decision"},
+        "screening_decisions": {"workflow_id", "paper_id", "stage", "decision"},
+        "extraction_records": {"workflow_id", "paper_id", "study_design", "extraction_source", "data"},
+        "section_drafts": {"workflow_id", "section", "version", "content"},
+        "manuscript_sections": {"workflow_id", "section_key", "section_order", "version", "content"},
+        "manuscript_blocks": {"workflow_id", "section_key", "section_version", "block_order", "block_type", "text"},
+        "manuscript_assemblies": {"workflow_id", "assembly_id", "target_format", "content", "manifest_json"},
+    }
+    for table, required_cols in required.items():
+        cols = await _table_columns(db, table)
+        missing = sorted(required_cols - cols)
+        if missing:
+            raise RuntimeError(f"runtime.db schema contract violation: {table} missing columns: {missing}")
 
 
 async def repair_foreign_key_integrity(db: aiosqlite.Connection) -> int:
