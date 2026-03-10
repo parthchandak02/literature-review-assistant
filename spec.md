@@ -207,7 +207,7 @@ PUBMED_EMAIL=...                # Required for PubMed Entrez (Biopython)
 PUBMED_API_KEY=...              # Optional; raises PubMed rate limit from 3 to 10 req/sec
 PERPLEXITY_SEARCH_API_KEY=...   # Optional; for auxiliary discovery connector
 SEMANTIC_SCHOLAR_API_KEY=...    # Optional; improves rate limits for Semantic Scholar
-PORT=8001                       # Optional; backend port (default 8001 in dev, 8002 in prod)
+PORT=8001                       # Optional; backend port (default 8001 in dev, 8000 in prod)
 UI_PORT=5173                    # Optional; Vite dev server port (dev only)
 ```
 
@@ -888,7 +888,7 @@ Each active run in `src/web/app.py` is tracked as a `_RunRecord` class (not a da
 - `error`: optional error message string
 - `outputs`: artifact label->path dict populated at finalize
 - `run_root`: root directory for this run's artifacts
-- `created_at`: ISO timestamp of run creation
+- `created_at`: monotonic clock seconds (float) for in-memory TTL eviction
 - `review_yaml`: original review.yaml content stored at run start
 
 ---
@@ -1035,7 +1035,7 @@ uv run python -m src.main export --workflow-id abc123 --run-root runs/
 ```
 uv run ruff check . --fix && uv run ruff format .   # Python lint + format
 cd frontend && pnpm fix && pnpm typecheck           # ESLint + TypeScript
-uv run pytest tests/unit -q                         # 211 unit tests
+uv run pytest tests/unit -q                         # unit tests
 uv run pytest tests/integration -q                 # integration tests (require config/review.yaml)
 uv run python -m src.main --help                    # confirm CLI loads without error
 ```

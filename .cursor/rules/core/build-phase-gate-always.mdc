@@ -10,7 +10,7 @@ alwaysApply: false
 Phase 1: Foundation, Phase 2: Search, Phase 3: Screening, Phase 4: Extraction & Quality,
 Phase 5: Synthesis, Phase 6: Writing, Phase 7: PRISMA & Viz, Phase 8: Export & Orchestration
 
-All phases implemented and verified. See `spec.md` Section 13 for detailed acceptance criteria.
+All phases implemented and verified. See `spec.md` Implementation Status and Definition of Done sections for detailed acceptance criteria.
 
 ## Test Commands
 ```bash

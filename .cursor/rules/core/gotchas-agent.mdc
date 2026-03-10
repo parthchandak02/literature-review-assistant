@@ -46,6 +46,14 @@ so the frontend shows live progress. If the API is down, the CLI runs locally (n
 Use `--no-api` to force local run even when the API is up. Local-only runs appear in RECENT
 but without heartbeat they may show as "stale" after 5 min.
 
+## WebRunContext Does Not Have `console`
+`WebRunContext` in `src/orchestration/context.py` does not expose a `.console` attribute.
+Any direct access like `run_context.console` in workflow code will raise:
+`AttributeError: 'WebRunContext' object has no attribute 'console'` during API resume.
+Use a safe lookup instead:
+`_console = getattr(run_context, "console", None)` and branch on `_console is not None`.
+Keep web-safe logging via `log_status()` / event emission paths for contexts without a console.
+
 ## Citation Ledger: Numeric [N] Keys Are Valid
 The final `doc_manuscript.md` uses numbered citations [1], [2], ... after
 `convert_to_numbered_citations()` replaces author-year citekeys. The citation
