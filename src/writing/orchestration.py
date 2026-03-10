@@ -264,10 +264,7 @@ def _ensure_structured_abstract(content: str, research_question: str) -> str:
     if not text:
         text = "Evidence synthesis was generated from included studies."
 
-    _present = {
-        f: bool(re.search(rf"\*\*{re.escape(f)}:\*\*", text, flags=re.IGNORECASE))
-        for f in _ABSTRACT_FIELDS
-    }
+    _present = {f: bool(re.search(rf"\*\*{re.escape(f)}:\*\*", text, flags=re.IGNORECASE)) for f in _ABSTRACT_FIELDS}
     if all(_present.values()):
         return text
 

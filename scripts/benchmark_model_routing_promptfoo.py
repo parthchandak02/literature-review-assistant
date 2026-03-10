@@ -24,7 +24,6 @@ import yaml
 from rich.console import Console
 from rich.table import Table
 
-
 console = Console()
 
 
@@ -159,7 +158,10 @@ def _build_config(
         "defaultTest": {
             "assert": base_assert
             + [
-                {"type": "javascript", "value": "output.split(/\\s+/).length >= 90 && output.split(/\\s+/).length <= 220"},
+                {
+                    "type": "javascript",
+                    "value": "output.split(/\\s+/).length >= 90 && output.split(/\\s+/).length <= 220",
+                },
                 {"type": "javascript", "value": "!/\\b(as an ai|i am an ai|language model)\\b/i.test(output)"},
             ]
         },
@@ -168,7 +170,9 @@ def _build_config(
 
     output_yaml.parent.mkdir(parents=True, exist_ok=True)
     (output_yaml.parent / "screening.yaml").write_text(yaml.safe_dump(screening_cfg, sort_keys=False), encoding="utf-8")
-    (output_yaml.parent / "extraction.yaml").write_text(yaml.safe_dump(extraction_cfg, sort_keys=False), encoding="utf-8")
+    (output_yaml.parent / "extraction.yaml").write_text(
+        yaml.safe_dump(extraction_cfg, sort_keys=False), encoding="utf-8"
+    )
     (output_yaml.parent / "writing.yaml").write_text(yaml.safe_dump(writing_cfg, sort_keys=False), encoding="utf-8")
     output_yaml.write_text(
         yaml.safe_dump(
@@ -206,7 +210,9 @@ def _run_promptfoo(work_dir: Path, json_out: Path) -> int:
             if proc.stderr:
                 console.print(proc.stderr)
     # Merge quick summary payload path for downstream parsing.
-    json_out.write_text(json.dumps({"result_files": [f"{c.split('.')[0]}.results.json" for c in configs]}), encoding="utf-8")
+    json_out.write_text(
+        json.dumps({"result_files": [f"{c.split('.')[0]}.results.json" for c in configs]}), encoding="utf-8"
+    )
     if failures:
         console.print(f"[yellow]promptfoo completed with {failures} scenario-level failures.[/yellow]")
     else:
@@ -232,7 +238,9 @@ def _print_summary(json_out: Path) -> None:
         provider = row.get("provider", "unknown")
         metrics = row.get("metrics", {})
         s = stats.setdefault(provider, {"tests": 0.0, "passed": 0.0, "latency": 0.0, "cost": 0.0})
-        tests = float(metrics.get("testPassCount", 0) + metrics.get("testFailCount", 0) + metrics.get("testErrorCount", 0))
+        tests = float(
+            metrics.get("testPassCount", 0) + metrics.get("testFailCount", 0) + metrics.get("testErrorCount", 0)
+        )
         passed = float(metrics.get("testPassCount", 0))
         s["tests"] += tests
         s["passed"] += passed

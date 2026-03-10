@@ -16,9 +16,7 @@ logger = logging.getLogger(__name__)
 # Accepted citation token patterns in brackets:
 # - canonical AuthorYear keys: [Smith2023], [DeVries2021a]
 # - placeholder fallback keys: [Ref141], [Paper_ab12cd]
-_CITEKEY_RE = re.compile(
-    r"\[((?:[A-Za-z][A-Za-z0-9_\-']+\d{4}[a-z]?|Ref\d+|Paper_[A-Za-z0-9_\-]+))\]"
-)
+_CITEKEY_RE = re.compile(r"\[((?:[A-Za-z][A-Za-z0-9_\-']+\d{4}[a-z]?|Ref\d+|Paper_[A-Za-z0-9_\-]+))\]")
 _PLACEHOLDER_CITEKEY_RE = re.compile(r"^(Ref\d+|Paper_[A-Za-z0-9_\-]+)$")
 
 

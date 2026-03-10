@@ -66,9 +66,7 @@ def _validate_model_configuration(settings: SettingsConfig, raw_settings: dict) 
             missing.append(f"agents.{agent_name}.model")
 
     rag_raw = raw_settings.get("rag") if isinstance(raw_settings.get("rag"), dict) else {}
-    extraction_raw = (
-        raw_settings.get("extraction") if isinstance(raw_settings.get("extraction"), dict) else {}
-    )
+    extraction_raw = raw_settings.get("extraction") if isinstance(raw_settings.get("extraction"), dict) else {}
 
     # Validate explicit YAML entries (avoid breaking minimal test configs that omit sections).
     if "embed_model" in rag_raw and not (settings.rag.embed_model or "").strip():

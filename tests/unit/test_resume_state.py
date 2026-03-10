@@ -7,14 +7,14 @@ from types import SimpleNamespace
 
 import pytest
 
-from src.db.workflow_registry import RegistryEntry
 from src.db.database import get_db
 from src.db.repositories import WorkflowRepository
+from src.db.workflow_registry import RegistryEntry
 from src.models import CandidatePaper, SectionDraft
 from src.models.enums import ScreeningDecisionType, SourceCategory
+from src.orchestration import workflow as workflow_module
 from src.orchestration.resume import load_resume_state
 from src.orchestration.state import ReviewState
-from src.orchestration import workflow as workflow_module
 from src.orchestration.workflow import _rc_print
 
 
@@ -234,7 +234,9 @@ async def test_run_workflow_web_context_without_console_uses_non_console_resume_
     async def _fake_resume(**_kwargs):
         return {"status": "ok", "workflow_id": "wf-1234"}
 
-    monkeypatch.setattr(workflow_module, "load_configs", lambda *_args, **_kwargs: (SimpleNamespace(research_question="topic"), None))
+    monkeypatch.setattr(
+        workflow_module, "load_configs", lambda *_args, **_kwargs: (SimpleNamespace(research_question="topic"), None)
+    )
     monkeypatch.setattr(workflow_module, "_hash_config", lambda *_args, **_kwargs: "hash")
     monkeypatch.setattr(workflow_module, "find_by_topic", _fake_find_by_topic)
     monkeypatch.setattr(workflow_module, "get_db", lambda _path: DummyDbContext())
