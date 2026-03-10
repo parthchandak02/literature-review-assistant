@@ -493,6 +493,30 @@ def test_zero_papers_minimal_abstract_contains_all_structured_fields() -> None:
         assert f"**{field}:**" in abstract
 
 
+def test_validate_writing_persistence_invariant_passes_when_all_sections_present() -> None:
+    from src.orchestration.workflow import _validate_writing_persistence_invariant
+
+    violated, missing = _validate_writing_persistence_invariant(
+        required_sections=["abstract", "introduction", "methods"],
+        persisted_sections={"abstract", "introduction", "methods"},
+        failed_sections=[],
+    )
+    assert violated is False
+    assert missing == []
+
+
+def test_validate_writing_persistence_invariant_flags_missing_or_failed_sections() -> None:
+    from src.orchestration.workflow import _validate_writing_persistence_invariant
+
+    violated, missing = _validate_writing_persistence_invariant(
+        required_sections=["abstract", "introduction", "methods"],
+        persisted_sections={"abstract", "introduction"},
+        failed_sections=["methods"],
+    )
+    assert violated is True
+    assert missing == ["methods"]
+
+
 def test_ensure_structured_abstract_adds_missing_fields() -> None:
     from src.writing.orchestration import _ensure_structured_abstract
 
