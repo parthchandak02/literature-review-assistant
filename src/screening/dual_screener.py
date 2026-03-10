@@ -1203,6 +1203,8 @@ class DualReviewerScreener:
             for paper in chunk:
                 if paper.paper_id not in reviewer_a_map:
                     _log.warning("Batch A missing paper %s -- falling back to individual call", paper.paper_id)
+                    if self.on_status:
+                        self.on_status(f"Batch A missing paper {paper.paper_id} -- falling back to individual call")
                     d = await self._run_reviewer(workflow_id, paper, stage, ft.get(paper.paper_id), spec_a)
                     reviewer_a_map[paper.paper_id] = d
             papers_done_after = len(heuristic_decisions) + (chunk_idx + 1) * batch_size
@@ -1261,6 +1263,8 @@ class DualReviewerScreener:
                 for paper in chunk:
                     if paper.paper_id not in reviewer_b_map:
                         _log.warning("Batch B missing paper %s -- falling back to individual call", paper.paper_id)
+                        if self.on_status:
+                            self.on_status(f"Batch B missing paper {paper.paper_id} -- falling back to individual call")
                         d = await self._run_reviewer(
                             workflow_id,
                             paper,

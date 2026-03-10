@@ -17,7 +17,7 @@ export function Th({ children, align, filter, className }: ThProps) {
   return (
     <th
       className={cn(
-        "px-4 py-2.5 text-xs font-medium text-zinc-500 uppercase tracking-wide",
+        "px-4 py-2.5 text-xs font-medium text-zinc-300 uppercase tracking-wide",
         align === "right" ? "text-right" : "text-left",
         className,
       )}
@@ -48,7 +48,7 @@ export function Td({ children, className, align }: TdProps) {
   return (
     <td
       className={cn(
-        "px-4 py-2.5",
+        "px-4 py-2.5 text-zinc-200",
         align === "right" ? "text-right" : "text-left",
         className,
       )}
@@ -71,13 +71,13 @@ interface TableSkeletonProps {
 
 export function TableSkeleton({ cols, rows }: TableSkeletonProps) {
   return (
-    <div className="p-4 space-y-2">
+    <div className="p-4 space-y-2 glass-table-shell">
       {Array.from({ length: rows }).map((_, i) => (
         <div key={i} className="flex gap-3">
           {Array.from({ length: cols }).map((_, j) => (
             <div
               key={j}
-              className="h-4 bg-zinc-800 rounded animate-pulse"
+              className="h-4 rounded animate-pulse bg-zinc-700/50"
               style={{ flex: j === 0 ? 3 : 1 }}
             />
           ))}
@@ -108,7 +108,7 @@ export function Pagination({ page, pageSize, total, onPrev, onNext }: Pagination
   if (total <= pageSize) return null
 
   return (
-    <div className="flex items-center justify-between text-xs text-zinc-500">
+    <div className="flex items-center justify-between text-xs text-zinc-400">
       <span>
         {start}-{end} of {total.toLocaleString()}
       </span>

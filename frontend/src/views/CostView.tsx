@@ -275,13 +275,13 @@ export function CostView({ costStats, dbRunId, isLive }: CostViewProps) {
       {/* Cost by model table */}
       {by_model.length > 0 && (
         <div className="card-surface overflow-hidden">
-          <div className="px-5 py-3 border-b border-zinc-800">
+          <div className="glass-toolbar px-5 py-3 border-b border-zinc-800/70">
             <h3 className="text-sm font-semibold text-zinc-300">Cost by Model</h3>
           </div>
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
-                <tr className="border-b border-zinc-800">
+                <tr className="glass-toolbar border-b border-zinc-800/70">
                   <th className="text-left px-5 py-2.5 label-caps">Model</th>
                   <th className="text-right px-4 py-2.5 label-caps">Calls</th>
                   <th className="text-right px-4 py-2.5 label-caps">Tokens In</th>
@@ -322,13 +322,13 @@ export function CostView({ costStats, dbRunId, isLive }: CostViewProps) {
       {/* Cost by phase table */}
       {by_phase.length > 0 && (
         <div className="card-surface overflow-hidden">
-          <div className="px-5 py-3 border-b border-zinc-800">
+          <div className="glass-toolbar px-5 py-3 border-b border-zinc-800/70">
             <h3 className="text-sm font-semibold text-zinc-300">Cost by Phase</h3>
           </div>
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
-                <tr className="border-b border-zinc-800">
+                <tr className="glass-toolbar border-b border-zinc-800/70">
                   <th className="text-left px-5 py-2.5 label-caps">Phase</th>
                   <th className="text-right px-4 py-2.5 label-caps">Calls</th>
                   <th className="text-right px-5 py-2.5 label-caps">Cost</th>

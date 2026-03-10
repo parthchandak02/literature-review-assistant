@@ -751,8 +751,11 @@ run_workflow() emits via WebRunContext._emit(event)
 EventSourceResponse dequeues and sends as SSE
     |
     v
-useSSEStream.ts deduplicates replay buffer + live stream events by timestamp
-setState({events: deduped}) -> all views re-render
+useSSEStream.ts deduplicates by content-stable event keys (not list index),
+caps UI event state (MAX_UI_EVENTS), and appends large replay payloads in chunks
+using startTransition to keep the main thread responsive.
+LogStream virtualizes by row count threshold regardless of viewport width.
+setState({events: merged+capped}) -> all views re-render within bounded cost
 ```
 
 Heartbeat events are sent every 15 seconds of inactivity to keep the connection alive through long phases. `useSSEStream` silently discards heartbeat events.
@@ -766,11 +769,11 @@ The frontend is run-centric. The sidebar is a run list, not a navigation menu. S
 | SetupView | Structured PICO form + keyword/criteria tag inputs + database checkboxes + YAML builder; "Load from past run" dropdown reuses a stored config via `GET /api/history/{workflow_id}/config` |
 | RunView | 7-tab shell (Config, Activity, Data, Cost, Results, References; Review Screening when awaiting_review) for a selected run |
 | ConfigView | Shows research question and timestamped review.yaml for the run; used by agents and for copy-to-clipboard |
-| ActivityView | Phase timeline + stats strip + event log (text search); works for live SSE runs and historical fetched runs |
+| ActivityView | Phase timeline + stats strip + event log (text search); works for live SSE runs and historical fetched runs. Historical runs support two-tap phase resume directly on timeline steps (first tap arms preview range, second tap confirms resume from that phase). |
 | CostView | Recharts bar chart grouped by model/phase + sortable cost/token tables; reads from cost_records DB via /api/db/{run_id}/costs (primary, polls every 5s while active); SSE api_call events used as fallback before first DB response |
 | ResultsView | LaTeX export trigger, DOCX download, inline manuscript viewer, collapsible artifact browser, PRISMA compliance panel, evidence network panel (available when run is done) |
 | DatabaseView | Paginated papers (with search), filterable screening decisions, cost records from runtime.db |
-| Sidebar (history) | Past runs from workflows_registry shown in sidebar run list; "Open" button attaches any run to the DB explorer; no separate HistoryView file exists |
+| Sidebar (history) | Past runs from workflows_registry shown in one stable run list (no live-card reshuffle once history row exists); one-click Resume triggers default auto-resume; no separate HistoryView file exists |
 
 ### 9.4 DB Explorer Flow
 

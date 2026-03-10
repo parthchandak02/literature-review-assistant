@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react"
+import { startTransition, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react"
 import { fetchEventSource } from "@microsoft/fetch-event-source"
 import { fetchRunEvents, fetchWorkflowEvents } from "@/lib/api"
 import type { ReviewEvent } from "@/lib/api"
@@ -9,7 +9,10 @@ export interface SSEState {
   error: string | null
 }
 
-const SSE_FLUSH_INTERVAL_MS = 150
+const SSE_FLUSH_INTERVAL_MS = 250
+const MAX_UI_EVENTS = 2000
+const PREFETCH_CHUNK_SIZE = 300
+const DEV_PERF_LOG = import.meta.env.DEV
 
 /** Converts raw fetch/network errors to a user-friendly message. */
 function friendlyError(err: unknown): string {
@@ -104,6 +107,81 @@ function dedup(events: ReviewEvent[]): ReviewEvent[] {
   return out
 }
 
+function isPhaseMarker(ev: ReviewEvent): ev is Extract<ReviewEvent, { type: "phase_start" | "phase_done" | "progress" }> {
+  return ev.type === "phase_start" || ev.type === "phase_done" || ev.type === "progress"
+}
+
+function capEvents(events: ReviewEvent[], maxEvents: number): ReviewEvent[] {
+  if (events.length <= maxEvents) return events
+
+  const byKey = new Map<string, ReviewEvent>()
+  for (let i = 0; i < events.length; i++) {
+    const ev = normalizeEvent(events[i])
+    byKey.set(eventKey(ev), ev)
+  }
+
+  const protectedKeys = new Set<string>()
+
+  for (let i = events.length - 1; i >= 0; i--) {
+    const ev = normalizeEvent(events[i])
+    if (ev.type === "done" || ev.type === "error" || ev.type === "cancelled") {
+      protectedKeys.add(eventKey(ev))
+      break
+    }
+  }
+
+  const protectedPhaseNames = new Set<string>()
+  for (let i = events.length - 1; i >= 0; i--) {
+    const ev = normalizeEvent(events[i])
+    if (!isPhaseMarker(ev)) continue
+    if (protectedPhaseNames.has(ev.phase)) continue
+    protectedPhaseNames.add(ev.phase)
+    protectedKeys.add(eventKey(ev))
+  }
+
+  const tail = events.slice(-maxEvents).map(normalizeEvent)
+  const tailKeys = new Set(tail.map((ev) => eventKey(ev)))
+  const missingProtected: ReviewEvent[] = []
+  protectedKeys.forEach((k) => {
+    if (!tailKeys.has(k)) {
+      const ev = byKey.get(k)
+      if (ev) missingProtected.push(ev)
+    }
+  })
+
+  let merged = dedup([...missingProtected, ...tail])
+  if (merged.length <= maxEvents) return merged
+
+  let toDrop = merged.length - maxEvents
+  const protectedInMerged = new Set(
+    merged
+      .map((ev) => eventKey(normalizeEvent(ev)))
+      .filter((k) => protectedKeys.has(k)),
+  )
+
+  const trimmed: ReviewEvent[] = []
+  for (let i = 0; i < merged.length; i++) {
+    const ev = normalizeEvent(merged[i])
+    const k = eventKey(ev)
+    if (toDrop > 0 && !protectedInMerged.has(k)) {
+      toDrop--
+      continue
+    }
+    trimmed.push(ev)
+  }
+
+  if (trimmed.length > maxEvents) {
+    merged = trimmed.slice(-maxEvents)
+  } else {
+    merged = trimmed
+  }
+  return merged
+}
+
+function mergeForUi(previous: ReviewEvent[], incoming: ReviewEvent[]): ReviewEvent[] {
+  return capEvents(dedup([...previous, ...incoming]), MAX_UI_EVENTS)
+}
+
 type SetState = React.Dispatch<React.SetStateAction<SSEState>>
 
 /**
@@ -127,24 +205,36 @@ function openStream(runId: string, signal: AbortSignal, setState: SetState, work
     clearFlushTimer()
     if (pending.length === 0) return
     const batch = pending.splice(0, pending.length)
-    setState((s) => {
-      const merged = dedup([...s.events, ...batch])
-      const terminal = [...batch].reverse().find(
-        (e) => e.type === "done" || e.type === "error" || e.type === "cancelled",
-      )
-      const status =
-        terminal?.type === "done"
-          ? "done"
-          : terminal?.type === "error"
-          ? "error"
-          : terminal?.type === "cancelled"
-          ? "cancelled"
-          : s.status
-      return {
-        events: merged,
-        status,
-        error: terminal?.type === "error" ? terminal.msg : s.error,
-      }
+    const startedAt = performance.now()
+    startTransition(() => {
+      setState((s) => {
+        const merged = mergeForUi(s.events, batch)
+        const terminal = [...batch].reverse().find(
+          (e) => e.type === "done" || e.type === "error" || e.type === "cancelled",
+        )
+        const status =
+          terminal?.type === "done"
+            ? "done"
+            : terminal?.type === "error"
+            ? "error"
+            : terminal?.type === "cancelled"
+            ? "cancelled"
+            : s.status
+        if (DEV_PERF_LOG) {
+          const elapsed = performance.now() - startedAt
+          console.debug("[SSE flush]", {
+            batchSize: batch.length,
+            eventsBefore: s.events.length,
+            eventsAfter: merged.length,
+            elapsedMs: Math.round(elapsed),
+          })
+        }
+        return {
+          events: merged,
+          status,
+          error: terminal?.type === "error" ? terminal.msg : s.error,
+        }
+      })
     })
   }
 
@@ -252,6 +342,27 @@ export function useSSEStream(runId: string | null, workflowId?: string | null) {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setState((s) => ({ ...s, status: "connecting", error: null }))
 
+    const appendPriorInChunks = (priorEvents: ReviewEvent[], onDone: () => void) => {
+      let offset = 0
+      const pushNext = () => {
+        if (ctrl.signal.aborted) return
+        const chunk = priorEvents.slice(offset, offset + PREFETCH_CHUNK_SIZE)
+        if (chunk.length === 0) {
+          onDone()
+          return
+        }
+        offset += chunk.length
+        startTransition(() => {
+          setState((s) => ({
+            ...s,
+            events: mergeForUi(s.events, chunk),
+          }))
+        })
+        window.setTimeout(pushNext, 0)
+      }
+      pushNext()
+    }
+
     // Phase 1: prefetch any events already buffered on the backend (handles
     // page refresh during a live run and reconnect after network glitch).
     fetchRunEvents(runId)
@@ -274,7 +385,7 @@ export function useSSEStream(runId: string | null, workflowId?: string | null) {
                 ? "error"
                 : "cancelled"
             setState({
-              events: normalizedPrior,
+              events: capEvents(normalizedPrior, MAX_UI_EVENTS),
               status,
               error: terminal.type === "error" ? terminal.msg : null,
             })
@@ -282,10 +393,20 @@ export function useSSEStream(runId: string | null, workflowId?: string | null) {
             return
           }
           // Seed state with prior events before streaming begins.
-          setState((s) => ({
-            ...s,
-            events: dedup([...s.events, ...normalizedPrior]),
-          }))
+          if (normalizedPrior.length > PREFETCH_CHUNK_SIZE) {
+            appendPriorInChunks(normalizedPrior, () => {
+              if (!ctrl.signal.aborted) {
+                openStream(runId, ctrl.signal, setState, workflowIdRef.current)
+              }
+            })
+            return
+          }
+          startTransition(() => {
+            setState((s) => ({
+              ...s,
+              events: mergeForUi(s.events, normalizedPrior),
+            }))
+          })
         }
 
         // Phase 2: open live SSE stream for remaining / future events.

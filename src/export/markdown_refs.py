@@ -13,6 +13,55 @@ from src.quality.grade import build_sof_table, cluster_grade_assessments_by_them
 
 logger = logging.getLogger(__name__)
 
+_SUMMARY_HTML_BOILERPLATE_MARKERS = (
+    "html boilerplate",
+    "metadata",
+    "text excerpt",
+    "javascript",
+    "<!doctype",
+    "<html",
+)
+_SUMMARY_PDF_METADATA_PREFIXES = (
+    "pmc ",
+    "doi ",
+    "doi:",
+    "p g y",
+    "p g\n",
+    "serial ",
+    "## research",
+    "# research",
+    "### ",
+    "## reviews",
+    "open access",
+)
+_SUMMARY_LLM_EXPLANATION_PHRASES = (
+    "the provided text is",
+    "the text provided is",
+    "this text does not",
+    "does not contain the",
+    "is an editorial header",
+    "no specific methodology",
+    "cannot be determined from",
+    "the abstract does not",
+    "no outcomes were reported",
+    "insufficient information",
+    "consists primarily of css and html code",
+)
+
+
+def _sanitize_summary_text(raw_text: str) -> str:
+    """Return cleaned summary text or 'NR' when content is artifact-like."""
+    summary = (raw_text or "").strip()
+    if not summary:
+        return "NR"
+    summary_lower = summary.lower().lstrip()
+    is_boilerplate = any(marker in summary_lower for marker in _SUMMARY_HTML_BOILERPLATE_MARKERS)
+    is_pdf_metadata = any(summary_lower.startswith(pfx) for pfx in _SUMMARY_PDF_METADATA_PREFIXES)
+    is_llm_explanation = any(phrase in summary_lower for phrase in _SUMMARY_LLM_EXPLANATION_PHRASES)
+    if is_boilerplate or is_pdf_metadata or is_llm_explanation:
+        return "NR"
+    return summary
+
 
 def _ascii_citekey(key: str) -> str:
     """Normalize a citekey to ASCII by stripping combining accent marks.
@@ -837,9 +886,11 @@ def build_compact_study_table(
             or summary_dict.get("primary_outcome")
             or ""
         ).strip()
+        finding = _sanitize_summary_text(finding)
         if len(finding) > 100:
             finding = finding[:97] + "..."
         finding = finding if finding else "NR"
+        finding = _escape_table_cell(finding)
 
         rows.append((study_col, country, design_str, n_str, finding))
 
@@ -928,30 +979,6 @@ def build_study_characteristics_table(
         setting_str = _RAW_SETTING_NORMALIZE.get(raw_setting.lower(), raw_setting) or "NR"
 
         # Key outcomes - take first two real (non-placeholder) outcome names
-        _HTML_BOILERPLATE_MARKERS = (
-            "html boilerplate",
-            "metadata",
-            "text excerpt",
-            "javascript",
-            "<!doctype",
-            "<html",
-        )
-        # PDF/PMC metadata patterns that appear at the start of heuristic summaries
-        # when full-text retrieval returns raw XML or PDF header content instead
-        # of clean prose. These are detected by matching the first ~50 chars.
-        _PDF_METADATA_PREFIXES = (
-            "pmc ",
-            "doi ",
-            "doi:",
-            "p g y",
-            "p g\n",
-            "serial ",
-            "## research",
-            "# research",
-            "### ",
-            "## reviews",
-            "open access",
-        )
         real_names = [
             o.name.strip() for o in (rec.outcomes or [])[:3] if o.name.strip().lower() not in _PLACEHOLDER_OUTCOME_NAMES
         ]
@@ -964,36 +991,17 @@ def build_study_characteristics_table(
                 summary = rec.results_summary.get("summary", "")
             elif isinstance(rec.results_summary, str):
                 summary = rec.results_summary
-            # LLM explanation phrases: the section writer or extractor sometimes
-            # returns a meta-comment about the paper instead of actual outcomes
-            # (e.g. "The provided text is an editorial header and does not contain...").
-            # These must be caught separately from PDF/PMC metadata patterns.
-            _LLM_EXPLANATION_PHRASES = (
-                "the provided text is",
-                "the text provided is",
-                "this text does not",
-                "does not contain the",
-                "is an editorial header",
-                "no specific methodology",
-                "cannot be determined from",
-                "the abstract does not",
-                "no outcomes were reported",
-                "insufficient information",
-            )
-            summary_lower = summary.lower().lstrip()
-            # Guard: detect HTML boilerplate, PDF/PMC metadata, or LLM meta-comments
-            # in the heuristic summary and replace with "NR" rather than leaking them.
-            is_boilerplate = any(marker in summary_lower for marker in _HTML_BOILERPLATE_MARKERS)
-            is_pdf_metadata = any(summary_lower.startswith(pfx) for pfx in _PDF_METADATA_PREFIXES)
-            is_llm_explanation = any(phrase in summary_lower for phrase in _LLM_EXPLANATION_PHRASES)
-            if is_boilerplate or is_pdf_metadata or is_llm_explanation:
+            sanitized_summary = _sanitize_summary_text(summary)
+            if sanitized_summary == "NR":
                 outcomes_str = "NR"
                 logger.warning(
                     "Artifact/explanation text detected in results_summary for paper %s; Key Outcomes set to NR.",
                     paper_id,
                 )
             else:
-                outcomes_str = summary[:200].rstrip() + "..." if len(summary) > 200 else summary or "NR"
+                outcomes_str = (
+                    sanitized_summary[:200].rstrip() + "..." if len(sanitized_summary) > 200 else sanitized_summary
+                )
         # Escape newlines and pipe chars so the cell does not break the markdown table.
         outcomes_str = _escape_table_cell(outcomes_str)
 

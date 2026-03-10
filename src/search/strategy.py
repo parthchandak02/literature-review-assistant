@@ -184,6 +184,7 @@ class SearchStrategyCoordinator:
                     )
                 await self.repository.append_decision_log(
                     DecisionLogEntry(
+                        workflow_id=self.workflow_id,
                         decision_type="search_connector_error",
                         decision="failed",
                         rationale=f"{connector.name}: {type(outcome).__name__}: {outcome}",

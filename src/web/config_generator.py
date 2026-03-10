@@ -124,6 +124,10 @@ _GENERIC_NOISE_TERMS = {
     "methods",
 }
 
+_MIN_KEYWORD_TOKEN_LEN = 2
+_MAX_BRAND_KEYWORD_RATIO = 0.35
+_MAX_BRAND_KEYWORD_ABS = 8
+
 _SUPPORTED_DATABASES = [
     "openalex",
     "pubmed",
@@ -349,7 +353,7 @@ class _GeneratedConfig(BaseModel):
     review_type: str = Field(description="Always 'systematic'")
     pico: _Pico
     keywords: list[str] = Field(
-        description="18-24 specific search keywords including intervention synonyms, abbreviations, commercial brand names, population/setting terms, outcome terms, and implementation terms",
+        description="18-24 specific search keywords including intervention synonyms, abbreviations, population/setting terms, outcome terms, and implementation terms; brands/acronyms may appear but must remain supplemental; each keyword must include at least one token with length >= 2",
         min_length=15,
         max_length=28,
     )
@@ -424,6 +428,16 @@ _GENERIC_HINTS = {
     "productivity",
     "agriculture",
     "transportation",
+    "engineering",
+    "usability",
+    "prototype",
+    "prototyping",
+    "human factors",
+    "user experience",
+    "ux",
+    "interface",
+    "dashboard",
+    "workflow design",
 }
 
 
@@ -478,9 +492,9 @@ def _route_topic_with_confidence(cfg: _GeneratedConfig) -> _DomainRoute:
     generic_score = float(len(matched_generic))
     total_signal = max(1.0, bio_score + generic_score)
 
-    if bio_score >= generic_score and bio_score >= 2.0:
+    if bio_score >= generic_score and bio_score >= 2.5:
         confidence = round(bio_score / total_signal, 3)
-        if confidence >= 0.6:
+        if confidence >= 0.67:
             return _DomainRoute(
                 domain="biomedical",
                 confidence=confidence,
@@ -679,16 +693,14 @@ _RESEARCH_PROMPT = (
     "Search for and report back:\n"
     "1. The main technology, system, or intervention -- all synonyms, abbreviations,\n"
     "   and alternate names used in the academic literature.\n"
-    "2. Specific commercial products and vendor brand names in this space that appear\n"
-    "   in published studies (e.g. for an educational technology review: 'Coursera', 'Canvas LMS',\n"
-    "   'Duolingo'; for an automation review: 'RPA', 'UiPath', 'Blue Prism'). Include as many as\n"
-    "   you can find. These are critical for database search coverage.\n"
-    "3. The typical population or setting studied and any relevant sub-settings.\n"
-    "4. Key quantitative outcome measures and metrics used to evaluate this intervention\n"
-    "   (e.g. for an engineering review: 'accuracy', 'throughput', 'error rate', 'latency';\n"
-    "   for a social science review: 'mean score improvement', 'effect size', 'adherence rate').\n"
-    "5. Common implementation or adoption challenges and workflow terms.\n"
-    "6. Any adjacent or overlapping technologies that should be distinguished from the\n"
+    "2. Broad domain terms and alternative phrasing used by different fields for the same\n"
+    "   concept (maximize synonym and wording coverage for recall).\n"
+    "3. Representative product/vendor names only when they are common in the literature.\n"
+    "   Keep this supplemental, not dominant.\n"
+    "4. The typical population or setting studied and relevant sub-settings.\n"
+    "5. Key quantitative outcome measures and metrics used to evaluate this intervention.\n"
+    "6. Common implementation or adoption challenges and workflow terms.\n"
+    "7. Any adjacent or overlapping technologies that should be distinguished from the\n"
     "   main intervention (so they can be excluded from the review).\n\n"
     "Format as a concise bullet-point brief. Be specific. Include real brand names,\n"
     "real domain terms, and real metric names. Do not generalize."
@@ -727,14 +739,14 @@ _STRUCTURE_PROMPT = (
     "  brief above. Cover ALL of:\n"
     "  (a) the core intervention technology and its synonyms and abbreviations from\n"
     "      the research brief,\n"
-    "  (b) the specific commercial brand names and product lines found in the\n"
-    "      research brief -- these MUST be included verbatim,\n"
+    "  (b) optional representative commercial brand names and product lines from the\n"
+    "      research brief when they are frequently used in studies,\n"
     "  (c) the population, setting, and context keywords from the research brief,\n"
     "  (d) the specific outcome measure terms and measurable targets found in the\n"
     "      research brief (e.g. exact metric names),\n"
     "  (e) implementation-related terms (barriers, facilitators, adoption, workflow).\n"
     "  CRITICAL -- these keywords are used to pre-filter paper ABSTRACTS via substring\n"
-    "  matching, NOT as database query strings. Two mandatory rules:\n"
+    "  matching, NOT as database query strings. Four mandatory rules:\n"
     "  RULE 1 -- Include SHORT ROOT FORMS: For every multi-word concept, also include\n"
     "  the single most discriminative word as its own keyword entry, because abstracts\n"
     "  vary phrasing. The root word catches all variants that multi-word phrases miss.\n"
@@ -748,6 +760,14 @@ _STRUCTURE_PROMPT = (
     "  'effectiveness', 'implementation', or 'quality of life'.\n"
     "  These can match papers from any field and reduce screening precision.\n"
     "  Only include terms that are specific to YOUR topic domain.\n"
+    "  RULE 3 -- Ban fragments: NEVER include single letters, single-character tokens,\n"
+    "  or parsing artifacts (e.g. 'n', 'x', '_'). Every keyword must have at least one\n"
+    "  alphanumeric token with length >= 2.\n"
+    "  RULE 4 -- Balance keyword mix: at least 60% of keywords must be domain concepts,\n"
+    "  intervention synonyms, setting terms, or outcome metrics. Brand/acronym keywords\n"
+    "  are supplemental and must not dominate the list.\n"
+    "  RULE 5 -- Recall-first coverage: include phrasing variants and adjacent synonyms so\n"
+    "  downstream screening can filter later; avoid overly narrow phrase locking.\n"
     "- Generate 6-8 inclusion criteria as complete, specific sentences covering:\n"
     "  study type, setting, intervention specificity, outcome reporting, language, and\n"
     "  publication type.\n"
@@ -764,22 +784,20 @@ _STRUCTURE_PROMPT = (
     "- Set review_type to exactly 'systematic'.\n"
     "- Generate search_overrides with database-optimized queries for databases relevant\n"
     "  to this topic. Always include scopus, web_of_science, ieee_xplore, semantic_scholar,\n"
-    "  and openalex. Include pubmed and clinicaltrials_gov only when the topic is clearly\n"
+    "  and openalex. Include pubmed and clinicaltrials_gov only when topic evidence is clearly\n"
     "  biomedical/clinical. Use actual terms from this review's topic, not placeholders.\n"
     "  * pubmed: Use MeSH terms where available plus [Title/Abstract] field codes.\n"
     "    Pattern: (MeSHTerm[MeSH Terms] OR keyword[Title/Abstract] OR ...) AND\n"
     "    (setting_term[Title/Abstract] OR outcome_term[Title/Abstract] OR ...)\n"
     "    CRITICAL for the second AND group: every term must be a SINGLE ROOT WORD.\n"
-    "    A single broad word captures 10-50x more records than a two-word exact phrase.\n"
-    "    Example: 'school'[Title/Abstract] retrieves ~500 records;\n"
-    "    'school setting'[Title/Abstract] retrieves ~20 records (25x fewer).\n"
-    "    Use single root words that describe settings or outcomes for this specific topic.\n"
+    "    Prefer single root words that capture variant phrasing for recall.\n"
+    "    Use setting and outcome terms that broaden capture without drifting off-topic.\n"
     "    Do NOT use multi-word exact phrases in [Title/Abstract] field codes -- they require\n"
     "    both words to appear adjacent in title/abstract and drastically cut recall.\n"
     "    Also avoid narrow secondary MeSH headings in the AND group unless they ARE the\n"
     "    primary topic -- many relevant papers are not indexed under specific narrow MeSH terms.\n"
     "  * scopus: Use TITLE-ABS-KEY field code with two AND-joined clauses of quoted keywords.\n"
-    "    Clause 1: core intervention terms (up to 8). Clause 2: outcome/setting terms (up to 8).\n"
+    "    Clause 1: intervention/synonym terms (up to 8). Clause 2: outcome/setting terms (up to 8).\n"
     "    Add: AND PUBYEAR > YYYY AND PUBYEAR < YYYY using the date range.\n"
     '    Pattern: TITLE-ABS-KEY("kw1" OR "kw2") AND TITLE-ABS-KEY("kw3" OR "kw4")\n'
     "    AND PUBYEAR > 2009 AND PUBYEAR < 2027\n"
@@ -795,10 +813,10 @@ _STRUCTURE_PROMPT = (
     "    Good (online learning review): 'online learning student engagement outcomes implementation'\n"
     "    Good (renewable energy review): 'solar energy adoption barriers policy efficiency'\n"
     "    Bad (any topic): stacked compound nouns that read like a product spec, not a paper abstract.\n"
-    "    Include one specific technology/intervention term, one setting term, one outcome term.\n"
+    "    Include at least one intervention term, one setting term, and one outcome term.\n"
     "  * openalex: 5-8 space-separated keywords ONLY. No quotes, no boolean operators.\n"
     "    Same natural-language guidance as semantic_scholar above.\n"
-    "    CRITICAL: always pair generic outcome words with a specific domain term from this topic.\n"
+    "    CRITICAL: pair generic outcome words with a specific domain term from this topic.\n"
     "    Generic words like 'efficiency', 'accuracy', 'barriers' alone match unrelated industries.\n"
     "    Good (educational technology review): 'educational technology student learning outcomes effectiveness'\n"
     "    Good (autonomous vehicles review): 'autonomous vehicle safety performance urban deployment'\n"
@@ -808,7 +826,7 @@ _STRUCTURE_PROMPT = (
     "    and condition/setting terms. 8-12 terms maximum.\n"
     '    Pattern: "technology term" OR "brand name" OR "condition term"\n'
     "    Do NOT include full PICO descriptions as search terms.\n"
-    "  CRITICAL for all databases: Use only short quoted keyword phrases -- NEVER full\n"
+    "  CRITICAL for all databases: Use short keyword phrases -- NEVER full\n"
     "  sentences or PICO descriptions as search terms. Full PICO strings never appear\n"
     "  verbatim in papers and will always return zero results.\n\n"
     "Return the response as a JSON object matching the schema exactly. All text fields\n"
@@ -925,11 +943,32 @@ def _sanitize_keywords(keywords: list[str]) -> list[str]:
     def _normalize(text: str) -> str:
         return " ".join(text.strip().split())
 
+    def _has_substantive_token(text: str) -> bool:
+        parts = [p for p in re.split(r"[^a-z0-9]+", text.lower()) if p]
+        if not parts:
+            return False
+        return any(len(p) >= _MIN_KEYWORD_TOKEN_LEN for p in parts)
+
+    def _is_brand_or_acronym_keyword(text: str) -> bool:
+        parts = [p for p in re.split(r"[^A-Za-z0-9]+", text) if p]
+        if not parts:
+            return False
+        for part in parts:
+            if any(ch.isdigit() for ch in part):
+                return True
+            if len(part) >= 2 and part.isupper():
+                return True
+        if re.search(r"[A-Z][a-z]+[A-Z]", text):
+            return True
+        return False
+
     cleaned: list[str] = []
     seen: set[str] = set()
     for raw in keywords:
         kw = _normalize(str(raw))
         if not kw:
+            continue
+        if not _has_substantive_token(kw):
             continue
         lowered = kw.lower()
         parts = [p for p in re.split(r"[^a-z0-9]+", lowered) if p]
@@ -950,6 +989,8 @@ def _sanitize_keywords(keywords: list[str]) -> list[str]:
             parts = [p for p in re.split(r"[^a-z0-9]+", lowered) if p]
             if not kw or lowered in seen:
                 continue
+            if not _has_substantive_token(kw):
+                continue
             if lowered in _GENERIC_NOISE_TERMS:
                 continue
             if parts and all(part in _GENERIC_NOISE_TERMS for part in parts):
@@ -959,7 +1000,37 @@ def _sanitize_keywords(keywords: list[str]) -> list[str]:
             if len(cleaned) >= 15:
                 break
 
+    # Cap brand/acronym-heavy terms so domain concepts dominate.
+    brand_like = [k for k in cleaned if _is_brand_or_acronym_keyword(k)]
+    cap = min(_MAX_BRAND_KEYWORD_ABS, max(3, int(len(cleaned) * _MAX_BRAND_KEYWORD_RATIO)))
+    if len(brand_like) > cap:
+        keep: list[str] = []
+        kept_brand = 0
+        for kw in cleaned:
+            if _is_brand_or_acronym_keyword(kw):
+                if kept_brand >= cap:
+                    continue
+                kept_brand += 1
+            keep.append(kw)
+        cleaned = keep
+
     return cleaned[:24]
+
+
+def _keywords_need_repair(keywords: list[str]) -> bool:
+    if len(keywords) < 15:
+        return True
+    roots: set[str] = set()
+    for kw in keywords:
+        parts = [p for p in re.split(r"[^a-z0-9]+", kw.lower()) if p]
+        if not parts or all(len(p) < _MIN_KEYWORD_TOKEN_LEN for p in parts):
+            return True
+        for p in parts:
+            if len(p) >= 4 and p not in _GENERIC_NOISE_TERMS:
+                roots.add(p)
+    if len(roots) < 10:
+        return True
+    return False
 
 
 # ---------------------------------------------------------------------------
@@ -1031,13 +1102,23 @@ async def generate_config_yaml(
     output_type = NativeOutput(StructuredDict(schema))
     structure_agent: Agent = Agent(_model, output_type=output_type)  # type: ignore[arg-type]
 
-    try:
+    async def _run_structure(prompt: str) -> str:
         structure_result = await structure_agent.run(
-            structure_prompt,
+            prompt,
             model_settings={"temperature": _TEMPERATURE},
         )
         output = structure_result.output
-        result_json = json.dumps(output) if isinstance(output, dict) else str(output)
+        return json.dumps(output) if isinstance(output, dict) else str(output)
+
+    repair_instruction = (
+        "\\n\\nREPAIR INSTRUCTION:\\n"
+        "Return valid keywords only. Must include 18-24 items, each with at least one token of "
+        "length >= 2. Do not return single letters/fragments. Keep brands/acronyms supplemental "
+        "(<= 35% of keywords), and prioritize domain/setting/outcome terms."
+    )
+
+    try:
+        result_json = await _run_structure(structure_prompt)
     except Exception as exc:
         logger.error("Config gen Stage 2 (structure) failed: %s", exc)
         raise RuntimeError(f"LLM structuring failed: {exc}") from exc
@@ -1047,12 +1128,18 @@ async def generate_config_yaml(
     try:
         parsed = _GeneratedConfig.model_validate_json(result_json)
     except Exception as exc:
-        logger.error("Config gen response failed validation: %s\nRaw: %s", exc, result_json[:500])
+        logger.warning("Config gen response failed validation; retrying once with repair instruction: %s", exc)
+        emit("structuring_retry")
         try:
-            raw_dict = json.loads(result_json)
-            parsed = _GeneratedConfig.model_validate(raw_dict)
-        except Exception:
-            raise RuntimeError(f"Generated config failed schema validation: {exc}") from exc
+            result_json = await _run_structure(structure_prompt + repair_instruction)
+            parsed = _GeneratedConfig.model_validate_json(result_json)
+        except Exception as retry_exc:
+            logger.error(
+                "Config gen response failed validation after retry: %s\nRaw: %s",
+                retry_exc,
+                result_json[:500],
+            )
+            raise RuntimeError(f"Generated config failed schema validation: {retry_exc}") from retry_exc
 
     parsed = parsed.model_copy(update={"review_type": "systematic"})
 
@@ -1060,6 +1147,15 @@ async def generate_config_yaml(
     # abstract substring pre-filter catches phrasing variants the LLM missed.
     enriched_keywords = _extract_root_terms(list(parsed.keywords))
     sanitized_keywords = _sanitize_keywords(enriched_keywords)
+    if _keywords_need_repair(sanitized_keywords):
+        emit("structuring_retry")
+        try:
+            result_json = await _run_structure(structure_prompt + repair_instruction)
+            parsed_retry = _GeneratedConfig.model_validate_json(result_json)
+            enriched_keywords = _extract_root_terms(list(parsed_retry.keywords))
+            sanitized_keywords = _sanitize_keywords(enriched_keywords)
+        except Exception as retry_exc:
+            logger.warning("Keyword repair retry failed; continuing with first pass: %s", retry_exc)
     parsed = parsed.model_copy(update={"keywords": sanitized_keywords})
 
     defaults = _load_default_config()

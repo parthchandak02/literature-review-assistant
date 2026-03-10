@@ -65,7 +65,7 @@ interface SidebarProps {
   onSelectLiveRun: () => void
   onSelectHistory: (entry: HistoryEntry) => void
   onNewReview: () => void
-  onResume?: (entry: HistoryEntry) => Promise<void>
+  onResume?: (entry: HistoryEntry, fromPhase?: string | null) => Promise<void>
   onDelete?: (workflowId: string) => Promise<void>
   onCancel?: () => void
   isRunning?: boolean
@@ -227,6 +227,17 @@ export function Sidebar({
   const isRunning =
     isRunningProp ?? (liveRun?.status === "streaming" || liveRun?.status === "connecting")
 
+  const liveRunHasHistoryRow = Boolean(
+    liveRun && history.some((entry) => {
+      if (liveRun.workflowId && entry.workflow_id === liveRun.workflowId) return true
+      return Boolean(entry.live_run_id && entry.live_run_id === liveRun.runId)
+    }),
+  )
+  // Render a standalone live card only during the brief bootstrap window where
+  // the active run is not yet present in /api/history. Once present, decorate
+  // that stable history row in-place to avoid sidebar reshuffles.
+  const shouldShowStandaloneLiveCard = Boolean(liveRun && !liveRunHasHistoryRow)
+
   async function handleSelectHistory(entry: HistoryEntry) {
     setOpeningId(entry.workflow_id)
     // Close the mobile drawer when a run is selected
@@ -244,11 +255,11 @@ export function Sidebar({
     void handleResumeFromModal(entry)
   }
 
-  async function handleResumeFromModal(entry: HistoryEntry) {
+  async function handleResumeFromModal(entry: HistoryEntry, fromPhase?: string | null) {
     if (!onResume) return
     setResumingId(entry.workflow_id)
     try {
-      await onResume(entry)
+      await onResume(entry, fromPhase)
     } finally {
       setResumingId(null)
     }
@@ -290,7 +301,7 @@ export function Sidebar({
       )}
       <aside
         className={cn(
-          "fixed left-0 top-0 h-full bg-zinc-900 border-r border-zinc-800 flex flex-col select-none overflow-hidden",
+          "fixed left-0 top-0 h-full bg-zinc-950/90 border-r border-zinc-800/80 backdrop-blur-sm flex flex-col select-none overflow-hidden",
           isMobile
             ? cn(
                 "z-50 w-72 transition-transform duration-200 ease-in-out",
@@ -319,7 +330,7 @@ export function Sidebar({
           type="button"
           onClick={() => { onGoHome?.(); if (isMobile) onToggle() }}
           className={cn(
-            "relative z-10 flex items-center h-14 border-b border-zinc-800 shrink-0 px-3.5 gap-2 w-full text-left",
+            "relative z-10 flex items-center h-14 glass-toolbar border-b border-zinc-800/70 shrink-0 px-3.5 gap-2 w-full text-left",
             "hover:bg-zinc-800/50 transition-colors cursor-pointer",
           )}
         >
@@ -398,7 +409,7 @@ export function Sidebar({
 
             <div className="space-y-2">
               {/* Live run card - first in the unified list, handles both collapsed and expanded */}
-              {liveRun && (
+              {shouldShowStandaloneLiveCard && liveRun && (
                 <SidebarTooltip label={liveRun.topic} collapsed={collapsed} side="right">
                   <div className={cn(
                     "sidebar-card",
@@ -502,19 +513,20 @@ export function Sidebar({
                   </div>
                 </SidebarTooltip>
               )}
-              {(liveRun?.workflowId
-                ? history.filter((e) => e.workflow_id !== liveRun.workflowId)
-                // workflowId is null during the connecting window (before workflow_id_ready
-                // fires). Filter by live_run_id to prevent the active run appearing twice.
-                : liveRun?.runId
-                  ? history.filter((e) => e.live_run_id !== liveRun.runId)
-                  : history
-              ).map((entry) => {
-                const statusKey = resolveStatus(entry.status)
+              {history.map((entry) => {
+                const isLiveRow = Boolean(
+                  liveRun && (
+                    (entry.live_run_id && entry.live_run_id === liveRun.runId) ||
+                    (liveRun.workflowId && entry.workflow_id === liveRun.workflowId)
+                  ),
+                )
+                const statusKey = isLiveRow && liveRun ? liveRun.status : resolveStatus(entry.status)
                 const isSelected = selectedWorkflowId === entry.workflow_id
                 const isOpening = openingId === entry.workflow_id
                 const canOpen = Boolean(entry.db_path)
-
+                const rowIsRunning = isLiveRow
+                  ? statusKey === "streaming" || statusKey === "connecting"
+                  : Boolean(entry.live_run_id)
                 // Metadata in run info strip order: Status, Time, Found, Included, Cost, WF ID (omit "out")
 
                 // Entries with live_run_id are actively running in-process -- clicking
@@ -524,7 +536,13 @@ export function Sidebar({
                   ["streaming", "cancelled", "error", "stale"].includes(statusKey)
                 const isResuming = resumingId === entry.workflow_id
 
-                const progressValue = statusKey === "done" ? 1 : entry.live_run_id ? -1 : undefined
+                const progressValue = isLiveRow && liveRun
+                  ? (liveRun.phaseProgress?.value ?? (rowIsRunning ? -1 : undefined))
+                  : statusKey === "done"
+                    ? 1
+                    : entry.live_run_id
+                      ? -1
+                      : undefined
 
                 return (
                   <SidebarTooltip
@@ -566,9 +584,10 @@ export function Sidebar({
                                 {entry.topic}
                               </span>
                               <RunCardMetrics
-                                papersFound={entry.papers_found}
-                                papersIncluded={entry.papers_included}
-                                cost={entry.total_cost}
+                                papersFound={isLiveRow && liveRun ? (liveRun.papersFound ?? entry.papers_found) : entry.papers_found}
+                                papersIncluded={isLiveRow && liveRun ? (liveRun.papersIncluded ?? entry.papers_included) : entry.papers_included}
+                                funnelStages={isLiveRow && liveRun ? liveRun.funnelStages : undefined}
+                                cost={isLiveRow && liveRun ? liveRun.cost : entry.total_cost}
                                 workflowId={entry.workflow_id}
                                 copiedWorkflowId={wfIdCopied}
                                 onCopyWorkflowId={async (id) => {
@@ -584,7 +603,7 @@ export function Sidebar({
                                   {isOpening ? (
                                     <div className="h-1.5 w-1.5 rounded-full border border-zinc-500 animate-spin" />
                                   ) : (
-                                    <RunDot status={statusKey} />
+                                    <RunDot status={statusKey} animate={rowIsRunning} />
                                   )}
                                   <span
                                     className={cn(
@@ -608,6 +627,22 @@ export function Sidebar({
                         {/* Action buttons: trash (all) + resume (resumable only) */}
                         {!collapsed && (
                           <div className="absolute top-0 right-0 flex items-center">
+                            {isLiveRow && rowIsRunning && onCancel && (
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  onCancel()
+                                }}
+                                aria-label="Stop run"
+                                title="Stop run"
+                                className={cn(
+                                  "flex items-center justify-center h-8 w-8 bg-red-600 hover:bg-red-500 text-white",
+                                  (onDelete || isResumable) ? "" : "rounded-bl-md",
+                                )}
+                              >
+                                <Square className="h-2.5 w-2.5 fill-white" />
+                              </button>
+                            )}
                             {onDelete && (
                               <button
                                 onClick={(e) => handleDeleteClick(e, entry.workflow_id)}
@@ -669,13 +704,7 @@ export function Sidebar({
               })}
             </div>
 
-            {!collapsed && !loadingHistory && (
-              liveRun?.workflowId
-                ? history.filter((e) => e.workflow_id !== liveRun.workflowId).length === 0
-                : liveRun?.runId
-                  ? history.filter((e) => e.live_run_id !== liveRun.runId).length === 0
-                  : history.length === 0
-            ) && (
+            {!collapsed && !loadingHistory && history.length === 0 && !shouldShowStandaloneLiveCard && (
               <div className="flex flex-col items-center py-6 gap-2">
                 <Clock className="h-6 w-6 text-zinc-700" />
                 <p className="label-muted text-center">

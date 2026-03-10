@@ -129,7 +129,9 @@ export const LogStream = forwardRef<LogStreamHandle, LogStreamProps>(function Lo
   const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set())
   const [scrollTop, setScrollTop] = useState(0)
   const [viewportHeight, setViewportHeight] = useState(0)
+  const [viewportWidth, setViewportWidth] = useState(0)
   const rowEstimate = 24
+  const DEV_PERF_LOG = import.meta.env.DEV
 
   const renderItems = useMemo(() => buildRenderItems(events), [events])
 
@@ -187,9 +189,13 @@ export const LogStream = forwardRef<LogStreamHandle, LogStreamProps>(function Lo
     const container = scrollContainerRef.current
     if (!container) return
     setViewportHeight(container.clientHeight)
+    setViewportWidth(container.clientWidth)
     const onScroll = () => setScrollTop(container.scrollTop)
     container.addEventListener("scroll", onScroll, { passive: true })
-    const onResize = () => setViewportHeight(container.clientHeight)
+    const onResize = () => {
+      setViewportHeight(container.clientHeight)
+      setViewportWidth(container.clientWidth)
+    }
     window.addEventListener("resize", onResize)
     return () => {
       container.removeEventListener("scroll", onScroll)
@@ -224,15 +230,11 @@ export const LogStream = forwardRef<LogStreamHandle, LogStreamProps>(function Lo
     })
   }
 
-  if (events.length === 0) {
-    return (
-      <div className="h-64 flex items-center justify-center text-sm text-zinc-600 bg-zinc-900 border border-zinc-800 rounded-xl">
-        Events will appear here once the review starts.
-      </div>
-    )
-  }
-
-  const virtualEnabled = renderItems.length > 500
+  // Enable virtualization based on row count regardless of viewport width.
+  // This prevents full DOM mounts during large replay bursts on narrower layouts.
+  const virtualEnabled =
+    renderItems.length > 350 &&
+    expandedRows.size === 0
   const overscan = 40
   const start = virtualEnabled
     ? Math.max(0, Math.floor(scrollTop / rowEstimate) - overscan)
@@ -243,6 +245,25 @@ export const LogStream = forwardRef<LogStreamHandle, LogStreamProps>(function Lo
   const visibleItems = renderItems.slice(start, end)
   const topPad = virtualEnabled ? start * rowEstimate : 0
   const bottomPad = virtualEnabled ? (renderItems.length - end) * rowEstimate : 0
+
+  useEffect(() => {
+    if (!DEV_PERF_LOG) return
+    console.debug("[LogStream render]", {
+      events: events.length,
+      renderItems: renderItems.length,
+      virtualEnabled,
+      viewportWidth,
+      viewportHeight,
+    })
+  }, [events.length, renderItems.length, virtualEnabled, viewportWidth, viewportHeight, DEV_PERF_LOG])
+
+  if (events.length === 0) {
+    return (
+      <div className="h-64 flex items-center justify-center text-sm text-zinc-600 bg-zinc-900 border border-zinc-800 rounded-xl">
+        Events will appear here once the review starts.
+      </div>
+    )
+  }
 
   return (
     <div

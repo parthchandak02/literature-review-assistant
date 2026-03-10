@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+from src.models.additional import PRISMACounts
 from src.writing.context_builder import WritingGroundingData, format_grounding_block
+from src.writing.context_builder import build_writing_grounding
 from src.writing.prompts.sections import (
     get_discussion_prompt_context,
     get_methods_prompt_context,
@@ -9,30 +11,30 @@ from src.writing.prompts.sections import (
 
 
 def _make_grounding(**overrides) -> WritingGroundingData:
-    data = WritingGroundingData(
-        databases_searched=["pubmed"],
-        other_methods_searched=[],
-        search_date="2026-03-10",
-        total_identified=10,
-        duplicates_removed=1,
-        total_screened=9,
-        fulltext_assessed=3,
-        total_included=3,
-        fulltext_excluded=0,
-        excluded_fulltext_reasons={},
-        study_design_counts={"non randomized": 3},
-        total_participants=100,
-        year_range="2020-2024",
-        meta_analysis_feasible=False,
-        synthesis_direction="mixed",
-        n_studies_synthesized=3,
-        narrative_text="Narrative synthesis only.",
-        key_themes=["efficiency"],
-        study_summaries=[],
-        valid_citekeys=["Smith2021"],
-        **overrides,
-    )
-    return data
+    payload = {
+        "databases_searched": ["pubmed"],
+        "other_methods_searched": [],
+        "search_date": "2026-03-10",
+        "total_identified": 10,
+        "duplicates_removed": 1,
+        "total_screened": 9,
+        "fulltext_assessed": 3,
+        "total_included": 3,
+        "fulltext_excluded": 0,
+        "excluded_fulltext_reasons": {},
+        "study_design_counts": {"non randomized": 3},
+        "total_participants": 100,
+        "year_range": "2020-2024",
+        "meta_analysis_feasible": False,
+        "synthesis_direction": "mixed",
+        "n_studies_synthesized": 3,
+        "narrative_text": "Narrative synthesis only.",
+        "key_themes": ["efficiency"],
+        "study_summaries": [],
+        "valid_citekeys": ["Smith2021"],
+    }
+    payload.update(overrides)
+    return WritingGroundingData(**payload)
 
 
 def test_grounding_block_includes_failed_database_disclosure_rule() -> None:
@@ -80,3 +82,42 @@ def test_non_abstract_prompts_include_boundary_marker_rule() -> None:
     assert "SECTION_BLOCK" in methods_prompt
     assert "SECTION_BLOCK" in results_prompt
     assert "SECTION_BLOCK" in discussion_prompt
+
+
+def test_build_writing_grounding_zeros_automation_when_screened_gap_is_zero() -> None:
+    prisma = PRISMACounts(
+        databases_records={"pubmed": 100},
+        other_sources_records={},
+        total_identified_databases=100,
+        total_identified_other=0,
+        duplicates_removed=0,
+        automation_excluded=83,
+        records_screened=100,
+        records_excluded_screening=85,
+        reports_sought=15,
+        reports_not_retrieved=0,
+        reports_assessed=15,
+        reports_excluded_with_reasons={},
+        studies_included_qualitative=15,
+        studies_included_quantitative=0,
+        arithmetic_valid=True,
+    )
+    grounding = build_writing_grounding(
+        prisma_counts=prisma,
+        extraction_records=[],
+        included_papers=[],
+        narrative=None,
+        citation_catalog="",
+    )
+    assert grounding.records_after_deduplication == 100
+    assert grounding.automation_excluded == 83
+    assert grounding.total_screened == 17
+
+
+def test_grounding_block_mentions_overlapping_fulltext_reasons() -> None:
+    data = _make_grounding(
+        excluded_fulltext_reasons={"wrong_intervention": 6, "wrong_language": 1},
+    )
+    out = format_grounding_block(data)
+    assert "categories may overlap" in out
+    assert "do NOT present reason counts as separate article totals" in out

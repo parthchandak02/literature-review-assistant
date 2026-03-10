@@ -630,7 +630,7 @@ function QuestionStage({
       </div>
 
       {/* Mode toggle */}
-      <div className="flex rounded-lg border border-zinc-800 bg-zinc-900/60 p-1 gap-1">
+      <div className="glass-panel flex rounded-lg border border-zinc-800/70 p-1 gap-1">
         <button
           type="button"
           onClick={() => setMode("search")}
@@ -755,7 +755,7 @@ function QuestionStage({
           )}
 
           {showHistory && (
-            <div className="absolute left-0 top-full mt-1.5 z-20 w-[min(400px,calc(100vw-2rem))] max-h-[280px] overflow-y-auto bg-zinc-900 border border-zinc-700 rounded-xl shadow-xl">
+            <div className="absolute left-0 top-full mt-1.5 z-20 w-[min(400px,calc(100vw-2rem))] max-h-[280px] overflow-y-auto glass-panel border border-zinc-700/80 rounded-xl shadow-xl">
               <div className="px-3 py-2 border-b border-zinc-800">
                 <p className="text-xs text-zinc-500">Select a completed run to reuse its config</p>
               </div>
