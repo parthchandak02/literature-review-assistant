@@ -145,6 +145,7 @@ def _convert_citations(
     per-key handler can then clean up any remaining single-key brackets.
     """
     num_to_citekey = num_to_citekey or {}
+    _num_key_map: dict[str, str] = {str(k).strip(): v for k, v in num_to_citekey.items()}
     # Remove unresolved placeholder markers from final LaTeX prose.
     text = text.replace("[CITATION_NEEDED]", "(citation unavailable)")
     text = re.sub(r"\[\s*Ref\d+\s*\]", "(citation unavailable)", text)
@@ -162,7 +163,7 @@ def _convert_citations(
     for ck in citekeys:
         _norm_citekey_map[_norm_token(ck)] = ck
     _norm_num_key_map: dict[str, str] = {}
-    for key, val in num_to_citekey.items():
+    for key, val in _num_key_map.items():
         _norm_num_key_map[_norm_token(key)] = val
 
     def _resolve_token(token: str) -> str | None:
@@ -171,8 +172,8 @@ def _convert_citations(
             return None
         if stripped in citekeys:
             return stripped
-        if stripped in num_to_citekey:
-            return num_to_citekey[stripped]
+        if stripped in _num_key_map:
+            return _num_key_map[stripped]
         norm = _norm_token(stripped)
         if norm in _norm_citekey_map:
             return _norm_citekey_map[norm]
@@ -224,7 +225,7 @@ def _convert_citations(
             return f"\\cite{{{','.join(resolved)}}}"
         return m.group(0)
 
-    text = re.sub(r"\[(\d+(?:\s*,\s*\d+)*)\]", numeric_repl, text)
+    text = re.sub(r"\[\s*(\d+(?:\s*,\s*\d+)*)\s*\]", numeric_repl, text)
 
     # Pass 2: single-key brackets -> \cite{key}
     def repl(m: re.Match) -> str:
@@ -446,6 +447,73 @@ def _convert_md_table_to_latex(
     return result
 
 
+def _strip_section_block_markers(text: str) -> str:
+    """Remove deterministic writing boundary markers from export body."""
+    return re.sub(r"(?m)^\s*<!--\s*SECTION_BLOCK:[^>]+-->\s*\n?", "", text)
+
+
+def _normalize_subsection_heading_layout(text: str) -> str:
+    """Normalize malformed subsection markdown before LaTeX conversion.
+
+    Handles:
+    - inline heading/body run-ons: `### Heading Body...`
+    - multiple headings collapsed on one line
+    - split heading lines: `### Risk of` then `Bias Assessment`
+    """
+    text = re.sub(r"\s+(#{3,4}\s+)", r"\n\n\1", text)
+    heading_re = re.compile(r"^(#{3,6})\s+(.+)$")
+    title_token_re = re.compile(r"^[A-Z][A-Za-z0-9()/:,\-']*$")
+    sentence_start_re = re.compile(r"^(The|This|These|We|Our|In|Across|To|A|An|Studies|Study|Data)\b")
+    connector_tail = {"and", "or", "of", "for", "to", "with"}
+
+    def _looks_title_fragment(s: str) -> bool:
+        words = s.strip().split()
+        if not words or len(words) > 5:
+            return False
+        return all(title_token_re.match(w) or w.lower() in connector_tail for w in words)
+
+    out: list[str] = []
+    lines = text.splitlines()
+    i = 0
+    while i < len(lines):
+        line = lines[i]
+        m = heading_re.match(line.strip())
+        if m:
+            level = m.group(1)
+            tail = m.group(2).strip()
+            next_line = lines[i + 1].strip() if i + 1 < len(lines) else ""
+            if next_line and not next_line.startswith("#"):
+                tail_words = tail.split()
+                if (tail_words and tail_words[-1].lower() in connector_tail and _looks_title_fragment(next_line)) or (
+                    len(tail_words) <= 3 and _looks_title_fragment(next_line) and not sentence_start_re.match(next_line)
+                ):
+                    line = f"{level} {tail} {next_line}".strip()
+                    i += 1
+            words = line.strip().split()
+            if len(words) >= 4 and words[0].startswith("#"):
+                split_found = False
+                for idx in range(3, min(len(words), 12)):
+                    left_words = words[1:idx]
+                    right = " ".join(words[idx:]).strip()
+                    left_ok = all(title_token_re.match(w) or w.lower() in connector_tail for w in left_words)
+                    if not left_ok:
+                        continue
+                    if sentence_start_re.match(right) or (right and right[0].isupper() and any(c in right for c in ".,")):
+                        out.append(f"{words[0]} {' '.join(left_words)}")
+                        out.append("")
+                        out.append(right)
+                        split_found = True
+                        break
+                if not split_found:
+                    out.append(line)
+            else:
+                out.append(line)
+        else:
+            out.append(line)
+        i += 1
+    return "\n".join(out)
+
+
 def _md_section_to_latex(
     rest: str,
     citekeys: set[str],
@@ -454,6 +522,7 @@ def _md_section_to_latex(
     """Convert markdown body to LaTeX sections."""
     num_to_citekey = num_to_citekey or {}
     parts: list[str] = []
+    rest = _normalize_subsection_heading_layout(_strip_section_block_markers(rest))
     lines = rest.split("\n")
     i = 0
     list_items: list[str] = []
