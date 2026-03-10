@@ -9,6 +9,8 @@ export interface SSEState {
   error: string | null
 }
 
+const SSE_FLUSH_INTERVAL_MS = 150
+
 /** Converts raw fetch/network errors to a user-friendly message. */
 function friendlyError(err: unknown): string {
   const msg = err instanceof Error ? err.message : String(err)
@@ -39,6 +41,7 @@ function stableStringify(value: unknown): string {
 }
 
 function eventKey(ev: ReviewEvent): string {
+  if (ev.id) return `id:${ev.id}`
   const ts = "ts" in ev ? (ev as { ts?: string }).ts ?? "" : ""
   const base = `${ev.type}|${ts}`
   switch (ev.type) {
@@ -110,6 +113,48 @@ type SetState = React.Dispatch<React.SetStateAction<SSEState>>
  * replaying historical events from SQLite (handles PM2 restarts).
  */
 function openStream(runId: string, signal: AbortSignal, setState: SetState, workflowId?: string | null): void {
+  const pending: ReviewEvent[] = []
+  let flushTimer: number | null = null
+
+  const clearFlushTimer = () => {
+    if (flushTimer != null) {
+      window.clearTimeout(flushTimer)
+      flushTimer = null
+    }
+  }
+
+  const flushPending = () => {
+    clearFlushTimer()
+    if (pending.length === 0) return
+    const batch = pending.splice(0, pending.length)
+    setState((s) => {
+      const merged = dedup([...s.events, ...batch])
+      const terminal = [...batch].reverse().find(
+        (e) => e.type === "done" || e.type === "error" || e.type === "cancelled",
+      )
+      const status =
+        terminal?.type === "done"
+          ? "done"
+          : terminal?.type === "error"
+          ? "error"
+          : terminal?.type === "cancelled"
+          ? "cancelled"
+          : s.status
+      return {
+        events: merged,
+        status,
+        error: terminal?.type === "error" ? terminal.msg : s.error,
+      }
+    })
+  }
+
+  const scheduleFlush = () => {
+    if (flushTimer != null) return
+    flushTimer = window.setTimeout(flushPending, SSE_FLUSH_INTERVAL_MS)
+  }
+
+  signal.addEventListener("abort", clearFlushTimer, { once: true })
+
   fetchEventSource(`/api/stream/${runId}`, {
     signal,
     onopen: async (res) => {
@@ -145,18 +190,12 @@ function openStream(runId: string, signal: AbortSignal, setState: SetState, work
       if (ev.event === "heartbeat") return
       try {
         const data = normalizeEvent(JSON.parse(ev.data) as ReviewEvent)
-        setState((s) => {
-          const merged = dedup([...s.events, data])
-          let status = s.status
-          if (data.type === "done") status = "done"
-          else if (data.type === "error") status = "error"
-          else if (data.type === "cancelled") status = "cancelled"
-          return {
-            events: merged,
-            status,
-            error: data.type === "error" ? data.msg : s.error,
-          }
-        })
+        pending.push(data)
+        if (data.type === "done" || data.type === "error" || data.type === "cancelled") {
+          flushPending()
+          return
+        }
+        scheduleFlush()
       } catch {
         // ignore parse errors
       }
@@ -173,10 +212,12 @@ function openStream(runId: string, signal: AbortSignal, setState: SetState, work
       // Transient network error (connection drop, brief offline, etc.).
       // Do NOT throw -- fetch-event-source will auto-reconnect and will send
       // Last-Event-ID so the server only replays events the client missed.
+      flushPending()
       setState((s) => (s.status === "streaming" ? { ...s, status: "connecting" } : s))
     },
     openWhenHidden: true,
   }).catch(() => {
+    flushPending()
     // Absorb the re-thrown error from onerror to prevent unhandled rejection
   })
 }

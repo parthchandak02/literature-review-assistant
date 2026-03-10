@@ -424,7 +424,9 @@ async def test_resume_does_not_flip_registry_failed_when_runtime_completed(
 
 
 @pytest.mark.asyncio
-async def test_fetch_pdfs_emits_reason_codes(client: httpx.AsyncClient, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_fetch_pdfs_emits_reason_codes(
+    client: httpx.AsyncClient, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     run_id = "run-fetch-diag"
     workflow_id = "wf-fetch-diag"
     run_dir = tmp_path / "2026-03-10" / "wf-fetch-diag-topic" / "run_01-00-00PM"
@@ -673,6 +675,102 @@ async def test_attach_history_preserves_reason_fields_in_events(
 
 
 @pytest.mark.asyncio
+async def test_attach_history_injects_event_id_when_missing_in_payload(
+    client: httpx.AsyncClient,
+    tmp_path: Path,
+) -> None:
+    db_path = tmp_path / "attach_event_id_fallback.db"
+    async with get_db(str(db_path)) as db:
+        await db.execute(
+            "INSERT INTO workflows (workflow_id, topic, config_hash, status) VALUES (?, ?, ?, ?)",
+            ("wf-event-id-fallback", "Topic", "hash", "completed"),
+        )
+        await db.execute(
+            "INSERT INTO event_log (workflow_id, event_type, payload, ts) VALUES (?, ?, ?, ?)",
+            (
+                "wf-event-id-fallback",
+                "status",
+                json.dumps({"type": "status", "message": "hello", "ts": "2026-03-10T10:00:00.000Z"}),
+                "2026-03-10T10:00:00.000Z",
+            ),
+        )
+        await db.execute(
+            "INSERT INTO event_log (workflow_id, event_type, payload, ts) VALUES (?, ?, ?, ?)",
+            (
+                "wf-event-id-fallback",
+                "status",
+                json.dumps(
+                    {
+                        "id": "evt-existing-1",
+                        "type": "status",
+                        "message": "already has id",
+                        "ts": "2026-03-10T10:00:01.000Z",
+                    }
+                ),
+                "2026-03-10T10:00:01.000Z",
+            ),
+        )
+        await db.commit()
+
+    resp = await client.post(
+        "/api/history/attach",
+        json={
+            "workflow_id": "wf-event-id-fallback",
+            "topic": "Topic",
+            "db_path": str(db_path),
+            "status": "completed",
+        },
+    )
+    assert resp.status_code == 200
+    run_id = resp.json()["run_id"]
+
+    events_resp = await client.get(f"/api/run/{run_id}/events")
+    assert events_resp.status_code == 200
+    payload = events_resp.json()
+    events = payload["events"]
+    assert len(events) == 2
+    assert str(events[0].get("id", "")).startswith("db-")
+    assert events[1]["id"] == "evt-existing-1"
+
+
+@pytest.mark.asyncio
+async def test_attach_history_ignores_app_jsonl_when_event_log_empty(
+    client: httpx.AsyncClient,
+    tmp_path: Path,
+) -> None:
+    run_dir = tmp_path / "2026-03-10" / "wf-clean" / "run_01-00-00PM"
+    run_dir.mkdir(parents=True, exist_ok=True)
+    db_path = run_dir / "runtime.db"
+    async with get_db(str(db_path)) as db:
+        await db.execute(
+            "INSERT INTO workflows (workflow_id, topic, config_hash, status) VALUES (?, ?, ?, ?)",
+            ("wf-clean", "Topic", "hash", "completed"),
+        )
+        await db.commit()
+    # Legacy sibling log should be ignored now for DB-only replay.
+    (run_dir / "app.jsonl").write_text(
+        '{"event":"phase","action":"start","phase":"phase_1_setup","timestamp":"2026-03-10T10:00:00.000Z"}\n',
+        encoding="utf-8",
+    )
+
+    resp = await client.post(
+        "/api/history/attach",
+        json={
+            "workflow_id": "wf-clean",
+            "topic": "Topic",
+            "db_path": str(db_path),
+            "status": "completed",
+        },
+    )
+    assert resp.status_code == 200
+    run_id = resp.json()["run_id"]
+    events_resp = await client.get(f"/api/run/{run_id}/events")
+    assert events_resp.status_code == 200
+    payload = events_resp.json()
+    assert payload["events"] == []
+
+
+@pytest.mark.asyncio
 async def test_stream_replay_respects_last_event_id_and_includes_terminal_event(client: httpx.AsyncClient) -> None:
     run_id = "run-stream-replay"
     record = _RunRecord(run_id=run_id, topic="Replay Test")
@@ -727,7 +825,13 @@ async def test_manuscript_endpoint_prefers_db_assembly(client: httpx.AsyncClient
                 (workflow_id, assembly_id, target_format, content, manifest_json)
             VALUES (?, ?, ?, ?, ?)
             """,
-            (workflow_id, "latest", "md", "# Title\n\nDB assembly content.", '{"sections":[{"section_key":"results","version":1,"order":0}]}'),
+            (
+                workflow_id,
+                "latest",
+                "md",
+                "# Title\n\nDB assembly content.",
+                '{"sections":[{"section_key":"results","version":1,"order":0}]}',
+            ),
         )
         await db.commit()
 
@@ -744,3 +848,53 @@ async def test_manuscript_endpoint_prefers_db_assembly(client: httpx.AsyncClient
         assert "DB assembly content." in data["content"]
     finally:
         _active_runs.pop(run_id, None)
+
+
+@pytest.mark.asyncio
+async def test_generate_config_stream_includes_topic_routing_metadata(
+    client: httpx.AsyncClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def _fake_generate_config_yaml(
+        research_question: str,
+        progress_cb=None,
+    ) -> str:
+        assert research_question
+        if progress_cb is not None:
+            progress_cb({"step": "web_research"})
+            progress_cb(
+                {
+                    "step": "topic_routing",
+                    "domain": "ambiguous",
+                    "confidence": 0.41,
+                    "policy": "low_confidence_fallback",
+                }
+            )
+            progress_cb({"step": "finalizing"})
+        return 'research_question: "x"\nreview_type: "systematic"\n'
+
+    monkeypatch.setattr(
+        "src.web.config_generator.generate_config_yaml",
+        _fake_generate_config_yaml,
+    )
+
+    resp = await client.post(
+        "/api/config/generate/stream",
+        json={"research_question": "test question", "gemini_api_key": "test-key"},
+    )
+    assert resp.status_code == 200
+    payloads: list[dict[str, object]] = []
+    for line in resp.text.splitlines():
+        if line.startswith("data: "):
+            payloads.append(json.loads(line[6:]))
+
+    routing_events = [
+        p
+        for p in payloads
+        if p.get("type") == "progress" and p.get("step") == "topic_routing"
+    ]
+    assert len(routing_events) == 1
+    routing = routing_events[0]
+    assert routing.get("domain") == "ambiguous"
+    assert routing.get("policy") == "low_confidence_fallback"
+    assert routing.get("confidence") == 0.41

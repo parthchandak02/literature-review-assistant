@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import re
+import uuid
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -87,7 +88,13 @@ class RunContext:
 
     def emit_phase_start(self, phase_name: str, description: str = "", total: int | None = None) -> None:
         """Emit phase start status. Pass total when known so the progress bar renders properly."""
-        structured_log.log_phase(phase=phase_name, action="start", description=description)
+        structured_log.log_phase(
+            phase=phase_name,
+            action="start",
+            description=description,
+            entity_type="phase",
+            entity_id=phase_name,
+        )
         if self.progress and phase_name not in self._phase_task_ids:
             task_id = self.progress.add_task(
                 phase_name.replace("_", " ").title(),
@@ -106,7 +113,15 @@ class RunContext:
         completed: int | None = None,
     ) -> None:
         """Mark phase task complete and optionally print summary."""
-        structured_log.log_phase(phase=phase_name, action="done", summary=summary, total=total, completed=completed)
+        structured_log.log_phase(
+            phase=phase_name,
+            action="done",
+            summary=summary,
+            total=total,
+            completed=completed,
+            entity_type="phase",
+            entity_id=phase_name,
+        )
         if self.progress and phase_name in self._phase_task_ids:
             task_id = self._phase_task_ids[phase_name]
             if total is not None and completed is not None:
@@ -167,6 +182,11 @@ class RunContext:
             tokens_out=tokens_out,
             cost_usd=cost_usd,
             call_type=call_type,
+            reason_code=None if status == "success" else "llm_call_failed",
+            reason_label=None if status == "success" else "LLM call failed",
+            action="included" if status == "success" else "fallback",
+            entity_type="llm_call",
+            entity_id=paper_id,
         )
         if not self.verbose:
             return
@@ -414,7 +434,17 @@ class RunContext:
         """Log per-paper PDF retrieval outcome in CLI verbose mode."""
         effective_reason = reason_code or ("oa_recovered" if success else "no_oa_path")
         effective_label = reason_label or _reason_label_from_code(effective_reason)
-        structured_log.log_pdf_result(paper_id=paper_id, title=title, source=source, success=success)
+        structured_log.log_pdf_result(
+            paper_id=paper_id,
+            title=title,
+            source=source,
+            success=success,
+            reason_code=effective_reason,
+            reason_label=effective_label,
+            action="included" if success else "skipped",
+            entity_type="paper",
+            entity_id=paper_id,
+        )
         if not self.verbose:
             return
         status_label = "ok" if success else "unavailable"
@@ -604,6 +634,7 @@ class WebRunContext:
     def _emit(self, event: dict[str, Any]) -> None:
         import datetime
 
+        event.setdefault("id", f"evt-{uuid.uuid4().hex}")
         event.setdefault(
             "ts",
             datetime.datetime.now(datetime.UTC).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z",
@@ -623,7 +654,13 @@ class WebRunContext:
         return bool(self.proceed_with_partial_requested and self.proceed_with_partial_requested[0])
 
     def emit_phase_start(self, phase_name: str, description: str = "", total: int | None = None) -> None:
-        structured_log.log_phase(phase=phase_name, action="start", description=description)
+        structured_log.log_phase(
+            phase=phase_name,
+            action="start",
+            description=description,
+            entity_type="phase",
+            entity_id=phase_name,
+        )
         self._emit(
             {
                 "type": "phase_start",
@@ -643,7 +680,15 @@ class WebRunContext:
         total: int | None = None,
         completed: int | None = None,
     ) -> None:
-        structured_log.log_phase(phase=phase_name, action="done", summary=summary, total=total, completed=completed)
+        structured_log.log_phase(
+            phase=phase_name,
+            action="done",
+            summary=summary,
+            total=total,
+            completed=completed,
+            entity_type="phase",
+            entity_id=phase_name,
+        )
         self._emit(
             {
                 "type": "phase_done",
@@ -692,6 +737,11 @@ class WebRunContext:
             tokens_out=tokens_out,
             cost_usd=cost_usd,
             call_type=call_type,
+            reason_code=None if status == "success" else "llm_call_failed",
+            reason_label=None if status == "success" else "LLM call failed",
+            action="included" if status == "success" else "fallback",
+            entity_type="llm_call",
+            entity_id=paper_id,
         )
         self._emit(
             {
@@ -770,7 +820,17 @@ class WebRunContext:
         """Emit a per-paper PDF retrieval outcome SSE event."""
         effective_reason = reason_code or ("oa_recovered" if success else "no_oa_path")
         effective_label = reason_label or _reason_label_from_code(effective_reason)
-        structured_log.log_pdf_result(paper_id=paper_id, title=title, source=source, success=success)
+        structured_log.log_pdf_result(
+            paper_id=paper_id,
+            title=title,
+            source=source,
+            success=success,
+            reason_code=effective_reason,
+            reason_label=effective_label,
+            action="included" if success else "skipped",
+            entity_type="paper",
+            entity_id=paper_id,
+        )
         self._emit(
             {
                 "type": "pdf_result",

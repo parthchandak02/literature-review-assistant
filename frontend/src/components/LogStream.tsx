@@ -3,7 +3,6 @@ import { cn } from "@/lib/utils"
 import { PHASE_LABELS } from "@/lib/constants"
 import type { ReviewEvent } from "@/lib/api"
 import { eventToLogEntry } from "@/lib/logLine"
-import type { ActivityLogMode } from "@/lib/logLine"
 import type { LogLevel } from "@/lib/logLine"
 import type { LogRenderEntry } from "@/lib/logLine"
 
@@ -16,140 +15,42 @@ const SKIP_EVENT_TYPES = new Set(["workflow_id_ready", "heartbeat"])
 // Render item types (phase separators + event rows)
 // ---------------------------------------------------------------------------
 
-export type RenderItem =
+type RenderItem =
   | { kind: "phase-sep"; phase: string; label: string; key: string }
   | { kind: "event"; ev: ReviewEvent; entry: LogRenderEntry; key: string }
-  | { kind: "summary"; entry: LogRenderEntry; key: string }
 
-export function buildRenderItems(events: ReviewEvent[], mode: ActivityLogMode): RenderItem[] {
-  const eventPriority: Record<string, number> = {
-    phase_start: 1,
-    status: 2,
-    progress: 3,
-    screening_decision: 4,
-    phase_done: 5,
-    done: 6,
-    error: 7,
-    cancelled: 8,
-  }
+function eventStableKey(ev: ReviewEvent, index: number): string {
+  if (ev.id) return `event-${ev.id}`
+  const ts = "ts" in ev ? (ev as { ts?: string }).ts ?? "" : ""
+  return `event-${ev.type}-${ts}-${index}`
+}
 
-  const _parseBatchIdx = (ev: ReviewEvent): number | null => {
-    if (ev.type !== "status") return null
-    const m = (ev.message ?? "").match(/Pre-ranker batch\s+(\d+)\//i)
-    return m ? Number(m[1]) : null
-  }
-
-  // Keep source order by default, but for same-timestamp pre-ranker status rows
-  // use batch index ordering so concurrent completions render deterministically.
-  const ordered = events
-    .map((ev, i) => ({ ev, i }))
-    .sort((a, b) => {
-      const aTs = "ts" in a.ev ? (a.ev.ts ?? "") : ""
-      const bTs = "ts" in b.ev ? (b.ev.ts ?? "") : ""
-      if (aTs === bTs) {
-        const aBatch = _parseBatchIdx(a.ev)
-        const bBatch = _parseBatchIdx(b.ev)
-        if (aBatch != null && bBatch != null && aBatch !== bBatch) {
-          return aBatch - bBatch
-        }
-        const aRank = eventPriority[a.ev.type] ?? 100
-        const bRank = eventPriority[b.ev.type] ?? 100
-        if (aRank !== bRank) {
-          return aRank - bRank
-        }
-      }
-      return a.i - b.i
-    })
-    .map((x) => x.ev)
-
+function buildRenderItems(events: ReviewEvent[]): RenderItem[] {
   const items: RenderItem[] = []
-  const userPhaseCounters: Record<string, {
-    llmCalls: number
-    include: number
-    exclude: number
-    pdfOk: number
-    pdfFail: number
-  }> = {}
 
-  for (let i = 0; i < ordered.length; i++) {
-    const ev = ordered[i]
+  for (let i = 0; i < events.length; i++) {
+    const ev = events[i]
     const ts = "ts" in ev ? (ev as { ts?: string }).ts ?? "" : ""
-    const phaseKey = (() => {
-      if (ev.type === "api_call" || ev.type === "progress" || ev.type === "phase_done" || ev.type === "phase_start") {
-        return (ev as { phase?: string }).phase ?? "unknown"
-      }
-      if (ev.type === "screening_decision" || ev.type === "pdf_result" || ev.type === "screening_prefilter_done" || ev.type === "batch_screen_done") {
-        return "phase_3_screening"
-      }
-      return "unknown"
-    })()
-    if (!userPhaseCounters[phaseKey]) {
-      userPhaseCounters[phaseKey] = { llmCalls: 0, include: 0, exclude: 0, pdfOk: 0, pdfFail: 0 }
-    }
 
     if (SKIP_EVENT_TYPES.has(ev.type)) continue
 
     if (ev.type === "phase_start") {
+      const evKey = eventStableKey(ev, i)
       items.push({
         kind: "phase-sep",
         phase: ev.phase,
         label: PHASE_LABELS[ev.phase] ?? ev.phase,
-        key: `sep-${ev.phase}-${ts}-${i}`,
+        key: `sep-${ev.phase}-${evKey}-${ts}`,
       })
       // phase_start is represented by a separator only to avoid duplicate rows.
       continue
     }
 
-    if (mode === "user") {
-      if (ev.type === "api_call") {
-        userPhaseCounters[phaseKey].llmCalls += 1
-        continue
-      }
-      if (ev.type === "progress") {
-        continue
-      }
-      if (ev.type === "screening_decision") {
-        if (ev.decision === "include") userPhaseCounters[phaseKey].include += 1
-        else userPhaseCounters[phaseKey].exclude += 1
-        continue
-      }
-      if (ev.type === "pdf_result") {
-        if (ev.success) userPhaseCounters[phaseKey].pdfOk += 1
-        else userPhaseCounters[phaseKey].pdfFail += 1
-        continue
-      }
-      if (ev.type === "phase_done") {
-        const counts = userPhaseCounters[phaseKey]
-        if (counts && (counts.llmCalls > 0 || counts.include > 0 || counts.exclude > 0 || counts.pdfOk > 0 || counts.pdfFail > 0)) {
-          const bits: string[] = []
-          if (counts.llmCalls > 0) bits.push(`LLM calls=${counts.llmCalls}`)
-          if (counts.include > 0 || counts.exclude > 0) bits.push(`decisions include=${counts.include}, exclude=${counts.exclude}`)
-          if (counts.pdfOk > 0 || counts.pdfFail > 0) bits.push(`PDF ok=${counts.pdfOk}, unavailable=${counts.pdfFail}`)
-          items.push({
-            kind: "summary",
-            key: `summary-${phaseKey}-${ts}-${i}`,
-            entry: {
-              text: `[${ts ? ts.slice(11, 19) : "--:--:--"}] SUMMARY ${bits.join(" | ")}`,
-              level: "status",
-              severity: "status",
-              kind: "status",
-              phase: phaseKey,
-              eventType: "status",
-              compactable: false,
-              groupKey: `summary:${phaseKey}`,
-              isResumeRelated: false,
-              isResumeNoOp: false,
-            },
-          })
-        }
-      }
-    }
-
     items.push({
       kind: "event",
       ev,
-      entry: eventToLogEntry(ev, mode),
-      key: `${ev.type}-${ts}-${i}`,
+      entry: eventToLogEntry(ev),
+      key: eventStableKey(ev, i),
     })
   }
 
@@ -216,11 +117,10 @@ interface LogStreamProps {
   events: ReviewEvent[]
   /** When false, suppresses auto-scroll to bottom (use when a filter is active). */
   autoScroll?: boolean
-  mode: ActivityLogMode
 }
 
 export const LogStream = forwardRef<LogStreamHandle, LogStreamProps>(function LogStream(
-  { events, autoScroll = true, mode },
+  { events, autoScroll = true },
   ref,
 ) {
   const scrollContainerRef = useRef<HTMLDivElement>(null)
@@ -231,7 +131,7 @@ export const LogStream = forwardRef<LogStreamHandle, LogStreamProps>(function Lo
   const [viewportHeight, setViewportHeight] = useState(0)
   const rowEstimate = 24
 
-  const renderItems = useMemo(() => buildRenderItems(events, mode), [events, mode])
+  const renderItems = useMemo(() => buildRenderItems(events), [events])
 
   const scrollToItemIndex = (index: number) => {
     const container = scrollContainerRef.current
@@ -299,10 +199,21 @@ export const LogStream = forwardRef<LogStreamHandle, LogStreamProps>(function Lo
 
   // Scroll to bottom on new events only when the user hasn't scrolled up.
   useEffect(() => {
+    if (!autoScroll || userScrolledUp.current) return
+    const container = scrollContainerRef.current
+    if (!container) return
+    container.scrollTo({ top: container.scrollHeight, behavior: "auto" })
+  }, [renderItems.length, autoScroll])
+
+  // If auto-scroll was disabled (for search/filter) and gets re-enabled, snap to latest.
+  useEffect(() => {
     if (autoScroll && !userScrolledUp.current) {
-      bottomRef.current?.scrollIntoView({ behavior: "smooth" })
+      const container = scrollContainerRef.current
+      if (container) {
+        container.scrollTo({ top: container.scrollHeight, behavior: "auto" })
+      }
     }
-  }, [events.length, autoScroll])
+  }, [autoScroll])
 
   const toggleExpanded = (rowKey: string) => {
     setExpandedRows((prev) => {
@@ -322,7 +233,7 @@ export const LogStream = forwardRef<LogStreamHandle, LogStreamProps>(function Lo
   }
 
   const virtualEnabled = renderItems.length > 500
-  const overscan = 100
+  const overscan = 40
   const start = virtualEnabled
     ? Math.max(0, Math.floor(scrollTop / rowEstimate) - overscan)
     : 0
@@ -350,7 +261,10 @@ export const LogStream = forwardRef<LogStreamHandle, LogStreamProps>(function Lo
               <div
                 key={item.key}
                 data-phase={item.phase}
-                className="flex items-center gap-2 mt-3 mb-1 first:mt-0 sticky top-0 z-10 bg-background/95 backdrop-blur-sm"
+                className={cn(
+                  "flex items-center gap-2 mt-3 mb-1 first:mt-0 bg-background/95",
+                  virtualEnabled ? "" : "sticky top-0 z-10 backdrop-blur-sm",
+                )}
               >
                 <div className="h-px flex-1 bg-zinc-800" />
                 <span className="text-[10px] font-semibold tracking-widest uppercase text-violet-500/80 shrink-0 px-1">

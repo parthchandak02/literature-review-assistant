@@ -48,7 +48,6 @@ from src.db.workflow_registry import update_status as _update_registry_status
 from src.export.submission_packager import package_submission
 from src.orchestration.context import WebRunContext
 from src.orchestration.workflow import run_workflow, run_workflow_resume
-from src.utils.structured_log import load_events_from_jsonl
 
 _logger = logging.getLogger(__name__)
 
@@ -401,6 +400,10 @@ async def _flush_pending_events(record: _RunRecord) -> None:
 
 def _append_event(record: _RunRecord, event: dict[str, Any]) -> None:
     """Append event to replay log and notify all live stream subscribers."""
+    if not event.get("id"):
+        event["id"] = f"evt-{uuid.uuid4().hex}"
+    if not event.get("ts"):
+        event["ts"] = datetime.datetime.now(datetime.UTC).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
     record.event_log.append(event)
     try:
         asyncio.create_task(_notify_new_event(record))
@@ -416,25 +419,22 @@ def _append_event(record: _RunRecord, event: dict[str, Any]) -> None:
 
 
 async def _load_event_log_from_db(db_path: str) -> list[dict[str, Any]]:
-    """Load persisted SSE events from a historical run's SQLite database.
-
-    If the event_log table is empty (e.g. the run was launched via CLI rather
-    than the web server), falls back to reading and normalizing the sibling
-    app.jsonl written by structured_log.
-    """
+    """Load persisted SSE events from a run's SQLite event_log table only."""
     try:
         async with aiosqlite.connect(db_path) as db:
             db.row_factory = aiosqlite.Row
-            async with db.execute("SELECT payload FROM event_log ORDER BY id ASC") as cur:
+            async with db.execute("SELECT id, payload, ts FROM event_log ORDER BY id ASC") as cur:
                 rows = await cur.fetchall()
-        events: list[dict[str, Any]] = [_json.loads(row["payload"]) for row in rows]
+        events = []
+        for row in rows:
+            event = _json.loads(row["payload"])
+            if not event.get("id"):
+                event["id"] = f"db-{row['id']}"
+            if not event.get("ts"):
+                event["ts"] = str(row["ts"] or "")
+            events.append(event)
     except Exception:
         events = []
-
-    if not events:
-        jsonl_path = pathlib.Path(db_path).parent / "app.jsonl"
-        if jsonl_path.exists():
-            events = load_events_from_jsonl(str(jsonl_path))
 
     return events
 
@@ -912,8 +912,13 @@ async def generate_config_stream(req: _GenerateConfigRequest) -> StreamingRespon
 
     queue: asyncio.Queue[dict[str, Any] | None] = asyncio.Queue()
 
-    def progress_cb(step: str) -> None:
-        queue.put_nowait({"type": "progress", "step": step})
+    def progress_cb(progress: dict[str, Any]) -> None:
+        step = str(progress.get("step", "unknown"))
+        payload: dict[str, Any] = {"type": "progress", "step": step}
+        for key, value in progress.items():
+            if key != "step":
+                payload[key] = value
+        queue.put_nowait(payload)
 
     async def run_generation() -> None:
         try:
@@ -1021,7 +1026,9 @@ async def _fetch_run_stats(db_path: str) -> dict[str, Any]:
                     )
                 ).fetchone()
                 _event_inc = int(_event_inc_row[0]) if (_event_inc_row and _event_inc_row[0] is not None) else None
-                _dual_inc = int(included_from_dual[0]) if (included_from_dual and included_from_dual[0] is not None) else 0
+                _dual_inc = (
+                    int(included_from_dual[0]) if (included_from_dual and included_from_dual[0] is not None) else 0
+                )
                 if _event_inc is not None and _dual_inc > 0 and _event_inc != _dual_inc:
                     _logger.warning(
                         "run-stats divergence: dual_screening_results=%s event_log=%s for db=%s",
@@ -1098,9 +1105,11 @@ def _running_heartbeat_stale(row: aiosqlite.Row) -> bool:
     heartbeat_age = _age_seconds(row["heartbeat_at"])
     updated_age = _age_seconds(row["updated_at"])
     created_age = _age_seconds(row["created_at"])
-    fresh = min(
-        x for x in (heartbeat_age, updated_age, created_age) if x is not None
-    ) if any(x is not None for x in (heartbeat_age, updated_age, created_age)) else None
+    fresh = (
+        min(x for x in (heartbeat_age, updated_age, created_age) if x is not None)
+        if any(x is not None for x in (heartbeat_age, updated_age, created_age))
+        else None
+    )
     if fresh is not None and fresh <= _STALE_GRACE_SECONDS:
         return False
     if heartbeat_age is not None:
@@ -1199,7 +1208,11 @@ async def _resolve_effective_status(
     evidence = await _collect_terminal_evidence(str(row["db_path"]))
     diagnostics["evidence"] = evidence
     terminal = evidence.get("terminal_status")
-    if terminal in {"completed", "failed", "interrupted"} and registry_status in {"running", "stale", "awaiting_review"}:
+    if terminal in {"completed", "failed", "interrupted"} and registry_status in {
+        "running",
+        "stale",
+        "awaiting_review",
+    }:
         diagnostics["source"] = str(evidence.get("source") or "runtime")
         diagnostics["override"] = f"{registry_status}->{terminal}"
         if registry_status == "stale":
@@ -1890,8 +1903,7 @@ async def _query_included_papers_rows(
         fallback_select_cols = select_cols
     else:
         select_cols = (
-            "p.paper_id, p.title, p.authors, p.year, p.source_database, p.doi, p.url, p.country, "
-            "ft.final_decision"
+            "p.paper_id, p.title, p.authors, p.year, p.source_database, p.doi, p.url, p.country, ft.final_decision"
         )
         order_by = "p.year DESC"
         fallback_select_cols = (
