@@ -208,19 +208,22 @@ uv run python -m src.main run --config config/review.yaml --verbose
 
 # Resume after a crash or Ctrl+C (auto-detects first incomplete phase)
 uv run python -m src.main resume --topic "your research question"
-uv run python -m src.main resume --workflow-id abc123
+uv run python -m src.main resume --workflow-id wf-0007
 
 # Resume from a specific phase (prior phases must have checkpoints)
-uv run python -m src.main resume --workflow-id abc123 --from-phase phase_3_screening
+uv run python -m src.main resume --workflow-id wf-0007 --from-phase phase_3_screening
 
 # Export submission package
-uv run python -m src.main export --workflow-id abc123
+uv run python -m src.main export --workflow-id wf-0007
 
 # Validate IEEE compliance and PRISMA checklist
-uv run python -m src.main validate --workflow-id abc123
+uv run python -m src.main validate --workflow-id wf-0007
 
 # Check run status and artifact paths
-uv run python -m src.main status --workflow-id abc123
+uv run python -m src.main status --workflow-id wf-0007
+
+# Regenerate PROSPERO form from an existing workflow
+uv run python -m src.main prospero --workflow-id wf-0007
 ```
 
 **Tip:** Press Ctrl+C once during screening to proceed with already-screened papers. Press Ctrl+C twice to abort. Re-running with the same topic automatically prompts you to resume.
@@ -292,7 +295,7 @@ The primary dev workflow uses [PM2](https://pm2.keymetrics.io/). Install it once
 npm install -g pm2
 ```
 
-Then start both the FastAPI backend (port 8001, `--reload`) and Vite frontend (port 5173, HMR) with:
+Then start both the FastAPI backend (port 8001) and Vite frontend (port 5173, HMR) with:
 
 ```bash
 pm2 start ecosystem.config.js
@@ -363,7 +366,7 @@ cd frontend && pnpm fix && pnpm typecheck
 | `src/search/` | Database connectors + deduplication + search strategy |
 | `src/screening/` | Batch LLM pre-ranker, dual reviewer, Cohen's kappa, keyword pre-filter |
 | `src/extraction/` | Study design classifier, data extractor |
-| `src/quality/` | RoB 2, ROBINS-I, CASP, GRADE |
+| `src/quality/` | RoB 2, ROBINS-I, CASP, MMAT, GRADE |
 | `src/synthesis/` | Feasibility checker, meta-analysis, narrative synthesis |
 | `src/rag/` | RAG pipeline: chunker, embedder (PydanticAI), hybrid BM25+dense retriever (RRF), HyDE query expansion, Gemini listwise reranker |
 | `src/knowledge_graph/` | Builder, community (Louvain), gap detector |

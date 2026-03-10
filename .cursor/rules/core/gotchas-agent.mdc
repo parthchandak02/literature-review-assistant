@@ -89,12 +89,12 @@ to `casp` (CASP cohort/cross-sectional checklist). ROBINS-I requires a defined
 intervention and comparator group; cross-sectional surveys lack this structure.
 Only NON_RANDOMIZED, COHORT, and CASE_CONTROL route to ROBINS-I.
 
-## Reviewer Language Is Neutral (No AI/Human Qualifier)
+## Reviewer Wording: Neutral In Grounding, AI-Assisted Disclosure In Assembly
 `screening_method_description` in `WritingGroundingData` uses "Two independent reviewers"
-with no AI or human qualifier. The TRANSPARENCY RULE in `format_grounding_block()` enforces
-this: do NOT specify whether reviewers were human or AI in any section prompt.
-Prompt instructions that say "AI-assisted screening" in this repo are stale -- the
-canonical source of truth is `context_builder.py` (`format_grounding_block`) and `sections.py` lines ~184-189.
+with no AI/human qualifier, and `format_grounding_block()` keeps prompt wording neutral.
+However, `_sanitize_body()` in `src/export/markdown_refs.py` currently injects the sentence
+"Screening was conducted using an AI-assisted dual-reviewer pipeline." once in the manuscript.
+Treat both behaviors as intentional unless product requirements change.
 
 ## PubMed Search Override Phrase Sensitivity (Critical for Recall)
 The PubMed query is built from `search_overrides.pubmed` in `config/review.yaml`.

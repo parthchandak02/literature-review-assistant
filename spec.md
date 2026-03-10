@@ -37,7 +37,7 @@ The system has three runtime layers and two persistent databases.
     |  GET  /api/stream/{run_id}  (SSE)
     |  GET  /api/db/{run_id}/...
     v
-[FastAPI -- src/web/app.py -- port 8000]
+[FastAPI -- src/web/app.py -- port 8001 (dev) / 8000 (prod)]
     |  asyncio.create_task(run_workflow())
     |  WebRunContext emits JSON events to asyncio.Queue + replay buffer
     v
@@ -138,7 +138,7 @@ literature-review-assistant/
 |   |-- web/                        # FastAPI app (40+ endpoints, SSE, static serving)
 |   `-- utils/                      # structured_log, logging_paths (RunPaths + create_run_paths), ssl_context
 |-- tests/
-|   |-- unit/                       # 38 unit test files (263 passing)
+|   |-- unit/                       # unit test suite (run `uv run pytest tests/unit -q`)
 |   `-- integration/                # 7 integration test files
 `-- runs/                           # All per-run artifacts + central registry (gitignored)
 ```
@@ -1050,7 +1050,7 @@ cd frontend && pnpm run build         # tsc strict mode + Vite chunk split -> fr
 # Open http://localhost:8000
 ```
 
-TypeScript strict mode catches all type errors. There is no separate ESLint step required.
+Run both lint and typecheck. TypeScript strict mode catches type issues, and ESLint catches style/safety issues.
 
 ### 12.6 Output Artifact Naming
 
@@ -1145,7 +1145,7 @@ Living section -- update as work completes.
 | Manuscript pipeline audit fixes (wf-0005) | DONE | 7 root-cause fixes identified by manuscript-auditor: (1) build_compact_study_table() Key Finding: was reading nonexistent rec.key_finding; now reads results_summary dict (priority: summary -> main_finding -> key_finding -> primary_outcome). (2) Country column: removed setting fallback that produced institution names ("Clinical facility", "Orthopedic Skills Lab"); NR when paper.country is empty. (3) inject_missing_citations.py figure_paths: script now detects PNG figures in run dir and passes them to markdown_to_latex(); previously the Figures section was always empty after re-generation. (4) WritingGroundingData field consolidation: removed duplicate reports_sought/reports_not_retrieved fields (added in prior commit); fulltext_sought/fulltext_not_retrieved (canonical names) now populated from prisma_counts directly in build_writing_grounding(). DO NOT CONFUSE disambiguation note added to grounding block. (5) Abstract model name leak: _trim_abstract_to_limit() regex strips google-*:* model ID strings before word-counting; grounding block uses "automated LLM relevance pre-ranker" label instead of raw model ID. (6) Background SR topic filter: register_background_sr_citations() now requires keyword token overlap in paper title before registering; falls back to unfiltered set when 0 papers match. (7) inject_missing_citations.py --workflow-id: added mutually exclusive --workflow-id flag that resolves run dir from workflows_registry.db; --run-dir still supported. |
 | Observability + backward-compat sweep | DONE | Rate-limit resolved events (Part 1): rate_limiter.py gains _wait_start_times per tier and on_resolved(tier, waited_seconds) callback fired when a slot is acquired after waiting; _wait_log_interval lowered 30s->10s; waited_seconds passed as 4th arg to on_waiting; provider.py accepts on_resolved param and wires to RateLimiter; context.py adds log_rate_limit_resolved() to both RunContext and WebRunContext (WebRunContext always emits SSE, RunContext gates CLI console print on self.verbose); workflow.py wires on_waiting/on_resolved to LLMProvider in ScreeningNode, ExtractionQualityNode, and WritingNode -- gate changed from if rc and rc.verbose to if rc so web UI gets rate-limit SSE events (WebRunContext.verbose is always False); api.ts adds waited_seconds to rate_limit_wait and adds rate_limit_resolved union member; logLine.ts renders "cleared after X.Xs". Backward-compat sweep (Part 2): 6x getattr guards replaced with direct field access in dual_screener.py; GeminiScreeningClient alias removed from gemini_client.py + screening/__init__.py; api_key dead params removed from embedder.py embed_texts/embed_query and table_extraction.py extract_tables_from_pdf; models/config.py llm field made non-Optional with default_factory. Resume fix: resume.py adds _SUB_PHASE_CHECKPOINTS dict (phase_3_screening -> phase_3b_fulltext) clearing sub-phase markers when parent phase is re-run; workflow.py ScreeningNode adds intermediate phase_3b_fulltext checkpoint + resume guard to correctly handle fulltext decisions persisted across a crash. 5 new tests in test_rate_limiter.py (324 total). |
 
-**Test status:** 324 passed, 2 skipped (`uv run pytest tests/unit tests/integration -q`). Unit tests cover all manuscript quality improvements (test_manuscript_quality.py: 13 tests for include_rq_block, build_compact_study_table, _trim_abstract_to_limit, _build_citation_coverage_patch design grouping), citation pipeline (test_inject_missing_citations.py, test_citation_grounding.py), landing-page resolver tier ordering (test_landing_page_resolver.py -- must mock _quick_citation_pdf_url for Tier 0.5), and rate limiter callbacks (test_rate_limiter.py: on_resolved fires after wait, waited_seconds passed to on_waiting).
+**Test status:** Unit and integration suites are passing in the current branch (`uv run pytest tests/unit tests/integration -q`). Key coverage includes manuscript quality guards, citation normalization/repair, landing-page resolver tier ordering (mock `_quick_citation_pdf_url` in tier-order tests), and rate limiter callback behavior.
 
 ---
 
