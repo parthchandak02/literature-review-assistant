@@ -17,7 +17,6 @@ import { Input } from "@/components/ui/input"
 import { LogStream } from "@/components/LogStream"
 import type { LogStreamHandle } from "@/components/LogStream"
 import { eventToLogEntry } from "@/lib/logLine"
-import type { ActivityLogMode } from "@/lib/logLine"
 import { FetchError } from "@/components/ui/feedback"
 import { Skeleton } from "@/components/ui/skeleton"
 import { fetchRunEvents, fetchWorkflowEvents } from "@/lib/api"
@@ -341,14 +340,6 @@ export function ActivityView({
   const [fetchError, setFetchError] = useState<string | null>(null)
   const [layout, setLayout] = useState<LayoutState>("split")
   const [leftWidth, setLeftWidth] = useState(DEFAULT_LEFT_WIDTH)
-  const [logMode, setLogMode] = useState<ActivityLogMode>(() => {
-    try {
-      const raw = sessionStorage.getItem("activity_log_mode")
-      return raw === "technical" ? "technical" : "user"
-    } catch {
-      return "user"
-    }
-  })
   const [isMobile, setIsMobile] = useState(
     () => window.matchMedia("(max-width: 767px)").matches,
   )
@@ -356,14 +347,6 @@ export function ActivityView({
   const containerRef = useRef<HTMLDivElement>(null)
   const logRef = useRef<LogStreamHandle>(null)
   const isDragging = useRef(false)
-
-  useEffect(() => {
-    try {
-      sessionStorage.setItem("activity_log_mode", logMode)
-    } catch {
-      // no-op
-    }
-  }, [logMode])
 
   // Track mobile breakpoint (md = 768px) -- on mobile, stack panels vertically.
   useEffect(() => {
@@ -451,11 +434,11 @@ export function ActivityView({
   const filtered = useMemo(() => {
     const q = searchQuery.trim().toLowerCase()
     return activeEvents.filter((ev) => {
-      const entry = eventToLogEntry(ev, logMode)
+      const entry = eventToLogEntry(ev)
       if (q && !entry.text.toLowerCase().includes(q)) return false
       return true
     })
-  }, [activeEvents, searchQuery, logMode])
+  }, [activeEvents, searchQuery])
 
   const eventCountLabel = effectiveLoadingHistory
     ? null
@@ -606,31 +589,6 @@ export function ActivityView({
                     className="pl-8 h-7 text-xs bg-transparent border-zinc-800 w-full"
                   />
                 </div>
-                <div className="flex items-center border border-zinc-800 rounded-md overflow-hidden shrink-0">
-                  <button
-                    type="button"
-                    onClick={() => setLogMode("user")}
-                    className={cn(
-                      "px-2 py-1 text-[10px] uppercase tracking-wide",
-                      logMode === "user" ? "bg-zinc-700 text-zinc-100" : "text-zinc-500 hover:text-zinc-300",
-                    )}
-                    title="Concise plain-language logs"
-                  >
-                    User
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setLogMode("technical")}
-                    className={cn(
-                      "px-2 py-1 text-[10px] uppercase tracking-wide border-l border-zinc-800",
-                      logMode === "technical" ? "bg-zinc-700 text-zinc-100" : "text-zinc-500 hover:text-zinc-300",
-                    )}
-                    title="Detailed technical logs"
-                  >
-                    Technical
-                  </button>
-                </div>
-
                 <button
                   onClick={() => setLayout(layout === "log" ? "split" : "log")}
                   className="text-zinc-500 hover:text-zinc-300 transition-colors p-0.5 rounded shrink-0"
@@ -663,7 +621,7 @@ export function ActivityView({
                 )}
 
                 {filtered.length > 0 && (
-                  <LogStream ref={logRef} events={filtered} autoScroll={!searchQuery.trim()} mode={logMode} />
+                  <LogStream ref={logRef} events={filtered} autoScroll={!searchQuery.trim()} />
                 )}
               </div>
             </div>

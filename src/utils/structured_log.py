@@ -105,6 +105,11 @@ def log_api_call(
     tokens_out: int | None = None,
     cost_usd: float | None = None,
     call_type: str | None = None,
+    reason_code: str | None = None,
+    reason_label: str | None = None,
+    action: str | None = None,
+    entity_type: str | None = None,
+    entity_id: str | None = None,
 ) -> None:
     """Log an API call event."""
     payload: dict[str, Any] = {"source": source, "status": status, "phase": phase}
@@ -130,6 +135,16 @@ def log_api_call(
         payload["tokens_out"] = tokens_out
     if cost_usd is not None:
         payload["cost_usd"] = cost_usd
+    if reason_code is not None:
+        payload["reason_code"] = reason_code
+    if reason_label is not None:
+        payload["reason_label"] = reason_label
+    if action is not None:
+        payload["action"] = action
+    if entity_type is not None:
+        payload["entity_type"] = entity_type
+    if entity_id is not None:
+        payload["entity_id"] = entity_id
     logger = structlog.get_logger()
     logger.info("api_call", **payload)
 
@@ -170,10 +185,29 @@ def log_screening_decision(
     logger.info("screening_decision", **payload)
 
 
-def log_phase(phase: str, action: str, **summary: Any) -> None:
+def log_phase(
+    phase: str,
+    action: str,
+    *,
+    reason_code: str | None = None,
+    reason_label: str | None = None,
+    entity_type: str | None = None,
+    entity_id: str | None = None,
+    **summary: Any,
+) -> None:
     """Log phase transition (action: start|done)."""
     logger = structlog.get_logger()
-    logger.info("phase", phase=phase, action=action, **summary)
+    payload: dict[str, Any] = {"phase": phase, "action": action}
+    if reason_code is not None:
+        payload["reason_code"] = reason_code
+    if reason_label is not None:
+        payload["reason_label"] = reason_label
+    if entity_type is not None:
+        payload["entity_type"] = entity_type
+    if entity_id is not None:
+        payload["entity_id"] = entity_id
+    payload.update(summary)
+    logger.info("phase", **payload)
 
 
 def log_connector_result(
@@ -208,10 +242,37 @@ def log_connector_result(
     logger.info("connector_result", **payload)
 
 
-def log_pdf_result(paper_id: str, title: str, source: str, success: bool) -> None:
+def log_pdf_result(
+    paper_id: str,
+    title: str,
+    source: str,
+    success: bool,
+    *,
+    reason_code: str | None = None,
+    reason_label: str | None = None,
+    action: str | None = None,
+    entity_type: str | None = None,
+    entity_id: str | None = None,
+) -> None:
     """Log per-paper PDF retrieval outcome."""
     logger = structlog.get_logger()
-    logger.info("pdf_result", paper_id=paper_id, title=title, source=source, success=success)
+    payload: dict[str, Any] = {
+        "paper_id": paper_id,
+        "title": title,
+        "source": source,
+        "success": success,
+    }
+    if reason_code is not None:
+        payload["reason_code"] = reason_code
+    if reason_label is not None:
+        payload["reason_label"] = reason_label
+    if action is not None:
+        payload["action"] = action
+    if entity_type is not None:
+        payload["entity_type"] = entity_type
+    if entity_id is not None:
+        payload["entity_id"] = entity_id
+    logger.info("pdf_result", **payload)
 
 
 # ---------------------------------------------------------------------------
@@ -234,15 +295,19 @@ def normalize_jsonl_event(entry: dict[str, Any]) -> dict[str, Any] | None:
     if ev == "phase":
         action = entry.get("action")
         if action == "start":
-            return {
+            out: dict[str, Any] = {
                 "type": "phase_start",
                 "phase": entry.get("phase"),
                 "description": entry.get("description", ""),
                 "total": entry.get("total"),
                 "ts": ts,
             }
+            for key in ("reason_code", "reason_label", "action", "entity_type", "entity_id"):
+                if key in entry:
+                    out[key] = entry.get(key)
+            return out
         if action == "done":
-            return {
+            out = {
                 "type": "phase_done",
                 "phase": entry.get("phase"),
                 "summary": entry.get("summary", {}),
@@ -250,6 +315,10 @@ def normalize_jsonl_event(entry: dict[str, Any]) -> dict[str, Any] | None:
                 "completed": entry.get("completed"),
                 "ts": ts,
             }
+            for key in ("reason_code", "reason_label", "action", "entity_type", "entity_id"):
+                if key in entry:
+                    out[key] = entry.get(key)
+            return out
         return None  # "start" workflow marker -- skip
 
     if ev == "connector_result":

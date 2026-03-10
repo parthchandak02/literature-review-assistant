@@ -137,7 +137,7 @@ export function RunView({
       // for resetting derived state when a condition changes.
       // eslint-disable-next-line react-hooks/set-state-in-effect
       setHistoricalEvents([])
-      // eslint-disable-next-line react-hooks/set-state-in-effect
+       
       setHistoricalEventsLoading(false)
       return
     }
