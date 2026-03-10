@@ -7,6 +7,7 @@ from src.models.additional import (
     PRISMACounts,
     ProsperoRunData,
     ProtocolDocument,
+    RagRetrievalDiagnostic,
     SummaryOfFindingsRow,
 )
 from src.models.claims import CitationEntryRecord, ClaimRecord, EvidenceLinkRecord
@@ -53,7 +54,13 @@ from src.models.papers import CandidatePaper, SearchResult
 from src.models.quality import GRADEOutcomeAssessment, RoB2Assessment, RobinsIAssessment
 from src.models.screening import DualScreeningResult, ScreeningDecision
 from src.models.workflow import DecisionLogEntry, GateResult
-from src.models.writing import SectionDraft
+from src.models.writing import (
+    ManuscriptAssembly,
+    ManuscriptAsset,
+    ManuscriptBlock,
+    ManuscriptSection,
+    SectionDraft,
+)
 
 __all__ = [
     "AgentConfig",
@@ -91,6 +98,7 @@ __all__ = [
     "PRISMACounts",
     "ProsperoRunData",
     "ProtocolDocument",
+    "RagRetrievalDiagnostic",
     "ProtocolRegistration",
     "ReviewConfig",
     "ReviewType",
@@ -104,6 +112,10 @@ __all__ = [
     "ScreeningDecision",
     "ScreeningDecisionType",
     "SearchResult",
+    "ManuscriptAssembly",
+    "ManuscriptAsset",
+    "ManuscriptBlock",
+    "ManuscriptSection",
     "SectionDraft",
     "SettingsConfig",
     "SourceCategory",

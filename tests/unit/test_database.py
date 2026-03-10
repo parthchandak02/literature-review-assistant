@@ -5,6 +5,7 @@ import pytest
 
 from src.db.database import get_db
 from src.db.repositories import WorkflowRepository
+from src.models import DecisionLogEntry, ManuscriptAssembly, SectionDraft
 from src.models import ReviewerType, ScreeningDecision, ScreeningDecisionType
 
 
@@ -16,6 +17,24 @@ async def test_database_migrations_create_tables(tmp_path) -> None:
         cursor = await db.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='gate_results'")
         row = await cursor.fetchone()
         assert row is not None
+        schema_version_row = await (await db.execute("SELECT COALESCE(MAX(version), 0) FROM schema_version")).fetchone()
+        assert schema_version_row is not None
+        assert int(schema_version_row[0]) >= 8
+
+        cols = await (await db.execute("PRAGMA table_info(cost_records)")).fetchall()
+        col_names = {str(r[1]) for r in cols}
+        assert "workflow_id" in col_names
+
+        cols2 = await (await db.execute("PRAGMA table_info(extraction_records)")).fetchall()
+        col_names2 = {str(r[1]) for r in cols2}
+        assert "extraction_source" in col_names2
+
+        cols3 = await (await db.execute("PRAGMA table_info(decision_log)")).fetchall()
+        col_names3 = {str(r[1]) for r in cols3}
+        assert "workflow_id" in col_names3
+
+        cols4 = await (await db.execute("PRAGMA table_info(manuscript_sections)")).fetchall()
+        assert "section_key" in {str(r[1]) for r in cols4}
 
 
 @pytest.mark.asyncio
@@ -108,3 +127,121 @@ async def test_prisma_counts_assessed_falls_back_to_sought_minus_not_retrieved(t
         assert not_retrieved == 1
         assert assessed == 2
         assert reasons == {}
+
+
+@pytest.mark.asyncio
+async def test_failed_search_connectors_filters_by_workflow(tmp_path) -> None:
+    db_path = tmp_path / "connector_failures.db"
+    async with get_db(str(db_path)) as db:
+        repo = WorkflowRepository(db)
+        await repo.append_decision_log(
+            DecisionLogEntry(
+                workflow_id="wf-target",
+                decision_type="search_connector_error",
+                decision="error",
+                rationale="OpenAlex: RuntimeError: quota exceeded",
+                actor="search",
+                phase="phase_2_search",
+            )
+        )
+        await repo.append_decision_log(
+            DecisionLogEntry(
+                workflow_id="wf-other",
+                decision_type="search_connector_error",
+                decision="error",
+                rationale="Scopus: RuntimeError: bad key",
+                actor="search",
+                phase="phase_2_search",
+            )
+        )
+        out = await repo.get_failed_search_connectors("wf-target")
+        assert out == ["OpenAlex"]
+
+
+@pytest.mark.asyncio
+async def test_save_section_draft_dual_writes_manuscript_tables(tmp_path) -> None:
+    db_path = tmp_path / "manuscript_tables.db"
+    async with get_db(str(db_path)) as db:
+        repo = WorkflowRepository(db)
+        draft = SectionDraft(
+            workflow_id="wf-manu",
+            section="methods",
+            version=1,
+            content="<!-- SECTION_BLOCK:information_sources -->\n### Information Sources\n\nText body.",
+            claims_used=[],
+            citations_used=[],
+            word_count=6,
+        )
+        await repo.save_section_draft(draft)
+        await repo.save_manuscript_section_from_draft(draft, section_order=2)
+        sections = await repo.load_latest_manuscript_sections("wf-manu")
+        assert len(sections) == 1
+        assert sections[0].section_key == "methods"
+        cur = await db.execute(
+            "SELECT COUNT(*) FROM manuscript_blocks WHERE workflow_id=? AND section_key=?",
+            ("wf-manu", "methods"),
+        )
+        row = await cur.fetchone()
+        assert row is not None
+        assert int(row[0]) >= 2
+
+
+@pytest.mark.asyncio
+async def test_save_manuscript_assembly_validates_manifest_refs(tmp_path) -> None:
+    db_path = tmp_path / "assembly_manifest.db"
+    async with get_db(str(db_path)) as db:
+        repo = WorkflowRepository(db)
+        draft = SectionDraft(
+            workflow_id="wf-asm",
+            section="results",
+            version=1,
+            content="### Study Selection\n\nBody text.",
+            claims_used=[],
+            citations_used=[],
+            word_count=4,
+        )
+        await repo.save_section_draft(draft)
+        await repo.save_manuscript_section_from_draft(draft, section_order=0)
+        await repo.save_manuscript_assembly(
+            ManuscriptAssembly(
+                workflow_id="wf-asm",
+                assembly_id="latest",
+                target_format="md",
+                content="content",
+                manifest_json='{"sections":[{"section_key":"results","version":1,"order":0}]}',
+            )
+        )
+        got = await repo.load_latest_manuscript_assembly("wf-asm", "md")
+        assert got is not None
+        assert got.assembly_id == "latest"
+
+
+@pytest.mark.asyncio
+async def test_validate_manuscript_md_parity(tmp_path) -> None:
+    db_path = tmp_path / "parity.db"
+    async with get_db(str(db_path)) as db:
+        repo = WorkflowRepository(db)
+        draft = SectionDraft(
+            workflow_id="wf-parity",
+            section="discussion",
+            version=1,
+            content="## Discussion\n\nText [1].",
+            claims_used=[],
+            citations_used=[],
+            word_count=4,
+        )
+        await repo.save_section_draft(draft)
+        await repo.save_manuscript_section_from_draft(draft, section_order=0)
+        md = "## Discussion\n\nText [1]."
+        await repo.save_manuscript_assembly(
+            ManuscriptAssembly(
+                workflow_id="wf-parity",
+                assembly_id="latest",
+                target_format="md",
+                content=md,
+                manifest_json='{"sections":[{"section_key":"discussion","version":1,"order":0}]}',
+            )
+        )
+        parity = await repo.validate_manuscript_md_parity("wf-parity", md)
+        assert parity["has_assembly"] is True
+        assert parity["citation_set_match"] is True

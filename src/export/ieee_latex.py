@@ -210,6 +210,22 @@ def _convert_citations(
 
     text = _list_re.sub(list_repl, text)
 
+    # Pass 1.5: numeric citation lists/singles ([1], [2, 3]) via num_to_citekey map.
+    def numeric_repl(m: re.Match) -> str:
+        raw_nums = [n.strip() for n in m.group(1).split(",")]
+        resolved: list[str] = []
+        seen: set[str] = set()
+        for n in raw_nums:
+            rk = _resolve_token(n)
+            if rk and rk not in seen:
+                resolved.append(rk)
+                seen.add(rk)
+        if resolved:
+            return f"\\cite{{{','.join(resolved)}}}"
+        return m.group(0)
+
+    text = re.sub(r"\[(\d+(?:\s*,\s*\d+)*)\]", numeric_repl, text)
+
     # Pass 2: single-key brackets -> \cite{key}
     def repl(m: re.Match) -> str:
         key = m.group(1)
@@ -456,11 +472,67 @@ def _md_section_to_latex(
             parts.append("\\end{itemize}")
             list_items = []
 
+    def _split_inline_subheading(line_text: str) -> tuple[str, str, str] | None:
+        """Return (level, title, body) for inline heading+body lines.
+
+        Example:
+          "### Information Sources The search was conducted..."
+        -> ("###", "Information Sources", "The search was conducted...")
+        """
+        _heading_re = re.compile(r"^(#{3,6})\s+(.+)$")
+        _sentence_start_re = re.compile(r"^(The|This|These|We|Our|In|Across|To|A|An|Studies|Study|Data)\b")
+        _title_token_re = re.compile(r"^[A-Z][A-Za-z0-9()/:,\-']*$")
+        m = _heading_re.match(line_text.strip())
+        if not m:
+            return None
+        level = m.group(1)
+        tail = m.group(2).strip()
+        if not tail:
+            return None
+        words = tail.split()
+        if len(words) < 4:
+            return None
+        for idx in range(2, min(len(words), 12)):
+            left_words = words[:idx]
+            right_words = words[idx:]
+            left_ok = all(_title_token_re.match(w) or w.lower() in {"and", "of", "for", "to", "with"} for w in left_words)
+            if not left_ok:
+                continue
+            right = " ".join(right_words).strip()
+            if _sentence_start_re.match(right) or (right and right[0].isupper() and any(c in right for c in ".,")):
+                return level, " ".join(left_words), right
+        return None
+
     while i < len(lines):
         line = lines[i]
         stripped = line.strip()
+        inline_heading = _split_inline_subheading(stripped)
 
-        if stripped.startswith("#### "):
+        if inline_heading and inline_heading[0] == "####":
+            flush_list()
+            _, title, body_text = inline_heading
+            parts.append(f"\\subsubsection{{{_escape_latex(title)}}}")
+            parts.append("")
+            conv = _convert_inline_formatting(
+                _convert_citations(body_text, citekeys, num_to_citekey),
+                citekeys,
+                num_to_citekey,
+            )
+            parts.append(_escape_latex(conv))
+            parts.append("")
+        elif inline_heading and inline_heading[0] == "###":
+            flush_list()
+            _, title, body_text = inline_heading
+            parts.append(f"\\subsection{{{_escape_latex(title)}}}")
+            parts.append("")
+            conv = _convert_inline_formatting(
+                _convert_citations(body_text, citekeys, num_to_citekey),
+                citekeys,
+                num_to_citekey,
+            )
+            parts.append(_escape_latex(conv))
+            parts.append("")
+        elif stripped.startswith("#### "):
             flush_list()
             title = stripped[5:].strip()
             parts.append(f"\\subsubsection{{{_escape_latex(title)}}}")

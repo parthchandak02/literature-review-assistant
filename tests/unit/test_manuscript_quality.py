@@ -86,6 +86,26 @@ def test_assemble_strips_existing_rq_block(tmp_path: Path) -> None:
     assert result.count("A Systematic Review:") <= 1
 
 
+def test_assemble_dedupes_repeated_leading_h1_titles(tmp_path: Path) -> None:
+    from src.export.markdown_refs import assemble_submission_manuscript
+
+    body = (
+        "# A Systematic Review: X\n\n"
+        "# A Systematic Review: X\n\n"
+        "## Introduction\n\nHello [Smith2021].\n"
+    )
+    result = assemble_submission_manuscript(
+        body=body,
+        manuscript_path=tmp_path / "ms.md",
+        artifacts={},
+        citation_rows=_make_mock_citation_rows(),
+        research_question="What is the effect of X on Y?",
+        title=None,
+        include_rq_block=False,
+    )
+    assert result.count("# A Systematic Review: X") == 1
+
+
 # ---------------------------------------------------------------------------
 # build_compact_study_table
 # ---------------------------------------------------------------------------
@@ -161,6 +181,27 @@ def test_compact_table_truncates_long_finding() -> None:
     assert "..." in result
 
 
+def test_compact_table_country_falls_back_to_nr() -> None:
+    """Missing paper.country renders as NR (no setting-based fallback)."""
+    from src.export.markdown_refs import build_compact_study_table
+
+    papers = [_make_paper("p1", ["Smith A"], 2021, country="")]
+    records = [_make_extraction("p1", "rct", 10, "Short finding")]
+    result = build_compact_study_table(papers, records)
+    assert "| NR |" in result
+
+
+def test_compact_table_key_finding_priority_main_finding() -> None:
+    """Falls back to results_summary.main_finding when summary is absent."""
+    from src.export.markdown_refs import build_compact_study_table
+
+    papers = [_make_paper("p1", ["Smith A"], 2021)]
+    rec = _make_extraction("p1", "rct", 10, "")
+    rec.results_summary = {"main_finding": "Main finding used"}
+    result = build_compact_study_table(papers, [rec])
+    assert "Main finding used" in result
+
+
 def test_compact_table_reports_truncation_count() -> None:
     """When max_rows truncates output, note must include shown and total counts."""
     from src.export.markdown_refs import build_compact_study_table
@@ -198,6 +239,95 @@ def test_compact_table_injected_in_body(tmp_path: Path) -> None:
     # Compact table header must appear in the Results body
     assert "| Study (Year) |" in result
     assert "### Study Characteristics" in result
+
+
+def test_assemble_normalizes_inline_subsection_heading_body(tmp_path: Path) -> None:
+    """Inline '### Heading body' is split into heading + paragraph."""
+    from src.export.markdown_refs import assemble_submission_manuscript
+
+    body = (
+        "## Methods\n\n"
+        "### Information Sources The systematic search was conducted in 2026.\n\n"
+        "## Results\n\n"
+        "### Study Characteristics\n\n"
+        "Study text [Smith2021].\n"
+    )
+    row = (1, "Smith2021", None, "Study", '["Smith A"]', 2021, "J", None, None)
+    result = assemble_submission_manuscript(
+        body=body,
+        manuscript_path=tmp_path / "ms.md",
+        artifacts={},
+        citation_rows=[row],
+        papers=[_make_paper("pid-1", ["Smith A"], 2021)],
+        extraction_records=[_make_extraction("pid-1", "randomized_controlled_trial", 30, "Positive result found")],
+    )
+    assert "### Information Sources\n\nThe systematic search was conducted in 2026." in result
+
+
+def test_assemble_normalizes_known_eligibility_heading(tmp_path: Path) -> None:
+    from src.export.markdown_refs import assemble_submission_manuscript
+
+    body = (
+        "## Methods\n\n"
+        "### Eligibility Criteria Studies were included from 2000 to 2026.\n\n"
+        "## Results\n\n"
+        "### Study Characteristics\n\n"
+        "Study text [Smith2021].\n"
+    )
+    row = (1, "Smith2021", None, "Study", '["Smith A"]', 2021, "J", None, None)
+    result = assemble_submission_manuscript(
+        body=body,
+        manuscript_path=tmp_path / "ms.md",
+        artifacts={},
+        citation_rows=[row],
+        papers=[_make_paper("pid-1", ["Smith A"], 2021)],
+        extraction_records=[_make_extraction("pid-1", "randomized_controlled_trial", 30, "Positive result found")],
+    )
+    assert "### Eligibility Criteria\n\nStudies were included from 2000 to 2026." in result
+
+
+def test_assemble_splits_multiple_inline_headings_on_same_line(tmp_path: Path) -> None:
+    from src.export.markdown_refs import assemble_submission_manuscript
+
+    body = (
+        "## Methods\n\n"
+        "### Eligibility Criteria Studies were included. ### Information Sources The search ran in PubMed.\n\n"
+        "## Results\n\n"
+        "### Study Characteristics\n\n"
+        "Study text [Smith2021].\n"
+    )
+    row = (1, "Smith2021", None, "Study", '["Smith A"]', 2021, "J", None, None)
+    result = assemble_submission_manuscript(
+        body=body,
+        manuscript_path=tmp_path / "ms.md",
+        artifacts={},
+        citation_rows=[row],
+        papers=[_make_paper("pid-1", ["Smith A"], 2021)],
+        extraction_records=[_make_extraction("pid-1", "randomized_controlled_trial", 30, "Positive result found")],
+    )
+    assert "### Eligibility Criteria\n\nStudies were included." in result
+    assert "### Information Sources\n\nThe search ran in PubMed." in result
+
+
+def test_assemble_compact_table_injection_is_idempotent(tmp_path: Path) -> None:
+    from src.export.markdown_refs import assemble_submission_manuscript
+
+    base_body = (
+        "## Results\n\n"
+        "### Study Characteristics\n\n"
+        "Study text [Smith2021].\n"
+    )
+    row = (1, "Smith2021", None, "Study", '["Smith A"]', 2021, "J", None, None)
+    kwargs = dict(
+        manuscript_path=tmp_path / "ms.md",
+        artifacts={},
+        citation_rows=[row],
+        papers=[_make_paper("pid-1", ["Smith A"], 2021)],
+        extraction_records=[_make_extraction("pid-1", "randomized_controlled_trial", 30, "Positive result found")],
+    )
+    out1 = assemble_submission_manuscript(body=base_body, **kwargs)
+    out2 = assemble_submission_manuscript(body=out1, **kwargs)
+    assert out2.count("See Appendix B for full characteristics.") == 1
 
 
 # ---------------------------------------------------------------------------

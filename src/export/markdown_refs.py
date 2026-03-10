@@ -279,6 +279,8 @@ def _sanitize_body(text: str) -> str:
     text = re.sub(r"\[\s*Paper_[A-Za-z0-9_\-]+\s*\]", "", text)
     text = text.replace(" ,", ",")
     text = text.replace(" .", ".")
+    text = re.sub(r"\bCohen s kappa\b", "Cohen's kappa", text, flags=re.IGNORECASE)
+    text = re.sub(r"\bclinicaltrials gov\b", "clinicaltrials.gov", text, flags=re.IGNORECASE)
     text = re.sub(r"[ \t]{2,}", " ", text)
     text = re.sub(r"\[\s*,\s*\]", "", text)
 
@@ -295,6 +297,78 @@ def _sanitize_body(text: str) -> str:
             continue
         clean.append(line)
     return "\n".join(clean)
+
+
+def _strip_compact_study_tables(text: str) -> str:
+    """Remove previously injected compact Study Characteristics tables."""
+    _compact_block_re = re.compile(
+        r"\| Study \(Year\) \| Country \| Design \| N \| Key Finding \|\n"
+        r"\|---\|---\|---\|---\|---\|\n"
+        r"(?:\|.*\|\n)+"
+        r"\n?_Table 1\. Summary of .*?included studies.*?_",
+        re.DOTALL,
+    )
+    return _compact_block_re.sub("", text)
+
+
+def _normalize_subsection_heading_layout(text: str) -> str:
+    """Split inline subsection heading+body into canonical multiline markdown.
+
+    wf-0009 showed patterns like:
+      "### Information Sources The systematic search was conducted ..."
+    which should be:
+      "### Information Sources"
+      ""
+      "The systematic search was conducted ..."
+
+    This transform is deterministic and idempotent.
+    """
+    # Some legacy runs collapse multiple markdown headings into a single line.
+    # Insert hard line breaks before each heading marker first.
+    text = re.sub(r"\s+(#{3,4}\s+)", r"\n\n\1", text)
+
+    _heading_re = re.compile(r"^(#{3,6})\s+(.+)$")
+    _sentence_start_re = re.compile(r"^(The|This|These|We|Our|In|Across|To|A|An|Studies|Study|Data)\b")
+    _title_token_re = re.compile(r"^[A-Z][A-Za-z0-9()/:,\-']*$")
+
+    def _split_heading_and_body(line: str) -> tuple[str, str] | None:
+        m = _heading_re.match(line.strip())
+        if not m:
+            return None
+        level = m.group(1)
+        tail = m.group(2).strip()
+        if not tail:
+            return None
+        # Marker-first pipelines should already separate sections; this fallback
+        # handles legacy run-on lines without hardcoding specific heading titles.
+        if "  " in tail:
+            left, right = tail.split("  ", 1)
+            if right.strip():
+                return f"{level} {left.strip()}", right.strip()
+        words = tail.split()
+        if len(words) < 4:
+            return None
+        # Heuristic split point: short title-case prefix followed by sentence-like start.
+        for idx in range(2, min(len(words), 12)):
+            left_words = words[:idx]
+            right_words = words[idx:]
+            left_ok = all(_title_token_re.match(w) or w.lower() in {"and", "of", "for", "to", "with"} for w in left_words)
+            if not left_ok:
+                continue
+            right = " ".join(right_words).strip()
+            if _sentence_start_re.match(right) or (right and right[0].isupper() and any(c in right for c in ".,")):
+                return f"{level} {' '.join(left_words)}", right
+        return None
+
+    out_lines: list[str] = []
+    for line in text.splitlines():
+        split = _split_heading_and_body(line)
+        if not split:
+            out_lines.append(line)
+            continue
+        heading, body = split
+        out_lines.extend([heading, "", body])
+    return "\n".join(out_lines)
 
 
 # SR citekeys follow the pattern SurnameYYYYSR[N] (background systematic review
@@ -1434,7 +1508,7 @@ def assemble_submission_manuscript(
     title and the abstract body. Defaults to False (omit for IEEE submissions where
     this non-standard prefix would appear before the structured abstract).
     """
-    clean_body = _sanitize_body(body)
+    clean_body = _strip_compact_study_tables(_sanitize_body(_normalize_subsection_heading_layout(body)))
 
     # Normalize date range in Methods section to the authoritative protocol values
     # before citation conversion so the Methods text is consistent with PICOS table.
@@ -1458,6 +1532,15 @@ def assemble_submission_manuscript(
 
     # Prepend title and research question block when provided
     header_block = ""
+    # Deduplicate repeated leading H1 title lines from legacy reruns.
+    _lines = numbered_body.splitlines()
+    if _lines and _lines[0].startswith("# "):
+        _title_line = _lines[0]
+        _idx = 1
+        while _idx < len(_lines) and (_lines[_idx].strip() == "" or _lines[_idx] == _title_line):
+            _idx += 1
+        numbered_body = "\n".join([_title_line, ""] + _lines[_idx:]).lstrip("\n")
+
     if research_question or title:
         # Strip any existing title block to avoid duplication when re-running finalize
         _title_block_re = re.compile(

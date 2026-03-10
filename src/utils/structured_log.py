@@ -269,6 +269,13 @@ def load_events_from_jsonl(path: str) -> list[dict[str, Any]]:
                     entry = json.loads(line)
                 except json.JSONDecodeError:
                     continue
+                # Backward-compatibility: some runs contain doubly-encoded JSONL lines
+                # (a JSON string that itself contains the event object).
+                if isinstance(entry, str):
+                    try:
+                        entry = json.loads(entry)
+                    except json.JSONDecodeError:
+                        continue
                 if not isinstance(entry, dict):
                     continue
                 normalized = normalize_jsonl_event(entry)

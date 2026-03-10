@@ -93,6 +93,7 @@ class SummaryOfFindingsRow(BaseModel):
 
 
 class CostRecord(BaseModel):
+    workflow_id: str = ""
     model: str
     tokens_in: int
     tokens_out: int
@@ -102,3 +103,20 @@ class CostRecord(BaseModel):
     cache_read_tokens: int = 0
     cache_write_tokens: int = 0
     timestamp: datetime = Field(default_factory=lambda: datetime.now(UTC))
+
+
+class RagRetrievalDiagnostic(BaseModel):
+    """Per-section retrieval diagnostics emitted during writing."""
+
+    workflow_id: str
+    section: str
+    query_type: str  # hyde|section_fallback|none
+    rerank_enabled: bool
+    candidate_k: int
+    final_k: int
+    retrieved_count: int
+    status: str  # success|empty|error|skipped
+    selected_chunks_json: str = "[]"
+    error_message: str | None = None
+    latency_ms: int | None = None
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))

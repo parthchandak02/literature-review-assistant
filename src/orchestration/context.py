@@ -491,9 +491,9 @@ def create_progress(console: Console) -> Progress:
 
 @dataclass
 class WebRunContext:
-    """RunContext replacement for web mode: emits structured JSON events to an asyncio.Queue."""
+    """RunContext replacement for web mode: emits structured JSON events via callbacks."""
 
-    queue: Any  # asyncio.Queue[dict] -- typed as Any to avoid asyncio import at module level
+    queue: Any = None  # Optional legacy queue sink; primary path is on_event callback.
     web_mode: bool = True
     verbose: bool = False
     debug: bool = False
@@ -542,10 +542,11 @@ class WebRunContext:
                 self.on_event(event)
             except Exception:
                 pass
-        try:
-            self.queue.put_nowait(event)
-        except Exception:
-            pass
+        if self.queue is not None:
+            try:
+                self.queue.put_nowait(event)
+            except Exception:
+                pass
 
     def should_proceed_with_partial(self) -> bool:
         return bool(self.proceed_with_partial_requested and self.proceed_with_partial_requested[0])
