@@ -33,28 +33,30 @@ export interface RunResults {
 }
 
 // SSE event types emitted by WebRunContext
+type ReviewEventIdentity = { id?: string }
+
 export type ReviewEvent =
-  | { type: "phase_start"; phase: string; description: string; total: number | null; ts: string; reason_code?: string | null; reason_label?: string | null; action?: string | null; entity_type?: string | null; entity_id?: string | null }
-  | { type: "phase_done"; phase: string; summary: Record<string, unknown>; total: number | null; completed: number | null; ts: string; reason_code?: string | null; reason_label?: string | null; action?: string | null; entity_type?: string | null; entity_id?: string | null }
-  | { type: "progress"; phase: string; current: number; total: number; ts: string }
-  | { type: "api_call"; source: string; status: string; phase: string; call_type: string; model: string | null; paper_id: string | null; latency_ms: number | null; tokens_in: number | null; tokens_out: number | null; cost_usd: number | null; records: number | null; details: string | null; section_name: string | null; word_count: number | null; ts: string; reason_code?: string | null; reason_label?: string | null; action?: string | null; entity_type?: string | null; entity_id?: string | null }
-  | { type: "connector_result"; name: string; status: string; records: number; query?: string; error: string | null; ts: string; reason_code?: string | null; reason_label?: string | null; action?: string | null; entity_type?: string | null; entity_id?: string | null }
-  | { type: "screening_decision"; paper_id: string; stage: string; decision: string; confidence?: number; title?: string; reason?: string; method?: "llm" | "heuristic"; ts: string; reason_code?: string | null; reason_label?: string | null; action?: string | null; entity_type?: string | null; entity_id?: string | null }
-  | { type: "extraction_paper"; paper_id: string; design: string; rob_judgment: string; ts: string }
-  | { type: "synthesis"; feasible: boolean; groups: number; n_studies: number; direction: string; ts: string }
-  | { type: "rate_limit_wait"; tier: string; slots_used: number; limit: number; waited_seconds?: number; ts: string }
-  | { type: "rate_limit_resolved"; tier: string; waited_seconds: number; ts: string }
-  | { type: "search_override_status"; database: string; status: "applied" | "miss" | "absent"; detail: string; ts: string }
-  | { type: "status"; message: string; ts: string }
-  | { type: "screening_prefilter_done"; deduped: number; metadata_rejected: number; after_metadata: number; automation_excluded: number; to_llm: number; reason_breakdown?: Record<string, number>; ts: string; reason_code?: string | null; reason_label?: string | null; action?: string | null; entity_type?: string | null; entity_id?: string | null }
-  | { type: "batch_screen_done"; scored: number; forwarded: number; excluded: number; skipped_resume: number; threshold: number; ts: string; reason_code?: string | null; reason_label?: string | null; action?: string | null; entity_type?: string | null; entity_id?: string | null }
-  | { type: "screening_calibration"; include_threshold: number; exclude_threshold: number; kappa: number; iterations: number; sample_size: number; ts: string }
-  | { type: "pdf_result"; paper_id: string; title: string; source: string; success: boolean; ts: string; reason_code?: string | null; reason_label?: string | null; action?: string | null; entity_type?: string | null; entity_id?: string | null }
-  | { type: "db_ready"; ts: string }
-  | { type: "workflow_id_ready"; workflow_id: string }
-  | { type: "done"; outputs: Record<string, unknown>; ts?: string }
-  | { type: "error"; msg: string; traceback?: string; ts?: string }
-  | { type: "cancelled"; ts?: string }
+  | ({ type: "phase_start"; phase: string; description: string; total: number | null; ts: string; reason_code?: string | null; reason_label?: string | null; action?: string | null; entity_type?: string | null; entity_id?: string | null } & ReviewEventIdentity)
+  | ({ type: "phase_done"; phase: string; summary: Record<string, unknown>; total: number | null; completed: number | null; ts: string; reason_code?: string | null; reason_label?: string | null; action?: string | null; entity_type?: string | null; entity_id?: string | null } & ReviewEventIdentity)
+  | ({ type: "progress"; phase: string; current: number; total: number; ts: string } & ReviewEventIdentity)
+  | ({ type: "api_call"; source: string; status: string; phase: string; call_type: string; model: string | null; paper_id: string | null; latency_ms: number | null; tokens_in: number | null; tokens_out: number | null; cost_usd: number | null; records: number | null; details: string | null; section_name: string | null; word_count: number | null; ts: string; reason_code?: string | null; reason_label?: string | null; action?: string | null; entity_type?: string | null; entity_id?: string | null } & ReviewEventIdentity)
+  | ({ type: "connector_result"; name: string; status: string; records: number; query?: string; error: string | null; ts: string; reason_code?: string | null; reason_label?: string | null; action?: string | null; entity_type?: string | null; entity_id?: string | null } & ReviewEventIdentity)
+  | ({ type: "screening_decision"; paper_id: string; stage: string; decision: string; confidence?: number; title?: string; reason?: string; method?: "llm" | "heuristic"; ts: string; reason_code?: string | null; reason_label?: string | null; action?: string | null; entity_type?: string | null; entity_id?: string | null } & ReviewEventIdentity)
+  | ({ type: "extraction_paper"; paper_id: string; design: string; rob_judgment: string; ts: string } & ReviewEventIdentity)
+  | ({ type: "synthesis"; feasible: boolean; groups: number; n_studies: number; direction: string; ts: string } & ReviewEventIdentity)
+  | ({ type: "rate_limit_wait"; tier: string; slots_used: number; limit: number; waited_seconds?: number; ts: string } & ReviewEventIdentity)
+  | ({ type: "rate_limit_resolved"; tier: string; waited_seconds: number; ts: string } & ReviewEventIdentity)
+  | ({ type: "search_override_status"; database: string; status: "applied" | "miss" | "absent"; detail: string; ts: string } & ReviewEventIdentity)
+  | ({ type: "status"; message: string; ts: string } & ReviewEventIdentity)
+  | ({ type: "screening_prefilter_done"; deduped: number; metadata_rejected: number; after_metadata: number; automation_excluded: number; to_llm: number; reason_breakdown?: Record<string, number>; ts: string; reason_code?: string | null; reason_label?: string | null; action?: string | null; entity_type?: string | null; entity_id?: string | null } & ReviewEventIdentity)
+  | ({ type: "batch_screen_done"; scored: number; forwarded: number; excluded: number; skipped_resume: number; threshold: number; ts: string; reason_code?: string | null; reason_label?: string | null; action?: string | null; entity_type?: string | null; entity_id?: string | null } & ReviewEventIdentity)
+  | ({ type: "screening_calibration"; include_threshold: number; exclude_threshold: number; kappa: number; iterations: number; sample_size: number; ts: string } & ReviewEventIdentity)
+  | ({ type: "pdf_result"; paper_id: string; title: string; source: string; success: boolean; ts: string; reason_code?: string | null; reason_label?: string | null; action?: string | null; entity_type?: string | null; entity_id?: string | null } & ReviewEventIdentity)
+  | ({ type: "db_ready"; ts: string } & ReviewEventIdentity)
+  | ({ type: "workflow_id_ready"; workflow_id: string } & ReviewEventIdentity)
+  | ({ type: "done"; outputs: Record<string, unknown>; ts?: string } & ReviewEventIdentity)
+  | ({ type: "error"; msg: string; traceback?: string; ts?: string } & ReviewEventIdentity)
+  | ({ type: "cancelled"; ts?: string } & ReviewEventIdentity)
 
 // Database explorer types
 export interface PaperRow {
