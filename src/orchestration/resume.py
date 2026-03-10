@@ -125,6 +125,12 @@ async def load_resume_state(
         except Exception as _kappa_exc:
             logger.warning("Could not restore kappa from event_log on resume: %s", _kappa_exc)
 
+        # Sub-phase checkpoints that must be cleared when their parent phase is re-run.
+        # These are mid-phase markers not in PHASE_ORDER but used for resume skipping.
+        _SUB_PHASE_CHECKPOINTS: dict[str, list[str]] = {
+            "phase_3_screening": ["phase_3b_fulltext"],
+        }
+
         if from_phase is not None:
             if from_phase not in PHASE_ORDER:
                 raise ValueError(f"from_phase must be one of {PHASE_ORDER!r}, got {from_phase!r}")
@@ -145,6 +151,12 @@ async def load_resume_state(
                     break
             else:
                 phases_to_clear = _phases_from(from_phase)
+                # Also clear any sub-phase checkpoints for phases being re-run so that
+                # mid-phase skip guards do not incorrectly fire on an explicit re-run.
+                extra: list[str] = []
+                for phase in phases_to_clear:
+                    extra.extend(_SUB_PHASE_CHECKPOINTS.get(phase, []))
+                phases_to_clear = list(phases_to_clear) + extra
                 await repo.delete_checkpoints_for_phases(workflow_id, phases_to_clear)
                 next_phase = from_phase
         else:

@@ -678,7 +678,7 @@ class ScreeningNode(BaseNode[ReviewState]):
             gate_runner = GateRunner(repository, state.settings)
             on_waiting = None
             on_resolved = None
-            if rc and rc.verbose:
+            if rc:
 
                 def _on_waiting(t: object, u: object, limit: object, waited: object = 0.0) -> None:
                     rc.log_rate_limit_wait(t, u, limit, waited)  # type: ignore[union-attr]
@@ -1108,94 +1108,118 @@ class ScreeningNode(BaseNode[ReviewState]):
             include_ids.update(prior_ta_includes)
             stage1_survivors = [p for p in meta_acceptable if p.paper_id in include_ids]
 
-            # --- Reset interrupt flag so stage 2 always runs to completion ---
-            screener.reset_partial_flag()
-
-            # --- Stage 2: full-text screening (unified resolver: Unpaywall, S2, CORE, Europe PMC, ScienceDirect, PMC) ---
-            if rc:
-                rc.emit_phase_start(
-                    "fulltext_pdf_retrieval",
-                    f"Fetching full text for {len(stage1_survivors)} papers...",
-                    total=len(stage1_survivors),
-                )
-
-            def _pdf_progress(done: int, total: int) -> None:
-                if rc:
-                    rc.advance_screening("fulltext_pdf_retrieval", done, total)
-
-            def _on_pdf_result(paper_id: str, title: str, source: str, success: bool) -> None:
-                if rc:
-                    rc.log_pdf_result(paper_id, title, source, success)
-
-            stage2 = await screener.screen_batch(
-                workflow_id=state.workflow_id,
-                stage="fulltext",
-                papers=stage1_survivors,
-                full_text_by_paper=None,
-                retriever=PDFRetriever(),
-                coverage_report_path=state.artifacts["coverage_report"],
-                on_pdf_progress=_pdf_progress if rc else None,
-                on_pdf_result=_on_pdf_result if rc else None,
-            )
-
-            if rc:
-                rc.emit_phase_done(
-                    "fulltext_pdf_retrieval",
-                    {"fetched": len(stage1_survivors)},
-                )
-            # Track PRISMA full-text retrieval counts for accurate Methods disclosure.
-            # fulltext_sought = all papers forwarded to stage-2 (stage1_survivors).
-            # fulltext_not_retrieved = papers auto-excluded because no PDF was found
-            # (identified by ExclusionReason.NO_FULL_TEXT in stage2 decisions).
-            from src.models.enums import ExclusionReason as _ExclusionReason
-
-            state.fulltext_sought = len(stage1_survivors)
-            state.fulltext_not_retrieved = sum(
-                1 for d in stage2 if getattr(d, "exclusion_reason", None) == _ExclusionReason.NO_FULL_TEXT
-            )
-            # Fallback guard: if stage 2 returned nothing for a non-empty input,
-            # either the interrupt flag was consumed OR all papers already had
-            # persisted fulltext decisions from a prior interrupted run.
-            if stage1_survivors and not stage2:
-                _ft_processed = await repository.get_processed_paper_ids(state.workflow_id, "fulltext")
-                if _ft_processed:
-                    # Resume case: all papers already screened at fulltext; load
-                    # actual included IDs from the DB to honour prior exclusions.
-                    _ft_included_ids = await repository.get_included_paper_ids(state.workflow_id)
-                    state.included_papers = [p for p in stage1_survivors if p.paper_id in _ft_included_ids]
-                    await repository.append_decision_log(
-                        DecisionLogEntry(
-                            decision_type="screening_stage2_resume",
-                            decision="info",
-                            rationale=(
-                                f"Stage 2 returned 0 new decisions for {len(stage1_survivors)} "
-                                f"stage-1 survivors; {len(_ft_processed)} fulltext decisions "
-                                f"already in DB from prior run. Loaded {len(state.included_papers)} "
-                                f"included papers from persisted decisions."
-                            ),
-                            actor="workflow_run",
-                            phase="phase_3_screening",
-                        )
+            # --- Intermediate checkpoint guard for fulltext PDF retrieval + LLM ---
+            # If a prior run completed the fulltext screening block (PDF fetch + LLM
+            # decisions) but then crashed before the final phase_3_screening checkpoint
+            # was written, skip the expensive retrieval and LLM work entirely.
+            # state.included_papers is already populated from the DB by load_resume_state
+            # via get_included_paper_ids so it correctly reflects prior fulltext decisions.
+            _existing_cps = await repository.get_checkpoints(state.workflow_id)
+            if "phase_3b_fulltext" in _existing_cps:
+                state.fulltext_sought = len(stage1_survivors)
+                if rc and hasattr(rc, "log_status"):
+                    rc.log_status(
+                        f"Skipping fulltext PDF retrieval and LLM screening "
+                        f"(phase_3b_fulltext checkpoint found; "
+                        f"{len(state.included_papers)} papers included from prior run)."
                     )
-                else:
-                    # True interrupt case: interrupt flag consumed mid-screening;
-                    # fall back to stage-1 survivors as a conservative measure.
-                    await repository.append_decision_log(
-                        DecisionLogEntry(
-                            decision_type="screening_stage2_fallback",
-                            decision="warning",
-                            rationale=(
-                                f"Stage 2 returned 0 decisions for {len(stage1_survivors)} "
-                                f"stage-1 survivors; treating stage-1 include decisions as final."
-                            ),
-                            actor="workflow_run",
-                            phase="phase_3_screening",
-                        )
-                    )
-                    state.included_papers = list(stage1_survivors)
             else:
-                include_ids = {d.paper_id for d in stage2 if d.decision.value in ("include", "uncertain")}
-                state.included_papers = [p for p in stage1_survivors if p.paper_id in include_ids]
+                # --- Reset interrupt flag so stage 2 always runs to completion ---
+                screener.reset_partial_flag()
+
+                # --- Stage 2: full-text screening (unified resolver: Unpaywall, S2, CORE, Europe PMC, ScienceDirect, PMC) ---
+                if rc:
+                    rc.emit_phase_start(
+                        "fulltext_pdf_retrieval",
+                        f"Fetching full text for {len(stage1_survivors)} papers...",
+                        total=len(stage1_survivors),
+                    )
+
+                def _pdf_progress(done: int, total: int) -> None:
+                    if rc:
+                        rc.advance_screening("fulltext_pdf_retrieval", done, total)
+
+                def _on_pdf_result(paper_id: str, title: str, source: str, success: bool) -> None:
+                    if rc:
+                        rc.log_pdf_result(paper_id, title, source, success)
+
+                stage2 = await screener.screen_batch(
+                    workflow_id=state.workflow_id,
+                    stage="fulltext",
+                    papers=stage1_survivors,
+                    full_text_by_paper=None,
+                    retriever=PDFRetriever(),
+                    coverage_report_path=state.artifacts["coverage_report"],
+                    on_pdf_progress=_pdf_progress if rc else None,
+                    on_pdf_result=_on_pdf_result if rc else None,
+                )
+
+                if rc:
+                    rc.emit_phase_done(
+                        "fulltext_pdf_retrieval",
+                        {"fetched": len(stage1_survivors)},
+                    )
+                # Track PRISMA full-text retrieval counts for accurate Methods disclosure.
+                # fulltext_sought = all papers forwarded to stage-2 (stage1_survivors).
+                # fulltext_not_retrieved = papers auto-excluded because no PDF was found
+                # (identified by ExclusionReason.NO_FULL_TEXT in stage2 decisions).
+                from src.models.enums import ExclusionReason as _ExclusionReason
+
+                state.fulltext_sought = len(stage1_survivors)
+                state.fulltext_not_retrieved = sum(
+                    1 for d in stage2 if getattr(d, "exclusion_reason", None) == _ExclusionReason.NO_FULL_TEXT
+                )
+                # Fallback guard: if stage 2 returned nothing for a non-empty input,
+                # either the interrupt flag was consumed OR all papers already had
+                # persisted fulltext decisions from a prior interrupted run.
+                if stage1_survivors and not stage2:
+                    _ft_processed = await repository.get_processed_paper_ids(state.workflow_id, "fulltext")
+                    if _ft_processed:
+                        # Resume case: all papers already screened at fulltext; load
+                        # actual included IDs from the DB to honour prior exclusions.
+                        _ft_included_ids = await repository.get_included_paper_ids(state.workflow_id)
+                        state.included_papers = [p for p in stage1_survivors if p.paper_id in _ft_included_ids]
+                        await repository.append_decision_log(
+                            DecisionLogEntry(
+                                decision_type="screening_stage2_resume",
+                                decision="info",
+                                rationale=(
+                                    f"Stage 2 returned 0 new decisions for {len(stage1_survivors)} "
+                                    f"stage-1 survivors; {len(_ft_processed)} fulltext decisions "
+                                    f"already in DB from prior run. Loaded {len(state.included_papers)} "
+                                    f"included papers from persisted decisions."
+                                ),
+                                actor="workflow_run",
+                                phase="phase_3_screening",
+                            )
+                        )
+                    else:
+                        # True interrupt case: interrupt flag consumed mid-screening;
+                        # fall back to stage-1 survivors as a conservative measure.
+                        await repository.append_decision_log(
+                            DecisionLogEntry(
+                                decision_type="screening_stage2_fallback",
+                                decision="warning",
+                                rationale=(
+                                    f"Stage 2 returned 0 decisions for {len(stage1_survivors)} "
+                                    f"stage-1 survivors; treating stage-1 include decisions as final."
+                                ),
+                                actor="workflow_run",
+                                phase="phase_3_screening",
+                            )
+                        )
+                        state.included_papers = list(stage1_survivors)
+                else:
+                    include_ids = {d.paper_id for d in stage2 if d.decision.value in ("include", "uncertain")}
+                    state.included_papers = [p for p in stage1_survivors if p.paper_id in include_ids]
+
+                # Save intermediate checkpoint so a future resume of phase_3_screening
+                # skips the expensive PDF retrieval + fulltext LLM block above.
+                await repository.save_checkpoint(
+                    state.workflow_id,
+                    "phase_3b_fulltext",
+                    papers_processed=len(state.included_papers),
+                )
 
             await gate_runner.run_screening_safeguard_gate(
                 workflow_id=state.workflow_id,
@@ -1469,7 +1493,19 @@ class ExtractionQualityNode(BaseNode[ReviewState]):
                     total=len(to_process) + len(quality_only),
                 )
             gate_runner = GateRunner(repository, state.settings)
-            provider = LLMProvider(state.settings, repository)
+            eq_on_waiting = None
+            eq_on_resolved = None
+            if rc:
+
+                def _eq_on_waiting(t: object, u: object, limit: object, waited: object = 0.0) -> None:
+                    rc.log_rate_limit_wait(t, u, limit, waited)  # type: ignore[union-attr]
+
+                def _eq_on_resolved(t: object, waited: object) -> None:
+                    rc.log_rate_limit_resolved(t, waited)  # type: ignore[union-attr]
+
+                eq_on_waiting = _eq_on_waiting
+                eq_on_resolved = _eq_on_resolved
+            provider = LLMProvider(state.settings, repository, on_waiting=eq_on_waiting, on_resolved=eq_on_resolved)
             on_classify = None
             if rc and rc.verbose:
 
@@ -2566,7 +2602,19 @@ class WritingNode(BaseNode[ReviewState]):
             citation_repo = CitationRepository(db)
             await citation_repo.ensure_schema()
             completed = await repository.get_completed_sections(state.workflow_id)
-            provider = LLMProvider(state.settings, repository)
+            wr_on_waiting = None
+            wr_on_resolved = None
+            if rc:
+
+                def _wr_on_waiting(t: object, u: object, limit: object, waited: object = 0.0) -> None:
+                    rc.log_rate_limit_wait(t, u, limit, waited)  # type: ignore[union-attr]
+
+                def _wr_on_resolved(t: object, waited: object) -> None:
+                    rc.log_rate_limit_resolved(t, waited)  # type: ignore[union-attr]
+
+                wr_on_waiting = _wr_on_waiting
+                wr_on_resolved = _wr_on_resolved
+            provider = LLMProvider(state.settings, repository, on_waiting=wr_on_waiting, on_resolved=wr_on_resolved)
 
             await register_citations_from_papers(citation_repo, state.included_papers)
             await register_methodology_citations(citation_repo)
