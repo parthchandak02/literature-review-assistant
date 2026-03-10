@@ -923,6 +923,20 @@ class ScreeningNode(BaseNode[ReviewState]):
                             f"{len(papers_for_llm)} forwarded to LLM screening."
                         )
 
+            if pre_excluded and rc and hasattr(rc, "log_screening_decision"):
+                for _pref_decision in pre_excluded:
+                    _reason = getattr(getattr(_pref_decision, "exclusion_reason", None), "value", "other")
+                    _paper = paper_by_id.get(_pref_decision.paper_id)
+                    rc.log_screening_decision(
+                        _pref_decision.paper_id,
+                        "title_abstract",
+                        _pref_decision.decision.value,
+                        f"{_reason}|automation pre-filter exclusion",
+                        _pref_decision.confidence,
+                        title=_paper.title if _paper else None,
+                        method="heuristic",
+                    )
+
             # Emit structured prefilter summary so the frontend can render the full
             # paper funnel (deduped -> after metadata -> to LLM) for both live and
             # historical runs.  log_status() is not persisted to event_log; this
@@ -2685,6 +2699,17 @@ def _build_minimal_sections_for_zero_papers(
     return result
 
 
+def _validate_writing_persistence_invariant(
+    required_sections: list[str],
+    persisted_sections: set[str],
+    failed_sections: list[str],
+) -> tuple[bool, list[str]]:
+    """Return (violated, missing_sections) for writing completion invariant."""
+    missing_sections = sorted(set(required_sections) - persisted_sections)
+    violated = bool(failed_sections or missing_sections)
+    return violated, missing_sections
+
+
 class WritingNode(BaseNode[ReviewState]):
     """Write manuscript sections, validate citations, save drafts."""
 
@@ -4003,8 +4028,11 @@ class WritingNode(BaseNode[ReviewState]):
         async with get_db(state.db_path) as _ckpt_db:
             _ckpt_repo = WorkflowRepository(_ckpt_db)
             _persisted_sections = await _ckpt_repo.get_completed_sections(state.workflow_id)
-            _missing_sections = sorted(set(SECTIONS) - _persisted_sections)
-            _has_invariant_violation = bool(_failed_sections or _missing_sections)
+            _has_invariant_violation, _missing_sections = _validate_writing_persistence_invariant(
+                required_sections=list(SECTIONS),
+                persisted_sections=_persisted_sections,
+                failed_sections=_failed_sections,
+            )
             if _has_invariant_violation:
                 await _ckpt_repo.save_checkpoint(
                     state.workflow_id,
