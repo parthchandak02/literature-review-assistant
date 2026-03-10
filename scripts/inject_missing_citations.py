@@ -416,8 +416,25 @@ async def main(run_dir_str: str) -> int:
     )
 
     _author_name = str(getattr(review_config, "author_name", "") or "") if review_config else ""
+    # Detect figure files present in the run directory so the Figures section
+    # is populated correctly. The submission packager uses the same set of names.
+    _FIGURE_NAMES = [
+        "fig_prisma_flow.png",
+        "fig_rob_traffic_light.png",
+        "fig_rob2_traffic_light.png",
+        "fig_publication_timeline.png",
+        "fig_geographic_distribution.png",
+        "fig_evidence_network.png",
+        "fig_forest_plot.png",
+        "fig_funnel_plot.png",
+    ]
+    figure_paths = [f for f in _FIGURE_NAMES if (run_dir / f).exists()]
     tex_content = markdown_to_latex(
-        md_text, citekeys=_citekeys, num_to_citekey=num_to_citekey, author_name=_author_name
+        md_text,
+        citekeys=_citekeys,
+        figure_paths=figure_paths,
+        num_to_citekey=num_to_citekey,
+        author_name=_author_name,
     )
     tex_path.write_text(tex_content, encoding="utf-8")
     print(f"doc_manuscript.tex written ({len(tex_content):,} chars)")

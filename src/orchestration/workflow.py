@@ -2348,7 +2348,17 @@ def _trim_abstract_to_limit(abstract: str, limit: int = 230) -> str:
     Counts words in the labelled fields (Background through Conclusion) and,
     if over limit, shortens the longest field by removing words from its end
     until the total fits. The Keywords line is never trimmed or counted.
+
+    Also strips raw LLM model identifier strings that occasionally leak from
+    the grounding block into the abstract text (e.g. "google-gla:gemini-2.5-flash").
     """
+    import re as _re
+    # Remove raw model identifier strings before word counting / trimming.
+    # Pattern covers Google Vertex/GenAI model IDs like "google-gla:gemini-2.5-flash-lite-preview"
+    # and any variant. Replace with a safe generic term.
+    _model_id_re = _re.compile(r"google[-\w]*:[^\s,;)>\"']+", _re.IGNORECASE)
+    abstract = _model_id_re.sub("automated pre-ranking model", abstract)
+
     # Separate Keywords line from the rest (always last)
     lines = abstract.split("\n")
     kw_line = ""

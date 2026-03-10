@@ -422,10 +422,12 @@ These are recurring manuscript issues and WHERE in the pipeline to fix them (nev
   `src/orchestration/workflow.py` -- trim now walks back to the last sentence-ending
   punctuation before cutting. Root cause: word-boundary trim on the longest bold field.
 - **Manuscript says "X reports sought" but uses the wrong count**: Fixed in `format_grounding_block()`
-  in `src/writing/context_builder.py` -- `reports_sought`, `reports_not_retrieved`, and
+  in `src/writing/context_builder.py` -- `fulltext_sought`, `fulltext_not_retrieved`, and
   `fulltext_assessed` are now ALL injected as separately labeled numbers with a CRITICAL
   disambiguation instruction. Root cause: only `fulltext_assessed` was injected; LLM used it
-  with the wrong "sought" label.
+  with the wrong "sought" label. NOTE: the fields are named `fulltext_sought` and
+  `fulltext_not_retrieved` in `WritingGroundingData` (NOT `reports_sought`/`reports_not_retrieved`,
+  which were a duplicate that was removed -- do NOT re-add them).
 - **`[CITATION_NEEDED]` placeholders in Discussion**: Partially fixed in `_fuzzy_match_citekey()`
   in `src/writing/citation_grounding.py` -- last-resort fallback now accepts the sole year-matched
   candidate even when author tokens don't overlap. Remaining occurrences require improving the
@@ -440,6 +442,21 @@ Old runs (pre-prefix) retain their original paths stored in `workflows_registry.
 NOT recompute paths for existing runs; use whatever `db_path` the registry row contains.
 New runs always get the prefix. The run dir path has 4 levels:
 `runs/YYYY-MM-DD/wf-NNNN-<slug>/run_<HH-MM-SSam>/runtime.db`.
+
+## `build_compact_study_table()` Key Finding Uses `results_summary` Dict (No `key_finding` Field)
+`build_compact_study_table()` in `src/export/markdown_refs.py` reads Key Finding from
+`rec.results_summary` (a `dict[str, str]`), NOT from a `key_finding` field -- `ExtractionRecord`
+has no `key_finding` attribute. The lookup priority is:
+`summary` -> `main_finding` -> `key_finding` (dict key) -> `primary_outcome` -> `""` (NR).
+Do NOT revert to `getattr(rec, "key_finding", None)` -- it always returns None and produces
+an all-NR Key Finding column in Table 1.
+
+## `inject_missing_citations.py` Passes `figure_paths` to `markdown_to_latex()`
+The inject script at `scripts/inject_missing_citations.py` detects PNG figure files in the run
+directory and passes them as `figure_paths` to `markdown_to_latex()`. This ensures the LaTeX
+Figures section is populated when re-running the script post-workflow. The file list matches
+`submission_packager.py`. If the Figures section is empty in a re-generated `.tex` file,
+check that this detection is not accidentally removed.
 
 ## Tier 0.5 (_quick_citation_pdf_url) Must Be Mocked in Tier-Ordering Tests
 `fetch_full_text()` in `src/extraction/table_extraction.py` now has a Tier 0.5 between Tier 0

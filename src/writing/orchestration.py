@@ -461,9 +461,32 @@ async def register_background_sr_citations(
                 data = await resp.json()
 
         papers_raw = data.get("data", [])
+
+        # Topic relevance filter: require at least one keyword token to appear
+        # in the paper title (case-insensitive). This prevents highly-cited but
+        # off-topic reviews from being registered as background SR citations.
+        _topic_tokens = {
+            tok.lower()
+            for kw in keywords[:10]
+            for tok in kw.replace("-", " ").split()
+            if len(tok) > 3
+        }
+        if not _topic_tokens:
+            _topic_tokens = {tok.lower() for tok in research_question.split() if len(tok) > 3}
+
+        def _is_topic_relevant(paper: dict) -> bool:
+            title_lower = (paper.get("title") or "").lower()
+            return any(tok in title_lower for tok in _topic_tokens)
+
+        papers_relevant = [p for p in papers_raw if _is_topic_relevant(p)]
+        # Fall back to unfiltered set if no papers survive the filter (very rare).
+        if not papers_relevant:
+            papers_relevant = papers_raw
+            logger.debug("Background SR topic filter matched 0 papers; falling back to unfiltered set.")
+
         # Sort by citation count descending; take top max_results
         papers_sorted = sorted(
-            papers_raw,
+            papers_relevant,
             key=lambda p: p.get("citationCount") or 0,
             reverse=True,
         )[:max_results]

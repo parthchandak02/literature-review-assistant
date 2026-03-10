@@ -625,16 +625,9 @@ def build_compact_study_table(
         year_str = str(paper.year) if getattr(paper, "year", None) else "n.d."
         study_col = f"{author_str} ({year_str})"
 
-        # Country -- prefer paper.country, fall back to setting
+        # Country -- use paper.country only; the setting fallback is unreliable
+        # (it can yield institution names like "Clinical facility" or lab names).
         country = str(getattr(paper, "country", None) or "").strip()
-        if not country:
-            setting = str(getattr(rec, "setting", None) or "").strip()
-            # Extract the first word that looks like a country (title-case, >3 chars)
-            for word in setting.split(","):
-                w = word.strip()
-                if len(w) > 3 and w[0].isupper():
-                    country = w
-                    break
         country = country[:30] if country else "NR"
 
         # Study design
@@ -659,8 +652,16 @@ def build_compact_study_table(
         n_val = getattr(rec, "participant_count", None)
         n_str = str(n_val) if n_val else "NR"
 
-        # Key finding (truncate to ~100 chars for table cell readability)
-        finding = str(getattr(rec, "key_finding", None) or "").strip()
+        # Key finding -- ExtractionRecord has results_summary: dict[str, str],
+        # not a key_finding field. Pull the most descriptive sub-key available.
+        summary_dict: dict[str, str] = getattr(rec, "results_summary", {}) or {}
+        finding = (
+            summary_dict.get("summary")
+            or summary_dict.get("main_finding")
+            or summary_dict.get("key_finding")
+            or summary_dict.get("primary_outcome")
+            or ""
+        ).strip()
         if len(finding) > 100:
             finding = finding[:97] + "..."
         finding = finding if finding else "NR"

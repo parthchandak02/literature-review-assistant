@@ -44,7 +44,7 @@ Every writing section prompt includes a FACTUAL DATA BLOCK built by `format_grou
   total_screened, fulltext_assessed, total_included
 - records_after_deduplication: pre-computed (total_identified - duplicates_removed); injected verbatim
   with a CRITICAL note -- the LLM MUST use this value and MUST NOT subtract duplicates itself
-- records_excluded_screening: pre-computed (total_screened - fulltext_assessed); same rationale --
+- records_excluded_screening: pre-computed (total_screened - fulltext_sought); same rationale --
   never let the LLM derive PRISMA arithmetic; all derived counts must be pre-computed and injected
 - batch_screen_forwarded, batch_screen_excluded: populated when the batch LLM pre-ranker is active;
   used to emit the 3-stage funnel detail in the grounding block

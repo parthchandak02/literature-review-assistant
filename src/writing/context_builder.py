@@ -109,17 +109,14 @@ class WritingGroundingData(BaseModel):
     # 0 when no automated pre-filter was applied.
     automation_excluded: int = 0
     total_screened: int
-    # Pre-computed: total_screened - fulltext_assessed (records excluded at T/A stage).
+    # Pre-computed: total_screened - fulltext_sought (records excluded at T/A stage).
+    # fulltext_sought = papers that passed T/A screening and were forwarded for full-text retrieval.
     # Injected verbatim so the LLM does not compute it.
     records_excluded_screening: int = 0
-    # PRISMA 2020 full-text stage -- three distinct numbers:
-    #   reports_sought      = papers that screened positive (needed full-text retrieval)
-    #   reports_not_retrieved = papers sought but full text could not be obtained
-    #   fulltext_assessed   = papers actually examined at full text (sought - not_retrieved)
-    # These are DIFFERENT values. Writing LLMs confuse "sought" with "assessed" when only
-    # one number is injected. All three must be injected explicitly and labeled clearly.
-    reports_sought: int = 0
-    reports_not_retrieved: int = 0
+    # PRISMA 2020 full-text stage -- use fulltext_sought / fulltext_not_retrieved (below).
+    # fulltext_assessed = fulltext_sought - fulltext_not_retrieved (reports actually examined).
+    # All three are populated from prisma_counts inside build_writing_grounding() and injected
+    # explicitly so the LLM cannot confuse "sought" with "assessed".
     fulltext_assessed: int
     total_included: int
     fulltext_excluded: int  # derived: fulltext_assessed - total_included
@@ -566,8 +563,6 @@ def build_writing_grounding(
         automation_excluded=prisma_counts.automation_excluded,
         total_screened=prisma_counts.records_screened,
         records_excluded_screening=prisma_counts.records_excluded_screening,
-        reports_sought=prisma_counts.reports_sought,
-        reports_not_retrieved=prisma_counts.reports_not_retrieved,
         fulltext_assessed=prisma_counts.reports_assessed,
         total_included=total_included_count,
         fulltext_excluded=fulltext_excluded_count,
@@ -612,8 +607,10 @@ def build_writing_grounding(
         search_eligibility_window=search_eligibility_window,
         fulltext_retrieved_count=fulltext_retrieved,
         fulltext_total_count=fulltext_total,
-        fulltext_sought=fulltext_sought,
-        fulltext_not_retrieved=fulltext_not_retrieved,
+        # Prefer prisma_counts (computed from DB) over the external parameter,
+        # which can be 0 in resume/re-run scenarios where state is not fully replayed.
+        fulltext_sought=prisma_counts.reports_sought or fulltext_sought,
+        fulltext_not_retrieved=prisma_counts.reports_not_retrieved or fulltext_not_retrieved,
         batch_screen_forwarded=batch_screen_forwarded,
         batch_screen_excluded=batch_screen_excluded,
         batch_screener_model=batch_screener_model,
@@ -704,29 +701,32 @@ def format_grounding_block(data: WritingGroundingData) -> str:
         f"Records excluded at title/abstract screening: {data.records_excluded_screening}",
         "CRITICAL: Use 'Records excluded at title/abstract screening' exactly as given. "
         "Do NOT compute this as screened minus assessed.",
-        f"Reports sought for full-text retrieval (screened-in papers): {data.reports_sought}",
-        f"Reports not retrieved (full text unavailable): {data.reports_not_retrieved}",
+        f"Reports sought for full-text retrieval (screened-in papers): {data.fulltext_sought}",
+        f"Reports not retrieved (full text unavailable): {data.fulltext_not_retrieved}",
         f"Reports assessed for eligibility (full-text examined): {data.fulltext_assessed}",
-        f"CRITICAL -- PRISMA TERMINOLOGY: 'Reports sought' ({data.reports_sought}) and "
+        f"CRITICAL -- PRISMA TERMINOLOGY: 'Reports sought' ({data.fulltext_sought}) and "
         f"'Reports assessed' ({data.fulltext_assessed}) are TWO DIFFERENT numbers. "
         f"'Sought' = papers that screened positive and needed full text. "
         f"'Assessed' = papers where full text was actually obtained and examined. "
-        f"Use EXACTLY: sought={data.reports_sought}, "
-        f"not_retrieved={data.reports_not_retrieved}, "
+        f"Use EXACTLY: sought={data.fulltext_sought}, "
+        f"not_retrieved={data.fulltext_not_retrieved}, "
         f"assessed={data.fulltext_assessed}. NEVER label the assessed count as 'sought'.",
         f"Full-text articles excluded after assessment: {data.fulltext_excluded}",
         f"Studies included: {data.total_included}",
     ]
     if data.batch_screen_forwarded > 0:
         _bm25_fwd = data.batch_screen_forwarded + data.batch_screen_excluded
-        _model_label = data.batch_screener_model or "an LLM pre-ranker"
         _threshold_pct = int(data.batch_screen_threshold * 100)
         lines.append(
             f"Screening funnel detail: BM25 routed {_bm25_fwd} to batch pre-ranker; "
             f"batch pre-ranker excluded {data.batch_screen_excluded} (low relevance); "
             f"{data.batch_screen_forwarded} forwarded to dual independent reviewers."
         )
-        lines.append(f"Batch pre-ranker model: {_model_label}")
+        # Suppress raw model ID strings from the grounding block -- LLMs sometimes
+        # copy them verbatim into the abstract/methods text. Use a generic label here;
+        # the MANDATORY DISCLOSURE template below uses a placeholder that the LLM
+        # should replace with "automated pre-ranking model" in the final text.
+        lines.append("Batch pre-ranker: automated LLM relevance pre-ranker (do NOT name the model)")
         lines.append(f"Batch pre-ranker relevance threshold: {data.batch_screen_threshold} ({_threshold_pct}%)")
         if data.batch_screen_validation_n > 0:
             _npv_pct = int(data.batch_screen_validation_npv * 100)
@@ -737,7 +737,7 @@ def format_grounding_block(data: WritingGroundingData) -> str:
             lines.append(
                 f"CRITICAL -- LLM SCREENING TRANSPARENCY (Q1 REQUIREMENT): The Methods section MUST "
                 f"include a dedicated paragraph disclosing the batch LLM pre-ranker. Write: "
-                f"'A large language model pre-ranking step ({_model_label}) scored records on "
+                f"'An automated relevance pre-ranking step scored records on "
                 f"topic relevance (0-1 scale, threshold = {data.batch_screen_threshold}); "
                 f"{data.batch_screen_excluded} records scoring below this threshold were excluded "
                 f"without full dual review. To validate this step, {data.batch_screen_validation_n} "
@@ -750,7 +750,7 @@ def format_grounding_block(data: WritingGroundingData) -> str:
             lines.append(
                 f"CRITICAL -- LLM SCREENING TRANSPARENCY (Q1 REQUIREMENT): The Methods section MUST "
                 f"include a dedicated paragraph disclosing the batch LLM pre-ranker. Write: "
-                f"'A large language model pre-ranking step ({_model_label}) scored records on "
+                f"'An automated relevance pre-ranking step scored records on "
                 f"topic relevance (0-1 scale, threshold = {data.batch_screen_threshold}); "
                 f"{data.batch_screen_excluded} records scoring below this threshold were excluded "
                 f"without full dual review.' Also state: 'To validate this exclusion step, "
@@ -802,20 +802,10 @@ def format_grounding_block(data: WritingGroundingData) -> str:
         )
 
     if data.fulltext_sought > 0:
-        # Accurate PRISMA 2020 items 10-11: reports sought, not retrieved, assessed.
-        _ft_assessed = data.fulltext_sought - data.fulltext_not_retrieved
-        lines.append(
-            f"PRISMA full-text flow: {data.fulltext_sought} reports sought; "
-            f"{data.fulltext_not_retrieved} could not be retrieved; "
-            f"{_ft_assessed} assessed for eligibility."
-        )
-        lines.append(
-            "CRITICAL -- PRISMA items 10-11: The Methods section MUST state: "
-            f"'{data.fulltext_sought} full-text reports were sought; "
-            f"{data.fulltext_not_retrieved} could not be retrieved; "
-            f"{_ft_assessed} were assessed for eligibility.' "
-            "Use these exact counts. Do NOT confuse 'sought' with 'assessed'."
-        )
+        # PRISMA 2020 items 10-11: the three-number full-text flow.
+        # fulltext_sought, fulltext_not_retrieved, fulltext_assessed are all pre-computed;
+        # the top-level grounding block (above) already injects the CRITICAL warning.
+        # This block adds the mandatory retrieval-effort disclosure for Q1 journals.
         if data.fulltext_not_retrieved > 0:
             _retrieval_pct = int(100 * data.fulltext_not_retrieved / data.fulltext_sought)
             lines.append(
@@ -836,9 +826,18 @@ def format_grounding_block(data: WritingGroundingData) -> str:
         abstract_only = data.fulltext_total_count - data.fulltext_retrieved_count
         abstract_only_rate = abstract_only / data.fulltext_total_count if data.fulltext_total_count else 0.0
         lines.append(
-            f"Full-text retrieval: {data.fulltext_retrieved_count} of {data.fulltext_total_count} "
-            f"included papers had full text retrieved; {abstract_only} were extracted from "
-            "abstracts and metadata only."
+            f"Full-text PDF retrieval (for data extraction): {data.fulltext_retrieved_count} of "
+            f"{data.fulltext_total_count} INCLUDED studies had full text retrieved; "
+            f"{abstract_only} were extracted from abstracts and metadata only."
+        )
+        lines.append(
+            "IMPORTANT -- DO NOT CONFUSE THESE TWO NUMBERS: "
+            f"(A) Reports sought for full-text retrieval = {data.fulltext_sought} "
+            "(all papers that passed title/abstract screening -- the PRISMA 'sought' count). "
+            f"(B) Full-text PDFs retrieved for extraction = {data.fulltext_retrieved_count} of "
+            f"{data.fulltext_total_count} INCLUDED papers. "
+            "Use (A) in the PRISMA flow/Methods section for 'reports sought'. "
+            "Use (B) in the Limitations section to discuss extraction completeness."
         )
         lines.append(
             "CRITICAL -- PRISMA item 10: The Methods section MUST explicitly state how many "
