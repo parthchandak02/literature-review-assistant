@@ -39,7 +39,7 @@ The system has three runtime layers and two persistent databases.
     v
 [FastAPI -- src/web/app.py -- port 8001 (dev) / 8000 (prod)]
     |  asyncio.create_task(run_workflow())
-    |  WebRunContext emits JSON events to asyncio.Queue + replay buffer
+    |  WebRunContext emits JSON events via on_event callback -> _RunRecord.event_log
     v
 [PydanticAI Graph -- src/orchestration/workflow.py]
     |  aiosqlite reads/writes (paper-level persistence at every step)
@@ -96,7 +96,7 @@ End
 
 `ResumeStartNode` reads the `checkpoints` table and routes directly to the first incomplete phase, enabling paper-level resume without reprocessing completed work.
 
-Phase order for resume: `phase_2_search`, `phase_3_screening`, `phase_4_extraction_quality`, `phase_4b_embedding`, `phase_5_synthesis`, `phase_5b_knowledge_graph`, `phase_6_writing`, `finalize`.
+Phase order for resume: `phase_2_search`, `phase_3_screening`, `phase_3b_fulltext`, `phase_4_extraction_quality`, `phase_4b_embedding`, `phase_5_synthesis`, `phase_5b_knowledge_graph`, `phase_6_writing`, `finalize`.
 
 ### 2.2 Directory Layout
 
@@ -134,7 +134,7 @@ literature-review-assistant/
 |   |-- prisma/                     # PRISMA 2020 flow diagram
 |   |-- visualization/              # forest_plot, funnel_plot, rob_figure, timeline, geographic
 |   |-- export/                     # ieee_latex, bibtex_builder, submission_packager, prisma_checklist, ieee_validator
-|   |-- llm/                        # provider, gemini_client (shim), pydantic_client, base_client, rate_limiter
+|   |-- llm/                        # provider, pydantic_client, base_client, rate_limiter, model_fallback
 |   |-- web/                        # FastAPI app (40+ endpoints, SSE, static serving)
 |   `-- utils/                      # structured_log, logging_paths (RunPaths + create_run_paths), ssl_context
 |-- tests/
@@ -152,7 +152,7 @@ literature-review-assistant/
 | Language | Python | 3.11+ | Type hints, async/await, mature ecosystem |
 | Package manager | uv | latest | Fast; single tool for venv + install + run |
 | Orchestration | PydanticAI Graph (BaseNode API) | latest | Built by Pydantic team; typed state, model-agnostic; avoids LangChain ecosystem weight; native Pydantic integration |
-| LLM provider | Google Gemini 3.x (3 tiers) | 3.x | 1M token context window; cost-tiered by task volume; free tier sufficient for a single review run |
+| LLM provider | Google Gemini (config-driven 2.5 tiers by default) | 2.5/3.x | 1M token context window; cost-tiered by task volume; free tier sufficient for a single review run |
 | Persistence | SQLite via aiosqlite | latest | Single-user local tool; zero deployment; trivially portable; paper-level write durability |
 | CLI output | rich | 13+ | Progress bars, tables, status panels |
 | Search (primary) | OpenAlex REST API | direct aiohttp | 250M+ works; CC0 licensed; free API key; api_key in URL required since Feb 2026 |
@@ -241,7 +241,7 @@ Change rarely. Values are tuned from real runs.
 | Section | Key Fields |
 |---------|-----------|
 | `llm.*` | `flash_rpm`, `flash_lite_rpm`, `pro_rpm` -- free-tier rate limits enforced by rate limiter |
-| `agents.*` | Per-agent model string (e.g. `google-gla:gemini-3.1-flash-lite-preview`) and temperature. Changing a model requires only a YAML edit. |
+| `agents.*` | Per-agent model string (e.g. `google-gla:gemini-2.5-flash-lite`) and temperature. Changing a model requires only a YAML edit. |
 | `screening.*` | `stage1_include_threshold` (0.85), `stage1_exclude_threshold` (0.80), `screening_concurrency` (asyncio.Semaphore), `max_llm_screen` (optional BM25 cap), `skip_fulltext_if_no_pdf`, `pdf_retrieval_concurrency` (20 -- concurrent PDF fetches), `batch_screen_concurrency` (3 -- concurrent batch ranker batches), `reviewer_batch_size` (default 10 -- papers per dual-reviewer LLM call; 0 = per-paper legacy mode) |
 | `dual_review.*` | `enabled`, `kappa_warning_threshold` (0.4) |
 | `gates.*` | `profile` (strict / warning), `search_volume_minimum` (50), `screening_minimum` (5), `extraction_completeness_threshold` (0.80), `cost_budget_max` (USD) |
@@ -252,7 +252,7 @@ Change rarely. Values are tuned from real runs.
 | `citation_lineage.*` | `block_export_on_unresolved` (true), `minimum_evidence_score` (0.5) |
 | `search.*` | `max_results_per_db` (global default: 500), `per_database_limits` (per-connector overrides), `citation_chasing_enabled` (false -- PRISMA 2020 snowball forward citation chasing), `citation_chasing_concurrency` (5 -- concurrent S2/OpenAlex chase requests) |
 | `extraction.*` | `core_full_text`, `europepmc_full_text`, `semanticscholar_full_text` (toggles for full-text tiers), `sciencedirect_full_text`, `unpaywall_full_text`, `pmc_full_text`, `use_pdf_vision`, `full_text_min_chars` |
-| `rag.*` | `embed_model` (gemini-embedding-001), `embed_dim` (768 -- MRL dimension, changing requires re-embedding), `embed_batch_size` (20), `embed_concurrency` (4 -- concurrent embedding batch API calls), `chunk_max_words` (400), `chunk_overlap_sentences` (2), `use_hyde` (true -- HyDE query expansion before dense embed), `hyde_model` (gemini-3.1-flash-lite-preview), `rerank` (true -- Gemini listwise reranking), `reranker_model` (gemini-3.1-flash-lite-preview) |
+| `rag.*` | `embed_model` (gemini-embedding-001), `embed_dim` (768 -- MRL dimension, changing requires re-embedding), `embed_batch_size` (20), `embed_concurrency` (4 -- concurrent embedding batch API calls), `chunk_max_words` (400), `chunk_overlap_sentences` (2), `use_hyde` (true -- HyDE query expansion before dense embed), `hyde_model` (gemini-2.5-flash-lite), `rerank` (true -- Gemini listwise reranking), `reranker_model` (gemini-2.5-flash-lite) |
 
 Both YAML files are validated into Pydantic models at startup via `src/config/loader.py`. Invalid config fails fast with a clear error message.
 
@@ -297,7 +297,7 @@ These models cross internal function boundaries within a single module but do NO
 | Model | Lives In |
 |-------|---------|
 | `SynthesisFeasibility`, `NarrativeSynthesis` | `src/synthesis/` |
-| `StylePatterns`, `StudySummary`, `WritingGroundingData` | `src/writing/` |
+| `StudySummary`, `WritingGroundingData` | `src/writing/` |
 | `AgentRuntimeConfig` | `src/llm/provider.py` |
 
 ### 5.4 display_label
@@ -380,9 +380,9 @@ Stage 0 (pre-filter): The keyword filter auto-excludes papers with zero interven
 
 Stage 0b (batch LLM pre-ranker, optional): When `batch_screen_enabled` is true in settings.yaml, `BatchLLMRanker` (`src/screening/batch_ranker.py`) scores BM25-passing papers in batches of `batch_screen_size` using the `batch_screener` agent. Papers scoring below `batch_screen_threshold` (default 0.35) are auto-excluded as `batch_screened_low` without reaching the dual-reviewer. The `batch_screen_done` SSE event records the funnel counts. This stage fires after BM25 cap and before Stage 1.
 
-Stage 1 (title/abstract): Two independent AI reviewers process each paper concurrently via `asyncio.Semaphore`. Reviewer A uses an inclusion-emphasis prompt (temperature 0.1, gemini-3.1-flash-lite-preview). Reviewer B uses an exclusion-emphasis prompt (temperature 0.1, gemini-3-flash-preview -- different model for genuine cross-model validation). Agreement yields the final decision. Disagreement triggers Adjudicator (Gemini Pro) that sees both decisions.
+Stage 1 (title/abstract): Two independent AI reviewers process each paper concurrently via `asyncio.Semaphore`. Reviewer A uses an inclusion-emphasis prompt (temperature 0.1, gemini-2.5-flash-lite). Reviewer B uses an exclusion-emphasis prompt (temperature 0.1, gemini-2.5-flash -- different model for genuine cross-model validation). Agreement yields the final decision. Disagreement triggers the adjudicator agent (model from `settings.yaml`).
 
-Stage 2 (full-text): Papers passing Stage 1 get full text via a unified resolver (Unpaywall, Semantic Scholar, CORE, Europe PMC, ScienceDirect, PMC). Papers without retrievable full text are excluded with `NO_FULL_TEXT` when `skip_fulltext_if_no_pdf` is true. Full-text screening follows the same dual-reviewer pattern.
+Stage 2 (full-text): Papers passing Stage 1 get full text via a unified tiered resolver: Tier 0 publisher-direct PDF URL, Tier 0.5 `citation_pdf_url` meta extraction, Tier 1 Unpaywall, Tier 1b arXiv, Tier 2 group (Semantic Scholar, CORE, Europe PMC, OpenAlex, bioRxiv/medRxiv), then ScienceDirect/PMC/Crossref links, and Tier 6 landing-page scraping. Papers without retrievable full text are excluded with `NO_FULL_TEXT` when `skip_fulltext_if_no_pdf` is true. Full-text screening follows the same dual-reviewer pattern.
 
 **Ctrl+C behavior:** First Ctrl+C sets proceed-with-partial flag; the screening loop exits after the current paper and saves a checkpoint with `status='partial'`. Second Ctrl+C raises `KeyboardInterrupt` (hard abort). The SIGINT handler is registered via `asyncio.add_signal_handler` (skipped on Windows where it is not supported).
 
@@ -396,11 +396,11 @@ Stage 2 (full-text): Papers passing Stage 1 get full text via a unified resolver
 
 ### 6.4 Phase 4: Extraction and Quality Assessment
 
-**What happens:** For each included paper, full text is fetched via a 6-tier resolver (Unpaywall, Semantic Scholar, CORE, Europe PMC, ScienceDirect, PMC) before extraction. The study design classifier (Gemini Pro, confidence threshold 0.70) routes the paper to the correct risk-of-bias tool. Classifiers with confidence < 0.70 fall back to `StudyDesign.NON_RANDOMIZED`. Every classification decision is written to the decision log with confidence, threshold, and rationale.
+**What happens:** For each included paper, full text is fetched via the same tiered resolver used in screening (Tier 0/0.5/1/1b/2-group/6) before extraction. The study design classifier (model from `settings.yaml` `agents.study_type_detection`, confidence threshold 0.70) routes the paper to the correct risk-of-bias tool. Classifiers with confidence < 0.70 fall back to `StudyDesign.NON_RANDOMIZED`. Every classification decision is written to the decision log with confidence, threshold, and rationale.
 
-Structured extraction (Gemini Pro) populates `ExtractionRecord` fields including `outcomes[].effect_size` and `outcomes[].se` for downstream statistical pooling. Heuristic fallback activates on API error.
+Structured extraction (model from `settings.yaml` `agents.extraction`) populates `ExtractionRecord` fields including `outcomes[].effect_size` and `outcomes[].se` for downstream statistical pooling. Heuristic fallback activates on API error.
 
-Risk-of-bias assessment runs async (Gemini Pro with typed JSON schema output):
+Risk-of-bias assessment runs async (model from `settings.yaml` `agents.quality_assessment` with typed JSON schema output):
 
 | Study Type | Tool | Domains | Scale |
 |-----------|------|---------|-------|
@@ -451,7 +451,7 @@ WritingNode uses a two-phase approach to enable cross-section synthesis:
 
 Section word limits (`SECTION_WORD_LIMITS` in `src/writing/prompts/sections.py`): abstract 230, intro 700, methods 900, results 1400, discussion 900, conclusion 350. The abstract is capped deterministically post-LLM by `_trim_abstract_to_limit()`.
 
-A section writer (Gemini Pro) generates each of six manuscript sections. All section prompts enforce:
+A section writer (model from `settings.yaml` `agents.writing`) generates each of six manuscript sections. All section prompts enforce:
 - Prohibited AI-tell phrases (e.g. "Of course", "As an expert", "Certainly")
 - MANDATORY CITATION COVERAGE RULE: the LLM must cite every included study at least once
 - Citation catalog split into "INCLUDED STUDIES -- CITATION COVERAGE REQUIRED" and "METHODOLOGY REFERENCES" blocks; LLM may only use citekeys from these blocks
@@ -525,7 +525,7 @@ Registry status updated to "completed". `run_summary.json` written to log dir wi
 | Fast | Config-driven (`settings.yaml`) | Provider-dependent | Moderate-volume reviewers and adjudication paths |
 | Quality | Config-driven (`settings.yaml`) | Provider-dependent | High-quality extraction/writing/assessment paths |
 
-Reviewer A (gemini-3.1-flash-lite-preview) and Reviewer B (gemini-3-flash-preview) use different models intentionally -- this provides genuine cross-model validation rather than intra-model temperature variation. Flash-Lite-Preview is optimal for bulk classification at scale; gemini-3-flash-preview provides a different model perspective for Reviewer B without the cost of Pro. HyDE generation and listwise reranking also use flash-lite-preview for speed and cost efficiency.
+Reviewer A (gemini-2.5-flash-lite) and Reviewer B (gemini-2.5-flash) use different models intentionally -- this provides genuine cross-model validation rather than intra-model temperature variation. Flash-Lite is optimal for bulk classification at scale; Flash provides a different model perspective for Reviewer B without the cost of Pro. HyDE generation and listwise reranking also use Flash-Lite for speed and cost efficiency.
 
 Model assignments per agent are in `settings.yaml` under `agents.*`. Changing a model requires only a YAML edit -- no code changes.
 
@@ -539,14 +539,14 @@ A token-bucket rate limiter in `src/llm/rate_limiter.py` enforces configured lim
 
 Every LLM call records a `CostRecord` to the `cost_records` table immediately after the call completes. The `cost_budget` gate queries the cumulative total at the end of each phase. The web UI `CostView` reads cost data from the `cost_records` table via `GET /api/db/{run_id}/costs` (DB polling every 5s for active runs), which is the complete and authoritative source across all phases. SSE `api_call` events are used as a last-resort fallback only if the DB has not yet responded. The `useCostStats` hook aggregates SSE events for the sidebar badge display only.
 
-### 7.4 GeminiClient (Shared)
+### 7.4 PydanticAI Client (Shared)
 
-`src/llm/gemini_client.py` provides a shared `GeminiClient` with:
+`src/llm/pydantic_client.py` provides the shared `PydanticAIClient` with:
 - Exponential-backoff retry on HTTP 429/502/503/504 (max 5 retries)
 - Typed JSON schema mode (`response_schema`) for structured outputs
-- 120-second timeout per call (configurable via `settings.yaml` `writing.llm_timeout`)
+- Per-request timeout from `settings.yaml` `llm.request_timeout_seconds`
 
-Used by: extraction, quality assessment, writing, humanizer. Screening has its own `GeminiScreeningClient` due to different batching and concurrency requirements.
+Used by: extraction, quality assessment, writing, humanizer, benchmark scripts, and helper modules. Screening has its own `PydanticAIScreeningClient` due to different batching and concurrency requirements.
 
 ### 7.5 Screening Prompts Design
 
@@ -558,7 +558,7 @@ Reviewer A prompt emphasizes inclusion: "Include this paper if ANY inclusion cri
 
 ## 8. Persistence and Resume
 
-### 8.1 SQLite Schema (21 Tables)
+### 8.1 SQLite Schema (32 Tables)
 
 Each run creates its own `runtime.db`. Schema defined in `src/db/schema.sql`.
 
@@ -585,10 +585,22 @@ Each run creates its own `runtime.db`. Schema defined in `src/db/schema.sql`.
 | `synthesis_results` | SynthesisFeasibility + NarrativeSynthesis JSON per outcome |
 | `event_log` | Persisted SSE event log for replay; loaded by history/attach endpoint |
 | `paper_chunks_meta` | RAG chunk store: chunk_id, paper_id, chunk_index, content (text), embedding (JSON float array, 768-dim); indexed by workflow_id and paper_id |
+| `manuscript_sections` | Canonical DB-first manuscript section state |
+| `manuscript_blocks` | Ordered manuscript content blocks per section version |
+| `manuscript_assets` | Render assets (tables/figures/aux text) for assembly |
+| `manuscript_assemblies` | Assembled manuscript content per format (md/tex) |
+| `rag_retrieval_diagnostics` | Per-section RAG telemetry (candidate counts, selected chunks, latency, status) |
+| `screening_corrections` | Human override audit rows for active learning |
+| `learned_criteria` | Learned screening criteria extracted from corrections |
+| `paper_relationships` | Knowledge graph edges between papers |
+| `graph_communities` | Knowledge graph communities |
+| `research_gaps` | Gap detector outputs persisted per workflow |
 
 SQLite connection settings: WAL journal mode (concurrent reads + single writer), NORMAL synchronous (~2-3x faster writes), foreign keys ON (SQLite does NOT enforce FKs by default), 40MB cache, temp tables in memory. On open, `repair_foreign_key_integrity()` inserts stub papers for orphaned paper_id refs (e.g. from migration) to avoid FOREIGN KEY constraint failures.
 
 All per-run file paths (runtime.db, app log, run_summary.json, output documents, figures) are resolved via `create_run_paths(run_root, workflow_description)` in `src/utils/logging_paths.py`, which returns a frozen `RunPaths` dataclass. Every log and output artifact lives under a single `run_dir` -- there is no separate log directory or output directory.
+
+Canonical table ownership and stat precedence are centralized in `src/db/source_of_truth.py` (`TABLE_OWNERSHIP`, `RUN_STATS_PRECEDENCE`) to keep API read paths consistent.
 
 ### 8.2 Central Registry
 
@@ -619,7 +631,7 @@ PHASE_ORDER = [
 
 Phase 1 (Foundation) has no checkpoint -- the existence of the `workflows` row serves as the completion marker.
 
-`phase_4b_embedding` (RAG chunk embedding) and `phase_5b_knowledge_graph` (Louvain community + gap detection) run between their neighbouring phases. They are included in PHASE_ORDER for correct resume ordering but are not part of the original 8-phase specification -- they are enhancements added after Phase 4 and Phase 5 respectively.
+`phase_3b_fulltext` is a screening sub-phase marker used by resume logic but is not part of PHASE_ORDER. `phase_4b_embedding` (RAG chunk embedding) and `phase_5b_knowledge_graph` (Louvain community + gap detection) run between their neighbouring phases. They are included in PHASE_ORDER for correct resume ordering but are not part of the original 8-phase specification -- they are enhancements added after Phase 4 and Phase 5 respectively.
 
 ### 8.4 Resume Flow
 
@@ -719,7 +731,7 @@ PM2: `pm2 start ecosystem.config.js` then `pm2 logs`. Overmind: `overmind start`
 user submits form
     |
     v
-POST /api/run -> FastAPI creates _RunRecord (queue + task)
+POST /api/run -> FastAPI creates _RunRecord (task + event replay state)
                   returns {run_id, topic}
     |
     v
@@ -849,6 +861,8 @@ Run card status border (2px left): emerald = completed, violet = running/connect
 | POST | /api/run/{run_id}/export | Package IEEE LaTeX submission; calls package_submission() |
 | GET | /api/run/{run_id}/submission.zip | Download the submission ZIP package |
 | GET | /api/run/{run_id}/manuscript.docx | Download the Word DOCX manuscript |
+| GET | /api/run/{run_id}/prospero-form.docx | Download generated PROSPERO registration form (DOCX) |
+| GET | /api/run/{run_id}/prospero-form.md | Download generated PROSPERO registration form (Markdown) |
 | GET | /api/logs/stream | SSE tail of per-run PM2 log file; filtered by run_id query param |
 
 ### 10.2 SSE Event Types
@@ -877,9 +891,11 @@ All events carry a `ts` field (UTC ISO-8601). `ReviewEvent` discriminated union 
 
 Each active run in `src/web/app.py` is tracked as a `_RunRecord` class (not a dataclass):
 - `run_id`: short UUID prefix used as SSE endpoint key
-- `queue`: asyncio.Queue receiving ReviewEvent JSON strings from WebRunContext
 - `task`: background asyncio.Task running run_workflow()
 - `event_log`: in-memory replay buffer for prefetch endpoint
+- `_flush_index`: marker for batched event_log -> SQLite flush
+- `_flush_lock`: lock for coordinated flusher writes
+- `_event_cond`: condition variable used by SSE stream wait loop
 - `db_path`: path to runtime.db (set when db_ready event fires)
 - `workflow_id`: set after workflow starts; used for export and history
 - `topic`: research question string for the run
@@ -1111,16 +1127,16 @@ Living section -- update as work completes.
 | Enhancement #4: Semantic Chunking | DONE | Sentence-boundary chunker (nltk sent_tokenize) replaces fixed 512-word windows; chunks stay under ~400 words, 2-sentence overlap; fallback to regex split if nltk unavailable; settings: rag.chunk_max_words, rag.chunk_overlap_sentences in settings.yaml (chunker.py module constants are fallbacks when called standalone) |
 | Enhancement #5: PICO-Aware Retrieval | DONE | PICO terms from review.yaml injected into HyDE prompt and BM25 query string when review.pico is populated; no separate settings.yaml toggle (pico_query_boost does not exist) |
 | Enhancement #6: Living Review Auto-Refresh | DONE | Delta pipeline: search from last_search_date, screen/embed new papers only, merge into previous DB, re-run synthesis+writing only if new evidence added |
-| Enhancement #7: Multi-Modal Evidence | DONE | 6-tier full-text retrieval (Unpaywall, Semantic Scholar, CORE, Europe PMC, ScienceDirect, PMC -> abstract fallback); unified resolver used by extraction and screening; Gemini vision extracts quantitative outcome rows from PDFs; vision+text outcomes merged; table rows chunked as separate embeddings; GET /api/db/{run_id}/tables endpoint; Scopus abstract gap fixed via enrich_scopus_abstracts() |
+| Enhancement #7: Multi-Modal Evidence | DONE | Tiered full-text retrieval (Tier 0 publisher-direct, Tier 0.5 citation_pdf_url meta, Tier 1 Unpaywall, Tier 1b arXiv, Tier 2 group Semantic Scholar/CORE/OpenAlex/EuropePMC/bioRxiv, then ScienceDirect/PMC/Crossref, Tier 6 landing-page fallback); unified resolver used by extraction and screening; Gemini vision extracts quantitative outcome rows from PDFs; vision+text outcomes merged; table rows chunked as separate embeddings; GET /api/db/{run_id}/tables endpoint; Scopus abstract gap fixed via enrich_scopus_abstracts() |
 | Enhancement #8: Contradiction-Aware Synthesis | DONE | contradiction_detector.py surfaces conflict pairs; WritingNode injects "Conflicting Evidence" subsection into Discussion with citation keys and reconciliation hypothesis |
-| Enhancement #9: Adaptive Screening Threshold | DONE | Active-learning calibration loop: 30-paper sample, kappa computed, thresholds adjusted via bisection until kappa > 0.7 or 3 iterations; settings: screening.calibration_sample_size; calibration emits phase_start/phase_done SSE events (phase="screening_calibration") for live UI progress |
+| Enhancement #9: Adaptive Screening Threshold | DONE | Active-learning calibration loop: configurable sample size (`screening.calibration_sample_size`, current settings default 15), kappa computed, thresholds adjusted via bisection until kappa > 0.7 or max iterations; calibration emits phase_start/phase_done SSE events (phase="screening_calibration") for live UI progress |
 | Enhancement #10: GRADE Evidence Profile | DONE | Full GRADE Summary of Findings table (studies, participants, effect estimate, certainty, reason); build_sof_table() in grade.py; GradeSoFTable + GradeSoFRow models; LaTeX longtable export; GET /api/run/{run_id}/grade-sof endpoint |
 | Search quality sprint | DONE | Scopus connector (src/search/scopus.py, TITLE-ABS-KEY field codes, 5 req/sec limit, 429 back-off); Web of Science connector (src/search/web_of_science.py, TS= prefix syntax, Starter API); default target_databases updated to scopus + web_of_science + openalex + pubmed + semantic_scholar; ieee_xplore + perplexity_search + crossref + arxiv moved to opt-in |
 | OpenAlex query fix + config generator | DONE | OpenAlex received the broad boolean OR fallback causing ~500 off-topic results. Fix: (1) strategy.py added openalex branch returning short_query (same pattern as semantic_scholar); (2) config_generator.py added openalex field to _SearchOverrides model and updated _STRUCTURE_PROMPT to generate all six database overrides; all descriptions and examples made domain-agnostic so generator works for any topic. |
 | Manuscript quality sprint | DONE | Root causes fixed in pipeline: assemble_submission_manuscript() includes GRADE SoF table, search appendix, excluded-studies footnote; abstract prompt includes kappa framing; semicolon parsing in citation extraction; IMRaD heading prompts tightened. finalize_manuscript.py is a thin regeneration utility for historical runs; _strip_unresolved_citekeys() is the only remaining safety net. Citation lineage gate: FinalizeNode validates manuscript; block_export_on_unresolved respected. |
 | Zero-papers manuscript | DONE | WritingNode guard: when 0 papers included (gates.profile=warning allows continuation past screening_safeguard), produces minimal manuscript without LLM calls via _build_minimal_sections_for_zero_papers(). Appendix B (Characteristics of Included Studies) includes Full Text Retrieved column. Sidebar RunCardMetrics displays 0/0 for found/included. |
 | Web of Science connector | DONE | src/search/web_of_science.py -- Clarivate WoS Starter API (X-ApiKey header, TS/TI/PY query fields, 50 records/page, 300 req/day free tier); WOS_API_KEY env var; sourced as DATABASE category |
-| Gemini 3.x model upgrade | DONE | All agents updated to Gemini 3.x preview models in settings.yaml: gemini-3.1-flash-lite-preview (bulk + RAG), gemini-3-flash-preview (reviewer_b), gemini-3.1-pro-preview (quality). UpdatePrices live auto-updater + static fallback price map added to provider.py for accurate cost tracking. |
+| Gemini model routing refresh | DONE | All agents are config-driven in settings.yaml; current defaults use gemini-2.5-flash-lite for bulk/RAG helpers and gemini-2.5-flash for adjudication, extraction, quality, and writing paths. UpdatePrices live auto-updater + static fallback price map added to provider.py for accurate cost tracking. |
 | Cost tab DB-first fix | DONE | CostView now polls /api/db/{run_id}/costs every 5s as primary source; removed guard that skipped DB when SSE had any events (caused earlier-phase costs to disappear once writing phase started streaming 2 events). |
 | RAG config from settings.yaml | DONE | embed_model, embed_dim, embed_batch_size, chunk_max_words, chunk_overlap_sentences moved to settings.yaml rag.* section; embedder.py caches Embedder instances per (model, dim) key; embedding_node.py and workflow.py read all values from config instead of hardcoded constants. |
 | Activity log verbosity v3 + pipeline fixes | DONE | (1) Screening decisions now carry method badge (LLM vs AUTO/heuristic) in SSE payload; frontend renders heuristic auto-excludes with amber dim styling vs. zinc for LLM excludes; REASON_LABELS translates internal codes (insufficient_content_heuristic) to human-readable text. (2) Progress events no longer suppressed in LogStream -- calibration phase now shows per-paper ticks (1/15, 2/15...). (3) rate_limiter.py on_waiting callback fires immediately on first wait occurrence (was suppressed 30s). (4) CROSS_SECTIONAL study design now routes to CASP instead of ROBINS-I (ROBINS-I requires longitudinal intervention structure). (5) build_credit_section() added to markdown_refs.py; build_markdown_declarations_section() now appends CRediT author contribution statement. (6) repositories.py get_dual_screening_stats() now queries per-paper fulltext exclusion reasons from screening_decisions table. (7) PRISMA diagram build_prisma_counts() uses actual fulltext stage counts from dual_screening_results when _reports_assessed_raw > included_total. (8) protocol/generator.py maps review_type to PROSPERO item 21 study design descriptions instead of using raw enum value. (9) Discussion prompt enumerates 6 required limitation categories explicitly. |
