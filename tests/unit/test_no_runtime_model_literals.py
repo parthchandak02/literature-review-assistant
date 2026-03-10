@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 
-def test_no_runtime_gemini_model_literals_in_src() -> None:
+def test_no_runtime_model_literals_in_src() -> None:
     """Enforce YAML as single source of model IDs.
 
     Runtime model IDs must not be hardcoded in src/ Python files.
@@ -12,6 +12,8 @@ def test_no_runtime_gemini_model_literals_in_src() -> None:
     forbidden_tokens = (
         "google-gla:gemini-",
         "google-vertex:gemini-",
+        "anthropic:claude-",
+        "openai:gpt-",
     )
 
     violations: list[str] = []
@@ -23,6 +25,6 @@ def test_no_runtime_gemini_model_literals_in_src() -> None:
                 violations.append(f"{rel}:{line_no}: {line.strip()}")
 
     assert not violations, (
-        "Runtime Gemini model literals found in src/. "
+        "Runtime provider model literals found in src/. "
         "Define model IDs only in config/settings.yaml.\n" + "\n".join(violations)
     )

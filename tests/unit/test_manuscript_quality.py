@@ -286,6 +286,28 @@ def test_assemble_normalizes_known_eligibility_heading(tmp_path: Path) -> None:
     assert "### Eligibility Criteria\n\nStudies were included from 2000 to 2026." in result
 
 
+def test_assemble_normalizes_lowercase_run_on_heading(tmp_path: Path) -> None:
+    from src.export.markdown_refs import assemble_submission_manuscript
+
+    body = (
+        "## Methods\n\n"
+        "### Eligibility Criteria for this systematic review were predefined.\n\n"
+        "## Results\n\n"
+        "### Study Characteristics\n\n"
+        "Study text [Smith2021].\n"
+    )
+    row = (1, "Smith2021", None, "Study", '["Smith A"]', 2021, "J", None, None)
+    result = assemble_submission_manuscript(
+        body=body,
+        manuscript_path=tmp_path / "ms.md",
+        artifacts={},
+        citation_rows=[row],
+        papers=[_make_paper("pid-1", ["Smith A"], 2021)],
+        extraction_records=[_make_extraction("pid-1", "randomized_controlled_trial", 30, "Positive result found")],
+    )
+    assert "### Eligibility Criteria\n\nfor this systematic review were predefined." in result
+
+
 def test_assemble_splits_multiple_inline_headings_on_same_line(tmp_path: Path) -> None:
     from src.export.markdown_refs import assemble_submission_manuscript
 
@@ -337,6 +359,30 @@ def test_assemble_strips_section_block_markers(tmp_path: Path) -> None:
         "## Methods\n\n"
         "<!-- SECTION_BLOCK:eligibility_criteria -->\n"
         "### Eligibility Criteria\n\n"
+        "Study text [Smith2021].\n"
+    )
+    row = (1, "Smith2021", None, "Study", '["Smith A"]', 2021, "J", None, None)
+    result = assemble_submission_manuscript(
+        body=body,
+        manuscript_path=tmp_path / "ms.md",
+        artifacts={},
+        citation_rows=[row],
+        papers=[_make_paper("pid-1", ["Smith A"], 2021)],
+        extraction_records=[_make_extraction("pid-1", "randomized_controlled_trial", 30, "Positive result found")],
+    )
+    assert "SECTION_BLOCK" not in result
+    assert "<!--" not in result
+
+
+def test_assemble_strips_inline_section_block_markers(tmp_path: Path) -> None:
+    from src.export.markdown_refs import assemble_submission_manuscript
+
+    body = (
+        "## Methods\n\n"
+        "A paragraph. <!-- SECTION_BLOCK:selection_process -->\n"
+        "### Selection Process followed predefined eligibility.\n\n"
+        "## Results\n\n"
+        "### Study Characteristics\n\n"
         "Study text [Smith2021].\n"
     )
     row = (1, "Smith2021", None, "Study", '["Smith A"]', 2021, "J", None, None)

@@ -173,6 +173,24 @@ def test_markdown_to_latex_strips_section_block_markers() -> None:
     assert "<!--" not in out
 
 
+def test_markdown_to_latex_strips_inline_section_block_markers() -> None:
+    md = (
+        "# Title\n\n"
+        "**Background:** Background.\n"
+        "**Objectives:** Objective.\n"
+        "**Methods:** Methods.\n"
+        "**Results:** Results.\n"
+        "**Conclusion:** Conclusion.\n"
+        "**Keywords:** a, b\n\n"
+        "## Methods\n\n"
+        "A paragraph. <!-- SECTION_BLOCK:selection_process -->\n"
+        "### Selection Process followed a staged funnel.\n"
+    )
+    out = markdown_to_latex(md, citekeys=set())
+    assert "SECTION_BLOCK" not in out
+    assert "<!--" not in out
+
+
 def test_markdown_to_latex_merges_split_h3_heading_lines() -> None:
     md = (
         "# Title\n\n"
@@ -189,6 +207,23 @@ def test_markdown_to_latex_merges_split_h3_heading_lines() -> None:
     )
     out = markdown_to_latex(md, citekeys=set())
     assert "\\subsection{Risk of Bias Assessment}" in out
+
+
+def test_markdown_to_latex_splits_lowercase_run_on_heading_body() -> None:
+    md = (
+        "# Title\n\n"
+        "**Background:** Background.\n"
+        "**Objectives:** Objective.\n"
+        "**Methods:** Methods.\n"
+        "**Results:** Results.\n"
+        "**Conclusion:** Conclusion.\n"
+        "**Keywords:** a, b\n\n"
+        "## Methods\n\n"
+        "### Eligibility Criteria for this systematic review were predefined.\n"
+    )
+    out = markdown_to_latex(md, citekeys=set())
+    assert "\\subsection{Eligibility Criteria}" in out
+    assert "for this systematic review were predefined." in out
 
 
 def test_validate_ieee_no_abstract():

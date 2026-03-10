@@ -616,6 +616,63 @@ async def test_attach_history_true_stale_injects_orphaned_message(
 
 
 @pytest.mark.asyncio
+async def test_attach_history_preserves_reason_fields_in_events(
+    client: httpx.AsyncClient,
+    tmp_path: Path,
+) -> None:
+    db_path = tmp_path / "attach_reason_fields.db"
+    async with get_db(str(db_path)) as db:
+        await db.execute(
+            "INSERT INTO workflows (workflow_id, topic, config_hash, status) VALUES (?, ?, ?, ?)",
+            ("wf-reason", "Topic", "hash", "completed"),
+        )
+        await db.execute(
+            "INSERT INTO event_log (workflow_id, event_type, payload, ts) VALUES (?, ?, ?, ?)",
+            (
+                "wf-reason",
+                "screening_decision",
+                json.dumps(
+                    {
+                        "type": "screening_decision",
+                        "paper_id": "p-1",
+                        "stage": "title_abstract",
+                        "decision": "exclude",
+                        "reason_code": "keyword_filter",
+                        "reason_label": "Skipped: no intervention keyword match",
+                        "action": "exclude",
+                        "entity_type": "paper",
+                        "entity_id": "p-1",
+                        "ts": "2026-03-10T10:00:00.000Z",
+                    }
+                ),
+                "2026-03-10T10:00:00.000Z",
+            ),
+        )
+        await db.commit()
+
+    resp = await client.post(
+        "/api/history/attach",
+        json={
+            "workflow_id": "wf-reason",
+            "topic": "Topic",
+            "db_path": str(db_path),
+            "status": "completed",
+        },
+    )
+    assert resp.status_code == 200
+    run_id = resp.json()["run_id"]
+    events_resp = await client.get(f"/api/run/{run_id}/events")
+    assert events_resp.status_code == 200
+    payload = events_resp.json()
+    decision = next(e for e in payload["events"] if e.get("type") == "screening_decision")
+    assert decision["reason_code"] == "keyword_filter"
+    assert decision["reason_label"] == "Skipped: no intervention keyword match"
+    assert decision["action"] == "exclude"
+    assert decision["entity_type"] == "paper"
+    assert decision["entity_id"] == "p-1"
+
+
+@pytest.mark.asyncio
 async def test_stream_replay_respects_last_event_id_and_includes_terminal_event(client: httpx.AsyncClient) -> None:
     run_id = "run-stream-replay"
     record = _RunRecord(run_id=run_id, topic="Replay Test")

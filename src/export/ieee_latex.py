@@ -449,7 +449,8 @@ def _convert_md_table_to_latex(
 
 def _strip_section_block_markers(text: str) -> str:
     """Remove deterministic writing boundary markers from export body."""
-    return re.sub(r"(?m)^\s*<!--\s*SECTION_BLOCK:[^>]+-->\s*\n?", "", text)
+    text = re.sub(r"(?m)^\s*<!--\s*SECTION_BLOCK:[^>]+-->\s*\n?", "", text)
+    return re.sub(r"\s*<!--\s*SECTION_BLOCK:[^>]+-->\s*", "\n\n", text)
 
 
 def _normalize_subsection_heading_layout(text: str) -> str:
@@ -484,6 +485,29 @@ def _normalize_subsection_heading_layout(text: str) -> str:
             next_line = lines[i + 1].strip() if i + 1 < len(lines) else ""
             if next_line and not next_line.startswith("#"):
                 tail_words = tail.split()
+                if tail_words and tail_words[-1].lower() in connector_tail:
+                    nxt_words = next_line.split()
+                    consumed = 0
+                    for j, w in enumerate(nxt_words):
+                        if title_token_re.match(w):
+                            consumed = j + 1
+                            if consumed >= 4:
+                                break
+                            continue
+                        break
+                    if consumed > 0:
+                        title_join = " ".join(nxt_words[:consumed]).strip()
+                        body_rest = " ".join(nxt_words[consumed:]).strip()
+                        line = f"{level} {tail} {title_join}".strip()
+                        if body_rest:
+                            out.append(line)
+                            out.append("")
+                            out.append(body_rest)
+                            i += 2
+                            continue
+                        out.append(line)
+                        i += 2
+                        continue
                 if (tail_words and tail_words[-1].lower() in connector_tail and _looks_title_fragment(next_line)) or (
                     len(tail_words) <= 3 and _looks_title_fragment(next_line) and not sentence_start_re.match(next_line)
                 ):
@@ -498,7 +522,10 @@ def _normalize_subsection_heading_layout(text: str) -> str:
                     left_ok = all(title_token_re.match(w) or w.lower() in connector_tail for w in left_words)
                     if not left_ok:
                         continue
-                    if sentence_start_re.match(right) or (right and right[0].isupper() and any(c in right for c in ".,")):
+                    right_lower = right.lower()
+                    if sentence_start_re.match(right) or (
+                        right_lower.startswith(("for ", "in ", "across ", "to ", "from ", "with ", "is ", "are ", "was ", "were ", "followed ", "defined ", "developed "))
+                    ) or (right and right[0].isupper() and any(c in right for c in ".,")):
                         out.append(f"{words[0]} {' '.join(left_words)}")
                         out.append("")
                         out.append(right)
