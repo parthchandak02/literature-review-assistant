@@ -411,6 +411,26 @@ LaTeX -- it does NOT re-run `assemble_submission_manuscript()`. This means:
 - Re-exporting an old run with force=True will NOT add the compact table or remove the RQ prefix.
 - To get these features into an existing run, re-run the workflow or use inject_missing_citations.py.
 
+## Known Pipeline Bugs and Their Fix Locations
+These are recurring manuscript issues and WHERE in the pipeline to fix them (never in run artifacts):
+
+- **Comma-separated citekey lists `[key1, key2, ...]` not converted to `\cite{}`**: Fixed in
+  `_convert_citations()` in `src/export/ieee_latex.py` -- Pass 1 of that function now handles
+  multi-key bracket lists before the single-key pass. Root cause: writing LLM groups multiple
+  citations in one bracket instead of using individual `[Key2020]` references.
+- **Abstract ends mid-sentence after trim**: Fixed in `_trim_abstract_to_limit()` in
+  `src/orchestration/workflow.py` -- trim now walks back to the last sentence-ending
+  punctuation before cutting. Root cause: word-boundary trim on the longest bold field.
+- **Manuscript says "X reports sought" but uses the wrong count**: Fixed in `format_grounding_block()`
+  in `src/writing/context_builder.py` -- `reports_sought`, `reports_not_retrieved`, and
+  `fulltext_assessed` are now ALL injected as separately labeled numbers with a CRITICAL
+  disambiguation instruction. Root cause: only `fulltext_assessed` was injected; LLM used it
+  with the wrong "sought" label.
+- **`[CITATION_NEEDED]` placeholders in Discussion**: Partially fixed in `_fuzzy_match_citekey()`
+  in `src/writing/citation_grounding.py` -- last-resort fallback now accepts the sole year-matched
+  candidate even when author tokens don't overlap. Remaining occurrences require improving the
+  writing LLM prompt to prevent hallucinating background SR citekeys in Discussion.
+
 ## Run Folder Names Include `wf-NNNN-` Prefix For New Runs
 `create_run_paths()` in `src/utils/logging_paths.py` accepts `workflow_id: str = ""`.
 When `workflow_id` is provided (e.g. "wf-0007"), the topic folder becomes `wf-0007-<slug>/`

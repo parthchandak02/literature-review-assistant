@@ -70,6 +70,37 @@ alwaysApply: true
 - Stale detection: heartbeat updated every 60s; runs with no heartbeat for 5+ min become "stale"
 - Concurrent resume guard: if same workflow_id already active, returns existing run_id (no duplicate task)
 
+## Fix Processes, Not Individual Runs
+
+**This is the most important engineering principle for this codebase.**
+
+When an audit or run reveals a manuscript problem (wrong PRISMA numbers, literal citations,
+truncated sentences, [CITATION_NEEDED] placeholders, abstract over word limit), the correct
+action is ALWAYS to fix the pipeline source code so every future run produces correct output
+automatically. NEVER manually edit `doc_manuscript.tex`, `doc_manuscript.md`, `references.bib`,
+or any artifact inside a `runs/` directory.
+
+The pipeline is the product. Individual run artifacts are outputs, not the deliverable.
+
+Workflow for any audit finding:
+1. Identify which pipeline stage produced the bug (writing LLM prompt, citation grounding,
+   PRISMA count builder, abstract trim, export converter, etc.)
+2. Fix the source code in `src/` so the bug cannot recur
+3. Start a new run or re-run from the affected phase to produce clean artifacts
+4. Validate with the manuscript-auditor on the new run
+
+Examples of wrong actions:
+- Editing `runs/.../doc_manuscript.tex` to fix "[22]" citation -> WRONG
+- Searching for "[CITATION_NEEDED]" in a run dir and replacing it manually -> WRONG
+- Patching `runs/.../references.bib` to add a missing entry -> WRONG
+
+Examples of right actions:
+- Finding the bug in `src/writing/citation_grounding.py` that caused `[22]` and fixing
+  the regex or fallback logic -> CORRECT
+- Fixing `_trim_abstract_to_limit()` to cut at sentence boundaries -> CORRECT
+- Adding a post-process in `citation_grounding.py` to convert `[key1, key2, ...]` patterns
+  to `\cite{key1,key2,...}` -> CORRECT
+
 ## Critical Constraints
 - **Use `rich`** for CLI output (progress bars, tables, status)
 - **Verify APIs** before embedding: use @Ref or Exa to check current docs for statsmodels, pydantic_graph, aiosqlite, etc. Do not embed outdated code patterns.
