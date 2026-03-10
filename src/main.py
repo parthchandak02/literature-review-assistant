@@ -19,6 +19,7 @@ from pathlib import Path
 
 import aiohttp
 import aiosqlite
+import yaml
 from rich.console import Console
 from rich.table import Table
 
@@ -27,6 +28,7 @@ from src.db.workflow_registry import (
     find_by_workflow_id,
     find_by_workflow_id_fallback,
 )
+from src.db.workflow_registry import update_status as update_registry_status
 from src.export import package_submission, validate_ieee, validate_prisma
 from src.orchestration import run_workflow_resume, run_workflow_sync
 from src.orchestration.context import RunContext, create_progress
@@ -347,6 +349,49 @@ async def _backfill_event_log(log_dir: str, workflow_id: str) -> None:
         pass
 
 
+def _infer_terminal_registry_status(summary: dict) -> str:
+    status = str(summary.get("status", "")).strip().lower()
+    if status in {"failed", "error"}:
+        return "failed"
+    if status in {"cancelled", "interrupted"}:
+        return "interrupted"
+    # Successful run summaries may omit explicit status; treat as completed.
+    return "completed"
+
+
+async def _update_registry_from_summary(summary: dict, run_root: str) -> None:
+    workflow_id = str(summary.get("workflow_id", "")).strip()
+    if not workflow_id:
+        return
+    try:
+        await update_registry_status(run_root, workflow_id, _infer_terminal_registry_status(summary))
+    except Exception:
+        return
+
+
+async def _mark_latest_running_interrupted(review_path: str, run_root: str) -> None:
+    """Best-effort fallback for abrupt CLI aborts where summary is unavailable."""
+    try:
+        review_data = yaml.safe_load(Path(review_path).read_text(encoding="utf-8")) or {}
+        topic = str(review_data.get("research_question", "")).strip()
+    except Exception:
+        topic = ""
+    if not topic:
+        return
+    try:
+        config_hash = _hash_config(review_path)
+        matches = await find_by_topic(run_root, topic, config_hash)
+    except Exception:
+        return
+    for entry in matches:
+        if str(getattr(entry, "status", "")).lower() == "running":
+            try:
+                await update_registry_status(run_root, entry.workflow_id, "interrupted")
+            except Exception:
+                pass
+            break
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     console = Console()
     parser = build_parser()
@@ -361,27 +406,33 @@ def main(argv: Sequence[str] | None = None) -> int:
         offline = getattr(args, "offline", False)
         if debug:
             verbose = True
-        with create_progress(console) as progress:
-            run_context = RunContext(
-                console=console,
-                verbose=verbose,
-                debug=debug,
-                offline=offline,
-                progress=progress,
-            )
-            summary = run_workflow_sync(
-                review_path=args.config,
-                settings_path=args.settings,
-                run_root=args.run_root,
-                run_context=run_context,
-                fresh=getattr(args, "fresh", False),
-            )
-        _print_run_summary(console, summary)
-        log_dir = summary.get("log_dir")
-        workflow_id = summary.get("workflow_id")
-        if log_dir and workflow_id:
-            asyncio.run(_backfill_event_log(str(log_dir), str(workflow_id)))
-        return 0
+        try:
+            with create_progress(console) as progress:
+                run_context = RunContext(
+                    console=console,
+                    verbose=verbose,
+                    debug=debug,
+                    offline=offline,
+                    progress=progress,
+                )
+                summary = run_workflow_sync(
+                    review_path=args.config,
+                    settings_path=args.settings,
+                    run_root=args.run_root,
+                    run_context=run_context,
+                    fresh=getattr(args, "fresh", False),
+                )
+            _print_run_summary(console, summary)
+            log_dir = summary.get("log_dir")
+            workflow_id = summary.get("workflow_id")
+            if log_dir and workflow_id:
+                asyncio.run(_backfill_event_log(str(log_dir), str(workflow_id)))
+            asyncio.run(_update_registry_from_summary(summary, args.run_root))
+            return 0
+        except KeyboardInterrupt:
+            console.print("[yellow]Interrupted.[/] Marking running workflow as interrupted.")
+            asyncio.run(_mark_latest_running_interrupted(args.config, args.run_root))
+            return 130
 
     if args.command == "resume":
         if not getattr(args, "topic", None) and not getattr(args, "workflow_id", None):
@@ -438,7 +489,12 @@ def main(argv: Sequence[str] | None = None) -> int:
                     )
                 )
             _print_run_summary(console, summary)
+            asyncio.run(_update_registry_from_summary(summary, args.run_root))
             return 0
+        except KeyboardInterrupt:
+            console.print("[yellow]Interrupted.[/] Marking running workflow as interrupted.")
+            asyncio.run(_mark_latest_running_interrupted(args.config, args.run_root))
+            return 130
         except FileNotFoundError as e:
             console.print(f"[red]Error:[/] {e}")
             return 1

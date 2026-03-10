@@ -17,13 +17,14 @@ import asyncio
 import logging
 
 from pydantic_ai.embeddings import Embedder
+from src.llm.model_fallback import get_fallback_model
 
 logger = logging.getLogger(__name__)
 
 # Module-level fallback values -- used only when the caller does not pass
 # explicit model/dim (e.g. standalone scripts). Orchestration always reads
 # from config/settings.yaml via RagConfig and passes values explicitly.
-_DEFAULT_EMBED_MODEL = "google-gla:gemini-embedding-001"
+_DEFAULT_EMBED_MODEL = ""
 _DEFAULT_EMBED_DIM = 768
 
 # Cache embedder instances by (model, dim) so we never recreate needlessly
@@ -31,8 +32,16 @@ _DEFAULT_EMBED_DIM = 768
 _embedder_cache: dict[tuple[str, int], Embedder] = {}
 
 
+def _resolve_embed_model(model: str) -> str:
+    if model:
+        return model
+    # Keep model resolution centralized in settings.yaml.
+    return get_fallback_model("lite")
+
+
 def _get_embedder(model: str = _DEFAULT_EMBED_MODEL, dim: int = _DEFAULT_EMBED_DIM) -> Embedder:
     """Return a cached Embedder for the given model and output dimension."""
+    model = _resolve_embed_model(model)
     key = (model, dim)
     if key not in _embedder_cache:
         _embedder_cache[key] = Embedder(model, settings={"dimensions": dim})
