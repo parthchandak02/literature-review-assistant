@@ -51,13 +51,53 @@ def get_required_env_keys(settings: SettingsConfig) -> list[str]:
     return sorted(required)
 
 
+def _validate_model_configuration(settings: SettingsConfig, raw_settings: dict) -> None:
+    """Fail fast when required model configuration is missing.
+
+    Model IDs are intentionally centralized in config/settings.yaml. This guard
+    prevents the app from starting with empty model fields.
+    """
+    missing: list[str] = []
+
+    if not settings.agents:
+        missing.append("agents (at least one agent model is required)")
+    for agent_name, agent_cfg in settings.agents.items():
+        if not (agent_cfg.model or "").strip():
+            missing.append(f"agents.{agent_name}.model")
+
+    rag_raw = raw_settings.get("rag") if isinstance(raw_settings.get("rag"), dict) else {}
+    extraction_raw = (
+        raw_settings.get("extraction") if isinstance(raw_settings.get("extraction"), dict) else {}
+    )
+
+    # Validate explicit YAML entries (avoid breaking minimal test configs that omit sections).
+    if "embed_model" in rag_raw and not (settings.rag.embed_model or "").strip():
+        missing.append("rag.embed_model")
+    if "hyde_model" in rag_raw and settings.rag.use_hyde and not (settings.rag.hyde_model or "").strip():
+        missing.append("rag.hyde_model")
+    if "reranker_model" in rag_raw and settings.rag.rerank and not (settings.rag.reranker_model or "").strip():
+        missing.append("rag.reranker_model")
+    if (
+        "pdf_vision_model" in extraction_raw
+        and settings.extraction.use_pdf_vision
+        and not (settings.extraction.pdf_vision_model or "").strip()
+    ):
+        missing.append("extraction.pdf_vision_model")
+
+    if missing:
+        joined = ", ".join(missing)
+        raise ValueError(f"Missing required model configuration in settings.yaml: {joined}")
+
+
 def load_configs(
     review_path: str = "config/review.yaml",
     settings_path: str = "config/settings.yaml",
 ) -> tuple[ReviewConfig, SettingsConfig]:
     load_dotenv()
     review = ReviewConfig.model_validate(_read_yaml(review_path))
-    settings = SettingsConfig.model_validate(_read_yaml(settings_path))
+    raw_settings = _read_yaml(settings_path)
+    settings = SettingsConfig.model_validate(raw_settings)
+    _validate_model_configuration(settings, raw_settings)
     return review, settings
 
 

@@ -494,8 +494,6 @@ async def package_submission(
     db_path, output_dir, _log_dir = info
     output_path = Path(output_dir)
     manuscript_md = output_path / "doc_manuscript.md"
-    if not manuscript_md.exists():
-        return None
 
     submission_dir = output_path / "submission"
     submission_dir.mkdir(parents=True, exist_ok=True)
@@ -563,7 +561,19 @@ async def package_submission(
         except Exception:
             pass
 
-    md_content = manuscript_md.read_text(encoding="utf-8")
+    md_content = ""
+    try:
+        async with get_db(db_path) as db:
+            repo = WorkflowRepository(db)
+            assembly = await repo.load_latest_manuscript_assembly(workflow_id, "md")
+            if assembly and assembly.content.strip():
+                md_content = assembly.content
+    except Exception:
+        md_content = ""
+    if not md_content:
+        if not manuscript_md.exists():
+            return None
+        md_content = manuscript_md.read_text(encoding="utf-8")
     # Three-layer mechanical matching (DOI -> URL -> title), then LLM batch fallback.
     num_to_citekey = _build_number_to_citekey(md_content, citations)
     num_to_citekey = await llm_resolve_unmatched_citations(

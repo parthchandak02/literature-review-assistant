@@ -225,7 +225,7 @@ class PDFRetriever:
         on_progress: Callable[[int, int], None] | None = None,
         concurrency: int = 8,
         per_paper_timeout: int = 45,
-        on_result: Callable[[str, str, str, bool], None] | None = None,
+        on_result: Callable[[str, str, str, bool, str | None], None] | None = None,
     ) -> tuple[dict[str, PDFRetrievalResult], FullTextCoverageSummary]:
         """Retrieve full text for a batch of papers with bounded concurrency.
 
@@ -265,7 +265,7 @@ class PDFRetriever:
                     pass
             if on_result is not None:
                 try:
-                    on_result(paper.paper_id, paper.title, outcome.source, outcome.success)
+                    on_result(paper.paper_id, paper.title, outcome.source, outcome.success, outcome.reason_code)
                 except Exception:
                     pass
 

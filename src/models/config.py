@@ -246,7 +246,7 @@ class DualReviewConfig(BaseModel):
     enabled: bool = True
     kappa_warning_threshold: float = Field(ge=0.0, le=1.0, default=0.4)
     reviewer_b_model: str = Field(
-        default="google-gla:gemini-3-flash-preview",
+        default="",
         description=(
             "Last-resort fallback model for Reviewer B. The primary source is "
             "agents.screening_reviewer_b.model in settings.yaml. This field is "
@@ -305,6 +305,11 @@ class CitationLineageConfig(BaseModel):
 
 
 class LLMRateLimitConfig(BaseModel):
+    class PriceFallbackConfig(BaseModel):
+        input_per_mtok: float = Field(ge=0.0)
+        output_per_mtok: float = Field(ge=0.0)
+        cache_read_input_multiplier: float = Field(default=0.1, ge=0.0)
+
     flash_rpm: int = Field(ge=1, le=1000, default=10)
     flash_lite_rpm: int = Field(ge=1, le=1000, default=15)
     pro_rpm: int = Field(ge=1, le=500, default=5)
@@ -317,6 +322,13 @@ class LLMRateLimitConfig(BaseModel):
             "Pro-tier models generating long outputs (e.g. writing sections) "
             "may need 120-180s; flash-lite can use 60s. "
             "Applies to PydanticAI ModelSettings.timeout."
+        ),
+    )
+    price_fallback_per_mtok: dict[str, PriceFallbackConfig] = Field(
+        default_factory=dict,
+        description=(
+            "Optional pricing fallback table for model refs missing in genai-prices. "
+            "Keys are bare model refs (without provider prefix), values are per-1M token prices."
         ),
     )
 
@@ -450,7 +462,7 @@ class ExtractionConfig(BaseModel):
         ),
     )
     pdf_vision_model: str = Field(
-        default="google-gla:gemini-3.1-flash-lite-preview",
+        default="",
         description="Gemini model used for PDF table vision extraction.",
     )
     full_text_min_chars: int = Field(
@@ -484,7 +496,7 @@ class RagConfig(BaseModel):
     """RAG retrieval configuration including embedding, chunking, HyDE and reranking settings."""
 
     embed_model: str = Field(
-        default="google-gla:gemini-embedding-001",
+        default="",
         description="Embedding model used to embed paper chunks and queries.",
     )
     embed_dim: int = Field(
@@ -516,7 +528,7 @@ class RagConfig(BaseModel):
         description="Use HyDE (Hypothetical Document Embeddings) for RAG section retrieval.",
     )
     hyde_model: str = Field(
-        default="google-gla:gemini-3.1-flash-lite-preview",
+        default="",
         description="Fast LLM model used to generate hypothetical document excerpts for RAG queries.",
     )
     rerank: bool = Field(
@@ -524,8 +536,36 @@ class RagConfig(BaseModel):
         description="Use cross-encoder reranking on hybrid retrieval candidates before WritingNode.",
     )
     reranker_model: str = Field(
-        default="google-gla:gemini-3.1-flash-lite-preview",
+        default="",
         description="LLM model used for listwise reranking of retrieved chunks (Gemini Flash recommended).",
+    )
+    candidate_k: int = Field(
+        default=20,
+        ge=4,
+        le=100,
+        description="Number of chunks retrieved before optional reranking.",
+    )
+    final_k: int = Field(
+        default=8,
+        ge=1,
+        le=50,
+        description="Final number of chunks injected into the writing prompt.",
+    )
+    min_chunks_per_section: int = Field(
+        default=1,
+        ge=0,
+        le=50,
+        description="Warn when fewer than this many chunks are retrieved for a section.",
+    )
+    max_empty_sections: int = Field(
+        default=2,
+        ge=0,
+        le=20,
+        description="Maximum sections allowed with empty retrieval before run-level RAG warning/failure.",
+    )
+    block_writing_on_rag_failure: bool = Field(
+        default=False,
+        description="If true, fail writing when RAG retrieval health thresholds are violated.",
     )
     embed_concurrency: int = Field(
         default=4,

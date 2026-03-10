@@ -140,12 +140,12 @@ def _read_pdf_pdfminer(pdf_path: pathlib.Path) -> str:
 async def extract_metrics_with_llm(pdf_text: str, filename: str) -> dict[str, Any]:
     """Use the configured PDF vision LLM to extract structured metrics from PDF text."""
     from src.config.loader import load_configs
-    from src.llm.gemini_client import GeminiClient
+    from src.llm.pydantic_client import PydanticAIClient
 
     _, settings = load_configs()
     model = settings.extraction.pdf_vision_model
 
-    client = GeminiClient()
+    client = PydanticAIClient()
     prompt = f"{_EXTRACTION_PROMPT}\n\nPDF TEXT:\n{pdf_text[:60000]}"
 
     try:

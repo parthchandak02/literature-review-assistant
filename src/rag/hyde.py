@@ -93,6 +93,7 @@ async def generate_hyde_document(
     pico: object | None = None,
     provider: object | None = None,
     repository: WorkflowRepository | None = None,
+    workflow_id: str = "",
 ) -> str:
     """Generate a hypothetical document excerpt for use as a RAG query vector.
 
@@ -137,6 +138,7 @@ async def generate_hyde_document(
             cost_usd = LLMProvider.estimate_cost_usd(model, tokens_in, tokens_out)
             await repository.save_cost_record(
                 CostRecord(
+                    workflow_id=workflow_id,
                     model=model,
                     tokens_in=tokens_in,
                     tokens_out=tokens_out,

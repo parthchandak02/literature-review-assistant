@@ -82,6 +82,7 @@ Note which expected artifacts are MISSING. That itself is an audit finding for S
 ## STEP 2 -- Read all primary artifacts
 
 Read the following files in full before spawning any subagent. You will embed their contents into subagent prompts directly so each subagent receives identical pre-gathered context.
+`doc_manuscript.md` is the primary source of truth for manuscript content. `doc_manuscript.tex` is a secondary export representation used only for LaTeX/export integrity checks.
 
 1. `<run_root>/doc_manuscript.md` -- the complete manuscript
 2. `<run_root>/doc_manuscript.tex` -- the IEEE LaTeX version
@@ -91,6 +92,19 @@ Read the following files in full before spawning any subagent. You will embed th
 6. `<run_root>/config_snapshot.yaml` -- config used for this run
 7. `<run_root>/run_summary.json` -- counts and stats
 8. `<run_root>/data_narrative_synthesis.json` -- synthesis outcomes (if present)
+
+### STEP 2A -- Mandatory full-manuscript read gate
+
+Before spawning subagents, you MUST complete a strict full read of `<run_root>/doc_manuscript.md` once, from first line to last line, and record a compact read receipt in your working notes (do not write files):
+
+- Total line count
+- Total heading count (`#`, `##`, `###`)
+- Presence check for all core sections: Abstract, Introduction, Methods, Results, Discussion, Conclusion, References
+- A short list of 5-10 exact anchor phrases copied from across the manuscript (beginning, middle, end)
+
+If this read gate is not complete, STOP and do not continue to Step 3.
+
+When there is any conflict between `.md` and `.tex` content findings, treat `.md` as source-of-truth for manuscript meaning, and treat `.tex` differences as export-layer issues.
 
 Then read ALL files in the `reference/` directory. Start by listing them:
 
@@ -536,12 +550,14 @@ Ordered list of 5-10 concrete actions, framed as user commands (e.g., "Re-run ex
 ### Orchestrator rules
 - Never hallucinate. Quote exact text from the manuscript when citing an issue in the cross-stream check. If you cannot find a passage, say so.
 - Never skip a step. All 7 steps must be completed even if earlier steps reveal major problems.
+- Always complete the Step 2A full-manuscript read gate before spawning subagents.
 - Spawn all 4 subagents in a single message (one Task tool call per subagent, all 4 in one response). Do NOT spawn them one at a time.
 - Embed all necessary content in subagent prompts. Do NOT instruct subagents to read files themselves -- they receive all context from you.
 - Do not create any new files. Output the full audit report in chat only.
 - The topic under review is always read from `config/review.yaml`. Never assume a topic from a prior session or example.
 - At the end, always list 2-4 concrete next steps as a "What next?" section.
 - Use only ASCII characters -- no Unicode, no emojis.
+- Prioritize `.md` citations in findings; use `.tex` citations only for export/citation-conversion defects.
 
 ### Subagent rules (embed these in every subagent prompt)
 - Never hallucinate. Only report issues that are evidenced by the manuscript text or data you received.

@@ -658,7 +658,11 @@ async def write_section_with_validation(
     # Append RAG-retrieved evidence chunks when available
     if rag_context:
         effective_context = (
-            effective_context + "\n\n## Relevant Evidence Chunks (retrieved by semantic search)\n" + rag_context
+            effective_context
+            + "\n\nRAG PRIORITY RULE: For section-specific factual claims, prioritize the retrieved evidence chunks below. "
+            + "When a retrieved chunk conflicts with the FACTUAL DATA BLOCK, the FACTUAL DATA BLOCK takes precedence.\n"
+            + "\n## Relevant Evidence Chunks (retrieved by semantic search)\n"
+            + rag_context
         )
 
     if provider is not None:

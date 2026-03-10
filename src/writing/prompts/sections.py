@@ -64,6 +64,16 @@ _PROSE_QUALITY_RULE = (
     "Do not invent citekeys.\n"
 )
 
+_BOUNDARY_MARKER_RULE = (
+    "BOUNDARY MARKER RULE (for deterministic assembly): "
+    "Before each subsection heading you write (### or ####), emit a marker line in the exact form "
+    "'<!-- SECTION_BLOCK:slug -->' where slug is lowercase and uses underscores. "
+    "Example:\n"
+    "<!-- SECTION_BLOCK:study_selection -->\n"
+    "### Study Selection\n"
+    "Do NOT include any other HTML comments."
+)
+
 
 def _grounding_prefix(grounding: WritingGroundingData | None) -> str:
     """Return the formatted grounding block if available, else empty string."""
@@ -172,7 +182,8 @@ def get_methods_prompt_context(
     """Context for methods. PRISMA Items 3-16."""
     prefix = _grounding_prefix(grounding)
     return (
-        prefix + _NO_HEADING_RULE + "\n\n" + "Write a thorough methods section of approximately 900 words. "
+        prefix + _NO_HEADING_RULE + "\n\n" + _BOUNDARY_MARKER_RULE + "\n\n"
+        + "Write a thorough methods section of approximately 900 words. "
         "Do not truncate or summarise -- describe each step fully. "
         "Use the FACTUAL DATA BLOCK for all database names and dates. "
         "PRISMA Items 3-16: "
@@ -231,23 +242,27 @@ def get_results_prompt_context(
     """Context for results."""
     prefix = _grounding_prefix(grounding)
     return (
-        prefix + _NO_HEADING_RULE + "\n\n" + "Write a thorough results section of approximately 1400 words. "
+        prefix + _NO_HEADING_RULE + "\n\n" + _BOUNDARY_MARKER_RULE + "\n\n"
+        + "Write a thorough results section of approximately 1400 words. "
         "ALL counts MUST come from the FACTUAL DATA BLOCK above -- "
         "do NOT invent records identified, screened, or excluded counts. "
         "Begin immediately with '### Study Selection' as the first line -- "
         "do NOT add a parent 'Results' heading before it. "
         "Structure with explicit sub-headings:\n"
         "### Study Selection\n"
-        "Report exact PRISMA numbers from the block. Refer to Figure 1 (PRISMA flow diagram). "
+        "Report exact PRISMA numbers from the block. "
+        "If a FIGURE NUMBER MAP is present in the FACTUAL DATA BLOCK, use that map for the PRISMA figure number. "
+        "Only if no map is present, refer to Figure 1 (PRISMA flow diagram). "
         "If full-text articles were excluded, report the primary exclusion reasons from "
         "'Primary exclusion reasons' in the FACTUAL DATA BLOCK.\n"
         "### Study Characteristics\n"
         "Summarise the included studies: design distribution, date range, geographic spread, "
         "participant characteristics. Reference Appendix B (study characteristics table). "
-        "You MUST include explicit in-text references to the figures: "
+        "If a FIGURE NUMBER MAP is present, use that map for timeline/geographic figure numbers. "
+        "If no map is present, include explicit in-text references: "
         "'Figure 3 shows the publication timeline of included studies.' and "
         "'Figure 4 shows the geographic distribution of included studies.' "
-        "These sentences are REQUIRED -- do NOT omit them. "
+        "Do NOT guess figure numbers when a map is provided. "
         "Base descriptions ONLY on the INCLUDED STUDIES list.\n"
         "MANDATORY CITATION COVERAGE RULE: Every citekey listed under "
         "'INCLUDED STUDIES -- CITATION COVERAGE REQUIRED' above MUST appear at least once "
@@ -262,7 +277,9 @@ def get_results_prompt_context(
         "self-check: for each key in the INCLUDED STUDIES block, confirm it appears in the "
         "text you just wrote.\n"
         "### Risk of Bias Assessment\n"
-        "Summarise RoB findings from the block. Reference Figure 2 (RoB traffic-light plot).\n"
+        "Summarise RoB findings from the block. "
+        "If a FIGURE NUMBER MAP is present, use that map for the RoB figure number; "
+        "otherwise reference Figure 2 (RoB traffic-light plot).\n"
         "### Synthesis of Findings\n"
         "If meta-analysis was NOT feasible, present narrative synthesis only -- "
         "do NOT report pooled SMD or confidence intervals. "
@@ -283,7 +300,7 @@ def get_discussion_prompt_context(
     """Context for discussion."""
     prefix = _grounding_prefix(grounding)
     return (
-        prefix + _NO_HEADING_RULE + "\n\n"
+        prefix + _NO_HEADING_RULE + "\n\n" + _BOUNDARY_MARKER_RULE + "\n\n"
         "PRIOR SECTIONS RULE: If a 'PRIOR SECTIONS CONTEXT' block appears above, you MUST "
         "use it to inform this Discussion -- but do NOT copy or re-state sentences from it. "
         "Instead, interpret the findings: what do they mean? How do they compare to prior "

@@ -1,0 +1,55 @@
+"""Canonical runtime.db ownership and stat precedence rules.
+
+This module centralizes which table is authoritative for product-facing metrics.
+Keeping this in code (not docs) prevents drift across API handlers.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+
+
+TABLE_OWNERSHIP: dict[str, str] = {
+    "event_log": "activity_feed",
+    "cost_records": "llm_cost_accounting",
+    "dual_screening_results": "screening_outcomes",
+    "screening_decisions": "screening_rationales_and_reasons",
+    "search_results": "search_identification_counts",
+    "extraction_records": "structured_extracted_evidence",
+    "section_drafts": "manuscript_section_state",
+    "manuscript_sections": "manuscript_section_state_canonical",
+    "manuscript_blocks": "manuscript_block_state_canonical",
+    "manuscript_assets": "manuscript_asset_state_canonical",
+    "manuscript_assemblies": "manuscript_render_state_canonical",
+    "checkpoints": "phase_resume_markers",
+    "gate_results": "quality_gate_evaluations",
+}
+
+
+@dataclass(frozen=True)
+class RunStatsPrecedence:
+    """Precedence for run-level sidebar/history summary numbers."""
+
+    # Source of included studies count:
+    # 1) dual_screening_results fulltext include/uncertain (durable factual table)
+    # 2) phase_3_screening phase_done summary.included (historical fallback)
+    # 3) extraction_records count (legacy fallback)
+    papers_included_order: tuple[str, ...] = (
+        "dual_screening_results_fulltext",
+        "event_log_phase_done_phase_3_screening",
+        "extraction_records",
+    )
+    # Source of total cost:
+    # 1) cost_records SUM(cost_usd)
+    total_cost_order: tuple[str, ...] = ("cost_records_sum",)
+    # Source of manuscript content for product read-paths:
+    # 1) manuscript_assemblies latest per format
+    # 2) file artifact fallback (doc_manuscript.md/.tex)
+    manuscript_content_order: tuple[str, ...] = (
+        "manuscript_assemblies_latest",
+        "artifact_file_fallback",
+    )
+
+
+RUN_STATS_PRECEDENCE = RunStatsPrecedence()
+

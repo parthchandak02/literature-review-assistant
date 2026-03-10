@@ -53,6 +53,7 @@ CREATE TABLE IF NOT EXISTS extraction_records (
     workflow_id TEXT NOT NULL,
     paper_id TEXT NOT NULL REFERENCES papers(paper_id),
     study_design TEXT NOT NULL,
+    extraction_source TEXT NOT NULL DEFAULT 'text',
     data TEXT NOT NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY (workflow_id, paper_id)
@@ -141,6 +142,56 @@ CREATE TABLE IF NOT EXISTS section_drafts (
     UNIQUE(workflow_id, section, version)
 );
 
+CREATE TABLE IF NOT EXISTS manuscript_sections (
+    workflow_id TEXT NOT NULL,
+    section_key TEXT NOT NULL,
+    section_order INTEGER NOT NULL,
+    version INTEGER NOT NULL,
+    title TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'draft',
+    source TEXT NOT NULL,
+    boundary_confidence REAL NOT NULL DEFAULT 1.0,
+    content_hash TEXT NOT NULL,
+    content TEXT NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (workflow_id, section_key, version)
+);
+
+CREATE TABLE IF NOT EXISTS manuscript_blocks (
+    workflow_id TEXT NOT NULL,
+    section_key TEXT NOT NULL,
+    section_version INTEGER NOT NULL,
+    block_order INTEGER NOT NULL,
+    block_type TEXT NOT NULL,
+    text TEXT NOT NULL,
+    meta_json TEXT NOT NULL DEFAULT '{}',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (workflow_id, section_key, section_version, block_order)
+);
+
+CREATE TABLE IF NOT EXISTS manuscript_assets (
+    workflow_id TEXT NOT NULL,
+    asset_key TEXT NOT NULL,
+    asset_type TEXT NOT NULL,
+    format TEXT NOT NULL,
+    content TEXT NOT NULL,
+    source_path TEXT,
+    version INTEGER NOT NULL DEFAULT 1,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (workflow_id, asset_key, version)
+);
+
+CREATE TABLE IF NOT EXISTS manuscript_assemblies (
+    workflow_id TEXT NOT NULL,
+    assembly_id TEXT NOT NULL,
+    target_format TEXT NOT NULL CHECK(target_format IN ('md', 'tex')),
+    content TEXT NOT NULL,
+    manifest_json TEXT NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (workflow_id, assembly_id, target_format)
+);
+
 CREATE TABLE IF NOT EXISTS gate_results (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     workflow_id TEXT NOT NULL,
@@ -155,6 +206,7 @@ CREATE TABLE IF NOT EXISTS gate_results (
 
 CREATE TABLE IF NOT EXISTS decision_log (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
+    workflow_id TEXT NOT NULL DEFAULT '',
     decision_type TEXT NOT NULL,
     paper_id TEXT,
     decision TEXT NOT NULL,
@@ -166,6 +218,7 @@ CREATE TABLE IF NOT EXISTS decision_log (
 
 CREATE TABLE IF NOT EXISTS cost_records (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
+    workflow_id TEXT NOT NULL DEFAULT '',
     model TEXT NOT NULL,
     tokens_in INTEGER NOT NULL,
     tokens_out INTEGER NOT NULL,
@@ -185,6 +238,10 @@ CREATE TABLE IF NOT EXISTS workflows (
     dedup_count INTEGER,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS schema_version (
+    version INTEGER NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS synthesis_results (
@@ -217,12 +274,25 @@ CREATE TABLE IF NOT EXISTS event_log (
 CREATE UNIQUE INDEX IF NOT EXISTS idx_papers_doi_unique ON papers(doi) WHERE doi IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_papers_doi ON papers(doi);
 CREATE INDEX IF NOT EXISTS idx_screening_paper ON screening_decisions(workflow_id, paper_id, stage);
+CREATE INDEX IF NOT EXISTS idx_search_results_workflow ON search_results(workflow_id);
+CREATE INDEX IF NOT EXISTS idx_dual_screening_stage_decision ON dual_screening_results(workflow_id, stage, final_decision);
+CREATE INDEX IF NOT EXISTS idx_extraction_records_workflow ON extraction_records(workflow_id);
 CREATE INDEX IF NOT EXISTS idx_claims_section ON claims(section);
 CREATE INDEX IF NOT EXISTS idx_evidence_claim ON evidence_links(claim_id);
 CREATE INDEX IF NOT EXISTS idx_evidence_citation ON evidence_links(citation_id);
 CREATE INDEX IF NOT EXISTS idx_decision_log_phase ON decision_log(phase);
+CREATE INDEX IF NOT EXISTS idx_decision_log_workflow_phase ON decision_log(workflow_id, phase);
 CREATE INDEX IF NOT EXISTS idx_gate_results_phase ON gate_results(phase);
 CREATE INDEX IF NOT EXISTS idx_event_log_workflow ON event_log(workflow_id);
+CREATE INDEX IF NOT EXISTS idx_event_log_workflow_type ON event_log(workflow_id, event_type);
+CREATE INDEX IF NOT EXISTS idx_section_drafts_workflow ON section_drafts(workflow_id);
+CREATE INDEX IF NOT EXISTS idx_manuscript_sections_workflow_order ON manuscript_sections(workflow_id, section_order);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_manuscript_sections_workflow_order_version
+    ON manuscript_sections(workflow_id, section_order, version);
+CREATE INDEX IF NOT EXISTS idx_manuscript_blocks_workflow_section_order
+    ON manuscript_blocks(workflow_id, section_key, section_version, block_order);
+CREATE INDEX IF NOT EXISTS idx_manuscript_assets_workflow_type_key ON manuscript_assets(workflow_id, asset_type, asset_key);
+CREATE INDEX IF NOT EXISTS idx_cost_records_phase_model ON cost_records(phase, model);
 
 -- ============================================================
 -- Idea 1: RAG - paper chunk storage (vector search via Python)
@@ -239,6 +309,27 @@ CREATE TABLE IF NOT EXISTS paper_chunks_meta (
 );
 CREATE INDEX IF NOT EXISTS idx_chunks_workflow ON paper_chunks_meta(workflow_id);
 CREATE INDEX IF NOT EXISTS idx_chunks_paper ON paper_chunks_meta(paper_id);
+
+-- ============================================================
+-- RAG diagnostics - per-section retrieval telemetry
+-- ============================================================
+CREATE TABLE IF NOT EXISTS rag_retrieval_diagnostics (
+    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+    workflow_id         TEXT NOT NULL,
+    section             TEXT NOT NULL,
+    query_type          TEXT NOT NULL,
+    rerank_enabled      INTEGER NOT NULL DEFAULT 1,
+    candidate_k         INTEGER NOT NULL,
+    final_k             INTEGER NOT NULL,
+    retrieved_count     INTEGER NOT NULL DEFAULT 0,
+    status              TEXT NOT NULL,
+    selected_chunks_json TEXT NOT NULL DEFAULT '[]',
+    error_message       TEXT,
+    latency_ms          INTEGER,
+    created_at          TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_rag_diag_workflow_section
+    ON rag_retrieval_diagnostics(workflow_id, section, created_at);
 
 -- ============================================================
 -- Idea 2: Multimodal extraction (column added via migration)

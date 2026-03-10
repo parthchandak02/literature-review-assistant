@@ -1,37 +1,18 @@
-"""Centralized fallback model resolver.
+"""Resolve fallback models from settings.yaml only.
 
-When config load fails (e.g. missing key in settings.yaml), modules that need
-a model string call get_fallback_model() instead of hardcoding stale model names.
-The last-resort constants below match the current tiers in settings.yaml and will
-be kept in sync manually -- they are the ONLY place model names may be hardcoded.
-
-Tier mapping:
-  lite  -- highest throughput (flash-lite): screening, table extraction, search
-  flash -- balanced (flash): extraction, quality, writing, humanizer
-  pro   -- highest quality (pro): currently unused in production config
+This module intentionally does NOT hardcode concrete model IDs.
+If settings cannot be loaded, callers get a clear runtime error so model
+selection remains centralized in config/settings.yaml.
 """
 
 from __future__ import annotations
 
-_TIER_LAST_RESORT: dict[str, str] = {
-    "lite": "google-gla:gemini-3.1-flash-lite-preview",
-    "flash": "google-gla:gemini-3-flash-preview",
-    "pro": "google-gla:gemini-3-flash-preview",  # pro mapped to flash; pro quota is scarce
-}
-
 
 def get_fallback_model(tier: str = "flash") -> str:
-    """Return a fallback model string for the given tier.
+    """Return model string for the requested tier from settings.yaml.
 
-    First attempts to read the setting from config/settings.yaml so the
-    fallback stays in sync with the operator's config. Falls back to the
-    last-resort constant only when config load itself fails.
-
-    Args:
-        tier: "lite", "flash", or "pro"
-
-    Returns:
-        A fully-qualified model string e.g. "google-gla:gemini-3-flash-preview".
+    Raises:
+        RuntimeError: when settings cannot be loaded or required model key is missing.
     """
     _tier_to_agent: dict[str, str] = {
         "lite": "screening_reviewer_a",
@@ -43,9 +24,10 @@ def get_fallback_model(tier: str = "flash") -> str:
         from src.config.loader import load_configs
 
         _, s = load_configs(settings_path="config/settings.yaml")
-        agent_cfg = s.agents.get(agent_key)
-        if agent_cfg and agent_cfg.model:
-            return agent_cfg.model
-    except Exception:
-        pass
-    return _TIER_LAST_RESORT.get(tier, _TIER_LAST_RESORT["flash"])
+    except Exception as exc:
+        raise RuntimeError("Unable to load model fallback from config/settings.yaml") from exc
+
+    agent_cfg = s.agents.get(agent_key)
+    if agent_cfg and agent_cfg.model:
+        return agent_cfg.model
+    raise RuntimeError(f"Missing agent model for fallback tier '{tier}' in config/settings.yaml")

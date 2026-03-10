@@ -29,7 +29,7 @@ from src.db.database import get_db
 from src.db.repositories import WorkflowRepository
 from src.db.workflow_registry import REGISTRY_SCHEMA
 from src.search.pdf_retrieval import PDFRetrievalResult
-from src.web.app import _RunRecord, _active_runs, app
+from src.web.app import _active_runs, _RunRecord, app
 
 # ---------------------------------------------------------------------------
 # Shared fixture: async HTTP client bound to the FastAPI ASGI app
@@ -131,6 +131,104 @@ async def test_history_returns_list(client: httpx.AsyncClient) -> None:
     assert isinstance(body, list)
 
 
+@pytest.mark.asyncio
+async def test_history_running_row_with_terminal_evidence_not_marked_stale(
+    client: httpx.AsyncClient,
+    tmp_path: Path,
+) -> None:
+    run_root = tmp_path / "runs"
+    run_dir = run_root / "2026-03-10" / "wf-1000-topic" / "run_01-00-00PM"
+    db_path = run_dir / "runtime.db"
+    run_dir.mkdir(parents=True, exist_ok=True)
+    async with get_db(str(db_path)) as db:
+        await db.execute(
+            "INSERT INTO workflows (workflow_id, topic, config_hash, status) VALUES (?, ?, ?, ?)",
+            ("wf-1000", "Topic", "hash", "completed"),
+        )
+        await db.execute(
+            "INSERT INTO event_log (workflow_id, event_type, payload, ts) VALUES (?, ?, ?, ?)",
+            (
+                "wf-1000",
+                "done",
+                json.dumps({"type": "done", "outputs": {"status": "completed"}, "ts": "2026-03-10T10:00:00.000Z"}),
+                "2026-03-10T10:00:00.000Z",
+            ),
+        )
+        await db.commit()
+
+    registry_path = run_root / "workflows_registry.db"
+    async with aiosqlite.connect(str(registry_path)) as reg_db:
+        await reg_db.executescript(REGISTRY_SCHEMA)
+        try:
+            await reg_db.execute("ALTER TABLE workflows_registry ADD COLUMN notes TEXT")
+        except Exception:
+            pass
+        await reg_db.execute(
+            """
+            INSERT INTO workflows_registry
+                (workflow_id, topic, config_hash, db_path, status, created_at, updated_at, heartbeat_at)
+            VALUES (?, ?, ?, ?, ?, datetime('now','-20 minutes'), datetime('now','-20 minutes'), NULL)
+            """,
+            ("wf-1000", "Topic", "hash", str(db_path), "running"),
+        )
+        await reg_db.commit()
+
+    response = await client.get(f"/api/history?run_root={run_root}")
+    assert response.status_code == 200
+    rows = response.json()
+    row = next(r for r in rows if r["workflow_id"] == "wf-1000")
+    assert row["status"] == "completed"
+
+    async with aiosqlite.connect(str(registry_path)) as reg_db:
+        async with reg_db.execute(
+            "SELECT status FROM workflows_registry WHERE workflow_id = ?",
+            ("wf-1000",),
+        ) as cur:
+            repaired = await cur.fetchone()
+    assert repaired is not None
+    assert repaired[0] == "completed"
+
+
+@pytest.mark.asyncio
+async def test_history_running_row_without_terminal_evidence_marked_stale(
+    client: httpx.AsyncClient,
+    tmp_path: Path,
+) -> None:
+    run_root = tmp_path / "runs"
+    run_dir = run_root / "2026-03-10" / "wf-1001-topic" / "run_01-00-00PM"
+    db_path = run_dir / "runtime.db"
+    run_dir.mkdir(parents=True, exist_ok=True)
+    async with get_db(str(db_path)) as db:
+        await db.execute(
+            "INSERT INTO workflows (workflow_id, topic, config_hash, status) VALUES (?, ?, ?, ?)",
+            ("wf-1001", "Topic", "hash", "running"),
+        )
+        await db.commit()
+
+    registry_path = run_root / "workflows_registry.db"
+    async with aiosqlite.connect(str(registry_path)) as reg_db:
+        await reg_db.executescript(REGISTRY_SCHEMA)
+        try:
+            await reg_db.execute("ALTER TABLE workflows_registry ADD COLUMN notes TEXT")
+        except Exception:
+            pass
+        await reg_db.execute(
+            """
+            INSERT INTO workflows_registry
+                (workflow_id, topic, config_hash, db_path, status, created_at, updated_at, heartbeat_at)
+            VALUES (?, ?, ?, ?, ?, datetime('now','-20 minutes'), datetime('now','-20 minutes'), NULL)
+            """,
+            ("wf-1001", "Topic", "hash", str(db_path), "running"),
+        )
+        await reg_db.commit()
+
+    response = await client.get(f"/api/history?run_root={run_root}")
+    assert response.status_code == 200
+    rows = response.json()
+    row = next(r for r in rows if r["workflow_id"] == "wf-1001")
+    assert row["status"] == "stale"
+
+
 # ---------------------------------------------------------------------------
 # Test 8: GET /api/stream/{run_id} for unknown run_id returns 404
 # ---------------------------------------------------------------------------
@@ -140,6 +238,57 @@ async def test_history_returns_list(client: httpx.AsyncClient) -> None:
 async def test_stream_unknown_run_returns_404(client: httpx.AsyncClient) -> None:
     response = await client.get("/api/stream/nonexistent-run-id")
     assert response.status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# Test 9b: GET /api/db/{run_id}/rag-diagnostics returns persisted diagnostics
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_db_rag_diagnostics_returns_records(client: httpx.AsyncClient, tmp_path: Path) -> None:
+    db_path = tmp_path / "runtime.db"
+    async with get_db(str(db_path)) as db:
+        await db.execute(
+            """
+            INSERT INTO rag_retrieval_diagnostics (
+                workflow_id, section, query_type, rerank_enabled, candidate_k, final_k,
+                retrieved_count, status, selected_chunks_json, error_message, latency_ms
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "wf-test-rag",
+                "methods",
+                "hyde",
+                1,
+                20,
+                8,
+                8,
+                "success",
+                '[{"chunk_id":"c1","paper_id":"p1","citekey":"RefA2020","score":0.9}]',
+                None,
+                41,
+            ),
+        )
+        await db.commit()
+
+    run_id = "ragdiag01"
+    _active_runs[run_id] = _RunRecord(run_id=run_id, topic="RAG diag")
+    _active_runs[run_id].db_path = str(db_path)
+    _active_runs[run_id].workflow_id = "wf-test-rag"
+    _active_runs[run_id].done = True
+    try:
+        response = await client.get(f"/api/db/{run_id}/rag-diagnostics")
+        assert response.status_code == 200
+        body = response.json()
+        assert body["total"] == 1
+        rec = body["records"][0]
+        assert rec["section"] == "methods"
+        assert rec["status"] == "success"
+        assert rec["retrieved_count"] == 8
+        assert rec["selected_chunks"][0]["chunk_id"] == "c1"
+    finally:
+        _active_runs.pop(run_id, None)
 
 
 # ---------------------------------------------------------------------------
@@ -331,5 +480,267 @@ async def test_fetch_pdfs_emits_reason_codes(client: httpx.AsyncClient, tmp_path
         assert done["failed"] == 1
         assert done["reason_counts"]["publisher_403"] == 1
         assert done["results"][0]["reason_code"] == "publisher_403"
+    finally:
+        _active_runs.pop(run_id, None)
+
+
+@pytest.mark.asyncio
+async def test_history_attach_runs_runtime_db_migrations(client: httpx.AsyncClient, tmp_path: Path) -> None:
+    """Attaching historical runs should migrate legacy runtime.db schemas."""
+    db_path = tmp_path / "legacy_runtime.db"
+    async with aiosqlite.connect(str(db_path)) as db:
+        # Minimal legacy schema snapshot: decision_log without workflow_id.
+        await db.executescript(
+            """
+            CREATE TABLE workflows (workflow_id TEXT PRIMARY KEY, topic TEXT, config_hash TEXT, status TEXT);
+            CREATE TABLE event_log (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                workflow_id TEXT NOT NULL,
+                event_type TEXT NOT NULL,
+                payload TEXT NOT NULL,
+                ts TEXT NOT NULL
+            );
+            CREATE TABLE decision_log (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                decision_type TEXT NOT NULL,
+                paper_id TEXT,
+                decision TEXT NOT NULL,
+                rationale TEXT NOT NULL,
+                actor TEXT NOT NULL,
+                phase TEXT NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+            CREATE TABLE cost_records (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                model TEXT NOT NULL,
+                tokens_in INTEGER NOT NULL,
+                tokens_out INTEGER NOT NULL,
+                cost_usd REAL NOT NULL,
+                latency_ms INTEGER NOT NULL,
+                phase TEXT NOT NULL
+            );
+            """
+        )
+        await db.execute(
+            "INSERT INTO workflows (workflow_id, topic, config_hash, status) VALUES (?, ?, ?, ?)",
+            ("wf-legacy", "Legacy Topic", "hash", "completed"),
+        )
+        await db.commit()
+
+    resp = await client.post(
+        "/api/history/attach",
+        json={
+            "workflow_id": "wf-legacy",
+            "topic": "Legacy Topic",
+            "db_path": str(db_path),
+            "status": "completed",
+        },
+    )
+    assert resp.status_code == 200
+
+    async with aiosqlite.connect(str(db_path)) as db:
+        cols = await (await db.execute("PRAGMA table_info(decision_log)")).fetchall()
+    col_names = {str(r[1]) for r in cols}
+    assert "workflow_id" in col_names
+
+
+@pytest.mark.asyncio
+async def test_attach_history_stale_request_uses_terminal_evidence_and_skips_fake_stale_error(
+    client: httpx.AsyncClient,
+    tmp_path: Path,
+) -> None:
+    db_path = tmp_path / "attach_terminal.db"
+    async with get_db(str(db_path)) as db:
+        await db.execute(
+            "INSERT INTO workflows (workflow_id, topic, config_hash, status) VALUES (?, ?, ?, ?)",
+            ("wf-attach-ok", "Topic", "hash", "completed"),
+        )
+        await db.execute(
+            "INSERT INTO event_log (workflow_id, event_type, payload, ts) VALUES (?, ?, ?, ?)",
+            (
+                "wf-attach-ok",
+                "done",
+                json.dumps({"type": "done", "outputs": {"status": "completed"}, "ts": "2026-03-10T10:00:00.000Z"}),
+                "2026-03-10T10:00:00.000Z",
+            ),
+        )
+        await db.commit()
+
+    resp = await client.post(
+        "/api/history/attach",
+        json={
+            "workflow_id": "wf-attach-ok",
+            "topic": "Topic",
+            "db_path": str(db_path),
+            "status": "stale",
+        },
+    )
+    assert resp.status_code == 200
+    run_id = resp.json()["run_id"]
+    events_resp = await client.get(f"/api/run/{run_id}/events")
+    assert events_resp.status_code == 200
+    payload = events_resp.json()
+    messages = [e.get("msg", "") for e in payload["events"] if isinstance(e, dict)]
+    assert not any("Run ended with status: stale" in m for m in messages)
+
+
+@pytest.mark.asyncio
+async def test_attach_history_true_stale_injects_orphaned_message(
+    client: httpx.AsyncClient,
+    tmp_path: Path,
+) -> None:
+    db_path = tmp_path / "attach_stale.db"
+    async with get_db(str(db_path)) as db:
+        await db.execute(
+            "INSERT INTO workflows (workflow_id, topic, config_hash, status) VALUES (?, ?, ?, ?)",
+            ("wf-attach-stale", "Topic", "hash", "running"),
+        )
+        await db.commit()
+
+    resp = await client.post(
+        "/api/history/attach",
+        json={
+            "workflow_id": "wf-attach-stale",
+            "topic": "Topic",
+            "db_path": str(db_path),
+            "status": "stale",
+        },
+    )
+    assert resp.status_code == 200
+    run_id = resp.json()["run_id"]
+    events_resp = await client.get(f"/api/run/{run_id}/events")
+    assert events_resp.status_code == 200
+    payload = events_resp.json()
+    messages = [e.get("msg", "") for e in payload["events"] if isinstance(e, dict)]
+    assert any("Workflow appears orphaned" in m for m in messages)
+
+
+@pytest.mark.asyncio
+async def test_attach_history_preserves_reason_fields_in_events(
+    client: httpx.AsyncClient,
+    tmp_path: Path,
+) -> None:
+    db_path = tmp_path / "attach_reason_fields.db"
+    async with get_db(str(db_path)) as db:
+        await db.execute(
+            "INSERT INTO workflows (workflow_id, topic, config_hash, status) VALUES (?, ?, ?, ?)",
+            ("wf-reason", "Topic", "hash", "completed"),
+        )
+        await db.execute(
+            "INSERT INTO event_log (workflow_id, event_type, payload, ts) VALUES (?, ?, ?, ?)",
+            (
+                "wf-reason",
+                "screening_decision",
+                json.dumps(
+                    {
+                        "type": "screening_decision",
+                        "paper_id": "p-1",
+                        "stage": "title_abstract",
+                        "decision": "exclude",
+                        "reason_code": "keyword_filter",
+                        "reason_label": "Skipped: no intervention keyword match",
+                        "action": "exclude",
+                        "entity_type": "paper",
+                        "entity_id": "p-1",
+                        "ts": "2026-03-10T10:00:00.000Z",
+                    }
+                ),
+                "2026-03-10T10:00:00.000Z",
+            ),
+        )
+        await db.commit()
+
+    resp = await client.post(
+        "/api/history/attach",
+        json={
+            "workflow_id": "wf-reason",
+            "topic": "Topic",
+            "db_path": str(db_path),
+            "status": "completed",
+        },
+    )
+    assert resp.status_code == 200
+    run_id = resp.json()["run_id"]
+    events_resp = await client.get(f"/api/run/{run_id}/events")
+    assert events_resp.status_code == 200
+    payload = events_resp.json()
+    decision = next(e for e in payload["events"] if e.get("type") == "screening_decision")
+    assert decision["reason_code"] == "keyword_filter"
+    assert decision["reason_label"] == "Skipped: no intervention keyword match"
+    assert decision["action"] == "exclude"
+    assert decision["entity_type"] == "paper"
+    assert decision["entity_id"] == "p-1"
+
+
+@pytest.mark.asyncio
+async def test_stream_replay_respects_last_event_id_and_includes_terminal_event(client: httpx.AsyncClient) -> None:
+    run_id = "run-stream-replay"
+    record = _RunRecord(run_id=run_id, topic="Replay Test")
+    record.done = True
+    record.event_log = [
+        {"type": "status", "msg": "phase-start"},
+        {"type": "status", "msg": "phase-progress"},
+        {"type": "done", "outputs": {"ok": True}},
+    ]
+    _active_runs[run_id] = record
+    try:
+        response = await client.get(
+            f"/api/stream/{run_id}",
+            headers={"Last-Event-ID": "0"},
+        )
+        assert response.status_code == 200
+        body = response.text
+        assert "id: 1" in body
+        assert "phase-progress" in body
+        assert "id: 2" in body
+        assert '"type":"done"' in body or '"type": "done"' in body
+        assert "id: 0" not in body
+    finally:
+        _active_runs.pop(run_id, None)
+
+
+@pytest.mark.asyncio
+async def test_manuscript_endpoint_prefers_db_assembly(client: httpx.AsyncClient, tmp_path: Path) -> None:
+    run_id = "run-manuscript-assembly"
+    workflow_id = "wf-manuscript-assembly"
+    run_dir = tmp_path / "2026-03-10" / "wf-manuscript-assembly-topic" / "run_01-00-00PM"
+    db_path = run_dir / "runtime.db"
+    run_dir.mkdir(parents=True, exist_ok=True)
+
+    async with get_db(str(db_path)) as db:
+        await db.execute(
+            "INSERT INTO workflows (workflow_id, topic, config_hash, status) VALUES (?, ?, ?, ?)",
+            (workflow_id, "Topic", "hash", "completed"),
+        )
+        await db.execute(
+            """
+            INSERT INTO manuscript_sections
+                (workflow_id, section_key, section_order, version, title, status, source,
+                 boundary_confidence, content_hash, content)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (workflow_id, "results", 0, 1, "Results", "draft", "parser", 1.0, "hash", "Section content"),
+        )
+        await db.execute(
+            """
+            INSERT INTO manuscript_assemblies
+                (workflow_id, assembly_id, target_format, content, manifest_json)
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            (workflow_id, "latest", "md", "# Title\n\nDB assembly content.", '{"sections":[{"section_key":"results","version":1,"order":0}]}'),
+        )
+        await db.commit()
+
+    record = _RunRecord(run_id, "Topic")
+    record.db_path = str(db_path)
+    record.workflow_id = workflow_id
+    record.done = True
+    _active_runs[run_id] = record
+    try:
+        resp = await client.get(f"/api/run/{run_id}/manuscript?fmt=md")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["source"] == "assembly"
+        assert "DB assembly content." in data["content"]
     finally:
         _active_runs.pop(run_id, None)

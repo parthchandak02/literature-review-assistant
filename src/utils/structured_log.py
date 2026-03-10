@@ -145,11 +145,27 @@ def log_screening_decision(
     stage: str,
     decision: str,
     rationale: str | None = None,
+    *,
+    reason_code: str | None = None,
+    reason_label: str | None = None,
+    action: str | None = None,
+    entity_type: str | None = None,
+    entity_id: str | None = None,
 ) -> None:
     """Log a screening decision event."""
     payload: dict[str, Any] = {"paper_id": paper_id, "stage": stage, "decision": decision}
     if rationale is not None:
         payload["rationale"] = rationale
+    if reason_code is not None:
+        payload["reason_code"] = reason_code
+    if reason_label is not None:
+        payload["reason_label"] = reason_label
+    if action is not None:
+        payload["action"] = action
+    if entity_type is not None:
+        payload["entity_type"] = entity_type
+    if entity_id is not None:
+        payload["entity_id"] = entity_id
     logger = structlog.get_logger()
     logger.info("screening_decision", **payload)
 
@@ -165,6 +181,12 @@ def log_connector_result(
     status: str,
     records: int | None = None,
     error: str | None = None,
+    *,
+    reason_code: str | None = None,
+    reason_label: str | None = None,
+    action: str | None = None,
+    entity_type: str | None = None,
+    entity_id: str | None = None,
 ) -> None:
     """Log connector search result."""
     payload: dict[str, Any] = {"connector": connector, "status": status}
@@ -172,6 +194,16 @@ def log_connector_result(
         payload["records"] = records
     if error is not None:
         payload["error"] = error
+    if reason_code is not None:
+        payload["reason_code"] = reason_code
+    if reason_label is not None:
+        payload["reason_label"] = reason_label
+    if action is not None:
+        payload["action"] = action
+    if entity_type is not None:
+        payload["entity_type"] = entity_type
+    if entity_id is not None:
+        payload["entity_id"] = entity_id
     logger = structlog.get_logger()
     logger.info("connector_result", **payload)
 
@@ -221,7 +253,7 @@ def normalize_jsonl_event(entry: dict[str, Any]) -> dict[str, Any] | None:
         return None  # "start" workflow marker -- skip
 
     if ev == "connector_result":
-        return {
+        out: dict[str, Any] = {
             "type": "connector_result",
             "name": entry.get("connector"),
             "status": entry.get("status"),
@@ -229,9 +261,13 @@ def normalize_jsonl_event(entry: dict[str, Any]) -> dict[str, Any] | None:
             "error": entry.get("error"),
             "ts": ts,
         }
+        for key in ("reason_code", "reason_label", "action", "entity_type", "entity_id"):
+            if key in entry:
+                out[key] = entry.get(key)
+        return out
 
     if ev == "pdf_result":
-        return {
+        out = {
             "type": "pdf_result",
             "paper_id": entry.get("paper_id"),
             "title": entry.get("title"),
@@ -239,6 +275,10 @@ def normalize_jsonl_event(entry: dict[str, Any]) -> dict[str, Any] | None:
             "success": entry.get("success"),
             "ts": ts,
         }
+        for key in ("reason_code", "reason_label", "action", "entity_type", "entity_id"):
+            if key in entry:
+                out[key] = entry.get(key)
+        return out
 
     if ev in _PASSTHROUGH_EVENTS:
         out = {
@@ -269,6 +309,13 @@ def load_events_from_jsonl(path: str) -> list[dict[str, Any]]:
                     entry = json.loads(line)
                 except json.JSONDecodeError:
                     continue
+                # Backward-compatibility: some runs contain doubly-encoded JSONL lines
+                # (a JSON string that itself contains the event object).
+                if isinstance(entry, str):
+                    try:
+                        entry = json.loads(entry)
+                    except json.JSONDecodeError:
+                        continue
                 if not isinstance(entry, dict):
                     continue
                 normalized = normalize_jsonl_event(entry)

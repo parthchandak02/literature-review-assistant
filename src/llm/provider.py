@@ -23,17 +23,6 @@ _log = logging.getLogger(__name__)
 _price_updater = UpdatePrices(update_interval=3600)
 _price_updater.start(wait=False)
 
-# Static fallback prices (USD per 1M tokens) for models that were released so
-# recently that neither the bundled nor the live genai-prices snapshot knows
-# them yet. Keyed by the bare model ref after stripping the provider prefix.
-# Remove entries here once genai-prices upstream adds the model.
-# Prices sourced from: https://ai.google.dev/gemini-api/docs/pricing
-_PRICE_FALLBACK_PER_MTOK: dict[str, tuple[float, float]] = {
-    # (input_per_mtok, output_per_mtok)
-    "gemini-3.1-flash-lite-preview": (0.25, 1.50),
-}
-
-
 @dataclass
 class AgentRuntimeConfig:
     model: str
@@ -59,6 +48,14 @@ class LLMProvider:
             on_waiting=on_waiting,
             on_resolved=on_resolved,
         )
+        self._price_fallback_per_mtok: dict[str, tuple[float, float, float]] = {
+            model_ref: (
+                cfg.input_per_mtok,
+                cfg.output_per_mtok,
+                cfg.cache_read_input_multiplier,
+            )
+            for model_ref, cfg in llm_cfg.price_fallback_per_mtok.items()
+        }
 
     # Maps pydantic-ai model-string prefix -> genai-prices provider_id.
     _PROVIDER_ID_MAP: dict[str, str] = {
@@ -73,7 +70,7 @@ class LLMProvider:
 
     @classmethod
     def _parse_model_ref(cls, model: str) -> tuple[str, str | None]:
-        """Split 'google-gla:gemini-2.5-flash' -> ('gemini-2.5-flash', 'google').
+        """Split '<provider-prefix><model-ref>' -> ('<model-ref>', '<provider_id>').
 
         Returns (model_ref, provider_id) where provider_id may be None for
         bare model strings with no recognized prefix.
@@ -91,12 +88,13 @@ class LLMProvider:
         tokens_out: int,
         cache_write: int = 0,
         cache_read: int = 0,
+        price_fallback_per_mtok: dict[str, tuple[float, float, float]] | None = None,
     ) -> float:
         """Return accurate cost (USD) for any supported model.
 
         Resolution order:
         1. genai-prices (bundled snapshot, then live-updated snapshot from GitHub).
-        2. _PRICE_FALLBACK_PER_MTOK static table for models too new for the library.
+        2. settings.yaml llm.price_fallback_per_mtok for models too new for the library.
         3. 0.0 with a debug log -- callers are safe, but cost tracking will be inaccurate.
 
         Cache tokens are passed through to genai-prices when non-zero.
@@ -115,18 +113,18 @@ class LLMProvider:
             )
             return float(price.total_price)
         except LookupError:
-            # Model not yet in genai-prices; try the static fallback table.
-            if model_ref in _PRICE_FALLBACK_PER_MTOK:
-                in_rate, out_rate = _PRICE_FALLBACK_PER_MTOK[model_ref]
+            # Model not yet in genai-prices; try YAML-configured fallback table.
+            fallback = price_fallback_per_mtok or {}
+            if model_ref in fallback:
+                in_rate, out_rate, cache_read_multiplier = fallback[model_ref]
                 cost = (tokens_in * in_rate + tokens_out * out_rate) / 1_000_000
                 if cache_read:
-                    # Cache reads are typically 25% of input price for Google models.
-                    cost += cache_read * (in_rate * 0.1) / 1_000_000
-                _log.debug("genai-prices: used static fallback for %r -> $%.6f", model_ref, cost)
+                    cost += cache_read * (in_rate * cache_read_multiplier) / 1_000_000
+                _log.debug("genai-prices: used YAML fallback for %r -> $%.6f", model_ref, cost)
                 return cost
             _log.warning(
                 "genai-prices: unknown model %r, no fallback price -- cost logged as 0.0. "
-                "Add to _PRICE_FALLBACK_PER_MTOK in src/llm/provider.py.",
+                "Add to llm.price_fallback_per_mtok in config/settings.yaml.",
                 model_ref,
             )
             return 0.0
@@ -163,7 +161,14 @@ class LLMProvider:
         cache_read: int = 0,
     ) -> float:
         """Accurate cost via genai-prices. Delegates to estimate_cost_usd."""
-        return self.estimate_cost_usd(model, tokens_in, tokens_out, cache_write, cache_read)
+        return self.estimate_cost_usd(
+            model,
+            tokens_in,
+            tokens_out,
+            cache_write,
+            cache_read,
+            self._price_fallback_per_mtok,
+        )
 
     async def reserve_call_slot(self, agent_name: str) -> AgentRuntimeConfig:
         config = self.get_agent_config(agent_name)
@@ -178,10 +183,12 @@ class LLMProvider:
         cost_usd: float,
         latency_ms: int,
         phase: str,
+        workflow_id: str = "",
         cache_read_tokens: int = 0,
         cache_write_tokens: int = 0,
     ) -> None:
         record = CostRecord(
+            workflow_id=workflow_id,
             model=model,
             tokens_in=tokens_in,
             tokens_out=tokens_out,

@@ -13,6 +13,36 @@ from rich.panel import Panel
 from src.utils import structured_log
 
 
+def _reason_label_from_code(reason_code: str) -> str:
+    labels = {
+        "insufficient_content_heuristic": "Skipped: abstract missing or too short",
+        "protocol_only_heuristic": "Skipped: protocol-only publication",
+        "fulltext_no_pdf_heuristic": "Skipped: full text PDF unavailable",
+        "metadata_incomplete": "Skipped: missing required metadata",
+        "keyword_filter": "Skipped: no intervention keyword match",
+        "low_relevance_score": "Skipped: low BM25 relevance score",
+        "batch_screened_low": "Skipped: low pre-ranker score",
+        "timeout": "Full text retrieval timed out",
+        "publisher_403": "Full text blocked by publisher",
+        "publisher_401": "Full text requires authentication",
+        "rate_limited": "Full text retrieval rate-limited",
+        "doi_unresolved": "DOI did not resolve to full text",
+        "no_pdf_signal": "No downloadable PDF detected",
+        "no_identifier": "No URL or DOI for full text retrieval",
+        "no_oa_path": "No open-access full text path found",
+        "oa_recovered": "Full text successfully retrieved",
+        "connector_degraded": "Connector degraded; fallback path used",
+    }
+    return labels.get(reason_code, reason_code.replace("_", " "))
+
+
+def _screening_reason_code(reason: str | None) -> str | None:
+    if not reason:
+        return None
+    token = reason.split("|", 1)[0].strip().lower()
+    return token or None
+
+
 def _decision_style(decision: str | None, other_reviewer_decision: Any) -> str:
     """Return Rich style for decision-based coloring."""
     if decision == "include":
@@ -332,11 +362,18 @@ class RunContext:
         error: str | None = None,
     ) -> None:
         """Log connector (search API) result with full Rich panel when verbose."""
+        reason_code = "connector_degraded" if status != "success" else None
+        reason_label = _reason_label_from_code(reason_code) if reason_code else None
         structured_log.log_connector_result(
             connector=name,
             status=status,
             records=records if status == "success" else None,
             error=error if status != "success" else None,
+            reason_code=reason_code,
+            reason_label=reason_label,
+            action="fallback" if status != "success" else "included",
+            entity_type="connector",
+            entity_id=name,
         )
         if not self.verbose:
             return
@@ -363,6 +400,28 @@ class RunContext:
             body_lines.append(f"date_range: {date_range}")
         body = "\n".join(body_lines)
         self.console.print(Panel(body, title=title, border_style="dim"))
+
+    def log_pdf_result(
+        self,
+        paper_id: str,
+        title: str,
+        source: str,
+        success: bool,
+        *,
+        reason_code: str | None = None,
+        reason_label: str | None = None,
+    ) -> None:
+        """Log per-paper PDF retrieval outcome in CLI verbose mode."""
+        effective_reason = reason_code or ("oa_recovered" if success else "no_oa_path")
+        effective_label = reason_label or _reason_label_from_code(effective_reason)
+        structured_log.log_pdf_result(paper_id=paper_id, title=title, source=source, success=success)
+        if not self.verbose:
+            return
+        status_label = "ok" if success else "unavailable"
+        short_title = (title[:60] + "...") if len(title) > 60 else title
+        self.console.print(
+            f"  [dim]{paper_id[:12]}...[/] [bold]{status_label}[/] {short_title} ({source}) - {effective_label}"
+        )
 
     def log_extraction_paper(
         self,
@@ -446,7 +505,19 @@ class RunContext:
         method: str | None = None,
     ) -> None:
         """Log a screening decision when verbose."""
-        structured_log.log_screening_decision(paper_id=paper_id, stage=stage, decision=decision, rationale=reason)
+        reason_code = _screening_reason_code(reason)
+        reason_label = _reason_label_from_code(reason_code) if reason_code else None
+        structured_log.log_screening_decision(
+            paper_id=paper_id,
+            stage=stage,
+            decision=decision,
+            rationale=reason,
+            reason_code=reason_code,
+            reason_label=reason_label,
+            action=decision,
+            entity_type="paper",
+            entity_id=paper_id,
+        )
         if not self.verbose:
             return
         label = (title[:50] if title else None) or f"{paper_id[:12]}..."
@@ -491,9 +562,9 @@ def create_progress(console: Console) -> Progress:
 
 @dataclass
 class WebRunContext:
-    """RunContext replacement for web mode: emits structured JSON events to an asyncio.Queue."""
+    """RunContext replacement for web mode: emits structured JSON events via callbacks."""
 
-    queue: Any  # asyncio.Queue[dict] -- typed as Any to avoid asyncio import at module level
+    queue: Any = None  # Optional legacy queue sink; primary path is on_event callback.
     web_mode: bool = True
     verbose: bool = False
     debug: bool = False
@@ -542,10 +613,11 @@ class WebRunContext:
                 self.on_event(event)
             except Exception:
                 pass
-        try:
-            self.queue.put_nowait(event)
-        except Exception:
-            pass
+        if self.queue is not None:
+            try:
+                self.queue.put_nowait(event)
+            except Exception:
+                pass
 
     def should_proceed_with_partial(self) -> bool:
         return bool(self.proceed_with_partial_requested and self.proceed_with_partial_requested[0])
@@ -558,6 +630,9 @@ class WebRunContext:
                 "phase": phase_name,
                 "description": description,
                 "total": total,
+                "action": "start",
+                "entity_type": "phase",
+                "entity_id": phase_name,
             }
         )
 
@@ -576,6 +651,9 @@ class WebRunContext:
                 "summary": summary or {},
                 "total": total,
                 "completed": completed,
+                "action": "done",
+                "entity_type": "phase",
+                "entity_id": phase_name,
             }
         )
 
@@ -632,6 +710,11 @@ class WebRunContext:
                 "details": details,
                 "section_name": section_name,
                 "word_count": word_count,
+                "action": "included" if status == "success" else "fallback",
+                "entity_type": "llm_call",
+                "entity_id": paper_id,
+                "reason_code": None if status == "success" else "llm_call_failed",
+                "reason_label": None if status == "success" else "LLM call failed",
             }
         )
 
@@ -645,11 +728,18 @@ class WebRunContext:
         date_end: int | None = None,
         error: str | None = None,
     ) -> None:
+        reason_code = "connector_degraded" if status != "success" else None
+        reason_label = _reason_label_from_code(reason_code) if reason_code else None
         structured_log.log_connector_result(
             connector=name,
             status=status,
             records=records if status == "success" else None,
             error=error if status != "success" else None,
+            reason_code=reason_code,
+            reason_label=reason_label,
+            action="fallback" if status != "success" else "included",
+            entity_type="connector",
+            entity_id=name,
         )
         self._emit(
             {
@@ -659,11 +749,27 @@ class WebRunContext:
                 "records": records,
                 "query": query,
                 "error": error,
+                "action": "fallback" if status != "success" else "included",
+                "entity_type": "connector",
+                "entity_id": name,
+                "reason_code": reason_code,
+                "reason_label": reason_label,
             }
         )
 
-    def log_pdf_result(self, paper_id: str, title: str, source: str, success: bool) -> None:
+    def log_pdf_result(
+        self,
+        paper_id: str,
+        title: str,
+        source: str,
+        success: bool,
+        *,
+        reason_code: str | None = None,
+        reason_label: str | None = None,
+    ) -> None:
         """Emit a per-paper PDF retrieval outcome SSE event."""
+        effective_reason = reason_code or ("oa_recovered" if success else "no_oa_path")
+        effective_label = reason_label or _reason_label_from_code(effective_reason)
         structured_log.log_pdf_result(paper_id=paper_id, title=title, source=source, success=success)
         self._emit(
             {
@@ -672,6 +778,11 @@ class WebRunContext:
                 "title": title,
                 "source": source,
                 "success": success,
+                "action": "included" if success else "skipped",
+                "entity_type": "paper",
+                "entity_id": paper_id,
+                "reason_code": effective_reason,
+                "reason_label": effective_label,
             }
         )
 
@@ -743,13 +854,31 @@ class WebRunContext:
         title: str | None = None,
         method: str | None = None,
     ) -> None:
-        structured_log.log_screening_decision(paper_id=paper_id, stage=stage, decision=decision, rationale=reason)
+        reason_code = _screening_reason_code(reason)
+        reason_label = _reason_label_from_code(reason_code) if reason_code else None
+        structured_log.log_screening_decision(
+            paper_id=paper_id,
+            stage=stage,
+            decision=decision,
+            rationale=reason,
+            reason_code=reason_code,
+            reason_label=reason_label,
+            action=decision,
+            entity_type="paper",
+            entity_id=paper_id,
+        )
         payload: dict[str, Any] = {
             "type": "screening_decision",
             "paper_id": paper_id,
             "stage": stage,
             "decision": decision,
+            "action": decision,
+            "entity_type": "paper",
+            "entity_id": paper_id,
         }
+        if reason_code:
+            payload["reason_code"] = reason_code
+            payload["reason_label"] = reason_label
         if confidence is not None:
             payload["confidence"] = confidence
         if title:

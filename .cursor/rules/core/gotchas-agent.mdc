@@ -273,13 +273,13 @@ rag.embed_model/hyde_model/reranker_model + extraction.pdf_vision_model live in
 `config/settings.yaml`. Module fallbacks use `src.llm.model_fallback.get_fallback_model(tier)`
 which reads settings.yaml first and only falls back to _TIER_LAST_RESORT constants when YAML
 cannot be parsed. To change any model, edit settings.yaml only -- no Python edits needed.
-The 19 agent keys are: screening_reviewer_a/b, screening_adjudicator, batch_screener,
+The 18 agent keys are: screening_reviewer_a/b, screening_adjudicator, batch_screener,
 search, extraction, quality_assessment, study_type_detection, writing, abstract_generation,
 humanizer, contradiction_resolver, criteria_refinement, table_extraction,
-config_generation, concept_diagrams, narrative, style_extraction, citation_matching.
+config_generation, concept_diagrams, narrative, citation_matching.
 NOTE: naturalness_scorer was removed from settings.yaml when its dead-code module was deleted.
-style_extraction remains in settings.yaml but the style_extractor module returns empty patterns
-and prepare_writing_context() no longer uses it -- effectively dead in the pipeline.
+style_extractor.py and the style_extraction agent key were removed because the extractor always
+returned empty patterns and was never injected into prompts.
 
 ## Batch LLM Pre-Ranker Sits Between BM25 and Dual-Reviewer
 `src/screening/batch_ranker.py` implements a batch scoring step that fires after BM25
@@ -334,13 +334,12 @@ original run. Fix: `src/orchestration/resume.py` reads the `phase_done` event wi
 `state.kappa_stage`, and `state.kappa_n`. If you add any other transient state fields that
 affect manuscript content, add the same restore pattern to `resume.py`.
 
-## Sidebar "Papers Included" Uses phase_done Event Count (Not dual_screening_results)
-`_fetch_run_stats()` in `src/web/app.py` now derives `papers_included` from the
-`phase_done` SSE event where `phase='phase_3_screening'` rather than counting rows in
-`dual_screening_results WHERE final_decision='include'`. The old query over-counted because
-it included abstract-stage "include" decisions for papers later excluded at full-text.
-The event-based count matches the top progress bar. A fallback query (most-advanced-stage
-deduplication) is used when the phase_done event is absent (in-progress runs).
+## Sidebar "Papers Included" Uses dual_screening_results With Fallbacks
+`_fetch_run_stats()` in `src/web/app.py` derives `papers_included` with explicit precedence:
+1) `dual_screening_results` fulltext-stage rows where `final_decision IN ('include','uncertain')`
+2) `event_log` `phase_done` summary for `phase='phase_3_screening'` (historical fallback)
+3) `extraction_records` count (legacy fallback)
+This avoids abstract-stage over-counting and keeps current runs aligned with durable DB state.
 
 ## doc_manuscript.tex and references.bib Are First-Class Run Artifacts
 `FinalizeNode` in `src/orchestration/workflow.py` now generates `doc_manuscript.tex` and
@@ -359,7 +358,7 @@ single-file inspection; the `submission/` copy is for pdflatex compilation.
 value as-is and NOT to compute it by subtraction.
 Root cause that prompted this fix: LLM computed 1908 - 24 = 1882 (wrong) instead of 1884.
 The same pattern applies to `records_excluded_screening` (pre-computed as
-`total_screened - fulltext_assessed`). Never remove these fields or rely on the LLM to
+`total_screened - fulltext_sought`). Never remove these fields or rely on the LLM to
 perform PRISMA arithmetic -- LLM arithmetic on injected grounding counts is unreliable.
 
 ## All LaTeX Tables Use `tabularx` + `X` Columns (Never `tabular` + `p{X\textwidth}`)

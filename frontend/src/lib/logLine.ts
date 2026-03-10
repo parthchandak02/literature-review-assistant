@@ -42,6 +42,7 @@ export function fmtTs(ts: string | null | undefined): string {
 // ---------------------------------------------------------------------------
 
 export type LogLevel = "info" | "warn" | "error" | "dim" | "include" | "exclude" | "exclude-heuristic" | "status"
+export type ActivityLogMode = "user" | "technical"
 
 function eventTs(ev: ReviewEvent): string | undefined {
   return "ts" in ev ? ev.ts : undefined
@@ -79,6 +80,49 @@ export interface LogRenderEntry {
   isResumeNoOp: boolean
 }
 
+const REASON_LABELS: Record<string, string> = {
+  insufficient_content_heuristic: "auto-excluded: abstract missing or too short",
+  protocol_only_heuristic: "auto-excluded: protocol-only publication",
+  fulltext_no_pdf_heuristic: "auto-excluded: full-text PDF unavailable",
+  metadata_incomplete: "auto-excluded: missing required metadata",
+  keyword_filter: "auto-excluded: no intervention keyword match",
+  low_relevance_score: "auto-excluded: low BM25 relevance score",
+  batch_screened_low: "auto-excluded: low pre-ranker score",
+  no_full_text: "full text unavailable",
+  wrong_population: "wrong population",
+  wrong_intervention: "wrong intervention",
+  wrong_comparator: "wrong comparator",
+  wrong_outcome: "wrong outcome",
+  wrong_study_design: "wrong study design",
+  not_peer_reviewed: "not peer-reviewed",
+  duplicate: "duplicate",
+  insufficient_data: "insufficient data",
+  wrong_language: "wrong language",
+  protocol_only: "protocol-only",
+  timeout: "retrieval timeout",
+  publisher_403: "publisher blocked access",
+  publisher_401: "publisher authentication required",
+  rate_limited: "rate-limited",
+  doi_unresolved: "DOI unresolved",
+  no_pdf_signal: "no PDF link detected",
+  no_identifier: "no DOI/URL available",
+  no_oa_path: "no open-access path",
+}
+
+function humanizeReason(reasonCode: string | null | undefined): string {
+  if (!reasonCode) return "unspecified reason"
+  return REASON_LABELS[reasonCode] ?? reasonCode.replace(/_/g, " ")
+}
+
+function topReasonSummary(reasonBreakdown: Record<string, number>, topN = 3): string {
+  const entries = Object.entries(reasonBreakdown)
+    .filter(([, count]) => Number(count) > 0)
+    .sort((a, b) => Number(b[1]) - Number(a[1]))
+    .slice(0, topN)
+  if (entries.length === 0) return ""
+  return entries.map(([code, count]) => `${code}=${count}`).join(", ")
+}
+
 function normalizeDoiText(text: string): string {
   return text.replace(/https?:\/\/doi\.org\/https?:\/\/doi\.org\//gi, "https://doi.org/")
 }
@@ -93,7 +137,7 @@ function asPercentLabel(threshold: number | null | undefined): string {
 // Event -> log line conversion
 // ---------------------------------------------------------------------------
 
-export function eventToLogEntry(ev: ReviewEvent): LogRenderEntry {
+export function eventToLogEntry(ev: ReviewEvent, mode: ActivityLogMode = "technical"): LogRenderEntry {
   const finalize = (
     data: Omit<LogRenderEntry, "eventType">,
   ): LogRenderEntry => ({
@@ -121,9 +165,21 @@ export function eventToLogEntry(ev: ReviewEvent): LogRenderEntry {
     case "phase_done": {
       const s = ev.summary as Record<string, unknown> | null | undefined
       let detail = ""
-      if (s?.included != null && s?.screened != null) {
+      if (ev.phase === "fulltext_pdf_retrieval") {
+        const attempted = Number(s?.attempted ?? 0)
+        const retrieved = Number(s?.retrieved ?? 0)
+        const unavailable = Number(s?.unavailable ?? Math.max(attempted - retrieved, 0))
+        const reasons = (s?.reason_breakdown as Record<string, number> | undefined) ?? {}
+        const reasonText = topReasonSummary(reasons)
+        detail = `  attempted=${attempted}, retrieved=${retrieved}, unavailable=${unavailable}`
+        if (reasonText) detail += ` (${reasonText})`
+      } else if (s?.included != null && s?.screened != null) {
         const kappaStr = s?.kappa != null ? `  kappa=${Number(s.kappa).toFixed(2)}` : ""
-        detail = `  ${s.included} included of ${s.screened} papers${kappaStr}`
+        const excluded = s?.excluded != null ? `  excluded=${s.excluded}` : ""
+        const reasons = (s?.reason_breakdown as Record<string, number> | undefined) ?? {}
+        const reasonText = topReasonSummary(reasons)
+        detail = `  ${s.included} included of ${s.screened} papers${excluded}${kappaStr}`
+        if (reasonText) detail += `  top_reasons: ${reasonText}`
       }
       else if (s?.new_papers != null)
         detail = `  ${Number(s.new_papers) > 0 ? s.new_papers + " new papers found" : "no new papers"}`
@@ -164,6 +220,18 @@ export function eventToLogEntry(ev: ReviewEvent): LogRenderEntry {
       const msg = ev.message ?? ""
       const isTimer = msg.includes("done in") || msg.includes("elapsed") || msg.includes("starting (")
       const resumeMessage = msg.trim().toLowerCase() === "resume"
+      if (mode === "user" && isTimer) {
+        return finalize({
+          text: `[${fmtTs(ev.ts)}] TIMER  background processing in progress`,
+          level: "dim",
+          severity: "dim",
+          kind: "status",
+          compactable: true,
+          groupKey: "timer-user",
+          isResumeRelated: resumeMessage,
+          isResumeNoOp: resumeMessage,
+        })
+      }
       return finalize({
         text: `[${fmtTs(ev.ts)}] ${isTimer ? "TIMER  " : "...    "} ${msg}`,
         level: isTimer ? "dim" : "status",
@@ -193,6 +261,19 @@ export function eventToLogEntry(ev: ReviewEvent): LogRenderEntry {
     }
 
     case "api_call": {
+      if (mode === "user") {
+        return finalize({
+          text: `[${fmtTs(ev.ts)}] LLM    background model call`,
+          level: "dim",
+          severity: "dim",
+          kind: "llm",
+          phase: ev.phase,
+          compactable: true,
+          groupKey: `llm:${ev.phase}:${ev.call_type}`,
+          isResumeRelated: false,
+          isResumeNoOp: false,
+        })
+      }
       const tokStr =
         ev.tokens_in != null && ev.tokens_in > 0
           ? ` | ${ev.tokens_in}in/${ev.tokens_out ?? 0}out tok`
@@ -226,20 +307,15 @@ export function eventToLogEntry(ev: ReviewEvent): LogRenderEntry {
     }
 
     case "screening_decision": {
-      const REASON_LABELS: Record<string, string> = {
-        insufficient_content_heuristic: "auto-excluded: abstract absent or too short",
-        protocol_only_heuristic: "auto-excluded: conference-only abstract",
-        fulltext_no_pdf_heuristic: "auto-excluded: full-text PDF unavailable",
-      }
       const conf = ev.confidence != null ? ` ${Math.round(ev.confidence * 100)}%` : ""
       const label = ev.title ?? ev.paper_id?.slice(0, 32) ?? ""
-      const rawReason = ev.reason ?? ""
+      const rawReason = ev.reason ?? ev.reason_code ?? ""
       // Support extended reasons like "insufficient_content_heuristic|3w" that encode
       // the abstract word count after a pipe delimiter for auditability.
       const pipeIdx = rawReason.indexOf("|")
       const baseReason = pipeIdx >= 0 ? rawReason.slice(0, pipeIdx) : rawReason
       const wcSuffix = pipeIdx >= 0 ? ` (${rawReason.slice(pipeIdx + 1)})` : ""
-      const baseLabel = REASON_LABELS[baseReason] ?? rawReason
+      const baseLabel = ev.reason_label ?? humanizeReason(baseReason)
       const displayReason = rawReason ? (baseLabel + wcSuffix).slice(0, 95) : ""
       const reasonText = displayReason ? `  -- ${displayReason}` : ""
       const methodBadge = ev.method === "heuristic" ? "[AUTO]  " : "[LLM]   "
@@ -260,8 +336,9 @@ export function eventToLogEntry(ev: ReviewEvent): LogRenderEntry {
     case "pdf_result": {
       const tier = ev.source && ev.source !== "abstract" ? ev.source : "no-pdf"
       const label = ev.title ? ev.title.slice(0, 60) : ev.paper_id?.slice(0, 16) ?? ""
+      const reasonText = ev.reason_label ?? humanizeReason(ev.reason_code)
       return finalize({
-        text: `[${fmtTs(ev.ts)}] PDF    ${ev.success ? "OK  " : "FAIL"}  ${label}  (${tier})`,
+        text: `[${fmtTs(ev.ts)}] PDF    ${ev.success ? "OK  " : "FAIL"}  ${label}  (${tier}) -- ${reasonText}`,
         level: ev.success ? "dim" : "warn",
         severity: ev.success ? "dim" : "warn",
         kind: "pdf",
@@ -396,8 +473,10 @@ export function eventToLogEntry(ev: ReviewEvent): LogRenderEntry {
       const afterMetadata = pf.after_metadata ?? (deduped - metaRej)
       const autoExcl = pf.automation_excluded ?? 0
       const toLlm = pf.to_llm ?? 0
+      const reasons = ((ev as unknown as { reason_breakdown?: Record<string, number> }).reason_breakdown) ?? {}
+      const reasonText = topReasonSummary(reasons)
       return finalize({
-        text: `[${fmtTs(ev.ts)}] FUNNEL ${deduped} deduped -> ${afterMetadata} after metadata -> ${toLlm} to LLM (${autoExcl} auto-excluded)`,
+        text: `[${fmtTs(ev.ts)}] FUNNEL ${deduped} deduped -> ${afterMetadata} after metadata -> ${toLlm} to LLM (${autoExcl} auto-excluded)${reasonText ? ` [${reasonText}]` : ""}`,
         level: "info",
         severity: "info",
         kind: "funnel",
@@ -443,7 +522,7 @@ export function eventToLogEntry(ev: ReviewEvent): LogRenderEntry {
   }
 }
 
-export function eventToLogLine(ev: ReviewEvent): { text: string; level: LogLevel } {
-  const entry = eventToLogEntry(ev)
+export function eventToLogLine(ev: ReviewEvent, mode: ActivityLogMode = "technical"): { text: string; level: LogLevel } {
+  const entry = eventToLogEntry(ev, mode)
   return { text: entry.text, level: entry.level }
 }

@@ -39,7 +39,17 @@ from src.export.markdown_refs import assemble_submission_manuscript, is_extracti
 from src.extraction import ExtractionService, StudyClassifier
 from src.llm.provider import LLMProvider
 from src.llm.pydantic_client import PydanticAIClient
-from src.models import CandidatePaper, DecisionLogEntry, ExtractionRecord, GateStatus, SectionDraft, StudyDesign
+from src.models import (
+    CandidatePaper,
+    DecisionLogEntry,
+    ExtractionRecord,
+    GateStatus,
+    ManuscriptAssembly,
+    ManuscriptAsset,
+    RagRetrievalDiagnostic,
+    SectionDraft,
+    StudyDesign,
+)
 from src.models.diagrams import (
     FlowchartDiagramInput,
     FlowchartPhase,
@@ -111,6 +121,7 @@ from src.writing.contradiction_resolver import (
 from src.writing.humanizer import humanize_async
 from src.writing.humanizer_guardrails import extract_citation_blocks, extract_numeric_tokens
 from src.writing.orchestration import (
+    _citation_entries_from_papers,
     prepare_writing_context,
     register_background_sr_citations,
     register_citations_from_papers,
@@ -130,6 +141,24 @@ def _now_utc() -> str:
 
 def _hash_config(path: str) -> str:
     return hashlib.sha256(Path(path).read_bytes()).hexdigest()[:16]
+
+
+def _evaluate_rag_health(
+    *,
+    empty_sections: int,
+    error_sections: int,
+    max_empty_sections: int,
+) -> tuple[bool, str]:
+    """Return (breached, message) for run-level RAG health gate."""
+    failures = max(0, int(empty_sections)) + max(0, int(error_sections))
+    limit = max(0, int(max_empty_sections))
+    breached = failures > limit
+    message = (
+        "RAG health threshold "
+        + ("violated" if breached else "ok")
+        + f": empty+error sections={failures}, max_empty_sections={limit}"
+    )
+    return breached, message
 
 
 _PREFIX_TO_ENV: dict[str, str] = {
@@ -743,7 +772,15 @@ class ScreeningNode(BaseNode[ReviewState]):
                 # Reason prefixes emitted by pre-LLM heuristics (no LLM call was made).
                 # Use startswith so extended reasons like "insufficient_content_heuristic|3w"
                 # (which encode word count for the UI) still classify as heuristic.
-                _heuristic_prefixes = ("insufficient_content_heuristic", "protocol_only_heuristic")
+                _heuristic_prefixes = (
+                    "insufficient_content_heuristic",
+                    "protocol_only_heuristic",
+                    "fulltext_no_pdf_heuristic",
+                    "metadata_incomplete",
+                    "keyword_filter",
+                    "low_relevance_score",
+                    "batch_screened_low",
+                )
 
                 def _on_screening_decision(
                     pid: object,
@@ -806,6 +843,19 @@ class ScreeningNode(BaseNode[ReviewState]):
                         f"Metadata pre-filter: {len(meta_rejected)} rejected (missing title/abstract/year), "
                         f"{len(meta_acceptable)} forwarded."
                     )
+                if rc and hasattr(rc, "log_screening_decision"):
+                    _meta_paper_by_id = {p.paper_id: p for p in meta_rejected_papers}
+                    for _meta_decision in meta_rejected:
+                        _meta_paper = _meta_paper_by_id.get(_meta_decision.paper_id)
+                        rc.log_screening_decision(
+                            _meta_decision.paper_id,
+                            "title_abstract",
+                            _meta_decision.decision.value,
+                            "metadata_incomplete|missing required metadata fields",
+                            _meta_decision.confidence,
+                            title=_meta_paper.title if _meta_paper else None,
+                            method="heuristic",
+                        )
 
             # --- Pre-screening: BM25 ranking (when cap is set) or keyword filter ---
             cap = state.settings.screening.max_llm_screen
@@ -877,6 +927,20 @@ class ScreeningNode(BaseNode[ReviewState]):
                             f"{len(papers_for_llm)} forwarded to LLM screening."
                         )
 
+            if pre_excluded and rc and hasattr(rc, "log_screening_decision"):
+                for _pref_decision in pre_excluded:
+                    _reason = getattr(getattr(_pref_decision, "exclusion_reason", None), "value", "other")
+                    _paper = paper_by_id.get(_pref_decision.paper_id)
+                    rc.log_screening_decision(
+                        _pref_decision.paper_id,
+                        "title_abstract",
+                        _pref_decision.decision.value,
+                        f"{_reason}|automation pre-filter exclusion",
+                        _pref_decision.confidence,
+                        title=_paper.title if _paper else None,
+                        method="heuristic",
+                    )
+
             # Emit structured prefilter summary so the frontend can render the full
             # paper funnel (deduped -> after metadata -> to LLM) for both live and
             # historical runs.  log_status() is not persisted to event_log; this
@@ -884,6 +948,12 @@ class ScreeningNode(BaseNode[ReviewState]):
             if rc and hasattr(rc, "_emit"):
                 import datetime as _dt_pf
 
+                _prefilter_reason_breakdown: dict[str, int] = {}
+                for _d in pre_excluded:
+                    _raw = getattr(getattr(_d, "exclusion_reason", None), "value", None)
+                    if _raw is None:
+                        _raw = "other"
+                    _prefilter_reason_breakdown[str(_raw)] = _prefilter_reason_breakdown.get(str(_raw), 0) + 1
                 rc._emit(
                     {
                         "type": "screening_prefilter_done",
@@ -892,6 +962,12 @@ class ScreeningNode(BaseNode[ReviewState]):
                         "after_metadata": len(meta_acceptable),
                         "automation_excluded": len(pre_excluded),
                         "to_llm": len(papers_for_llm),
+                        "reason_breakdown": _prefilter_reason_breakdown,
+                        "action": "skipped",
+                        "entity_type": "phase",
+                        "entity_id": "phase_3_screening",
+                        "reason_code": "prefilter_applied",
+                        "reason_label": "Automated pre-screening exclusions applied",
                         "ts": _dt_pf.datetime.utcnow().isoformat(),
                     }
                 )
@@ -1091,6 +1167,15 @@ class ScreeningNode(BaseNode[ReviewState]):
                                 "excluded": _batch_n_excl,
                                 "skipped_resume": _batch_n_skip,
                                 "threshold": screening_cfg.batch_screen_threshold,
+                                "action": "skipped" if _batch_n_excl > 0 else "included",
+                                "entity_type": "phase",
+                                "entity_id": "phase_3_screening",
+                                "reason_code": "batch_screened_low" if _batch_n_excl > 0 else None,
+                                "reason_label": (
+                                    "Auto-excluded by batch pre-ranker score threshold"
+                                    if _batch_n_excl > 0
+                                    else None
+                                ),
                                 "ts": _dt_bs.datetime.utcnow().isoformat(),
                             }
                         )
@@ -1159,9 +1244,15 @@ class ScreeningNode(BaseNode[ReviewState]):
                     if rc:
                         rc.advance_screening("fulltext_pdf_retrieval", done, total)
 
-                def _on_pdf_result(paper_id: str, title: str, source: str, success: bool) -> None:
+                def _on_pdf_result(
+                    paper_id: str,
+                    title: str,
+                    source: str,
+                    success: bool,
+                    reason_code: str | None,
+                ) -> None:
                     if rc:
-                        rc.log_pdf_result(paper_id, title, source, success)
+                        rc.log_pdf_result(paper_id, title, source, success, reason_code=reason_code)
 
                 stage2 = await screener.screen_batch(
                     workflow_id=state.workflow_id,
@@ -1404,12 +1495,23 @@ class ScreeningNode(BaseNode[ReviewState]):
                 rc.log_status(
                     f"Saving checkpoint... {len(state.included_papers)} papers included of {len(state.deduped_papers)} screened."
                 )
+            _stage2_local = locals().get("stage2", [])
+            _screening_reason_breakdown: dict[str, int] = {}
+            for _decision in list(pre_excluded) + list(_stage2_local):
+                _reason_value = getattr(getattr(_decision, "exclusion_reason", None), "value", None)
+                if not _reason_value:
+                    continue
+                _screening_reason_breakdown[str(_reason_value)] = (
+                    _screening_reason_breakdown.get(str(_reason_value), 0) + 1
+                )
             rc.emit_phase_done(
                 "phase_3_screening",
                 {
                     "included": len(state.included_papers),
                     "screened": len(state.deduped_papers),
                     "kappa": state.cohens_kappa,
+                    "excluded": max(len(state.deduped_papers) - len(state.included_papers), 0),
+                    "reason_breakdown": _screening_reason_breakdown,
                 },
             )
             if rc.debug:
@@ -2447,12 +2549,12 @@ def _trim_abstract_to_limit(abstract: str, limit: int = 230) -> str:
     until the total fits. The Keywords line is never trimmed or counted.
 
     Also strips raw LLM model identifier strings that occasionally leak from
-    the grounding block into the abstract text (e.g. "google-gla:gemini-2.5-flash").
+    the grounding block into the abstract text (e.g. "google-gla:<model-id>").
     """
     import re as _re
 
     # Remove raw model identifier strings before word counting / trimming.
-    # Pattern covers Google Vertex/GenAI model IDs like "google-gla:gemini-2.5-flash-lite-preview"
+    # Pattern covers Google Vertex/GenAI model IDs like "google-gla:<model-id>"
     # and any variant. Replace with a safe generic term.
     _model_id_re = _re.compile(r"google[-\w]*:[^\s,;)>\"']+", _re.IGNORECASE)
     abstract = _model_id_re.sub("automated pre-ranking model", abstract)
@@ -2599,6 +2701,17 @@ def _build_minimal_sections_for_zero_papers(
             content = minimal_paragraph
         result.append(content)
     return result
+
+
+def _validate_writing_persistence_invariant(
+    required_sections: list[str],
+    persisted_sections: set[str],
+    failed_sections: list[str],
+) -> tuple[bool, list[str]]:
+    """Return (violated, missing_sections) for writing completion invariant."""
+    missing_sections = sorted(set(required_sections) - persisted_sections)
+    violated = bool(failed_sections or missing_sections)
+    return violated, missing_sections
 
 
 class WritingNode(BaseNode[ReviewState]):
@@ -2748,6 +2861,7 @@ class WritingNode(BaseNode[ReviewState]):
                         word_count=len(content.split()),
                     )
                     await repository.save_section_draft(draft)
+                    await repository.save_manuscript_section_from_draft(draft, section_order=i)
                     sections_written.append(content)
                     if rc:
                         rc.advance_screening("phase_6_writing", i + 1, len(SECTIONS))
@@ -2869,6 +2983,14 @@ class WritingNode(BaseNode[ReviewState]):
                 hyde_model = rag_cfg.hyde_model
                 embed_model = rag_cfg.embed_model
                 embed_dim = getattr(rag_cfg, "embed_dim", 768)
+                use_rerank = getattr(rag_cfg, "rerank", True)
+                candidate_k = getattr(rag_cfg, "candidate_k", 20)
+                final_k = getattr(rag_cfg, "final_k", 8)
+                min_chunks_per_section = getattr(rag_cfg, "min_chunks_per_section", 1)
+                max_empty_sections = getattr(rag_cfg, "max_empty_sections", 2)
+                block_on_rag_failure = getattr(rag_cfg, "block_writing_on_rag_failure", False)
+                if candidate_k < final_k:
+                    candidate_k = final_k
 
                 _pico_cfg = getattr(state.review, "pico", None) if state.review else None
 
@@ -2889,6 +3011,7 @@ class WritingNode(BaseNode[ReviewState]):
                                 model=hyde_model,
                                 pico=_pico_cfg,
                                 repository=repository,
+                                workflow_id=state.workflow_id,
                             )
                             _hyde_done[0] += 1
                             if rc and hasattr(rc, "log_status"):
@@ -2930,6 +3053,16 @@ class WritingNode(BaseNode[ReviewState]):
                 _write_concurrency = getattr(writing_cfg, "writing_concurrency", 3)
                 _write_sem = asyncio.Semaphore(_write_concurrency)
                 _sections_done: list[int] = [0]
+                _rag_status_counts: dict[str, int] = {"success": 0, "empty": 0, "error": 0, "skipped": 0}
+                retriever = RAGRetriever(db, state.workflow_id)
+                chunk_count = await retriever.chunk_count()
+                paper_citation_meta: dict[str, dict[str, str]] = {}
+                for citekey, paper in _citation_entries_from_papers(state.included_papers):
+                    paper_citation_meta[paper.paper_id] = {
+                        "citekey": citekey,
+                        "year": str(paper.year or "n.d."),
+                        "title": (paper.title or "(No title)").strip(),
+                    }
 
                 async def _write_one_section(
                     i: int,
@@ -2974,15 +3107,21 @@ class WritingNode(BaseNode[ReviewState]):
                         # using hybrid BM25 + dense retrieval with Reciprocal Rank Fusion,
                         # followed by optional cross-encoder reranking.
                         rag_context = ""
+                        rag_status = "skipped"
+                        rag_latency_ms: int | None = None
+                        rag_selected_chunks_json = "[]"
+                        rag_query_type = "none"
+                        rag_retrieved_count = 0
+                        rag_error: str | None = None
                         try:
-                            retriever = RAGRetriever(db, state.workflow_id)
-                            chunk_count = await retriever.chunk_count()
                             if chunk_count > 0:
+                                _rag_t0 = asyncio.get_running_loop().time()
                                 # HyDE: embed the hypothetical doc if available, else
                                 # fall back to bare section name. BM25 always uses the
                                 # factual query (not hypothetical) to avoid hallucinated
                                 # corpus-drift.
                                 hyde_text = hyde_docs.get(section, "")
+                                rag_query_type = "hyde" if hyde_text else "section_fallback"
                                 query_vec = await rag_embed_query(
                                     hyde_text if hyde_text else section,
                                     model=embed_model,
@@ -3017,32 +3156,131 @@ class WritingNode(BaseNode[ReviewState]):
                                         ],
                                     )
                                 )
+                                _section_terms = {
+                                    "methods": "search strategy eligibility criteria risk of bias grade prisma",
+                                    "results": "study characteristics outcome effect size confidence interval p value",
+                                    "discussion": "interpretation limitations certainty grade implications",
+                                }
+                                if section in _section_terms:
+                                    bm25_query = f"{bm25_query} {_section_terms[section]}"
 
-                                # Retrieve wider candidate set (top_k=20) for reranker;
-                                # fall back to top_k=8 when reranking is disabled.
-                                use_rerank = getattr(rag_cfg, "rerank", True)
-                                candidate_k = 20 if use_rerank else 8
-                                chunks = await retriever.search(query_vec, top_k=candidate_k, query_text=bm25_query)
+                                # Retrieve wider candidate set for reranker;
+                                # otherwise fetch only the final_k set.
+                                candidate_top_k = candidate_k if use_rerank else final_k
+                                chunks = await retriever.search(
+                                    query_vec,
+                                    top_k=candidate_top_k,
+                                    query_text=bm25_query,
+                                )
 
                                 # Listwise reranking: single Gemini Flash call orders
-                                # all candidates by relevance, keeping the best 8.
+                                # all candidates by relevance, keeping the best final_k.
                                 if use_rerank and chunks:
                                     reranker_model = rag_cfg.reranker_model
                                     rerank_query = hyde_text if hyde_text else bm25_query
                                     chunks = await rerank_chunks(
                                         rerank_query,
                                         chunks,
-                                        top_k=8,
+                                        top_k=final_k,
                                         model=reranker_model,
                                         repository=repository,
+                                        workflow_id=state.workflow_id,
                                     )
+                                elif chunks:
+                                    chunks = chunks[:final_k]
 
                                 if chunks:
-                                    rag_context = "\n\n".join(
-                                        f"[Paper {c.paper_id} | score {c.score:.4f}]\n{c.content}" for c in chunks
+                                    _diag_rows: list[str] = []
+                                    _selected_chunks: list[dict[str, str | float | int]] = []
+                                    _rag_lines: list[str] = []
+                                    for c in chunks:
+                                        _meta = paper_citation_meta.get(c.paper_id, {})
+                                        _citekey = _meta.get("citekey", "unknown")
+                                        _year = _meta.get("year", "n.d.")
+                                        _title = _meta.get("title", "").replace("\n", " ").strip()
+                                        _title_snippet = _title[:80] if _title else "(No title)"
+                                        _diag_rows.append(
+                                            f"{c.chunk_id}|paper={c.paper_id}|citekey={_citekey}|score={c.score:.4f}"
+                                        )
+                                        _selected_chunks.append(
+                                            {
+                                                "chunk_id": c.chunk_id,
+                                                "paper_id": c.paper_id,
+                                                "citekey": _citekey,
+                                                "score": float(c.score),
+                                            }
+                                        )
+                                        _rag_lines.append(
+                                            f"[Chunk {c.chunk_id} | Paper {c.paper_id} | Citekey {_citekey} | Year {_year} | Title {_title_snippet} | Score {c.score:.4f}]\n{c.content}"
+                                        )
+                                    rag_context = "\n\n".join(_rag_lines)
+                                    rag_status = "success"
+                                    rag_retrieved_count = len(chunks)
+                                    rag_selected_chunks_json = json.dumps(_selected_chunks)
+                                else:
+                                    rag_status = "empty"
+                                    rag_retrieved_count = 0
+
+                                rag_latency_ms = int((asyncio.get_running_loop().time() - _rag_t0) * 1000)
+                                if rc:
+                                    _diag_model = (
+                                        f"{embed_model} | "
+                                        f"{('rerank:' + rag_cfg.reranker_model) if use_rerank else 'rerank:off'}"
                                     )
+                                    rc.log_api_call(
+                                        source="writing",
+                                        status="success" if rag_status in ("success", "empty") else rag_status,
+                                        details=f"RAG retrieval for {section}",
+                                        records=rag_retrieved_count,
+                                        call_type="rag_retrieval",
+                                        raw_response="\n".join(_diag_rows) if rag_status == "success" else None,
+                                        latency_ms=rag_latency_ms,
+                                        model=_diag_model,
+                                        phase="phase_6_writing",
+                                        section_name=section,
+                                    )
+                            else:
+                                rag_status = "skipped"
+                                rag_query_type = "none"
                         except Exception as _rag_exc:
                             logger.warning("RAG retrieval failed for section '%s': %s", section, _rag_exc)
+                            rag_status = "error"
+                            rag_error = str(_rag_exc)
+                            rag_retrieved_count = 0
+                            if rc:
+                                rc.log_api_call(
+                                    source="writing",
+                                    status="error",
+                                    details=f"RAG retrieval failed for {section}: {_rag_exc}",
+                                    records=0,
+                                    call_type="rag_retrieval",
+                                    raw_response=None,
+                                    model=embed_model,
+                                    phase="phase_6_writing",
+                                    section_name=section,
+                                )
+                        finally:
+                            _rag_status_counts[rag_status] = _rag_status_counts.get(rag_status, 0) + 1
+                            await repository.save_rag_retrieval_diagnostic(
+                                RagRetrievalDiagnostic(
+                                    workflow_id=state.workflow_id,
+                                    section=section,
+                                    query_type=rag_query_type,
+                                    rerank_enabled=use_rerank,
+                                    candidate_k=candidate_k,
+                                    final_k=final_k,
+                                    retrieved_count=rag_retrieved_count,
+                                    status=rag_status,
+                                    selected_chunks_json=rag_selected_chunks_json,
+                                    error_message=rag_error,
+                                    latency_ms=rag_latency_ms,
+                                )
+                            )
+                            if rag_retrieved_count < min_chunks_per_section and rc:
+                                rc.log_status(
+                                    f"RAG warning [{section}]: status={rag_status}, retrieved={rag_retrieved_count}, "
+                                    f"minimum={min_chunks_per_section}"
+                                )
 
                         _content = await write_section_with_validation(
                             section=section,
@@ -3119,6 +3357,7 @@ class WritingNode(BaseNode[ReviewState]):
                             word_count=word_count,
                         )
                         await repository.save_section_draft(draft)
+                        await repository.save_manuscript_section_from_draft(draft, section_order=i)
                         _sections_done[0] += 1
                         await _save_writing_checkpoint(
                             papers_processed=_sections_done[0],
@@ -3341,6 +3580,25 @@ class WritingNode(BaseNode[ReviewState]):
                         }
                     )
 
+                # Persist RAG health counters into state for finalize/run_summary.
+                state.rag_sections_total = len(SECTIONS)
+                state.rag_sections_success = _rag_status_counts.get("success", 0)
+                state.rag_sections_empty = _rag_status_counts.get("empty", 0)
+                state.rag_sections_error = _rag_status_counts.get("error", 0)
+                state.rag_sections_skipped = _rag_status_counts.get("skipped", 0)
+                state.rag_threshold_breached, _rag_msg = _evaluate_rag_health(
+                    empty_sections=state.rag_sections_empty,
+                    error_sections=state.rag_sections_error,
+                    max_empty_sections=max_empty_sections,
+                )
+                if state.rag_threshold_breached:
+                    _rag_msg = _rag_msg + f", strict_mode={block_on_rag_failure}"
+                    logger.warning(_rag_msg)
+                    if rc:
+                        rc.log_status(_rag_msg)
+                    if block_on_rag_failure:
+                        raise RuntimeError(_rag_msg)
+
             citation_rows = await CitationRepository(db).get_all_citations_for_export()
             # Load papers + extraction records for the study characteristics table.
             # Derive included_ids from extraction_records first (not from fulltext
@@ -3390,6 +3648,29 @@ class WritingNode(BaseNode[ReviewState]):
 
         manuscript_path = Path(state.artifacts["manuscript_md"])
         body = "\n\n".join(titled_sections)
+        try:
+            db_sections = await repository.load_latest_manuscript_sections(state.workflow_id)
+            if db_sections:
+                _heading_by_section = {
+                    "abstract": "",
+                    "introduction": "## Introduction",
+                    "methods": "## Methods",
+                    "results": "## Results",
+                    "discussion": "## Discussion",
+                    "conclusion": "## Conclusion",
+                }
+                db_body_parts: list[str] = []
+                for s in db_sections:
+                    sec_key = s.section_key
+                    heading = _heading_by_section.get(sec_key, "")
+                    if heading:
+                        db_body_parts.append(f"{heading}\n\n{s.content}")
+                    else:
+                        db_body_parts.append(s.content)
+                if db_body_parts:
+                    body = "\n\n".join(db_body_parts)
+        except Exception as db_section_exc:
+            logger.debug("DB-first section assembly fallback to in-memory drafts: %s", db_section_exc)
 
         # --- Contradiction detection pass (Idea 3) ---
         # Detect directional disagreements between included studies and inject
@@ -3653,14 +3934,109 @@ class WritingNode(BaseNode[ReviewState]):
             fulltext_paper_ids=_fulltext_paper_ids if _fulltext_paper_ids else None,
         )
         manuscript_path.write_text(full_manuscript, encoding="utf-8")
+        try:
+            def _extract_md_section(text: str, heading: str) -> str:
+                pat = re.compile(rf"(^## {re.escape(heading)}\n.*?)(?=\n\n---\n\n## |\Z)", re.MULTILINE | re.DOTALL)
+                m = pat.search(text)
+                return m.group(1).strip() if m else ""
+
+            _assets: list[ManuscriptAsset] = []
+            _compact_match = re.search(
+                r"(_Table 1\. Summary of .*?included studies.*?_\n\n"
+                r"\| Study \(Year\) \| Country \| Design \| N \| Key Finding \|\n"
+                r"\|---\|---\|---\|---\|---\|\n"
+                r"(?:\|.*\|\n)+)",
+                full_manuscript,
+                re.DOTALL,
+            )
+            if _compact_match:
+                _assets.append(
+                    ManuscriptAsset(
+                        workflow_id=state.workflow_id,
+                        asset_key="tbl_study_characteristics_compact",
+                        asset_type="table",
+                        format="md",
+                        content=_compact_match.group(1).strip(),
+                        version=1,
+                    )
+                )
+            _figures = _extract_md_section(full_manuscript, "Figures")
+            if _figures:
+                _assets.append(
+                    ManuscriptAsset(
+                        workflow_id=state.workflow_id,
+                        asset_key="sec_figures",
+                        asset_type="figure",
+                        format="md",
+                        content=_figures,
+                        version=1,
+                    )
+                )
+            _refs = _extract_md_section(full_manuscript, "References")
+            if _refs:
+                _assets.append(
+                    ManuscriptAsset(
+                        workflow_id=state.workflow_id,
+                        asset_key="sec_references",
+                        asset_type="appendix",
+                        format="md",
+                        content=_refs,
+                        version=1,
+                    )
+                )
+            _appendix_c = _extract_md_section(full_manuscript, "Appendix C: Search Strategies")
+            if _appendix_c:
+                _assets.append(
+                    ManuscriptAsset(
+                        workflow_id=state.workflow_id,
+                        asset_key="appendix_search_strategies",
+                        asset_type="appendix",
+                        format="md",
+                        content=_appendix_c,
+                        version=1,
+                    )
+                )
+            async with get_db(state.db_path) as _asm_db:
+                _asm_repo = WorkflowRepository(_asm_db)
+                _latest_sections = await _asm_repo.load_latest_manuscript_sections(state.workflow_id)
+                for _asset in _assets:
+                    await _asm_repo.save_manuscript_asset(_asset)
+                _manifest = {
+                    "sections": [
+                        {
+                            "section_key": s.section_key,
+                            "version": s.version,
+                            "order": s.section_order,
+                        }
+                        for s in _latest_sections
+                    ],
+                    "assets": [
+                        {"asset_key": a.asset_key, "version": a.version}
+                        for a in _assets
+                    ],
+                }
+                await _asm_repo.save_manuscript_assembly(
+                    ManuscriptAssembly(
+                        workflow_id=state.workflow_id,
+                        assembly_id="latest",
+                        target_format="md",
+                        content=full_manuscript,
+                        manifest_json=json.dumps(_manifest, ensure_ascii=True),
+                    )
+                )
+        except Exception as asm_exc:
+            logger.debug("Failed to persist markdown manuscript assembly (non-fatal): %s", asm_exc)
         await _save_subphase_checkpoint("phase_6d_assembly", papers_processed=len(SECTIONS))
         # Invariant: mark phase_6 as completed only when all required sections
         # are durably persisted and no writing tasks failed.
         async with get_db(state.db_path) as _ckpt_db:
             _ckpt_repo = WorkflowRepository(_ckpt_db)
             _persisted_sections = await _ckpt_repo.get_completed_sections(state.workflow_id)
-            _missing_sections = sorted(set(SECTIONS) - _persisted_sections)
-            _has_invariant_violation = bool(_failed_sections or _missing_sections)
+            _has_invariant_violation, _missing_sections = _validate_writing_persistence_invariant(
+                required_sections=list(SECTIONS),
+                persisted_sections=_persisted_sections,
+                failed_sections=_failed_sections,
+            )
             if _has_invariant_violation:
                 await _ckpt_repo.save_checkpoint(
                     state.workflow_id,
@@ -3672,6 +4048,8 @@ class WritingNode(BaseNode[ReviewState]):
                     rc._emit(
                         {
                             "type": "writing_error",
+                            "workflow_id": state.workflow_id,
+                            "required_sections": list(SECTIONS),
                             "failed_sections": _failed_sections,
                             "missing_sections": _missing_sections,
                             "persisted_sections": sorted(_persisted_sections),
@@ -3679,11 +4057,16 @@ class WritingNode(BaseNode[ReviewState]):
                                 "Writing phase ended with incomplete durable section state; "
                                 "checkpoint saved as partial for safe resume."
                             ),
+                            "resume_hint": (
+                                f"uv run python -m src.main resume --workflow-id {state.workflow_id} "
+                                "--from-phase phase_6_writing --verbose"
+                            ),
                         }
                     )
                 raise RuntimeError(
                     "Writing section persistence invariant failed: "
-                    f"failed={_failed_sections}, missing={_missing_sections}"
+                    f"workflow_id={state.workflow_id}, failed={_failed_sections}, "
+                    f"missing={_missing_sections}, persisted={sorted(_persisted_sections)}"
                 )
             await _ckpt_repo.save_checkpoint(
                 state.workflow_id,
@@ -3911,13 +4294,41 @@ class FinalizeNode(BaseNode[ReviewState]):
                 for _old, _new in _key_map.items():
                     _num_map.setdefault(_old, _new)
                 _author = str(getattr(getattr(state, "review", None), "author_name", "") or "")
-                _tex_path.write_text(
-                    _md_to_latex(_md_text, citekeys=_citekeys, num_to_citekey=_num_map, author_name=_author),
-                    encoding="utf-8",
+                _tex_content = _md_to_latex(
+                    _md_text,
+                    citekeys=_citekeys,
+                    num_to_citekey=_num_map,
+                    author_name=_author,
                 )
+                _tex_path.write_text(_tex_content, encoding="utf-8")
                 _bib_path.write_text(_build_bibtex(_normalized_citations), encoding="utf-8")
                 state.artifacts["manuscript_tex"] = str(_tex_path)
                 state.artifacts["references_bib"] = str(_bib_path)
+                try:
+                    async with get_db(state.db_path) as _asm_db:
+                        _asm_repo = WorkflowRepository(_asm_db)
+                        _latest_sections = await _asm_repo.load_latest_manuscript_sections(state.workflow_id)
+                        _manifest = {
+                            "sections": [
+                                {
+                                    "section_key": s.section_key,
+                                    "version": s.version,
+                                    "order": s.section_order,
+                                }
+                                for s in _latest_sections
+                            ]
+                        }
+                        await _asm_repo.save_manuscript_assembly(
+                            ManuscriptAssembly(
+                                workflow_id=state.workflow_id,
+                                assembly_id="latest",
+                                target_format="tex",
+                                content=_tex_content,
+                                manifest_json=json.dumps(_manifest, ensure_ascii=True),
+                            )
+                        )
+                except Exception as _asm_tex_err:
+                    logger.debug("FinalizeNode: failed to persist tex assembly (non-fatal): %s", _asm_tex_err)
                 logger.info("FinalizeNode: wrote doc_manuscript.tex and references.bib")
             except Exception as _tex_err:  # noqa: BLE001
                 logger.warning("FinalizeNode: LaTeX artifact generation failed (non-fatal): %s", _tex_err)
@@ -4015,6 +4426,12 @@ class FinalizeNode(BaseNode[ReviewState]):
             "included_papers": len(state.included_papers),
             "extraction_records": len(state.extraction_records),
             "artifacts": filtered_artifacts,
+            "rag_sections_total": state.rag_sections_total,
+            "rag_sections_success": state.rag_sections_success,
+            "rag_sections_empty": state.rag_sections_empty,
+            "rag_sections_error": state.rag_sections_error,
+            "rag_sections_skipped": state.rag_sections_skipped,
+            "rag_threshold_breached": state.rag_threshold_breached,
         }
         # --- Citation lineage validation gate ---
         # Check the final manuscript for unresolved citekeys. Respects the
