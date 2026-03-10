@@ -372,39 +372,49 @@ class DualReviewerScreener:
         # Ctrl+C events (after a reset) are still honoured.
         self._partial_flag_consumed = False
 
+        # Determine which papers still need processing BEFORE fetching PDFs so
+        # we do not re-download full text for papers that already have a decision
+        # saved from an interrupted prior run.  On a fresh run to_process == papers
+        # and behaviour is identical; on resume, only the truly unfinished subset
+        # is returned and PDF retrieval is scoped to that subset alone.
+        processed = await self.repository.get_processed_paper_ids(workflow_id, stage)
+        to_process = [p for p in papers if p.paper_id not in processed]
+
         if stage == "fulltext":
             if full_text_by_paper is None:
                 active_retriever = retriever or PDFRetriever()
                 _pdf_concurrency = self.settings.screening.pdf_retrieval_concurrency
                 _pdf_timeout = self.settings.screening.pdf_retrieval_per_paper_timeout
-                retrieval_results, coverage = await active_retriever.retrieve_batch(
-                    papers,
-                    on_progress=on_pdf_progress,
-                    concurrency=_pdf_concurrency,
-                    per_paper_timeout=_pdf_timeout,
-                    on_result=on_pdf_result,
-                )
-                full_text_by_paper = {
-                    paper_id: result.full_text for paper_id, result in retrieval_results.items() if result.success
-                }
-                # Abstract fallback for papers without full text (when not excluding for no-PDF)
-                skip_no_pdf = self.settings.screening.skip_fulltext_if_no_pdf
-                if not skip_no_pdf:
-                    for paper in papers:
-                        if paper.paper_id not in full_text_by_paper:
-                            fallback = (paper.abstract or paper.title or "").strip()
-                            full_text_by_paper[paper.paper_id] = fallback
+                if to_process:
+                    retrieval_results, coverage = await active_retriever.retrieve_batch(
+                        to_process,
+                        on_progress=on_pdf_progress,
+                        concurrency=_pdf_concurrency,
+                        per_paper_timeout=_pdf_timeout,
+                        on_result=on_pdf_result,
+                    )
+                    full_text_by_paper = {
+                        paper_id: result.full_text for paper_id, result in retrieval_results.items() if result.success
+                    }
+                    # Abstract fallback for unprocessed papers without full text
+                    skip_no_pdf = self.settings.screening.skip_fulltext_if_no_pdf
+                    if not skip_no_pdf:
+                        for paper in to_process:
+                            if paper.paper_id not in full_text_by_paper:
+                                fallback = (paper.abstract or paper.title or "").strip()
+                                full_text_by_paper[paper.paper_id] = fallback
+                else:
+                    # All papers already have persisted decisions; skip retrieval.
+                    coverage = self._coverage_from_map([], {})
+                    full_text_by_paper = {}
             else:
-                coverage = self._coverage_from_map(papers, full_text_by_paper)
+                coverage = self._coverage_from_map(to_process, full_text_by_paper)
             await self._persist_fulltext_coverage(
                 workflow_id=workflow_id,
                 stage=stage,
                 coverage=coverage,
                 coverage_report_path=coverage_report_path,
             )
-
-        processed = await self.repository.get_processed_paper_ids(workflow_id, stage)
-        to_process = [p for p in papers if p.paper_id not in processed]
 
         # ------------------------------------------------------------------
         # Batch-mode dispatch: when reviewer_batch_size > 0 send N papers per

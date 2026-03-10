@@ -1154,21 +1154,45 @@ class ScreeningNode(BaseNode[ReviewState]):
                 1 for d in stage2 if getattr(d, "exclusion_reason", None) == _ExclusionReason.NO_FULL_TEXT
             )
             # Fallback guard: if stage 2 returned nothing for a non-empty input,
-            # the interrupt flag was consumed -- fall back to stage-1 survivors.
+            # either the interrupt flag was consumed OR all papers already had
+            # persisted fulltext decisions from a prior interrupted run.
             if stage1_survivors and not stage2:
-                await repository.append_decision_log(
-                    DecisionLogEntry(
-                        decision_type="screening_stage2_fallback",
-                        decision="warning",
-                        rationale=(
-                            f"Stage 2 returned 0 decisions for {len(stage1_survivors)} "
-                            f"stage-1 survivors; treating stage-1 include decisions as final."
-                        ),
-                        actor="workflow_run",
-                        phase="phase_3_screening",
+                _ft_processed = await repository.get_processed_paper_ids(state.workflow_id, "fulltext")
+                if _ft_processed:
+                    # Resume case: all papers already screened at fulltext; load
+                    # actual included IDs from the DB to honour prior exclusions.
+                    _ft_included_ids = await repository.get_included_paper_ids(state.workflow_id)
+                    state.included_papers = [p for p in stage1_survivors if p.paper_id in _ft_included_ids]
+                    await repository.append_decision_log(
+                        DecisionLogEntry(
+                            decision_type="screening_stage2_resume",
+                            decision="info",
+                            rationale=(
+                                f"Stage 2 returned 0 new decisions for {len(stage1_survivors)} "
+                                f"stage-1 survivors; {len(_ft_processed)} fulltext decisions "
+                                f"already in DB from prior run. Loaded {len(state.included_papers)} "
+                                f"included papers from persisted decisions."
+                            ),
+                            actor="workflow_run",
+                            phase="phase_3_screening",
+                        )
                     )
-                )
-                state.included_papers = list(stage1_survivors)
+                else:
+                    # True interrupt case: interrupt flag consumed mid-screening;
+                    # fall back to stage-1 survivors as a conservative measure.
+                    await repository.append_decision_log(
+                        DecisionLogEntry(
+                            decision_type="screening_stage2_fallback",
+                            decision="warning",
+                            rationale=(
+                                f"Stage 2 returned 0 decisions for {len(stage1_survivors)} "
+                                f"stage-1 survivors; treating stage-1 include decisions as final."
+                            ),
+                            actor="workflow_run",
+                            phase="phase_3_screening",
+                        )
+                    )
+                    state.included_papers = list(stage1_survivors)
             else:
                 include_ids = {d.paper_id for d in stage2 if d.decision.value in ("include", "uncertain")}
                 state.included_papers = [p for p in stage1_survivors if p.paper_id in include_ids]
