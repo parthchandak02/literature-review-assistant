@@ -19,6 +19,8 @@ import asyncio
 import json
 import logging
 import random
+import time
+from collections.abc import Callable
 from typing import Protocol, runtime_checkable
 
 from src.models.config import ScreeningConfig
@@ -146,6 +148,7 @@ class BatchLLMRanker:
         intervention: str,
         outcome: str,
         client: BatchRankerClient | None = None,
+        on_status: Callable[[str], None] | None = None,
     ) -> None:
         self._screening = screening
         self._model = model
@@ -155,6 +158,7 @@ class BatchLLMRanker:
         self._intervention = intervention
         self._outcome = outcome
         self._client: BatchRankerClient = client or PydanticAIBatchRankerClient()
+        self.on_status = on_status
         # Validation state: populated by rank_and_split() after cross-checking a sample
         # of excluded papers. Callers read these to surface NPV in the Methods section.
         self.validation_sampled_n: int = 0
@@ -290,10 +294,26 @@ class BatchLLMRanker:
         _concurrency = getattr(self._screening, "batch_screen_concurrency", 3)
         sem = asyncio.Semaphore(_concurrency)
 
+        ranker_started = time.perf_counter()
+
         async def _score_one(idx: int, batch: list[CandidatePaper]) -> dict[str, float]:
             async with sem:
+                if self.on_status:
+                    self.on_status(
+                        f"Pre-ranker batch {idx + 1}/{len(batches)} starting "
+                        f"({idx * batch_size}/{len(papers)} papers scored, "
+                        f"elapsed {int(time.perf_counter() - ranker_started)}s)"
+                    )
                 logger.info("BatchLLMRanker: batch %d/%d (%d papers)", idx + 1, len(batches), len(batch))
-                return await self._score_batch(batch)
+                t0 = time.perf_counter()
+                result = await self._score_batch(batch)
+                elapsed_ms = int((time.perf_counter() - t0) * 1000)
+                if self.on_status:
+                    self.on_status(
+                        f"Pre-ranker batch {idx + 1}/{len(batches)} done in {elapsed_ms}ms "
+                        f"({len(batch)} papers scored)"
+                    )
+                return result
 
         gathered_scores = await asyncio.gather(
             *[_score_one(idx, batch) for idx, batch in enumerate(batches)],

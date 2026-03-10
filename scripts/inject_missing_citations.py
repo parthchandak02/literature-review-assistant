@@ -507,9 +507,7 @@ def _resolve_run_dir(args: argparse.Namespace) -> pathlib.Path:
         conn.close()
 
     if row is None:
-        print(
-            f"ERROR: workflow_id '{args.workflow_id}' not found in registry at {registry_db}."
-        )
+        print(f"ERROR: workflow_id '{args.workflow_id}' not found in registry at {registry_db}.")
         sys.exit(1)
 
     # db_path points to runtime.db; run dir is its parent.

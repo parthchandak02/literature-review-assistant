@@ -675,14 +675,8 @@ def build_compact_study_table(
 
     header = "| Study (Year) | Country | Design | N | Key Finding |"
     sep = "|---|---|---|---|---|"
-    data_lines = [
-        f"| {r[0]} | {r[1]} | {r[2]} | {r[3]} | {r[4]} |"
-        for r in rows
-    ]
-    note = (
-        f"\n_Table 1. Summary of {len(rows)} included studies. "
-        "See Appendix B for full characteristics._"
-    )
+    data_lines = [f"| {r[0]} | {r[1]} | {r[2]} | {r[3]} | {r[4]} |" for r in rows]
+    note = f"\n_Table 1. Summary of {len(rows)} included studies. See Appendix B for full characteristics._"
     return "\n".join([header, sep] + data_lines) + note
 
 

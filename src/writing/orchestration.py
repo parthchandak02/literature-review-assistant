@@ -465,12 +465,7 @@ async def register_background_sr_citations(
         # Topic relevance filter: require at least one keyword token to appear
         # in the paper title (case-insensitive). This prevents highly-cited but
         # off-topic reviews from being registered as background SR citations.
-        _topic_tokens = {
-            tok.lower()
-            for kw in keywords[:10]
-            for tok in kw.replace("-", " ").split()
-            if len(tok) > 3
-        }
+        _topic_tokens = {tok.lower() for kw in keywords[:10] for tok in kw.replace("-", " ").split() if len(tok) > 3}
         if not _topic_tokens:
             _topic_tokens = {tok.lower() for tok in research_question.split() if len(tok) > 3}
 

@@ -60,9 +60,7 @@ _ALL_SOURCES: list[tuple[str, str]] = [
 _SOURCE_LABEL = {src: label for src, label in _ALL_SOURCES}
 
 
-async def _resolve_db_path(
-    run_dir: str | None, workflow_id: str | None, run_root: str
-) -> pathlib.Path | None:
+async def _resolve_db_path(run_dir: str | None, workflow_id: str | None, run_root: str) -> pathlib.Path | None:
     if run_dir:
         p = pathlib.Path(run_dir).resolve()
         db = p / "runtime.db"
@@ -227,13 +225,10 @@ async def main(
         if "pdf" in src or src in ("pmc", "europepmc", "arxiv", "biorxiv_medrxiv")
     )
     abstract_total = source_counts.get("abstract", 0)
-    console.print(
-        f"\n[bold]Full-text coverage:[/] {fulltext_total}/{total} ({100 * fulltext_total / total:.0f}%)"
-    )
+    console.print(f"\n[bold]Full-text coverage:[/] {fulltext_total}/{total} ({100 * fulltext_total / total:.0f}%)")
     console.print(f"[bold]PDF coverage:[/] {pdf_total}/{total} ({100 * pdf_total / total:.0f}%)")
     console.print(
-        f"[bold]Abstract-only fallback:[/] [red]{abstract_total}/{total}[/] "
-        f"({100 * abstract_total / total:.0f}%)"
+        f"[bold]Abstract-only fallback:[/] [red]{abstract_total}/{total}[/] ({100 * abstract_total / total:.0f}%)"
     )
 
     from src.extraction.table_extraction import _is_elsevier_doi
@@ -253,17 +248,14 @@ async def main(
         )
     if not use_openalex:
         console.print(
-            "[dim]Add OPENALEX_API_KEY to .env to enable OpenAlex Content tier "
-            "(~60M OA works, $0.01/file).[/]"
+            "[dim]Add OPENALEX_API_KEY to .env to enable OpenAlex Content tier (~60M OA works, $0.01/file).[/]"
         )
 
     return 0
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(
-        description="Test full-text retrieval for included papers from a workflow run."
-    )
+    parser = argparse.ArgumentParser(description="Test full-text retrieval for included papers from a workflow run.")
     parser.add_argument(
         "--run-dir",
         default=None,
@@ -280,7 +272,8 @@ if __name__ == "__main__":
         help="Root directory for runs (for workflow-id lookup)",
     )
     parser.add_argument(
-        "-v", "--verbose",
+        "-v",
+        "--verbose",
         action="store_true",
         help="Show per-paper tier failure reasons",
     )
