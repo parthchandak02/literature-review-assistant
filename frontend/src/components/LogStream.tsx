@@ -1,9 +1,10 @@
-import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef } from "react"
+import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react"
 import { cn } from "@/lib/utils"
 import { PHASE_LABELS } from "@/lib/constants"
 import type { ReviewEvent } from "@/lib/api"
-import { eventToLogLine } from "@/lib/logLine"
+import { eventToLogEntry } from "@/lib/logLine"
 import type { LogLevel } from "@/lib/logLine"
+import type { LogRenderEntry } from "@/lib/logLine"
 
 // Event types that produce no meaningful user-facing log line and should be
 // filtered out of the rendered output (infrastructure / plumbing events).
@@ -14,15 +15,55 @@ const SKIP_EVENT_TYPES = new Set(["workflow_id_ready", "heartbeat"])
 // Render item types (phase separators + event rows)
 // ---------------------------------------------------------------------------
 
-type RenderItem =
+export type RenderItem =
   | { kind: "phase-sep"; phase: string; label: string; key: string }
-  | { kind: "event"; ev: ReviewEvent; key: string }
+  | { kind: "event"; ev: ReviewEvent; entry: LogRenderEntry; key: string }
 
-function buildRenderItems(events: ReviewEvent[]): RenderItem[] {
+export function buildRenderItems(events: ReviewEvent[]): RenderItem[] {
+  const eventPriority: Record<string, number> = {
+    phase_start: 1,
+    status: 2,
+    progress: 3,
+    screening_decision: 4,
+    phase_done: 5,
+    done: 6,
+    error: 7,
+    cancelled: 8,
+  }
+
+  const _parseBatchIdx = (ev: ReviewEvent): number | null => {
+    if (ev.type !== "status") return null
+    const m = (ev.message ?? "").match(/Pre-ranker batch\s+(\d+)\//i)
+    return m ? Number(m[1]) : null
+  }
+
+  // Keep source order by default, but for same-timestamp pre-ranker status rows
+  // use batch index ordering so concurrent completions render deterministically.
+  const ordered = events
+    .map((ev, i) => ({ ev, i }))
+    .sort((a, b) => {
+      const aTs = "ts" in a.ev ? (a.ev.ts ?? "") : ""
+      const bTs = "ts" in b.ev ? (b.ev.ts ?? "") : ""
+      if (aTs === bTs) {
+        const aBatch = _parseBatchIdx(a.ev)
+        const bBatch = _parseBatchIdx(b.ev)
+        if (aBatch != null && bBatch != null && aBatch !== bBatch) {
+          return aBatch - bBatch
+        }
+        const aRank = eventPriority[a.ev.type] ?? 100
+        const bRank = eventPriority[b.ev.type] ?? 100
+        if (aRank !== bRank) {
+          return aRank - bRank
+        }
+      }
+      return a.i - b.i
+    })
+    .map((x) => x.ev)
+
   const items: RenderItem[] = []
 
-  for (let i = 0; i < events.length; i++) {
-    const ev = events[i]
+  for (let i = 0; i < ordered.length; i++) {
+    const ev = ordered[i]
     const ts = "ts" in ev ? (ev as { ts?: string }).ts ?? "" : ""
 
     if (SKIP_EVENT_TYPES.has(ev.type)) continue
@@ -34,9 +75,16 @@ function buildRenderItems(events: ReviewEvent[]): RenderItem[] {
         label: PHASE_LABELS[ev.phase] ?? ev.phase,
         key: `sep-${ev.phase}-${ts}-${i}`,
       })
+      // phase_start is represented by a separator only to avoid duplicate rows.
+      continue
     }
 
-    items.push({ kind: "event", ev, key: `${ev.type}-${ts}-${i}` })
+    items.push({
+      kind: "event",
+      ev,
+      entry: eventToLogEntry(ev),
+      key: `${ev.type}-${ts}-${i}`,
+    })
   }
 
   return items
@@ -56,6 +104,38 @@ function levelClass(level: LogLevel): string {
     // include/exclude/exclude-heuristic handled separately as bordered cards
     default:                  return "text-zinc-600"
   }
+}
+
+function screeningCardClass(level: LogLevel): {
+  borderClass: string
+  badgeClass: string
+  textClass: string
+} {
+  if (level === "include") {
+    return {
+      borderClass: "border-emerald-500 bg-emerald-500/5",
+      badgeClass: "text-emerald-400",
+      textClass: "text-emerald-300",
+    }
+  }
+  if (level === "exclude-heuristic") {
+    return {
+      borderClass: "border-amber-700/60 bg-amber-600/5",
+      badgeClass: "text-amber-500",
+      textClass: "text-amber-300/90",
+    }
+  }
+  return {
+    borderClass: "border-zinc-600 bg-zinc-800/20",
+    badgeClass: "text-zinc-400",
+    textClass: "text-zinc-300",
+  }
+}
+
+function splitTerminalColumns(text: string): { ts: string | null; tag: string | null; message: string } {
+  const m = text.match(/^\[(\d{2}:\d{2}:\d{2})\]\s+([A-Z.]+)\s+(.*)$/)
+  if (!m) return { ts: null, tag: null, message: text }
+  return { ts: m[1], tag: m[2], message: m[3] }
 }
 
 // ---------------------------------------------------------------------------
@@ -79,12 +159,34 @@ export const LogStream = forwardRef<LogStreamHandle, LogStreamProps>(function Lo
   const scrollContainerRef = useRef<HTMLDivElement>(null)
   const bottomRef = useRef<HTMLDivElement>(null)
   const userScrolledUp = useRef(false)
+  const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set())
+  const [scrollTop, setScrollTop] = useState(0)
+  const [viewportHeight, setViewportHeight] = useState(0)
+  const rowEstimate = 24
+
+  const renderItems = useMemo(() => buildRenderItems(events), [events])
+
+  const scrollToItemIndex = (index: number) => {
+    const container = scrollContainerRef.current
+    if (!container) return
+    container.scrollTo({
+      top: Math.max(0, index * rowEstimate - 8),
+      behavior: "smooth",
+    })
+  }
 
   useImperativeHandle(ref, () => ({
     scrollToPhase: (phase: string) => {
       const container = scrollContainerRef.current
       const el = container?.querySelector<HTMLElement>(`[data-phase="${phase}"]`)
-      if (!el || !container) return
+      if (!container) return
+      if (!el) {
+        const fallbackIdx = renderItems.findIndex((item) => item.kind === "phase-sep" && item.phase === phase)
+        if (fallbackIdx >= 0) {
+          scrollToItemIndex(fallbackIdx)
+        }
+        return
+      }
       // getBoundingClientRect gives viewport-relative coords, which correctly
       // accounts for any ancestor transforms/positions. offsetTop would be
       // relative to the nearest positioned ancestor, which may not be the
@@ -114,6 +216,20 @@ export const LogStream = forwardRef<LogStreamHandle, LogStreamProps>(function Lo
     return () => observer.disconnect()
   }, [])
 
+  useEffect(() => {
+    const container = scrollContainerRef.current
+    if (!container) return
+    setViewportHeight(container.clientHeight)
+    const onScroll = () => setScrollTop(container.scrollTop)
+    container.addEventListener("scroll", onScroll, { passive: true })
+    const onResize = () => setViewportHeight(container.clientHeight)
+    window.addEventListener("resize", onResize)
+    return () => {
+      container.removeEventListener("scroll", onScroll)
+      window.removeEventListener("resize", onResize)
+    }
+  }, [])
+
   // Scroll to bottom on new events only when the user hasn't scrolled up.
   useEffect(() => {
     if (autoScroll && !userScrolledUp.current) {
@@ -121,7 +237,14 @@ export const LogStream = forwardRef<LogStreamHandle, LogStreamProps>(function Lo
     }
   }, [events.length, autoScroll])
 
-  const renderItems = useMemo(() => buildRenderItems(events), [events])
+  const toggleExpanded = (rowKey: string) => {
+    setExpandedRows((prev) => {
+      const next = new Set(prev)
+      if (next.has(rowKey)) next.delete(rowKey)
+      else next.add(rowKey)
+      return next
+    })
+  }
 
   if (events.length === 0) {
     return (
@@ -130,6 +253,18 @@ export const LogStream = forwardRef<LogStreamHandle, LogStreamProps>(function Lo
       </div>
     )
   }
+
+  const virtualEnabled = renderItems.length > 500
+  const overscan = 100
+  const start = virtualEnabled
+    ? Math.max(0, Math.floor(scrollTop / rowEstimate) - overscan)
+    : 0
+  const end = virtualEnabled
+    ? Math.min(renderItems.length, Math.ceil((scrollTop + viewportHeight) / rowEstimate) + overscan)
+    : renderItems.length
+  const visibleItems = renderItems.slice(start, end)
+  const topPad = virtualEnabled ? start * rowEstimate : 0
+  const bottomPad = virtualEnabled ? (renderItems.length - end) * rowEstimate : 0
 
   return (
     <div
@@ -141,13 +276,14 @@ export const LogStream = forwardRef<LogStreamHandle, LogStreamProps>(function Lo
       aria-atomic="false"
     >
       <div className="font-mono text-[11px] flex flex-col p-4 gap-px leading-5">
-        {renderItems.map((item) => {
+        {topPad > 0 && <div style={{ height: topPad }} />}
+        {visibleItems.map((item) => {
           if (item.kind === "phase-sep") {
             return (
               <div
                 key={item.key}
                 data-phase={item.phase}
-                className="flex items-center gap-2 mt-3 mb-1 first:mt-0"
+                className="flex items-center gap-2 mt-3 mb-1 first:mt-0 sticky top-0 z-10 bg-background/95 backdrop-blur-sm"
               >
                 <div className="h-px flex-1 bg-zinc-800" />
                 <span className="text-[10px] font-semibold tracking-widest uppercase text-violet-500/80 shrink-0 px-1">
@@ -158,45 +294,32 @@ export const LogStream = forwardRef<LogStreamHandle, LogStreamProps>(function Lo
             )
           }
 
-          const { text, level } = eventToLogLine(item.ev)
+          const { text, level } = item.entry
           const errorEv = item.ev.type === "error" ? (item.ev as { traceback?: string }) : null
-
-          // Progress ticks -- compact dim dots shown during calibration (1/15, 2/15...)
-          if (item.ev.type === "progress") {
-            return (
-              <div key={item.key} className="text-zinc-700 text-[10px] leading-4">
-                {text.replace(/^\[\d{2}:\d{2}:\d{2}\] PROG\s+/, "")}
-              </div>
-            )
-          }
 
           // Screening decisions get a colored left-border card treatment.
           if (level === "include" || level === "exclude" || level === "exclude-heuristic") {
             const isInclude = level === "include"
-            const isHeuristic = level === "exclude-heuristic"
+            const style = screeningCardClass(level)
             return (
               <div key={item.key} className="flex flex-col gap-0.5">
                 <div
                   className={cn(
                     "flex items-baseline gap-2 pl-2 border-l-2 rounded-r py-0.5",
-                    isInclude
-                      ? "border-emerald-500 bg-emerald-500/5"
-                      : isHeuristic
-                        ? "border-amber-800/50"
-                        : "border-zinc-700",
+                    style.borderClass,
                   )}
                 >
                   {/* Colored INCLUDE / EXCLUDE badge */}
                   <span className={cn(
                     "shrink-0 font-bold text-[10px] tracking-wider uppercase select-none",
-                    isInclude ? "text-emerald-400" : isHeuristic ? "text-amber-700" : "text-zinc-600",
+                    style.badgeClass,
                   )}>
                     {isInclude ? "INCLUDE" : "EXCLUDE"}
                   </span>
                   {/* Full log line (timestamp + label + conf + reason) */}
                   <span className={cn(
                     "whitespace-pre-wrap break-all min-w-0",
-                    isInclude ? "text-emerald-300" : isHeuristic ? "text-amber-800/80" : "text-zinc-500",
+                    style.textClass,
                   )}>
                     {/* Strip the leading "[HH:MM:SS] INCLUDE/EXCLUDE " prefix since the badge shows it */}
                     {text.replace(/^\[\d{2}:\d{2}:\d{2}\] (?:INCLUDE|EXCLUDE)\s+/, "")}
@@ -206,24 +329,32 @@ export const LogStream = forwardRef<LogStreamHandle, LogStreamProps>(function Lo
             )
           }
 
-          // Status events ("..." amber working indicator)
-          if (level === "status") {
-            return (
-              <div key={item.key} className="flex items-center gap-1.5 text-amber-500/60 italic">
-                <span className="shrink-0 text-amber-500/40">...</span>
-                <span className="whitespace-pre-wrap break-all">
-                  {/* Strip "[HH:MM:SS] ...    " prefix -- just show the message */}
-                  {text.replace(/^\[\d{2}:\d{2}:\d{2}\] \.{3}\s+/, "")}
-                </span>
-              </div>
-            )
-          }
-
           // All other event types -- plain text with level-based color
+          const cols = splitTerminalColumns(text)
+          const canExpand = text.length > 240
+          const isExpanded = expandedRows.has(item.key)
+          const displayMessage = canExpand && !isExpanded ? `${cols.message.slice(0, 240)}...` : cols.message
           return (
             <div key={item.key} className="flex flex-col gap-1">
-              <div className={cn("whitespace-pre-wrap break-all", levelClass(level))}>
-                {text}
+              <div className={cn("grid grid-cols-[74px_62px_1fr] items-start gap-x-2", levelClass(level))}>
+                <span className="text-zinc-500 tabular-nums">{cols.ts ? `[${cols.ts}]` : ""}</span>
+                <span className="text-zinc-400">{cols.tag ?? ""}</span>
+                <span className="whitespace-pre-wrap break-all min-w-0">
+                  {displayMessage}
+                  {canExpand && (
+                    <>
+                      {" "}
+                      <button
+                        type="button"
+                        onClick={() => toggleExpanded(item.key)}
+                        className="text-zinc-500 hover:text-zinc-300 underline underline-offset-2 transition-colors"
+                        title="Toggle full row"
+                      >
+                        {isExpanded ? "less" : "more"}
+                      </button>
+                    </>
+                  )}
+                </span>
               </div>
               {errorEv?.traceback && (
                 <pre className="text-[10px] text-zinc-500 whitespace-pre-wrap break-all font-mono pl-4 border-l-2 border-red-500/30 mt-1">
@@ -233,6 +364,7 @@ export const LogStream = forwardRef<LogStreamHandle, LogStreamProps>(function Lo
             </div>
           )
         })}
+        {bottomPad > 0 && <div style={{ height: bottomPad }} />}
         <div ref={bottomRef} />
       </div>
     </div>

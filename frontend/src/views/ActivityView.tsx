@@ -16,7 +16,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { LogStream } from "@/components/LogStream"
 import type { LogStreamHandle } from "@/components/LogStream"
-import { eventToLogLine } from "@/lib/logLine"
+import { eventToLogEntry } from "@/lib/logLine"
 import { FetchError } from "@/components/ui/feedback"
 import { Skeleton } from "@/components/ui/skeleton"
 import { fetchRunEvents, fetchWorkflowEvents } from "@/lib/api"
@@ -316,6 +316,8 @@ const DEFAULT_LEFT_WIDTH = 280
 
 export interface ActivityViewProps {
   events: ReviewEvent[]
+  prefetchedHistoricalEvents?: ReviewEvent[] | null
+  historicalEventsLoading?: boolean
   status: string
   runId: string
   workflowId?: string | null
@@ -325,6 +327,8 @@ export interface ActivityViewProps {
 
 export function ActivityView({
   events,
+  prefetchedHistoricalEvents = null,
+  historicalEventsLoading = false,
   status,
   runId,
   workflowId,
@@ -378,6 +382,7 @@ export function ActivityView({
     document.addEventListener("mouseup", handleMouseUp)
   }, [])
 
+  const hasPrefetchedHistorical = prefetchedHistoricalEvents != null
   const isHistoricalMode = isDone && events.length === 0 && Boolean(runId)
 
   const loadHistoricalEvents = useCallback(
@@ -411,23 +416,31 @@ export function ActivityView({
       setFetchError(null)
       return
     }
+    if (hasPrefetchedHistorical) {
+      return
+    }
     void loadHistoricalEvents(runId, workflowId)
-  }, [isHistoricalMode, runId, workflowId, loadHistoricalEvents])
+  }, [isHistoricalMode, runId, workflowId, loadHistoricalEvents, hasPrefetchedHistorical])
 
   const [searchQuery, setSearchQuery] = useState("")
-  const activeEvents = isHistoricalMode ? historicalEvents : events
+  const activeHistoricalEvents = hasPrefetchedHistorical ? (prefetchedHistoricalEvents ?? []) : historicalEvents
+  const activeEvents = isHistoricalMode ? activeHistoricalEvents : events
+  const effectiveLoadingHistory = hasPrefetchedHistorical ? historicalEventsLoading : loadingHistory
   const phaseStates = useMemo(
     () => buildPhaseStates(activeEvents, isDone),
     [activeEvents, isDone],
   )
   const isRunning = status === "streaming" || status === "connecting"
   const filtered = useMemo(() => {
-    if (!searchQuery.trim()) return activeEvents
     const q = searchQuery.trim().toLowerCase()
-    return activeEvents.filter((ev) => eventToLogLine(ev).text.toLowerCase().includes(q))
+    return activeEvents.filter((ev) => {
+      const entry = eventToLogEntry(ev)
+      if (q && !entry.text.toLowerCase().includes(q)) return false
+      return true
+    })
   }, [activeEvents, searchQuery])
 
-  const eventCountLabel = loadingHistory
+  const eventCountLabel = effectiveLoadingHistory
     ? null
     : searchQuery.trim()
     ? `${filtered.length} of ${activeEvents.length} events`
@@ -514,13 +527,13 @@ export function ActivityView({
                 {layout === "split" ? (
                   <CompactPhaseList
                     phaseStates={phaseStates}
-                    loading={loadingHistory}
+                    loading={effectiveLoadingHistory}
                     onPhaseClick={(phase) => {
                       logRef.current?.scrollToPhase(phase)
                     }}
                   />
                 ) : (
-                  <HorizontalStepperContent phaseStates={phaseStates} loading={loadingHistory} />
+                  <HorizontalStepperContent phaseStates={phaseStates} loading={effectiveLoadingHistory} />
                 )}
               </div>
             </div>
@@ -555,7 +568,7 @@ export function ActivityView({
               <div className="flex items-center gap-2 px-4 h-11 border-b border-zinc-800 shrink-0 overflow-hidden">
                 <span className="label-caps shrink-0">Activity Log</span>
 
-                {loadingHistory ? (
+                {effectiveLoadingHistory ? (
                   <span className="flex items-center gap-1.5 text-xs text-zinc-500">
                     <Loader2 className="h-3 w-3 animate-spin" />
                     Loading...
@@ -600,7 +613,7 @@ export function ActivityView({
                   </div>
                 )}
 
-                {!loadingHistory && filtered.length === 0 && !fetchError && (
+                {!effectiveLoadingHistory && filtered.length === 0 && !fetchError && (
                   <div className="py-12 flex items-center justify-center">
                     <p className="text-zinc-600 text-sm">
                       Events will appear here once the review starts.
