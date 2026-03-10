@@ -311,6 +311,11 @@ def _strip_compact_study_tables(text: str) -> str:
     return _compact_block_re.sub("", text)
 
 
+def _strip_section_block_markers(text: str) -> str:
+    """Remove deterministic writing boundary markers from export-facing markdown."""
+    return re.sub(r"(?m)^\s*<!--\s*SECTION_BLOCK:[^>]+-->\s*\n?", "", text)
+
+
 def _normalize_subsection_heading_layout(text: str) -> str:
     """Split inline subsection heading+body into canonical multiline markdown.
 
@@ -330,44 +335,51 @@ def _normalize_subsection_heading_layout(text: str) -> str:
     _heading_re = re.compile(r"^(#{3,6})\s+(.+)$")
     _sentence_start_re = re.compile(r"^(The|This|These|We|Our|In|Across|To|A|An|Studies|Study|Data)\b")
     _title_token_re = re.compile(r"^[A-Z][A-Za-z0-9()/:,\-']*$")
+    _connector_tail = {"and", "or", "of", "for", "to", "with"}
 
-    def _split_heading_and_body(line: str) -> tuple[str, str] | None:
-        m = _heading_re.match(line.strip())
-        if not m:
-            return None
-        level = m.group(1)
-        tail = m.group(2).strip()
-        if not tail:
-            return None
-        # Marker-first pipelines should already separate sections; this fallback
-        # handles legacy run-on lines without hardcoding specific heading titles.
-        if "  " in tail:
-            left, right = tail.split("  ", 1)
-            if right.strip():
-                return f"{level} {left.strip()}", right.strip()
-        words = tail.split()
-        if len(words) < 4:
-            return None
-        # Heuristic split point: short title-case prefix followed by sentence-like start.
-        for idx in range(2, min(len(words), 12)):
-            left_words = words[:idx]
-            right_words = words[idx:]
-            left_ok = all(_title_token_re.match(w) or w.lower() in {"and", "of", "for", "to", "with"} for w in left_words)
-            if not left_ok:
-                continue
-            right = " ".join(right_words).strip()
-            if _sentence_start_re.match(right) or (right and right[0].isupper() and any(c in right for c in ".,")):
-                return f"{level} {' '.join(left_words)}", right
-        return None
+    def _looks_title_fragment(s: str) -> bool:
+        words = s.strip().split()
+        if not words or len(words) > 5:
+            return False
+        return all(_title_token_re.match(w) or w.lower() in _connector_tail for w in words)
 
     out_lines: list[str] = []
-    for line in text.splitlines():
-        split = _split_heading_and_body(line)
-        if not split:
+    lines = text.splitlines()
+    i = 0
+    while i < len(lines):
+        line = lines[i]
+        m = _heading_re.match(line.strip())
+        if m:
+            level = m.group(1)
+            tail = m.group(2).strip()
+            nxt = lines[i + 1].strip() if i + 1 < len(lines) else ""
+            tail_words = tail.split()
+            if nxt and not nxt.startswith("#"):
+                if (tail_words and tail_words[-1].lower() in _connector_tail and _looks_title_fragment(nxt)) or (
+                    len(tail_words) <= 3 and _looks_title_fragment(nxt) and not _sentence_start_re.match(nxt)
+                ):
+                    line = f"{level} {tail} {nxt}".strip()
+                    i += 1
+
+            words = line.strip().split()
+            split_applied = False
+            if len(words) >= 4 and words[0].startswith("#"):
+                for idx in range(3, min(len(words), 12)):
+                    left_words = words[1:idx]
+                    right = " ".join(words[idx:]).strip()
+                    left_ok = all(_title_token_re.match(w) or w.lower() in _connector_tail for w in left_words)
+                    if not left_ok:
+                        continue
+                    if _sentence_start_re.match(right) or (right and right[0].isupper() and any(c in right for c in ".,")):
+                        out_lines.extend([f"{words[0]} {' '.join(left_words)}", "", right])
+                        split_applied = True
+                        break
+            if not split_applied:
+                out_lines.append(line)
+        else:
             out_lines.append(line)
-            continue
-        heading, body = split
-        out_lines.extend([heading, "", body])
+        i += 1
+
     return "\n".join(out_lines)
 
 
@@ -1508,7 +1520,9 @@ def assemble_submission_manuscript(
     title and the abstract body. Defaults to False (omit for IEEE submissions where
     this non-standard prefix would appear before the structured abstract).
     """
-    clean_body = _strip_compact_study_tables(_sanitize_body(_normalize_subsection_heading_layout(body)))
+    clean_body = _strip_compact_study_tables(
+        _sanitize_body(_strip_section_block_markers(_normalize_subsection_heading_layout(body)))
+    )
 
     # Normalize date range in Methods section to the authoritative protocol values
     # before citation conversion so the Methods text is consistent with PICOS table.

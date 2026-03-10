@@ -181,6 +181,12 @@ def log_connector_result(
     status: str,
     records: int | None = None,
     error: str | None = None,
+    *,
+    reason_code: str | None = None,
+    reason_label: str | None = None,
+    action: str | None = None,
+    entity_type: str | None = None,
+    entity_id: str | None = None,
 ) -> None:
     """Log connector search result."""
     payload: dict[str, Any] = {"connector": connector, "status": status}
@@ -188,6 +194,16 @@ def log_connector_result(
         payload["records"] = records
     if error is not None:
         payload["error"] = error
+    if reason_code is not None:
+        payload["reason_code"] = reason_code
+    if reason_label is not None:
+        payload["reason_label"] = reason_label
+    if action is not None:
+        payload["action"] = action
+    if entity_type is not None:
+        payload["entity_type"] = entity_type
+    if entity_id is not None:
+        payload["entity_id"] = entity_id
     logger = structlog.get_logger()
     logger.info("connector_result", **payload)
 
