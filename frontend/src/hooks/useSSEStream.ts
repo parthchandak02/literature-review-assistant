@@ -26,7 +26,19 @@ function friendlyError(err: unknown): string {
   return msg
 }
 
-function eventKey(ev: ReviewEvent, i: number): string {
+function stableStringify(value: unknown): string {
+  if (value == null) return String(value)
+  if (typeof value !== "object") return JSON.stringify(value)
+  if (Array.isArray(value)) {
+    return `[${value.map((v) => stableStringify(v)).join(",")}]`
+  }
+  const entries = Object.entries(value as Record<string, unknown>)
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([k, v]) => `${JSON.stringify(k)}:${stableStringify(v)}`)
+  return `{${entries.join(",")}}`
+}
+
+function eventKey(ev: ReviewEvent): string {
   const ts = "ts" in ev ? (ev as { ts?: string }).ts ?? "" : ""
   const base = `${ev.type}|${ts}`
   switch (ev.type) {
@@ -46,10 +58,28 @@ function eventKey(ev: ReviewEvent, i: number): string {
     case "synthesis":
       return `${base}|${(ev as { feasible?: boolean }).feasible ?? ""}|${(ev as { n_studies?: number }).n_studies ?? ""}`
     case "api_call":
-      return `${base}|${(ev as { paper_id?: string }).paper_id ?? ""}|${(ev as { section_name?: string }).section_name ?? ""}|${i}`
+      return [
+        base,
+        (ev as { paper_id?: string }).paper_id ?? "",
+        (ev as { section_name?: string }).section_name ?? "",
+        (ev as { status?: string }).status ?? "",
+        (ev as { model?: string | null }).model ?? "",
+        (ev as { latency_ms?: number | null }).latency_ms ?? "",
+        (ev as { tokens_in?: number | null }).tokens_in ?? "",
+        (ev as { tokens_out?: number | null }).tokens_out ?? "",
+      ].join("|")
     default:
-      return `${base}|${i}`
+      return `${base}|${stableStringify(ev)}`
   }
+}
+
+function normalizeEvent(ev: ReviewEvent): ReviewEvent {
+  // Some terminal events may be emitted without ts. Use a deterministic
+  // placeholder to keep replay dedup stable across reconnects.
+  if ((ev.type === "done" || ev.type === "error" || ev.type === "cancelled") && !("ts" in ev && ev.ts)) {
+    return { ...ev, ts: "__missing_terminal_ts__" }
+  }
+  return ev
 }
 
 /**
@@ -61,8 +91,8 @@ function dedup(events: ReviewEvent[]): ReviewEvent[] {
   const seen = new Set<string>()
   const out: ReviewEvent[] = []
   for (let i = 0; i < events.length; i++) {
-    const ev = events[i]
-    const key = eventKey(ev, i)
+    const ev = normalizeEvent(events[i])
+    const key = eventKey(ev)
     if (!seen.has(key)) {
       seen.add(key)
       out.push(ev)
@@ -114,7 +144,7 @@ function openStream(runId: string, signal: AbortSignal, setState: SetState, work
     onmessage: (ev) => {
       if (ev.event === "heartbeat") return
       try {
-        const data = JSON.parse(ev.data) as ReviewEvent
+        const data = normalizeEvent(JSON.parse(ev.data) as ReviewEvent)
         setState((s) => {
           const merged = dedup([...s.events, data])
           let status = s.status
@@ -191,7 +221,8 @@ export function useSSEStream(runId: string | null, workflowId?: string | null) {
           // Check if the run already has a terminal event in the buffer.
           // Use the LAST terminal event so resumed runs (which have an old
           // "cancelled" event followed by new phase events) open SSE correctly.
-          const terminal = [...prior].reverse().find(
+          const normalizedPrior = dedup(prior)
+          const terminal = [...normalizedPrior].reverse().find(
             (e) => e.type === "done" || e.type === "error" || e.type === "cancelled",
           )
           if (terminal) {
@@ -202,7 +233,7 @@ export function useSSEStream(runId: string | null, workflowId?: string | null) {
                 ? "error"
                 : "cancelled"
             setState({
-              events: prior,
+              events: normalizedPrior,
               status,
               error: terminal.type === "error" ? terminal.msg : null,
             })
@@ -212,7 +243,7 @@ export function useSSEStream(runId: string | null, workflowId?: string | null) {
           // Seed state with prior events before streaming begins.
           setState((s) => ({
             ...s,
-            events: dedup([...s.events, ...prior]),
+            events: dedup([...s.events, ...normalizedPrior]),
           }))
         }
 
