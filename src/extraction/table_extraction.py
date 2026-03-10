@@ -72,7 +72,7 @@ def _get_tier_timeout() -> int:
         from src.config.loader import load_configs
 
         _, s = load_configs(settings_path="config/settings.yaml")
-        return getattr(s.extraction, "pdf_tier_timeout_seconds", 12)
+        return s.extraction.pdf_tier_timeout_seconds
     except Exception:
         return 12
 
@@ -1693,7 +1693,6 @@ def _parse_table_json(raw: str) -> list[dict[str, str]]:
 async def extract_tables_from_pdf(
     pdf_bytes: bytes | None,
     model_name: str | None = None,
-    api_key: str | None = None,
 ) -> list[OutcomeRecord]:
     """Extract quantitative outcome tables from PDF bytes via PydanticAI multimodal.
 
@@ -1703,7 +1702,6 @@ async def extract_tables_from_pdf(
     Args:
         pdf_bytes: Raw PDF bytes. If None, returns empty list.
         model_name: Gemini model to use for vision extraction (without provider prefix).
-        api_key: Unused; kept for backward compat. PydanticAI reads GEMINI_API_KEY.
 
     Returns:
         List of OutcomeRecord objects with keys: name, description, effect_size,

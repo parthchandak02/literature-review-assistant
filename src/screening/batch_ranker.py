@@ -310,8 +310,7 @@ class BatchLLMRanker:
                 elapsed_ms = int((time.perf_counter() - t0) * 1000)
                 if self.on_status:
                     self.on_status(
-                        f"Pre-ranker batch {idx + 1}/{len(batches)} done in {elapsed_ms}ms "
-                        f"({len(batch)} papers scored)"
+                        f"Pre-ranker batch {idx + 1}/{len(batches)} done in {elapsed_ms}ms ({len(batch)} papers scored)"
                     )
                 return result
 

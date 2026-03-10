@@ -677,13 +677,18 @@ class ScreeningNode(BaseNode[ReviewState]):
             repository = WorkflowRepository(db)
             gate_runner = GateRunner(repository, state.settings)
             on_waiting = None
+            on_resolved = None
             if rc and rc.verbose:
 
-                def _on_waiting(t: object, u: object, limit: object) -> None:
-                    rc.log_rate_limit_wait(t, u, limit)  # type: ignore[union-attr]
+                def _on_waiting(t: object, u: object, limit: object, waited: object = 0.0) -> None:
+                    rc.log_rate_limit_wait(t, u, limit, waited)  # type: ignore[union-attr]
+
+                def _on_resolved(t: object, waited: object) -> None:
+                    rc.log_rate_limit_resolved(t, waited)  # type: ignore[union-attr]
 
                 on_waiting = _on_waiting
-            provider = LLMProvider(state.settings, repository, on_waiting=on_waiting)
+                on_resolved = _on_resolved
+            provider = LLMProvider(state.settings, repository, on_waiting=on_waiting, on_resolved=on_resolved)
             on_llm_call = None
             if rc and rc.verbose:
 

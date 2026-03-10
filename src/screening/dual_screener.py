@@ -68,7 +68,7 @@ class ScreeningLLMClient(Protocol):
 
 
 class HeuristicScreeningClient:
-    """Test-only stub. Returns deterministic fake decisions. Use GeminiScreeningClient for real runs."""
+    """Test-only stub. Returns deterministic fake decisions. Use PydanticAIScreeningClient for real runs."""
 
     async def complete_json(
         self,
@@ -375,8 +375,8 @@ class DualReviewerScreener:
         if stage == "fulltext":
             if full_text_by_paper is None:
                 active_retriever = retriever or PDFRetriever()
-                _pdf_concurrency = getattr(self.settings.screening, "pdf_retrieval_concurrency", 8)
-                _pdf_timeout = getattr(self.settings.screening, "pdf_retrieval_per_paper_timeout", 45)
+                _pdf_concurrency = self.settings.screening.pdf_retrieval_concurrency
+                _pdf_timeout = self.settings.screening.pdf_retrieval_per_paper_timeout
                 retrieval_results, coverage = await active_retriever.retrieve_batch(
                     papers,
                     on_progress=on_pdf_progress,
@@ -388,7 +388,7 @@ class DualReviewerScreener:
                     paper_id: result.full_text for paper_id, result in retrieval_results.items() if result.success
                 }
                 # Abstract fallback for papers without full text (when not excluding for no-PDF)
-                skip_no_pdf = getattr(self.settings.screening, "skip_fulltext_if_no_pdf", False)
+                skip_no_pdf = self.settings.screening.skip_fulltext_if_no_pdf
                 if not skip_no_pdf:
                     for paper in papers:
                         if paper.paper_id not in full_text_by_paper:
@@ -410,7 +410,7 @@ class DualReviewerScreener:
         # Batch-mode dispatch: when reviewer_batch_size > 0 send N papers per
         # LLM call instead of one call per paper.
         # ------------------------------------------------------------------
-        batch_size = getattr(self.settings.screening, "reviewer_batch_size", 0)
+        batch_size = self.settings.screening.reviewer_batch_size
         if batch_size > 0 and to_process:
             return await self._screen_batch_mode(
                 workflow_id=workflow_id,
@@ -431,7 +431,7 @@ class DualReviewerScreener:
                     return None
                 if stage == "fulltext":
                     text = (full_text_by_paper or {}).get(paper.paper_id, "")
-                    skip_no_pdf = getattr(self.settings.screening, "skip_fulltext_if_no_pdf", False)
+                    skip_no_pdf = self.settings.screening.skip_fulltext_if_no_pdf
                     if skip_no_pdf and not text.strip():
                         # Ensure FK integrity: papers table must have a row before
                         # screening_decisions (which has a FK on papers.paper_id).
@@ -960,7 +960,7 @@ class DualReviewerScreener:
 
         # Heuristic pre-filters (no-full-text, protocol-only, insufficient-content) still run
         # per-paper before any LLM call, identical to the per-paper path.
-        skip_no_pdf = getattr(self.settings.screening, "skip_fulltext_if_no_pdf", False)
+        skip_no_pdf = self.settings.screening.skip_fulltext_if_no_pdf
         heuristic_decisions: dict[str, ScreeningDecision] = {}
         llm_candidates: list[CandidatePaper] = []
         for paper in papers:

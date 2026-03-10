@@ -42,7 +42,8 @@ export type ReviewEvent =
   | { type: "screening_decision"; paper_id: string; stage: string; decision: string; confidence?: number; title?: string; reason?: string; method?: "llm" | "heuristic"; ts: string }
   | { type: "extraction_paper"; paper_id: string; design: string; rob_judgment: string; ts: string }
   | { type: "synthesis"; feasible: boolean; groups: number; n_studies: number; direction: string; ts: string }
-  | { type: "rate_limit_wait"; tier: string; slots_used: number; limit: number; ts: string }
+  | { type: "rate_limit_wait"; tier: string; slots_used: number; limit: number; waited_seconds?: number; ts: string }
+  | { type: "rate_limit_resolved"; tier: string; waited_seconds: number; ts: string }
   | { type: "search_override_status"; database: string; status: "applied" | "miss" | "absent"; detail: string; ts: string }
   | { type: "status"; message: string; ts: string }
   | { type: "screening_prefilter_done"; deduped: number; metadata_rejected: number; after_metadata: number; automation_excluded: number; to_llm: number; ts: string }

@@ -172,10 +172,18 @@ export function eventToLogLine(ev: ReviewEvent): { text: string; level: LogLevel
       }
     }
 
-    case "rate_limit_wait":
+    case "rate_limit_wait": {
+      const waitedStr = ev.waited_seconds != null ? ` (${ev.waited_seconds.toFixed(1)}s)` : ""
       return {
-        text: `[${fmtTs(ev.ts)}] RATELIMIT  ${ev.tier}: ${ev.slots_used}/${ev.limit} slots -- waiting`,
+        text: `[${fmtTs(ev.ts)}] RATELIMIT  ${ev.tier}: ${ev.slots_used}/${ev.limit} slots -- waiting${waitedStr}`,
         level: "warn",
+      }
+    }
+
+    case "rate_limit_resolved":
+      return {
+        text: `[${fmtTs(ev.ts)}] RATELIMIT  ${ev.tier}: cleared after ${ev.waited_seconds.toFixed(1)}s`,
+        level: "info",
       }
 
     case "db_ready":

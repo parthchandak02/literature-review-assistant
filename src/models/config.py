@@ -599,6 +599,6 @@ class SettingsConfig(BaseModel):
     search: SearchConfig = Field(default_factory=SearchConfig)
     rag: RagConfig = Field(default_factory=RagConfig)
     extraction: ExtractionConfig = Field(default_factory=ExtractionConfig)
-    llm: LLMRateLimitConfig | None = None
+    llm: LLMRateLimitConfig = Field(default_factory=LLMRateLimitConfig)
     human_in_the_loop: HumanInTheLoopConfig = Field(default_factory=HumanInTheLoopConfig)
     web: WebConfig = Field(default_factory=WebConfig)

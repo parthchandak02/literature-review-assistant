@@ -1,8 +1,4 @@
-"""Screening LLM client backed by PydanticAI -- satisfies ScreeningLLMClient protocol.
-
-GeminiScreeningClient is retained as an alias for backward compatibility with any
-code that imports it by name (primarily workflow.py and __init__.py).
-"""
+"""Screening LLM client backed by PydanticAI -- satisfies ScreeningLLMClient protocol."""
 
 from __future__ import annotations
 
@@ -61,7 +57,4 @@ class PydanticAIScreeningClient:
         )
 
 
-# Backward-compatibility alias -- workflow.py and __init__.py import this name.
-GeminiScreeningClient = PydanticAIScreeningClient
-
-__all__ = ["PydanticAIScreeningClient", "GeminiScreeningClient"]
+__all__ = ["PydanticAIScreeningClient"]

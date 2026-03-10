@@ -5,7 +5,7 @@ from src.screening.dual_screener import (
     HeuristicScreeningClient,
     ScreeningLLMClient,
 )
-from src.screening.gemini_client import GeminiScreeningClient, PydanticAIScreeningClient
+from src.screening.gemini_client import PydanticAIScreeningClient
 from src.screening.reliability import (
     compute_cohens_kappa,
     generate_disagreements_report,
@@ -14,7 +14,6 @@ from src.screening.reliability import (
 
 __all__ = [
     "DualReviewerScreener",
-    "GeminiScreeningClient",
     "PydanticAIScreeningClient",
     "HeuristicScreeningClient",
     "ScreeningLLMClient",

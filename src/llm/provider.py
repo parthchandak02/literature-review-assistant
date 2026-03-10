@@ -46,19 +46,18 @@ class LLMProvider:
         self,
         settings: SettingsConfig,
         repository: WorkflowRepository,
-        on_waiting: Callable[[str, int, int], None] | None = None,
+        on_waiting: Callable[[str, int, int, float], None] | None = None,
+        on_resolved: Callable[[str, float], None] | None = None,
     ):
         self.settings = settings
         self.repository = repository
-        llm_cfg = getattr(settings, "llm", None)
-        flash_rpm = llm_cfg.flash_rpm if llm_cfg else 10
-        flash_lite_rpm = llm_cfg.flash_lite_rpm if llm_cfg else 15
-        pro_rpm = llm_cfg.pro_rpm if llm_cfg else 5
+        llm_cfg = settings.llm
         self.rate_limiter = RateLimiter(
-            flash_rpm=flash_rpm,
-            flash_lite_rpm=flash_lite_rpm,
-            pro_rpm=pro_rpm,
+            flash_rpm=llm_cfg.flash_rpm,
+            flash_lite_rpm=llm_cfg.flash_lite_rpm,
+            pro_rpm=llm_cfg.pro_rpm,
             on_waiting=on_waiting,
+            on_resolved=on_resolved,
         )
 
     # Maps pydantic-ai model-string prefix -> genai-prices provider_id.

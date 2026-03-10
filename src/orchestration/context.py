@@ -416,12 +416,20 @@ class RunContext:
             title += f" | {paper_id[:12]}..."
         self.console.print(Panel(truncated, title=title, border_style="dim"))
 
-    def log_rate_limit_wait(self, tier: str, slots_used: int, limit: int) -> None:
+    def log_rate_limit_wait(self, tier: str, slots_used: int, limit: int, waited_seconds: float = 0.0) -> None:
         """Log when rate limiter is blocking (verbose only)."""
         structured_log.log_rate_limit_wait(tier=tier, slots_used=slots_used, limit=limit)
         if not self.verbose:
             return
-        self.console.print(f"[yellow]Rate limit[/] ({tier}): {slots_used}/{limit} slots used, waiting...")
+        self.console.print(
+            f"[yellow]Rate limit[/] ({tier}): {slots_used}/{limit} slots used, waiting ({waited_seconds:.1f}s)..."
+        )
+
+    def log_rate_limit_resolved(self, tier: str, waited_seconds: float) -> None:
+        """Log when rate limiter wait ends."""
+        if not self.verbose:
+            return
+        self.console.print(f"[green]Rate limit cleared[/] ({tier}): waited {waited_seconds:.1f}s")
 
     def log_status(self, message: str) -> None:
         """Log a short status message visible even when not verbose."""
@@ -704,7 +712,7 @@ class WebRunContext:
     def log_prompt(self, agent_name: str, prompt: str, paper_id: str | None) -> None:
         pass
 
-    def log_rate_limit_wait(self, tier: str, slots_used: int, limit: int) -> None:
+    def log_rate_limit_wait(self, tier: str, slots_used: int, limit: int, waited_seconds: float = 0.0) -> None:
         structured_log.log_rate_limit_wait(tier=tier, slots_used=slots_used, limit=limit)
         self._emit(
             {
@@ -712,6 +720,16 @@ class WebRunContext:
                 "tier": tier,
                 "slots_used": slots_used,
                 "limit": limit,
+                "waited_seconds": round(waited_seconds, 1),
+            }
+        )
+
+    def log_rate_limit_resolved(self, tier: str, waited_seconds: float) -> None:
+        self._emit(
+            {
+                "type": "rate_limit_resolved",
+                "tier": tier,
+                "waited_seconds": round(waited_seconds, 1),
             }
         )
 

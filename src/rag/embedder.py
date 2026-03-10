@@ -41,7 +41,6 @@ def _get_embedder(model: str = _DEFAULT_EMBED_MODEL, dim: int = _DEFAULT_EMBED_D
 
 async def embed_texts(
     texts: list[str],
-    api_key: str | None = None,  # kept for backward compat; PydanticAI reads GEMINI_API_KEY
     batch_size: int = 20,
     model: str = _DEFAULT_EMBED_MODEL,
     dim: int = _DEFAULT_EMBED_DIM,
@@ -81,7 +80,6 @@ async def embed_texts(
 
 async def embed_query(
     text: str,
-    api_key: str | None = None,  # kept for backward compat
     model: str = _DEFAULT_EMBED_MODEL,
     dim: int = _DEFAULT_EMBED_DIM,
 ) -> list[float]:
