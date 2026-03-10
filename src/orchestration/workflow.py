@@ -776,6 +776,10 @@ class ScreeningNode(BaseNode[ReviewState]):
                     "insufficient_content_heuristic",
                     "protocol_only_heuristic",
                     "fulltext_no_pdf_heuristic",
+                    "metadata_incomplete",
+                    "keyword_filter",
+                    "low_relevance_score",
+                    "batch_screened_low",
                 )
 
                 def _on_screening_decision(

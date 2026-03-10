@@ -3,6 +3,7 @@ import { cn } from "@/lib/utils"
 import { PHASE_LABELS } from "@/lib/constants"
 import type { ReviewEvent } from "@/lib/api"
 import { eventToLogEntry } from "@/lib/logLine"
+import type { ActivityLogMode } from "@/lib/logLine"
 import type { LogLevel } from "@/lib/logLine"
 import type { LogRenderEntry } from "@/lib/logLine"
 
@@ -18,8 +19,9 @@ const SKIP_EVENT_TYPES = new Set(["workflow_id_ready", "heartbeat"])
 export type RenderItem =
   | { kind: "phase-sep"; phase: string; label: string; key: string }
   | { kind: "event"; ev: ReviewEvent; entry: LogRenderEntry; key: string }
+  | { kind: "summary"; entry: LogRenderEntry; key: string }
 
-export function buildRenderItems(events: ReviewEvent[]): RenderItem[] {
+export function buildRenderItems(events: ReviewEvent[], mode: ActivityLogMode): RenderItem[] {
   const eventPriority: Record<string, number> = {
     phase_start: 1,
     status: 2,
@@ -61,10 +63,29 @@ export function buildRenderItems(events: ReviewEvent[]): RenderItem[] {
     .map((x) => x.ev)
 
   const items: RenderItem[] = []
+  const userPhaseCounters: Record<string, {
+    llmCalls: number
+    include: number
+    exclude: number
+    pdfOk: number
+    pdfFail: number
+  }> = {}
 
   for (let i = 0; i < ordered.length; i++) {
     const ev = ordered[i]
     const ts = "ts" in ev ? (ev as { ts?: string }).ts ?? "" : ""
+    const phaseKey = (() => {
+      if (ev.type === "api_call" || ev.type === "progress" || ev.type === "phase_done" || ev.type === "phase_start") {
+        return (ev as { phase?: string }).phase ?? "unknown"
+      }
+      if (ev.type === "screening_decision" || ev.type === "pdf_result" || ev.type === "screening_prefilter_done" || ev.type === "batch_screen_done") {
+        return "phase_3_screening"
+      }
+      return "unknown"
+    })()
+    if (!userPhaseCounters[phaseKey]) {
+      userPhaseCounters[phaseKey] = { llmCalls: 0, include: 0, exclude: 0, pdfOk: 0, pdfFail: 0 }
+    }
 
     if (SKIP_EVENT_TYPES.has(ev.type)) continue
 
@@ -79,10 +100,55 @@ export function buildRenderItems(events: ReviewEvent[]): RenderItem[] {
       continue
     }
 
+    if (mode === "user") {
+      if (ev.type === "api_call") {
+        userPhaseCounters[phaseKey].llmCalls += 1
+        continue
+      }
+      if (ev.type === "progress") {
+        continue
+      }
+      if (ev.type === "screening_decision") {
+        if (ev.decision === "include") userPhaseCounters[phaseKey].include += 1
+        else userPhaseCounters[phaseKey].exclude += 1
+        continue
+      }
+      if (ev.type === "pdf_result") {
+        if (ev.success) userPhaseCounters[phaseKey].pdfOk += 1
+        else userPhaseCounters[phaseKey].pdfFail += 1
+        continue
+      }
+      if (ev.type === "phase_done") {
+        const counts = userPhaseCounters[phaseKey]
+        if (counts && (counts.llmCalls > 0 || counts.include > 0 || counts.exclude > 0 || counts.pdfOk > 0 || counts.pdfFail > 0)) {
+          const bits: string[] = []
+          if (counts.llmCalls > 0) bits.push(`LLM calls=${counts.llmCalls}`)
+          if (counts.include > 0 || counts.exclude > 0) bits.push(`decisions include=${counts.include}, exclude=${counts.exclude}`)
+          if (counts.pdfOk > 0 || counts.pdfFail > 0) bits.push(`PDF ok=${counts.pdfOk}, unavailable=${counts.pdfFail}`)
+          items.push({
+            kind: "summary",
+            key: `summary-${phaseKey}-${ts}-${i}`,
+            entry: {
+              text: `[${ts ? ts.slice(11, 19) : "--:--:--"}] SUMMARY ${bits.join(" | ")}`,
+              level: "status",
+              severity: "status",
+              kind: "status",
+              phase: phaseKey,
+              eventType: "status",
+              compactable: false,
+              groupKey: `summary:${phaseKey}`,
+              isResumeRelated: false,
+              isResumeNoOp: false,
+            },
+          })
+        }
+      }
+    }
+
     items.push({
       kind: "event",
       ev,
-      entry: eventToLogEntry(ev),
+      entry: eventToLogEntry(ev, mode),
       key: `${ev.type}-${ts}-${i}`,
     })
   }
@@ -150,10 +216,11 @@ interface LogStreamProps {
   events: ReviewEvent[]
   /** When false, suppresses auto-scroll to bottom (use when a filter is active). */
   autoScroll?: boolean
+  mode: ActivityLogMode
 }
 
 export const LogStream = forwardRef<LogStreamHandle, LogStreamProps>(function LogStream(
-  { events, autoScroll = true },
+  { events, autoScroll = true, mode },
   ref,
 ) {
   const scrollContainerRef = useRef<HTMLDivElement>(null)
@@ -164,7 +231,7 @@ export const LogStream = forwardRef<LogStreamHandle, LogStreamProps>(function Lo
   const [viewportHeight, setViewportHeight] = useState(0)
   const rowEstimate = 24
 
-  const renderItems = useMemo(() => buildRenderItems(events), [events])
+  const renderItems = useMemo(() => buildRenderItems(events, mode), [events, mode])
 
   const scrollToItemIndex = (index: number) => {
     const container = scrollContainerRef.current
@@ -295,7 +362,7 @@ export const LogStream = forwardRef<LogStreamHandle, LogStreamProps>(function Lo
           }
 
           const { text, level } = item.entry
-          const errorEv = item.ev.type === "error" ? (item.ev as { traceback?: string }) : null
+          const errorEv = item.kind === "event" && item.ev.type === "error" ? (item.ev as { traceback?: string }) : null
 
           // Screening decisions get a colored left-border card treatment.
           if (level === "include" || level === "exclude" || level === "exclude-heuristic") {
