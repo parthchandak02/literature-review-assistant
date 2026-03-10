@@ -839,6 +839,19 @@ class ScreeningNode(BaseNode[ReviewState]):
                         f"Metadata pre-filter: {len(meta_rejected)} rejected (missing title/abstract/year), "
                         f"{len(meta_acceptable)} forwarded."
                     )
+                if rc and hasattr(rc, "log_screening_decision"):
+                    _meta_paper_by_id = {p.paper_id: p for p in meta_rejected_papers}
+                    for _meta_decision in meta_rejected:
+                        _meta_paper = _meta_paper_by_id.get(_meta_decision.paper_id)
+                        rc.log_screening_decision(
+                            _meta_decision.paper_id,
+                            "title_abstract",
+                            _meta_decision.decision.value,
+                            "metadata_incomplete|missing required metadata fields",
+                            _meta_decision.confidence,
+                            title=_meta_paper.title if _meta_paper else None,
+                            method="heuristic",
+                        )
 
             # --- Pre-screening: BM25 ranking (when cap is set) or keyword filter ---
             cap = state.settings.screening.max_llm_screen
@@ -1464,12 +1477,23 @@ class ScreeningNode(BaseNode[ReviewState]):
                 rc.log_status(
                     f"Saving checkpoint... {len(state.included_papers)} papers included of {len(state.deduped_papers)} screened."
                 )
+            _stage2_local = locals().get("stage2", [])
+            _screening_reason_breakdown: dict[str, int] = {}
+            for _decision in list(pre_excluded) + list(_stage2_local):
+                _reason_value = getattr(getattr(_decision, "exclusion_reason", None), "value", None)
+                if not _reason_value:
+                    continue
+                _screening_reason_breakdown[str(_reason_value)] = (
+                    _screening_reason_breakdown.get(str(_reason_value), 0) + 1
+                )
             rc.emit_phase_done(
                 "phase_3_screening",
                 {
                     "included": len(state.included_papers),
                     "screened": len(state.deduped_papers),
                     "kappa": state.cohens_kappa,
+                    "excluded": max(len(state.deduped_papers) - len(state.included_papers), 0),
+                    "reason_breakdown": _screening_reason_breakdown,
                 },
             )
             if rc.debug:
@@ -3992,6 +4016,8 @@ class WritingNode(BaseNode[ReviewState]):
                     rc._emit(
                         {
                             "type": "writing_error",
+                            "workflow_id": state.workflow_id,
+                            "required_sections": list(SECTIONS),
                             "failed_sections": _failed_sections,
                             "missing_sections": _missing_sections,
                             "persisted_sections": sorted(_persisted_sections),
@@ -3999,11 +4025,16 @@ class WritingNode(BaseNode[ReviewState]):
                                 "Writing phase ended with incomplete durable section state; "
                                 "checkpoint saved as partial for safe resume."
                             ),
+                            "resume_hint": (
+                                f"uv run python -m src.main resume --workflow-id {state.workflow_id} "
+                                "--from-phase phase_6_writing --verbose"
+                            ),
                         }
                     )
                 raise RuntimeError(
                     "Writing section persistence invariant failed: "
-                    f"failed={_failed_sections}, missing={_missing_sections}"
+                    f"workflow_id={state.workflow_id}, failed={_failed_sections}, "
+                    f"missing={_missing_sections}, persisted={sorted(_persisted_sections)}"
                 )
             await _ckpt_repo.save_checkpoint(
                 state.workflow_id,
