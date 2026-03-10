@@ -77,10 +77,16 @@ function fileIcon(file: OutputFile): { icon: React.ElementType; className: strin
   return { icon: File, className: "text-zinc-500" }
 }
 
-type DocGroup = "manuscript" | "protocol" | "data"
+type DocGroup = "manuscript" | "protocol" | "submission" | "data"
+
+function resolveFileUrl(path: string): string {
+  return path.startsWith("/api/") ? path : downloadUrl(path)
+}
 
 function fileGroupKey(file: OutputFile): DocGroup {
   const name = (file.path.split("/").pop() ?? "").toLowerCase()
+  if (name.startsWith("doc_prospero")) return "protocol"
+  if (name === "submission.zip" || name === "references.bib" || name === "cover_letter.md") return "submission"
   // Primary deliverables
   if (
     /\.(docx)$/i.test(name) ||
@@ -114,10 +120,11 @@ function collectFiles(outputs: Record<string, unknown>): OutputFile[] {
       const isMarkdown = /\.md$/i.test(name)
       const isJson = /\.json$/i.test(name)
       const isCsv = /\.csv$/i.test(name)
+      const isSubmissionZip = name.toLowerCase() === "submission.zip"
       files.push({
         key: prefix,
         path: obj,
-        label: isLatex ? latexLabel(name) : name,
+        label: isSubmissionZip ? "Submission package (ZIP)" : isLatex ? latexLabel(name) : name,
         isRasterImage: isFigure && isRasterImage,
         isLatex,
         isMarkdown,
@@ -144,7 +151,7 @@ function FileRow({ file }: { file: OutputFile }) {
         <span className="text-sm truncate text-zinc-400">{file.label}</span>
       </span>
       <Button size="sm" variant="outline" asChild className="shrink-0 border-zinc-700 text-zinc-400 hover:text-zinc-200">
-        <a href={downloadUrl(file.path)} download={file.label} className="gap-1.5">
+        <a href={resolveFileUrl(file.path)} download={file.label} className="gap-1.5">
           <Download className="h-3.5 w-3.5" />
           Download
         </a>
@@ -310,7 +317,7 @@ function InlineDocRow({ file }: { file: OutputFile }) {
     setLoading(true)
     setFetchError(false)
     try {
-      const res = await fetch(downloadUrl(file.path))
+      const res = await fetch(resolveFileUrl(file.path))
       if (!res.ok) throw new Error("fetch failed")
       setContent(await res.text())
       setOpen(true)
@@ -391,7 +398,7 @@ function InlineDocRow({ file }: { file: OutputFile }) {
             )}
           </Button>
           <Button size="sm" variant="outline" asChild className="border-zinc-700 text-zinc-400 hover:text-zinc-200">
-            <a href={downloadUrl(file.path)} download={file.label} className="gap-1.5">
+            <a href={resolveFileUrl(file.path)} download={file.label} className="gap-1.5">
               <Download className="h-3.5 w-3.5" />
               Download
             </a>
@@ -425,7 +432,7 @@ function FigureRow({ file }: { file: OutputFile }) {
         </span>
         {!imgError ? (
           <Button size="sm" variant="outline" asChild className="shrink-0 border-zinc-700 text-zinc-400 hover:text-zinc-200">
-            <a href={downloadUrl(file.path)} download={file.label} className="gap-1.5">
+            <a href={resolveFileUrl(file.path)} download={file.label} className="gap-1.5">
               <Download className="h-3.5 w-3.5" />
               Download
             </a>
@@ -438,7 +445,7 @@ function FigureRow({ file }: { file: OutputFile }) {
       </div>
       {file.isRasterImage && !imgError && (
         <img
-          src={downloadUrl(file.path)}
+          src={resolveFileUrl(file.path)}
           alt={file.label}
           className="w-full rounded-lg border border-zinc-800 object-contain max-h-72"
           loading="lazy"
@@ -470,12 +477,13 @@ export function ResultsPanel({ outputs, excludePaths }: ResultsPanelProps) {
       acc[g].push(f)
       return acc
     },
-    { manuscript: [], protocol: [], data: [] },
+    { manuscript: [], protocol: [], submission: [], data: [] },
   )
 
   // Flat groups to render (skip manuscript)
   const flatGroups: { key: DocGroup; label: string }[] = [
     { key: "protocol", label: "Protocol & Search" },
+    { key: "submission", label: "Submission Files" },
     { key: "data", label: "Data & Analysis" },
   ]
 

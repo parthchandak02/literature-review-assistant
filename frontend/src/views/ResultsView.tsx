@@ -14,8 +14,6 @@ import {
   BookOpen,
   FileType,
   FileCode,
-  BookMarked,
-  Archive,
   GripVertical,
   Maximize2,
   Minimize2,
@@ -477,8 +475,6 @@ function ManuscriptActions({ docxPath, canExport, exportRunId, allOutputs }: Man
     }
     return findFileByName(mergedOutputs, "manuscript.tex")
   }, [mergedOutputs, exportFiles])
-  const bibPath = useMemo(() => findFileByName(mergedOutputs, ".bib"), [mergedOutputs])
-  const coverPath = useMemo(() => findFileByName(mergedOutputs, "cover_letter"), [mergedOutputs])
   // DOCX: prefer the post-export path; fall back to any pre-existing artifact path from the run
   const mergedDocxPath = useMemo(
     () => findFileByName(mergedOutputs, ".docx") ?? docxPath,
@@ -521,14 +517,6 @@ function ManuscriptActions({ docxPath, canExport, exportRunId, allOutputs }: Man
               </a>
             </Button>
           )}
-          {bibPath && (
-            <Button size="sm" variant="outline" asChild className={sharedCls}>
-              <a href={downloadUrl(bibPath)} download={`${prefix}-references.bib`}>
-                <BookMarked className="h-3 w-3" />
-                .bib
-              </a>
-            </Button>
-          )}
           {exportRunId && (
             <Button size="sm" variant="outline" asChild className={sharedCls}>
               <a href={`/api/run/${exportRunId}/manuscript.docx`}>
@@ -537,28 +525,12 @@ function ManuscriptActions({ docxPath, canExport, exportRunId, allOutputs }: Man
               </a>
             </Button>
           )}
-          {coverPath && (
-            <Button size="sm" variant="outline" asChild className={sharedCls}>
-              <a href={downloadUrl(coverPath)} download={`${prefix}-cover_letter.md`}>
-                <FileText className="h-3 w-3" />
-                Cover
-              </a>
-            </Button>
-          )}
-          {exportState === "done" && exportRunId && (
-            <Button size="sm" variant="outline" asChild className={sharedCls}>
-              <a href={submissionZipUrl(exportRunId)} download>
-                <Archive className="h-3 w-3" />
-                ZIP
-              </a>
-            </Button>
-          )}
           {exportState === "done" && (
             <Button
               size="sm"
               onClick={() => { setExportState("idle"); void handleExport(true); }}
               className="h-7 gap-1 text-xs bg-zinc-800 hover:bg-zinc-700 text-zinc-300 hover:text-zinc-100 border-0 shadow-none"
-              title="Regenerate manuscript, .tex, .bib, and DOCX"
+              title="Regenerate manuscript .tex and DOCX"
             >
               <RefreshCw className="h-3 w-3 text-emerald-400" />
               Refresh
@@ -637,10 +609,20 @@ export function ResultsView({
   }, [])
 
   const effectiveOutputs = useMemo<Record<string, unknown>>(() => {
-    if (Object.keys(outputs).length > 0) return outputs
-    if (Object.keys(historyOutputs).length > 0) return { artifacts: historyOutputs }
-    return {}
-  }, [outputs, historyOutputs])
+    const base =
+      Object.keys(outputs).length > 0
+        ? outputs
+        : Object.keys(historyOutputs).length > 0
+          ? { artifacts: historyOutputs }
+          : {}
+    if (exportRunId && Object.keys(base).length > 0) {
+      return {
+        ...base,
+        submission_zip: submissionZipUrl(exportRunId),
+      }
+    }
+    return base
+  }, [outputs, historyOutputs, exportRunId])
 
   const isHistorical = !isDone && Object.keys(historyOutputs).length > 0
   const hasResults = isDone || isHistorical
@@ -661,10 +643,8 @@ export function ResultsView({
     const paths = new Set<string>()
     if (manuscriptPath) paths.add(manuscriptPath)
     if (docxPath) paths.add(docxPath)
-    const texFiles = findAllFilesByExt(effectiveOutputs, [".tex", ".bib"])
+    const texFiles = findAllFilesByExt(effectiveOutputs, [".tex"])
     texFiles.forEach((p) => paths.add(p))
-    const coverFile = findFileByName(effectiveOutputs, "cover_letter")
-    if (coverFile) paths.add(coverFile)
     return paths
   }, [effectiveOutputs, manuscriptPath, docxPath])
 
