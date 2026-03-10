@@ -4,9 +4,9 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import sqlite3
 from hashlib import sha256
-import re
 from typing import Any
 
 import aiosqlite
@@ -887,7 +887,9 @@ class WorkflowRepository:
         sections = manifest.get("sections", [])
         if sections:
             declared_orders = [int(s.get("order", i)) for i, s in enumerate(sections)]
-            if sorted(declared_orders) != list(range(min(declared_orders), min(declared_orders) + len(declared_orders))):
+            if sorted(declared_orders) != list(
+                range(min(declared_orders), min(declared_orders) + len(declared_orders))
+            ):
                 raise RuntimeError("Assembly manifest section order is not contiguous")
             for s in sections:
                 key = str(s.get("section_key", ""))
@@ -988,7 +990,12 @@ class WorkflowRepository:
         """Compare legacy markdown and latest DB markdown assembly for migration safety."""
         assembly = await self.load_latest_manuscript_assembly(workflow_id, "md")
         if assembly is None:
-            return {"has_assembly": False, "hash_match": False, "citation_set_match": False, "section_count_match": False}
+            return {
+                "has_assembly": False,
+                "hash_match": False,
+                "citation_set_match": False,
+                "section_count_match": False,
+            }
 
         legacy_hash = sha256(legacy_md.encode("utf-8")).hexdigest()
         assembly_hash = sha256(assembly.content.encode("utf-8")).hexdigest()
@@ -1116,6 +1123,30 @@ class WorkflowRepository:
             ),
         )
         await self.db.commit()
+
+    async def save_screening_metric(
+        self,
+        workflow_id: str,
+        metric_name: str,
+        metric_value: int | float,
+        *,
+        phase: str = "phase_3_screening",
+        details: dict[str, Any] | None = None,
+    ) -> None:
+        """Persist numeric screening QA counters in decision_log."""
+        payload = {"metric": metric_name, "value": metric_value}
+        if details:
+            payload["details"] = details
+        await self.append_decision_log(
+            DecisionLogEntry(
+                workflow_id=workflow_id,
+                decision_type="screening_metric",
+                decision=str(metric_value),
+                rationale=json.dumps(payload, sort_keys=True),
+                actor="workflow_run",
+                phase=phase,
+            )
+        )
 
     async def save_cost_record(self, record: CostRecord) -> None:
         await self.db.execute(

@@ -57,6 +57,7 @@ class ReviewState:
     # Both are 0 when no validation was performed.
     batch_screen_validation_n: int = 0
     batch_screen_validation_npv: float = 0.0
+    batch_screen_borderline_forwarded: int = 0
     # PRISMA full-text retrieval counts (set after PDF retrieval).
     # fulltext_sought: papers sent to stage-2 full-text screening.
     # fulltext_not_retrieved: papers excluded because no PDF could be obtained.

@@ -98,7 +98,9 @@ screening:
   pdf_retrieval_per_paper_timeout: 45
   # Raised from 200 -> 400. With 5+ databases on a broad topic, the dedup pool can
   # reach 800-2000 records; 200 was silently dropping relevant papers past the BM25 cutoff.
-  max_llm_screen: 400
+  max_llm_screen: 700
+  # Recall-first validation slice: forward near-cutoff BM25 papers for dual review.
+  bm25_validation_tail_size: 40
   # Calibration: one pass on 15 papers is enough to confirm reviewers agree.
   # Re-screening the same sample multiple times (max_iterations > 1) does not
   # meaningfully improve kappa for well-scoped topics and wastes LLM calls.
@@ -117,13 +119,17 @@ screening:
   # low -- a false negative here permanently loses a study).
   batch_screen_enabled: true
   batch_screen_size: 80
-  batch_screen_threshold: 0.35
+  batch_screen_threshold: 0.30
+  # Forward near-threshold records (threshold-band, threshold) instead of excluding.
+  batch_screen_uncertain_band: 0.05
   # Number of batch LLM ranker calls sent concurrently (default 3 balances throughput vs. RPM).
   batch_screen_concurrency: 3
   # Papers per LLM call in the dual-reviewer phase.
   # 0 = per-paper mode (one call per paper). 10 = send 10 papers per batch call.
   # Reduces dual-reviewer LLM calls by ~5x while preserving all decisions and callbacks.
   reviewer_batch_size: 10
+  # Recall-first guard: exclude decisions at title/abstract require dual review.
+  exclude_fast_path_requires_dual: true
 
 dual_review:
   enabled: true

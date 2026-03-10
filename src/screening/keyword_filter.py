@@ -13,9 +13,10 @@ Three strategies are available:
 
 2. bm25_rank_and_cap(): Full-corpus BM25 ranking. Ranks ALL papers by
    relevance to the research question + PICO and returns the top N for LLM
-   dual-review. Tail papers receive LOW_RELEVANCE_SCORE exclusion so every
-   paper has a persisted decision (PRISMA compliance). Used when
-   max_llm_screen is set.
+   dual-review. Optionally forwards a near-cutoff validation tail to reduce
+   false exclusions. Remaining tail papers receive LOW_RELEVANCE_SCORE
+   exclusion so every paper has a persisted decision (PRISMA compliance).
+   Used when max_llm_screen is set.
 """
 
 from __future__ import annotations
@@ -204,18 +205,33 @@ def bm25_rank_and_cap(
     top_papers = ranked_papers[:cap]
     tail_papers = ranked_papers[cap:]
     tail_scores = ranked_paper_scores[cap:]
+    validation_tail_size = max(0, min(getattr(screening, "bm25_validation_tail_size", 0), len(tail_papers)))
+    validation_tail = tail_papers[:validation_tail_size]
+    validation_scores = tail_scores[:validation_tail_size]
+    hard_excluded_tail = tail_papers[validation_tail_size:]
+    hard_excluded_scores = tail_scores[validation_tail_size:]
+    if validation_tail:
+        top_papers = top_papers + validation_tail
 
     _log.info(
-        "BM25 ranking: %d papers scored, top %d forwarded to LLM, %d auto-excluded (cutoff BM25 score=%.4f).",
+        "BM25 ranking: %d papers scored, top %d forwarded to LLM (+%d validation tail), %d auto-excluded (cutoff BM25 score=%.4f).",
         total,
         cap,
-        len(tail_papers),
+        len(validation_tail),
+        len(hard_excluded_tail),
         cutoff_score,
     )
+    if validation_tail:
+        _log.info(
+            "BM25 validation tail forwarded: %d papers, score range %.4f..%.4f.",
+            len(validation_tail),
+            min(validation_scores),
+            max(validation_scores),
+        )
 
     tail_decisions: list[ScreeningDecision] = []
-    for rank_offset, (paper, score) in enumerate(zip(tail_papers, tail_scores)):
-        rank = cap + rank_offset + 1
+    for rank_offset, (paper, score) in enumerate(zip(hard_excluded_tail, hard_excluded_scores)):
+        rank = cap + validation_tail_size + rank_offset + 1
         tail_decisions.append(
             ScreeningDecision(
                 paper_id=paper.paper_id,
