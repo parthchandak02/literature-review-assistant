@@ -72,6 +72,36 @@ function buildPhaseStates(events: ReviewEvent[], isRunComplete: boolean): Record
   return states
 }
 
+function isPhaseEligibleForResume(
+  phase: string,
+  phaseStates: Record<string, PhaseState>,
+  completedWorkflow: boolean,
+): boolean {
+  if (!RESUME_PHASE_ORDER.includes(phase as (typeof RESUME_PHASE_ORDER)[number])) return false
+  const idx = RESUME_PHASE_ORDER.indexOf(phase as (typeof RESUME_PHASE_ORDER)[number])
+  if (idx < 0) return false
+  if (completedWorkflow) {
+    return phaseStates[phase]?.status === "done"
+  }
+  for (let i = 0; i < idx; i++) {
+    const prereq = RESUME_PHASE_ORDER[i]
+    if (phaseStates[prereq]?.status !== "done") return false
+  }
+  const state = phaseStates[phase]
+  return Boolean(state && (state.status === "done" || state.status === "running" || state.status === "error"))
+}
+
+function getLastEligiblePhase(
+  phaseStates: Record<string, PhaseState>,
+  completedWorkflow: boolean,
+): string | null {
+  for (let i = RESUME_PHASE_ORDER.length - 1; i >= 0; i--) {
+    const phase = RESUME_PHASE_ORDER[i]
+    if (isPhaseEligibleForResume(phase, phaseStates, completedWorkflow)) return phase
+  }
+  return null
+}
+
 function fmtDuration(ms: number): string {
   const secs = Math.floor(ms / 1000)
   if (secs < 60) return `${secs}s`
@@ -150,7 +180,7 @@ function PhaseStep({
   )
 
   return (
-    <div className="relative flex items-start py-1">
+    <div className="relative flex flex-1 items-start py-1 min-w-[6.5rem]">
       {inResumeRange && (
         <div
           className={cn(
@@ -161,7 +191,7 @@ function PhaseStep({
           aria-hidden
         />
       )}
-      <div className="flex flex-col items-center w-[4.5rem] shrink-0">
+      <div className="flex flex-col items-center w-full shrink-0">
         <button
           type="button"
           onClick={() => {
@@ -206,6 +236,7 @@ function HorizontalStepperContent({
   phaseStates,
   loading,
   canResumeFromTimeline,
+  isPhaseResumeSelectable,
   armedResumePhase,
   armedResumeStartIdx,
   onResumeTap,
@@ -213,6 +244,7 @@ function HorizontalStepperContent({
   phaseStates: Record<string, PhaseState>
   loading: boolean
   canResumeFromTimeline: boolean
+  isPhaseResumeSelectable: (phase: string) => boolean
   armedResumePhase: string | null
   armedResumeStartIdx: number
   onResumeTap: (phase: string) => void
@@ -245,7 +277,7 @@ function HorizontalStepperContent({
               phase={phase}
               state={phaseStates[phase] ?? { status: "pending" }}
               isLast={i === PHASE_ORDER.length - 1}
-              isResumeSelectable={canResumeFromTimeline && RESUME_PHASE_ORDER.includes(phase as (typeof RESUME_PHASE_ORDER)[number])}
+              isResumeSelectable={canResumeFromTimeline && isPhaseResumeSelectable(phase)}
               isArmed={armedResumePhase === phase}
               inResumeRange={inResumeRange}
               isRangeStart={isRangeStart}
@@ -274,8 +306,8 @@ export interface ActivityViewProps {
   isDone: boolean
   onCancel: () => void
   onResumeFromPhase?: (phase: string) => Promise<void>
-  onResumeDefault?: () => Promise<void>
   resumeModeActive?: boolean
+  autoArmFromSidebarToken?: number
 }
 
 export function ActivityView({
@@ -289,8 +321,8 @@ export function ActivityView({
   isDone,
   onCancel,
   onResumeFromPhase,
-  onResumeDefault,
   resumeModeActive = false,
+  autoArmFromSidebarToken = 0,
 }: ActivityViewProps) {
   const [historicalEvents, setHistoricalEvents] = useState<ReviewEvent[]>([])
   const [loadingHistory, setLoadingHistory] = useState(false)
@@ -350,8 +382,12 @@ export function ActivityView({
   )
   const isRunning = status === "streaming" || status === "connecting"
   const normalizedHistoricalStatus = (historicalStatus ?? "").toLowerCase()
+  const completedWorkflow =
+    normalizedHistoricalStatus === "completed" ||
+    normalizedHistoricalStatus === "done" ||
+    status === "done"
   const resumeBlockedReason = (() => {
-    if (!onResumeFromPhase || !onResumeDefault) return "Resume controls are not available for this run."
+    if (!onResumeFromPhase) return "Resume controls are not available for this run."
     if (
       isRunning ||
       normalizedHistoricalStatus === "running" ||
@@ -367,6 +403,10 @@ export function ActivityView({
   })()
   const canResumeEligibility = resumeBlockedReason === null
   const canResumeFromTimeline = resumeModeActive && canResumeEligibility
+  const isPhaseResumeSelectable = useCallback(
+    (phase: string) => isPhaseEligibleForResume(phase, phaseStates, completedWorkflow),
+    [phaseStates, completedWorkflow],
+  )
   const armedResumeStartIdx = useMemo(() => {
     if (!armedResumePhase) return -1
     return PHASE_ORDER.indexOf(armedResumePhase as (typeof PHASE_ORDER)[number])
@@ -387,9 +427,18 @@ export function ActivityView({
     setResumeHint(null)
   }, [resumeModeActive])
 
+  useEffect(() => {
+    if (!canResumeFromTimeline) return
+    if (autoArmFromSidebarToken <= 0) return
+    const phase = getLastEligiblePhase(phaseStates, completedWorkflow)
+    if (!phase) return
+    setArmedResumePhase(phase)
+    setResumeHint(`Tap ${PHASE_LABELS[phase] ?? phase} again to confirm resume`)
+  }, [autoArmFromSidebarToken, canResumeFromTimeline, phaseStates, completedWorkflow])
+
   async function handlePhaseResumeTap(phase: string) {
     if (!canResumeFromTimeline || isSubmittingResume) return
-    if (!RESUME_PHASE_ORDER.includes(phase as (typeof RESUME_PHASE_ORDER)[number])) return
+    if (!isPhaseResumeSelectable(phase)) return
     if (armedResumePhase !== phase) {
       setArmedResumePhase(phase)
       setResumeHint(`Tap ${PHASE_LABELS[phase] ?? phase} again to confirm resume`)
@@ -404,21 +453,6 @@ export function ActivityView({
     } catch {
       setResumeHint("Resume failed. Tap a phase again to retry.")
       setArmedResumePhase(null)
-    } finally {
-      setIsSubmittingResume(false)
-    }
-  }
-
-  async function handleDefaultResumeClick() {
-    if (!canResumeFromTimeline || isSubmittingResume || !onResumeDefault) return
-    setResumeHint("Resuming from last checkpoint...")
-    setArmedResumePhase(null)
-    setIsSubmittingResume(true)
-    try {
-      await onResumeDefault()
-      setResumeHint(null)
-    } catch {
-      setResumeHint("Resume failed. Retry from timeline controls.")
     } finally {
       setIsSubmittingResume(false)
     }
@@ -487,32 +521,21 @@ export function ActivityView({
         <div className="card-surface overflow-hidden flex flex-col">
           <div className="glass-toolbar flex items-center justify-between px-4 h-11 border-b border-zinc-800/70 shrink-0">
             <span className="label-caps">Phase Timeline</span>
-            <div className="flex items-center gap-3">
-              {canResumeFromTimeline && (
-                <Button
-                  size="sm"
-                  onClick={() => void handleDefaultResumeClick()}
-                  disabled={isSubmittingResume}
-                  className="h-7 px-2.5 text-[11px] bg-violet-600 hover:bg-violet-500 text-white"
-                >
-                  Resume from last checkpoint
-                </Button>
-              )}
-              {resumeModeActive ? (
-                <span className="text-[11px] text-zinc-500">
-                  {resumeHint ?? (canResumeEligibility ? "Tap a phase once, tap again to resume from it" : resumeBlockedReason)}
-                </span>
-              ) : canResumeEligibility ? (
-                <span className="text-[11px] text-zinc-500">
-                  Use Resume in the sidebar to open timeline controls
-                </span>
-              ) : null}
-            </div>
+            {resumeModeActive ? (
+              <span className="text-[11px] text-zinc-500">
+                {resumeHint ?? (canResumeEligibility ? "Tap a phase once, tap again to resume from it" : resumeBlockedReason)}
+              </span>
+            ) : canResumeEligibility ? (
+              <span className="text-[11px] text-zinc-500">
+                Use Resume from last checkpoint in the sidebar
+              </span>
+            ) : null}
           </div>
           <HorizontalStepperContent
             phaseStates={phaseStates}
             loading={effectiveLoadingHistory}
             canResumeFromTimeline={canResumeFromTimeline}
+            isPhaseResumeSelectable={isPhaseResumeSelectable}
             armedResumePhase={armedResumePhase}
             armedResumeStartIdx={armedResumeStartIdx}
             onResumeTap={handlePhaseResumeTap}
