@@ -370,7 +370,7 @@ async def test_resume_does_not_flip_registry_failed_when_runtime_completed(
         await db.commit()
         repo = WorkflowRepository(db)
         await repo.create_workflow("wf-9999", "Test topic", "hash-1")
-        await repo.update_workflow_status("wf-9999", "running")
+        await repo.update_workflow_status("wf-9999", "interrupted")
 
     registry_path = run_root / "workflows_registry.db"
     async with aiosqlite.connect(str(registry_path)) as reg_db:
@@ -380,7 +380,7 @@ async def test_resume_does_not_flip_registry_failed_when_runtime_completed(
             INSERT OR REPLACE INTO workflows_registry (workflow_id, topic, config_hash, db_path, status)
             VALUES (?, ?, ?, ?, ?)
             """,
-            ("wf-9999", "Test topic", "hash-1", str(db_path), "running"),
+            ("wf-9999", "Test topic", "hash-1", str(db_path), "interrupted"),
         )
         await reg_db.commit()
 

@@ -274,6 +274,8 @@ export interface ActivityViewProps {
   isDone: boolean
   onCancel: () => void
   onResumeFromPhase?: (phase: string) => Promise<void>
+  onResumeDefault?: () => Promise<void>
+  resumeModeActive?: boolean
 }
 
 export function ActivityView({
@@ -287,12 +289,15 @@ export function ActivityView({
   isDone,
   onCancel,
   onResumeFromPhase,
+  onResumeDefault,
+  resumeModeActive = false,
 }: ActivityViewProps) {
   const [historicalEvents, setHistoricalEvents] = useState<ReviewEvent[]>([])
   const [loadingHistory, setLoadingHistory] = useState(false)
   const [fetchError, setFetchError] = useState<string | null>(null)
   const [armedResumePhase, setArmedResumePhase] = useState<string | null>(null)
   const [resumeHint, setResumeHint] = useState<string | null>(null)
+  const [isSubmittingResume, setIsSubmittingResume] = useState(false)
   const logRef = useRef<LogStreamHandle>(null)
 
   const hasPrefetchedHistorical = prefetchedHistoricalEvents != null
@@ -345,9 +350,23 @@ export function ActivityView({
   )
   const isRunning = status === "streaming" || status === "connecting"
   const normalizedHistoricalStatus = (historicalStatus ?? "").toLowerCase()
-  const canResumeFromTimeline =
-    Boolean(onResumeFromPhase) &&
-    normalizedHistoricalStatus !== "awaiting_review"
+  const resumeBlockedReason = (() => {
+    if (!onResumeFromPhase || !onResumeDefault) return "Resume controls are not available for this run."
+    if (
+      isRunning ||
+      normalizedHistoricalStatus === "running" ||
+      normalizedHistoricalStatus === "streaming" ||
+      normalizedHistoricalStatus === "connecting"
+    ) {
+      return "Resume is unavailable while this workflow is running."
+    }
+    if (normalizedHistoricalStatus === "awaiting_review") {
+      return "Approve screening first before resuming from later phases."
+    }
+    return null
+  })()
+  const canResumeEligibility = resumeBlockedReason === null
+  const canResumeFromTimeline = resumeModeActive && canResumeEligibility
   const armedResumeStartIdx = useMemo(() => {
     if (!armedResumePhase) return -1
     return PHASE_ORDER.indexOf(armedResumePhase as (typeof PHASE_ORDER)[number])
@@ -362,8 +381,14 @@ export function ActivityView({
     return () => clearTimeout(timer)
   }, [armedResumePhase])
 
+  useEffect(() => {
+    if (resumeModeActive) return
+    setArmedResumePhase(null)
+    setResumeHint(null)
+  }, [resumeModeActive])
+
   async function handlePhaseResumeTap(phase: string) {
-    if (!canResumeFromTimeline) return
+    if (!canResumeFromTimeline || isSubmittingResume) return
     if (!RESUME_PHASE_ORDER.includes(phase as (typeof RESUME_PHASE_ORDER)[number])) return
     if (armedResumePhase !== phase) {
       setArmedResumePhase(phase)
@@ -371,6 +396,7 @@ export function ActivityView({
       return
     }
     setResumeHint(`Resuming from ${PHASE_LABELS[phase] ?? phase}...`)
+    setIsSubmittingResume(true)
     try {
       await onResumeFromPhase?.(phase)
       setArmedResumePhase(null)
@@ -378,6 +404,23 @@ export function ActivityView({
     } catch {
       setResumeHint("Resume failed. Tap a phase again to retry.")
       setArmedResumePhase(null)
+    } finally {
+      setIsSubmittingResume(false)
+    }
+  }
+
+  async function handleDefaultResumeClick() {
+    if (!canResumeFromTimeline || isSubmittingResume || !onResumeDefault) return
+    setResumeHint("Resuming from last checkpoint...")
+    setArmedResumePhase(null)
+    setIsSubmittingResume(true)
+    try {
+      await onResumeDefault()
+      setResumeHint(null)
+    } catch {
+      setResumeHint("Resume failed. Retry from timeline controls.")
+    } finally {
+      setIsSubmittingResume(false)
     }
   }
   const filtered = useMemo(() => {
@@ -444,11 +487,27 @@ export function ActivityView({
         <div className="card-surface overflow-hidden flex flex-col">
           <div className="glass-toolbar flex items-center justify-between px-4 h-11 border-b border-zinc-800/70 shrink-0">
             <span className="label-caps">Phase Timeline</span>
-            {canResumeFromTimeline && (
-              <span className="text-[11px] text-zinc-500">
-                {resumeHint ?? "Tap a phase once, tap again to resume from it"}
-              </span>
-            )}
+            <div className="flex items-center gap-3">
+              {canResumeFromTimeline && (
+                <Button
+                  size="sm"
+                  onClick={() => void handleDefaultResumeClick()}
+                  disabled={isSubmittingResume}
+                  className="h-7 px-2.5 text-[11px] bg-violet-600 hover:bg-violet-500 text-white"
+                >
+                  Resume from last checkpoint
+                </Button>
+              )}
+              {resumeModeActive ? (
+                <span className="text-[11px] text-zinc-500">
+                  {resumeHint ?? (canResumeEligibility ? "Tap a phase once, tap again to resume from it" : resumeBlockedReason)}
+                </span>
+              ) : canResumeEligibility ? (
+                <span className="text-[11px] text-zinc-500">
+                  Use Resume in the sidebar to open timeline controls
+                </span>
+              ) : null}
+            </div>
           </div>
           <HorizontalStepperContent
             phaseStates={phaseStates}

@@ -65,7 +65,7 @@ interface SidebarProps {
   onSelectLiveRun: () => void
   onSelectHistory: (entry: HistoryEntry) => void
   onNewReview: () => void
-  onResume?: (entry: HistoryEntry, fromPhase?: string | null) => Promise<void>
+  onResume?: (entry: HistoryEntry) => Promise<void>
   onDelete?: (workflowId: string) => Promise<void>
   onCancel?: () => void
   isRunning?: boolean
@@ -252,14 +252,14 @@ export function Sidebar({
   function handleResumeClick(e: React.MouseEvent, entry: HistoryEntry) {
     e.stopPropagation()
     if (!onResume) return
-    void handleResumeFromModal(entry)
+    void handleResumeLauncher(entry)
   }
 
-  async function handleResumeFromModal(entry: HistoryEntry, fromPhase?: string | null) {
+  async function handleResumeLauncher(entry: HistoryEntry) {
     if (!onResume) return
     setResumingId(entry.workflow_id)
     try {
-      await onResume(entry, fromPhase)
+      await onResume(entry)
     } finally {
       setResumingId(null)
     }
@@ -533,7 +533,8 @@ export function Sidebar({
                 // the card connects live SSE. They do NOT need a Resume button.
                 const isResumable = onResume !== undefined &&
                   !entry.live_run_id &&
-                  ["streaming", "cancelled", "error", "stale"].includes(statusKey)
+                  !["streaming", "connecting"].includes(statusKey) &&
+                  ["done", "cancelled", "error", "stale"].includes(statusKey)
                 const isResuming = resumingId === entry.workflow_id
 
                 const progressValue = isLiveRow && liveRun
@@ -667,8 +668,8 @@ export function Sidebar({
                               <button
                                 onClick={(e) => handleResumeClick(e, entry)}
                                 disabled={isResuming}
-                                aria-label="Resume run"
-                                title="Resume run"
+                                aria-label="Open resume controls"
+                                title="Open resume controls"
                                 className={cn(
                                   "flex items-center justify-center h-8 w-8 rounded-bl-md bg-violet-600 hover:bg-violet-500 text-white",
                                   isResuming && "opacity-80 cursor-wait",

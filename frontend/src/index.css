@@ -32,20 +32,23 @@
   --color-accent-muted: #1e1a2e; /* citation key background */
 
   /* Glass semantic tokens */
-  --glass-surface-1: rgba(24, 24, 27, 0.56);
-  --glass-surface-2: rgba(39, 39, 42, 0.52);
-  --glass-surface-3: rgba(63, 63, 70, 0.44);
-  --glass-surface-4: rgba(82, 82, 91, 0.38);
-  --glass-border-1: rgba(255, 255, 255, 0.09);
-  --glass-border-2: rgba(255, 255, 255, 0.14);
-  --glass-border-3: rgba(139, 92, 246, 0.33);
-  --glass-shadow-1: 0 1px 0 rgba(255, 255, 255, 0.04) inset;
+  --glass-surface-1: rgba(24, 24, 27, 0.42);
+  --glass-surface-2: rgba(39, 39, 42, 0.38);
+  --glass-surface-3: rgba(63, 63, 70, 0.32);
+  --glass-surface-4: rgba(82, 82, 91, 0.28);
+  --glass-border-1: rgba(255, 255, 255, 0.12);
+  --glass-border-2: rgba(255, 255, 255, 0.18);
+  --glass-border-3: rgba(139, 92, 246, 0.36);
+  --glass-shadow-1: 0 1px 0 rgba(255, 255, 255, 0.02) inset;
   --glass-shadow-2: 0 10px 24px rgba(0, 0, 0, 0.34);
   --glass-shadow-3: 0 0 0 1px rgba(139, 92, 246, 0.18), 0 14px 32px rgba(0, 0, 0, 0.42);
   --glass-blur-sm: 8px;
   --glass-blur-md: 12px;
   --glass-blur-lg: 18px;
   --glass-noise-opacity: 0.02;
+  --ambient-violet-alpha: 0.12;
+  --ambient-orange-alpha: 0.10;
+  --ambient-orange-alpha-soft: 0.04;
 }
 
 @layer base {
@@ -82,6 +85,11 @@
 
   body {
     background-color: var(--color-surface-0);
+    background-image:
+      radial-gradient(44% 34% at 14% 12%, rgb(139 92 246 / var(--ambient-violet-alpha)) 0%, rgb(139 92 246 / 0.03) 42%, transparent 72%),
+      radial-gradient(48% 36% at 84% 16%, rgb(251 146 60 / var(--ambient-orange-alpha)) 0%, rgb(251 146 60 / var(--ambient-orange-alpha-soft)) 38%, transparent 74%),
+      linear-gradient(180deg, #0b0b10 0%, #09090b 100%);
+    background-attachment: fixed;
     color: hsl(var(--foreground));
     font-feature-settings: "rlig" 1, "calt" 1;
     -webkit-font-smoothing: antialiased;
@@ -109,10 +117,10 @@
     @apply rounded-xl border;
     background:
       linear-gradient(
-        160deg,
-        color-mix(in srgb, var(--glass-surface-2) 88%, white 12%) 0%,
-        var(--glass-surface-2) 58%,
-        color-mix(in srgb, var(--glass-surface-3) 84%, black 16%) 100%
+        162deg,
+        color-mix(in srgb, var(--glass-surface-2) 92%, rgb(124 58 237 / 8%) 8%) 0%,
+        color-mix(in srgb, var(--glass-surface-2) 88%, black 12%) 58%,
+        color-mix(in srgb, var(--glass-surface-3) 86%, black 14%) 100%
       );
     border-color: var(--glass-border-2);
     box-shadow: var(--glass-shadow-1), var(--glass-shadow-3);
@@ -120,7 +128,7 @@
 
   .glass-toolbar {
     @apply border-b;
-    background-color: color-mix(in srgb, var(--glass-surface-2) 86%, black 14%);
+    background-color: color-mix(in srgb, var(--glass-surface-2) 93%, black 7%);
     border-color: color-mix(in srgb, var(--glass-border-1) 75%, black 25%);
   }
 
@@ -157,7 +165,7 @@
     .glass-panel,
     .glass-panel-strong,
     .glass-toolbar {
-      background-color: rgb(24 24 27 / 0.92);
+      background-color: rgb(24 24 27 / 0.88);
     }
   }
 
@@ -194,19 +202,23 @@
     @apply rounded-xl overflow-hidden transition-all duration-150 border;
     border-color: color-mix(in srgb, var(--glass-border-2) 76%, black 24%);
     background-color: color-mix(in srgb, var(--glass-surface-2) 78%, black 22%);
-    box-shadow: var(--glass-shadow-1), var(--glass-shadow-2);
+    box-shadow: 0 1px 0 rgba(255, 255, 255, 0.02) inset, var(--glass-shadow-2);
   }
   .sidebar-card-selected {
     @apply rounded-xl border;
     background:
       linear-gradient(
-        160deg,
-        color-mix(in srgb, var(--glass-surface-2) 88%, white 12%) 0%,
-        var(--glass-surface-2) 58%,
-        color-mix(in srgb, var(--glass-surface-3) 84%, black 16%) 100%
+        162deg,
+        color-mix(in srgb, var(--glass-surface-2) 91%, rgb(124 58 237 / 9%) 9%) 0%,
+        color-mix(in srgb, var(--glass-surface-2) 88%, black 12%) 56%,
+        color-mix(in srgb, var(--glass-surface-3) 86%, black 14%) 100%
       );
-    box-shadow: var(--glass-shadow-1), var(--glass-shadow-3);
-    border-color: var(--glass-border-3);
+    box-shadow:
+      0 1px 0 rgba(255, 255, 255, 0.02) inset,
+      0 10px 24px rgba(0, 0, 0, 0.38),
+      0 0 0 1px rgba(124, 58, 237, 0.22),
+      0 0 16px rgba(124, 58, 237, 0.10);
+    border-color: rgba(124, 58, 237, 0.26);
   }
   .sidebar-card-hover {
     @apply transition-colors duration-150;

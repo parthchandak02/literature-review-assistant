@@ -1683,8 +1683,7 @@ async def resume_run(req: ResumeRequest) -> RunResponse:
     Creates a new live RunRecord (new run_id) backed by the existing workflow_id
     so the frontend can SSE-connect to watch the resumed run complete.
 
-    If the same workflow_id is already being actively resumed, returns the
-    existing run_id instead of spawning a second concurrent task.
+    If the same workflow_id is already active, returns 409 conflict.
 
     When from_phase is provided, resumes from that phase (and later) instead of
     the first incomplete phase. Prior phases must have checkpoints.
@@ -1697,7 +1696,34 @@ async def resume_run(req: ResumeRequest) -> RunResponse:
     # Guard: prevent double-resume of the same workflow (e.g. user clicks twice).
     for existing in _active_runs.values():
         if existing.workflow_id == req.workflow_id and not existing.done:
-            return RunResponse(run_id=existing.run_id, topic=req.topic)
+            raise HTTPException(
+                status_code=409,
+                detail="Workflow is already running. Stop the active run before resuming.",
+            )
+
+    # Secondary guard: enforce registry status as source of truth to prevent
+    # duplicate resumes during in-memory reconciliation windows.
+    try:
+        run_root = str(pathlib.Path(req.db_path).parent.parent.parent.parent)
+        registry = pathlib.Path(run_root) / "workflows_registry.db"
+        if registry.exists():
+            async with _open_registry_db(str(registry)) as db:
+                db.row_factory = aiosqlite.Row
+                async with db.execute(
+                    "SELECT status FROM workflows_registry WHERE workflow_id = ?",
+                    (req.workflow_id,),
+                ) as cur:
+                    row = await cur.fetchone()
+            registry_status = _normalize_status(str(row["status"])) if row else ""
+            if registry_status in {"running", "awaiting_review"}:
+                raise HTTPException(
+                    status_code=409,
+                    detail="Workflow is already running. Stop the active run before resuming.",
+                )
+    except HTTPException:
+        raise
+    except Exception:
+        pass
 
     run_id = str(uuid.uuid4())[:8]
     record = _RunRecord(run_id=run_id, topic=req.topic)
