@@ -111,10 +111,10 @@ interface RunViewProps {
   isLive: boolean
   /** Resume from a specific phase (historical runs only). */
   onResumeFromPhase?: (phase: string) => Promise<void>
-  /** Resume from default checkpoint (historical runs only). */
-  onResumeDefault?: () => Promise<void>
   /** True when resume controls were opened from the sidebar launcher. */
   resumeModeActive?: boolean
+  /** Increments when sidebar launcher requests timeline auto-arm. */
+  autoArmFromSidebarToken?: number
 }
 
 export function RunView({
@@ -130,8 +130,8 @@ export function RunView({
   dbUnlocked,
   isLive,
   onResumeFromPhase,
-  onResumeDefault,
   resumeModeActive = false,
+  autoArmFromSidebarToken = 0,
 }: RunViewProps) {
   const [wfIdCopied, setWfIdCopied] = useState(false)
   // For historical runs, events prop is [] (only live runs get the SSE stream).
@@ -358,8 +358,8 @@ export function RunView({
               isDone={isDone}
               onCancel={onCancel}
               onResumeFromPhase={onResumeFromPhase}
-              onResumeDefault={onResumeDefault}
               resumeModeActive={resumeModeActive}
+              autoArmFromSidebarToken={autoArmFromSidebarToken}
             />
           )}
 

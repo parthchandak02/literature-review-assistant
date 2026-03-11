@@ -127,6 +127,7 @@ export default function App() {
   const [selectedRun, setSelectedRun] = useState<SelectedRun | null>(null)
   const [activeRunTab, setActiveRunTab] = useState<RunTab>("activity")
   const [resumeLauncherWorkflowId, setResumeLauncherWorkflowId] = useState<string | null>(null)
+  const [resumeAutoArmToken, setResumeAutoArmToken] = useState(0)
 
   // Artifacts for historical ResultsView
   const [historyOutputs, setHistoryOutputs] = useState<Record<string, string>>({})
@@ -751,12 +752,9 @@ export default function App() {
   async function handleSidebarResumeLauncher(entry: HistoryEntry) {
     await handleSelectHistory(entry)
     setResumeLauncherWorkflowId(entry.workflow_id)
+    setResumeAutoArmToken((v) => v + 1)
     setActiveRunTab("activity")
     navigate(`/run/${entry.workflow_id}/activity`, { replace: true })
-  }
-
-  async function handleTimelineResumeDefault() {
-    await executeTimelineResume(null)
   }
 
   async function handleTimelineResumePhase(phase: string) {
@@ -817,6 +815,12 @@ export default function App() {
       if (s === "interrupted") return "cancelled"
       return "done"
     })()
+    const completedHistoricalRun =
+      !isViewingLiveRun &&
+      ["completed", "done"].includes((selectedRun.historicalStatus ?? "").toLowerCase())
+    const resumeModeActive =
+      !isViewingLiveRun &&
+      (selectedRun?.workflowId === resumeLauncherWorkflowId || completedHistoricalRun)
 
     return (
       <RunView
@@ -832,8 +836,8 @@ export default function App() {
         dbUnlocked={Boolean(dbUnlocked)}
         isLive={isViewingLiveRun && isRunning && Boolean(dbUnlocked)}
         onResumeFromPhase={!isViewingLiveRun ? handleTimelineResumePhase : undefined}
-        onResumeDefault={!isViewingLiveRun ? handleTimelineResumeDefault : undefined}
-        resumeModeActive={!isViewingLiveRun && selectedRun?.workflowId === resumeLauncherWorkflowId}
+        resumeModeActive={resumeModeActive}
+        autoArmFromSidebarToken={resumeAutoArmToken}
       />
     )
   }

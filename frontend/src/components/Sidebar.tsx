@@ -534,7 +534,7 @@ export function Sidebar({
                 const isResumable = onResume !== undefined &&
                   !entry.live_run_id &&
                   !["streaming", "connecting"].includes(statusKey) &&
-                  ["done", "cancelled", "error", "stale"].includes(statusKey)
+                  ["cancelled", "error", "stale"].includes(statusKey)
                 const isResuming = resumingId === entry.workflow_id
 
                 const progressValue = isLiveRow && liveRun
@@ -668,8 +668,8 @@ export function Sidebar({
                               <button
                                 onClick={(e) => handleResumeClick(e, entry)}
                                 disabled={isResuming}
-                                aria-label="Open resume controls"
-                                title="Open resume controls"
+                                aria-label="Resume from last checkpoint"
+                                title="Resume from last checkpoint"
                                 className={cn(
                                   "flex items-center justify-center h-8 w-8 rounded-bl-md bg-violet-600 hover:bg-violet-500 text-white",
                                   isResuming && "opacity-80 cursor-wait",
