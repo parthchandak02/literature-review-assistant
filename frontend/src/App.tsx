@@ -126,6 +126,7 @@ export default function App() {
   // --- Selected run (what is displayed in the main area) ---
   const [selectedRun, setSelectedRun] = useState<SelectedRun | null>(null)
   const [activeRunTab, setActiveRunTab] = useState<RunTab>("activity")
+  const [resumeLauncherWorkflowId, setResumeLauncherWorkflowId] = useState<string | null>(null)
 
   // Artifacts for historical ResultsView
   const [historyOutputs, setHistoryOutputs] = useState<Record<string, string>>({})
@@ -474,6 +475,7 @@ export default function App() {
       // Mark as switched immediately so concurrent/delayed callbacks are no-ops.
       switched = true
       consecutiveMisses = 0
+      setResumeLauncherWorkflowId(null)
       const now = new Date()
       reset()
       liveRunNavigatedRef.current = null
@@ -539,6 +541,7 @@ export default function App() {
   // ---------------------------------------------------------------------------
 
   async function handleStart(req: RunRequest) {
+    setResumeLauncherWorkflowId(null)
     reset()
     wasStreamingRef.current = false
     liveRunNavigatedRef.current = null
@@ -564,6 +567,7 @@ export default function App() {
   }
 
   async function handleStartWithCsv(csvFile: File, req: RunRequest) {
+    setResumeLauncherWorkflowId(null)
     reset()
     wasStreamingRef.current = false
     liveRunNavigatedRef.current = null
@@ -605,6 +609,7 @@ export default function App() {
   }
 
   function handleNewReview() {
+    setResumeLauncherWorkflowId(null)
     setSelectedRun(null)
     setHistoryOutputs({})
     navigate("/")
@@ -612,6 +617,7 @@ export default function App() {
 
   function handleSelectLiveRun() {
     if (!liveRunId || !liveTopic) return
+    setResumeLauncherWorkflowId(null)
     setSelectedRun({
       runId: liveRunId,
       workflowId: liveWorkflowId,
@@ -627,6 +633,7 @@ export default function App() {
   }
 
   async function handleSelectHistory(entry: HistoryEntry) {
+    setResumeLauncherWorkflowId(null)
     // If the workflow has an in-process active task, connect live SSE directly
     // instead of replaying stale DB events.
     if (entry.live_run_id) {
@@ -671,11 +678,13 @@ export default function App() {
   }
 
   function handleGoHome() {
+    setResumeLauncherWorkflowId(null)
     setSelectedRun(null)
     navigate("/")
   }
 
   function handleResumeRun(res: RunResponse, workflowId: string) {
+    setResumeLauncherWorkflowId(null)
     const now = new Date()
     reset()
     wasStreamingRef.current = false
@@ -699,31 +708,9 @@ export default function App() {
     navigate(`/run/${workflowId}/activity`, { replace: true })
   }
 
-  async function handleSidebarResume(entry: HistoryEntry, fromPhase?: string | null) {
-    try {
-      const res = await resumeRun(entry, fromPhase)
-      handleResumeRun(res, entry.workflow_id)
-      if (fromPhase) {
-        toast.success("Resumed from selected phase")
-      } else {
-        toast.success("Run resumed")
-      }
-    } catch (error) {
-      const msg = error instanceof Error ? error.message : String(error)
-      if (msg.includes("400")) {
-        toast.error("Invalid resume phase. Try a different phase.")
-      } else if (msg.includes("409")) {
-        toast.error("This run is already active.")
-      } else {
-        toast.error(msg || "Failed to resume run")
-      }
-      throw error
-    }
-  }
-
-  async function handleTimelineResumePhase(phase: string) {
-    if (!selectedRun?.workflowId || !selectedRun.dbPath) return
-    const entry: HistoryEntry = {
+  function selectedRunToHistoryEntry(): HistoryEntry | null {
+    if (!selectedRun?.workflowId || !selectedRun.dbPath) return null
+    return {
       workflow_id: selectedRun.workflowId,
       topic: selectedRun.topic,
       status: selectedRun.historicalStatus ?? "stale",
@@ -735,7 +722,45 @@ export default function App() {
       live_run_id: null,
       notes: null,
     }
-    await handleSidebarResume(entry, phase)
+  }
+
+  async function executeTimelineResume(fromPhase?: string | null) {
+    const entry = selectedRunToHistoryEntry()
+    if (!entry) return
+    try {
+      const res = await resumeRun(entry, fromPhase)
+      handleResumeRun(res, entry.workflow_id)
+      if (fromPhase) {
+        toast.success("Resumed from selected phase")
+      } else {
+        toast.success("Resumed from last checkpoint")
+      }
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : String(error)
+      if (msg.includes("400")) {
+        toast.error("Invalid resume phase. Try a different phase.")
+      } else if (msg.includes("409")) {
+        toast.error("Workflow already running. Open live run or stop it before resuming.")
+      } else {
+        toast.error(msg || "Failed to resume run")
+      }
+      throw error
+    }
+  }
+
+  async function handleSidebarResumeLauncher(entry: HistoryEntry) {
+    await handleSelectHistory(entry)
+    setResumeLauncherWorkflowId(entry.workflow_id)
+    setActiveRunTab("activity")
+    navigate(`/run/${entry.workflow_id}/activity`, { replace: true })
+  }
+
+  async function handleTimelineResumeDefault() {
+    await executeTimelineResume(null)
+  }
+
+  async function handleTimelineResumePhase(phase: string) {
+    await executeTimelineResume(phase)
   }
 
   async function handleSidebarDelete(workflowId: string) {
@@ -807,6 +832,8 @@ export default function App() {
         dbUnlocked={Boolean(dbUnlocked)}
         isLive={isViewingLiveRun && isRunning && Boolean(dbUnlocked)}
         onResumeFromPhase={!isViewingLiveRun ? handleTimelineResumePhase : undefined}
+        onResumeDefault={!isViewingLiveRun ? handleTimelineResumeDefault : undefined}
+        resumeModeActive={!isViewingLiveRun && selectedRun?.workflowId === resumeLauncherWorkflowId}
       />
     )
   }
@@ -837,7 +864,7 @@ export default function App() {
         onSelectLiveRun={handleSelectLiveRun}
         onSelectHistory={(entry) => void handleSelectHistory(entry)}
         onNewReview={handleNewReview}
-        onResume={handleSidebarResume}
+        onResume={handleSidebarResumeLauncher}
         onDelete={handleSidebarDelete}
         onCancel={handleCancel}
         isRunning={isRunning}
@@ -850,9 +877,18 @@ export default function App() {
       />
 
       <main
-        className="flex-1 h-full overflow-hidden overscroll-none flex flex-col transition-[margin-left] duration-200 ease-in-out"
+        className="relative flex-1 h-full overflow-hidden overscroll-none flex flex-col transition-[margin-left] duration-200 ease-in-out"
         style={{ marginLeft: mainMargin }}
       >
+        {/* Ambient warm glow behind glass content (subtle orange balance to sidebar violet) */}
+        <div
+          className="pointer-events-none absolute inset-0 z-0"
+          aria-hidden
+          style={{
+            background:
+              "radial-gradient(52% 38% at 82% 14%, rgb(251 146 60 / var(--ambient-orange-alpha)) 0%, rgb(251 146 60 / var(--ambient-orange-alpha-soft)) 34%, transparent 74%), radial-gradient(46% 34% at 10% 18%, rgb(139 92 246 / 0.06) 0%, rgb(139 92 246 / 0.02) 44%, transparent 72%)",
+          }}
+        />
         {/* Top bar -- paddingTop pushes content below the iOS status bar when viewport-fit=cover is active */}
         <header
           className="sticky top-0 z-10 glass-toolbar border-b border-zinc-800/70 shrink-0"
@@ -919,8 +955,8 @@ export default function App() {
         <div
           className={
             selectedRun !== null
-              ? "flex-1 overflow-hidden"
-              : "flex-1 overflow-y-auto p-6"
+              ? "relative z-10 flex-1 overflow-hidden"
+              : "relative z-10 flex-1 overflow-y-auto p-6"
           }
         >
           {renderMain()}
