@@ -44,6 +44,27 @@ _MAX_RETRIES = 3  # max retries per page on 429 or 5xx
 _RETRY_BASE_SLEEP = 5  # seconds; doubles each retry (5, 10, 20)
 
 
+def _retryable_status_message(status: int, body: str, retries: int) -> str:
+    """Build a precise fatal message for retryable status exhaustion."""
+    clipped = body[:200]
+    if status == 429:
+        return (
+            f"WoS API: status 429 after {retries} retries -- likely rate limit or quota exhaustion "
+            f"(WoS Starter API: 300 req/day). Response: {clipped}"
+        )
+    if status == 512:
+        return (
+            f"WoS API: status 512 after {retries} retries -- provider internal server fault "
+            f"(Clarivate side, not a query/schema issue). Response: {clipped}"
+        )
+    if 500 <= status < 600:
+        return (
+            f"WoS API: status {status} after {retries} retries -- persistent server-side failure "
+            f"(not necessarily quota exhaustion). Response: {clipped}"
+        )
+    return f"WoS API: status {status} after {retries} retries. Response: {clipped}"
+
+
 class WebOfScienceConnector:
     """Search Clarivate Web of Science via the Starter API.
 
@@ -129,6 +150,12 @@ class WebOfScienceConnector:
             full_query += f" AND PY={date_start}-9999"
         return full_query
 
+    @staticmethod
+    def _primary_filter_mode(query: str) -> str:
+        if "DT=Review" in query:
+            return "query_exclusion"
+        return "screening_only"
+
     async def search(
         self,
         query: str,
@@ -139,9 +166,10 @@ class WebOfScienceConnector:
         """Run a WoS search and return results up to max_results.
 
         Raises RuntimeError when the API returns a fatal error (401/403) or
-        exhausts all retries on 429/5xx (quota exhaustion). The SearchStrategy-
-        Coordinator catches this and marks the connector as "failed" in the
-        SSE event rather than silently returning 0 results.
+        exhausts all retries on 429/5xx. 429 is usually quota/rate limiting;
+        status 512 and other 5xx responses are classified as provider-side
+        server faults. The SearchStrategyCoordinator catches this and marks the
+        connector as "failed" in SSE instead of silently returning 0 results.
         """
         papers: list[CandidatePaper] = []
         headers = {
@@ -204,12 +232,7 @@ class WebOfScienceConnector:
                                     await asyncio.sleep(sleep_s)
                                     continue
                                 else:
-                                    _fatal_error = (
-                                        f"WoS API: status {resp.status} after "
-                                        f"{_MAX_RETRIES} retries -- likely quota "
-                                        f"exhaustion (WoS Starter API: 300 req/day). "
-                                        f"Response: {body[:200]}"
-                                    )
+                                    _fatal_error = _retryable_status_message(resp.status, body, _MAX_RETRIES)
                                     logger.error(_fatal_error)
                                 break
                             if resp.status != 200:
@@ -279,7 +302,10 @@ class WebOfScienceConnector:
             source_category=self.source_category,
             search_date=date.today().isoformat(),
             search_query=full_query,
-            limits_applied=f"max_results={max_results}",
+            limits_applied=(
+                f"max_results={max_results},"
+                f"primary_study_filter={self._primary_filter_mode(full_query)}"
+            ),
             records_retrieved=len(papers),
             papers=papers,
         )

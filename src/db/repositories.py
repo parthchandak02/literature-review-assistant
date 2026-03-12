@@ -1237,10 +1237,13 @@ class WorkflowRepository:
     async def save_extraction_record(self, workflow_id: str, record: ExtractionRecord) -> None:
         await self.db.execute(
             """
-            INSERT INTO extraction_records (workflow_id, paper_id, study_design, extraction_source, data)
-            VALUES (?, ?, ?, ?, ?)
+            INSERT INTO extraction_records (
+                workflow_id, paper_id, study_design, primary_study_status, extraction_source, data
+            )
+            VALUES (?, ?, ?, ?, ?, ?)
             ON CONFLICT(workflow_id, paper_id) DO UPDATE SET
                 study_design = excluded.study_design,
+                primary_study_status = excluded.primary_study_status,
                 extraction_source = excluded.extraction_source,
                 data = excluded.data
             """,
@@ -1248,6 +1251,7 @@ class WorkflowRepository:
                 workflow_id,
                 record.paper_id,
                 record.study_design.value,
+                record.primary_study_status.value,
                 (record.extraction_source or "text"),
                 record.model_dump_json(),
             ),

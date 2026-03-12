@@ -1,10 +1,15 @@
-# Update Cursor Rules
+# Update Cursor Assets
 
-Audit all existing `.cursor/rules/` files against the current codebase and update any that are stale, incomplete, or missing coverage.
+Audit project-local `.cursor` assets against the current codebase and update stale, incomplete, or missing coverage across rules, commands, skills, and agents.
 
 ## Steps
 
-1. **Discover existing rules** -- List all files in `.cursor/rules/` recursively. Read each one and note a one-line summary of what it covers. Do not assume a fixed set -- discover what is actually there.
+1. **Discover existing assets** -- List files in:
+   - `.cursor/rules/`
+   - `.cursor/commands/`
+   - `.cursor/skills/`
+   - `.cursor/agents/`
+   Read each and note a one-line summary of what it covers. Do not assume a fixed set.
 
 2. **Survey the actual codebase** -- Explore the current project structure to understand what is implemented:
    - List all top-level directories and identify key source directories (e.g. `src/`, `frontend/`, `config/`, `tests/`)
@@ -12,36 +17,39 @@ Audit all existing `.cursor/rules/` files against the current codebase and updat
    - Read the primary dependency file (e.g. `pyproject.toml`, `package.json`) to identify active libraries and tools
    - Read any root-level config files to understand the build and runtime setup
 
-3. **Identify gaps and staleness** -- For each existing rule, check:
+3. **Identify gaps and staleness** -- For each `.cursor` asset, check:
    - Are file paths, module names, and class names still accurate for the current codebase?
    - Are there new modules, patterns, or libraries that the rule does not mention?
    - Are there references to files, classes, or tools that no longer exist?
    - Is there a new recurring pattern that has no rule coverage at all?
 
-4. **Update stale rules** -- Edit rule files that need changes:
+4. **Update stale rules** -- Edit `.cursor/rules/*.mdc` files that need changes:
    - Update paths, class names, and examples to match current code
    - Add new content only for patterns that genuinely recur across the codebase
    - Do NOT add rules for one-off decisions or things obvious from reading the code
    - Preserve the existing frontmatter format of `.mdc` files (name, description, globs, alwaysApply fields)
 
-5. **Add missing rules** -- If a significant recurring pattern has no rule coverage, create a new `.mdc` file. Follow the project's naming conventions by examining existing files in each subdirectory:
+5. **Add missing rules** -- If a significant recurring pattern has no rule coverage, create a new `.mdc` file. Follow project naming conventions by examining existing files in each subdirectory:
    - `core/` -- always-on project-wide constraints
    - `python/`, `tool/`, `testing/`, `domain/` -- language, library, test, and domain-specific rules
    - Match the suffix pattern already used in that subdirectory (e.g. `-always.mdc`, `-auto.mdc`, `-agent.mdc`)
 
-6. **Also audit command docs** -- Check `.cursor/commands/*.md` files for the same issues:
+6. **Audit command docs** -- Check `.cursor/commands/*.md` files for the same issues:
    - Do the PM2 process names match `ecosystem.config.js`?
    - Do referenced file paths and module names still exist?
    - Are there behavioral claims that contradict the current codebase or `gotchas-agent.mdc`?
    Apply the same update/no-change threshold as for rule files.
 
-7. **Verify skill references** -- If any rule references a `.cursor/skills/` file, confirm that skill file actually exists. Remove or update broken references.
+7. **Audit skills and agents** --
+   - For `.cursor/skills/**/SKILL.md`, verify references, thresholds, and module names match current code.
+   - For `.cursor/agents/*.md`, verify artifact names, endpoint assumptions, run path guidance, and process names.
+   - If any rule references a `.cursor/skills/` file, confirm that skill exists and update broken references.
 
-8. **Report changes** -- Produce a summary table of every rule file that was touched:
+8. **Report changes** -- Produce summary tables for touched files:
 
-   | Rule File | Action | What Changed |
-   |-----------|--------|--------------|
-   | (path relative to `.cursor/rules/`) | Updated / Created / No change | Brief description |
+   | Asset File | Category | Action | What Changed |
+   |------------|----------|--------|--------------|
+   | (path relative to `.cursor/`) | Rule / Command / Skill / Agent | Updated / Created / No change | Brief description |
 
 ## Rules for This Command
 

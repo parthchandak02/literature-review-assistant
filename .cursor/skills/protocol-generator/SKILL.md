@@ -9,7 +9,7 @@ Guide for implementing PROSPERO-format protocol generation (Phase 2).
 
 ## Output
 
-`ProtocolDocument` model with all 22 PROSPERO fields. Export as `protocol.md` and `protocol.pdf`.
+`ProtocolDocument` is the structured protocol model used by the pipeline. Primary run artifact is `doc_protocol.md`; full PROSPERO-oriented artifacts are also emitted as `doc_prospero_registration.md` and `doc_prospero_registration.docx` when available.
 
 ## Required Fields
 

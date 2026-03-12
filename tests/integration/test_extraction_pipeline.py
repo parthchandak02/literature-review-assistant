@@ -76,13 +76,14 @@ async def test_extraction_pipeline_persists_typed_record(tmp_path) -> None:
         assert record.source_spans["title"] == paper.title
 
         cursor = await db.execute(
-            "SELECT study_design, data FROM extraction_records WHERE workflow_id = ? AND paper_id = ?",
+            "SELECT study_design, primary_study_status, data FROM extraction_records WHERE workflow_id = ? AND paper_id = ?",
             ("wf-extract", paper.paper_id),
         )
         row = await cursor.fetchone()
         assert row is not None
         assert str(row[0]) == StudyDesign.RCT.value
-        assert '"source"' in str(row[1])
+        assert str(row[1]) == "primary"
+        assert '"source"' in str(row[2])
 
 
 @pytest.mark.asyncio

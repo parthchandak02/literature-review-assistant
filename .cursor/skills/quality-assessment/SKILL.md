@@ -16,8 +16,11 @@ Guide for implementing Phase 4 extraction and quality assessment.
 
 Route each paper to the correct RoB tool based on `StudyDesign`:
 - RCT -> RoB 2
-- Non-randomized -> ROBINS-I
+- Non-randomized, Cohort, Case-control -> ROBINS-I
+- Cross-sectional -> CASP
 - Qualitative -> CASP
+- Mixed-methods -> MMAT
+- Other/non-empirical -> not_applicable
 
 ## RoB 2 (RCTs) -- 5 Domains
 
@@ -39,9 +42,11 @@ Uses different scale: Low / Moderate / Serious / Critical / No Information.
 
 Domains: confounding, selection, classification, deviations, missing data, measurement, reported result.
 
-## CASP (Qualitative)
+## CASP and MMAT
 
-Port prompt templates from old repo. Various design-specific checklists.
+- CASP is used for qualitative and cross-sectional evidence appraisals.
+- MMAT is used for mixed-methods studies.
+- Persist CASP and MMAT outputs to structured DB tables (`casp_assessments`, `mmat_assessments`) with upsert semantics.
 
 ## GRADE Assessor
 

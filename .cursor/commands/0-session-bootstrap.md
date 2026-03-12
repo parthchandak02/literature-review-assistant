@@ -52,7 +52,7 @@ pm2 list
 pm2 logs litreview-api --lines 20 --nostream
 ```
 
-Verify `litreview-api` (port 8001 dev / 8000 prod) and `litreview-ui` are online.
+Verify `litreview-api` (port 8001 for dev and PM2-served production process) and `litreview-ui` are online.
 PM2 process names are `litreview-api`, `litreview-ui`, and `litreview-tunnel`.
 `litreview-tunnel` is optional unless you are validating the production URL path.
 Do NOT use shorthand aliases like `api` or `ui` -- those are NOT configured.
@@ -62,7 +62,7 @@ If `litreview-api` is stopped or erroring, fix that before starting new work.
 
 ## Step 4 -- Production deploy reminder
 
-The production URL (`https://litreview.parthchandak.info`) is served by FastAPI on port 8000
+The production URL (`https://litreview.parthchandak.info`) is served by FastAPI on port 8001
 via Cloudflare tunnel. It serves the built `frontend/dist/` -- NOT the Vite dev server.
 
 After any frontend code change, rebuild before expecting production to reflect it:

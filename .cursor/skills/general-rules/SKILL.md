@@ -15,7 +15,7 @@ Before any git push or commit, check that no secrets, API keys, or env vars are 
 - Scan for patterns like `API_KEY=`, `SECRET=`, `PASSWORD=`
 - Generate conventional commit messages based on all file changes (e.g., `feat:`, `fix:`, `refactor:`). Prefer `feat:` for new features, `fix:` for bug fixes.
 - If major deletions or risky changes detected, pause and confirm with user before committing
-- If everything looks safe (no secrets, no major deletions), proceed with commit and push
+- If everything looks safe (no secrets, no major deletions), proceed with commit; push only when the user explicitly asks
 - Always use `.gitignore` to exclude `.env`, `runs/**`, `*.db` (runtime and registry dbs), and sensitive config files
 
 ## Documentation Standards
@@ -24,8 +24,7 @@ Keep documentation minimal and focused on getting started. Prioritize "How to us
 
 - Only create additional `.md` files when explicitly requested
 - Keep documentation short, utilitarian, no fluff
-- When you have too many tasks, you can make a `TASKS.md` to keep track of them
-- Once done, check them off and maintain a master running list of tasks in `TASKS.md`
+- For multi-step work, prefer the built-in todo/task tracking tools instead of creating tracking markdown files
 
 ## Script Organization and Management
 

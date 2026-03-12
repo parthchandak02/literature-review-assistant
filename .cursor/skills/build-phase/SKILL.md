@@ -11,12 +11,12 @@ Procedural guide for implementing each build phase of the systematic review tool
 
 When the user asks to implement a build phase, follow these steps:
 
-1. **Identify the phase** from the v2 spec (Part 5)
+1. **Identify the phase** from `spec.md` and current `src/` modules
 2. **Check prerequisites** -- verify all dependency phases are complete
-3. **Read the spec** for that phase's "What to Build" section
-4. **Create files** in the exact directory structure from Part 4
-5. **Implement using data contracts** from Part 2 (never invent new models)
-6. **Write tests** listed in Part 8 for this phase
+3. **Read the spec** for that phase's implementation and acceptance details
+4. **Create files** in the current project directory structure
+5. **Implement using typed data contracts** from `src/models/` (never invent untyped boundaries)
+6. **Write tests** that match the current test suite naming
 7. **Run acceptance criteria** -- every checkbox must pass
 8. **Report results** to user before proceeding
 
@@ -29,14 +29,14 @@ When the user asks to implement a build phase, follow these steps:
 | 3: Screening | Dual-reviewer, Prompts, Kappa | test_screening, test_reliability, test_dual_screening |
 | 4: Extraction | Extractor, RoB2, ROBINS-I, CASP, GRADE | test_rob2, test_robins_i, test_quality_pipeline |
 | 5: Synthesis | Effect sizes, Meta-analysis, Forest/Funnel | test_effect_size, test_meta_analysis, test_synthesis_pipeline |
-| 6: Writing | Section writer, Prompts, SoF, Humanizer, style_pattern_extractor, naturalness_scorer; per-section checkpoint; naturalness >= 0.75 | test_writing_pipeline |
+| 6: Writing | Section writer, prompts, SoF, humanizer guardrails, citation grounding, prior-section context chaining; abstract hard cap 230 words | test_writing_pipeline |
 | 7: PRISMA/Viz | PRISMA diagram, Timeline, Geographic | test_prisma_diagram |
-| 8: Export | Graph wiring, IEEE LaTeX, CLI, resume, workflow_registry | test_ieee_export, test_ieee_validator, test_workflow_registry, test_resume_state, test_checkpoint_resume, test_full_review |
+| 8: Export | Graph wiring, IEEE LaTeX, submission packaging, CLI, resume, workflow_registry | test_export, test_workflow_registry, test_resume_state, integration export/api tests |
 
 ## Phase 6 Acceptance Criteria (updated)
-- Style patterns extracted from included papers (when enabled)
-- Per-section checkpoint: kill during writing, restart, picks up at next unwritten section
-- Naturalness score >= 0.75 for all sections after humanization
+- Per-section persistence: interrupted runs can resume writing without losing completed sections
+- Discussion and conclusion use prior-sections context rather than repeating earlier sections
+- Abstract is deterministically trimmed to <= 230 words after LLM generation
 
 ## References
 @file:spec.md

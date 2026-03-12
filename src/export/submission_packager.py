@@ -81,7 +81,7 @@ async def _export_extraction_records(db_path: str, workflow_id: str, out_path: P
     async with get_db(db_path) as db:
         cursor = await db.execute(
             """
-            SELECT paper_id, study_design, data
+            SELECT paper_id, study_design, primary_study_status, data
             FROM extraction_records
             WHERE workflow_id = ?
             ORDER BY paper_id
@@ -90,13 +90,16 @@ async def _export_extraction_records(db_path: str, workflow_id: str, out_path: P
         )
         rows = await cursor.fetchall()
     if not rows:
-        out_path.write_text("paper_id,study_design,intervention_description,results_summary\n", encoding="utf-8")
+        out_path.write_text(
+            "paper_id,study_design,primary_study_status,intervention_description,results_summary\n",
+            encoding="utf-8",
+        )
         return
     with open(out_path, "w", newline="", encoding="utf-8") as f:
         writer = csv.writer(f)
-        writer.writerow(["paper_id", "study_design", "intervention_description", "results_summary"])
+        writer.writerow(["paper_id", "study_design", "primary_study_status", "intervention_description", "results_summary"])
         for row in rows:
-            paper_id, study_design, data_json = str(row[0]), str(row[1]), row[2]
+            paper_id, study_design, primary_study_status, data_json = str(row[0]), str(row[1]), str(row[2]), row[3]
             try:
                 data = json.loads(data_json) if isinstance(data_json, str) else {}
             except json.JSONDecodeError:
@@ -104,7 +107,7 @@ async def _export_extraction_records(db_path: str, workflow_id: str, out_path: P
             intervention = (data.get("intervention_description") or "").replace("\n", " ")[:500]
             results = (data.get("results_summary") or {}).get("summary") or ""
             results = str(results).replace("\n", " ")[:500]
-            writer.writerow([paper_id, study_design, intervention, results])
+            writer.writerow([paper_id, study_design, primary_study_status, intervention, results])
 
 
 def _generate_search_appendix_pdf(md_path: Path, pdf_path: Path) -> None:

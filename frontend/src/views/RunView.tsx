@@ -95,6 +95,8 @@ interface RunViewProps {
   run: SelectedRun
   /** Live SSE events -- empty when viewing a historical run. */
   events: ReviewEvent[]
+  /** True when selected run is backed by the live SSE stream. */
+  isViewingLiveRun: boolean
   /** SSE connection status. */
   status: string
   costStats: CostStats
@@ -120,6 +122,7 @@ interface RunViewProps {
 export function RunView({
   run,
   events,
+  isViewingLiveRun,
   status,
   costStats,
   activeTab,
@@ -134,11 +137,10 @@ export function RunView({
   autoArmFromSidebarToken = 0,
 }: RunViewProps) {
   const [wfIdCopied, setWfIdCopied] = useState(false)
-  // For historical runs, events prop is [] (only live runs get the SSE stream).
-  // Fetch stored events once so the funnel can be computed for completed runs too.
+  // For historical runs, fetch stored events so the funnel can be computed.
   const [historicalEvents, setHistoricalEvents] = useState<ReviewEvent[]>([])
   const [historicalEventsLoading, setHistoricalEventsLoading] = useState(false)
-  const isHistorical = events.length === 0
+  const isHistorical = !isViewingLiveRun
 
   useEffect(() => {
     if (!isHistorical) {
@@ -351,6 +353,7 @@ export function RunView({
               events={events}
               prefetchedHistoricalEvents={isHistorical ? historicalEvents : null}
               historicalEventsLoading={isHistorical ? historicalEventsLoading : false}
+              allowHistoricalFallback={isHistorical}
               status={status}
               runId={run.runId}
               workflowId={run.workflowId}
@@ -391,7 +394,7 @@ export function RunView({
 
           {activeTab === "config" && (
             <ConfigView
-              workflowId={run.workflowId ?? run.runId}
+              workflowId={run.workflowId}
               topic={run.topic}
               createdAt={run.createdAt}
             />

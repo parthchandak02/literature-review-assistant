@@ -9,6 +9,7 @@ import time
 from pydantic import BaseModel, Field
 
 from src.db.repositories import WorkflowRepository
+from src.extraction.primary_status import primary_status_from_study_design
 from src.llm.base_client import LLMBackend
 from src.llm.pydantic_client import PydanticAIClient
 from src.models import CandidatePaper, ExtractionRecord, OutcomeRecord, StudyDesign
@@ -308,6 +309,7 @@ class ExtractionService:
         return ExtractionRecord(
             paper_id=paper.paper_id,
             study_design=study_design,
+            primary_study_status=primary_status_from_study_design(study_design),
             study_duration="unknown",
             setting="not_reported",
             participant_count=None,
@@ -412,6 +414,7 @@ class ExtractionService:
         return ExtractionRecord(
             paper_id=paper.paper_id,
             study_design=study_design,
+            primary_study_status=primary_status_from_study_design(study_design),
             study_duration=parsed.study_duration or "unknown",
             setting=parsed.setting or "not_reported",
             participant_count=participant_count,

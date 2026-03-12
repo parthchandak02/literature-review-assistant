@@ -9,9 +9,9 @@ Guide for implementing the citation ledger (Phase 1 Foundation).
 
 ## Core API
 
-- `register_claim(claim_text, section, confidence)` -> claim_id
-- `register_citation(citekey, title, authors, ...)` -> citation_id
-- `link_evidence(claim_id, citation_id, evidence_span, score)`
+- `register_claim(ClaimRecord(...))` -> claim_id
+- `register_citation(CitationEntryRecord(...))` -> citation_id
+- `link_evidence(EvidenceLinkRecord(...))`
 - `validate_manuscript(text)` -> (unresolved_claims, unresolved_citations)
 - `block_export_if_invalid()` -> bool (blocks export if any unresolved)
 

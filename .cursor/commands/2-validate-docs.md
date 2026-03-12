@@ -4,7 +4,7 @@ Check that project documentation is accurate and aligned with the current codeba
 
 ## Steps
 
-1. **Discover project docs** -- List markdown files in the project root and any `docs/` directory. Identify which files serve as the primary user-facing README and the technical specification (commonly `README.md` and `spec.md` or similar). Read them in full. Also read `.cursor/rules/core/project-overview-always.mdc` and `.cursor/commands/*.md` -- in this project those files encode operational truth that `README.md` and `spec.md` sometimes lag behind.
+1. **Discover project docs** -- List markdown files in the project root and any `docs/` directory. Identify which files serve as the primary user-facing README and the technical specification (commonly `README.md` and `spec.md` or similar). Read them in full. Also read `.cursor/rules/core/project-overview-always.mdc`, `.cursor/rules/core/gotchas-agent.mdc`, `.cursor/commands/*.md`, and relevant `.cursor/skills/**/SKILL.md`/`.cursor/agents/*.md` when they define behavior that docs often lag behind.
 
 2. **Survey the codebase state** -- Understand what is actually implemented:
    - List all source directories and their subdirectories

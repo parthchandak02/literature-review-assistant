@@ -128,6 +128,8 @@
 
   .glass-toolbar {
     @apply border-b;
+    position: relative;
+    isolation: isolate;
     background-color: color-mix(in srgb, var(--glass-surface-2) 93%, black 7%);
     border-color: color-mix(in srgb, var(--glass-border-1) 75%, black 25%);
   }

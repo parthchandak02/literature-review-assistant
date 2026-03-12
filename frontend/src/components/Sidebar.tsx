@@ -521,12 +521,16 @@ export function Sidebar({
                   ),
                 )
                 const statusKey = isLiveRow && liveRun ? liveRun.status : resolveStatus(entry.status)
+                const isReconnectingRow =
+                  !isLiveRow &&
+                  !entry.live_run_id &&
+                  (statusKey === "streaming" || statusKey === "connecting")
                 const isSelected = selectedWorkflowId === entry.workflow_id
                 const isOpening = openingId === entry.workflow_id
                 const canOpen = Boolean(entry.db_path)
                 const rowIsRunning = isLiveRow
                   ? statusKey === "streaming" || statusKey === "connecting"
-                  : Boolean(entry.live_run_id)
+                  : Boolean(entry.live_run_id) || isReconnectingRow
                 // Metadata in run info strip order: Status, Time, Found, Included, Cost, WF ID (omit "out")
 
                 // Entries with live_run_id are actively running in-process -- clicking
@@ -541,7 +545,7 @@ export function Sidebar({
                   ? (liveRun.phaseProgress?.value ?? (rowIsRunning ? -1 : undefined))
                   : statusKey === "done"
                     ? 1
-                    : entry.live_run_id
+                    : (entry.live_run_id || isReconnectingRow)
                       ? -1
                       : undefined
 
@@ -612,7 +616,7 @@ export function Sidebar({
                                       STATUS_TEXT[statusKey],
                                     )}
                                   >
-                                    {STATUS_LABEL[statusKey]}
+                                    {isReconnectingRow ? "RECONNECTING" : STATUS_LABEL[statusKey]}
                                   </span>
                                 </div>
                                 {entry.created_at && (

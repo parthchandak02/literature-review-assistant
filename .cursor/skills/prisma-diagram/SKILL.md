@@ -10,7 +10,7 @@ Guide for implementing Phase 7 PRISMA diagram and related visualizations.
 ## PRISMA 2020 Two-Column Structure
 
 - **Left column:** "Records identified from Databases and Registers" (per-database counts)
-- **Right column:** "Records identified from Other Sources" (citation search, grey literature)
+- **Right column:** Optional in this implementation. Current PRISMA output combines other-source records into the identification totals for arithmetic consistency.
 
 ## Diagram Requirements
 
@@ -35,5 +35,5 @@ Build from `PRISMACounts` model:
 ## Additional Visualizations
 
 - **RoB figure** (`src/visualization/rob_figure.py`): current traffic-light visualization utility
-- **Timeline** (target): Publication timeline of included studies
-- **Geographic** (target): Geographic distribution of studies
+- **Timeline** (implemented): Publication timeline of included studies
+- **Geographic** (implemented): Geographic distribution of studies

@@ -6,7 +6,7 @@ from typing import Literal, Optional
 
 from pydantic import BaseModel, Field
 
-from src.models.enums import StudyDesign
+from src.models.enums import PrimaryStudyStatus, StudyDesign
 
 
 class OutcomeRecord(BaseModel):
@@ -33,6 +33,7 @@ class OutcomeRecord(BaseModel):
 class ExtractionRecord(BaseModel):
     paper_id: str
     study_design: StudyDesign
+    primary_study_status: PrimaryStudyStatus = PrimaryStudyStatus.UNKNOWN
     study_duration: str | None = None
     setting: str | None = None
     participant_count: int | None = None

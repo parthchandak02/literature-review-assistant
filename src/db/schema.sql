@@ -53,6 +53,7 @@ CREATE TABLE IF NOT EXISTS extraction_records (
     workflow_id TEXT NOT NULL,
     paper_id TEXT NOT NULL REFERENCES papers(paper_id),
     study_design TEXT NOT NULL,
+    primary_study_status TEXT NOT NULL DEFAULT 'unknown',
     extraction_source TEXT NOT NULL DEFAULT 'text',
     data TEXT NOT NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,

@@ -299,6 +299,8 @@ export interface ActivityViewProps {
   events: ReviewEvent[]
   prefetchedHistoricalEvents?: ReviewEvent[] | null
   historicalEventsLoading?: boolean
+  /** When true, an empty event list can fall back to persisted history. */
+  allowHistoricalFallback?: boolean
   status: string
   runId: string
   workflowId?: string | null
@@ -314,6 +316,7 @@ export function ActivityView({
   events,
   prefetchedHistoricalEvents = null,
   historicalEventsLoading = false,
+  allowHistoricalFallback = false,
   status,
   runId,
   workflowId,
@@ -333,7 +336,7 @@ export function ActivityView({
   const logRef = useRef<LogStreamHandle>(null)
 
   const hasPrefetchedHistorical = prefetchedHistoricalEvents != null
-  const isHistoricalMode = isDone && events.length === 0 && Boolean(runId)
+  const isFallbackMode = allowHistoricalFallback && events.length === 0 && Boolean(runId)
 
   const loadHistoricalEvents = useCallback(
     async (id: string, wfId: string | null | undefined) => {
@@ -361,7 +364,7 @@ export function ActivityView({
   )
 
   useEffect(() => {
-    if (!isHistoricalMode || !runId) {
+    if (!isFallbackMode || !runId) {
       setHistoricalEvents([])
       setFetchError(null)
       return
@@ -370,11 +373,11 @@ export function ActivityView({
       return
     }
     void loadHistoricalEvents(runId, workflowId)
-  }, [isHistoricalMode, runId, workflowId, loadHistoricalEvents, hasPrefetchedHistorical])
+  }, [isFallbackMode, runId, workflowId, loadHistoricalEvents, hasPrefetchedHistorical])
 
   const [searchQuery, setSearchQuery] = useState("")
   const activeHistoricalEvents = hasPrefetchedHistorical ? (prefetchedHistoricalEvents ?? []) : historicalEvents
-  const activeEvents = isHistoricalMode ? activeHistoricalEvents : events
+  const activeEvents = isFallbackMode ? activeHistoricalEvents : events
   const effectiveLoadingHistory = hasPrefetchedHistorical ? historicalEventsLoading : loadingHistory
   const phaseStates = useMemo(
     () => buildPhaseStates(activeEvents, isDone),
@@ -470,7 +473,7 @@ export function ActivityView({
     ? null
     : searchQuery.trim()
     ? `${filtered.length} of ${activeEvents.length} events`
-    : `${filtered.length} events${isHistoricalMode ? " (historical)" : ""}`
+    : `${filtered.length} events${isFallbackMode ? " (historical)" : ""}`
 
   return (
     <div className="flex flex-col gap-4">

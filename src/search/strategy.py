@@ -19,6 +19,24 @@ from src.search.deduplication import deduplicate_papers
 _logger = logging.getLogger(__name__)
 _slog = structlog.get_logger()
 
+_PUBMED_PRIMARY_ONLY_EXCLUSION = (
+    "NOT ("
+    '"systematic review"[Publication Type] OR '
+    '"meta-analysis"[Publication Type] OR '
+    '"review"[Publication Type] OR '
+    '"systematic review"[Title] OR '
+    '"scoping review"[Title] OR '
+    '"narrative review"[Title] OR '
+    '"umbrella review"[Title] OR '
+    '"meta-analysis"[Title] OR '
+    '"meta analysis"[Title]'
+    ")"
+)
+
+_SCOPUS_PRIMARY_ONLY_EXCLUSION = "AND NOT DOCTYPE(re)"
+_WOS_PRIMARY_ONLY_EXCLUSION = "AND NOT DT=Review"
+_EMBASE_PRIMARY_ONLY_EXCLUSION = "AND NOT DOCTYPE(re)"
+
 
 def build_boolean_query(config: ReviewConfig) -> str:
     # Use only keywords, NOT full PICO description strings.
@@ -69,7 +87,11 @@ def build_database_query(config: ReviewConfig, database_name: str) -> str:
     kws = config.keywords or []
     short_query = " ".join(kws[:8]) if kws else (config.pico.intervention[:80])
     if name == "pubmed":
-        return f"({base}) AND ({config.pico.population}[Title/Abstract] OR {config.pico.intervention}[Title/Abstract])"
+        return (
+            f"({base}) "
+            f"AND ({config.pico.population}[Title/Abstract] OR {config.pico.intervention}[Title/Abstract]) "
+            f"AND {_PUBMED_PRIMARY_ONLY_EXCLUSION}"
+        )
     if name == "arxiv":
         return f'all:("{config.research_question}") OR all:("{config.pico.intervention}")'
     if name == "ieee_xplore":
@@ -103,7 +125,7 @@ def build_database_query(config: ReviewConfig, database_name: str) -> str:
         wos_part2 = " OR ".join(f'TS="{k}"' for k in kws[8:16]) if len(kws) > 8 else wos_part1
         date_s = config.date_range_start or 2010
         date_e = config.date_range_end or 2026
-        return f"({wos_part1}) AND ({wos_part2}) AND PY={date_s}-{date_e}"
+        return f"({wos_part1}) AND ({wos_part2}) AND PY={date_s}-{date_e} {_WOS_PRIMARY_ONLY_EXCLUSION}"
     if name == "scopus":
         # Use Scopus field-code syntax: TITLE-ABS-KEY covers title, abstract, and author keywords.
         # Split keywords into two groups to build two AND-joined TITLE-ABS-KEY clauses.
@@ -118,7 +140,20 @@ def build_database_query(config: ReviewConfig, database_name: str) -> str:
         return (
             f"TITLE-ABS-KEY({kw_part1}) AND "
             f"TITLE-ABS-KEY({kw_part2}) "
-            f"AND PUBYEAR > {date_s - 1} AND PUBYEAR < {date_e + 1}"
+            f"AND PUBYEAR > {date_s - 1} AND PUBYEAR < {date_e + 1} "
+            f"{_SCOPUS_PRIMARY_ONLY_EXCLUSION}"
+        )
+    if name == "embase":
+        kws = config.keywords or []
+        kw_part1 = " OR ".join(f'"{k}"' for k in kws[:8]) if kws else f'"{config.pico.intervention[:60]}"'
+        kw_part2 = " OR ".join(f'"{k}"' for k in kws[8:16]) if len(kws) > 8 else kw_part1
+        date_s = config.date_range_start or 2009
+        date_e = config.date_range_end or 2027
+        return (
+            f"TITLE-ABS-KEY({kw_part1}) AND "
+            f"TITLE-ABS-KEY({kw_part2}) "
+            f"AND PUBYEAR > {date_s - 1} AND PUBYEAR < {date_e + 1} "
+            f"{_EMBASE_PRIMARY_ONLY_EXCLUSION}"
         )
     return base
 
@@ -230,7 +265,7 @@ class SearchStrategyCoordinator:
                 if total < self.low_recall_threshold:
                     _logger.warning(
                         "LOW RECALL: %s returned only %d records (threshold: %d). "
-                        "Consider broadening search_overrides.%s in config/review.yaml. "
+                        "If connector status was success, consider broadening search_overrides.%s in config/review.yaml. "
                         "Check doc_search_strategies_appendix.md for the exact query used.",
                         db_name,
                         total,

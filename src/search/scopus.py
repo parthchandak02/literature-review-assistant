@@ -114,6 +114,12 @@ class ScopusConnector:
             source_category=SourceCategory.DATABASE,
         )
 
+    @staticmethod
+    def _primary_filter_mode(query: str) -> str:
+        if "DOCTYPE(re)" in query or "DOCTYPE(RE)" in query:
+            return "query_exclusion"
+        return "screening_only"
+
     async def search(
         self,
         query: str,
@@ -222,7 +228,10 @@ class ScopusConnector:
             source_category=self.source_category,
             search_date=date.today().isoformat(),
             search_query=full_query,
-            limits_applied=f"max_results={max_results}",
+            limits_applied=(
+                f"max_results={max_results},"
+                f"primary_study_filter={self._primary_filter_mode(full_query)}"
+            ),
             records_retrieved=len(papers),
             papers=papers,
         )

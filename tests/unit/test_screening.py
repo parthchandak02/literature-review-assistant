@@ -381,7 +381,63 @@ async def test_batch_reviewer_missing_paper_fallback(tmp_path) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Test 4: JSON parse failure -> all papers fall back to individual calls
+# Test 4: Out-of-chunk paper IDs are ignored and trigger fallback + mismatch log
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_batch_reviewer_out_of_chunk_ids_ignored(tmp_path) -> None:
+    """Batch parser must ignore IDs not present in the current chunk."""
+    papers = [_paper("p1"), _paper("p2"), _paper("p3")]
+    batch_a_with_wrong_id = [
+        _batch_item("p1", "include", 0.95),
+        _batch_item("not_in_chunk", "include", 0.95),
+    ]
+    fallback = {"decision": "include", "confidence": 0.9, "reasoning": "fallback include"}
+    responses: list[object] = [batch_a_with_wrong_id, fallback, fallback]
+    async with get_db(str(tmp_path / "batch_out_of_chunk.db")) as db:
+        repo = WorkflowRepository(db)
+        await repo.create_workflow("wf-batch-out-of-chunk", "topic", "hash")
+        provider = LLMProvider(_batch_settings(batch_size=10), repo)
+        screener = DualReviewerScreener(
+            repository=repo,
+            provider=provider,
+            review=_review(),
+            settings=_batch_settings(batch_size=10),
+            llm_client=_ScriptedClient(responses),
+        )
+        results = await screener.screen_batch(
+            workflow_id="wf-batch-out-of-chunk",
+            stage="title_abstract",
+            papers=papers,
+        )
+        assert len(results) == 3
+        assert {r.paper_id for r in results} == {"p1", "p2", "p3"}
+        # p2 and p3 should have fallen back to individual reviewer calls.
+        cur = await db.execute(
+            """
+            SELECT COUNT(*)
+            FROM decision_log
+            WHERE decision_type = 'screening_batch_parse_coverage'
+              AND decision = 'parsed_1_of_3'
+            """
+        )
+        row = await cur.fetchone()
+        assert int(row[0]) == 1
+        cur = await db.execute(
+            """
+            SELECT COUNT(*)
+            FROM decision_log
+            WHERE decision_type = 'screening_batch_id_mismatch'
+              AND decision = 'ignored_1_out_of_chunk_ids'
+            """
+        )
+        row = await cur.fetchone()
+        assert int(row[0]) == 1
+
+
+# ---------------------------------------------------------------------------
+# Test 5: JSON parse failure -> all papers fall back to individual calls
 # ---------------------------------------------------------------------------
 
 
@@ -419,7 +475,7 @@ async def test_batch_reviewer_json_parse_failure_fallback(tmp_path) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Test 5: Multiple chunks -- 7 papers with batch_size=3 -> ceil(7/3)=3 batch calls for A
+# Test 6: Multiple chunks -- 7 papers with batch_size=3 -> ceil(7/3)=3 batch calls for A
 # ---------------------------------------------------------------------------
 
 
@@ -455,7 +511,7 @@ async def test_batch_reviewer_multiple_chunks(tmp_path) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Test 6: reviewer_batch_size=0 -> per-paper mode, same DB rows as existing tests
+# Test 7: reviewer_batch_size=0 -> per-paper mode, same DB rows as existing tests
 # ---------------------------------------------------------------------------
 
 
@@ -491,7 +547,7 @@ async def test_batch_reviewer_disabled_when_zero(tmp_path) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Test 7: on_progress fires exactly once per paper even in batch mode
+# Test 8: on_progress fires exactly once per paper even in batch mode
 # ---------------------------------------------------------------------------
 
 
@@ -609,6 +665,48 @@ async def test_batch_reviewer_parses_id_alias_and_missing_optional_fields(tmp_pa
         assert decision_map["p1"] == ScreeningDecisionType.INCLUDE
         assert decision_map["p2"] == ScreeningDecisionType.EXCLUDE
         # No parse degradation entry should be emitted when both entries parse.
+        cur = await db.execute(
+            """
+            SELECT COUNT(*)
+            FROM decision_log
+            WHERE decision_type = 'screening_batch_parse_coverage'
+            """
+        )
+        row = await cur.fetchone()
+        assert int(row[0]) == 0
+
+
+@pytest.mark.asyncio
+async def test_batch_reviewer_parses_wrapped_decisions_object(tmp_path) -> None:
+    """Batch parser accepts object-wrapped responses with a decisions array."""
+    papers = [_paper("p1"), _paper("p2")]
+    wrapped_payload = {
+        "decisions": [
+            _batch_item("p1", "include", 0.93, reason="in scope"),
+            _batch_item("p2", "exclude", 0.89, reason="out of scope"),
+        ]
+    }
+    responses: list[object] = [wrapped_payload]
+    async with get_db(str(tmp_path / "batch_wrapped_object.db")) as db:
+        repo = WorkflowRepository(db)
+        await repo.create_workflow("wf-batch-wrapped", "topic", "hash")
+        provider = LLMProvider(_batch_settings(batch_size=10), repo)
+        screener = DualReviewerScreener(
+            repository=repo,
+            provider=provider,
+            review=_review(),
+            settings=_batch_settings(batch_size=10),
+            llm_client=_ScriptedClient(responses),
+        )
+        results = await screener.screen_batch(
+            workflow_id="wf-batch-wrapped",
+            stage="title_abstract",
+            papers=papers,
+        )
+        assert len(results) == 2
+        decision_map = {r.paper_id: r.decision for r in results}
+        assert decision_map["p1"] == ScreeningDecisionType.INCLUDE
+        assert decision_map["p2"] == ScreeningDecisionType.EXCLUDE
         cur = await db.execute(
             """
             SELECT COUNT(*)

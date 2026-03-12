@@ -24,13 +24,31 @@ def _extract_abstract(tex_content: str) -> str | None:
 
 
 def _count_words(text: str) -> int:
-    """Count words in text."""
-    return len(text.split())
+    """Count words in text, normalizing common LaTeX markup to plain text."""
+    # Replace LaTeX command forms like \textbf{foo} or \cite{A,B} with
+    # their argument text so command names and braces are not counted.
+    normalized = re.sub(r"\\[A-Za-z]+\{([^}]*)\}", r" \1 ", text)
+    # Drop any remaining control sequences (e.g. \%, \&, \newline).
+    normalized = re.sub(r"\\[A-Za-z]+|\\.", " ", normalized)
+    normalized = normalized.replace("{", " ").replace("}", " ")
+    words = re.findall(r"[A-Za-z0-9]+(?:['-][A-Za-z0-9]+)?", normalized)
+    return len(words)
 
 
 def _extract_cite_keys(tex_content: str) -> set[str]:
-    """Extract all \\cite{key} keys from LaTeX."""
-    return set(re.findall(r"\\cite\{([^}]+)\}", tex_content))
+    """Extract all \\cite{key} keys from LaTeX.
+
+    A single cite command may carry a comma-separated list (for example
+    ``\\cite{KeyA2020,KeyB2021}``). Validation must compare each key
+    independently against BibTeX entries.
+    """
+    keys: set[str] = set()
+    for raw_group in re.findall(r"\\cite\{([^}]+)\}", tex_content):
+        for key in raw_group.split(","):
+            stripped = key.strip()
+            if stripped:
+                keys.add(stripped)
+    return keys
 
 
 def _extract_bib_citekeys(bib_content: str) -> set[str]:

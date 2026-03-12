@@ -24,6 +24,7 @@ import {
   clearLiveRun,
   startRun,
   startRunWithMasterlist,
+  startRunWithSupplementaryCsv,
 } from "@/lib/api"
 import { Spinner } from "@/components/ui/feedback"
 import {
@@ -164,8 +165,16 @@ export default function App() {
     [selectedRun?.isDone, status, events],
   )
 
-  // True when the currently viewed run is the live SSE run (not a historical one).
-  const isViewingLiveRun = selectedRun !== null && selectedRun.runId === liveRunId
+  // True when the currently viewed run is backed by the active SSE stream.
+  // During handoffs, run_id can change before all selectedRun fields settle,
+  // so we also allow a workflow_id match when both sides are known.
+  const isViewingLiveRun =
+    selectedRun !== null &&
+    liveRunId !== null &&
+    (selectedRun.runId === liveRunId ||
+      (Boolean(selectedRun.workflowId) &&
+        Boolean(liveWorkflowId) &&
+        selectedRun.workflowId === liveWorkflowId))
 
   // Events to pass to RunView: only provide live events when viewing the live run.
   const viewEvents = isViewingLiveRun ? events : []
@@ -473,6 +482,10 @@ export default function App() {
         consecutiveMisses++
         return
       }
+      if (liveRunId === res.run_id && selectedRun?.runId === res.run_id) {
+        switched = true
+        return
+      }
       // Mark as switched immediately so concurrent/delayed callbacks are no-ops.
       switched = true
       consecutiveMisses = 0
@@ -508,7 +521,7 @@ export default function App() {
     }, 800)
 
     return () => clearInterval(interval)
-  }, [selectedRun?.workflowId, selectedRun?.historicalStatus, isViewingLiveRun, reset, navigate])
+  }, [selectedRun?.workflowId, selectedRun?.historicalStatus, selectedRun?.runId, liveRunId, isViewingLiveRun, reset, navigate])
 
   // ---------------------------------------------------------------------------
   // Track mobile viewport (< 640px) and auto-collapse sidebar on mobile.
@@ -604,6 +617,43 @@ export default function App() {
     setActiveRunTab("activity")
   }
 
+  async function handleStartWithSupplementaryCsv(csvFile: File, req: RunRequest) {
+    setResumeLauncherWorkflowId(null)
+    reset()
+    wasStreamingRef.current = false
+    liveRunNavigatedRef.current = null
+    const now = new Date()
+    const keys: StoredApiKeys = {
+      gemini: req.gemini_api_key,
+      openalex: req.openalex_api_key ?? "",
+      ieee: req.ieee_api_key ?? "",
+      pubmedEmail: req.pubmed_email ?? "",
+      pubmedApiKey: req.pubmed_api_key ?? "",
+      perplexity: req.perplexity_api_key ?? "",
+      semanticScholar: req.semantic_scholar_api_key ?? "",
+      crossrefEmail: req.crossref_email ?? "",
+      wos: req.wos_api_key ?? "",
+      scopus: req.scopus_api_key ?? "",
+    }
+    const res = await startRunWithSupplementaryCsv(csvFile, req.review_yaml, keys, req.run_root)
+    setLiveRunId(res.run_id)
+    setLiveTopic(res.topic)
+    setLiveStartedAt(now)
+    setLiveWorkflowId(null)
+    saveLiveRun({ runId: res.run_id, topic: res.topic, startedAt: now.toISOString() })
+    const run: SelectedRun = {
+      runId: res.run_id,
+      workflowId: null,
+      topic: res.topic,
+      dbPath: null,
+      isDone: false,
+      startedAt: now,
+      createdAt: now.toISOString(),
+    }
+    setSelectedRun(run)
+    setActiveRunTab("activity")
+  }
+
   async function handleCancel() {
     if (liveRunId) await cancelRun(liveRunId)
     abort()
@@ -635,6 +685,36 @@ export default function App() {
 
   async function handleSelectHistory(entry: HistoryEntry) {
     setResumeLauncherWorkflowId(null)
+    // Always probe the backend for an active run first. Sidebar history can lag
+    // briefly after CLI resume and miss live_run_id on a running workflow.
+    const active = await fetchActiveRun(entry.workflow_id).catch(() => null)
+    if (active) {
+      const now = new Date()
+      reset()
+      liveRunNavigatedRef.current = entry.workflow_id
+      setLiveRunId(active.run_id)
+      setLiveTopic(active.topic || entry.topic)
+      setLiveStartedAt(now)
+      setLiveWorkflowId(entry.workflow_id)
+      saveLiveRun({
+        runId: active.run_id,
+        topic: active.topic || entry.topic,
+        startedAt: now.toISOString(),
+        workflowId: entry.workflow_id,
+      })
+      setSelectedRun({
+        runId: active.run_id,
+        workflowId: entry.workflow_id,
+        topic: active.topic || entry.topic,
+        dbPath: entry.db_path || null,
+        isDone: false,
+        startedAt: now,
+        createdAt: entry.created_at,
+      })
+      setActiveRunTab("activity")
+      navigate(`/run/${entry.workflow_id}/activity`, { replace: true })
+      return
+    }
     // If the workflow has an in-process active task, connect live SSE directly
     // instead of replaying stale DB events.
     if (entry.live_run_id) {
@@ -797,6 +877,7 @@ export default function App() {
             defaultReviewYaml={defaultYaml}
             onSubmit={handleStart}
             onSubmitWithCsv={handleStartWithCsv}
+            onSubmitWithSupplementaryCsv={handleStartWithSupplementaryCsv}
             disabled={isRunning}
           />
         </Suspense>
@@ -826,6 +907,7 @@ export default function App() {
       <RunView
         run={selectedRun}
         events={viewEvents}
+        isViewingLiveRun={isViewingLiveRun}
         status={isViewingLiveRun ? status : resolvedHistoricalStatus}
         costStats={isViewingLiveRun ? costStats : { total_cost: 0, total_tokens_in: 0, total_tokens_out: 0, total_calls: 0, by_model: [], by_phase: [] }}
         activeTab={activeRunTab}
@@ -881,7 +963,7 @@ export default function App() {
       />
 
       <main
-        className="relative flex-1 h-full overflow-hidden overscroll-none flex flex-col transition-[margin-left] duration-200 ease-in-out"
+        className="relative isolate flex-1 h-full overflow-hidden overscroll-none flex flex-col transition-[margin-left] duration-200 ease-in-out"
         style={{ marginLeft: mainMargin }}
       >
         {/* Ambient warm glow behind glass content (subtle orange balance to sidebar violet) */}
@@ -895,7 +977,7 @@ export default function App() {
         />
         {/* Top bar -- paddingTop pushes content below the iOS status bar when viewport-fit=cover is active */}
         <header
-          className="sticky top-0 z-10 glass-toolbar border-b border-zinc-800/70 shrink-0"
+          className="sticky top-0 z-30 glass-toolbar border-b border-zinc-800/70 shrink-0"
           style={{ paddingTop: 'env(safe-area-inset-top)' }}
         >
           <div className="h-14 flex items-center px-4 gap-3">
@@ -959,8 +1041,8 @@ export default function App() {
         <div
           className={
             selectedRun !== null
-              ? "relative z-10 flex-1 overflow-hidden"
-              : "relative z-10 flex-1 overflow-y-auto p-6"
+              ? "relative z-0 flex-1 overflow-hidden"
+              : "relative z-0 flex-1 overflow-y-auto p-6"
           }
         >
           {renderMain()}

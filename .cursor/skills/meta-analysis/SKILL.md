@@ -12,11 +12,11 @@ LLMs must NEVER compute statistics. All calculations use deterministic functions
 
 ## Workflow
 
-1. **Feasibility check** (LLM-assisted): Are studies clinically similar enough to pool?
+1. **Feasibility check** (deterministic): Evaluate structured outcome compatibility before pooling.
 2. **Extract raw data** from `ExtractionRecord` (means, SDs, counts, events)
 3. **Compute effect sizes** using statsmodels functions
 4. **Assess heterogeneity** (I^2, Q, tau^2)
-5. **Select model**: fixed if I^2 < 40%, random-effects if I^2 >= 40%
+5. **Select model**: use `meta_analysis.heterogeneity_threshold` from `config/settings.yaml` (current default 50%) to pick fixed vs random-effects
 6. **Pool effects** using `combine_effects()`
 7. **Generate forest plot** using `.plot_forest()`
 8. **Generate funnel plot** (matplotlib scatter) if >= 10 studies

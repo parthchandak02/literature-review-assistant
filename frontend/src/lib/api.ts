@@ -88,6 +88,7 @@ export interface PaperAllRow {
   country: string | null
   ta_decision: string | null
   ft_decision: string | null
+  primary_study_status: string | null
   extraction_confidence: number | null
   assessment_source: string | null
 }
@@ -121,6 +122,13 @@ export interface HistoryEntry {
 }
 
 const BASE = "/api"
+
+function _sanitizePageNumber(value: number, fallback: number, minValue = 0): number {
+  if (!Number.isFinite(value)) return fallback
+  const normalized = Math.trunc(value)
+  if (normalized < minValue) return fallback
+  return normalized
+}
 
 export async function startRun(req: RunRequest): Promise<RunResponse> {
   const res = await fetch(`${BASE}/run`, {
@@ -168,6 +176,41 @@ export async function startRunWithMasterlist(
   if (!res.ok) {
     const text = await res.text()
     throw new Error(`Failed to start master list run: ${text}`)
+  }
+  return res.json() as Promise<RunResponse>
+}
+
+/**
+ * Start a review run with connector search plus one supplementary CSV import.
+ * The uploaded CSV is merged with connector results before dedup and screening.
+ */
+export async function startRunWithSupplementaryCsv(
+  csvFile: File,
+  reviewYaml: string,
+  keys: StoredApiKeys,
+  runRoot = "runs",
+): Promise<RunResponse> {
+  const form = new FormData()
+  form.append("csv_file", csvFile)
+  form.append("review_yaml", reviewYaml)
+  form.append("gemini_api_key", keys.gemini)
+  if (keys.openalex) form.append("openalex_api_key", keys.openalex)
+  if (keys.ieee) form.append("ieee_api_key", keys.ieee)
+  if (keys.pubmedEmail) form.append("pubmed_email", keys.pubmedEmail)
+  if (keys.pubmedApiKey) form.append("pubmed_api_key", keys.pubmedApiKey)
+  if (keys.perplexity) form.append("perplexity_api_key", keys.perplexity)
+  if (keys.semanticScholar) form.append("semantic_scholar_api_key", keys.semanticScholar)
+  if (keys.crossrefEmail) form.append("crossref_email", keys.crossrefEmail)
+  if (keys.wos) form.append("wos_api_key", keys.wos)
+  if (keys.scopus) form.append("scopus_api_key", keys.scopus)
+  if (runRoot) form.append("run_root", runRoot)
+  const res = await fetch(`${BASE}/run-with-supplementary-csv`, {
+    method: "POST",
+    body: form,
+  })
+  if (!res.ok) {
+    const text = await res.text()
+    throw new Error(`Failed to start supplementary CSV run: ${text}`)
   }
   return res.json() as Promise<RunResponse>
 }
@@ -327,9 +370,11 @@ export async function fetchPapers(
   limit = 50,
   search = "",
 ): Promise<{ total: number; offset: number; limit: number; papers: PaperRow[] }> {
+  const safeOffset = _sanitizePageNumber(offset, 0)
+  const safeLimit = _sanitizePageNumber(limit, 50, 1)
   const params = new URLSearchParams({
-    offset: String(offset),
-    limit: String(limit),
+    offset: String(safeOffset),
+    limit: String(safeLimit),
     search,
   })
   const res = await fetch(`${BASE}/db/${runId}/papers?${params}`)
@@ -344,11 +389,13 @@ export async function fetchScreening(
   offset = 0,
   limit = 100,
 ): Promise<{ total: number; offset: number; limit: number; decisions: ScreeningRow[] }> {
+  const safeOffset = _sanitizePageNumber(offset, 0)
+  const safeLimit = _sanitizePageNumber(limit, 100, 1)
   const params = new URLSearchParams({
     stage,
     decision,
-    offset: String(offset),
-    limit: String(limit),
+    offset: String(safeOffset),
+    limit: String(safeLimit),
   })
   const res = await fetch(`${BASE}/db/${runId}/screening?${params}`)
   if (!res.ok) throw await _apiError(res, "Screening fetch failed")
@@ -360,6 +407,7 @@ export async function fetchPapersAll(
   search = "",
   taDecision = "",
   ftDecision = "",
+  primaryStatus = "",
   year = "",
   source = "",
   country = "",
@@ -368,17 +416,20 @@ export async function fetchPapersAll(
   title = "",
   author = "",
 ): Promise<{ total: number; offset: number; limit: number; papers: PaperAllRow[] }> {
+  const safeOffset = _sanitizePageNumber(offset, 0)
+  const safeLimit = _sanitizePageNumber(limit, 50, 1)
   const params = new URLSearchParams({
     search,
     title,
     author,
     ta_decision: taDecision,
     ft_decision: ftDecision,
+    primary_status: primaryStatus,
     year,
     source,
     country,
-    offset: String(offset),
-    limit: String(limit),
+    offset: String(safeOffset),
+    limit: String(safeLimit),
   })
   const res = await fetch(`${BASE}/db/${runId}/papers-all?${params}`)
   if (!res.ok) throw await _apiError(res, "Papers fetch failed")
@@ -387,10 +438,24 @@ export async function fetchPapersAll(
 
 export async function fetchPapersFacets(
   runId: string,
-): Promise<{ years: number[]; sources: string[]; countries: string[]; ta_decisions: string[]; ft_decisions: string[] }> {
+): Promise<{
+  years: number[]
+  sources: string[]
+  countries: string[]
+  ta_decisions: string[]
+  ft_decisions: string[]
+  primary_statuses: string[]
+}> {
   const res = await fetch(`${BASE}/db/${runId}/papers-facets`)
   if (!res.ok) throw await _apiError(res, "Facets fetch failed")
-  return res.json() as Promise<{ years: number[]; sources: string[]; countries: string[]; ta_decisions: string[]; ft_decisions: string[] }>
+  return res.json() as Promise<{
+    years: number[]
+    sources: string[]
+    countries: string[]
+    ta_decisions: string[]
+    ft_decisions: string[]
+    primary_statuses: string[]
+  }>
 }
 
 export async function fetchPapersSuggest(

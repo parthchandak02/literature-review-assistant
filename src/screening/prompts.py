@@ -38,6 +38,7 @@ def _quality_criteria_block() -> str:
     return "\n".join(
         [
             "MANDATORY DATA QUALITY EXCLUSION CRITERIA (evaluate BEFORE topic relevance):",
+            "Apply these criteria even if database-level query filters were used.",
             "EXCLUDE with exclusion_reason=insufficient_data if ANY of the following apply:",
             "- No authors are listed (Authors field is empty or blank)",
             "- The paper is an editorial, letter, opinion piece, commentary, or news item",

@@ -15,11 +15,13 @@ Scopus, Embase, and CINAHL export formats.
 from __future__ import annotations
 
 import csv
+import io
 import logging
 import re
 import uuid
 from datetime import date
 from pathlib import Path
+from typing import Any
 
 from src.models.enums import SourceCategory
 from src.models.papers import CandidatePaper, SearchResult
@@ -72,6 +74,33 @@ _ALIASES: dict[str, list[str]] = {
         "MESH",
     ],
 }
+
+
+def _load_csv_text(path: Path) -> tuple[str, csv.Dialect]:
+    """Read CSV bytes with resilient encoding and delimiter detection."""
+    raw = path.read_bytes()
+    if not raw:
+        raise ValueError(f"CSV is empty: {path}")
+
+    last_decode_error: Exception | None = None
+    text: str | None = None
+    for encoding in ("utf-8-sig", "utf-8", "cp1252", "latin-1"):
+        try:
+            text = raw.decode(encoding)
+            break
+        except UnicodeDecodeError as exc:
+            last_decode_error = exc
+            continue
+
+    if text is None:
+        raise ValueError(f"CSV encoding is not supported for file: {path}") from last_decode_error
+
+    sample = text[:8192]
+    try:
+        dialect = csv.Sniffer().sniff(sample, delimiters=",;\t|")
+    except csv.Error:
+        dialect = csv.excel
+    return text, dialect
 
 
 def _resolve_col(fieldnames: list[str], canonical: str) -> str | None:
@@ -186,50 +215,50 @@ def _parse_csv_file(
     papers: list[CandidatePaper] = []
     skipped = 0
 
-    with path.open(encoding="utf-8-sig", newline="") as fh:
-        reader = csv.DictReader(fh)
-        fieldnames: list[str] = list(reader.fieldnames or [])
+    csv_text, dialect = _load_csv_text(path)
+    reader = csv.DictReader(io.StringIO(csv_text), dialect=dialect)
+    fieldnames: list[str] = list(reader.fieldnames or [])
 
-        title_col = _resolve_col(fieldnames, "title")
-        if title_col is None:
-            raise ValueError(f"CSV has no recognisable Title column. Found: {fieldnames}")
+    title_col = _resolve_col(fieldnames, "title")
+    if title_col is None:
+        raise ValueError(f"CSV has no recognisable Title column. Found: {fieldnames}")
 
-        authors_col = _resolve_col(fieldnames, "authors")
-        year_col = _resolve_col(fieldnames, "year")
-        source_col = _resolve_col(fieldnames, "source")
-        doi_col = _resolve_col(fieldnames, "doi")
-        url_col = _resolve_col(fieldnames, "url")
-        abstract_col = _resolve_col(fieldnames, "abstract")
-        keywords_col = _resolve_col(fieldnames, "keywords")
+    authors_col = _resolve_col(fieldnames, "authors")
+    year_col = _resolve_col(fieldnames, "year")
+    source_col = _resolve_col(fieldnames, "source")
+    doi_col = _resolve_col(fieldnames, "doi")
+    url_col = _resolve_col(fieldnames, "url")
+    abstract_col = _resolve_col(fieldnames, "abstract")
+    keywords_col = _resolve_col(fieldnames, "keywords")
 
-        db_name = database_label or _detect_database(path, fieldnames)
+    db_name = database_label or _detect_database(path, fieldnames)
 
-        for i, row in enumerate(reader, start=2):
-            title = (row.get(title_col) or "").strip()
-            if not title:
-                skipped += 1
-                _log.debug("Skipping row %d: empty title", i)
-                continue
+    for i, row in enumerate(reader, start=2):
+        title = (row.get(title_col) or "").strip()
+        if not title:
+            skipped += 1
+            _log.debug("Skipping row %d: empty title", i)
+            continue
 
-            raw_authors = (row.get(authors_col) if authors_col else "") or ""
-            authors = _parse_authors(raw_authors) or ["Unknown"]
+        raw_authors = (row.get(authors_col) if authors_col else "") or ""
+        authors = _parse_authors(raw_authors) or ["Unknown"]
 
-            source_database = ((row.get(source_col) if source_col else "") or "").strip() or db_name
+        source_database = ((row.get(source_col) if source_col else "") or "").strip() or db_name
 
-            papers.append(
-                CandidatePaper(
-                    paper_id=str(uuid.uuid4())[:12],
-                    title=title,
-                    authors=authors,
-                    year=_parse_year((row.get(year_col) if year_col else "") or ""),
-                    source_database=source_database,
-                    doi=_clean_doi((row.get(doi_col) if doi_col else "") or ""),
-                    abstract=((row.get(abstract_col) if abstract_col else "") or "").strip() or None,
-                    url=((row.get(url_col) if url_col else "") or "").strip() or None,
-                    keywords=_parse_keywords((row.get(keywords_col) if keywords_col else "") or ""),
-                    source_category=SourceCategory.OTHER_SOURCE,
-                )
+        papers.append(
+            CandidatePaper(
+                paper_id=str(uuid.uuid4())[:12],
+                title=title,
+                authors=authors,
+                year=_parse_year((row.get(year_col) if year_col else "") or ""),
+                source_database=source_database,
+                doi=_clean_doi((row.get(doi_col) if doi_col else "") or ""),
+                abstract=((row.get(abstract_col) if abstract_col else "") or "").strip() or None,
+                url=((row.get(url_col) if url_col else "") or "").strip() or None,
+                keywords=_parse_keywords((row.get(keywords_col) if keywords_col else "") or ""),
+                source_category=SourceCategory.OTHER_SOURCE,
             )
+        )
 
     _log.info(
         "CSV import: parsed %d papers from '%s' as '%s' (skipped %d blank-title rows)",
@@ -249,6 +278,17 @@ def _parse_csv_file(
         records_retrieved=len(papers),
         papers=papers,
     )
+
+
+def validate_csv_file(csv_path: str) -> dict[str, Any]:
+    """Validate CSV parseability and required schema before launching workflow."""
+    result = _parse_csv_file(Path(csv_path), workflow_id="validation", database_label="CSV Import")
+    if result.records_retrieved <= 0:
+        raise ValueError("CSV contains no data rows with a non-empty Title column.")
+    return {
+        "records_retrieved": result.records_retrieved,
+        "database_name": result.database_name,
+    }
 
 
 def parse_masterlist_csv(csv_path: str, workflow_id: str) -> SearchResult:

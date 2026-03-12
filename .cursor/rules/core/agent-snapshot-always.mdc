@@ -1,0 +1,12 @@
+---
+description: Require a quick snapshot of active and recent agent work before starting tasks
+alwaysApply: true
+---
+
+# Agent Context Snapshot
+
+Before substantial work, take a quick snapshot of current agent activity:
+- Check what other agents are actively running and their current task.
+- Check recently completed agent outputs/transcripts for relevant context.
+- Use this snapshot to avoid duplicate work and align with in-flight changes.
+- Keep this check lightweight and proceed immediately after the snapshot.
