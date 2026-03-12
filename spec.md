@@ -1009,7 +1009,7 @@ Run card status border (2px left): emerald = completed, violet = running/connect
 
 ### 10.1.1 Endpoint Parity Checklist
 
-Full parity sweep result: all 48 endpoint rows in Section 10.1 match method+path decorators in `src/web/app.py`; no mismatches found.
+Endpoint parity is enforced in CI via `scripts/check_spec_endpoint_parity.py`, which compares Section 10.1 rows against `src/web/app.py` FastAPI decorators and fails on drift in either direction.
 
 - `Run lifecycle`: `/api/run`, `/api/run-with-masterlist`, `/api/run-with-supplementary-csv`, `/api/stream/{run_id}`, `/api/cancel/{run_id}` -> handlers `@app.post("/api/run")`, `@app.post("/api/run-with-masterlist")`, `@app.post("/api/run-with-supplementary-csv")`, `@app.get("/api/stream/{run_id}")`, `@app.post("/api/cancel/{run_id}")` in `src/web/app.py`.
 - `Config`: `/api/config/review`, `/api/config/env-keys`, `/api/config/generate`, `/api/config/generate/stream` -> handlers `@app.get("/api/config/review")`, `@app.get("/api/config/env-keys")`, `@app.post("/api/config/generate")`, `@app.post("/api/config/generate/stream")`.
