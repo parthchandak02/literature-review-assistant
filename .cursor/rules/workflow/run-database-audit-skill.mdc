@@ -31,3 +31,9 @@ When this rule triggers, do both:
 3. Analyze CSV plus SQL evidence against `review.yaml` or `config_snapshot.yaml` and report concrete process-level fixes.
 
 Do not stop at file generation only. The expected behavior is export plus analysis.
+
+Additional required checks for this rule:
+- For live runs, classify health as healthy/at-risk/stalled based on phase progress movement over time.
+- For CSV outputs, report parsed row counts (not raw line counts) to avoid multiline abstract inflation.
+- Include a final-include mismatch scan for likely secondary-study leakage (`review`, `scoping`, `narrative`, `meta-analysis`, `protocol` keywords).
+- Surface disagreement-direction counts (`include/exclude`, `exclude/include`, `uncertain/*`) to detect reviewer bias.

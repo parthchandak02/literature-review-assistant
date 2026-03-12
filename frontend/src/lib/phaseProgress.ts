@@ -7,7 +7,7 @@ import type { ReviewEvent } from "@/lib/api"
 export interface PhaseProgress {
   /** Fraction of total phases completed (0-1). */
   value: number
-  /** Number of phases fully done (0-6). */
+  /** Number of phases fully done. */
   completedPhases: number
   /** Current phase progress fraction if running (0-1). */
   currentPhaseFraction?: number
@@ -26,9 +26,12 @@ function buildPhaseStates(events: ReviewEvent[]): Record<string, { status: strin
             ? { current: ev.completed, total: ev.total }
             : undefined,
       }
-    } else if (ev.type === "progress" && states[ev.phase]) {
+    } else if (ev.type === "progress") {
+      // Progress can arrive without an in-memory phase_start marker after event capping/replay.
+      // Initialize the phase as running so progress bars do not appear frozen.
+      const prev = states[ev.phase]
       states[ev.phase] = {
-        ...states[ev.phase],
+        status: prev?.status ?? "running",
         progress: { current: ev.current, total: ev.total },
       }
     }

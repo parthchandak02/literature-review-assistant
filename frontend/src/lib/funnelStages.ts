@@ -74,11 +74,19 @@ export function computeFunnelStages(events: ReviewEvent[]): FunnelStage[] {
   // --- Stage 4b: batch LLM pre-ranker -> forwarded to dual-reviewer ---
   // Present only when batch_screen_done event exists (batch_screen_enabled=true).
   let toDualReview: number | null = null
+  let capOverflowForwarded = 0
   for (const e of events) {
     if (e.type === "batch_screen_done") {
       const bs = e as unknown as Record<string, number>
       if (bs.forwarded != null) toDualReview = bs.forwarded
     }
+    if (e.type === "screening_cap_overflow") {
+      const ov = e as unknown as Record<string, number>
+      capOverflowForwarded += ov.overflow_forwarded ?? 0
+    }
+  }
+  if (toDualReview != null && capOverflowForwarded > 0) {
+    toDualReview += capOverflowForwarded
   }
 
   // --- Stage 5: full-text assessed ---

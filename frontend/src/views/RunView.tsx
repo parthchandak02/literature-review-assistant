@@ -6,7 +6,8 @@ import { Spinner } from "@/components/ui/feedback"
 import { GlassTabs } from "@/components/ui/glass-tabs"
 import { ActivityView } from "@/views/ActivityView"
 import type { ReviewEvent } from "@/lib/api"
-import { fetchRunEvents } from "@/lib/api"
+import { fetchRunEvents, fetchWorkflowEvents } from "@/lib/api"
+import { shouldFallbackToWorkflowEvents } from "@/lib/runSelection"
 import type { CostStats } from "@/hooks/useCostStats"
 import { computeFunnelStages } from "@/lib/funnelStages"
 
@@ -156,14 +157,19 @@ export function RunView({
     let cancelled = false
     setHistoricalEventsLoading(true)
     void fetchRunEvents(run.runId)
-      .then((evts) => {
-        if (!cancelled) setHistoricalEvents(evts)
+      .then(async (evts) => {
+        let resolved = evts
+        const workflowId = run.workflowId
+        if (workflowId && shouldFallbackToWorkflowEvents(resolved.length, workflowId, run.runId)) {
+          resolved = await fetchWorkflowEvents(workflowId)
+        }
+        if (!cancelled) setHistoricalEvents(resolved)
       })
       .finally(() => {
         if (!cancelled) setHistoricalEventsLoading(false)
       })
     return () => { cancelled = true }
-  }, [run.runId, isHistorical])
+  }, [run.runId, run.workflowId, isHistorical])
 
   // Use live SSE events when available; fall back to replayed historical events.
   const effectiveEvents = isHistorical ? historicalEvents : events

@@ -43,11 +43,11 @@ Use the `scripts` folder to automate important tasks. Identify and organize scri
 
 ## Python Environment Management
 
-Use `uv` and `.venv` to run Python scripts and install dependencies.
+Use `uv` for dependency management and execution.
 
 - Always use `uv` for package installation instead of pip (unless specified otherwise)
-- Use `.venv` virtual environment for Python projects
-- Activate the virtual environment before running Python scripts
+- Prefer `uv run ...` to execute Python commands
+- Activate `.venv` only when direct interpreter workflows are explicitly needed
 
 ## Code Quality and Linting
 

@@ -447,16 +447,37 @@ export function eventToLogEntry(ev: ReviewEvent): LogRenderEntry {
       const afterMetadata = pf.after_metadata ?? (deduped - metaRej)
       const autoExcl = pf.automation_excluded ?? 0
       const toLlm = pf.to_llm ?? 0
+      const cap = typeof pf.dual_review_cap === "number" ? pf.dual_review_cap : null
+      const emptyRescued = pf.empty_abstract_rescued ?? 0
       const reasons = ((ev as unknown as { reason_breakdown?: Record<string, number> }).reason_breakdown) ?? {}
       const reasonText = topReasonSummary(reasons)
+      const capText = cap !== null ? ` cap=${cap}` : ""
+      const rescueText = emptyRescued > 0 ? `, ${emptyRescued} empty-abstract rescues` : ""
       return finalize({
-        text: `[${fmtTs(ev.ts)}] FUNNEL ${deduped} deduped -> ${afterMetadata} after metadata -> ${toLlm} to LLM (${autoExcl} auto-excluded)${reasonText ? ` [${reasonText}]` : ""}`,
+        text: `[${fmtTs(ev.ts)}] FUNNEL ${deduped} deduped -> ${afterMetadata} after metadata -> ${toLlm} to LLM (${autoExcl} auto-excluded${capText}${rescueText})${reasonText ? ` [${reasonText}]` : ""}`,
         level: "info",
         severity: "info",
         kind: "funnel",
         phase: "phase_3_screening",
         compactable: false,
         groupKey: "funnel:prefilter",
+        isResumeRelated: false,
+        isResumeNoOp: false,
+      })
+    }
+
+    case "deterministic_exclusion_qa_sample": {
+      const qa = ev as unknown as Record<string, number>
+      const sample = qa.sample_size ?? 0
+      const pool = qa.pool_size ?? 0
+      return finalize({
+        text: `[${fmtTs(ev.ts)}] QA     Deterministic-exclude sample prepared: ${sample}/${pool} records for manual review`,
+        level: "status",
+        severity: "status",
+        kind: "status",
+        phase: "phase_3_screening",
+        compactable: false,
+        groupKey: "qa:deterministic-exclude",
         isResumeRelated: false,
         isResumeNoOp: false,
       })
@@ -479,6 +500,23 @@ export function eventToLogEntry(ev: ReviewEvent): LogRenderEntry {
         groupKey: "batch:screen",
         isResumeRelated: bs.skipped_resume > 0,
         isResumeNoOp: scored === 0 && forwarded === 0 && excluded === 0 && bs.skipped_resume > 0,
+      })
+    }
+
+    case "screening_cap_overflow": {
+      const ov = ev as unknown as Record<string, number>
+      const rate = typeof ov.validation_tail_forward_rate === "number" ? `${(ov.validation_tail_forward_rate * 100).toFixed(1)}%` : "--"
+      const trigger = typeof ov.trigger_threshold === "number" ? `${(ov.trigger_threshold * 100).toFixed(1)}%` : "--"
+      return finalize({
+        text: `[${fmtTs(ev.ts)}] CAP    Safety valve: tail yield ${rate} (trigger ${trigger}) -> +${ov.overflow_forwarded ?? 0} forwarded from ${ov.overflow_evaluated ?? 0} overflow candidates`,
+        level: "status",
+        severity: "status",
+        kind: "status",
+        phase: "phase_3_screening",
+        compactable: false,
+        groupKey: "cap:overflow",
+        isResumeRelated: false,
+        isResumeNoOp: false,
       })
     }
 

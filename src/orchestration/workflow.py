@@ -861,20 +861,27 @@ class ScreeningNode(BaseNode[ReviewState]):
             # --- Pre-screening: BM25 ranking (when cap is set) or keyword filter ---
             cap = state.settings.screening.max_llm_screen
             bm25_validation_forwarded = 0
+            bm25_validation_tail_ids: set[str] = set()
+            bm25_overflow_candidates: list[CandidatePaper] = []
             paper_by_id = {p.paper_id: p for p in meta_acceptable}
 
             if cap is not None:
-                # Run keyword prefilter as a hard first gate (when min_matches > 0)
-                # before BM25. This eliminates off-topic papers that score on a
-                # shared root word in BM25 but contain no domain-specific terms.
+                # Always run keyword_prefilter first because it now performs
+                # deterministic pre-LLM gates (empty abstract + secondary/protocol
+                # markers) regardless of keyword_filter_min_matches.
                 kw_min = state.settings.screening.keyword_filter_min_matches
+                kw_excluded, to_rank = keyword_prefilter(meta_acceptable, state.review, state.settings.screening)
                 if kw_min > 0:
-                    kw_excluded, to_rank = keyword_prefilter(meta_acceptable, state.review, state.settings.screening)
                     # Adaptive fallback: if the keyword list is too narrow (e.g. from
                     # a poor AI-generated config), it can exclude >80% of the pool and
                     # cause downstream gate failures. In that case, skip the keyword
                     # gate entirely and fall back to BM25 ranking on the full pool.
-                    exclusion_ratio = len(kw_excluded) / max(len(meta_acceptable), 1)
+                    _kw_only_exclusions = sum(
+                        1
+                        for d in kw_excluded
+                        if getattr(getattr(d, "exclusion_reason", None), "value", "") == "keyword_filter"
+                    )
+                    exclusion_ratio = _kw_only_exclusions / max(len(meta_acceptable), 1)
                     if exclusion_ratio > 0.80:
                         if rc and hasattr(rc, "log_status"):
                             rc.log_status(
@@ -882,15 +889,30 @@ class ScreeningNode(BaseNode[ReviewState]):
                                 f"(threshold: 80%). Config keyword list is too narrow -- "
                                 f"falling back to BM25-only ranking for this run."
                             )
-                        kw_excluded, to_rank = [], meta_acceptable
-                else:
-                    kw_excluded, to_rank = [], meta_acceptable
+                        # Preserve deterministic pre-LLM exclusions while dropping
+                        # keyword-only exclusions for this run.
+                        kw_excluded = [
+                            d
+                            for d in kw_excluded
+                            if getattr(getattr(d, "exclusion_reason", None), "value", "") != "keyword_filter"
+                        ]
+                        excluded_ids = {d.paper_id for d in kw_excluded}
+                        to_rank = [p for p in meta_acceptable if p.paper_id not in excluded_ids]
 
                 # BM25 ranks keyword-accepted papers; top N go to LLM, tail auto-excluded.
                 papers_for_llm, bm25_excluded = bm25_rank_and_cap(to_rank, state.review, state.settings.screening)
                 if cap is not None:
                     bm25_validation_forwarded = max(len(papers_for_llm) - min(cap, len(to_rank)), 0)
+                    if bm25_validation_forwarded > 0:
+                        bm25_validation_tail_ids = {
+                            p.paper_id for p in papers_for_llm[-bm25_validation_forwarded:]
+                        }
                 pre_excluded = kw_excluded + bm25_excluded
+                bm25_overflow_candidates = [
+                    paper_by_id[d.paper_id]
+                    for d in bm25_excluded
+                    if d.paper_id in paper_by_id
+                ]
 
                 if kw_excluded:
                     await repository.bulk_save_screening_decisions(
@@ -909,7 +931,8 @@ class ScreeningNode(BaseNode[ReviewState]):
                 if rc and hasattr(rc, "log_status"):
                     rc.log_status(
                         f"Keyword pre-filter: {len(kw_excluded)} auto-excluded. "
-                        f"BM25 ranking: {len(to_rank)} scored, {len(papers_for_llm)} top-ranked to LLM, "
+                        f"BM25 ranking: {len(to_rank)} scored, {len(papers_for_llm)} top-ranked to LLM "
+                        f"(cap={cap}), "
                         f"{len(bm25_excluded)} auto-excluded (low relevance), "
                         f"{bm25_validation_forwarded} near-cutoff forwarded for validation."
                     )
@@ -952,6 +975,7 @@ class ScreeningNode(BaseNode[ReviewState]):
             # typed event IS persisted and replayed on history load.
             if rc and hasattr(rc, "_emit"):
                 import datetime as _dt_pf
+                import random as _random
 
                 _prefilter_reason_breakdown: dict[str, int] = {}
                 for _d in pre_excluded:
@@ -959,6 +983,16 @@ class ScreeningNode(BaseNode[ReviewState]):
                     if _raw is None:
                         _raw = "other"
                     _prefilter_reason_breakdown[str(_raw)] = _prefilter_reason_breakdown.get(str(_raw), 0) + 1
+                _empty_abstract_pool = sum(1 for p in meta_acceptable if not (p.abstract or "").strip())
+                _empty_abstract_excluded = sum(
+                    1
+                    for d in pre_excluded
+                    if (
+                        getattr(getattr(d, "exclusion_reason", None), "value", "") == "insufficient_data"
+                        and "empty abstract" in str(getattr(d, "reason", "")).lower()
+                    )
+                )
+                _empty_abstract_rescued = max(_empty_abstract_pool - _empty_abstract_excluded, 0)
                 rc._emit(
                     {
                         "type": "screening_prefilter_done",
@@ -967,6 +1001,11 @@ class ScreeningNode(BaseNode[ReviewState]):
                         "after_metadata": len(meta_acceptable),
                         "automation_excluded": len(pre_excluded),
                         "to_llm": len(papers_for_llm),
+                        "dual_review_cap": cap,
+                        "bm25_validation_forwarded": bm25_validation_forwarded,
+                        "empty_abstract_pool": _empty_abstract_pool,
+                        "empty_abstract_excluded": _empty_abstract_excluded,
+                        "empty_abstract_rescued": _empty_abstract_rescued,
                         "reason_breakdown": _prefilter_reason_breakdown,
                         "action": "skipped",
                         "entity_type": "phase",
@@ -976,6 +1015,48 @@ class ScreeningNode(BaseNode[ReviewState]):
                         "ts": _dt_pf.datetime.utcnow().isoformat(),
                     }
                 )
+                # Emit a bounded QA sample of deterministic exclusions so users can
+                # manually inspect false-exclusion risk each run.
+                _qa_reasons = {
+                    "insufficient_data",
+                    "wrong_study_design",
+                    "protocol_only",
+                }
+                _deterministic_decisions = [
+                    d
+                    for d in pre_excluded
+                    if str(getattr(getattr(d, "exclusion_reason", None), "value", "other")) in _qa_reasons
+                ]
+                _qa_n = min(
+                    max(getattr(state.settings.screening, "deterministic_exclude_qa_sample_size", 0), 0),
+                    len(_deterministic_decisions),
+                )
+                if _qa_n > 0:
+                    _sampled = _random.sample(_deterministic_decisions, _qa_n)
+                    _qa_rows: list[dict[str, str]] = []
+                    for _d in _sampled:
+                        _p = paper_by_id.get(_d.paper_id)
+                        _qa_rows.append(
+                            {
+                                "paper_id": _d.paper_id,
+                                "reason_code": str(
+                                    getattr(getattr(_d, "exclusion_reason", None), "value", "other")
+                                ),
+                                "title": (_p.title if _p else ""),
+                            }
+                        )
+                    rc._emit(
+                        {
+                            "type": "deterministic_exclusion_qa_sample",
+                            "sample_size": _qa_n,
+                            "pool_size": len(_deterministic_decisions),
+                            "items": _qa_rows,
+                            "action": "needs_review",
+                            "entity_type": "phase",
+                            "entity_id": "phase_3_screening",
+                            "ts": _dt_pf.datetime.utcnow().isoformat(),
+                        }
+                    )
 
             # --- Adaptive threshold calibration (optional) ---
             screening_cfg = state.settings.screening
@@ -1208,6 +1289,83 @@ class ScreeningNode(BaseNode[ReviewState]):
                             f"(score < {screening_cfg.batch_screen_threshold:.2f})"
                             + (f", {_batch_n_skip} skipped (resume)." if _batch_n_skip else ".")
                         )
+
+                    # Cap safety valve: if near-cutoff BM25 validation tail still yields
+                    # many forwards at batch pre-ranking, process one bounded overflow slice.
+                    _overflow_cfg = state.settings.screening
+                    _overflow_enabled = bool(getattr(_overflow_cfg, "cap_overflow_enabled", False))
+                    _overflow_trigger = float(getattr(_overflow_cfg, "cap_overflow_trigger_include_rate", 0.20))
+                    _overflow_min_n = int(getattr(_overflow_cfg, "cap_overflow_min_validation_n", 10))
+                    _overflow_slice = int(getattr(_overflow_cfg, "cap_overflow_slice_size", 25))
+                    _overflow_max = int(getattr(_overflow_cfg, "cap_overflow_max_extra", 50))
+                    _validation_tail_n = len(bm25_validation_tail_ids)
+                    _validation_tail_forwarded = sum(
+                        1 for p in _batch_forwarded if p.paper_id in bm25_validation_tail_ids
+                    )
+                    _validation_tail_rate = (
+                        (_validation_tail_forwarded / _validation_tail_n) if _validation_tail_n > 0 else 0.0
+                    )
+                    _overflow_candidates = [
+                        p
+                        for p in bm25_overflow_candidates
+                        if p.paper_id not in _already_screened
+                    ]
+                    _overflow_take = 0
+                    _overflow_forwarded_n = 0
+                    if (
+                        _overflow_enabled
+                        and _papers_for_batch
+                        and _validation_tail_n >= _overflow_min_n
+                        and _validation_tail_rate >= _overflow_trigger
+                        and _overflow_candidates
+                    ):
+                        _overflow_take = min(_overflow_slice, _overflow_max, len(_overflow_candidates))
+                        _overflow_batch = _overflow_candidates[:_overflow_take]
+                        if rc and hasattr(rc, "log_status"):
+                            rc.log_status(
+                                f"Cap safety valve triggered: validation-tail forward rate "
+                                f"{_validation_tail_rate:.1%} >= {_overflow_trigger:.1%}. "
+                                f"Evaluating +{_overflow_take} near-cutoff papers."
+                            )
+                        _overflow_forwarded, _overflow_excluded = await _br.rank_and_split(_overflow_batch)
+                        _overflow_forwarded_n = len(_overflow_forwarded)
+                        if _overflow_excluded:
+                            _overflow_excl_papers = [
+                                paper_by_id[d.paper_id] for d in _overflow_excluded if d.paper_id in paper_by_id
+                            ]
+                            await repository.bulk_save_screening_decisions(
+                                workflow_id=state.workflow_id,
+                                stage="title_abstract",
+                                papers=_overflow_excl_papers,
+                                decisions=_overflow_excluded,
+                            )
+                        _batch_forwarded = _batch_forwarded + _overflow_forwarded
+                        state.batch_screen_forwarded = state.batch_screen_forwarded + _overflow_forwarded_n
+                        if rc and hasattr(rc, "_emit"):
+                            rc._emit(
+                                {
+                                    "type": "screening_cap_overflow",
+                                    "trigger": "validation_tail_yield",
+                                    "validation_tail_n": _validation_tail_n,
+                                    "validation_tail_forwarded": _validation_tail_forwarded,
+                                    "validation_tail_forward_rate": _validation_tail_rate,
+                                    "trigger_threshold": _overflow_trigger,
+                                    "overflow_candidates": len(_overflow_candidates),
+                                    "overflow_evaluated": _overflow_take,
+                                    "overflow_forwarded": _overflow_forwarded_n,
+                                    "action": "included" if _overflow_forwarded_n > 0 else "skipped",
+                                    "entity_type": "phase",
+                                    "entity_id": "phase_3_screening",
+                                    "reason_code": "cap_overflow_validation_tail",
+                                    "reason_label": "Cap safety valve overflow slice evaluated",
+                                    "ts": _dt_bs.datetime.utcnow().isoformat(),
+                                }
+                            )
+                        if rc and hasattr(rc, "log_status"):
+                            rc.log_status(
+                                f"Cap safety valve result: {_overflow_forwarded_n}/{_overflow_take} "
+                                f"overflow candidates forwarded to dual-reviewer."
+                            )
 
                     # papers_for_llm now contains only papers forwarded by the batch ranker
                     # plus any already-screened papers from prior sessions (those are handled

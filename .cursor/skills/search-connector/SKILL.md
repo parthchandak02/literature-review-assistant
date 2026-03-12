@@ -13,7 +13,7 @@ Every connector must:
 1. Implement the connector interface from `src/search/base.py`
 2. Return results containing `List[CandidatePaper]` (or equivalent paper model)
 3. Set `source_category` (DATABASE or OTHER_SOURCE) for PRISMA diagram
-4. Handle rate limiting internally (constants in the connector file, not YAML)
+4. Respect config-driven per-database limits from search settings, while enforcing connector/API-specific constraints internally when needed
 5. Use async HTTP (aiohttp), never synchronous requests
 6. Log search query, date, database name, and result count for PRISMA-S appendix
 

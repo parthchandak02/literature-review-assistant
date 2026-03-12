@@ -6,15 +6,17 @@ import asyncio
 import logging
 from collections.abc import Callable
 from pathlib import Path
-from typing import Any
+from typing import Any, TYPE_CHECKING
 
 import structlog
 
 from src.db.repositories import WorkflowRepository
 from src.models import DecisionLogEntry, ReviewConfig, SearchResult
-from src.orchestration.gates import GateRunner
 from src.search.base import SearchConnector
 from src.search.deduplication import deduplicate_papers
+
+if TYPE_CHECKING:
+    from src.orchestration.gates import GateRunner
 
 _logger = logging.getLogger(__name__)
 _slog = structlog.get_logger()
@@ -38,6 +40,25 @@ _WOS_PRIMARY_ONLY_EXCLUSION = "AND NOT DT=Review"
 _EMBASE_PRIMARY_ONLY_EXCLUSION = "AND NOT DOCTYPE(re)"
 
 
+def requires_primary_studies(config: ReviewConfig) -> bool:
+    """Return True when query-level primary-study filtering should be enforced."""
+    if config.review_type == "systematic":
+        return True
+    exclusion_blob = " ".join(config.exclusion_criteria or []).lower()
+    return any(
+        token in exclusion_blob
+        for token in (
+            "secondary review",
+            "systematic review",
+            "scoping review",
+            "narrative review",
+            "meta-analysis",
+            "meta analysis",
+            "protocol",
+        )
+    )
+
+
 def build_boolean_query(config: ReviewConfig) -> str:
     # Use only keywords, NOT full PICO description strings.
     # PICO descriptions (intervention/outcome) are multi-sentence text that never
@@ -58,8 +79,16 @@ def build_boolean_query(config: ReviewConfig) -> str:
 
 def build_database_query(config: ReviewConfig, database_name: str) -> str:
     name = database_name.lower()
+    primary_only = requires_primary_studies(config)
     if config.search_overrides:
         if name in config.search_overrides:
+            if primary_only:
+                _slog.warning(
+                    "search_override_primary_policy_bypass",
+                    database=name,
+                    status="override_bypasses_primary_only_filters",
+                    detail="custom override is used verbatim; verify primary-study exclusions manually",
+                )
             _slog.info(
                 "search_override_status",
                 database=name,
@@ -87,10 +116,11 @@ def build_database_query(config: ReviewConfig, database_name: str) -> str:
     kws = config.keywords or []
     short_query = " ".join(kws[:8]) if kws else (config.pico.intervention[:80])
     if name == "pubmed":
+        _primary_clause = f" AND {_PUBMED_PRIMARY_ONLY_EXCLUSION}" if primary_only else ""
         return (
             f"({base}) "
             f"AND ({config.pico.population}[Title/Abstract] OR {config.pico.intervention}[Title/Abstract]) "
-            f"AND {_PUBMED_PRIMARY_ONLY_EXCLUSION}"
+            f"{_primary_clause}"
         )
     if name == "arxiv":
         return f'all:("{config.research_question}") OR all:("{config.pico.intervention}")'
@@ -125,7 +155,8 @@ def build_database_query(config: ReviewConfig, database_name: str) -> str:
         wos_part2 = " OR ".join(f'TS="{k}"' for k in kws[8:16]) if len(kws) > 8 else wos_part1
         date_s = config.date_range_start or 2010
         date_e = config.date_range_end or 2026
-        return f"({wos_part1}) AND ({wos_part2}) AND PY={date_s}-{date_e} {_WOS_PRIMARY_ONLY_EXCLUSION}"
+        _primary_clause = f" {_WOS_PRIMARY_ONLY_EXCLUSION}" if primary_only else ""
+        return f"({wos_part1}) AND ({wos_part2}) AND PY={date_s}-{date_e}{_primary_clause}"
     if name == "scopus":
         # Use Scopus field-code syntax: TITLE-ABS-KEY covers title, abstract, and author keywords.
         # Split keywords into two groups to build two AND-joined TITLE-ABS-KEY clauses.
@@ -137,11 +168,12 @@ def build_database_query(config: ReviewConfig, database_name: str) -> str:
         kw_part2 = " OR ".join(f'"{k}"' for k in kws[8:16]) if len(kws) > 8 else kw_part1
         date_s = config.date_range_start or 2009
         date_e = config.date_range_end or 2027
+        _primary_clause = f" {_SCOPUS_PRIMARY_ONLY_EXCLUSION}" if primary_only else ""
         return (
             f"TITLE-ABS-KEY({kw_part1}) AND "
             f"TITLE-ABS-KEY({kw_part2}) "
             f"AND PUBYEAR > {date_s - 1} AND PUBYEAR < {date_e + 1} "
-            f"{_SCOPUS_PRIMARY_ONLY_EXCLUSION}"
+            f"{_primary_clause}"
         )
     if name == "embase":
         kws = config.keywords or []
@@ -149,11 +181,12 @@ def build_database_query(config: ReviewConfig, database_name: str) -> str:
         kw_part2 = " OR ".join(f'"{k}"' for k in kws[8:16]) if len(kws) > 8 else kw_part1
         date_s = config.date_range_start or 2009
         date_e = config.date_range_end or 2027
+        _primary_clause = f" {_EMBASE_PRIMARY_ONLY_EXCLUSION}" if primary_only else ""
         return (
             f"TITLE-ABS-KEY({kw_part1}) AND "
             f"TITLE-ABS-KEY({kw_part2}) "
             f"AND PUBYEAR > {date_s - 1} AND PUBYEAR < {date_e + 1} "
-            f"{_EMBASE_PRIMARY_ONLY_EXCLUSION}"
+            f"{_primary_clause}"
         )
     return base
 
@@ -165,7 +198,7 @@ class SearchStrategyCoordinator:
         config: ReviewConfig,
         connectors: list[SearchConnector],
         repository: WorkflowRepository,
-        gate_runner: GateRunner,
+        gate_runner: "GateRunner",
         output_dir: str = "runs",
         on_connector_done: Callable[[str, str, int, str, int | None, int | None, str | None], None] | None = None,
         low_recall_threshold: int = 10,

@@ -9,7 +9,7 @@ description: Grounds answers in best practices using MCP tools EXA, REF, and Per
 
 Use this skill to build source-backed guidance before giving recommendations.
 
-This skill always uses all three MCP tool families on each research task:
+This skill defaults to all three MCP tool families for substantial research tasks:
 - EXA
 - REF
 - Perplexity
@@ -49,6 +49,10 @@ Follow this order unless a hard blocker exists. If order changes, explain why.
   - `perplexity_reason` for complex comparisons and tradeoffs
   - `perplexity_research` for deep multi-source investigations
 - Cross-check key claims from EXA and REF before final recommendations.
+
+Tool availability fallback:
+- If one family/tool is unavailable in the current environment, document the fallback and proceed with available sources.
+- Always discover/read tool schema before invocation.
 
 5. Resolve conflicts
 - If sources disagree, prioritize:
@@ -110,7 +114,7 @@ Perplexity cross-check:
 ## Quality Gate
 
 Before finalizing research output, verify:
-- All three tool families were used (EXA, REF, Perplexity).
+- EXA, REF, and Perplexity were used when available; any fallback was documented.
 - At least one official documentation source was read.
 - Version-specific guidance is current and not deprecated.
 - Recommendation is explicit and actionable.

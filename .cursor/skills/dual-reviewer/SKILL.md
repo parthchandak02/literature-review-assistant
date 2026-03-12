@@ -31,7 +31,7 @@ If disagree -> Adjudicator (model resolved from settings.yaml, currently flash t
 
 ## Critical Rules
 - Two-stage: title/abstract first, then full-text for survivors
-- Full-text stage requires PDF retrieval first (Unpaywall / open access)
+- Full-text stage uses tiered retrieval before decisions (publisher direct, citation_pdf_url meta extraction, Unpaywall, aggregator APIs, landing-page fallback)
 - Every EXCLUDED paper at full-text stage must have `ExclusionReason` enum value
 - Paper-level checkpoint: save each decision to SQLite immediately (not batch)
 - **Ctrl+C proceed-with-partial:** First Ctrl+C during screening exits with already-screened papers; checkpoint saved with status=partial. Second Ctrl+C aborts. DualReviewerScreener accepts `should_proceed_with_partial` callback.

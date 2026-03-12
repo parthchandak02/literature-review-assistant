@@ -31,6 +31,76 @@ from src.models.screening import ScreeningDecision
 _log = logging.getLogger(__name__)
 
 
+def _paper_text(paper: CandidatePaper) -> str:
+    return f"{paper.title or ''} {paper.abstract or ''}".strip().lower()
+
+
+def _first_match(text: str, patterns: list[str]) -> str | None:
+    for pattern in patterns:
+        token = pattern.strip().lower()
+        if token and token in text:
+            return token
+    return None
+
+
+def _is_allowlisted(text: str, screening: ScreeningConfig) -> bool:
+    allowlist = [p.strip().lower() for p in screening.deterministic_allowlist_patterns if p.strip()]
+    return any(token in text for token in allowlist)
+
+
+def _deterministic_prefilter_decision(
+    paper: CandidatePaper,
+    screening: ScreeningConfig,
+) -> ScreeningDecision | None:
+    """Return deterministic pre-LLM exclusion decision, or None if paper may continue."""
+    text = _paper_text(paper)
+    abstract = (paper.abstract or "").strip()
+
+    if screening.auto_exclude_empty_abstract and not abstract:
+        return ScreeningDecision(
+            paper_id=paper.paper_id,
+            decision=ScreeningDecisionType.EXCLUDE,
+            confidence=1.0,
+            reason="Deterministic pre-filter: empty abstract.",
+            exclusion_reason=ExclusionReason.INSUFFICIENT_DATA,
+            reviewer_type=ReviewerType.KEYWORD_FILTER,
+        )
+
+    if _is_allowlisted(text, screening):
+        return None
+
+    protocol_match = _first_match(text, screening.protocol_only_patterns)
+    if protocol_match is not None:
+        return ScreeningDecision(
+            paper_id=paper.paper_id,
+            decision=ScreeningDecisionType.EXCLUDE,
+            confidence=1.0,
+            reason=f"Deterministic pre-filter: protocol-only marker '{protocol_match}'.",
+            exclusion_reason=ExclusionReason.PROTOCOL_ONLY,
+            reviewer_type=ReviewerType.KEYWORD_FILTER,
+        )
+
+    secondary_match = _first_match(text, screening.secondary_review_patterns)
+    if secondary_match is not None:
+        return ScreeningDecision(
+            paper_id=paper.paper_id,
+            decision=ScreeningDecisionType.EXCLUDE,
+            confidence=1.0,
+            reason=f"Deterministic pre-filter: secondary-review marker '{secondary_match}'.",
+            exclusion_reason=ExclusionReason.WRONG_STUDY_DESIGN,
+            reviewer_type=ReviewerType.KEYWORD_FILTER,
+        )
+
+    return None
+
+
+def _title_keyword_matches(paper: CandidatePaper, config: ReviewConfig) -> int:
+    title = (paper.title or "").lower()
+    terms = [t.lower() for t in (config.keywords or []) + [config.pico.intervention, config.pico.population]]
+    uniq_terms = [t for t in dict.fromkeys(term.strip() for term in terms if term and term.strip())]
+    return sum(1 for term in uniq_terms if term in title)
+
+
 def metadata_prefilter(
     papers: list[CandidatePaper],
 ) -> tuple[list[CandidatePaper], list[ScreeningDecision]]:
@@ -258,23 +328,40 @@ def keyword_prefilter(
     auto-excluded (no LLM call). When min_matches == 0 the pre-filter is
     disabled and all papers are forwarded to LLM screening.
     """
+    auto_excluded: list[ScreeningDecision] = []
+    deterministic_pass: list[CandidatePaper] = []
+    empty_abstract_rescue_remaining = max(getattr(screening, "empty_abstract_rescue_sample_size", 0), 0)
+    empty_abstract_rescue_min = max(getattr(screening, "empty_abstract_rescue_keyword_min_matches", 2), 1)
+
+    for paper in papers:
+        deterministic = _deterministic_prefilter_decision(paper, screening)
+        if deterministic is not None:
+            if (
+                deterministic.exclusion_reason == ExclusionReason.INSUFFICIENT_DATA
+                and "empty abstract" in (deterministic.reason or "").lower()
+                and empty_abstract_rescue_remaining > 0
+                and _title_keyword_matches(paper, config) >= empty_abstract_rescue_min
+            ):
+                deterministic_pass.append(paper)
+                empty_abstract_rescue_remaining -= 1
+                continue
+            auto_excluded.append(deterministic)
+        else:
+            deterministic_pass.append(paper)
+
     min_matches = screening.keyword_filter_min_matches
     if min_matches <= 0:
-        return [], list(papers)
+        return auto_excluded, deterministic_pass
 
     terms = [t.lower() for t in (config.keywords or []) + [config.pico.intervention]]
     if not terms:
-        return [], list(papers)
+        return auto_excluded, deterministic_pass
 
-    auto_excluded: list[ScreeningDecision] = []
     for_llm: list[CandidatePaper] = []
-
-    for paper in papers:
-        text = f"{paper.title or ''} {paper.abstract or ''}".lower()
-        matches = sum(1 for term in terms if term in text)
-        if matches >= min_matches:
-            for_llm.append(paper)
-        else:
+    for paper in deterministic_pass:
+        text = _paper_text(paper)
+        matches = sum(1 for term in terms if term and term in text)
+        if matches < min_matches:
             auto_excluded.append(
                 ScreeningDecision(
                     paper_id=paper.paper_id,
@@ -287,5 +374,7 @@ def keyword_prefilter(
                     reviewer_type=ReviewerType.KEYWORD_FILTER,
                 )
             )
+        else:
+            for_llm.append(paper)
 
     return auto_excluded, for_llm

@@ -253,6 +253,33 @@ async def test_rank_and_split_missing_paper_gets_safe_score() -> None:
     assert excluded[0].paper_id == "p1"
 
 
+@pytest.mark.asyncio
+async def test_threshold_sweep_030_035_040_is_monotonic() -> None:
+    """Forwarded count must monotonically decrease as threshold increases."""
+    papers = [_make_paper(f"p{i}") for i in range(1, 7)]
+    # Simulated replay subset scores spanning the decision boundary.
+    response_items = [
+        {"id": "p1", "score": 0.28, "reason": "low"},
+        {"id": "p2", "score": 0.31, "reason": "borderline"},
+        {"id": "p3", "score": 0.34, "reason": "borderline"},
+        {"id": "p4", "score": 0.36, "reason": "possibly relevant"},
+        {"id": "p5", "score": 0.41, "reason": "relevant"},
+        {"id": "p6", "score": 0.72, "reason": "strongly relevant"},
+    ]
+
+    counts: list[int] = []
+    for threshold in (0.30, 0.35, 0.40):
+        ranker = _make_ranker(
+            papers,
+            [json.dumps(response_items)],
+            threshold=threshold,
+        )
+        forwarded, _excluded = await ranker.rank_and_split(papers)
+        counts.append(len(forwarded))
+
+    assert counts[0] >= counts[1] >= counts[2]
+
+
 # ---------------------------------------------------------------------------
 # Test: batching -- 10 papers with batch_size=3 -> 4 LLM calls
 # ---------------------------------------------------------------------------

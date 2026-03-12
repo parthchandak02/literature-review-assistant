@@ -29,32 +29,60 @@ The tool must produce manuscripts that pass peer review without requiring the us
 
 ## 2. System Architecture
 
-The system has three runtime layers and two persistent databases.
+Section 2 is the one-stop architecture map for runtime behavior, persistence, state transitions, and frontend/API interaction. Sections 6, 8, 9, and 10 provide deeper implementation details that must remain consistent with this section.
 
-```
-[Browser (React/Vite :5173 dev | FastAPI :8000 prod)]
-    |  HTTP POST /api/run
-    |  GET  /api/stream/{run_id}  (SSE)
-    |  GET  /api/db/{run_id}/...
-    v
-[FastAPI -- src/web/app.py -- port 8001 (dev) / 8000 (prod)]
-    |  asyncio.create_task(run_workflow())
-    |  WebRunContext emits JSON events via on_event callback -> _RunRecord.event_log
-    v
-[PydanticAI Graph -- src/orchestration/workflow.py]
-    |  aiosqlite reads/writes (paper-level persistence at every step)
-    v
-[runs/{date}/wf-NNNN-{topic}/run_*/runtime.db]  <-- per-run SQLite (new runs)
-[runs/{date}/{topic}/run_*/runtime.db]          <-- per-run SQLite (pre-prefix legacy runs)
-[runs/workflows_registry.db]                    <-- central resume registry
-    |
-    v
-[runs/{date}/wf-NNNN-{topic}/run_*/]    <-- fig_, doc_, data_ artifacts (same dir)
+### 2.1 Architecture Planes
+
+The system has three runtime layers and three persistence planes.
+
+```mermaid
+flowchart TD
+    browserLayer["Browser Layer (React/Vite)"] --> apiLayer["FastAPI Runtime Layer (`src/web/app.py`)"]
+    apiLayer --> graphLayer["Workflow Graph Layer (`src/orchestration/workflow.py`)"]
+    graphLayer --> runtimeDb["Per-run `runtime.db` (data plane)"]
+    apiLayer --> registryDb["`workflows_registry.db` (control plane)"]
+    graphLayer --> artifactPlane["Run directory artifacts (artifact plane)"]
 ```
 
-### 2.1 Workflow Graph
+Persistence plane responsibilities:
+- Control plane (`runs/workflows_registry.db`): workflow allocation, run discovery, heartbeat, status, resume routing.
+- Data plane (`runs/.../runtime.db`): phase outputs, checkpoints, events, cost records, manuscript and RAG state.
+- Artifact plane (`runs/.../run_*/`): files such as `doc_manuscript.md`, `doc_manuscript.tex`, `references.bib`, figures, and `run_summary.json`.
 
-The pipeline is a directed acyclic graph implemented with PydanticAI's stable `BaseNode` subclass API. Each node corresponds to one build phase and returns the next node or `End`.
+### 2.2 Runtime Lifecycle Sequence
+
+This sequence is the canonical start-to-finish flow in web mode.
+
+```mermaid
+sequenceDiagram
+    participant user as User
+    participant ui as BrowserUI
+    participant api as FastAPI
+    participant runrec as RunRecord
+    participant graph as WorkflowGraph
+    participant db as RuntimeDB
+    participant reg as RegistryDB
+
+    user->>ui: Submit setup form
+    ui->>api: POST /api/run (or CSV variant)
+    api->>runrec: Create run_id and in-memory state
+    api->>graph: asyncio.create_task(run_workflow)
+    api-->>ui: Return run_id and topic
+    ui->>api: GET /api/run/{run_id}/events
+    ui->>api: GET /api/stream/{run_id}
+    graph->>db: Write phase data and checkpoints
+    graph->>api: Emit events via WebRunContext
+    api->>runrec: Buffer events in memory
+    api->>db: Flush events to event_log
+    graph->>reg: Update status and heartbeat
+    graph->>db: Finalize outputs and total cost
+    graph->>reg: Mark completed or failed
+    api-->>ui: done, error, or cancelled SSE event
+```
+
+### 2.3 Workflow Graph (Top-Level Nodes)
+
+The pipeline uses PydanticAI Graph `BaseNode` nodes.
 
 ```
 StartNode / ResumeStartNode
@@ -66,168 +94,191 @@ SearchNode                    (phase_2_search)
 ScreeningNode                 (phase_3_screening)
     |
     v
-HumanReviewCheckpointNode     (optional gate -- awaits /api/run/{run_id}/approve-screening)
-    |                          When human-in-the-loop is disabled, passes through immediately.
+HumanReviewCheckpointNode     (optional; waits for /api/run/{run_id}/approve-screening)
+    |
     v
 ExtractionQualityNode         (phase_4_extraction_quality)
-    |                          Classifies study design, extracts data, runs RoB2/ROBINS-I/CASP/MMAT,
-    |                          saves PDFs to papers/, updates data_papers_manifest.json
+    |
     v
 EmbeddingNode                 (phase_4b_embedding)
-    |                          Chunks ExtractionRecords, calls Gemini embedding API,
-    |                          persists vectors to paper_chunks_meta table for RAG
+    |
     v
 SynthesisNode                 (phase_5_synthesis)
-    |                          Runs GRADE, meta-analysis (scipy/statsmodels only), narrative LLM,
-    |                          contradiction detector, sensitivity analysis; writes forest/funnel plots
+    |
     v
 KnowledgeGraphNode            (phase_5b_knowledge_graph)
-    |                          Builds force-directed knowledge graph from extraction records
+    |
     v
 WritingNode                   (phase_6_writing)
-    |                          HyDE -> RAG retrieval per section, writes 6 sections with citation
-    |                          ledger validation, humanizer passes, citation grounding repair
+    |
     v
-FinalizeNode                  (finalize -- no checkpoint)
-    |                          Writes doc_manuscript.tex, references.bib, run_summary.json
+FinalizeNode                  (finalize)
+    |
     v
 End
 ```
 
-`ResumeStartNode` reads the `checkpoints` table and routes directly to the first incomplete phase, enabling paper-level resume without reprocessing completed work.
+Resume order is driven by `checkpoints` phase keys:
+`phase_2_search`, `phase_3_screening`, `phase_4_extraction_quality`, `phase_4b_embedding`, `phase_5_synthesis`, `phase_5b_knowledge_graph`, `phase_6_writing`, `finalize`.
+`phase_3b_fulltext` is a screening sub-phase marker and not part of top-level order.
 
-Phase order for resume: `phase_2_search`, `phase_3_screening`, `phase_4_extraction_quality`, `phase_4b_embedding`, `phase_5_synthesis`, `phase_5b_knowledge_graph`, `phase_6_writing`, `finalize`. `phase_3b_fulltext` is a screening sub-phase marker, not a top-level PHASE_ORDER item.
+### 2.4 Phase/Subphase Execution Contract
 
-### 2.2 End-to-End Mermaid Overview
+The table below is the high-level contract from node entry to persisted outputs.
 
-Use these two diagrams as the primary reviewer-facing map of how the system works from inputs (question or CSV) through processing, branching, and outputs.
+| Top-Level Phase | Key Subphases | Main Writes |
+|-----------------|---------------|-------------|
+| Start | Run path creation, config snapshot, artifact path registration | `config_snapshot.yaml`, initial state artifacts |
+| Search | Connector search or master-list bypass, dedup, supplementary merge, search gate | `papers`, `search_results`, `gate_results(search_volume)`, `checkpoints(phase_2_search)` |
+| Screening | Metadata prefilter, keyword/BM25 gate, optional batch pre-ranker, dual reviewer/adjudicator, fulltext stage, optional citation chase, screening gate | `screening_decisions`, `dual_screening_results`, `screening_metrics`, `gate_results(screening_safeguard)`, `checkpoints(phase_3b_fulltext, phase_3_screening)` |
+| Human checkpoint | Optional status transition to `awaiting_review` and approval resume | registry status transitions, optional screening override writes |
+| Extraction/Quality | Fulltext retrieval, study classification, extraction, table extraction merge, RoB/CASP/MMAT routing, GRADE aggregation, extraction gate | `extraction_records`, `rob_assessments`, `casp_assessments`, `mmat_assessments`, `grade_assessments`, `gate_results(extraction_completeness)`, `checkpoints(phase_4_extraction_quality)` |
+| Embedding | Chunking and embedding persistence | `paper_chunks_meta`, `cost_records`, `checkpoints(phase_4b_embedding)` |
+| Synthesis | Feasibility, narrative synthesis, optional meta-analysis and sensitivity | `synthesis_results`, figure artifacts, `checkpoints(phase_5_synthesis)` |
+| Knowledge graph | Relationship graph, communities, gap detection | `paper_relationships`, `graph_communities`, `research_gaps`, `checkpoints(phase_5b_knowledge_graph)` |
+| Writing | Grounding build, HyDE + RAG retrieval, section writing/humanizer, citation repair, persistence invariants | `section_drafts`, `citations`, `claims`, `evidence_links`, `manuscript_*`, `rag_retrieval_diagnostics`, `checkpoints(phase_6_*)` |
+| Finalize | Manuscript export artifacts, package pre-population, summary finalization | `doc_manuscript.tex`, `references.bib`, `submission/*`, `run_summary.json`, final workflow status |
 
-#### 2.2.1 Flowchart: Inputs -> Pipeline -> Outputs
+### 2.5 Screening Internals (Expanded)
+
+The screening stage has multiple deterministic and LLM branches; this is the canonical shape.
 
 ```mermaid
 flowchart TD
-    researchQuestion[ResearchQuestionInput] --> setupModes[SetupModes]
-    masterListCsv[MasterListCsvInput] --> setupModes
-    supplementaryCsv[SupplementaryCsvInput] --> setupModes
-    existingYaml[ExistingYamlConfig] --> setupModes
-
-    setupModes --> configGeneration[ConfigGenerationOptional]
-    setupModes --> runLaunch[RunLaunch]
-    configGeneration --> runLaunch
-
-    runLaunch --> startInit[StartAndRunInitialization]
-
-    startInit --> connectorSearch[ConnectorSearchAndStrategy]
-    startInit --> masterListBypass[MasterListBypassesSearch]
-
-    connectorSearch --> dedupMerge[DedupAndMergeRecords]
-    supplementaryCsv --> dedupMerge
-    masterListBypass --> dedupMerge
-
-    dedupMerge --> metadataBm25[MetadataAndBm25Prefilter]
-    metadataBm25 --> batchPrerank[BatchPrerankOptional]
-    metadataBm25 --> dualReview[DualReviewAndAdjudication]
-    batchPrerank --> dualReview
-
-    dualReview --> fullTextScreen[FullTextScreening]
-    fullTextScreen --> citationChasing[CitationChasingLoopOptional]
-    citationChasing --> dualReview
-
-    fullTextScreen --> humanCheckpoint[HumanReviewCheckpointOptional]
-    humanCheckpoint --> extractionPrimary[ExtractionAndPrimaryStatusFilter]
-    fullTextScreen --> extractionPrimary
-
-    extractionPrimary --> qualityAssessment[QualityAssessmentRoB_CASP_MMAT]
-    qualityAssessment --> gradeAggregation[GradeAggregation]
-    gradeAggregation --> embeddingNode[EmbeddingNodeRAG]
-
-    embeddingNode --> synthesis[SynthesisNarrativeAndMetaAnalysis]
-    synthesis --> knowledgeGraph[KnowledgeGraphAndGapDetection]
-    knowledgeGraph --> writing[WritingAndCitationGrounding]
-    writing --> finalize[FinalizeArtifacts]
-
-    finalize --> exportPackage[ExportAndSubmissionPackaging]
-    finalize --> apiHistory[ApiAndHistorySurface]
-
-    exportPackage --> outputs[OutputsMdTexBibDocxZipFigures]
-    apiHistory --> uiViews[UIViewsActivityResultsDataCostConfigReferences]
+    inputPapers["SearchOutputPapers"] --> metadataGate["MetadataPrefilter"]
+    metadataGate --> keywordGate["KeywordPrefilter"]
+    keywordGate --> bm25Cap["BM25RankAndCap"]
+    bm25Cap --> batchSwitch{"BatchScreenEnabled"}
+    batchSwitch -->|No| titleAbstract["DualReviewTitleAbstract"]
+    batchSwitch -->|Yes| batchRank["BatchLLMRanker"]
+    batchRank --> titleAbstract
+    titleAbstract --> agreeCheck{"A_B_Agree"}
+    agreeCheck -->|Yes| stage1Decision["Stage1Decision"]
+    agreeCheck -->|No| adjudicator["Adjudicator"]
+    adjudicator --> stage1Decision
+    stage1Decision --> includeCheck{"Stage1Included"}
+    includeCheck -->|No| stage1Exclude["ExcludedAtStage1"]
+    includeCheck -->|Yes| fulltextFetch["FulltextRetrieval"]
+    fulltextFetch --> fulltextScreen["DualReviewFulltext"]
+    fulltextScreen --> phase3b["Checkpoint phase_3b_fulltext"]
+    phase3b --> chaseSwitch{"CitationChasingEnabled"}
+    chaseSwitch -->|No| humanSwitch{"HumanReviewEnabled"}
+    chaseSwitch -->|Yes| chaseRun["CitationChaseAndRescreen"]
+    chaseRun --> humanSwitch
+    humanSwitch -->|Yes| awaitReview["AwaitApproveScreeningAPI"]
+    humanSwitch -->|No| phase3Done["Checkpoint phase_3_screening"]
+    awaitReview --> phase3Done
+    phase3Done --> screeningGate["ScreeningSafeguardGate"]
 ```
 
-#### 2.2.2 Mind Map: Knowledge Tree
+Important branch notes:
+- `BatchLLMRanker` runs after deterministic prefilters and before dual-review.
+- Citation chasing is an optional post-fulltext branch that screens newly discovered candidates; it is not a full graph restart.
+- Human review checkpoint is a runtime status gate (`awaiting_review`) and resumes on approval API call.
+- Keyword prefilter has an adaptive fail-open path when exclusion ratio is extreme; this prevents brittle over-filtering.
+- Confidence fast-path can skip adjudication when both reviewers strongly agree; disagreements or low-confidence cases route to adjudicator.
+- If fulltext is unavailable and `skip_fulltext_if_no_pdf` is enabled, the no-PDF heuristic can exclude before full stage completion.
+- On resume, `phase_3b_fulltext` checkpoints allow skipping already completed expensive fulltext loops.
+
+### 2.6 Storage Contracts and Source of Truth
+
+Canonical storage model:
+- `workflows_registry.db` is the authoritative workflow lookup and lifecycle store.
+- Per-run `runtime.db` is the authoritative phase output store.
+- `run_summary.json` is the artifact index consumed by artifact endpoints.
+
+Canonical read precedence for run stats is defined in `src/db/source_of_truth.py` and applied in the API layer:
+- Included-paper stats: `dual_screening_results` first, event-derived fallback second, extraction fallback third.
+- Cost stats: `SUM(cost_usd)` from `cost_records` only.
+- Manuscript reads: DB `manuscript_assemblies` first, file fallback second.
+
+### 2.7 Runtime State, Replay, and Resume
+
+Two run identifiers exist and must not be conflated:
+- `run_id`: API stream/session key for active in-memory run state.
+- `workflow_id`: durable run identity across restarts and history attach/resume.
+
+Replay model:
+- In-memory: `_RunRecord.event_log` for immediate replay (`GET /api/run/{run_id}/events`).
+- Durable: `event_log` table in `runtime.db` (`GET /api/workflow/{workflow_id}/events` fallback).
+- Streaming: `GET /api/stream/{run_id}` with heartbeats and terminal events.
+
+Resume model:
+- `ResumeStartNode` and `load_resume_state()` read `checkpoints`.
+- Routing jumps to first incomplete top-level phase.
+- Phase-local resume logic skips already persisted paper-level work where possible.
+
+### 2.8 API to Frontend Consumption Map
+
+This map links runtime API surfaces to frontend consumers.
+
+| API Surface | Primary Frontend Consumer |
+|-------------|---------------------------|
+| `/api/run*`, `/api/cancel/{run_id}` | `frontend/src/App.tsx`, `frontend/src/views/SetupView.tsx` |
+| `/api/stream/{run_id}`, `/api/run/{run_id}/events`, `/api/workflow/{workflow_id}/events` | `frontend/src/hooks/useSSEStream.ts`, `frontend/src/views/RunView.tsx`, `frontend/src/views/ActivityView.tsx` |
+| `/api/history*`, `/api/notes/*` | `frontend/src/components/Sidebar.tsx`, `frontend/src/App.tsx` |
+| `/api/db/{run_id}/*` | `frontend/src/views/DatabaseView.tsx`, `frontend/src/views/CostView.tsx` |
+| `/api/run/{run_id}/artifacts`, `/api/run/{run_id}/export`, `/api/download`, `/api/run/{run_id}/submission.zip`, `/api/run/{run_id}/manuscript.docx` | `frontend/src/views/ResultsView.tsx` |
+| `/api/run/{run_id}/papers-reference`, `/api/run/{run_id}/papers/{paper_id}/file`, `/api/run/{run_id}/fetch-pdfs` | `frontend/src/views/ReferencesView.tsx` |
+| `/api/run/{run_id}/screening-summary`, `/api/run/{run_id}/approve-screening` | `frontend/src/views/ScreeningReviewView.tsx` |
+
+### 2.9 Gate and Failure Semantics
+
+Gate outcomes are persisted in `gate_results` and can stop execution depending on profile:
+- `search_volume`
+- `screening_safeguard`
+- `extraction_completeness`
+- `citation_lineage`
+- `cost_budget`
+- `resume_integrity`
+
+Failure behavior summary:
+- In strict gate mode, failing hard gates ends the workflow before downstream phases.
+- In warning mode, pipeline can continue with explicit warning events and summaries.
+- Writing has additional persistence invariants; when violated, partial checkpoints are saved and run fails fast.
+
+### 2.10 End-to-End Operational Scenarios
+
+This table closes the end-to-end gap between pipeline internals and runtime operations the user actually performs.
+
+| Scenario | Entry Surface | Core Flow | Terminal Outcome |
+|----------|---------------|-----------|------------------|
+| New run (AI search) | `POST /api/run` | Start -> Search connectors -> Screening -> Extraction -> Embedding -> Synthesis -> Knowledge graph -> Writing -> Finalize | `done` or `error` |
+| New run (master list only) | `POST /api/run-with-masterlist` | Start -> master-list parse bypasses connector search -> Screening onward | `done` or `error` |
+| New run (search + supplementary CSV) | `POST /api/run-with-supplementary-csv` | Start -> connector search + supplementary merge -> dedup -> Screening onward | `done` or `error` |
+| Human checkpoint approval | `POST /api/run/{run_id}/approve-screening` | Screening pauses in `awaiting_review` -> approval resumes from checkpoint -> downstream phases continue | `running` then terminal event |
+| Attach historical run | `POST /api/history/attach` | Bind historical `runtime.db` to a new `run_id` session -> replay events and expose DB views | historical read-only session active |
+| Resume historical workflow | `POST /api/history/resume` | Resolve `workflow_id` -> load checkpoints -> `ResumeStartNode` routes to first incomplete phase | resumed `running` then terminal event |
+| Living refresh | `POST /api/run/{run_id}/living-refresh` | Create incremental rerun from last search date -> standard pipeline path with updated search scope | new run with terminal event |
+| User cancellation | `POST /api/cancel/{run_id}` | Cancellation flag propagates through loop boundaries -> graceful stop and checkpoint where supported | `cancelled` |
+| Export packaging | `POST /api/run/{run_id}/export` | Use finalized artifacts and regenerate package if needed -> expose zip/docx download endpoints | export metadata and downloadable files |
+| CLI run/resume path | `uv run python -m src.main ...` | Same graph nodes and checkpoint semantics without browser SSE transport | CLI completion or failure |
+
+### 2.11 Runtime Status and Transition Model
+
+The workflow lifecycle is status-driven across registry, in-memory run state, SSE stream, and checkpoints.
 
 ```mermaid
-mindmap
-  root((LiteratureReviewWorkflow))
-    Inputs
-      ResearchQuestion
-      MasterListCSV
-      SupplementaryCSV
-      ExistingYAML
-    Orchestration
-      StartInitialization
-      SearchAndDedup
-        ConnectorSearch
-        QueryStrategy
-        Deduplication
-        CSVMerge
-      Screening
-        MetadataPrefilter
-        BM25Prefilter
-        BatchPrerankOptional
-        DualReviewer
-        FullTextScreening
-        CitationChasingOptional
-        HumanCheckpointOptional
-      ExtractionAndQuality
-        FullTextRetrieval
-        StructuredExtraction
-        PrimaryStatusMapping
-        RoB_CASP_MMAT
-        GRADEAggregation
-      SynthesisAndGraph
-        NarrativeSynthesis
-        MetaAnalysis
-        SensitivityAnalysis
-        KnowledgeGraph
-      WritingAndFinalize
-        SectionDrafting
-        CitationGrounding
-        ManuscriptAssembly
-        FinalArtifactGeneration
-    DataAndStorage
-      RuntimeDB
-      EventLog
-      CostRecords
-      RunArtifactsDirectory
-    FrontendSurfaces
-      SetupView
-      ActivityView
-      ResultsView
-      DatabaseView
-      CostView
-      ConfigView
-      ReferencesView
-      ScreeningReviewView
-    Outputs
-      ManuscriptMarkdown
-      ManuscriptLatex
-      ReferencesBibtex
-      SubmissionZip
-      FiguresAndTables
-      PrismaChecklist
-      KnowledgeGraphData
+flowchart TD
+    created["created"] --> running["running"]
+    running --> awaitingReview["awaiting_review"]
+    awaitingReview --> running
+    running --> completed["completed"]
+    running --> failed["failed"]
+    running --> cancelled["cancelled"]
+    running --> stale["stale"]
+    stale --> running
 ```
 
-#### 2.2.3 Stage Offshoots and Important Decisions
+Status semantics:
+- `running`: active task and heartbeat updates.
+- `awaiting_review`: paused on human checkpoint; no downstream phase progression until approval.
+- `completed`: finalize finished and artifact summary available.
+- `failed`: terminal error path (including strict gate failures and invariant failures).
+- `cancelled`: user-initiated stop.
+- `stale`: registry-level recovery state when heartbeat expires; can transition back to running on successful resume/reattach.
 
-- Input branching: AI search only vs master list only vs search plus supplementary CSV.
-- Search branching: connector search path vs master-list bypass path.
-- Screening branching: optional batch prerank, citation-chasing loop, optional human approval gate.
-- Full-text branching: full PDF available vs title/abstract fallback when retrieval fails.
-- Synthesis branching: narrative-only flow when pooling is not statistically feasible.
-- Export branching: auto-finalize artifacts plus explicit export API regeneration path.
-
-### 2.3 Directory Layout
+### 2.12 Directory Layout
 
 ```
 literature-review-assistant/
@@ -626,7 +677,7 @@ A submission package is assembled:
 ```
 submission/
 |-- manuscript.tex
-|-- manuscript.pdf
+|-- manuscript.pdf   (best-effort; present when local pdflatex compilation succeeds)
 |-- manuscript.docx
 |-- references.bib
 |-- figures/
@@ -895,7 +946,7 @@ Heartbeat events are sent every 15 seconds of inactivity to keep the connection 
 
 ### 9.3 View Model
 
-The frontend is run-centric. The sidebar is a run list, not a navigation menu. Selecting a run sets `selectedRun` in App state. `RunView` renders 7 tabs in workflow order: Config, Activity, Data, Cost, Results, References (plus Review Screening when awaiting_review). The selected tab is URL-driven (`/run/{workflowId}/{tab}`), not stored in localStorage.
+The frontend is run-centric. The sidebar is a run list, not a navigation menu. Selecting a run sets `selectedRun` in App state. `RunView` renders 6 base tabs in workflow order: Config, Activity, Data, Cost, Results, References. `Review Screening` is a conditional 7th tab that appears only when status is `awaiting_review`. The selected tab is URL-driven (`/run/{workflowId}/{tab}`), not stored in localStorage.
 
 | View | Purpose |
 |------|---------|
@@ -1216,7 +1267,8 @@ After each phase, run all commands and confirm clean output before proceeding.
 ```
 cd frontend && pnpm run build         # tsc strict mode + Vite chunk split -> frontend/dist/
 # FastAPI serves frontend/dist/ at / automatically when the directory exists
-# Open http://localhost:8001
+# Open http://localhost:8000 (production/static mode)
+# Dev split mode remains: frontend on 5173, backend API on 8001
 ```
 
 Run both lint and typecheck. TypeScript strict mode catches type issues, and ESLint catches style/safety issues.
@@ -1306,7 +1358,7 @@ Status taxonomy:
 | Robust citation pipeline | Implemented | Multi-layer citation matching: DOI -> URL -> title fuzzy -> LLM batch resolver (citation_matching agent in settings.yaml). citations table gains source_type column ('included'/'methodology'/'background_sr') used to split CITATION CATALOG into separate blocks. inject_missing_citations.py CLI script for post-hoc coverage fix. Programmatic coverage check in WritingNode with design-grouped patch. CJK character stripping in _escape_latex(). Author name deduplication in _fmt_author_str(). |
 | Manuscript quality improvements | Implemented | Two-phase WritingNode (Phase A concurrent, Phase B with PRIOR SECTIONS CONTEXT cross-section injection). SECTION_WORD_LIMITS updated (results 1400, methods 900). _trim_abstract_to_limit() post-LLM abstract word cap at 230. build_compact_study_table() generates 5-column PRISMA Item 19 table injected at ### Study Characteristics. _build_citation_coverage_patch groups uncited keys by design for natural prose. include_rq_block=False default in assemble_submission_manuscript removes "Research Question:" prefix. Abstract-only rate quality gate (>40% triggers CAUTION). Tier 0.5 full-text retrieval (_quick_citation_pdf_url citation_pdf_url meta extraction for Wiley/Springer/Nature/Sage/OJS/JoVE). |
 | run_index stubs | Partial | Planned: StartNode would write run_index/{workflow_id}.yaml for VS Code grep visibility. No code in src/ writes to run_index/ or workflow_id.txt. StartNode writes config_snapshot.yaml (with workflow_id in header) to the run dir. show_run_info.py reads from runtime.db directly. |
-| Configurable content threshold | Implemented | ScreeningConfig.insufficient_content_min_words (default 0, lowered progressively from 12->5->0; at 0 records with empty abstracts reach the LLM dual-screener which can exclude on title alone) controls minimum abstract word count before auto-excluding as stub; dual_screener.py reads from settings at runtime; configured in settings.yaml |
+| Configurable content threshold | Implemented | `insufficient_content_min_words` (default 0) controls short-abstract word-count exclusion in dual_screener, while deterministic prefilter behavior is also controlled by `auto_exclude_empty_abstract` (currently true) and rescue sampling settings in `keyword_filter`; net effect: empty abstracts are typically auto-excluded before dual-review unless rescued by title-keyword policy. |
 | PubMed search override guidance | Historical | Search overrides in config/review.yaml should use single-word root-form terms in AND groups to avoid recall loss from exact multi-word phrases; MeSH terms that are too narrow for the topic should be avoided; use root-form single terms instead of compound phrases for best recall |
 | Search recall overhaul | Historical | 6 root causes of inconsistent cross-run search results fixed: (1) OpenAlex is_core:true filter removed -- was silently capping results at 6 for niche topics; broad-first-screen-tight methodology now applies; openalex limit raised to 1000. (2) build_boolean_query uses keywords only, not PICO descriptions (PICO sentences produced 0-result ClinicalTrials.gov queries). (3) short_query uses first 8 keywords space-joined (not full PICO concatenation). (4) clinicaltrials_gov case added to build_database_query (was falling through to full base query with PICO sentences). (5) WoS connector raises RuntimeError on quota exhaustion/429 instead of silent 0-result success -- coordinator marks as "failed" in SSE. (6) SearchStrategyCoordinator emits WARNING log when any connector returns fewer than low_recall_warning_threshold records (default 10, configurable in settings.yaml). Config generator prompts use domain-agnostic examples so the LLM generates correct queries for any topic. |
 | Audit bug fixes (wf-b431ebff) | Historical | 5 root-cause fixes for manuscript audit issues: (1) Unicode citekey normalization: register_background_sr_citations() now applies unicodedata.normalize("NFD") + Mn-category strip to author surnames before building citekeys -- accented surnames (e.g. Perez from Perez-Encinas) no longer produce unresolvable non-ASCII citekeys in the manuscript. (2) Neutral screening language: removed "(large language models)" from all 4 screening_method_description string occurrences in context_builder.py; all branches now use plain "Two independent reviewers" and "a third reviewer" with no AI/human qualifier. (3) Search eligibility window disclosure: WritingGroundingData gains search_eligibility_window: str field (e.g. "2000-2026") computed from review_config.date_range_start/end; format_grounding_block() emits it with CRITICAL DATE RANGE RULE preventing LLM from reporting publication year range of included papers as the eligibility window. (4) Full-text retrieval disclosure (PRISMA item 10): WritingGroundingData gains fulltext_retrieved_count and fulltext_total_count (extraction_source != "text"/"heuristic" = full text retrieved); format_grounding_block() emits mandatory PRISMA item 10 disclosure with exact counts. (5) Author name for CRediT: ReviewConfig.author_name (already existed) is now passed through WritingGroundingData and emitted in grounding block; set author_name in review.yaml to eliminate "[Author name]" placeholder in CRediT statement. |
@@ -1373,4 +1425,4 @@ All of the following must be true before the first submission:
 - PRISMA checklist >= 24/27 items reported
 - All 6 quality gates pass in strict mode
 - All unit and integration tests pass
-- submission/ directory contains: manuscript.tex, manuscript.pdf, references.bib, figures/, supplementary/
+- submission/ directory contains: manuscript.tex, references.bib, figures/, supplementary/ (and manuscript.pdf when pdflatex is available and compilation succeeds)
