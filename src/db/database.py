@@ -191,6 +191,11 @@ async def run_migrations(db: aiosqlite.Connection) -> None:
             ON manuscript_sections(workflow_id, section_order, version);
         """,
     )
+    # 10. Canonical primary-study classification status on extraction records.
+    await _apply(
+        10,
+        "ALTER TABLE extraction_records ADD COLUMN primary_study_status TEXT NOT NULL DEFAULT 'unknown';",
+    )
     await _validate_schema_contract(db)
     await db.commit()
 
@@ -209,7 +214,14 @@ async def _validate_schema_contract(db: aiosqlite.Connection) -> None:
         "decision_log": {"workflow_id", "decision_type", "phase", "actor"},
         "dual_screening_results": {"workflow_id", "paper_id", "stage", "final_decision"},
         "screening_decisions": {"workflow_id", "paper_id", "stage", "decision"},
-        "extraction_records": {"workflow_id", "paper_id", "study_design", "extraction_source", "data"},
+        "extraction_records": {
+            "workflow_id",
+            "paper_id",
+            "study_design",
+            "primary_study_status",
+            "extraction_source",
+            "data",
+        },
         "section_drafts": {"workflow_id", "section", "version", "content"},
         "manuscript_sections": {"workflow_id", "section_key", "section_order", "version", "content"},
         "manuscript_blocks": {"workflow_id", "section_key", "section_version", "block_order", "block_type", "text"},

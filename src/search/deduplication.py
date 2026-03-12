@@ -26,6 +26,30 @@ logger = logging.getLogger(__name__)
 BRUTE_FORCE_THRESHOLD = 500
 
 
+def _metadata_richness(paper: CandidatePaper) -> int:
+    """Heuristic score: higher means record has richer usable metadata."""
+    score = 0
+    if (paper.abstract or "").strip():
+        score += min(len((paper.abstract or "").strip()), 2000) // 40
+    if paper.keywords:
+        score += 2 * len([k for k in paper.keywords if k and k.strip()])
+    if paper.url:
+        score += 2
+    if paper.doi:
+        score += 2
+    if paper.year:
+        score += 1
+    if paper.source_database:
+        score += 1
+    score += len([a for a in paper.authors if a and a.strip()])
+    return score
+
+
+def _prefer_richer(existing: CandidatePaper, candidate: CandidatePaper) -> CandidatePaper:
+    """Return the richer paper; preserve existing when scores tie."""
+    return candidate if _metadata_richness(candidate) > _metadata_richness(existing) else existing
+
+
 def _normalize_title(title: str) -> str:
     s = title.lower()
     s = re.sub(r"[^a-z0-9 ]", " ", s)
@@ -79,6 +103,7 @@ def _minhash_dedup(
             logger.warning("MinHash LSH query failed for paper index %d: %s", idx, _e)
             candidates = []
         is_dup = False
+        add_current = False
         for cand_str in candidates:
             cand_idx = int(cand_str)
             if cand_idx == idx or cand_idx not in unique_indices:
@@ -90,8 +115,14 @@ def _minhash_dedup(
             if score >= fuzzy_threshold:
                 is_dup = True
                 duplicate_count += 1
+                richer = _prefer_richer(papers_no_doi[cand_idx], paper)
+                if richer is paper:
+                    unique_indices.discard(cand_idx)
+                    add_current = True
                 break
         if not is_dup:
+            unique_indices.add(idx)
+        elif add_current:
             unique_indices.add(idx)
 
     unique = [papers_no_doi[i] for i in sorted(unique_indices)]
@@ -107,11 +138,12 @@ def _brute_force_dedup(
     duplicates = 0
     for paper in papers_no_doi:
         is_dup = False
-        for existing in final_list:
+        for i, existing in enumerate(final_list):
             score = fuzz.ratio((paper.title or "").lower(), (existing.title or "").lower())
             if score >= fuzzy_threshold:
                 duplicates += 1
                 is_dup = True
+                final_list[i] = _prefer_richer(existing, paper)
                 break
         if not is_dup:
             final_list.append(paper)
@@ -131,16 +163,18 @@ def deduplicate_papers(
     """
     papers_list = list(papers)
     unique: list[CandidatePaper] = []
-    seen_doi: set[str] = set()
+    doi_to_index: dict[str, int] = {}
     duplicates = 0
 
     for paper in papers_list:
         doi = (paper.doi or "").strip().lower()
         if doi:
-            if doi in seen_doi:
+            if doi in doi_to_index:
                 duplicates += 1
+                idx = doi_to_index[doi]
+                unique[idx] = _prefer_richer(unique[idx], paper)
                 continue
-            seen_doi.add(doi)
+            doi_to_index[doi] = len(unique)
         unique.append(paper)
 
     if len(unique) <= BRUTE_FORCE_THRESHOLD:

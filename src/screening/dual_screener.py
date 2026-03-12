@@ -774,17 +774,19 @@ class DualReviewerScreener:
         "EXCLUDE with exclusion_reason=protocol_only if paper is a registered protocol\n"
         "with no reported results.\n"
         "\n"
-        "Return ONLY a valid JSON array, one entry per paper (same count as input):\n"
-        "[\n"
-        "  {\n"
-        '    "paper_id": "<id>",\n'
-        '    "decision": "include|exclude|uncertain",\n'
-        '    "confidence": 0.0,\n'
-        '    "short_reason": "<max 80 chars>",\n'
-        '    "reasoning": "<justification>",\n'
-        '    "exclusion_reason": "<code or null>"\n'
-        "  }\n"
-        "]\n"
+        "Return ONLY valid JSON with this exact object shape:\n"
+        "{\n"
+        '  "decisions": [\n'
+        "    {\n"
+        '      "paper_id": "<id>",\n'
+        '      "decision": "include|exclude|uncertain",\n'
+        '      "confidence": 0.0,\n'
+        '      "short_reason": "<max 80 chars>",\n'
+        '      "reasoning": "<justification>",\n'
+        '      "exclusion_reason": "<code or null>"\n'
+        "    }\n"
+        "  ]\n"
+        "}\n"
         "\n"
         "Allowed exclusion_reason values: wrong_population, wrong_intervention, "
         "wrong_comparator, wrong_outcome, wrong_study_design, not_peer_reviewed, "
@@ -824,37 +826,77 @@ class DualReviewerScreener:
         papers: list[CandidatePaper],
         spec: ReviewerSpec,
         stage: str,
-    ) -> dict[str, ScreeningDecision]:
-        """Parse a JSON array response into a paper_id -> ScreeningDecision map.
+        allowed_paper_ids: set[str] | None = None,
+    ) -> tuple[dict[str, ScreeningDecision], dict[str, int]]:
+        """Parse a JSON batch response into a paper_id -> ScreeningDecision map.
 
         Returns only the paper_ids that were successfully parsed. Missing or
         unparseable papers are handled by the caller (fallback to individual call).
         """
+        stats = {
+            "returned_items": 0,
+            "normalized_items": 0,
+            "validated_items": 0,
+            "out_of_chunk_items": 0,
+            "schema_mismatch": 0,
+            "json_parse_failed": 0,
+        }
         s = raw.strip()
         s = re.sub(r"^```(?:json)?\s*", "", s)
         s = re.sub(r"\s*```\s*$", "", s)
         s = s.strip()
-        first = s.find("[")
-        last = s.rfind("]")
-        if first < 0 or last <= first:
-            return {}
-        s = s[first : last + 1]
+
+        parsed_payload: object | None = None
         try:
-            items = json.loads(s)
+            parsed_payload = json.loads(s)
         except json.JSONDecodeError:
-            return {}
+            parsed_payload = None
+
+        if parsed_payload is None:
+            object_first = s.find("{")
+            object_last = s.rfind("}")
+            if object_first >= 0 and object_last > object_first:
+                try:
+                    parsed_payload = json.loads(s[object_first : object_last + 1])
+                except json.JSONDecodeError:
+                    parsed_payload = None
+
+        if parsed_payload is None:
+            array_first = s.find("[")
+            array_last = s.rfind("]")
+            if array_first >= 0 and array_last > array_first:
+                try:
+                    parsed_payload = json.loads(s[array_first : array_last + 1])
+                except json.JSONDecodeError:
+                    parsed_payload = None
+
+        if parsed_payload is None:
+            stats["json_parse_failed"] = 1
+            return {}, stats
+
+        items: object = parsed_payload
+        if isinstance(parsed_payload, dict):
+            items = parsed_payload.get("decisions")
         if not isinstance(items, list):
-            return {}
+            stats["schema_mismatch"] = 1
+            return {}, stats
+
         result: dict[str, ScreeningDecision] = {}
         for item in items:
             if not isinstance(item, dict):
                 continue
+            stats["returned_items"] += 1
             normalized = self._normalize_batch_item(item)
             if normalized is None:
                 continue
+            stats["normalized_items"] += 1
             try:
                 parsed = _BatchScreeningItem.model_validate(normalized)
             except Exception:
+                continue
+            stats["validated_items"] += 1
+            if allowed_paper_ids is not None and parsed.paper_id not in allowed_paper_ids:
+                stats["out_of_chunk_items"] += 1
                 continue
             decision = ScreeningDecision(
                 paper_id=parsed.paper_id,
@@ -867,7 +909,7 @@ class DualReviewerScreener:
             if stage == "fulltext" and decision.decision == ScreeningDecisionType.EXCLUDE:
                 decision = self._enforce_fulltext_exclusion_reason(decision)
             result[parsed.paper_id] = decision
-        return result
+        return result, stats
 
     @staticmethod
     def _normalize_batch_item(item: dict[str, object]) -> dict[str, object] | None:
@@ -1012,28 +1054,74 @@ class DualReviewerScreener:
                 tokens_out=tokens_out,
                 cost_usd=cost_usd,
             )
-        parsed_map = self._parse_batch_response(raw, papers, spec, stage)
+        allowed_paper_ids = {paper.paper_id for paper in papers}
+        parsed_map, parse_stats = self._parse_batch_response(
+            raw,
+            papers,
+            spec,
+            stage,
+            allowed_paper_ids=allowed_paper_ids,
+        )
         parsed_count = len(parsed_map)
         fallback_count = max(0, len(papers) - parsed_count)
+        out_of_chunk_count = parse_stats["out_of_chunk_items"]
+        if out_of_chunk_count > 0:
+            _log.warning(
+                "Batch %s returned %d out-of-chunk paper_ids; ignored",
+                spec.reviewer_type.value,
+                out_of_chunk_count,
+            )
+            if self.on_status:
+                self.on_status(
+                    f"Batch {spec.reviewer_type.value} id mismatch: ignored {out_of_chunk_count} out-of-chunk paper_ids"
+                )
+            await self.repository.append_decision_log(
+                DecisionLogEntry(
+                    decision_type="screening_batch_id_mismatch",
+                    paper_id=None,
+                    decision=f"ignored_{out_of_chunk_count}_out_of_chunk_ids",
+                    rationale=(
+                        f"returned_items={parse_stats['returned_items']}, "
+                        f"normalized_items={parse_stats['normalized_items']}, "
+                        f"validated_items={parse_stats['validated_items']}, "
+                        f"stage={stage}, reviewer={spec.reviewer_type.value}"
+                    ),
+                    actor=spec.reviewer_type.value,
+                    phase="phase_3_screening",
+                )
+            )
         if fallback_count > 0:
             _log.warning(
-                "Batch %s parse coverage degraded: parsed %d/%d; %d papers require fallback",
+                "Batch %s parse coverage degraded: parsed %d/%d; %d papers require fallback "
+                "(parse_failed=%d schema_mismatch=%d out_of_chunk=%d)",
                 spec.reviewer_type.value,
                 parsed_count,
                 len(papers),
                 fallback_count,
+                parse_stats["json_parse_failed"],
+                parse_stats["schema_mismatch"],
+                out_of_chunk_count,
             )
             if self.on_status:
                 self.on_status(
                     f"Batch {spec.reviewer_type.value} parse degraded: parsed {parsed_count}/{len(papers)}; "
-                    f"fallback {fallback_count}"
+                    f"fallback {fallback_count} "
+                    f"(parse_failed={parse_stats['json_parse_failed']} "
+                    f"schema_mismatch={parse_stats['schema_mismatch']} "
+                    f"out_of_chunk={out_of_chunk_count})"
                 )
             await self.repository.append_decision_log(
                 DecisionLogEntry(
                     decision_type="screening_batch_parse_coverage",
                     paper_id=None,
                     decision=f"parsed_{parsed_count}_of_{len(papers)}",
-                    rationale=f"fallback_count={fallback_count}, stage={stage}, reviewer={spec.reviewer_type.value}",
+                    rationale=(
+                        f"fallback_count={fallback_count}, "
+                        f"out_of_chunk_count={out_of_chunk_count}, "
+                        f"parse_failed={parse_stats['json_parse_failed']}, "
+                        f"schema_mismatch={parse_stats['schema_mismatch']}, "
+                        f"stage={stage}, reviewer={spec.reviewer_type.value}"
+                    ),
                     actor=spec.reviewer_type.value,
                     phase="phase_3_screening",
                 )

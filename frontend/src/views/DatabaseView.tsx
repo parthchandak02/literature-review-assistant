@@ -55,6 +55,7 @@ export function DatabaseView({ runId, isDone, dbAvailable, isLive }: DatabaseVie
   const [authorFilter, setAuthorFilter] = useState("")
   const [taFilter, setTaFilter] = useState("")
   const [ftFilter, setFtFilter] = useState("")
+  const [primaryStatusFilter, setPrimaryStatusFilter] = useState("")
   const [yearFilter, setYearFilter] = useState("")
   const [sourceFilter, setSourceFilter] = useState("")
   const [countryFilter, setCountryFilter] = useState("")
@@ -71,6 +72,7 @@ export function DatabaseView({ runId, isDone, dbAvailable, isLive }: DatabaseVie
   const [countries, setCountries] = useState<string[]>([])
   const [taDecisions, setTaDecisions] = useState<string[]>([])
   const [ftDecisions, setFtDecisions] = useState<string[]>([])
+  const [primaryStatuses, setPrimaryStatuses] = useState<string[]>([])
 
   // Title / author suggestions from server
   const [titleSuggestions, setTitleSuggestions] = useState<string[]>([])
@@ -80,9 +82,29 @@ export function DatabaseView({ runId, isDone, dbAvailable, isLive }: DatabaseVie
 
   // Keep a ref with current filter values so pagination effect can read them
   // without needing them in its dependency array.
-  const filtersRef = useRef({ runId, titleFilter, authorFilter, taFilter, ftFilter, yearFilter, sourceFilter, countryFilter })
+  const filtersRef = useRef({
+    runId,
+    titleFilter,
+    authorFilter,
+    taFilter,
+    ftFilter,
+    primaryStatusFilter,
+    yearFilter,
+    sourceFilter,
+    countryFilter,
+  })
   // eslint-disable-next-line react-hooks/refs -- intentional mutable-ref-sync pattern; ref is only read inside effects, not during render
-  filtersRef.current = { runId, titleFilter, authorFilter, taFilter, ftFilter, yearFilter, sourceFilter, countryFilter }
+  filtersRef.current = {
+    runId,
+    titleFilter,
+    authorFilter,
+    taFilter,
+    ftFilter,
+    primaryStatusFilter,
+    yearFilter,
+    sourceFilter,
+    countryFilter,
+  }
 
   function handleFetchError(e: unknown) {
     const msg = e instanceof Error ? e.message : String(e)
@@ -101,6 +123,7 @@ export function DatabaseView({ runId, isDone, dbAvailable, isLive }: DatabaseVie
         setCountries(data.countries ?? [])
         setTaDecisions(data.ta_decisions ?? [])
         setFtDecisions(data.ft_decisions ?? [])
+        setPrimaryStatuses(data.primary_statuses ?? [])
       })
       .catch(() => {})
   }, [runId, dbAvailable])
@@ -136,9 +159,19 @@ export function DatabaseView({ runId, isDone, dbAvailable, isLive }: DatabaseVie
     let cancelled = false
     setLoading(true)
     setError(null)
-    const { runId: rid, titleFilter: tl, authorFilter: au, taFilter: ta, ftFilter: ft, yearFilter: yr, sourceFilter: src, countryFilter: ct } =
+    const {
+      runId: rid,
+      titleFilter: tl,
+      authorFilter: au,
+      taFilter: ta,
+      ftFilter: ft,
+      primaryStatusFilter: ps,
+      yearFilter: yr,
+      sourceFilter: src,
+      countryFilter: ct,
+    } =
       filtersRef.current
-    fetchPapersAll(rid, "", ta, ft, yr, src, ct, 0, PAGE_SIZE, tl, au)
+    fetchPapersAll(rid, "", ta, ft, ps, yr, src, ct, 0, PAGE_SIZE, tl, au)
       .then((data) => {
         if (cancelled) return
         setPapers(data.papers)
@@ -147,7 +180,7 @@ export function DatabaseView({ runId, isDone, dbAvailable, isLive }: DatabaseVie
       .catch((e) => { if (!cancelled) handleFetchError(e) })
       .finally(() => { if (!cancelled) setLoading(false) })
     return () => { cancelled = true }
-  }, [runId, titleFilter, authorFilter, taFilter, ftFilter, yearFilter, sourceFilter, countryFilter, dbAvailable])
+  }, [runId, titleFilter, authorFilter, taFilter, ftFilter, primaryStatusFilter, yearFilter, sourceFilter, countryFilter, dbAvailable])
 
   // Effect 2: pagination only (page > 0).
   useEffect(() => {
@@ -155,9 +188,19 @@ export function DatabaseView({ runId, isDone, dbAvailable, isLive }: DatabaseVie
     let cancelled = false
     setLoading(true)
     setError(null)
-    const { runId: rid, titleFilter: tl, authorFilter: au, taFilter: ta, ftFilter: ft, yearFilter: yr, sourceFilter: src, countryFilter: ct } =
+    const {
+      runId: rid,
+      titleFilter: tl,
+      authorFilter: au,
+      taFilter: ta,
+      ftFilter: ft,
+      primaryStatusFilter: ps,
+      yearFilter: yr,
+      sourceFilter: src,
+      countryFilter: ct,
+    } =
       filtersRef.current
-    fetchPapersAll(rid, "", ta, ft, yr, src, ct, page * PAGE_SIZE, PAGE_SIZE, tl, au)
+    fetchPapersAll(rid, "", ta, ft, ps, yr, src, ct, page * PAGE_SIZE, PAGE_SIZE, tl, au)
       .then((data) => {
         if (cancelled) return
         setPapers(data.papers)
@@ -172,9 +215,19 @@ export function DatabaseView({ runId, isDone, dbAvailable, isLive }: DatabaseVie
   useEffect(() => {
     if (!isLive || !dbAvailable) return
     const id = setInterval(() => {
-      const { runId: rid, titleFilter: tl, authorFilter: au, taFilter: ta, ftFilter: ft, yearFilter: yr, sourceFilter: src, countryFilter: ct } =
+      const {
+        runId: rid,
+        titleFilter: tl,
+        authorFilter: au,
+        taFilter: ta,
+        ftFilter: ft,
+        primaryStatusFilter: ps,
+        yearFilter: yr,
+        sourceFilter: src,
+        countryFilter: ct,
+      } =
         filtersRef.current
-      fetchPapersAll(rid, "", ta, ft, yr, src, ct, 0, PAGE_SIZE, tl, au)
+      fetchPapersAll(rid, "", ta, ft, ps, yr, src, ct, 0, PAGE_SIZE, tl, au)
         .then((data) => { setPapers(data.papers); setTotal(data.total) })
         .catch(() => {})
     }, LIVE_REFRESH_MS)
@@ -182,11 +235,21 @@ export function DatabaseView({ runId, isDone, dbAvailable, isLive }: DatabaseVie
   }, [isLive, dbAvailable])
 
   const loadPapers = () => {
-    const { runId: rid, titleFilter: tl, authorFilter: au, taFilter: ta, ftFilter: ft, yearFilter: yr, sourceFilter: src, countryFilter: ct } =
+    const {
+      runId: rid,
+      titleFilter: tl,
+      authorFilter: au,
+      taFilter: ta,
+      ftFilter: ft,
+      primaryStatusFilter: ps,
+      yearFilter: yr,
+      sourceFilter: src,
+      countryFilter: ct,
+    } =
       filtersRef.current
     setLoading(true)
     setError(null)
-    fetchPapersAll(rid, "", ta, ft, yr, src, ct, page * PAGE_SIZE, PAGE_SIZE, tl, au)
+    fetchPapersAll(rid, "", ta, ft, ps, yr, src, ct, page * PAGE_SIZE, PAGE_SIZE, tl, au)
       .then((data) => { setPapers(data.papers); setTotal(data.total) })
       .catch(handleFetchError)
       .finally(() => setLoading(false))
@@ -197,6 +260,7 @@ export function DatabaseView({ runId, isDone, dbAvailable, isLive }: DatabaseVie
     setAuthorFilter("")
     setTaFilter("")
     setFtFilter("")
+    setPrimaryStatusFilter("")
     setYearFilter("")
     setSourceFilter("")
     setCountryFilter("")
@@ -208,7 +272,16 @@ export function DatabaseView({ runId, isDone, dbAvailable, isLive }: DatabaseVie
     return <LoadingPane message="Database initializing..." className="h-64" />
   }
 
-  const activeFilters = [titleFilter, authorFilter, taFilter, ftFilter, yearFilter, sourceFilter, countryFilter].filter(Boolean).length
+  const activeFilters = [
+    titleFilter,
+    authorFilter,
+    taFilter,
+    ftFilter,
+    primaryStatusFilter,
+    yearFilter,
+    sourceFilter,
+    countryFilter,
+  ].filter(Boolean).length
 
   // Hide the Confidence column when no paper on the current page has a value.
   const hasConfidenceData = papers.some((p) => p.extraction_confidence != null)
@@ -253,7 +326,7 @@ export function DatabaseView({ runId, isDone, dbAvailable, isLive }: DatabaseVie
             <FetchError message={error} onRetry={loadPapers} />
           </div>
         ) : loading ? (
-          <TableSkeleton cols={9} rows={8} />
+          <TableSkeleton cols={10} rows={8} />
         ) : papers.length === 0 ? (
           <EmptyState icon={Database} heading="No papers found." className="py-12" />
         ) : (
@@ -349,6 +422,18 @@ export function DatabaseView({ runId, isDone, dbAvailable, isLive }: DatabaseVie
                   >
                     Full-Text
                   </Th>
+                  <Th
+                    filter={
+                      <FilterComboboxPopover
+                        value={primaryStatusFilter}
+                        onChange={setPrimaryStatusFilter}
+                        placeholder="primary / secondary..."
+                        staticSuggestions={primaryStatuses}
+                      />
+                    }
+                  >
+                    Primary Status
+                  </Th>
                   {hasConfidenceData && <Th>Confidence</Th>}
                   <Th>RoB Source</Th>
                 </tr>
@@ -390,6 +475,7 @@ export function DatabaseView({ runId, isDone, dbAvailable, isLive }: DatabaseVie
                     <Td className="glass-table-cell-muted">{p.country ?? "--"}</Td>
                     <DecisionCell value={p.ta_decision} />
                     <DecisionCell value={p.ft_decision} />
+                    <PrimaryStatusCell value={p.primary_study_status} />
                     {hasConfidenceData && <ExtractionConfidenceCell value={p.extraction_confidence} />}
                     <AssessmentSourceCell value={p.assessment_source} />
                   </tr>
@@ -573,6 +659,27 @@ function FilterComboboxPopover({
 // ---------------------------------------------------------------------------
 // Helper cells
 // ---------------------------------------------------------------------------
+
+function PrimaryStatusCell({ value }: { value: string | null }) {
+  const normalized = (value ?? "unknown").toLowerCase()
+  const color =
+    normalized === "primary"
+      ? "bg-emerald-900/40 text-emerald-400 border-emerald-800"
+      : normalized === "secondary_review"
+        ? "bg-red-900/40 text-red-400 border-red-800"
+        : normalized === "protocol_only"
+          ? "bg-amber-900/40 text-amber-400 border-amber-800"
+          : normalized === "non_empirical"
+            ? "bg-zinc-800 text-zinc-300 border-zinc-700"
+            : "bg-zinc-900/60 text-zinc-500 border-zinc-800"
+  return (
+    <Td>
+      <span className={cn("inline-block px-1.5 py-0.5 rounded text-[10px] font-medium border", color)}>
+        {normalized}
+      </span>
+    </Td>
+  )
+}
 
 function DecisionCell({ value }: { value: string | null }) {
   if (!value) {

@@ -10,12 +10,12 @@ Guide for implementing the core screening architecture with two independent AI r
 ## Architecture
 
 ```
-Paper -> Reviewer A (gemini-3.1-flash-lite-preview, temp=0.1, inclusion-emphasis)
-      -> Reviewer B (gemini-3-flash-preview, temp=0.1, exclusion-emphasis)
-         -- different model for genuine cross-model validation, not just temperature variation
+Paper -> Reviewer A (model resolved from config/settings.yaml -> agents.screening_reviewer_a)
+      -> Reviewer B (model resolved from config/settings.yaml -> agents.screening_reviewer_b)
+         -- reviewer configuration can differ in prompt bias and/or model tier
 
 If agree -> final_decision = agreed decision
-If disagree -> Adjudicator (Pro tier, temp=0.2) sees both decisions -> final
+If disagree -> Adjudicator (model resolved from settings.yaml, currently flash tier, temp=0.2) sees both decisions -> final
 ```
 
 ## Implementation Steps
@@ -27,7 +27,7 @@ If disagree -> Adjudicator (Pro tier, temp=0.2) sees both decisions -> final
 5. Log ALL individual decisions to `screening_decisions` table (per-paper, immediately)
 6. Log final result to `dual_screening_results` table
 7. Compute Cohen's kappa after each stage using sklearn
-8. Generate disagreements_report.md
+8. Generate doc_disagreements_report.md
 
 ## Critical Rules
 - Two-stage: title/abstract first, then full-text for survivors
@@ -39,7 +39,7 @@ If disagree -> Adjudicator (Pro tier, temp=0.2) sees both decisions -> final
 ## Prompt Engineering Patterns
 - **Topic context injection**: Every prompt starts with Role/Goal/Backstory/Topic/Research Question/Domain/Keywords header block
 - **Structured output**: All prompts end with "Return ONLY valid JSON matching this exact schema"
-- **Truncation**: Title/abstract = full text; full-text = first 8,000 chars; extraction = first 10,000 chars
+- **Truncation**: Title/abstract = full text; full-text = first 8,000 chars; extraction = first 32,000 chars
 - **Confidence thresholds**: Auto-include >= 0.85, auto-exclude >= 0.80, between -> adjudicator
 
 ## Threshold Calibration (before main screening loop)

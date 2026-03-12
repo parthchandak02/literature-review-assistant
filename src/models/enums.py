@@ -93,6 +93,14 @@ class StudyDesign(str, Enum):
     OTHER = "other"
 
 
+class PrimaryStudyStatus(str, Enum):
+    PRIMARY = "primary"
+    SECONDARY_REVIEW = "secondary_review"
+    PROTOCOL_ONLY = "protocol_only"
+    NON_EMPIRICAL = "non_empirical"
+    UNKNOWN = "unknown"
+
+
 class SourceCategory(str, Enum):
     DATABASE = "database"
     OTHER_SOURCE = "other_source"

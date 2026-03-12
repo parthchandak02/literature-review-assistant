@@ -32,7 +32,6 @@ class SearchCompleteNode(BaseNode[ReviewState]):
 ## HITL (Human-in-the-Loop)
 - Implement as checkpoint + CLI prompt at specific nodes
 - Borderline screening review: after screening node
-- Pre-export citation review: before export node
 
 ## Resume Logic (paper-level)
 1. `resume --topic` / `resume --workflow-id` queries `workflows_registry` (central db at `{run_root}/workflows_registry.db`); entry provides db_path to runtime.db

@@ -65,22 +65,34 @@ class PydanticAIScreeningClient:
         temperature: float,
         item_schema: dict[str, object],
     ) -> tuple[str, int, int, int, int]:
-        """Return usage-aware JSON for an array response schema.
+        """Return usage-aware JSON for batched screening decisions.
 
-        Batch screening expects an array of per-paper decisions, not a single
-        ScreeningResponse object. This method enforces that shape explicitly.
+        Keep the top-level schema as an object because some providers reject
+        top-level arrays for structured output validation.
         """
         _ = agent_name
-        array_schema: dict[str, object] = {
-            "type": "array",
-            "items": item_schema,
+        embedded_item_schema = dict(item_schema)
+        shared_defs = embedded_item_schema.pop("$defs", None)
+        embedded_item_schema.pop("$schema", None)
+        object_schema: dict[str, object] = {
+            "type": "object",
+            "properties": {
+                "decisions": {
+                    "type": "array",
+                    "items": embedded_item_schema,
+                }
+            },
+            "required": ["decisions"],
+            "additionalProperties": False,
         }
+        if isinstance(shared_defs, dict) and shared_defs:
+            object_schema["$defs"] = shared_defs
         client = PydanticAIClient()
         return await client.complete_with_usage(
             prompt,
             model=model,
             temperature=temperature,
-            json_schema=array_schema,
+            json_schema=object_schema,
         )
 
 

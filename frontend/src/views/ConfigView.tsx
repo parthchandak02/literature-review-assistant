@@ -9,8 +9,8 @@ import { EmptyState } from "@/components/ui/feedback"
 // ---------------------------------------------------------------------------
 
 export interface ConfigViewProps {
-  /** Workflow ID or run ID for fetching config (API accepts both). */
-  workflowId: string
+  /** Workflow ID for fetching the persisted review config. */
+  workflowId: string | null
   /** Fallback topic/research question when YAML is not yet available. */
   topic: string
   /** Run completion timestamp for display. */
@@ -27,6 +27,12 @@ export function ConfigView({
   const [error, setError] = useState<string | null>(null)
 
   const loadConfig = useCallback(async () => {
+    if (!workflowId) {
+      setYamlContent(null)
+      setError(null)
+      setLoading(false)
+      return
+    }
     setLoading(true)
     setError(null)
     try {
@@ -65,6 +71,17 @@ export function ConfigView({
         <Loader2 className="h-8 w-8 animate-spin" />
         <p className="text-sm">Loading config...</p>
       </div>
+    )
+  }
+
+  if (!workflowId) {
+    return (
+      <EmptyState
+        icon={FileCode}
+        heading="Config pending"
+        sub="Workflow ID is not assigned yet. Config will be available shortly."
+        className="py-12"
+      />
     )
   }
 

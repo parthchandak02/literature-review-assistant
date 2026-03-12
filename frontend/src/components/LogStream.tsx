@@ -19,14 +19,42 @@ type RenderItem =
   | { kind: "phase-sep"; phase: string; label: string; key: string }
   | { kind: "event"; ev: ReviewEvent; entry: LogRenderEntry; key: string }
 
-function eventStableKey(ev: ReviewEvent, index: number): string {
+function stableStringify(value: unknown): string {
+  if (value == null) return String(value)
+  if (typeof value !== "object") return JSON.stringify(value)
+  if (Array.isArray(value)) return `[${value.map((v) => stableStringify(v)).join(",")}]`
+  const entries = Object.entries(value as Record<string, unknown>)
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([k, v]) => `${JSON.stringify(k)}:${stableStringify(v)}`)
+  return `{${entries.join(",")}}`
+}
+
+function eventStableKey(ev: ReviewEvent): string {
   if (ev.id) return `event-${ev.id}`
   const ts = "ts" in ev ? (ev as { ts?: string }).ts ?? "" : ""
-  return `event-${ev.type}-${ts}-${index}`
+  const base = `event-${ev.type}-${ts}`
+  switch (ev.type) {
+    case "phase_start":
+    case "phase_done":
+      return `${base}-${ev.phase}`
+    case "progress":
+      return `${base}-${ev.phase}-${ev.current}-${ev.total}`
+    case "screening_decision":
+      return `${base}-${ev.paper_id}-${ev.stage}-${ev.decision}`
+    case "connector_result":
+      return `${base}-${ev.name}-${ev.status}-${ev.records}`
+    case "api_call":
+      return `${base}-${ev.phase}-${ev.call_type}-${ev.paper_id ?? ""}-${ev.section_name ?? ""}-${ev.status}`
+    case "status":
+      return `${base}-${ev.message}`
+    default:
+      return `${base}-${stableStringify(ev)}`
+  }
 }
 
 function buildRenderItems(events: ReviewEvent[]): RenderItem[] {
   const items: RenderItem[] = []
+  const keyCounts = new Map<string, number>()
 
   for (let i = 0; i < events.length; i++) {
     const ev = events[i]
@@ -34,8 +62,12 @@ function buildRenderItems(events: ReviewEvent[]): RenderItem[] {
 
     if (SKIP_EVENT_TYPES.has(ev.type)) continue
 
+    const rawKey = eventStableKey(ev)
+    const duplicateIndex = keyCounts.get(rawKey) ?? 0
+    keyCounts.set(rawKey, duplicateIndex + 1)
+    const evKey = duplicateIndex === 0 ? rawKey : `${rawKey}-dup-${duplicateIndex}`
+
     if (ev.type === "phase_start") {
-      const evKey = eventStableKey(ev, i)
       items.push({
         kind: "phase-sep",
         phase: ev.phase,
@@ -50,7 +82,7 @@ function buildRenderItems(events: ReviewEvent[]): RenderItem[] {
       kind: "event",
       ev,
       entry: eventToLogEntry(ev),
-      key: eventStableKey(ev, i),
+      key: evKey,
     })
   }
 

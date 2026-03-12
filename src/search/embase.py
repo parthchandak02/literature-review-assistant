@@ -154,6 +154,12 @@ class EmbaseConnector:
         logger.error("EmbaseConnector: max retries exceeded at start=%d; returning empty page", start)
         return {}
 
+    @staticmethod
+    def _primary_filter_mode(query: str) -> str:
+        if "DOCTYPE(re)" in query or "DOCTYPE(RE)" in query:
+            return "query_exclusion"
+        return "screening_only"
+
     async def search(
         self,
         query: str,
@@ -267,7 +273,10 @@ class EmbaseConnector:
             source_category=SourceCategory.DATABASE,
             search_date=date.today().isoformat(),
             search_query=query,
-            limits_applied=f"date_start={date_start}, max_results={max_results}",
+            limits_applied=(
+                f"date_start={date_start},max_results={max_results},"
+                f"primary_study_filter={self._primary_filter_mode(query)}"
+            ),
             records_retrieved=len(papers),
             papers=papers,
         )

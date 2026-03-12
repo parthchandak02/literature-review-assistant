@@ -66,7 +66,7 @@ SearchNode                    (phase_2_search)
 ScreeningNode                 (phase_3_screening)
     |
     v
-HumanReviewCheckpointNode     (optional gate -- awaits /api/run/{id}/approve-screening)
+HumanReviewCheckpointNode     (optional gate -- awaits /api/run/{run_id}/approve-screening)
     |                          When human-in-the-loop is disabled, passes through immediately.
     v
 ExtractionQualityNode         (phase_4_extraction_quality)
@@ -96,9 +96,138 @@ End
 
 `ResumeStartNode` reads the `checkpoints` table and routes directly to the first incomplete phase, enabling paper-level resume without reprocessing completed work.
 
-Phase order for resume: `phase_2_search`, `phase_3_screening`, `phase_3b_fulltext`, `phase_4_extraction_quality`, `phase_4b_embedding`, `phase_5_synthesis`, `phase_5b_knowledge_graph`, `phase_6_writing`, `finalize`.
+Phase order for resume: `phase_2_search`, `phase_3_screening`, `phase_4_extraction_quality`, `phase_4b_embedding`, `phase_5_synthesis`, `phase_5b_knowledge_graph`, `phase_6_writing`, `finalize`. `phase_3b_fulltext` is a screening sub-phase marker, not a top-level PHASE_ORDER item.
 
-### 2.2 Directory Layout
+### 2.2 End-to-End Mermaid Overview
+
+Use these two diagrams as the primary reviewer-facing map of how the system works from inputs (question or CSV) through processing, branching, and outputs.
+
+#### 2.2.1 Flowchart: Inputs -> Pipeline -> Outputs
+
+```mermaid
+flowchart TD
+    researchQuestion[ResearchQuestionInput] --> setupModes[SetupModes]
+    masterListCsv[MasterListCsvInput] --> setupModes
+    supplementaryCsv[SupplementaryCsvInput] --> setupModes
+    existingYaml[ExistingYamlConfig] --> setupModes
+
+    setupModes --> configGeneration[ConfigGenerationOptional]
+    setupModes --> runLaunch[RunLaunch]
+    configGeneration --> runLaunch
+
+    runLaunch --> startInit[StartAndRunInitialization]
+
+    startInit --> connectorSearch[ConnectorSearchAndStrategy]
+    startInit --> masterListBypass[MasterListBypassesSearch]
+
+    connectorSearch --> dedupMerge[DedupAndMergeRecords]
+    supplementaryCsv --> dedupMerge
+    masterListBypass --> dedupMerge
+
+    dedupMerge --> metadataBm25[MetadataAndBm25Prefilter]
+    metadataBm25 --> batchPrerank[BatchPrerankOptional]
+    metadataBm25 --> dualReview[DualReviewAndAdjudication]
+    batchPrerank --> dualReview
+
+    dualReview --> fullTextScreen[FullTextScreening]
+    fullTextScreen --> citationChasing[CitationChasingLoopOptional]
+    citationChasing --> dualReview
+
+    fullTextScreen --> humanCheckpoint[HumanReviewCheckpointOptional]
+    humanCheckpoint --> extractionPrimary[ExtractionAndPrimaryStatusFilter]
+    fullTextScreen --> extractionPrimary
+
+    extractionPrimary --> qualityAssessment[QualityAssessmentRoB_CASP_MMAT]
+    qualityAssessment --> gradeAggregation[GradeAggregation]
+    gradeAggregation --> embeddingNode[EmbeddingNodeRAG]
+
+    embeddingNode --> synthesis[SynthesisNarrativeAndMetaAnalysis]
+    synthesis --> knowledgeGraph[KnowledgeGraphAndGapDetection]
+    knowledgeGraph --> writing[WritingAndCitationGrounding]
+    writing --> finalize[FinalizeArtifacts]
+
+    finalize --> exportPackage[ExportAndSubmissionPackaging]
+    finalize --> apiHistory[ApiAndHistorySurface]
+
+    exportPackage --> outputs[OutputsMdTexBibDocxZipFigures]
+    apiHistory --> uiViews[UIViewsActivityResultsDataCostConfigReferences]
+```
+
+#### 2.2.2 Mind Map: Knowledge Tree
+
+```mermaid
+mindmap
+  root((LiteratureReviewWorkflow))
+    Inputs
+      ResearchQuestion
+      MasterListCSV
+      SupplementaryCSV
+      ExistingYAML
+    Orchestration
+      StartInitialization
+      SearchAndDedup
+        ConnectorSearch
+        QueryStrategy
+        Deduplication
+        CSVMerge
+      Screening
+        MetadataPrefilter
+        BM25Prefilter
+        BatchPrerankOptional
+        DualReviewer
+        FullTextScreening
+        CitationChasingOptional
+        HumanCheckpointOptional
+      ExtractionAndQuality
+        FullTextRetrieval
+        StructuredExtraction
+        PrimaryStatusMapping
+        RoB_CASP_MMAT
+        GRADEAggregation
+      SynthesisAndGraph
+        NarrativeSynthesis
+        MetaAnalysis
+        SensitivityAnalysis
+        KnowledgeGraph
+      WritingAndFinalize
+        SectionDrafting
+        CitationGrounding
+        ManuscriptAssembly
+        FinalArtifactGeneration
+    DataAndStorage
+      RuntimeDB
+      EventLog
+      CostRecords
+      RunArtifactsDirectory
+    FrontendSurfaces
+      SetupView
+      ActivityView
+      ResultsView
+      DatabaseView
+      CostView
+      ConfigView
+      ReferencesView
+      ScreeningReviewView
+    Outputs
+      ManuscriptMarkdown
+      ManuscriptLatex
+      ReferencesBibtex
+      SubmissionZip
+      FiguresAndTables
+      PrismaChecklist
+      KnowledgeGraphData
+```
+
+#### 2.2.3 Stage Offshoots and Important Decisions
+
+- Input branching: AI search only vs master list only vs search plus supplementary CSV.
+- Search branching: connector search path vs master-list bypass path.
+- Screening branching: optional batch prerank, citation-chasing loop, optional human approval gate.
+- Full-text branching: full PDF available vs title/abstract fallback when retrieval fails.
+- Synthesis branching: narrative-only flow when pooling is not statistically feasible.
+- Export branching: auto-finalize artifacts plus explicit export API regeneration path.
+
+### 2.3 Directory Layout
 
 ```
 literature-review-assistant/
@@ -248,9 +377,9 @@ Change rarely. Values are tuned from real runs.
 | `writing.*` | `humanization`, `humanization_iterations` (2), `checkpoint_per_section`, `llm_timeout` (120s) |
 | `risk_of_bias.*` | `rct_tool` (rob2), `non_randomized_tool` (robins_i), `qualitative_tool` (casp) |
 | `meta_analysis.*` | `enabled`, `heterogeneity_threshold` (50 = I-squared cutoff for fixed vs random effects), `funnel_plot_minimum_studies` (10), effect measures |
-| `ieee_export.*` | `template` (IEEEtran), `max_abstract_words` (250), `target_page_range` ([7, 10]) |
+| `ieee_export.*` | `template` (IEEEtran), `max_abstract_words` (250 config ceiling; writing currently enforces 230 via `_trim_abstract_to_limit()`), `target_page_range` ([7, 10]) |
 | `citation_lineage.*` | `block_export_on_unresolved` (true), `minimum_evidence_score` (0.5) |
-| `search.*` | `max_results_per_db` (global default: 500), `per_database_limits` (per-connector overrides), `citation_chasing_enabled` (false -- PRISMA 2020 snowball forward citation chasing), `citation_chasing_concurrency` (5 -- concurrent S2/OpenAlex chase requests) |
+| `search.*` | `max_results_per_db` (global default: 500), `per_database_limits` (per-connector overrides), `citation_chasing_concurrency` (5 -- concurrent S2/OpenAlex chase requests). Note: `citation_chasing_enabled` is a config-model default (false) unless explicitly set in YAML. |
 | `extraction.*` | `core_full_text`, `europepmc_full_text`, `semanticscholar_full_text` (toggles for full-text tiers), `sciencedirect_full_text`, `unpaywall_full_text`, `pmc_full_text`, `use_pdf_vision`, `full_text_min_chars` |
 | `rag.*` | `embed_model` (gemini-embedding-001), `embed_dim` (768 -- MRL dimension, changing requires re-embedding), `embed_batch_size` (20), `embed_concurrency` (4 -- concurrent embedding batch API calls), `chunk_max_words` (400), `chunk_overlap_sentences` (2), `use_hyde` (true -- HyDE query expansion before dense embed), `hyde_model` (gemini-2.5-flash-lite), `rerank` (true -- Gemini listwise reranking), `reranker_model` (gemini-2.5-flash-lite) |
 
@@ -327,7 +456,7 @@ Finalize                   -> writes run_summary.json + registry status = "compl
 
 ### 6.1 Phase 1: Foundation
 
-**What to build:** All Pydantic models in `src/models/`. SQLite database layer (`src/db/`): connection manager with WAL journal mode + NORMAL sync + FK enforcement + 40MB cache + temp in memory. Typed CRUD repositories for every table. Six quality gates. Decision log. Citation ledger. LLM provider with 3-tier model assignment, token-bucket rate limiter, and cost logging. Review config loader.
+**What to build:** All Pydantic models in `src/models/`. SQLite database layer (`src/db/`): connection manager with WAL journal mode + NORMAL sync + FK enforcement + 40MB cache + temp in memory. Typed CRUD repositories for every table. Six quality gates. Decision log. Citation ledger. LLM provider with 3-tier model assignment, sliding-window rate limiter, and cost logging. Review config loader.
 
 **Quality gates defined here:**
 
@@ -342,9 +471,9 @@ Finalize                   -> writes run_summary.json + registry status = "compl
 
 ### 6.2 Phase 2: Search
 
-**What happens:** Connectors run concurrently via asyncio. Each builds a query from `ReviewConfig` (or uses `search_overrides`). Results map to `CandidatePaper` objects. Two-stage deduplication: exact DOI match, then fuzzy title match (thefuzz >= 90% similarity). Per-database counts are recorded for the PRISMA diagram. A PROSPERO-format protocol document is generated.
+**What happens:** Connectors run concurrently via asyncio. Each builds a query from `ReviewConfig` (or uses `search_overrides`). Results map to `CandidatePaper` objects. Deduplication uses exact DOI matching plus MinHash LSH candidate generation with fuzzy title confirmation (`thefuzz`) and small-set brute-force fallback. Per-database counts are recorded for the PRISMA diagram. A PROSPERO-format protocol document is generated.
 
-**Default connectors (active unless overridden by target_databases):**
+**Connector set (configured by `target_databases` in `config/review.yaml` and runtime overrides):**
 
 | Connector | Protocol | Source Category |
 |-----------|---------|----------------|
@@ -379,9 +508,9 @@ Perplexity and ClinicalTrials items tagged `SourceCategory.OTHER_SOURCE` count t
 
 Stage 0 (pre-filter): The keyword filter auto-excludes papers with zero intervention keyword matches before any LLM call (`ExclusionReason.KEYWORD_FILTER`). If `max_llm_screen` is set, BM25 (bm25s library) ranks remaining candidates by topic relevance; papers below the cap receive `LOW_RELEVANCE_SCORE` exclusions written to the DB without LLM calls. This cuts LLM costs by up to 80%.
 
-Stage 0b (batch LLM pre-ranker, optional): When `batch_screen_enabled` is true in settings.yaml, `BatchLLMRanker` (`src/screening/batch_ranker.py`) scores BM25-passing papers in batches of `batch_screen_size` using the `batch_screener` agent. Papers scoring below `batch_screen_threshold` (default 0.35) are auto-excluded as `batch_screened_low` without reaching the dual-reviewer. The `batch_screen_done` SSE event records the funnel counts. This stage fires after BM25 cap and before Stage 1.
+Stage 0b (batch LLM pre-ranker, optional): When `batch_screen_enabled` is true in settings.yaml, `BatchLLMRanker` (`src/screening/batch_ranker.py`) scores BM25-passing papers in batches of `batch_screen_size` using the `batch_screener` agent. Papers scoring below `batch_screen_threshold` (default 0.30) are auto-excluded as `batch_screened_low` without reaching the dual-reviewer. The `batch_screen_done` SSE event records the funnel counts. This stage fires after BM25 cap and before Stage 1.
 
-Stage 1 (title/abstract): Two independent AI reviewers process each paper concurrently via `asyncio.Semaphore`. Reviewer A uses an inclusion-emphasis prompt (temperature 0.1, gemini-2.5-flash-lite). Reviewer B uses an exclusion-emphasis prompt (temperature 0.1, gemini-2.5-flash -- different model for genuine cross-model validation). Agreement yields the final decision. Disagreement triggers the adjudicator agent (model from `settings.yaml`).
+Stage 1 (title/abstract): Two independent AI reviewers evaluate records using batch-capable screening (`reviewer_batch_size` in settings). Default behavior sends groups of papers per dual-reviewer call; setting `reviewer_batch_size: 0` enables legacy per-paper mode. Reviewer A uses an inclusion-emphasis prompt (temperature 0.1, gemini-2.5-flash-lite). Reviewer B uses an exclusion-emphasis prompt (temperature 0.1, gemini-2.5-flash -- different model for genuine cross-model validation). Agreement yields the final decision. Disagreement triggers the adjudicator agent (model from `settings.yaml`).
 
 Stage 2 (full-text): Papers passing Stage 1 get full text via a unified tiered resolver: Tier 0 publisher-direct PDF URL, Tier 0.5 `citation_pdf_url` meta extraction, Tier 1 Unpaywall, Tier 1b arXiv, Tier 2 group (Semantic Scholar, CORE, Europe PMC, OpenAlex, bioRxiv/medRxiv), then ScienceDirect/PMC/Crossref links, and Tier 6 landing-page scraping. Papers without retrievable full text are excluded with `NO_FULL_TEXT` when `skip_fulltext_if_no_pdf` is true. Full-text screening follows the same dual-reviewer pattern.
 
@@ -420,6 +549,8 @@ A risk-of-bias traffic-light figure (matplotlib) shows rows = studies, columns =
 **Gate:** `extraction_completeness` -- fails if >= 35% of papers have empty core fields or < 80% of required fields filled.
 
 **Outputs:** `ExtractionRecord` per paper, `RoB2Assessment` / `RobinsIAssessment` per paper, `GRADEOutcomeAssessment` per outcome, `fig_rob_traffic_light.png`.
+
+Before synthesis/writing, ExtractionQualityNode applies a hard primary-study gate using `primary_study_status`: non-primary records are filtered out of `state.included_papers` so downstream synthesis and manuscript sections use empirically primary studies only.
 
 ### 6.5 Phase 5: Synthesis
 
@@ -474,7 +605,7 @@ Each completed section is saved to the `section_drafts` table immediately. On re
 
 **Outputs:** `SectionDraft` per section (6 total), `doc_manuscript.md`. The `include_rq_block=False` default in `assemble_submission_manuscript()` omits the "Research Question:" prefix for clean IEEE output.
 
-### 6.7 Phase 7: PRISMA and Visualizations (Part of FinalizeNode)
+### 6.7 Phase 7: PRISMA and Visualizations (Rendered in WritingNode)
 
 **What happens:** PRISMA 2020 flow diagram rendered using the `prisma-flow-diagram` library (`plot_prisma2020_new`) with a matplotlib fallback on ImportError. Two-column structure: databases left, other sources right. Per-database counts in the identification box. Exclusion reasons categorized from `ExclusionReason` enum. Arithmetic validation runs (records in = records out at every stage).
 
@@ -488,7 +619,7 @@ Publication timeline and geographic distribution figures are also generated here
 
 **What happens:** `FinalizeNode` first generates `doc_manuscript.tex` and `references.bib` as first-class run artifacts directly in the run directory (no user action required). Then, when the user clicks Export (POST /api/run/{run_id}/export), `package_submission()` assembles a full submission package with `\includegraphics` figure references and attempts pdflatex compilation. IEEE LaTeX exporter uses IEEEtran.cls format with numbered `\cite{citekey}` references, `booktabs` tables, and `\includegraphics` figures. BibTeX file generated from the citation ledger.
 
-Note: `POST /export` has a fast-path -- if `submission/manuscript.tex`, `references.bib`, and `manuscript.docx` already exist it returns them immediately without recompiling. Use `?force=true` to force a full rebuild. The `doc_manuscript.md` source is written by `FinalizeNode`, not by export; changes to `assemble_submission_manuscript()` (e.g. `include_rq_block`, `build_compact_study_table`) only affect new runs.
+Note: `POST /export` has a fast-path -- if `submission/manuscript.tex`, `references.bib`, and `manuscript.docx` already exist it returns them immediately without recompiling. Use `?force=true` to force a full rebuild. The `doc_manuscript.md` source is written in the writing stage (not by export); changes to `assemble_submission_manuscript()` (e.g. `include_rq_block`, `build_compact_study_table`) affect new runs.
 
 A submission package is assembled:
 
@@ -507,7 +638,7 @@ submission/
 ```
 
 Validators run:
-- IEEE validator: abstract 150-250 words, references 30-80, all `\cite{}` resolve in `.bib`, no placeholder text
+- IEEE validator: abstract capped at 230 words, references 30-80, all `\cite{}` resolve in `.bib`, no placeholder text
 - PRISMA checklist validator: 27 items, gate requires >= 24/27 reported
 
 Registry status updated to "completed". `run_summary.json` written to log dir with all artifact paths.
@@ -532,7 +663,7 @@ Model assignments per agent are in `settings.yaml` under `agents.*`. Changing a 
 
 ### 7.2 Rate Limiting
 
-A token-bucket rate limiter in `src/llm/rate_limiter.py` enforces configured limits from `settings.yaml llm.*` (current defaults in this repo: Flash-Lite 30 RPM, Flash 20 RPM, Pro 10 RPM).
+A sliding-window + min-interval rate limiter in `src/llm/rate_limiter.py` enforces configured limits from `settings.yaml llm.*` (current defaults in this repo: Flash-Lite 120 RPM, Flash 60 RPM, Pro 20 RPM).
 
 `reserve_call_slot(agent_name)` blocks until a slot is available. A `rate_limit_wait` SSE event (fields: `tier`, `slots_used`, `limit`, `waited_seconds`) is emitted on the first poll and every 10s thereafter. When the slot is acquired after waiting, a `rate_limit_resolved` SSE event (fields: `tier`, `waited_seconds`) is emitted. Both events are wired for ScreeningNode, ExtractionQualityNode, and WritingNode. The `on_waiting`/`on_resolved` callbacks are registered whenever a `RunContext` or `WebRunContext` is present -- the `verbose` flag only gates the CLI console print, not the SSE emission. These limits can be relaxed in `settings.yaml` for paid-tier keys (paid Flash: 2,000 RPM).
 
@@ -608,10 +739,12 @@ Canonical table ownership and stat precedence are centralized in `src/db/source_
 `{run_root}/workflows_registry.db` holds a single `workflows_registry` table:
 
 ```
-workflow_id | topic | config_hash | db_path | status | created_at | updated_at
+workflow_id | topic | config_hash | db_path | status | created_at | updated_at | heartbeat_at
 ```
 
 This maps (topic, config_hash) to the absolute path of the per-run `runtime.db`, enabling resume without filesystem scanning. The per-run `workflows` table still exists in `runtime.db` for local workflow metadata.
+
+Implementation note: registry DB also maintains internal allocation/support tables (for example workflow counter state), and notes metadata is supported via API.
 
 ### 8.3 Canonical Phase Key Strings
 
@@ -710,7 +843,7 @@ Dev mode:
 Production:
   pnpm run build -> frontend/dist/
   FastAPI serves frontend/dist/ as StaticFiles at /
-  Browser opens http://localhost:8001
+  Browser opens http://localhost:8000
 ```
 
 PM2 is the primary process manager. `ecosystem.config.js` starts `litreview-api` (port 8001) and `litreview-ui` (Vite on port 5173). Overmind (`Procfile.dev`) is the alternative for tmux-based dev.
@@ -762,12 +895,12 @@ Heartbeat events are sent every 15 seconds of inactivity to keep the connection 
 
 ### 9.3 View Model
 
-The frontend is run-centric. The sidebar is a run list, not a navigation menu. Selecting a run sets `selectedRun` in App state. `RunView` renders 7 tabs in workflow order: Config, Activity, Data, Cost, Results, References (plus Review Screening when awaiting_review). The selected tab is persisted in localStorage.
+The frontend is run-centric. The sidebar is a run list, not a navigation menu. Selecting a run sets `selectedRun` in App state. `RunView` renders 7 tabs in workflow order: Config, Activity, Data, Cost, Results, References (plus Review Screening when awaiting_review). The selected tab is URL-driven (`/run/{workflowId}/{tab}`), not stored in localStorage.
 
 | View | Purpose |
 |------|---------|
-| SetupView | Structured PICO form + keyword/criteria tag inputs + database checkboxes + YAML builder; "Load from past run" dropdown reuses a stored config via `GET /api/history/{workflow_id}/config` |
-| RunView | 7-tab shell (Config, Activity, Data, Cost, Results, References; Review Screening when awaiting_review) for a selected run |
+| SetupView | Question-first config generation flow with 3 start modes: AI Search, Start with Master List CSV, and Search + CSV; includes YAML review/edit and "Load from past run" via `GET /api/history/{workflow_id}/config` |
+| RunView | 6 base tabs (Config, Activity, Data, Cost, Results, References) plus conditional Review Screening when awaiting_review |
 | ConfigView | Shows research question and timestamped review.yaml for the run; used by agents and for copy-to-clipboard |
 | ActivityView | Phase timeline + stats strip + event log (text search); works for live SSE runs and historical fetched runs. Historical runs support two-tap phase resume directly on timeline steps (first tap arms preview range, second tap confirms resume from that phase). |
 | CostView | Recharts bar chart grouped by model/phase + sortable cost/token tables; reads from cost_records DB via /api/db/{run_id}/costs (primary, polls every 5s while active); SSE api_call events used as fallback before first DB response |
@@ -825,8 +958,9 @@ Run card status border (2px left): emerald = completed, violet = running/connect
 
 | Method | Path | Description |
 |--------|------|-------------|
-| POST | /api/run | Start new review (JSON body or multipart with master-list CSV); returns `{run_id, topic}` |
+| POST | /api/run | Start new review from JSON config payload (`RunRequest`); returns `{run_id, topic}` |
 | POST | /api/run-with-masterlist | Start review from master-list CSV upload (multipart form) |
+| POST | /api/run-with-supplementary-csv | Start review with connector search plus supplementary CSV upload (multipart form) |
 | GET | /api/stream/{run_id} | SSE stream of ReviewEvent JSON; heartbeat every 15s; ends with done/error/cancelled |
 | POST | /api/cancel/{run_id} | Cancel active run; sets cancellation event |
 | GET | /api/runs | List all in-memory active runs |
@@ -834,7 +968,7 @@ Run card status border (2px left): emerald = completed, violet = running/connect
 | GET | /api/download | Download artifact file (query param `path`; restricted to runs/) |
 | GET | /api/config/review | Default review.yaml content (pre-fills Setup form) |
 | POST | /api/config/generate | AI config generation from research question; returns YAML string |
-| GET | /api/config/generate/stream | SSE-streamed version of config generation |
+| POST | /api/config/generate/stream | SSE-streamed version of config generation |
 | GET | /api/config/env-keys | API keys already set in server .env; used to pre-fill Setup form |
 | GET | /api/health | Health check; polled every 6s by useBackendHealth hook |
 | GET | /api/history | Past runs from workflows_registry.db |
@@ -850,9 +984,13 @@ Run card status border (2px left): emerald = completed, violet = running/connect
 | GET | /api/db/{run_id}/screening | Screening decisions with stage/decision filters |
 | GET | /api/db/{run_id}/costs | Cost records grouped by model and phase (includes embedding phase) |
 | GET | /api/db/{run_id}/tables | Vision-extracted table rows from papers |
+| GET | /api/db/{run_id}/rag-diagnostics | Per-section RAG retrieval diagnostics |
 | GET | /api/run/{run_id}/artifacts | Full run_summary.json for any run (live or historical) |
+| GET | /api/run/{run_id}/manuscript | Download manuscript content (`fmt=md` or `fmt=tex`) |
 | GET | /api/run/{run_id}/events | Replay buffer snapshot (all buffered SSE events for live run) |
 | GET | /api/workflow/{workflow_id}/events | Events from event_log table by workflow ID (historical) |
+| PATCH | /api/notes/{workflow_id} | Update run notes |
+| GET | /api/notes/stream | SSE stream for notes updates |
 | GET | /api/run/{run_id}/papers-reference | Included papers list with PDF/TXT file availability flags |
 | GET | /api/run/{run_id}/papers/{paper_id}/file | Stream PDF or TXT file for a specific included paper |
 | POST | /api/run/{run_id}/fetch-pdfs | Retroactive full-text fetch for completed runs; returns `{attempted, succeeded, failed}` |
@@ -868,6 +1006,17 @@ Run card status border (2px left): emerald = completed, violet = running/connect
 | GET | /api/run/{run_id}/prospero-form.docx | Download generated PROSPERO registration form (DOCX) |
 | GET | /api/run/{run_id}/prospero-form.md | Download generated PROSPERO registration form (Markdown) |
 | GET | /api/logs/stream | SSE tail of per-run PM2 log file; filtered by run_id query param |
+
+### 10.1.1 Endpoint Parity Checklist
+
+Full parity sweep result: all 48 endpoint rows in Section 10.1 match method+path decorators in `src/web/app.py`; no mismatches found.
+
+- `Run lifecycle`: `/api/run`, `/api/run-with-masterlist`, `/api/run-with-supplementary-csv`, `/api/stream/{run_id}`, `/api/cancel/{run_id}` -> handlers `@app.post("/api/run")`, `@app.post("/api/run-with-masterlist")`, `@app.post("/api/run-with-supplementary-csv")`, `@app.get("/api/stream/{run_id}")`, `@app.post("/api/cancel/{run_id}")` in `src/web/app.py`.
+- `Config`: `/api/config/review`, `/api/config/env-keys`, `/api/config/generate`, `/api/config/generate/stream` -> handlers `@app.get("/api/config/review")`, `@app.get("/api/config/env-keys")`, `@app.post("/api/config/generate")`, `@app.post("/api/config/generate/stream")`.
+- `History and notes`: `/api/history`, `/api/history/active-run`, `/api/history/{workflow_id}/config`, `/api/history/resume`, `/api/history/attach`, `/api/notes/{workflow_id}`, `/api/notes/stream` -> matching `@app.get/@app.post/@app.patch` decorators in `src/web/app.py`.
+- `DB explorer`: `/api/db/{run_id}/papers`, `/papers-all`, `/papers-facets`, `/papers-suggest`, `/screening`, `/costs`, `/tables`, `/rag-diagnostics` -> matching `@app.get("/api/db/...")` handlers.
+- `Artifacts and export`: `/api/run/{run_id}/artifacts`, `/manuscript`, `/events`, `/workflow/{workflow_id}/events`, `/export`, `/submission.zip`, `/manuscript.docx`, `/prospero-form.docx`, `/prospero-form.md`, `/logs/stream` -> matching `@app.get/@app.post` handlers.
+- `References and review controls`: `/api/run/{run_id}/papers-reference`, `/papers/{paper_id}/file`, `/fetch-pdfs`, `/screening-summary`, `/approve-screening`, `/knowledge-graph`, `/prisma-checklist`, `/grade-sof`, `/living-refresh` -> matching `@app.get/@app.post` handlers.
 
 ### 10.2 SSE Event Types
 
@@ -981,14 +1130,13 @@ This section traces data from raw PDF bytes through every pipeline stage to the 
     |          --> all occurrences of each bad key replaced (re.sub, not str.replace)
     |      10. CitationLedger.validate_section() --> unresolved claims flagged
     |      11. SectionDraft saved to section_drafts table
+    -- section_drafts assembled --> doc_manuscript.md
     |
     v
 [FinalizeNode]
-    -- section_drafts assembled --> doc_manuscript.md
     -- bibtex_builder --> references.bib
     -- ieee_latex: markdown_to_latex(md, figure_paths) --> doc_manuscript.tex
     -- total cost summed from cost_records --> run_summary.json
-    -- PRISMA flow diagram --> fig_prisma_flow.png
     -- RoB traffic light --> fig_rob_traffic_light.png / fig_rob2_traffic_light.png
 ```
 
@@ -1043,10 +1191,12 @@ uv run python -m src.main run --config config/review.yaml --run-root runs/
 # Resume / manage runs:
 uv run python -m src.main resume --topic "my research question"
 uv run python -m src.main resume --workflow-id abc123
+uv run python -m src.main resume --workflow-id abc123 --no-api
 uv run python -m src.main resume --topic "my research question" --config config/review.yaml --settings config/settings.yaml --run-root runs/
 uv run python -m src.main status --workflow-id abc123 --run-root runs/
 uv run python -m src.main validate --workflow-id abc123 --run-root runs/
 uv run python -m src.main export --workflow-id abc123 --run-root runs/
+uv run python -m src.main prospero --workflow-id abc123 --run-root runs/
 ```
 
 ### 12.4 Testing
@@ -1066,7 +1216,7 @@ After each phase, run all commands and confirm clean output before proceeding.
 ```
 cd frontend && pnpm run build         # tsc strict mode + Vite chunk split -> frontend/dist/
 # FastAPI serves frontend/dist/ at / automatically when the directory exists
-# Open http://localhost:8000
+# Open http://localhost:8001
 ```
 
 Run both lint and typecheck. TypeScript strict mode catches type issues, and ESLint catches style/safety issues.
@@ -1074,9 +1224,10 @@ Run both lint and typecheck. TypeScript strict mode catches type issues, and ESL
 ### 12.6 Output Artifact Naming
 
 All runtime artifacts use type-based prefixes for clarity:
-- `fig_*` (PNG figures): prisma_flow, publication_timeline, geographic_distribution, rob_traffic_light, forest_plot, funnel_plot
-- `doc_*` (Markdown): manuscript, protocol, search_strategies_appendix, fulltext_retrieval_coverage, disagreements_report
-- `data_*` (JSON): narrative_synthesis
+- `fig_*` (PNG/SVG figures): prisma_flow, publication_timeline, geographic_distribution, rob_traffic_light, rob2_traffic_light, forest_plot, funnel_plot, concept_diagram_*
+- `doc_*` (Markdown/DOCX docs): manuscript, protocol, prospero_registration, search_strategies_appendix, fulltext_retrieval_coverage, disagreements_report
+- `data_*` (JSON): narrative_synthesis, papers_manifest
+- `papers/` directory stores retrieved per-paper PDF/TXT files
 - `run_summary.json` (in log dir, not output dir)
 
 ---
@@ -1096,7 +1247,7 @@ The tool enforces these academic standards structurally -- via typed data models
 | CASP | Phase 4 | Qualitative and cross-sectional appraisal checklist (ROBINS-I requires longitudinal intervention structure; cross-sectional designs use CASP instead) |
 | GRADE | Phase 4/6 | Per-outcome certainty across 5 downgrading + 3 upgrading factors; output High / Moderate / Low / Very Low; Summary of Findings table in manuscript |
 | Meta-analysis | Phase 5 | Fixed-effect (I-squared < 50%) or random-effects DerSimonian-Laird (>= 50%); Cochran's Q + I-squared reported; forest plot per outcome; funnel plot when >= 10 studies |
-| IEEE submission | Phase 8 | IEEEtran.cls; abstract 150-250 words; 7-10 pages; numbered BibTeX references; PRISMA checklist as supplementary |
+| IEEE submission | Phase 8 | IEEEtran.cls; abstract capped at 230 words; 7-10 pages; numbered BibTeX references; PRISMA checklist as supplementary |
 
 **Citation lineage rule:** Every factual claim in the manuscript must trace through: `ClaimRecord -> EvidenceLinkRecord -> CitationEntryRecord -> papers.paper_id`. The `block_export_on_unresolved` gate enforces this at export time. LLMs are constrained to the provided citation catalog; they cannot introduce new references.
 
@@ -1110,60 +1261,60 @@ The tool enforces these academic standards structurally -- via typed data models
 
 Living section -- update as work completes.
 
+Status taxonomy:
+- `Implemented`: active behavior present in current code paths.
+- `Partial`: implemented but incomplete, conditionally wired, or missing a connected surface.
+- `Historical`: milestone/sprint snapshot retained for context; not a claim about current default behavior.
+
 | Component | Status | Notes |
 |-----------|--------|-------|
-| Phase 1: Foundation | DONE | Models, SQLite, 6 gates, citation ledger, LLM provider, rate limiter |
-| Phase 2: Search | DONE | All 12 connectors (scopus, web_of_science, openalex, pubmed, semantic_scholar, ieee_xplore, arxiv, crossref, perplexity_search, clinicaltrials, csv_import, embase) + ClinicalTrials.gov grey literature, MinHash LSH dedup (datasketch + thefuzz), BM25 ranking, protocol generator, SearchConfig |
-| Phase 3: Screening | DONE | Dual reviewer with cross-model validation (Reviewer A=flash-lite tier, Reviewer B=flash tier -- see config/settings.yaml), keyword filter, BM25 cap, batch LLM pre-ranker (batch_ranker.py; batch_screener agent; papers below batch_screen_threshold auto-excluded as batch_screened_low), kappa injected into writing, Ctrl+C proceed-with-partial, confidence fast-path, protocol-only auto-exclusion; forward citation chasing (Semantic Scholar + OpenAlex) runs at end of ScreeningNode -- chased papers are immediately dual-screened (title/abstract + fulltext) in the same run and contribute to dual_screening_results |
-| Phase 4: Extraction + Quality | DONE | LLM extraction with PyMuPDF full-text parsing (32K char context, up from 8K), async RoB 2 / ROBINS-I / CASP with heuristic fallback tagged by assessment_source, GRADE auto-wired from RoB data (assess_from_rob), study router, RoB traffic-light figure |
-| Phase 5: Synthesis | DONE | Hardened feasibility (requires effect_size+se in >= 2 studies), statsmodels pooling (DL), forest + funnel plots, LLM-based narrative direction classification, sensitivity analysis (leave-one-out + subgroup), synthesis_results table |
-| Phase 6: Writing | DONE | Section writer, humanizer, deterministic guardrails (preserve citekeys and numerics), citation validation, per-section checkpoint, WritingGroundingData (includes kappa, sensitivity_results, n_studies_reporting_count, separated search sources, rob_summary, grade_summary injected from actual assessments), GRADE table + RoB summary injected into writing prompts; two-phase WritingNode (Phase A concurrent: abstract/intro/methods/results; Phase B with PRIOR SECTIONS CONTEXT: discussion/conclusion); SECTION_WORD_LIMITS (results 1400, methods 900, discussion 900, abstract 230 enforced by _trim_abstract_to_limit); MANDATORY CITATION COVERAGE RULE with design-grouped _build_citation_coverage_patch; build_compact_study_table injected at ### Study Characteristics; abstract-only rate caution gate (>40% triggers hedged-language requirement) |
-| Phase 7: PRISMA + Viz | DONE | PRISMA diagram (prisma-flow-diagram + fallback), timeline, geographic, ROBINS-I in RoB figure, uniform artifact naming |
-| Phase 8: Export + Orchestration | DONE | Run/resume, IEEE LaTeX, BibTeX, validators, Word DOCX export (pypandoc + python-docx), submission packager, pdflatex, CLI subcommands |
-| Web UI | DONE | FastAPI SSE backend (40+ endpoints incl. screening-summary, approve-screening, living-refresh, prisma-checklist, papers-reference, papers/{id}/file, fetch-pdfs), React/Vite/TypeScript frontend, structured Setup form, run-centric sidebar, 7-tab RunView in workflow order (Config -> Activity -> Data -> Cost -> Results -> References, with step numbers and chevron connectors; Review Screening when awaiting_review), Config tab shows research question and timestamped review.yaml for agent reference, DB explorer with heuristic RoB filter, cost tracking, grouped Results panel with PRISMA checklist panel, ScreeningReviewView for HITL approval, ReferencesView (tab 6) shows included papers with PDF/TXT download and retroactive "Fetch PDFs" button; NOTE: living-refresh backend endpoint exists but no frontend control is currently wired to it -- trigger via CLI or direct API call; history UX lives in Sidebar.tsx (not a separate HistoryView component) |
-| Human-in-the-Loop | DONE | HumanReviewCheckpointNode pauses run at awaiting_review status; approve-screening API resumes; frontend shows Review Screening tab with AI decisions + confidence |
-| Living Review | DONE | living_review + last_search_date in review.yaml; SearchNode skips previously-screened DOIs; POST /api/run/{id}/living-refresh creates incremental re-run |
-| Resume | DONE | Central registry, topic auto-resume, mid-phase resume, resume-from-phase (backend API supports from_phase param; UI phase-picker modal removed -- resume via CLI --from-phase flag or direct API call), fallback scan of run_summary.json |
-| Post-build improvements | DONE | display_label (single source of truth in papers table), synthesis_results table, dedup_count column, SearchConfig per-connector limits, BM25 cap with LOW_RELEVANCE_SCORE exclusions |
-| Post-build: Hybrid RAG + PRISMA fixes | DONE | Hybrid BM25+dense RAG (RRF) in WritingNode, PydanticAI Embedder replacing google-generativeai SDK, PRISMA endpoint registry fallback, duplicate Discussion heading dedup, PRISMACounts field name fixes |
-| Post-build: HyDE + Gemini listwise reranker | DONE | HyDE (hypothetical doc embeddings, Gao et al. 2022) for rich dense query vectors; Gemini Flash listwise reranker (single LLM call ranks 20 candidates to top 8); removed sentence-transformers/torch (382 MB) in favour of zero-new-dep PydanticAI calls |
-| Validation benchmark | DONE | scripts/benchmark.py measures screening recall, extraction field accuracy, RoB kappa vs. gold-standard corpus |
-| Enhancement #4: Semantic Chunking | DONE | Sentence-boundary chunker (nltk sent_tokenize) replaces fixed 512-word windows; chunks stay under ~400 words, 2-sentence overlap; fallback to regex split if nltk unavailable; settings: rag.chunk_max_words, rag.chunk_overlap_sentences in settings.yaml (chunker.py module constants are fallbacks when called standalone) |
-| Enhancement #5: PICO-Aware Retrieval | DONE | PICO terms from review.yaml injected into HyDE prompt and BM25 query string when review.pico is populated; no separate settings.yaml toggle (pico_query_boost does not exist) |
-| Enhancement #6: Living Review Auto-Refresh | DONE | Delta pipeline: search from last_search_date, screen/embed new papers only, merge into previous DB, re-run synthesis+writing only if new evidence added |
-| Enhancement #7: Multi-Modal Evidence | DONE | Tiered full-text retrieval (Tier 0 publisher-direct, Tier 0.5 citation_pdf_url meta, Tier 1 Unpaywall, Tier 1b arXiv, Tier 2 group Semantic Scholar/CORE/OpenAlex/EuropePMC/bioRxiv, then ScienceDirect/PMC/Crossref, Tier 6 landing-page fallback); unified resolver used by extraction and screening; Gemini vision extracts quantitative outcome rows from PDFs; vision+text outcomes merged; table rows chunked as separate embeddings; GET /api/db/{run_id}/tables endpoint; Scopus abstract gap fixed via enrich_scopus_abstracts() |
-| Enhancement #8: Contradiction-Aware Synthesis | DONE | contradiction_detector.py surfaces conflict pairs; WritingNode injects "Conflicting Evidence" subsection into Discussion with citation keys and reconciliation hypothesis |
-| Enhancement #9: Adaptive Screening Threshold | DONE | Active-learning calibration loop: configurable sample size (`screening.calibration_sample_size`, current settings default 15), kappa computed, thresholds adjusted via bisection until kappa > 0.7 or max iterations; calibration emits phase_start/phase_done SSE events (phase="screening_calibration") for live UI progress |
-| Enhancement #10: GRADE Evidence Profile | DONE | Full GRADE Summary of Findings table (studies, participants, effect estimate, certainty, reason); build_sof_table() in grade.py; GradeSoFTable + GradeSoFRow models; LaTeX longtable export; GET /api/run/{run_id}/grade-sof endpoint |
-| Search quality sprint | DONE | Scopus connector (src/search/scopus.py, TITLE-ABS-KEY field codes, 5 req/sec limit, 429 back-off); Web of Science connector (src/search/web_of_science.py, TS= prefix syntax, Starter API); default target_databases updated to scopus + web_of_science + openalex + pubmed + semantic_scholar; ieee_xplore + perplexity_search + crossref + arxiv moved to opt-in |
-| OpenAlex query fix + config generator | DONE | OpenAlex received the broad boolean OR fallback causing ~500 off-topic results. Fix: (1) strategy.py added openalex branch returning short_query (same pattern as semantic_scholar); (2) config_generator.py added openalex field to _SearchOverrides model and updated _STRUCTURE_PROMPT to generate all six database overrides; all descriptions and examples made domain-agnostic so generator works for any topic. |
-| Manuscript quality sprint | DONE | Root causes fixed in pipeline: assemble_submission_manuscript() includes GRADE SoF table, search appendix, excluded-studies footnote; abstract prompt includes kappa framing; semicolon parsing in citation extraction; IMRaD heading prompts tightened. finalize_manuscript.py is a thin regeneration utility for historical runs; _strip_unresolved_citekeys() is the only remaining safety net. Citation lineage gate: FinalizeNode validates manuscript; block_export_on_unresolved respected. |
-| Zero-papers manuscript | DONE | WritingNode guard: when 0 papers included (gates.profile=warning allows continuation past screening_safeguard), produces minimal manuscript without LLM calls via _build_minimal_sections_for_zero_papers(). Appendix B (Characteristics of Included Studies) includes Full Text Retrieved column. Sidebar RunCardMetrics displays 0/0 for found/included. |
-| Web of Science connector | DONE | src/search/web_of_science.py -- Clarivate WoS Starter API (X-ApiKey header, TS/TI/PY query fields, 50 records/page, 300 req/day free tier); WOS_API_KEY env var; sourced as DATABASE category |
-| Gemini model routing refresh | DONE | All agents are config-driven in settings.yaml; current defaults use gemini-2.5-flash-lite for bulk/RAG helpers and gemini-2.5-flash for adjudication, extraction, quality, and writing paths. UpdatePrices live auto-updater + YAML-configured pricing fallback map (`llm.price_fallback_per_mtok`) are used for accurate cost tracking. |
-| Cost tab DB-first fix | DONE | CostView now polls /api/db/{run_id}/costs every 5s as primary source; removed guard that skipped DB when SSE had any events (caused earlier-phase costs to disappear once writing phase started streaming 2 events). |
-| RAG config from settings.yaml | DONE | embed_model, embed_dim, embed_batch_size, chunk_max_words, chunk_overlap_sentences moved to settings.yaml rag.* section; embedder.py caches Embedder instances per (model, dim) key; embedding_node.py and workflow.py read all values from config instead of hardcoded constants. |
-| Activity log verbosity v3 + pipeline fixes | DONE | (1) Screening decisions now carry method badge (LLM vs AUTO/heuristic) in SSE payload; frontend renders heuristic auto-excludes with amber dim styling vs. zinc for LLM excludes; REASON_LABELS translates internal codes (insufficient_content_heuristic) to human-readable text. (2) Progress events no longer suppressed in LogStream -- calibration phase now shows per-paper ticks (1/15, 2/15...). (3) rate_limiter.py on_waiting callback fires immediately on first wait occurrence (was suppressed 30s). (4) CROSS_SECTIONAL study design now routes to CASP instead of ROBINS-I (ROBINS-I requires longitudinal intervention structure). (5) build_credit_section() added to markdown_refs.py; build_markdown_declarations_section() now appends CRediT author contribution statement. (6) repositories.py get_dual_screening_stats() now queries per-paper fulltext exclusion reasons from screening_decisions table. (7) PRISMA diagram build_prisma_counts() uses actual fulltext stage counts from dual_screening_results when _reports_assessed_raw > included_total. (8) protocol/generator.py maps review_type to PROSPERO item 21 study design descriptions instead of using raw enum value. (9) Discussion prompt enumerates 6 required limitation categories explicitly. |
-| Gap audit sprint (wf-e7d87ff1) | DONE | 5 additional submission-readiness fixes independently found: (1) PRISMA full-text count: build_prisma_counts() now uses actual dual_screening_results fulltext-stage counts (_reports_assessed_raw > included_total signals real exclusions); get_prisma_screening_counts() queries exclusion reasons from screening_decisions; fixes "14 assessed" when 21 were actually assessed with 7 excluded. (2) Limitations writing prompt: Discussion section now explicitly requires 6 limitation categories (language restriction, no citation chasing, no grey literature, observational designs, heterogeneous outcomes, missing sample sizes). (3) CRediT author contributions: build_credit_section() + build_markdown_declarations_section(author_name) added to markdown_refs.py; every manuscript now includes CRediT taxonomy block. (4) CROSS_SECTIONAL routing: StudyRouter routes cross-sectional to casp (CASP cohort/cross-sectional checklist); removed from ROBINS-I set which now covers only NON_RANDOMIZED/COHORT/CASE_CONTROL. (5) Protocol study type: PROSPERO item 21 now uses _STUDY_DESIGN_DESCRIPTIONS dict keyed by review_type instead of review_type.value ("systematic" literal). (6) Reviewer language: screening_method_description and all writing prompts use neutral "two independent reviewers"/"third adjudicator" -- no AI/human qualifier. TRANSPARENCY RULE in format_grounding_block() updated to match. |
-| Audit fix sprint (wf-e7d87ff1) | DONE | 12 submission-readiness fixes: (1) PRISMACounts.automation_excluded tracks BM25/keyword pre-filter exclusions and maps to PRISMA "Automation tools" slot in diagram (not "other"); WritingGroundingData gains zero_yield_databases + automation_excluded fields with CRITICAL LLM disclosure instructions. (2) Citation ledger validate_manuscript() accepts numeric [N] keys (manuscript uses numbered refs after convert_to_numbered_citations); fixes historical citation_lineage_valid=false. (3) HTML detection+stripping in extractor.py (_is_html_content, _strip_html) prevents boilerplate LLM responses from connector paywall pages; HTML boilerplate guard in build_study_characteristics_table() Key Outcomes column. (4) screening_method_description updated to accurately state "full-text PDFs were not retrieved"; Appendix B footnote clarified. (5) GRADE build_sof_table() skips placeholder-named outcomes (consistent with Evidence Profile); Effect/Reason truncated at word boundary. (6) Methodology references: _METHODOLOGY_REFS (Page2021 PRISMA 2020, Sterne2019 RoB 2, Sterne2016 ROBINS-I, Guyatt2011 GRADE, Cohen1960) pre-registered by register_methodology_citations(); included in catalog + valid_citekeys so writing LLM can cite methodology papers. (7) Kappa: "not computed" fallback instruction prevents LLM reporting phantom values. (8) _normalize_doi() standardizes all DOIs to https://doi.org/ in reference list. (9) _capitalize_name_part() + _fmt_author_str() fix lowercase author names. (10) PICOS table gains Study Design (S) row. (11) Results prompt requires explicit Figure 3 + Figure 4 in-text references. (12) Discussion Strengths/Limitations prompt requires explicit enumeration of 6 limitation categories. |
-
-| References tab + PDF fetch | DONE | ReferencesView (tab 6): included papers list with PDF/TXT availability badges; GET /api/run/{run_id}/papers-reference; GET /api/run/{run_id}/papers/{paper_id}/file streams saved PDF or TXT; POST /api/run/{run_id}/fetch-pdfs retroactively fetches full text for all included papers in completed runs (all 8 tiers: Unpaywall, arXiv, Semantic Scholar, CORE, Europe PMC, ScienceDirect, PMC, Crossref); ExtractionQualityNode writes papers/ dir + data_papers_manifest.json during pipeline runs; "Fetch PDFs" button in UI triggers retroactive fetch for older runs |
-| Robust citation pipeline | DONE | Multi-layer citation matching: DOI -> URL -> title fuzzy -> LLM batch resolver (citation_matching agent in settings.yaml). citations table gains source_type column ('included'/'methodology'/'background_sr') used to split CITATION CATALOG into separate blocks. inject_missing_citations.py CLI script for post-hoc coverage fix. Programmatic coverage check in WritingNode with design-grouped patch. CJK character stripping in _escape_latex(). Author name deduplication in _fmt_author_str(). |
-| Manuscript quality improvements | DONE | Two-phase WritingNode (Phase A concurrent, Phase B with PRIOR SECTIONS CONTEXT cross-section injection). SECTION_WORD_LIMITS updated (results 1400, methods 900). _trim_abstract_to_limit() post-LLM abstract word cap at 230. build_compact_study_table() generates 5-column PRISMA Item 19 table injected at ### Study Characteristics. _build_citation_coverage_patch groups uncited keys by design for natural prose. include_rq_block=False default in assemble_submission_manuscript removes "Research Question:" prefix. Abstract-only rate quality gate (>40% triggers CAUTION). Tier 0.5 full-text retrieval (_quick_citation_pdf_url citation_pdf_url meta extraction for Wiley/Springer/Nature/Sage/OJS/JoVE). |
-| run_index stubs | NOT IMPLEMENTED | Planned: StartNode would write run_index/{workflow_id}.yaml for VS Code grep visibility. No code in src/ writes to run_index/ or workflow_id.txt. StartNode writes config_snapshot.yaml (with workflow_id in header) to the run dir. show_run_info.py reads from runtime.db directly. |
-| Configurable content threshold | DONE | ScreeningConfig.insufficient_content_min_words (default 0, lowered progressively from 12->5->0; at 0 records with empty abstracts reach the LLM dual-screener which can exclude on title alone) controls minimum abstract word count before auto-excluding as stub; dual_screener.py reads from settings at runtime; configured in settings.yaml |
-| PubMed search override guidance | DONE | Search overrides in config/review.yaml should use single-word root-form terms in AND groups to avoid recall loss from exact multi-word phrases; MeSH terms that are too narrow for the topic should be avoided; use root-form single terms instead of compound phrases for best recall |
-| Search recall overhaul | DONE | 6 root causes of inconsistent cross-run search results fixed: (1) OpenAlex is_core:true filter removed -- was silently capping results at 6 for niche topics; broad-first-screen-tight methodology now applies; openalex limit raised to 1000. (2) build_boolean_query uses keywords only, not PICO descriptions (PICO sentences produced 0-result ClinicalTrials.gov queries). (3) short_query uses first 8 keywords space-joined (not full PICO concatenation). (4) clinicaltrials_gov case added to build_database_query (was falling through to full base query with PICO sentences). (5) WoS connector raises RuntimeError on quota exhaustion/429 instead of silent 0-result success -- coordinator marks as "failed" in SSE. (6) SearchStrategyCoordinator emits WARNING log when any connector returns fewer than low_recall_warning_threshold records (default 10, configurable in settings.yaml). Config generator prompts use domain-agnostic examples so the LLM generates correct queries for any topic. |
-| Audit bug fixes (wf-b431ebff) | DONE | 5 root-cause fixes for manuscript audit issues: (1) Unicode citekey normalization: register_background_sr_citations() now applies unicodedata.normalize("NFD") + Mn-category strip to author surnames before building citekeys -- accented surnames (e.g. Perez from Perez-Encinas) no longer produce unresolvable non-ASCII citekeys in the manuscript. (2) Neutral screening language: removed "(large language models)" from all 4 screening_method_description string occurrences in context_builder.py; all branches now use plain "Two independent reviewers" and "a third reviewer" with no AI/human qualifier. (3) Search eligibility window disclosure: WritingGroundingData gains search_eligibility_window: str field (e.g. "2000-2026") computed from review_config.date_range_start/end; format_grounding_block() emits it with CRITICAL DATE RANGE RULE preventing LLM from reporting publication year range of included papers as the eligibility window. (4) Full-text retrieval disclosure (PRISMA item 10): WritingGroundingData gains fulltext_retrieved_count and fulltext_total_count (extraction_source != "text"/"heuristic" = full text retrieved); format_grounding_block() emits mandatory PRISMA item 10 disclosure with exact counts. (5) Author name for CRediT: ReviewConfig.author_name (already existed) is now passed through WritingGroundingData and emitted in grounding block; set author_name in review.yaml to eliminate "[Author name]" placeholder in CRediT statement. |
-
-| Batch dual-reviewer + DB arithmetic fix | DONE | (1) reviewer_batch_size (default 10 in settings.yaml) sends N papers per dual-reviewer LLM call, reducing LLM calls by ~5x at batch_size=10; 0=per-paper legacy mode; dual_screener.py dispatches to _screen_batch_mode() internally; per-paper decisions, callbacks, and adjudication are unchanged -- methodologically identical to per-paper mode. (2) records_after_deduplication and records_excluded_screening pre-computed in build_writing_grounding() from prisma_counts and injected verbatim into format_grounding_block() with CRITICAL instructions; LLM is forbidden from performing PRISMA arithmetic; root cause of "1882 vs 1884" error eliminated. 7 new unit tests added to tests/unit/test_screening.py. |
-| Pipeline cleanup + RoB/GRADE grounding | DONE | (1) naturalness_scorer removed (always returned 0.8, never gated output; module deleted, agent key removed from settings.yaml). (2) StylePatterns / style_extractor removed from writing pipeline (always returned empty patterns; prepare_writing_context() now returns catalog str directly). (3) src/llm/model_fallback.py: centralized get_fallback_model(tier) resolver reads settings.yaml and raises clear errors if required model config is missing. (4) rob_summary and grade_summary injected into WritingGroundingData and format_grounding_block() from actual DB assessments so writing LLM receives structured RoB/GRADE evidence. (5) _escape_latex() now protects \\cite{}/\\textbf{} argument strings before escaping underscores. (6) LaTeX table rules upgraded to booktabs (\\toprule/\\midrule/\\bottomrule); longtable and hyperref added to IEEE preamble. |
-
-| IEEE LaTeX Unicode hardening + resume bug fixes | DONE | (1) _escape_latex() refactored into 7-step pipeline: targeted typographic table (7 entries: em-dash/en-dash/smart-quotes/non-breaking-hyphen -> IEEEtran forms), LaTeX special chars, degree sign, pylatexenc.UnicodeToLatexEncoder fallback for all remaining non-ASCII, last-resort [?] guard with warning log for unrenderable glyphs (e.g. Arabic). inputenc/fontenc/textcomp added to IEEE preamble. (2) context_builder.py: math.isnan() guard on cohens_kappa prevents nan propagation into LLM prompt; emits "not calculable (N=X)" with single-class explanation. (3) writing/orchestration.py: save_checkpoint("phase_6_writing") moved after manuscript file write; resume.py: file-existence guard clears stale phase_6_writing checkpoint when doc_manuscript.md is absent. (4) markdown_refs.py: citation_rows unpacking updated to 9 values (includes url). (5) property-based tests added with hypothesis: test_escape_latex_always_ascii_output, test_escape_latex_emdash_uses_triple_dash, test_escape_latex_endash_uses_double_dash, test_escape_latex_smart_quotes_use_standard_ligatures, test_escape_latex_preserves_latex_commands, test_escape_latex_special_chars_are_escaped. pylatexenc>=2.10 and hypothesis>=6.151.9 added as project dependencies. |
-
-| Manuscript pipeline audit fixes (wf-0005) | DONE | 7 root-cause fixes identified by manuscript-auditor: (1) build_compact_study_table() Key Finding: was reading nonexistent rec.key_finding; now reads results_summary dict (priority: summary -> main_finding -> key_finding -> primary_outcome). (2) Country column: removed setting fallback that produced institution names ("Clinical facility", "Orthopedic Skills Lab"); NR when paper.country is empty. (3) inject_missing_citations.py figure_paths: script now detects PNG figures in run dir and passes them to markdown_to_latex(); previously the Figures section was always empty after re-generation. (4) WritingGroundingData field consolidation: removed duplicate reports_sought/reports_not_retrieved fields (added in prior commit); fulltext_sought/fulltext_not_retrieved (canonical names) now populated from prisma_counts directly in build_writing_grounding(). DO NOT CONFUSE disambiguation note added to grounding block. (5) Abstract model name leak: _trim_abstract_to_limit() regex strips google-*:* model ID strings before word-counting; grounding block uses "automated LLM relevance pre-ranker" label instead of raw model ID. (6) Background SR topic filter: register_background_sr_citations() now requires keyword token overlap in paper title before registering; falls back to unfiltered set when 0 papers match. (7) inject_missing_citations.py --workflow-id: added mutually exclusive --workflow-id flag that resolves run dir from workflows_registry.db; --run-dir still supported. |
-| Observability + backward-compat sweep | DONE | Rate-limit resolved events (Part 1): rate_limiter.py gains _wait_start_times per tier and on_resolved(tier, waited_seconds) callback fired when a slot is acquired after waiting; _wait_log_interval lowered 30s->10s; waited_seconds passed as 4th arg to on_waiting; provider.py accepts on_resolved param and wires to RateLimiter; context.py adds log_rate_limit_resolved() to both RunContext and WebRunContext (WebRunContext always emits SSE, RunContext gates CLI console print on self.verbose); workflow.py wires on_waiting/on_resolved to LLMProvider in ScreeningNode, ExtractionQualityNode, and WritingNode -- gate changed from if rc and rc.verbose to if rc so web UI gets rate-limit SSE events (WebRunContext.verbose is always False); api.ts adds waited_seconds to rate_limit_wait and adds rate_limit_resolved union member; logLine.ts renders "cleared after X.Xs". Backward-compat sweep (Part 2): 6x getattr guards replaced with direct field access in dual_screener.py; GeminiScreeningClient alias removed from gemini_client.py + screening/__init__.py; api_key dead params removed from embedder.py embed_texts/embed_query and table_extraction.py extract_tables_from_pdf; models/config.py llm field made non-Optional with default_factory. Resume fix: resume.py adds _SUB_PHASE_CHECKPOINTS dict (phase_3_screening -> phase_3b_fulltext) clearing sub-phase markers when parent phase is re-run; workflow.py ScreeningNode adds intermediate phase_3b_fulltext checkpoint + resume guard to correctly handle fulltext decisions persisted across a crash. 5 new tests in test_rate_limiter.py (324 total). |
-
+| Phase 1: Foundation | Implemented | Models, SQLite, 6 gates, citation ledger, LLM provider, rate limiter |
+| Phase 2: Search | Implemented | All 12 connectors (scopus, web_of_science, openalex, pubmed, semantic_scholar, ieee_xplore, arxiv, crossref, perplexity_search, clinicaltrials, csv_import, embase) + ClinicalTrials.gov grey literature, MinHash LSH dedup (datasketch + thefuzz), BM25 ranking, protocol generator, SearchConfig |
+| Phase 3: Screening | Implemented | Dual reviewer with cross-model validation (Reviewer A=flash-lite tier, Reviewer B=flash tier -- see config/settings.yaml), keyword filter, BM25 cap, batch LLM pre-ranker (batch_ranker.py; batch_screener agent; papers below batch_screen_threshold auto-excluded as batch_screened_low), kappa injected into writing, Ctrl+C proceed-with-partial, confidence fast-path, protocol-only auto-exclusion; forward citation chasing (Semantic Scholar + OpenAlex) runs at end of ScreeningNode -- chased papers are immediately dual-screened (title/abstract + fulltext) in the same run and contribute to dual_screening_results |
+| Phase 4: Extraction + Quality | Implemented | LLM extraction with PyMuPDF full-text parsing (32K char context, up from 8K), async RoB 2 / ROBINS-I / CASP with heuristic fallback tagged by assessment_source, GRADE auto-wired from RoB data (assess_from_rob), study router, RoB traffic-light figure |
+| Phase 5: Synthesis | Implemented | Hardened feasibility (requires effect_size+se in >= 2 studies), statsmodels pooling (DL), forest + funnel plots, LLM-based narrative direction classification, sensitivity analysis (leave-one-out + subgroup), synthesis_results table |
+| Phase 6: Writing | Implemented | Section writer, humanizer, deterministic guardrails (preserve citekeys and numerics), citation validation, per-section checkpoint, WritingGroundingData (includes kappa, sensitivity_results, n_studies_reporting_count, separated search sources, rob_summary, grade_summary injected from actual assessments), GRADE table + RoB summary injected into writing prompts; two-phase WritingNode (Phase A concurrent: abstract/intro/methods/results; Phase B with PRIOR SECTIONS CONTEXT: discussion/conclusion); SECTION_WORD_LIMITS (results 1400, methods 900, discussion 900, abstract 230 enforced by _trim_abstract_to_limit); MANDATORY CITATION COVERAGE RULE with design-grouped _build_citation_coverage_patch; build_compact_study_table injected at ### Study Characteristics; abstract-only rate caution gate (>40% triggers hedged-language requirement) |
+| Phase 7: PRISMA + Viz | Implemented | PRISMA diagram (prisma-flow-diagram + fallback), timeline, geographic, ROBINS-I in RoB figure, uniform artifact naming |
+| Phase 8: Export + Orchestration | Implemented | Run/resume, IEEE LaTeX, BibTeX, validators, Word DOCX export (pypandoc + python-docx), submission packager, pdflatex, CLI subcommands |
+| Web UI | Partial | FastAPI SSE backend (40+ endpoints incl. screening-summary, approve-screening, living-refresh, prisma-checklist, papers-reference, papers/{id}/file, fetch-pdfs), React/Vite/TypeScript frontend, structured Setup form, run-centric sidebar, RunView with 6 base tabs (Config -> Activity -> Data -> Cost -> Results -> References, with step numbers and chevron connectors) plus conditional Review Screening when awaiting_review, Config tab shows research question and timestamped review.yaml for agent reference, DB explorer with heuristic RoB filter, cost tracking, grouped Results panel with PRISMA checklist panel, ScreeningReviewView for HITL approval, ReferencesView (tab 6) shows included papers with PDF/TXT download and retroactive "Fetch PDFs" button; NOTE: living-refresh backend endpoint exists but no frontend control is currently wired to it -- trigger via CLI or direct API call; history UX lives in Sidebar.tsx (not a separate HistoryView component) |
+| Human-in-the-Loop | Implemented | HumanReviewCheckpointNode pauses run at awaiting_review status; approve-screening API resumes; frontend shows Review Screening tab with AI decisions + confidence |
+| Living Review | Implemented | living_review + last_search_date in review.yaml; SearchNode skips previously-screened DOIs; POST /api/run/{run_id}/living-refresh creates incremental re-run |
+| Resume | Implemented | Central registry, topic auto-resume, mid-phase resume, resume-from-phase (backend API supports from_phase param; UI phase-picker modal removed -- resume via CLI --from-phase flag or direct API call), fallback scan of run_summary.json |
+| Post-build improvements | Historical | display_label (single source of truth in papers table), synthesis_results table, dedup_count column, SearchConfig per-connector limits, BM25 cap with LOW_RELEVANCE_SCORE exclusions |
+| Post-build: Hybrid RAG + PRISMA fixes | Historical | Hybrid BM25+dense RAG (RRF) in WritingNode, PydanticAI Embedder replacing google-generativeai SDK, PRISMA endpoint registry fallback, duplicate Discussion heading dedup, PRISMACounts field name fixes |
+| Post-build: HyDE + Gemini listwise reranker | Historical | HyDE (hypothetical doc embeddings, Gao et al. 2022) for rich dense query vectors; Gemini Flash listwise reranker (single LLM call ranks 20 candidates to top 8); removed sentence-transformers/torch (382 MB) in favour of zero-new-dep PydanticAI calls |
+| Validation benchmark | Implemented | scripts/benchmark.py measures screening recall, extraction field accuracy, RoB kappa vs. gold-standard corpus |
+| Enhancement #4: Semantic Chunking | Historical | Sentence-boundary chunker (nltk sent_tokenize) replaces fixed 512-word windows; chunks stay under ~400 words, 2-sentence overlap; fallback to regex split if nltk unavailable; settings: rag.chunk_max_words, rag.chunk_overlap_sentences in settings.yaml (chunker.py module constants are fallbacks when called standalone) |
+| Enhancement #5: PICO-Aware Retrieval | Historical | PICO terms from review.yaml injected into HyDE prompt and BM25 query string when review.pico is populated; no separate settings.yaml toggle (pico_query_boost does not exist) |
+| Enhancement #6: Living Review Auto-Refresh | Historical | Delta pipeline: search from last_search_date, screen/embed new papers only, merge into previous DB, re-run synthesis+writing only if new evidence added |
+| Enhancement #7: Multi-Modal Evidence | Historical | Tiered full-text retrieval (Tier 0 publisher-direct, Tier 0.5 citation_pdf_url meta, Tier 1 Unpaywall, Tier 1b arXiv, Tier 2 group Semantic Scholar/CORE/OpenAlex/EuropePMC/bioRxiv, then ScienceDirect/PMC/Crossref, Tier 6 landing-page fallback); unified resolver used by extraction and screening; Gemini vision extracts quantitative outcome rows from PDFs; vision+text outcomes merged; table rows chunked as separate embeddings; GET /api/db/{run_id}/tables endpoint; Scopus abstract gap fixed via enrich_scopus_abstracts() |
+| Enhancement #8: Contradiction-Aware Synthesis | Historical | contradiction_detector.py surfaces conflict pairs; WritingNode injects "Conflicting Evidence" subsection into Discussion with citation keys and reconciliation hypothesis |
+| Enhancement #9: Adaptive Screening Threshold | Historical | Active-learning calibration loop: configurable sample size (`screening.calibration_sample_size`, current settings default 15), kappa computed, thresholds adjusted via bisection until kappa > 0.7 or max iterations; calibration emits phase_start/phase_done SSE events (phase="screening_calibration") for live UI progress |
+| Enhancement #10: GRADE Evidence Profile | Historical | Full GRADE Summary of Findings table (studies, participants, effect estimate, certainty, reason); build_sof_table() in grade.py; GradeSoFTable + GradeSoFRow models; LaTeX longtable export; GET /api/run/{run_id}/grade-sof endpoint |
+| Search quality sprint | Historical | Scopus connector (src/search/scopus.py, TITLE-ABS-KEY field codes, 5 req/sec limit, 429 back-off); Web of Science connector (src/search/web_of_science.py, TS= prefix syntax, Starter API). Historical note: this row reflects sprint defaults at that time; current review template and generated configs may include additional databases. |
+| OpenAlex query fix + config generator | Historical | OpenAlex received the broad boolean OR fallback causing ~500 off-topic results. Fix: (1) strategy.py added openalex branch returning short_query (same pattern as semantic_scholar); (2) config_generator.py added openalex field to _SearchOverrides model and updated _STRUCTURE_PROMPT to generate all six database overrides; all descriptions and examples made domain-agnostic so generator works for any topic. |
+| Manuscript quality sprint | Historical | Root causes fixed in pipeline: assemble_submission_manuscript() includes GRADE SoF table, search appendix, excluded-studies footnote; abstract prompt includes kappa framing; semicolon parsing in citation extraction; IMRaD heading prompts tightened. finalize_manuscript.py is a thin regeneration utility for historical runs; _strip_unresolved_citekeys() is the only remaining safety net. Citation lineage gate: FinalizeNode validates manuscript; block_export_on_unresolved respected. |
+| Zero-papers manuscript | Implemented | WritingNode guard: when 0 papers included (gates.profile=warning allows continuation past screening_safeguard), produces minimal manuscript without LLM calls via _build_minimal_sections_for_zero_papers(). Appendix B (Characteristics of Included Studies) includes Full Text Retrieved column. Sidebar RunCardMetrics displays 0/0 for found/included. |
+| Web of Science connector | Implemented | src/search/web_of_science.py -- Clarivate WoS Starter API (X-ApiKey header, TS/TI/PY query fields, 50 records/page, 300 req/day free tier); WOS_API_KEY env var; sourced as DATABASE category |
+| Gemini model routing refresh | Historical | All agents are config-driven in settings.yaml; current defaults use gemini-2.5-flash-lite for bulk/RAG helpers and gemini-2.5-flash for adjudication, extraction, quality, and writing paths. UpdatePrices live auto-updater + YAML-configured pricing fallback map (`llm.price_fallback_per_mtok`) are used for accurate cost tracking. |
+| Cost tab DB-first fix | Historical | CostView now polls /api/db/{run_id}/costs every 5s as primary source; removed guard that skipped DB when SSE had any events (caused earlier-phase costs to disappear once writing phase started streaming 2 events). |
+| RAG config from settings.yaml | Historical | embed_model, embed_dim, embed_batch_size, chunk_max_words, chunk_overlap_sentences moved to settings.yaml rag.* section; embedder.py caches Embedder instances per (model, dim) key; embedding_node.py and workflow.py read all values from config instead of hardcoded constants. |
+| Activity log verbosity v3 + pipeline fixes | Historical | (1) Screening decisions now carry method badge (LLM vs AUTO/heuristic) in SSE payload; frontend renders heuristic auto-excludes with amber dim styling vs. zinc for LLM excludes; REASON_LABELS translates internal codes (insufficient_content_heuristic) to human-readable text. (2) Progress events no longer suppressed in LogStream -- calibration phase now shows per-paper ticks (1/15, 2/15...). (3) rate_limiter.py on_waiting callback fires immediately on first wait occurrence (was suppressed 30s). (4) CROSS_SECTIONAL study design now routes to CASP instead of ROBINS-I (ROBINS-I requires longitudinal intervention structure). (5) build_credit_section() added to markdown_refs.py; build_markdown_declarations_section() now appends CRediT author contribution statement. (6) repositories.py get_dual_screening_stats() now queries per-paper fulltext exclusion reasons from screening_decisions table. (7) PRISMA diagram build_prisma_counts() uses actual fulltext stage counts from dual_screening_results when _reports_assessed_raw > included_total. (8) protocol/generator.py maps review_type to PROSPERO item 21 study design descriptions instead of using raw enum value. (9) Discussion prompt enumerates 6 required limitation categories explicitly. |
+| Gap audit sprint (wf-e7d87ff1) | Historical | 5 additional submission-readiness fixes independently found: (1) PRISMA full-text count: build_prisma_counts() now uses actual dual_screening_results fulltext-stage counts (_reports_assessed_raw > included_total signals real exclusions); get_prisma_screening_counts() queries exclusion reasons from screening_decisions; fixes "14 assessed" when 21 were actually assessed with 7 excluded. (2) Limitations writing prompt: Discussion section now explicitly requires 6 limitation categories (language restriction, no citation chasing, no grey literature, observational designs, heterogeneous outcomes, missing sample sizes). (3) CRediT author contributions: build_credit_section() + build_markdown_declarations_section(author_name) added to markdown_refs.py; every manuscript now includes CRediT taxonomy block. (4) CROSS_SECTIONAL routing: StudyRouter routes cross-sectional to casp (CASP cohort/cross-sectional checklist); removed from ROBINS-I set which now covers only NON_RANDOMIZED/COHORT/CASE_CONTROL. (5) Protocol study type: PROSPERO item 21 now uses _STUDY_DESIGN_DESCRIPTIONS dict keyed by review_type instead of review_type.value ("systematic" literal). (6) Reviewer language: screening_method_description and all writing prompts use neutral "two independent reviewers"/"third adjudicator" -- no AI/human qualifier. TRANSPARENCY RULE in format_grounding_block() updated to match. |
+| Audit fix sprint (wf-e7d87ff1) | Historical | 12 submission-readiness fixes: (1) PRISMACounts.automation_excluded tracks BM25/keyword pre-filter exclusions and maps to PRISMA "Automation tools" slot in diagram (not "other"); WritingGroundingData gains zero_yield_databases + automation_excluded fields with CRITICAL LLM disclosure instructions. (2) Citation ledger validate_manuscript() accepts numeric [N] keys (manuscript uses numbered refs after convert_to_numbered_citations); fixes historical citation_lineage_valid=false. (3) HTML detection+stripping in extractor.py (_is_html_content, _strip_html) prevents boilerplate LLM responses from connector paywall pages; HTML boilerplate guard in build_study_characteristics_table() Key Outcomes column. (4) screening_method_description updated to accurately state "full-text PDFs were not retrieved"; Appendix B footnote clarified. (5) GRADE build_sof_table() skips placeholder-named outcomes (consistent with Evidence Profile); Effect/Reason truncated at word boundary. (6) Methodology references: _METHODOLOGY_REFS (Page2021 PRISMA 2020, Sterne2019 RoB 2, Sterne2016 ROBINS-I, Guyatt2011 GRADE, Cohen1960) pre-registered by register_methodology_citations(); included in catalog + valid_citekeys so writing LLM can cite methodology papers. (7) Kappa: "not computed" fallback instruction prevents LLM reporting phantom values. (8) _normalize_doi() standardizes all DOIs to https://doi.org/ in reference list. (9) _capitalize_name_part() + _fmt_author_str() fix lowercase author names. (10) PICOS table gains Study Design (S) row. (11) Results prompt requires explicit Figure 3 + Figure 4 in-text references. (12) Discussion Strengths/Limitations prompt requires explicit enumeration of 6 limitation categories. |
+| References tab + PDF fetch | Implemented | ReferencesView (tab 6): included papers list with PDF/TXT availability badges; GET /api/run/{run_id}/papers-reference; GET /api/run/{run_id}/papers/{paper_id}/file streams saved PDF or TXT; POST /api/run/{run_id}/fetch-pdfs retroactively fetches full text for all included papers in completed runs (all 8 tiers: Unpaywall, arXiv, Semantic Scholar, CORE, Europe PMC, ScienceDirect, PMC, Crossref); ExtractionQualityNode writes papers/ dir + data_papers_manifest.json during pipeline runs; "Fetch PDFs" button in UI triggers retroactive fetch for older runs |
+| Robust citation pipeline | Implemented | Multi-layer citation matching: DOI -> URL -> title fuzzy -> LLM batch resolver (citation_matching agent in settings.yaml). citations table gains source_type column ('included'/'methodology'/'background_sr') used to split CITATION CATALOG into separate blocks. inject_missing_citations.py CLI script for post-hoc coverage fix. Programmatic coverage check in WritingNode with design-grouped patch. CJK character stripping in _escape_latex(). Author name deduplication in _fmt_author_str(). |
+| Manuscript quality improvements | Implemented | Two-phase WritingNode (Phase A concurrent, Phase B with PRIOR SECTIONS CONTEXT cross-section injection). SECTION_WORD_LIMITS updated (results 1400, methods 900). _trim_abstract_to_limit() post-LLM abstract word cap at 230. build_compact_study_table() generates 5-column PRISMA Item 19 table injected at ### Study Characteristics. _build_citation_coverage_patch groups uncited keys by design for natural prose. include_rq_block=False default in assemble_submission_manuscript removes "Research Question:" prefix. Abstract-only rate quality gate (>40% triggers CAUTION). Tier 0.5 full-text retrieval (_quick_citation_pdf_url citation_pdf_url meta extraction for Wiley/Springer/Nature/Sage/OJS/JoVE). |
+| run_index stubs | Partial | Planned: StartNode would write run_index/{workflow_id}.yaml for VS Code grep visibility. No code in src/ writes to run_index/ or workflow_id.txt. StartNode writes config_snapshot.yaml (with workflow_id in header) to the run dir. show_run_info.py reads from runtime.db directly. |
+| Configurable content threshold | Implemented | ScreeningConfig.insufficient_content_min_words (default 0, lowered progressively from 12->5->0; at 0 records with empty abstracts reach the LLM dual-screener which can exclude on title alone) controls minimum abstract word count before auto-excluding as stub; dual_screener.py reads from settings at runtime; configured in settings.yaml |
+| PubMed search override guidance | Historical | Search overrides in config/review.yaml should use single-word root-form terms in AND groups to avoid recall loss from exact multi-word phrases; MeSH terms that are too narrow for the topic should be avoided; use root-form single terms instead of compound phrases for best recall |
+| Search recall overhaul | Historical | 6 root causes of inconsistent cross-run search results fixed: (1) OpenAlex is_core:true filter removed -- was silently capping results at 6 for niche topics; broad-first-screen-tight methodology now applies; openalex limit raised to 1000. (2) build_boolean_query uses keywords only, not PICO descriptions (PICO sentences produced 0-result ClinicalTrials.gov queries). (3) short_query uses first 8 keywords space-joined (not full PICO concatenation). (4) clinicaltrials_gov case added to build_database_query (was falling through to full base query with PICO sentences). (5) WoS connector raises RuntimeError on quota exhaustion/429 instead of silent 0-result success -- coordinator marks as "failed" in SSE. (6) SearchStrategyCoordinator emits WARNING log when any connector returns fewer than low_recall_warning_threshold records (default 10, configurable in settings.yaml). Config generator prompts use domain-agnostic examples so the LLM generates correct queries for any topic. |
+| Audit bug fixes (wf-b431ebff) | Historical | 5 root-cause fixes for manuscript audit issues: (1) Unicode citekey normalization: register_background_sr_citations() now applies unicodedata.normalize("NFD") + Mn-category strip to author surnames before building citekeys -- accented surnames (e.g. Perez from Perez-Encinas) no longer produce unresolvable non-ASCII citekeys in the manuscript. (2) Neutral screening language: removed "(large language models)" from all 4 screening_method_description string occurrences in context_builder.py; all branches now use plain "Two independent reviewers" and "a third reviewer" with no AI/human qualifier. (3) Search eligibility window disclosure: WritingGroundingData gains search_eligibility_window: str field (e.g. "2000-2026") computed from review_config.date_range_start/end; format_grounding_block() emits it with CRITICAL DATE RANGE RULE preventing LLM from reporting publication year range of included papers as the eligibility window. (4) Full-text retrieval disclosure (PRISMA item 10): WritingGroundingData gains fulltext_retrieved_count and fulltext_total_count (extraction_source != "text"/"heuristic" = full text retrieved); format_grounding_block() emits mandatory PRISMA item 10 disclosure with exact counts. (5) Author name for CRediT: ReviewConfig.author_name (already existed) is now passed through WritingGroundingData and emitted in grounding block; set author_name in review.yaml to eliminate "[Author name]" placeholder in CRediT statement. |
+| Batch dual-reviewer + DB arithmetic fix | Historical | (1) reviewer_batch_size (default 10 in settings.yaml) sends N papers per dual-reviewer LLM call, reducing LLM calls by ~5x at batch_size=10; 0=per-paper legacy mode; dual_screener.py dispatches to _screen_batch_mode() internally; per-paper decisions, callbacks, and adjudication are unchanged -- methodologically identical to per-paper mode. (2) records_after_deduplication and records_excluded_screening pre-computed in build_writing_grounding() from prisma_counts and injected verbatim into format_grounding_block() with CRITICAL instructions; LLM is forbidden from performing PRISMA arithmetic; root cause of "1882 vs 1884" error eliminated. 7 new unit tests added to tests/unit/test_screening.py. |
+| Pipeline cleanup + RoB/GRADE grounding | Historical | (1) naturalness_scorer removed (always returned 0.8, never gated output; module deleted, agent key removed from settings.yaml). (2) StylePatterns / style_extractor removed from writing pipeline (always returned empty patterns; prepare_writing_context() now returns catalog str directly). (3) src/llm/model_fallback.py: centralized get_fallback_model(tier) resolver reads settings.yaml and raises clear errors if required model config is missing. (4) rob_summary and grade_summary injected into WritingGroundingData and format_grounding_block() from actual DB assessments so writing LLM receives structured RoB/GRADE evidence. (5) _escape_latex() now protects \\cite{}/\\textbf{} argument strings before escaping underscores. (6) LaTeX table rules upgraded to booktabs (\\toprule/\\midrule/\\bottomrule); longtable and hyperref added to IEEE preamble. |
+| IEEE LaTeX Unicode hardening + resume bug fixes | Historical | (1) _escape_latex() refactored into 7-step pipeline: targeted typographic table (7 entries: em-dash/en-dash/smart-quotes/non-breaking-hyphen -> IEEEtran forms), LaTeX special chars, degree sign, pylatexenc.UnicodeToLatexEncoder fallback for all remaining non-ASCII, last-resort [?] guard with warning log for unrenderable glyphs (e.g. Arabic). inputenc/fontenc/textcomp added to IEEE preamble. (2) context_builder.py: math.isnan() guard on cohens_kappa prevents nan propagation into LLM prompt; emits "not calculable (N=X)" with single-class explanation. (3) writing/orchestration.py: save_checkpoint("phase_6_writing") moved after manuscript file write; resume.py: file-existence guard clears stale phase_6_writing checkpoint when doc_manuscript.md is absent. (4) markdown_refs.py: citation_rows unpacking updated to 9 values (includes url). (5) property-based tests added with hypothesis: test_escape_latex_always_ascii_output, test_escape_latex_emdash_uses_triple_dash, test_escape_latex_endash_uses_double_dash, test_escape_latex_smart_quotes_use_standard_ligatures, test_escape_latex_preserves_latex_commands, test_escape_latex_special_chars_are_escaped. pylatexenc>=2.10 and hypothesis>=6.151.9 added as project dependencies. |
+| Manuscript pipeline audit fixes (wf-0005) | Historical | 7 root-cause fixes identified by manuscript-auditor: (1) build_compact_study_table() Key Finding: was reading nonexistent rec.key_finding; now reads results_summary dict (priority: summary -> main_finding -> key_finding -> primary_outcome). (2) Country column: removed setting fallback that produced institution names ("Clinical facility", "Orthopedic Skills Lab"); NR when paper.country is empty. (3) inject_missing_citations.py figure_paths: script now detects PNG figures in run dir and passes them to markdown_to_latex(); previously the Figures section was always empty after re-generation. (4) WritingGroundingData field consolidation: removed duplicate reports_sought/reports_not_retrieved fields (added in prior commit); fulltext_sought/fulltext_not_retrieved (canonical names) now populated from prisma_counts directly in build_writing_grounding(). DO NOT CONFUSE disambiguation note added to grounding block. (5) Abstract model name leak: _trim_abstract_to_limit() regex strips google-*:* model ID strings before word-counting; grounding block uses "automated LLM relevance pre-ranker" label instead of raw model ID. (6) Background SR topic filter: register_background_sr_citations() now requires keyword token overlap in paper title before registering; falls back to unfiltered set when 0 papers match. (7) inject_missing_citations.py --workflow-id: added mutually exclusive --workflow-id flag that resolves run dir from workflows_registry.db; --run-dir still supported. |
+| Observability + backward-compat sweep | Historical | Rate-limit resolved events (Part 1): rate_limiter.py gains _wait_start_times per tier and on_resolved(tier, waited_seconds) callback fired when a slot is acquired after waiting; _wait_log_interval lowered 30s->10s; waited_seconds passed as 4th arg to on_waiting; provider.py accepts on_resolved param and wires to RateLimiter; context.py adds log_rate_limit_resolved() to both RunContext and WebRunContext (WebRunContext always emits SSE, RunContext gates CLI console print on self.verbose); workflow.py wires on_waiting/on_resolved to LLMProvider in ScreeningNode, ExtractionQualityNode, and WritingNode -- gate changed from if rc and rc.verbose to if rc so web UI gets rate-limit SSE events (WebRunContext.verbose is always False); api.ts adds waited_seconds to rate_limit_wait and adds rate_limit_resolved union member; logLine.ts renders "cleared after X.Xs". Backward-compat sweep (Part 2): 6x getattr guards replaced with direct field access in dual_screener.py; GeminiScreeningClient alias removed from gemini_client.py + screening/__init__.py; api_key dead params removed from embedder.py embed_texts/embed_query and table_extraction.py extract_tables_from_pdf; models/config.py llm field made non-Optional with default_factory. Resume fix: resume.py adds _SUB_PHASE_CHECKPOINTS dict (phase_3_screening -> phase_3b_fulltext) clearing sub-phase markers when parent phase is re-run; workflow.py ScreeningNode adds intermediate phase_3b_fulltext checkpoint + resume guard to correctly handle fulltext decisions persisted across a crash. 5 new tests in test_rate_limiter.py (324 total). |
 **Test status:** Unit and integration suites are passing in the current branch (`uv run pytest tests/unit tests/integration -q`). Key coverage includes manuscript quality guards, citation normalization/repair, landing-page resolver tier ordering (mock `_quick_citation_pdf_url` in tier-order tests), and rate limiter callback behavior.
 
 ---
@@ -1178,24 +1329,24 @@ The core 8-phase pipeline and all 10 post-build enhancements are complete and ru
 
 | # | Enhancement | Status | Key Files |
 |---|-------------|--------|-----------|
-| 1 | Hybrid BM25 + Dense RAG (RRF) | DONE | src/rag/retriever.py |
-| 2 | HyDE (Hypothetical Document Embeddings) | DONE | src/rag/hyde.py |
-| 3 | Gemini listwise reranking | DONE | src/rag/reranker.py |
-| 4 | Semantic Chunking | DONE | src/rag/chunker.py |
-| 5 | PICO-Aware Retrieval | DONE | src/rag/hyde.py, src/orchestration/workflow.py |
-| 6 | Living Review Auto-Refresh | DONE | src/web/app.py, src/orchestration/workflow.py |
-| 7 | Multi-Modal Evidence (full-text + vision tables) | DONE | src/extraction/table_extraction.py, src/search/scopus.py |
-| 8 | Contradiction-Aware Synthesis | DONE | src/synthesis/contradiction_detector.py, src/writing/orchestration.py |
-| 9 | Adaptive Screening Threshold | DONE | src/screening/reliability.py |
-| 10 | GRADE Evidence Profile (SoF table + LaTeX) | DONE | src/quality/grade.py, src/export/ieee_latex.py |
+| 1 | Hybrid BM25 + Dense RAG (RRF) | Historical | src/rag/retriever.py |
+| 2 | HyDE (Hypothetical Document Embeddings) | Historical | src/rag/hyde.py |
+| 3 | Gemini listwise reranking | Historical | src/rag/reranker.py |
+| 4 | Semantic Chunking | Historical | src/rag/chunker.py |
+| 5 | PICO-Aware Retrieval | Historical | src/rag/hyde.py, src/orchestration/workflow.py |
+| 6 | Living Review Auto-Refresh | Implemented | src/web/app.py, src/orchestration/workflow.py |
+| 7 | Multi-Modal Evidence (full-text + vision tables) | Implemented | src/extraction/table_extraction.py, src/search/scopus.py |
+| 8 | Contradiction-Aware Synthesis | Implemented | src/synthesis/contradiction_detector.py, src/writing/orchestration.py |
+| 9 | Adaptive Screening Threshold | Implemented | src/screening/reliability.py |
+| 10 | GRADE Evidence Profile (SoF table + LaTeX) | Implemented | src/quality/grade.py, src/export/ieee_latex.py |
 
 ### Active Priorities
 
 All major features are shipped. Current priorities for the next session:
 
-- **Embase connector:** DONE. `src/search/embase.py` -- requires `EMBASE_API_KEY` (institutional Elsevier token; contact `apisupport@elsevier.com`).
-- **Higher kappa target:** Cohen's kappa was 0.118 on first real run (borderline-only subset). Enhancement #9 (adaptive threshold) is implemented; verify calibration reduces this on next run.
-- **End-to-end IEEE submission:** Run the full pipeline on a new topic, verify all Definition of Done criteria pass, produce submission package.
+- **Higher kappa target:** verify the adaptive threshold calibration on the next run and confirm kappa improvement.
+- **End-to-end IEEE submission:** run a fresh topic from setup to submission package and validate all criteria below.
+- **Reviewer-facing clarity:** keep this spec aligned with actual API routes and phase behavior after each major pipeline change.
 
 ---
 
@@ -1218,7 +1369,7 @@ All of the following must be true before the first submission:
 - All claims traceable via citation ledger (ClaimRecord -> EvidenceLinkRecord -> CitationEntryRecord)
 - Zero unresolved citations at export
 - IEEE LaTeX compiles with IEEEtran.cls without errors
-- Abstract <= 250 words
+- Abstract <= 230 words
 - PRISMA checklist >= 24/27 items reported
 - All 6 quality gates pass in strict mode
 - All unit and integration tests pass

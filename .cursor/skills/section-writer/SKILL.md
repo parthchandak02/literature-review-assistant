@@ -9,7 +9,7 @@ Guide for implementing the section writer with full citation lineage enforcement
 
 ## Per-Section Requirements
 
-### Abstract (<= 250 words)
+### Abstract (<= 230 words)
 Must cover all 12 PRISMA 2020 abstract items:
 1. Title -- identify as systematic review/meta-analysis
 2. Objectives -- research question with PICO
@@ -40,15 +40,10 @@ For each claim in generated text:
 3. After section complete: `CitationLedger.validate_section()` -- zero unresolved claims
 4. Export blocks if any claim lacks evidence chain
 
-## Style Extraction
-- `src/writing/style_pattern_extractor.py` analyzes included papers for writing patterns
-- Feeds patterns into section writer prompts for style matching
-- Configurable via `config/settings.yaml` writing section
-
-## Naturalness Scoring (new)
-- `src/writing/naturalness_scorer.py` scores AI-generated text (0.0 - 1.0)
-- Sections must achieve >= naturalness threshold (0.75) after humanization
-- If below threshold: humanizer runs another iteration (up to `humanization_iterations`)
+## Humanization and Guardrails
+- `src/writing/humanizer_guardrails.py` performs deterministic cleanup before/after humanization
+- Guardrails must preserve bracketed citekeys and numeric/statistical tokens
+- If protected token integrity changes, fallback returns original text
 
 ## Writing Prompt Patterns (every section)
 
@@ -64,6 +59,7 @@ Use ONLY citations from the provided catalog. Use exact citekey format: [Smith20
 - 2+ studies: plural language, full synthesis subsections
 
 ### Truncation Limits
-- Style extraction from papers: 50,000 characters per paper
-- Naturalness scoring input: 3,000 characters
-- Humanization input: 4,000 characters
+- Title/abstract screening input: full title + abstract (no truncation)
+- Full-text screening input: first 8,000 chars
+- Data extraction input: first 32,000 chars
+- Humanization input should preserve citations and numeric values; do not truncate in ways that clip citekeys

@@ -48,6 +48,7 @@ from src.db.workflow_registry import update_status as _update_registry_status
 from src.export.submission_packager import package_submission
 from src.orchestration.context import WebRunContext
 from src.orchestration.workflow import run_workflow, run_workflow_resume
+from src.search.csv_import import validate_csv_file
 
 _logger = logging.getLogger(__name__)
 
@@ -305,6 +306,93 @@ def _extract_topic(review_yaml: str) -> str:
         return str(data.get("research_question", "Untitled review"))
     except Exception:
         return "Untitled review"
+
+
+def _validate_csv_upload(csv_file: UploadFile, content: bytes) -> None:
+    """Validate filename and payload basics before parsing."""
+    filename = (csv_file.filename or "").strip()
+    if not filename:
+        raise HTTPException(status_code=400, detail="Uploaded CSV file must include a filename.")
+    if not filename.lower().endswith(".csv"):
+        raise HTTPException(status_code=400, detail="Only .csv files are supported for sheet upload.")
+    if not content:
+        raise HTTPException(status_code=400, detail="Uploaded CSV file is empty.")
+
+
+def _normalize_path(value: str) -> str:
+    return str(pathlib.Path(value).expanduser().resolve(strict=False))
+
+
+def _merge_supplementary_csv_paths(
+    existing_paths: list[str],
+    incoming_paths: list[str],
+    *,
+    run_root: str | None = None,
+    replace_staged_existing: bool = False,
+) -> list[str]:
+    """Merge supplementary CSV paths with stable dedup semantics.
+
+    When a user uploads a new supplementary CSV via the web endpoint, the request
+    YAML may already contain older staged supplementary paths from prior runs.
+    If replace_staged_existing is true, those stale staged paths are removed so
+    each run uses only the newly uploaded staged file plus any user-managed paths.
+    """
+
+    staging_root: str | None = None
+    if replace_staged_existing and run_root:
+        staging_root = _normalize_path(str(pathlib.Path(run_root) / "staging"))
+
+    merged: list[str] = []
+    seen: set[str] = set()
+
+    for raw in existing_paths:
+        normalized = _normalize_path(str(raw))
+        if staging_root and normalized.startswith(staging_root + os.sep):
+            continue
+        if normalized in seen:
+            continue
+        seen.add(normalized)
+        merged.append(normalized)
+
+    for raw in incoming_paths:
+        normalized = _normalize_path(str(raw))
+        if normalized in seen:
+            continue
+        seen.add(normalized)
+        merged.append(normalized)
+
+    return merged
+
+
+def _inject_csv_paths_into_yaml(
+    review_yaml: str,
+    *,
+    masterlist_csv_path: str | None = None,
+    supplementary_csv_paths: list[str] | None = None,
+    run_root: str | None = None,
+    replace_staged_supplementary_paths: bool = False,
+) -> str:
+    """Inject CSV paths into review YAML, preserving existing config values."""
+    try:
+        config_data = yaml.safe_load(review_yaml) or {}
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=f"Invalid review YAML: {exc}") from exc
+
+    if masterlist_csv_path is not None:
+        config_data["masterlist_csv_path"] = masterlist_csv_path
+
+    if supplementary_csv_paths is not None:
+        existing = config_data.get("supplementary_csv_paths") or []
+        if not isinstance(existing, list):
+            raise HTTPException(status_code=400, detail="supplementary_csv_paths in YAML must be a list.")
+        config_data["supplementary_csv_paths"] = _merge_supplementary_csv_paths(
+            [str(p) for p in existing],
+            [str(p) for p in supplementary_csv_paths],
+            run_root=run_root,
+            replace_staged_existing=replace_staged_supplementary_paths,
+        )
+
+    return yaml.dump(config_data, default_flow_style=False, allow_unicode=True)
 
 
 async def _resolve_db_path(run_root: str, workflow_id: str) -> str | None:
@@ -690,18 +778,97 @@ async def start_run_with_masterlist(
     csv_path = staging_dir / "masterlist.csv"
 
     content = await csv_file.read()
+    _validate_csv_upload(csv_file, content)
     csv_path.write_bytes(content)
 
-    # Inject masterlist_csv_path into the review YAML.
+    # Parse-validate before workflow launch so malformed files fail fast.
     try:
-        config_data = yaml.safe_load(review_yaml) or {}
+        validate_csv_file(str(csv_path.resolve()))
     except Exception as exc:
-        raise HTTPException(status_code=400, detail=f"Invalid review YAML: {exc}") from exc
+        raise HTTPException(status_code=400, detail=f"Invalid master list CSV: {exc}") from exc
 
-    config_data["masterlist_csv_path"] = str(csv_path.resolve())
-    modified_yaml = yaml.dump(config_data, default_flow_style=False, allow_unicode=True)
+    modified_yaml = _inject_csv_paths_into_yaml(
+        review_yaml,
+        masterlist_csv_path=str(csv_path.resolve()),
+    )
 
     # Build a RunRequest so _inject_env and _run_wrapper can be reused unchanged.
+    req = RunRequest(
+        review_yaml=modified_yaml,
+        gemini_api_key=gemini_api_key,
+        openalex_api_key=openalex_api_key,
+        ieee_api_key=ieee_api_key,
+        pubmed_email=pubmed_email,
+        pubmed_api_key=pubmed_api_key,
+        perplexity_api_key=perplexity_api_key,
+        semantic_scholar_api_key=semantic_scholar_api_key,
+        crossref_email=crossref_email,
+        wos_api_key=wos_api_key,
+        scopus_api_key=scopus_api_key,
+        run_root=run_root,
+    )
+    _inject_env(req)
+
+    topic = _extract_topic(modified_yaml)
+
+    tmp = tempfile.NamedTemporaryFile(
+        mode="w",
+        suffix=".yaml",
+        prefix=f"review_{run_id}_",
+        delete=False,
+    )
+    tmp.write(modified_yaml)
+    tmp.flush()
+    tmp.close()
+
+    record = _RunRecord(run_id=run_id, topic=topic)
+    record.review_yaml = modified_yaml
+    _active_runs[run_id] = record
+
+    task = asyncio.create_task(_run_wrapper(record, tmp.name, req))
+    record.task = task
+
+    return RunResponse(run_id=run_id, topic=topic)
+
+
+@app.post("/api/run-with-supplementary-csv", response_model=RunResponse)
+async def start_run_with_supplementary_csv(
+    csv_file: UploadFile = File(...),
+    review_yaml: str = Form(...),
+    gemini_api_key: str = Form(...),
+    openalex_api_key: str | None = Form(default=None),
+    ieee_api_key: str | None = Form(default=None),
+    pubmed_email: str | None = Form(default=None),
+    pubmed_api_key: str | None = Form(default=None),
+    perplexity_api_key: str | None = Form(default=None),
+    semantic_scholar_api_key: str | None = Form(default=None),
+    crossref_email: str | None = Form(default=None),
+    wos_api_key: str | None = Form(default=None),
+    scopus_api_key: str | None = Form(default=None),
+    run_root: str = Form(default="runs"),
+) -> RunResponse:
+    """Start a review run using connectors plus one supplementary CSV import."""
+    run_id = str(uuid.uuid4())[:8]
+    staging_dir = pathlib.Path(run_root) / "staging" / run_id
+    staging_dir.mkdir(parents=True, exist_ok=True)
+    csv_path = staging_dir / "supplementary.csv"
+
+    content = await csv_file.read()
+    _validate_csv_upload(csv_file, content)
+    csv_path.write_bytes(content)
+
+    try:
+        validate_csv_file(str(csv_path.resolve()))
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=f"Invalid supplementary CSV: {exc}") from exc
+
+    modified_yaml = _inject_csv_paths_into_yaml(
+        review_yaml,
+        supplementary_csv_paths=[str(csv_path.resolve())],
+        run_root=run_root,
+        replace_staged_supplementary_paths=True,
+    )
+
     req = RunRequest(
         review_yaml=modified_yaml,
         gemini_api_key=gemini_api_key,
@@ -2155,12 +2322,22 @@ async def get_papers_facets(run_id: str) -> dict[str, Any]:
                 "WHERE stage = 'fulltext' AND final_decision IS NOT NULL ORDER BY final_decision"
             ) as cur:
                 ft_decisions = [row[0] for row in await cur.fetchall()]
+            async with db.execute(
+                """
+                SELECT DISTINCT COALESCE(json_extract(er.data, '$.primary_study_status'), 'unknown') AS primary_status
+                FROM extraction_records er
+                WHERE COALESCE(json_extract(er.data, '$.primary_study_status'), 'unknown') IS NOT NULL
+                ORDER BY primary_status
+                """
+            ) as cur:
+                primary_statuses = [row[0] for row in await cur.fetchall()]
         return {
             "years": years,
             "sources": sources,
             "countries": countries,
             "ta_decisions": ta_decisions,
             "ft_decisions": ft_decisions,
+            "primary_statuses": primary_statuses,
         }
     except HTTPException:
         raise
@@ -2231,6 +2408,7 @@ async def get_papers_all(
     author: str = "",
     ta_decision: str = "",
     ft_decision: str = "",
+    primary_status: str = "",
     year: str = "",
     source: str = "",
     country: str = "",
@@ -2262,6 +2440,11 @@ async def get_papers_all(
             if ft_decision:
                 conditions.append("COALESCE(ft.final_decision, '') LIKE ?")
                 params.append(f"%{ft_decision}%")
+            if primary_status:
+                conditions.append(
+                    "COALESCE(json_extract(er.data, '$.primary_study_status'), 'unknown') LIKE ?"
+                )
+                params.append(f"%{primary_status}%")
             if year:
                 conditions.append("CAST(p.year AS TEXT) LIKE ?")
                 params.append(f"%{year}%")
@@ -2292,6 +2475,8 @@ async def get_papers_all(
                            p.source_database, p.doi, p.url, p.country,
                            ta.final_decision AS ta_decision,
                            ft.final_decision AS ft_decision,
+                           COALESCE(json_extract(er.data, '$.primary_study_status'), 'unknown')
+                               AS primary_study_status,
                            er.data AS extraction_data,
                            ra.assessment_data AS rob_assessment_data
                     {base_query}
@@ -2342,6 +2527,7 @@ async def get_papers_all(
                         "country": row["country"],
                         "ta_decision": row["ta_decision"],
                         "ft_decision": row["ft_decision"],
+                        "primary_study_status": row["primary_study_status"],
                         "extraction_confidence": extraction_confidence,
                         "assessment_source": assessment_source,
                     }

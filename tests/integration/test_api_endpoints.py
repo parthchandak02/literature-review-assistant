@@ -29,7 +29,7 @@ from src.db.database import get_db
 from src.db.repositories import WorkflowRepository
 from src.db.workflow_registry import REGISTRY_SCHEMA
 from src.search.pdf_retrieval import PDFRetrievalResult
-from src.web.app import _active_runs, _RunRecord, app
+from src.web.app import _active_runs, _inject_csv_paths_into_yaml, _RunRecord, app
 
 # ---------------------------------------------------------------------------
 # Shared fixture: async HTTP client bound to the FastAPI ASGI app
@@ -291,6 +291,93 @@ async def test_db_rag_diagnostics_returns_records(client: httpx.AsyncClient, tmp
         _active_runs.pop(run_id, None)
 
 
+@pytest.mark.asyncio
+async def test_db_papers_all_supports_primary_status_filter(client: httpx.AsyncClient, tmp_path: Path) -> None:
+    db_path = tmp_path / "runtime_primary_status.db"
+    workflow_id = "wf-primary-status"
+    async with get_db(str(db_path)) as db:
+        await db.execute(
+            "INSERT INTO workflows (workflow_id, topic, config_hash, status) VALUES (?, ?, ?, ?)",
+            (workflow_id, "Topic", "hash", "completed"),
+        )
+        await db.execute(
+            """
+            INSERT INTO papers (paper_id, title, authors, year, source_database, doi, abstract, url)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            ("p-primary", "Primary paper", '["A Author"]', 2024, "openalex", "10.1000/primary", "A", "https://x"),
+        )
+        await db.execute(
+            """
+            INSERT INTO papers (paper_id, title, authors, year, source_database, doi, abstract, url)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "p-secondary",
+                "Secondary review paper",
+                '["B Author"]',
+                2024,
+                "openalex",
+                "10.1000/secondary",
+                "B",
+                "https://y",
+            ),
+        )
+        await db.execute(
+            """
+            INSERT INTO extraction_records
+                (workflow_id, paper_id, study_design, primary_study_status, extraction_source, data)
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (
+                workflow_id,
+                "p-primary",
+                "rct",
+                "primary",
+                "text",
+                json.dumps({"paper_id": "p-primary", "study_design": "rct", "primary_study_status": "primary"}),
+            ),
+        )
+        await db.execute(
+            """
+            INSERT INTO extraction_records
+                (workflow_id, paper_id, study_design, primary_study_status, extraction_source, data)
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (
+                workflow_id,
+                "p-secondary",
+                "narrative_review",
+                "secondary_review",
+                "text",
+                json.dumps(
+                    {
+                        "paper_id": "p-secondary",
+                        "study_design": "narrative_review",
+                        "primary_study_status": "secondary_review",
+                    }
+                ),
+            ),
+        )
+        await db.commit()
+
+    run_id = "run-primary-status"
+    _active_runs[run_id] = _RunRecord(run_id=run_id, topic="Primary status test")
+    _active_runs[run_id].db_path = str(db_path)
+    _active_runs[run_id].workflow_id = workflow_id
+    _active_runs[run_id].done = True
+    try:
+        response = await client.get(f"/api/db/{run_id}/papers-all?primary_status=primary")
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["total"] == 1
+        row = payload["papers"][0]
+        assert row["paper_id"] == "p-primary"
+        assert row["primary_study_status"] == "primary"
+    finally:
+        _active_runs.pop(run_id, None)
+
+
 # ---------------------------------------------------------------------------
 # Test 9: GET /api/run/{run_id}/papers-reference returns 404 for unknown run_id
 #         (not in _active_runs and not in workflows_registry)
@@ -353,6 +440,190 @@ async def test_start_run_valid_payload_accepted(client: httpx.AsyncClient) -> No
     assert "run_id" in data
     assert "topic" in data
     assert len(data["run_id"]) > 0
+
+
+@pytest.mark.asyncio
+async def test_start_run_with_masterlist_valid_payload_accepted(client: httpx.AsyncClient) -> None:
+    import yaml
+
+    review_payload = {
+        "research_question": "Does simulation training improve outcomes?",
+        "review_type": "systematic",
+        "pico": {
+            "population": "medical students",
+            "intervention": "simulation training",
+            "comparison": "standard curriculum",
+            "outcome": "skill performance",
+        },
+        "keywords": ["simulation", "medical education"],
+        "domain": "medical education",
+        "scope": "",
+        "inclusion_criteria": ["empirical studies"],
+        "exclusion_criteria": ["non-empirical"],
+        "date_range_start": 2015,
+        "date_range_end": 2026,
+        "target_databases": ["unsupported_db"],
+    }
+    csv_content = (
+        "Authors,Title,Year,Source title,DOI,Link,Abstract,Author Keywords\n"
+        "A. Author,Paper A,2024,Journal A,10.1000/a,https://example.org/a,Abstract A,keyword\n"
+    )
+    response = await client.post(
+        "/api/run-with-masterlist",
+        data={
+            "review_yaml": yaml.safe_dump(review_payload),
+            "gemini_api_key": "fake-key-for-test",
+            "run_root": "/tmp/litreview_test_runs",
+        },
+        files={"csv_file": ("master.csv", csv_content.encode("utf-8"), "text/csv")},
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert "run_id" in data
+    assert "topic" in data
+
+
+@pytest.mark.asyncio
+async def test_start_run_with_masterlist_rejects_invalid_csv(client: httpx.AsyncClient) -> None:
+    response = await client.post(
+        "/api/run-with-masterlist",
+        data={
+            "review_yaml": "research_question: test\n",
+            "gemini_api_key": "fake-key-for-test",
+            "run_root": "/tmp/litreview_test_runs",
+        },
+        files={"csv_file": ("master.csv", b"Authors,Year\nA,2024\n", "text/csv")},
+    )
+    assert response.status_code == 400
+    assert "Invalid master list CSV" in response.text
+
+
+@pytest.mark.asyncio
+async def test_start_run_with_masterlist_rejects_empty_file(client: httpx.AsyncClient) -> None:
+    response = await client.post(
+        "/api/run-with-masterlist",
+        data={
+            "review_yaml": "research_question: test\n",
+            "gemini_api_key": "fake-key-for-test",
+            "run_root": "/tmp/litreview_test_runs",
+        },
+        files={"csv_file": ("master.csv", b"", "text/csv")},
+    )
+    assert response.status_code == 400
+    assert "empty" in response.text.lower()
+
+
+@pytest.mark.asyncio
+async def test_start_run_with_supplementary_csv_valid_payload_accepted(client: httpx.AsyncClient) -> None:
+    import yaml
+
+    review_payload = {
+        "research_question": "Does blended learning improve retention?",
+        "review_type": "systematic",
+        "pico": {
+            "population": "medical students",
+            "intervention": "blended learning",
+            "comparison": "traditional teaching",
+            "outcome": "knowledge retention",
+        },
+        "keywords": ["blended learning", "medical education"],
+        "domain": "medical education",
+        "scope": "",
+        "inclusion_criteria": ["peer reviewed"],
+        "exclusion_criteria": ["opinion pieces"],
+        "date_range_start": 2015,
+        "date_range_end": 2026,
+        "target_databases": ["unsupported_db"],
+    }
+    csv_content = (
+        "Authors,Title,Year,Source title,DOI,Link,Abstract,Author Keywords\n"
+        "A. Author,Supplementary Paper,2023,Journal S,10.1000/s,https://example.org/s,Abstract S,keyword\n"
+    )
+    response = await client.post(
+        "/api/run-with-supplementary-csv",
+        data={
+            "review_yaml": yaml.safe_dump(review_payload),
+            "gemini_api_key": "fake-key-for-test",
+            "run_root": "/tmp/litreview_test_runs",
+        },
+        files={"csv_file": ("supplementary.csv", csv_content.encode("utf-8"), "text/csv")},
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert "run_id" in data
+    assert "topic" in data
+
+
+def test_inject_csv_paths_replaces_staged_supplementary_paths() -> None:
+    import yaml
+
+    review_yaml = yaml.safe_dump(
+        {
+            "research_question": "RQ",
+            "supplementary_csv_paths": [
+                "/tmp/lit_runs/staging/oldrun/supplementary.csv",
+                "/tmp/manual/supplementary_extra.csv",
+            ],
+        }
+    )
+    merged_yaml = _inject_csv_paths_into_yaml(
+        review_yaml,
+        supplementary_csv_paths=["/tmp/lit_runs/staging/newrun/supplementary.csv"],
+        run_root="/tmp/lit_runs",
+        replace_staged_supplementary_paths=True,
+    )
+    payload = yaml.safe_load(merged_yaml)
+    paths = payload.get("supplementary_csv_paths", [])
+    assert paths == [
+        str(Path("/tmp/manual/supplementary_extra.csv").resolve()),
+        str(Path("/tmp/lit_runs/staging/newrun/supplementary.csv").resolve()),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_start_run_with_supplementary_csv_drops_old_staged_paths(client: httpx.AsyncClient) -> None:
+    import yaml
+
+    review_payload = {
+        "research_question": "Does blended learning improve retention?",
+        "review_type": "systematic",
+        "pico": {
+            "population": "medical students",
+            "intervention": "blended learning",
+            "comparison": "traditional teaching",
+            "outcome": "knowledge retention",
+        },
+        "keywords": ["blended learning", "medical education"],
+        "domain": "medical education",
+        "scope": "",
+        "inclusion_criteria": ["peer reviewed"],
+        "exclusion_criteria": ["opinion pieces"],
+        "date_range_start": 2015,
+        "date_range_end": 2026,
+        "target_databases": ["unsupported_db"],
+        "supplementary_csv_paths": ["/tmp/litreview_test_runs/staging/older/supplementary.csv"],
+    }
+    csv_content = (
+        "Authors,Title,Year,Source title,DOI,Link,Abstract,Author Keywords\n"
+        "A. Author,Supplementary Paper,2023,Journal S,10.1000/s,https://example.org/s,Abstract S,keyword\n"
+    )
+    response = await client.post(
+        "/api/run-with-supplementary-csv",
+        data={
+            "review_yaml": yaml.safe_dump(review_payload),
+            "gemini_api_key": "fake-key-for-test",
+            "run_root": "/tmp/litreview_test_runs",
+        },
+        files={"csv_file": ("supplementary.csv", csv_content.encode("utf-8"), "text/csv")},
+    )
+    assert response.status_code == 200
+    run_id = response.json()["run_id"]
+    record = _active_runs[run_id]
+    merged_yaml = yaml.safe_load(record.review_yaml)
+    paths = merged_yaml.get("supplementary_csv_paths", [])
+    assert len(paths) == 1
+    assert "/tmp/litreview_test_runs/staging/" in paths[0]
+    assert paths[0].endswith("/supplementary.csv")
 
 
 @pytest.mark.asyncio

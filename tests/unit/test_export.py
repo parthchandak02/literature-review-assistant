@@ -251,6 +251,35 @@ def test_validate_ieee_no_abstract():
     assert any("abstract" in e.lower() for e in r.errors)
 
 
+def test_validate_ieee_accepts_comma_separated_cite_groups() -> None:
+    tex = (
+        "\\begin{abstract} " + "word " * 170 + "\\end{abstract}\n"
+        "Evidence \\cite{Smith2020,Jones2021} and \\cite{Brown2022}."
+    )
+    bib = (
+        "@article{Smith2020,title={A}}\n"
+        "@article{Jones2021,title={B}}\n"
+        "@article{Brown2022,title={C}}\n"
+    )
+    result = validate_ieee(tex, bib)
+    assert result.passed, result.errors
+    assert all("Unresolved citations" not in err for err in result.errors)
+
+
+def test_validate_ieee_word_count_ignores_latex_command_tokens() -> None:
+    tex = (
+        "\\begin{abstract} "
+        + ("alpha " * 240)
+        + "\\cite{Smith2020,Jones2021} "
+        + ("beta " * 8)
+        + "\\end{abstract}\n"
+    )
+    bib = "@article{Smith2020,title={A}}\n@article{Jones2021,title={B}}\n"
+    result = validate_ieee(tex, bib)
+    assert result.passed, result.errors
+    assert all("Abstract too long" not in err for err in result.errors)
+
+
 def test_validate_prisma_basic():
     md = "This systematic review examines objectives and methods. We searched PubMed and MEDLINE."
     r = validate_prisma(None, md)

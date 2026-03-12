@@ -46,6 +46,7 @@ from src.models import (
     GateStatus,
     ManuscriptAssembly,
     ManuscriptAsset,
+    PrimaryStudyStatus,
     RagRetrievalDiagnostic,
     SectionDraft,
     StudyDesign,
@@ -1707,6 +1708,13 @@ class ExtractionQualityNode(BaseNode[ReviewState]):
             )
             casp = CaspAssessor(llm_client=llm_gemini, settings=state.settings, provider=provider if use_llm else None)
             mmat = MmatAssessor(llm_client=llm_gemini, settings=state.settings, provider=provider if use_llm else None)
+            _non_primary_statuses = {
+                PrimaryStudyStatus.SECONDARY_REVIEW,
+                PrimaryStudyStatus.PROTOCOL_ONLY,
+                PrimaryStudyStatus.NON_EMPIRICAL,
+            }
+            non_primary_paper_ids: set[str] = set()
+            non_primary_status_counts: dict[str, int] = {}
             not_applicable_paper_ids: list[str] = []
             # Accumulates (ExtractionRecord, rob_assessment_obj_or_None, outcome_name) tuples
             # so GRADE can be aggregated once per outcome after both loops complete.
@@ -1720,6 +1728,24 @@ class ExtractionQualityNode(BaseNode[ReviewState]):
 
             async def _assess_quality_one(qr: ExtractionRecord) -> None:
                 async with _quality_sem:
+                    if getattr(qr, "primary_study_status", PrimaryStudyStatus.UNKNOWN) in _non_primary_statuses:
+                        non_primary_paper_ids.add(qr.paper_id)
+                        _status = getattr(qr, "primary_study_status", PrimaryStudyStatus.UNKNOWN).value
+                        non_primary_status_counts[_status] = non_primary_status_counts.get(_status, 0) + 1
+                        await repository.append_decision_log(
+                            DecisionLogEntry(
+                                decision_type="primary_data_filter",
+                                paper_id=qr.paper_id,
+                                decision="exclude_non_primary",
+                                rationale=(
+                                    f"Excluded from synthesis/writing due to primary_study_status={_status} "
+                                    f"(study_design={qr.study_design.value})."
+                                ),
+                                actor="quality_assessment",
+                                phase="phase_4_extraction_quality",
+                            )
+                        )
+                        return
                     _src_paper = _paper_lookup.get(qr.paper_id)
                     full_text = (_src_paper.abstract or _src_paper.title or "").strip() if _src_paper else ""
                     try:
@@ -1982,6 +2008,37 @@ class ExtractionQualityNode(BaseNode[ReviewState]):
                                     _vis_err,
                                 )
 
+                        if record.primary_study_status in _non_primary_statuses:
+                            non_primary_paper_ids.add(record.paper_id)
+                            non_primary_status_counts[record.primary_study_status.value] = (
+                                non_primary_status_counts.get(record.primary_study_status.value, 0) + 1
+                            )
+                            await repository.append_decision_log(
+                                DecisionLogEntry(
+                                    decision_type="primary_data_filter",
+                                    paper_id=record.paper_id,
+                                    decision="exclude_non_primary",
+                                    rationale=(
+                                        "Excluded from synthesis/writing due to "
+                                        f"primary_study_status={record.primary_study_status.value} "
+                                        f"(study_design={record.study_design.value})."
+                                    ),
+                                    actor="quality_assessment",
+                                    phase="phase_4_extraction_quality",
+                                )
+                            )
+                            _extract_done_count[0] += 1
+                            if rc:
+                                rc.advance_screening("phase_4_extraction_quality", _extract_done_count[0], len(to_process))
+                                extraction_summary = (record.results_summary.get("summary") or "")[:300]
+                                rc.log_extraction_paper(
+                                    paper_id=paper.paper_id,
+                                    design=f"{design.value}/{record.primary_study_status.value}",
+                                    extraction_summary=extraction_summary,
+                                    rob_judgment="filtered_non_primary",
+                                )
+                            return
+
                         records.append(record)
                         _extract_done_count[0] += 1
                         if rc:
@@ -2096,6 +2153,27 @@ class ExtractionQualityNode(BaseNode[ReviewState]):
                             rc.advance_screening("phase_4_extraction_quality", _extract_done_count[0], len(to_process))
 
             await asyncio.gather(*[_extract_one_paper(p) for p in to_process], return_exceptions=True)
+
+            # Apply a hard gate so downstream synthesis and writing include only
+            # empirically primary studies.
+            if non_primary_paper_ids:
+                _before = len(state.included_papers)
+                _primary_ids = {r.paper_id for r in records}
+                state.included_papers = [p for p in state.included_papers if p.paper_id in _primary_ids]
+                _after = len(state.included_papers)
+                logger.info(
+                    "ExtractionQualityNode: filtered %d non-primary papers before synthesis/writing "
+                    "(before=%d, after=%d, breakdown=%s)",
+                    len(non_primary_paper_ids),
+                    _before,
+                    _after,
+                    non_primary_status_counts,
+                )
+                if rc:
+                    rc.log_status(
+                        "Primary-data filter removed "
+                        f"{len(non_primary_paper_ids)} papers before synthesis: {non_primary_status_counts}"
+                    )
 
             # -- Aggregate GRADE per unique outcome across all studies --
             # Group (record, rob_assessment_obj, outcome_name) triples by outcome_name,
