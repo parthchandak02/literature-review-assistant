@@ -26,7 +26,7 @@ class SearchCompleteNode(BaseNode[ReviewState]):
 ## State Management
 - `ReviewState` is the typed state object passed through all nodes
 - Mutate state within nodes, not between them
-- After each node completes, persist state to SQLite checkpoints table
+- Persist checkpoints at phase boundaries (and selected mid-phase markers like `phase_3b_fulltext`), then resume using processed-paper tables
 - Quality gates run at node boundaries, not within nodes
 
 ## HITL (Human-in-the-Loop)

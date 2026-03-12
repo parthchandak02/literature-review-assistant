@@ -62,4 +62,4 @@ Output: `GRADEOutcomeAssessment` with `final_certainty`.
 
 ## Extraction Completeness Gate
 
-Runs after extraction. Passes when >= 80% of required fields filled. Gate fails if >35% papers have empty core fields.
+Runs after extraction. Uses `settings.gates.extraction_completeness_threshold` (ratio-based, currently 0.80). Do not hardcode a separate fixed empty-core-field percentage unless code explicitly enforces it.

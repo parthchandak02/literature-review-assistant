@@ -4,7 +4,7 @@ from src.models import ReviewConfig, ReviewType
 from src.search.embase import EmbaseConnector
 from src.search.pubmed import PubMedConnector
 from src.search.scopus import ScopusConnector
-from src.search.strategy import build_database_query
+from src.search.strategy import build_database_query, requires_primary_studies
 from src.search.web_of_science import WebOfScienceConnector
 from src.screening.prompts import _quality_criteria_block
 
@@ -76,3 +76,18 @@ def test_screening_quality_block_preserves_secondary_review_guard() -> None:
     block = _quality_criteria_block()
     assert "secondary review" in block
     assert "Apply these criteria even if database-level query filters were used." in block
+
+
+def test_requires_primary_studies_for_systematic_reviews() -> None:
+    assert requires_primary_studies(_review()) is True
+
+
+def test_build_database_query_scoping_does_not_force_primary_only_clause() -> None:
+    scoping = _review().model_copy(
+        update={
+            "review_type": ReviewType.SCOPING,
+            "exclusion_criteria": ["not relevant to question"],
+        }
+    )
+    query = build_database_query(scoping, "pubmed")
+    assert '"systematic review"[Publication Type]' not in query

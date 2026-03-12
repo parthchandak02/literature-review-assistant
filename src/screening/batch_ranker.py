@@ -51,6 +51,12 @@ SCORING RULES:
 
 CRITICAL -- BE LIBERAL: When uncertain, assign score >= 0.35 so the paper reaches detailed review.
 A false negative (missing a relevant paper) is permanent. A false positive costs one extra review call.
+
+HARD NEGATIVE SIGNALS (score <= 0.35 unless strong contradictory evidence exists):
+- Protocol-only records with no reported results
+- Secondary reviews (systematic/scoping/narrative/umbrella/meta-analysis)
+- Wrong target population or unrelated training domain
+- Empty-abstract records that provide no evaluable study information
 """
 
 _USER_TEMPLATE = """Research question: {research_question}

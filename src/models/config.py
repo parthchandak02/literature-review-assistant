@@ -124,6 +124,72 @@ class ScreeningConfig(BaseModel):
         default=1,
         description="Minimum keyword hits required to send a paper to LLM screening; 0 disables pre-filter.",
     )
+    auto_exclude_empty_abstract: bool = Field(
+        default=True,
+        description=(
+            "When true, papers with empty abstract text are deterministically excluded "
+            "before any LLM screening to reduce low-information calls."
+        ),
+    )
+    secondary_review_patterns: list[str] = Field(
+        default_factory=lambda: [
+            "systematic review",
+            "scoping review",
+            "narrative review",
+            "umbrella review",
+            "meta-analysis",
+            "meta analysis",
+        ],
+        description=(
+            "Lowercase title/abstract phrases used for deterministic pre-LLM exclusion "
+            "of secondary-review studies."
+        ),
+    )
+    protocol_only_patterns: list[str] = Field(
+        default_factory=lambda: [
+            "study protocol",
+            "trial protocol",
+            "protocol for",
+            "study design and methods",
+            "trial registration",
+            "prospero protocol",
+        ],
+        description=(
+            "Lowercase title/abstract phrases used for deterministic pre-LLM exclusion "
+            "of protocol-only records."
+        ),
+    )
+    deterministic_allowlist_patterns: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Lowercase phrases that bypass deterministic secondary/protocol exclusions "
+            "when matched in title/abstract. Use sparingly for known false positives."
+        ),
+    )
+    deterministic_exclude_qa_sample_size: int = Field(
+        default=20,
+        ge=0,
+        le=200,
+        description=(
+            "Maximum random sample size emitted for deterministic exclusion QA review "
+            "per screening run."
+        ),
+    )
+    empty_abstract_rescue_sample_size: int = Field(
+        default=5,
+        ge=0,
+        le=100,
+        description=(
+            "Maximum number of empty-abstract records per run that may bypass deterministic "
+            "exclusion when title keywords strongly suggest relevance."
+        ),
+    )
+    empty_abstract_rescue_keyword_min_matches: int = Field(
+        default=2,
+        ge=1,
+        le=20,
+        description="Minimum title keyword matches required for empty-abstract rescue forwarding.",
+    )
     skip_fulltext_if_no_pdf: bool = Field(
         default=True, description="Skip stage 2 when no real PDFs are retrieved; treats stage-1 survivors as included."
     )
@@ -149,6 +215,40 @@ class ScreeningConfig(BaseModel):
             "for validation instead of hard auto-excluding by BM25. "
             "0 keeps legacy behavior (all tail papers auto-excluded)."
         ),
+    )
+    cap_overflow_enabled: bool = Field(
+        default=True,
+        description=(
+            "Enable bounded overflow screening beyond max_llm_screen when near-cutoff "
+            "validation yield suggests recall risk."
+        ),
+    )
+    cap_overflow_trigger_include_rate: float = Field(
+        default=0.20,
+        ge=0.0,
+        le=1.0,
+        description=(
+            "Minimum include-or-uncertain rate in the BM25 validation tail required "
+            "to trigger overflow screening."
+        ),
+    )
+    cap_overflow_min_validation_n: int = Field(
+        default=10,
+        ge=1,
+        le=200,
+        description="Minimum number of validation-tail papers required before overflow can trigger.",
+    )
+    cap_overflow_slice_size: int = Field(
+        default=25,
+        ge=1,
+        le=200,
+        description="Number of near-cutoff papers to add in one overflow screening slice.",
+    )
+    cap_overflow_max_extra: int = Field(
+        default=50,
+        ge=1,
+        le=500,
+        description="Maximum total overflow papers allowed beyond max_llm_screen in a run.",
     )
     calibrate_threshold: bool = Field(
         default=True,

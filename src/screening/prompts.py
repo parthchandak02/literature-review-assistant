@@ -154,6 +154,11 @@ def adjudicator_prompt(
             _quality_criteria_block(),
             _paper_block(paper, stage, full_text),
             decision_context,
+            (
+                "ADJUDICATION TIE-BREAK RULE: if evidence indicates secondary-review "
+                "study design, protocol-only status, or clear population mismatch, "
+                "return EXCLUDE even when topical relevance appears high."
+            ),
             _output_schema_block(),
         ]
     )

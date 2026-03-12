@@ -15,6 +15,15 @@ Use this skill to do database-first run audits that are evidence-first:
 - Check alignment with review YAML intent.
 - Recommend pipeline fixes, not run artifact edits.
 
+## Operational Learnings To Apply
+
+Apply these defaults unless the user asks otherwise:
+- Treat a run as healthy when `progress` events keep advancing for the active phase.
+- Use a stall threshold: if active phase progress does not advance for 10+ minutes, escalate to a blocker check.
+- For CSV row counts, do not trust physical line counts when abstracts contain embedded newlines; parse CSV rows.
+- In connector footprint queries, avoid assuming optional columns like `error_message` exist in `search_results`.
+- Always run a final-include sanity scan for review/protocol-style titles against strict primary-study criteria.
+
 ## When To Apply
 
 Apply when requests include:
@@ -45,6 +54,7 @@ Apply when requests include:
   - gate counts from `screening_decisions` and `decision_log`
   - connector retrieval counts from `search_results`
 - Use explicit SQL, then summarize results before recommending changes.
+- If connector schema differs, first inspect with `PRAGMA table_info(search_results);` and adapt query columns.
 
 3. Export detailed CSV outputs for manual review
 - Create a run-scoped review folder:
@@ -53,6 +63,7 @@ Apply when requests include:
 - Export at minimum:
   - `*_screening_manual_review.csv` with paper metadata, abstract, per-gate decisions, reviewer A/B decisions, confidences, reasons, and latest final decision if available.
   - `*_reviewer_disagreements.csv` where reviewer A decision differs from reviewer B decision.
+- After export, compute true row counts with a CSV parser and report parsed row totals.
 
 4. Analyze outputs, do not stop at export
 - Funnel and gate coverage:
@@ -64,6 +75,11 @@ Apply when requests include:
   - low-confidence includes or excludes,
   - disagreement clusters,
   - repeated rationale patterns that indicate prompt drift.
+- Include-specific sanity checks:
+  - final includes containing keywords such as `systematic review`, `scoping review`, `narrative review`, `meta-analysis`, `protocol`.
+  - final includes with likely non-target populations (for example, nursing-heavy titles if target is undergraduate medical students only).
+- Disagreement split:
+  - include/exclude pair counts (`reviewer_a` vs `reviewer_b`) to detect directional bias.
 
 5. YAML alignment check
 - Compare sampled include and exclude rationales against:
@@ -118,7 +134,68 @@ FROM search_results
 ORDER BY id;
 ```
 
-5) Manual review CSV export (sqlite3 shell):
+5) Latest final screening decision rollup:
+```sql
+WITH finals AS (
+  SELECT id, paper_id, decision
+  FROM decision_log
+  WHERE decision_type IN ('dual_screening_final', 'screening_adjudication', 'screening_protocol_heuristic')
+    AND paper_id IS NOT NULL
+),
+latest AS (
+  SELECT f.paper_id, f.decision
+  FROM finals f
+  JOIN (
+    SELECT paper_id, MAX(id) AS max_id
+    FROM finals
+    GROUP BY paper_id
+  ) m ON f.paper_id = m.paper_id AND f.id = m.max_id
+)
+SELECT decision, COUNT(*) FROM latest GROUP BY decision ORDER BY decision;
+```
+
+6) Live progress probe for active screening phase:
+```sql
+SELECT payload, ts
+FROM event_log
+WHERE event_type = 'progress'
+  AND payload LIKE '%"phase": "phase_3_screening"%'
+ORDER BY id DESC
+LIMIT 20;
+```
+
+7) Candidate include mismatch scan (title heuristic):
+```sql
+WITH finals AS (
+  SELECT id, paper_id, decision
+  FROM decision_log
+  WHERE decision_type IN ('dual_screening_final', 'screening_adjudication', 'screening_protocol_heuristic')
+    AND paper_id IS NOT NULL
+),
+latest AS (
+  SELECT f.paper_id, f.decision
+  FROM finals f
+  JOIN (
+    SELECT paper_id, MAX(id) AS max_id
+    FROM finals
+    GROUP BY paper_id
+  ) m ON f.paper_id = m.paper_id AND f.id = m.max_id
+)
+SELECT p.paper_id, p.title, p.year, p.source_database, p.doi
+FROM latest l
+JOIN papers p ON p.paper_id = l.paper_id
+WHERE l.decision = 'include'
+  AND (
+    LOWER(p.title) LIKE '%review%' OR
+    LOWER(p.title) LIKE '%scoping%' OR
+    LOWER(p.title) LIKE '%narrative%' OR
+    LOWER(p.title) LIKE '%meta-analysis%' OR
+    LOWER(p.title) LIKE '%protocol%'
+  )
+ORDER BY p.title;
+```
+
+8) Manual review CSV export (sqlite3 shell):
 ```bash
 sqlite3 -header -csv "<runtime.db>" "<SQL_QUERY>" > "<run_dir>/manual_review/<file>.csv"
 ```
@@ -128,6 +205,10 @@ sqlite3 -header -csv "<runtime.db>" "<SQL_QUERY>" > "<run_dir>/manual_review/<fi
 - Running workflows: query the same DB repeatedly to confirm progress.
 - Cancelled or interrupted workflows: audit last durable state from `event_log` and `decision_log`.
 - Completed workflows: perform full ratio and rationale quality audit, then suggest pipeline fixes if needed.
+- Health rule of thumb:
+  - Healthy: active phase `progress.current` advances within repeated checks.
+  - At risk: no active-phase progress delta for 5+ minutes.
+  - Stalled: no active-phase progress delta for 10+ minutes; run blocker queries immediately and report as incident.
 
 ## Output Format
 

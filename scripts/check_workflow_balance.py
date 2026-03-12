@@ -47,6 +47,8 @@ class BalanceMetrics:
     ranked_over_deduped: float | None
     screened_over_ranked: float | None
     included_over_screened: float | None
+    screening_health: str
+    screening_health_detail: str
 
 
 def _ratio(num: int, den: int) -> float | None:
@@ -119,6 +121,64 @@ def _max_progress_total(conn: sqlite3.Connection, phase: str) -> int:
     return max_total
 
 
+def _parse_event_ts(ts: str | None) -> datetime | None:
+    if not ts:
+        return None
+    try:
+        normalized = ts.replace("Z", "+00:00")
+        return datetime.fromisoformat(normalized)
+    except Exception:
+        return None
+
+
+def _screening_stoplight(conn: sqlite3.Connection) -> tuple[str, str]:
+    rows = conn.execute(
+        """
+        SELECT payload
+        FROM event_log
+        WHERE event_type = 'progress'
+          AND payload LIKE '%"phase": "phase_3_screening"%'
+        ORDER BY id DESC
+        LIMIT 2
+        """
+    ).fetchall()
+    if not rows:
+        return "NO_DATA", "no phase_3_screening progress events found"
+
+    parsed: list[dict[str, Any]] = []
+    for row in rows:
+        try:
+            parsed.append(json.loads(str(row[0])))
+        except Exception:
+            continue
+    if not parsed:
+        return "NO_DATA", "progress payload parse failed"
+
+    latest = parsed[0]
+    latest_current = int(latest.get("current", 0) or 0)
+    latest_total = int(latest.get("total", 0) or 0)
+    latest_dt = _parse_event_ts(str(latest.get("ts", "")))
+    if latest_total > 0 and latest_current >= latest_total:
+        return "HEALTHY", f"screening complete ({latest_current}/{latest_total})"
+    if latest_dt is None:
+        return "NO_DATA", "latest progress ts missing or invalid"
+
+    age_seconds = max(0, int((datetime.now(UTC) - latest_dt).total_seconds()))
+    if len(parsed) > 1:
+        prev = parsed[1]
+        prev_current = int(prev.get("current", 0) or 0)
+    else:
+        prev_current = -1
+    progressed = latest_current > prev_current
+    if progressed:
+        return "HEALTHY", f"progress advancing ({latest_current}/{latest_total}, age={age_seconds}s)"
+    if age_seconds >= 600:
+        return "STALLED", f"no screening progress for {age_seconds}s ({latest_current}/{latest_total})"
+    if age_seconds >= 300:
+        return "AT_RISK", f"no screening progress for {age_seconds}s ({latest_current}/{latest_total})"
+    return "HEALTHY", f"recent no-delta window {age_seconds}s below risk threshold"
+
+
 def _load_metrics(workflow_id: str, db_path: Path) -> BalanceMetrics:
     if not db_path.exists():
         raise RuntimeError(f"runtime.db not found: {db_path}")
@@ -149,6 +209,7 @@ def _load_metrics(workflow_id: str, db_path: Path) -> BalanceMetrics:
             SELECT decision, COUNT(*) FROM latest GROUP BY decision
             """
         ).fetchall()
+        health, health_detail = _screening_stoplight(conn)
 
     summary = phase2.get("summary", {}) if isinstance(phase2, dict) else {}
     total_records = int(summary.get("total_records", 0) or 0)
@@ -187,6 +248,8 @@ def _load_metrics(workflow_id: str, db_path: Path) -> BalanceMetrics:
         ranked_over_deduped=_ratio(to_llm, deduped),
         screened_over_ranked=_ratio(to_dual, to_llm),
         included_over_screened=_ratio(include, to_dual),
+        screening_health=health,
+        screening_health_detail=health_detail,
     )
 
 
@@ -257,6 +320,8 @@ def _print_metrics(metrics: BalanceMetrics, guardrails: Guardrails) -> None:
     table.add_row("ranked_over_deduped", _fmt_ratio(metrics.ranked_over_deduped))
     table.add_row("screened_over_ranked", _fmt_ratio(metrics.screened_over_ranked))
     table.add_row("included_over_screened", _fmt_ratio(metrics.included_over_screened))
+    table.add_row("screening_health", metrics.screening_health)
+    table.add_row("screening_health_detail", metrics.screening_health_detail)
     console.print(table)
 
     checks = _check_guardrails(metrics, guardrails)

@@ -78,6 +78,27 @@ screening:
   stage1_include_threshold: 0.85
   stage1_exclude_threshold: 0.8
   keyword_filter_min_matches: 0
+  # Deterministic pre-LLM guards.
+  auto_exclude_empty_abstract: true
+  secondary_review_patterns:
+    - "systematic review"
+    - "scoping review"
+    - "narrative review"
+    - "umbrella review"
+    - "meta-analysis"
+    - "meta analysis"
+  protocol_only_patterns:
+    - "study protocol"
+    - "trial protocol"
+    - "protocol for"
+    - "study design and methods"
+    - "trial registration"
+    - "prospero protocol"
+  deterministic_allowlist_patterns: []
+  deterministic_exclude_qa_sample_size: 20
+  # False-exclusion safeguard: allow a small number of empty-abstract title-only rescues.
+  empty_abstract_rescue_sample_size: 5
+  empty_abstract_rescue_keyword_min_matches: 2
   # true: papers without retrievable full text are auto-excluded at the full-text
   # screening stage with ExclusionReason.NO_FULL_TEXT. PRISMA 2020 item 17 requires
   # a "Reports not retrieved" box; without this gate that count is always 0 and
@@ -96,22 +117,23 @@ screening:
   # across all tiers. Prevents a slow-responding host from holding a semaphore
   # slot for 260s (13 tiers x 20s). Paper is marked failed-timeout and moves on.
   pdf_retrieval_per_paper_timeout: 45
-  # Raised from 200 -> 400. With 5+ databases on a broad topic, the dedup pool can
-  # reach 800-2000 records; 200 was silently dropping relevant papers past the BM25 cutoff.
-  max_llm_screen: 700
-  # Recall-first validation slice: forward near-cutoff BM25 papers for dual review.
-  bm25_validation_tail_size: 40
+  # Fixed dual-review cap for cost control.
+  max_llm_screen: 200
+  # Recall safety slice around the cap cutoff.
+  bm25_validation_tail_size: 20
+  # Bounded cap safety valve: evaluate one overflow slice when validation-tail yield is high.
+  cap_overflow_enabled: true
+  cap_overflow_trigger_include_rate: 0.20
+  cap_overflow_min_validation_n: 10
+  cap_overflow_slice_size: 25
+  cap_overflow_max_extra: 50
   # Calibration: one pass on 15 papers is enough to confirm reviewers agree.
   # Re-screening the same sample multiple times (max_iterations > 1) does not
   # meaningfully improve kappa for well-scoped topics and wastes LLM calls.
   calibration_sample_size: 15
   calibration_max_iterations: 1
-  # Lowered from 12 -> 5 -> 0. At 12, 322/368 papers were auto-excluded before LLM because
-  # databases return many records with short or absent abstracts. At 0, stub-abstract records
-  # reach the LLM dual-screener, which can exclude them on title alone. Papers with no abstract
-  # at all (empty string) still auto-exclude via the `not abstract` check in _is_insufficient_content.
-  # This allows papers with no abstract to reach the LLM screener, which can exclude
-  # them on title alone rather than the heuristic stub-abstract filter.
+  # Keep stub threshold at 0 to avoid dropping short but potentially relevant abstracts.
+  # Empty-abstract records are handled by deterministic pre-LLM exclusion above.
   insufficient_content_min_words: 0
   # Batch LLM pre-ranker: scores all BM25-selected papers in batches of 80 with a
   # single LLM call each, then only forwards papers scoring >= 0.35 to the dual-reviewer.

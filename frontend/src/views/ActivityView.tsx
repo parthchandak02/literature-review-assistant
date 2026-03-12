@@ -17,6 +17,7 @@ import { eventToLogEntry } from "@/lib/logLine"
 import { FetchError } from "@/components/ui/feedback"
 import { Skeleton } from "@/components/ui/skeleton"
 import { fetchRunEvents, fetchWorkflowEvents } from "@/lib/api"
+import { shouldUsePrefetchedHistorical } from "@/lib/runSelection"
 import { PHASE_ORDER, PHASE_LABELS, RESUME_PHASE_ORDER } from "@/lib/constants"
 import type { ReviewEvent } from "@/lib/api"
 import { cn } from "@/lib/utils"
@@ -49,9 +50,14 @@ function buildPhaseStates(events: ReviewEvent[], isRunComplete: boolean): Record
             ? { current: ev.completed, total: ev.total }
             : undefined,
       }
-    } else if (ev.type === "progress" && states[ev.phase]) {
+    } else if (ev.type === "progress") {
+      // Progress may be the first marker seen for a phase after UI event capping.
+      // Initialize as running so timeline state does not look stuck.
+      const prev = states[ev.phase]
       states[ev.phase] = {
-        ...states[ev.phase],
+        status: prev?.status ?? "running",
+        startedTs: prev?.startedTs,
+        doneTss: prev?.doneTss,
         progress: { current: ev.current, total: ev.total },
       }
     }
@@ -335,7 +341,7 @@ export function ActivityView({
   const [isSubmittingResume, setIsSubmittingResume] = useState(false)
   const logRef = useRef<LogStreamHandle>(null)
 
-  const hasPrefetchedHistorical = prefetchedHistoricalEvents != null
+  const hasPrefetchedHistorical = shouldUsePrefetchedHistorical(prefetchedHistoricalEvents)
   const isFallbackMode = allowHistoricalFallback && events.length === 0 && Boolean(runId)
 
   const loadHistoricalEvents = useCallback(

@@ -438,6 +438,17 @@ LaTeX -- it does NOT re-run `assemble_submission_manuscript()`. This means:
 - Re-exporting an old run with force=True will NOT add the compact table or remove the RQ prefix.
 - To get these features into an existing run, re-run the workflow or use inject_missing_citations.py.
 
+## Export Success Does Not Guarantee `submission/manuscript.pdf`
+The export API can succeed while PDF is missing when local `pdflatex` is unavailable or compilation fails.
+Treat `.tex/.docx/.bib` as baseline export artifacts; treat PDF as best-effort and environment-dependent.
+If users report "export succeeded but no PDF", check TeX toolchain availability before debugging pipeline code.
+
+## Empty-Abstract Handling Uses Two Independent Knobs
+`insufficient_content_min_words=0` disables word-count stub exclusions in `dual_screener.py`, but
+`auto_exclude_empty_abstract=true` in `keyword_filter.py` still excludes empty abstracts deterministically
+before dual-review (except limited rescue sampling by title-keyword matches).
+Do not assume "insufficient_content_min_words=0" means empty abstracts automatically reach LLM screening.
+
 ## Known Pipeline Bugs and Their Fix Locations
 These are recurring manuscript issues and WHERE in the pipeline to fix them (never in run artifacts):
 

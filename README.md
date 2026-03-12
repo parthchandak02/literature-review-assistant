@@ -19,7 +19,7 @@ After a run completes, the run directory (`runs/YYYY-MM-DD/wf-NNNN-<topic-slug>/
 
 Clicking **Export** in the browser (or running `uv run python -m src.main export`) assembles a `submission/` folder:
 
-- `manuscript.tex` + `manuscript.pdf` -- IEEE-formatted manuscript with bundled figures (IEEEtran, pdflatex-compiled)
+- `manuscript.tex` (+ `manuscript.pdf` when local LaTeX/pdflatex compilation succeeds) -- IEEE-formatted manuscript with bundled figures
 - `manuscript.docx` -- Word format with figures and formatted tables (for sharing / human review)
 - `references.bib` -- all citations
 - `figures/` -- PRISMA flow diagram, RoB traffic-light, forest plot, funnel plot, publication timeline, geographic distribution
@@ -87,7 +87,7 @@ A secondary "Paste YAML directly" link is also available for pasting a raw confi
 
 Your Gemini API key is required and is pre-filled from localStorage on return visits. All keys are saved locally in your browser and never sent anywhere except your local backend.
 
-The sidebar shows all your runs (live and historical) with status colors (emerald = completed, violet = running, red = error, amber = cancelled) and a stats strip (papers found, papers included, artifacts, cost). Selecting a run opens its dashboard with 7 tabs: Config (research question + review.yaml), Activity (phase timeline + event log), Data, Cost, Results, References (included papers list with PDF/TXT download), and Review Screening (appears only when the run pauses for human-in-the-loop screening approval). To resume from a specific phase, use the Activity phase timeline (tap once to arm, tap again to confirm) or use the sidebar Resume button for default auto-resume. You can also delete completed runs from the sidebar.
+The sidebar shows all your runs (live and historical) with status colors (emerald = completed, violet = running, red = error, amber = cancelled) and a stats strip (papers found, papers included, artifacts, cost). Selecting a run opens its dashboard with 6 base tabs: Config (research question + review.yaml), Activity (phase timeline + event log), Data, Cost, Results, and References (included papers list with PDF/TXT download). A conditional Review Screening tab appears only when the run pauses for human-in-the-loop screening approval (`awaiting_review`). To resume from a specific phase, use the Activity phase timeline (tap once to arm, tap again to confirm) or use the sidebar Resume button for default auto-resume. You can also delete completed runs from the sidebar.
 
 **Tip -- reuse a past config:** Click "+" to open the form, then use the "Load from past run" dropdown to pre-populate the form from any previous run's config. Useful for iterating on the same research question with different parameters.
 
@@ -117,7 +117,7 @@ Edit `.env`:
 
 ```bash
 GEMINI_API_KEY=your-key-here              # Required -- get free at ai.google.dev
-OPENALEX_API_KEY=your-key-here            # Required only if openalex is included in target_databases
+OPENALEX_API_KEY=your-key-here            # Required if openalex is enabled (default review template includes openalex)
 PUBMED_EMAIL=your-email@example.com       # Strongly recommended for PubMed
 PUBMED_API_KEY=your-key-here              # Optional -- faster PubMed rate limits
 IEEE_API_KEY=your-key-here                # Optional -- IEEE Xplore access
@@ -175,7 +175,7 @@ Your `submission/` folder is ready.
 | Key | Where to Get | Required? |
 |-----|-------------|-----------|
 | `GEMINI_API_KEY` | [ai.google.dev](https://ai.google.dev) | Yes |
-| `OPENALEX_API_KEY` | [openalex.org](https://openalex.org/sign-up) | Conditionally required (when OpenAlex connector is enabled) |
+| `OPENALEX_API_KEY` | [openalex.org](https://openalex.org/sign-up) | Conditionally required (required for the default template unless `openalex` is removed from `target_databases`) |
 | `PUBMED_EMAIL` | Any email address | Recommended (PubMed identification/rate policy) |
 | `PUBMED_API_KEY` | [ncbi.nlm.nih.gov/account](https://www.ncbi.nlm.nih.gov/account/settings/) | No (higher rate limits) |
 | `IEEE_API_KEY` | [developer.ieee.org](https://developer.ieee.org) | No |

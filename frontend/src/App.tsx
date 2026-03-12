@@ -7,6 +7,7 @@ import { Sidebar } from "@/components/Sidebar"
 import type { LiveRun } from "@/components/Sidebar"
 import { computePhaseProgress } from "@/lib/phaseProgress"
 import { computeFunnelStages } from "@/lib/funnelStages"
+import { isSameRunSelection } from "@/lib/runSelection"
 import { useSSEStream } from "@/hooks/useSSEStream"
 import { useCostStats } from "@/hooks/useCostStats"
 import { useBackendHealth } from "@/hooks/useBackendHealth"
@@ -685,12 +686,30 @@ export default function App() {
 
   async function handleSelectHistory(entry: HistoryEntry) {
     setResumeLauncherWorkflowId(null)
+    const focusSelectedWorkflow = () => {
+      setActiveRunTab("activity")
+      navigate(`/run/${entry.workflow_id}/activity`, { replace: true })
+    }
     // Always probe the backend for an active run first. Sidebar history can lag
     // briefly after CLI resume and miss live_run_id on a running workflow.
     const active = await fetchActiveRun(entry.workflow_id).catch(() => null)
     if (active) {
+      if (
+        isSameRunSelection(
+          liveRunId,
+          selectedRun?.runId,
+          selectedRun?.workflowId,
+          active.run_id,
+          entry.workflow_id,
+        )
+      ) {
+        focusSelectedWorkflow()
+        return
+      }
       const now = new Date()
-      reset()
+      if (liveRunId !== active.run_id) {
+        reset()
+      }
       liveRunNavigatedRef.current = entry.workflow_id
       setLiveRunId(active.run_id)
       setLiveTopic(active.topic || entry.topic)
@@ -711,15 +730,28 @@ export default function App() {
         startedAt: now,
         createdAt: entry.created_at,
       })
-      setActiveRunTab("activity")
-      navigate(`/run/${entry.workflow_id}/activity`, { replace: true })
+      focusSelectedWorkflow()
       return
     }
     // If the workflow has an in-process active task, connect live SSE directly
     // instead of replaying stale DB events.
     if (entry.live_run_id) {
+      if (
+        isSameRunSelection(
+          liveRunId,
+          selectedRun?.runId,
+          selectedRun?.workflowId,
+          entry.live_run_id,
+          entry.workflow_id,
+        )
+      ) {
+        focusSelectedWorkflow()
+        return
+      }
       const now = new Date()
-      reset()
+      if (liveRunId !== entry.live_run_id) {
+        reset()
+      }
       liveRunNavigatedRef.current = entry.workflow_id
       setLiveRunId(entry.live_run_id)
       setLiveTopic(entry.topic)
@@ -735,8 +767,7 @@ export default function App() {
         startedAt: now,
         createdAt: entry.created_at,
       })
-      setActiveRunTab("activity")
-      navigate(`/run/${entry.workflow_id}/activity`, { replace: true })
+      focusSelectedWorkflow()
       return
     }
     // Historical run: replay events from DB.
