@@ -1,0 +1,33 @@
+---
+description: Use run-database-audit skill for database-first run audits using runtime.db SQL queries, CSV exports, and YAML alignment checks when run behavior is questioned.
+globs:
+  - src/screening/**
+  - src/web/**
+  - src/search/**
+  - src/orchestration/**
+  - src/db/**
+  - scripts/**
+  - config/*.yaml
+  - runs/**
+alwaysApply: false
+---
+
+# Run Database Audit Skill Trigger
+
+Use the `run-database-audit` skill whenever the user asks for manual verification of screening quality, especially requests such as:
+- manual check
+- why included or why excluded
+- mid-workflow screening test
+- csv output analysis
+- check if screening logic is working at scale
+- compare screening behavior against review YAML intent
+- runtime.db audit
+- database query on live run
+- verify cancelled/interrupted/completed run state
+
+When this rule triggers, do both:
+1. Run SQL query pack against registry and runtime.db.
+2. Generate run-scoped CSV exports for manual review.
+3. Analyze CSV plus SQL evidence against `review.yaml` or `config_snapshot.yaml` and report concrete process-level fixes.
+
+Do not stop at file generation only. The expected behavior is export plus analysis.
