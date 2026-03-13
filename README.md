@@ -77,11 +77,11 @@ uv run uvicorn src.web.app:app --port 8000
 
 Go to `http://localhost:8000`. Click "+" in the sidebar to start a new review.
 
-The setup page has three modes (select via the pill buttons at the top):
+The setup page uses one question-first flow:
 
-- **AI Search** (default) -- Type your research question in plain English and click "Generate Review Config". The AI generates PICO, keywords, criteria, and scope. Review or edit YAML, then start. Typical database coverage is 5-7 sources, depending on topic routing and selected config.
-- **Start with Master List** -- Upload a pre-assembled CSV (Scopus export format: Title, Authors, Year, Source title, DOI, Abstract). The search phase is skipped; your papers go straight to screening, extraction, and synthesis.
-- **Search + CSV** -- Upload a supplementary CSV and run connector search in parallel. CSV records are merged with connector results before deduplication and screening.
+- Enter your research question in plain English and click "Generate Review Config". The AI generates PICO, keywords, criteria, and scope.
+- Optionally attach a supplementary CSV (Scopus export format: Title, Authors, Year, Source title, DOI, Abstract). If provided, CSV records are merged with connector results before deduplication and screening.
+- Review or edit YAML, confirm API keys, then launch the run.
 
 A secondary "Paste YAML directly" link is also available for pasting a raw config from a previous run or external source.
 
