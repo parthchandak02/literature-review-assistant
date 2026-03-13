@@ -71,6 +71,22 @@ _PDF_HEADER_PHRASES = (
 )
 
 
+def _clean_results_summary_text(text: str) -> str:
+    """Remove DOI/boilerplate fragments from extracted free-text summaries."""
+    cleaned = (text or "").strip()
+    if not cleaned:
+        return ""
+    # Drop DOI links/tokens that leak from PDF headers.
+    cleaned = re.sub(r"https?://doi\.org/\S+", "", cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(r"\bdoi:\s*10\.\S+", "", cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(r"\b10\.\d{4,9}/\S+", "", cleaned)
+    cleaned = re.sub(r"\b(?:open access|downloaded from|copyright)\b[^.]*\.?", "", cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(r"[ \t]{2,}", " ", cleaned)
+    cleaned = re.sub(r"\s+\.", ".", cleaned)
+    cleaned = re.sub(r"\n{3,}", "\n\n", cleaned)
+    return cleaned.strip()
+
+
 def _is_low_quality_extraction(text: str) -> bool:
     """Return True when extracted text appears to be an OCR artifact or PDF header.
 
@@ -404,6 +420,8 @@ class ExtractionService:
         results_summary_text = parsed.results_summary or ""
         if _is_low_quality_extraction(results_summary_text):
             results_summary_text = self._heuristic_summary(paper, text)
+        else:
+            results_summary_text = _clean_results_summary_text(results_summary_text)
 
         # Country is a new field extracted by the improved prompt. Read it from
         # the parsed output if present; default to paper metadata if absent.

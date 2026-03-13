@@ -435,6 +435,7 @@ def build_bibtex(
         tuple[str, str, str | None, str, str, int | None, str | None, str | None]
         | tuple[str, str, str | None, str, str, int | None, str | None, str | None, str | None]
     ],
+    cited_citekeys: set[str] | None = None,
 ) -> str:
     """Build full references.bib content from citation rows.
 
@@ -448,6 +449,8 @@ def build_bibtex(
     used: set[str] = set()
     for idx, row in enumerate(citations):
         _cid, citekey, doi, title, authors_json, year, journal, bibtex = row[:8]
+        if cited_citekeys is not None and str(citekey) not in cited_citekeys:
+            continue
         url: str | None = row[8] if len(row) > 8 else None  # type: ignore[misc]
         safe_key = _sanitize_citekey(citekey, title, authors_json, year, idx)
         unique_key = safe_key

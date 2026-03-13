@@ -16,6 +16,7 @@ from src.db.workflow_registry import find_by_workflow_id, find_by_workflow_id_fa
 from src.export.bibtex_builder import build_bibtex
 from src.export.docx_exporter import generate_docx
 from src.export.ieee_latex import markdown_to_latex
+from src.export.markdown_refs import get_existing_figure_entries, get_latex_figure_paths
 
 
 async def _get_run_info(run_root: str, workflow_id: str) -> tuple[str, str, str] | None:
@@ -494,7 +495,7 @@ async def package_submission(
     info = await _get_run_info(run_root, workflow_id)
     if info is None:
         return None
-    db_path, output_dir, _log_dir = info
+    db_path, output_dir, log_dir = info
     output_path = Path(output_dir)
     manuscript_md = output_path / "doc_manuscript.md"
 
@@ -512,34 +513,39 @@ async def package_submission(
         citations = await citation_repo.get_all_citations_for_export()
         citekeys = {c[1] for c in citations}
 
-    bib_content = build_bibtex(citations)
-    (submission_dir / "references.bib").write_text(bib_content, encoding="utf-8")
-
-    figure_paths: list[str] = []
-    _figure_names = [
-        "fig_prisma_flow.png",
-        "fig_rob_traffic_light.png",
-        "fig_rob2_traffic_light.png",
-        "fig_publication_timeline.png",
-        "fig_geographic_distribution.png",
-        "fig_forest_plot.png",
-        "fig_funnel_plot.png",
-        "fig_forest_plot.svg",
-        "fig_publication_timeline.svg",
-        "fig_geographic_distribution.svg",
-        "fig_concept_taxonomy.svg",
-        "fig_conceptual_framework.svg",
-        "fig_methodology_flow.svg",
-        "fig_evidence_network.png",
-        "fig_evidence_network.svg",
-    ]
-    for fig_name in _figure_names:
-        src = output_path / fig_name
-        if src.exists():
-            dst = figures_dir / fig_name
-            shutil.copy2(src, dst)
-            if not fig_name.endswith(".svg"):
-                figure_paths.append(fig_name)
+    # Use canonical figure manifest (FIGURE_DEFS) for both copying and LaTeX include list.
+    _manifest_path = output_path / "doc_manuscript.md"
+    _artifacts: dict[str, str] = {}
+    _run_summary_path = Path(log_dir) / "run_summary.json"
+    if _run_summary_path.exists():
+        try:
+            _run_summary = json.loads(_run_summary_path.read_text(encoding="utf-8"))
+            _artifacts = {
+                str(k): str(v)
+                for k, v in (_run_summary.get("artifacts", {}) or {}).items()
+                if isinstance(v, str)
+            }
+        except Exception:
+            _artifacts = {}
+    if not _artifacts:
+        # Fallback for legacy runs that do not persist full artifacts map in run_summary.
+        _artifacts = {
+            "prisma_diagram": str(output_path / "fig_prisma_flow.png"),
+            "rob_traffic_light": str(output_path / "fig_rob_traffic_light.png"),
+            "rob2_traffic_light": str(output_path / "fig_rob2_traffic_light.png"),
+            "timeline": str(output_path / "fig_publication_timeline.png"),
+            "geographic": str(output_path / "fig_geographic_distribution.png"),
+            "fig_forest_plot": str(output_path / "fig_forest_plot.png"),
+            "fig_funnel_plot": str(output_path / "fig_funnel_plot.png"),
+            "concept_taxonomy": str(output_path / "fig_concept_taxonomy.svg"),
+            "conceptual_framework": str(output_path / "fig_conceptual_framework.svg"),
+            "methodology_flow": str(output_path / "fig_methodology_flow.svg"),
+            "evidence_network": str(output_path / "fig_evidence_network.png"),
+        }
+    for _caption, src, rel in get_existing_figure_entries(_manifest_path, _artifacts):
+        dst = figures_dir / Path(rel).name
+        shutil.copy2(src, dst)
+    figure_paths = [Path(p).name for p in get_latex_figure_paths(_manifest_path, _artifacts)]
 
     # Read author_name from the run's own config_snapshot.yaml (written by StartNode)
     # so the packaged LaTeX reflects the review that was actually run, not whatever
@@ -586,6 +592,8 @@ async def package_submission(
         db_path=db_path,
         workflow_id=workflow_id,
     )
+    bib_content = build_bibtex(citations, cited_citekeys=set(num_to_citekey.values()))
+    (submission_dir / "references.bib").write_text(bib_content, encoding="utf-8")
     latex_content = markdown_to_latex(
         md_content,
         citekeys=citekeys,

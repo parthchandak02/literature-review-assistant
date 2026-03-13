@@ -58,6 +58,8 @@ def _sanitize_summary_text(raw_text: str) -> str:
     is_boilerplate = any(marker in summary_lower for marker in _SUMMARY_HTML_BOILERPLATE_MARKERS)
     is_pdf_metadata = any(summary_lower.startswith(pfx) for pfx in _SUMMARY_PDF_METADATA_PREFIXES)
     is_llm_explanation = any(phrase in summary_lower for phrase in _SUMMARY_LLM_EXPLANATION_PHRASES)
+    if "doi.org/" in summary_lower or re.search(r"\bdoi:\s*10\.\S+", summary_lower):
+        return "NR"
     if is_boilerplate or is_pdf_metadata or is_llm_explanation:
         return "NR"
     return summary
@@ -678,6 +680,56 @@ FIGURE_DEFS: list[tuple[str, str]] = [
 ]
 
 
+def get_existing_figure_entries(
+    manuscript_path: Path,
+    artifacts: dict[str, str],
+) -> list[tuple[str, Path, str]]:
+    """Return ordered existing figures as (caption, absolute_path, relative_path).
+
+    Uses FIGURE_DEFS ordering and caption sidecar overrides so markdown and LaTeX
+    paths are derived from one canonical manifest.
+    """
+    entries: list[tuple[str, Path, str]] = []
+    for artifact_key, default_caption in FIGURE_DEFS:
+        fig_path_str = artifacts.get(artifact_key, "")
+        if not fig_path_str:
+            continue
+        fig_path = Path(fig_path_str)
+        if not fig_path.exists():
+            continue
+        caption = default_caption
+        caption_sidecar = fig_path.with_suffix(".caption")
+        if caption_sidecar.exists():
+            try:
+                caption = caption_sidecar.read_text(encoding="utf-8").strip() or caption
+            except Exception:
+                pass
+        try:
+            rel_path = str(fig_path.relative_to(manuscript_path.parent))
+        except ValueError:
+            rel_path = str(fig_path)
+        entries.append((caption, fig_path, rel_path))
+    return entries
+
+
+def get_latex_figure_paths(
+    manuscript_path: Path,
+    artifacts: dict[str, str],
+) -> list[str]:
+    """Return ordered figure paths safe for pdflatex includegraphics.
+
+    The list is derived from the same canonical figure entries used by markdown.
+    SVG files are excluded here because the current pdflatex toolchain does not
+    natively embed SVG without conversion.
+    """
+    raster_suffixes = {".png", ".jpg", ".jpeg", ".pdf"}
+    paths: list[str] = []
+    for _caption, fig_path, rel_path in get_existing_figure_entries(manuscript_path, artifacts):
+        if fig_path.suffix.lower() in raster_suffixes:
+            paths.append(rel_path)
+    return paths
+
+
 def build_markdown_figures_section(
     manuscript_path: Path,
     artifacts: dict[str, str],
@@ -692,27 +744,7 @@ def build_markdown_figures_section(
     """
     lines: list[str] = ["## Figures", ""]
     seq = 1
-    for artifact_key, caption in FIGURE_DEFS:
-        fig_path_str = artifacts.get(artifact_key, "")
-        if not fig_path_str:
-            continue
-        fig_path = Path(fig_path_str)
-        if not fig_path.exists():
-            continue
-        # Use caption sidecar file when present (allows visualization code to
-        # override the default caption -- e.g. geographic falls back to source
-        # database distribution when country data is unavailable).
-        caption_sidecar = fig_path.with_suffix(".caption")
-        if caption_sidecar.exists():
-            try:
-                caption = caption_sidecar.read_text(encoding="utf-8").strip() or caption
-            except Exception:
-                pass
-        # Compute relative path from manuscript file to figure (they are siblings).
-        try:
-            rel = fig_path.relative_to(manuscript_path.parent)
-        except ValueError:
-            rel = fig_path  # type: ignore[assignment]
+    for caption, _fig_path, rel in get_existing_figure_entries(manuscript_path, artifacts):
         lines.append(f"**Fig. {seq}.** {caption}")
         lines.append("")
         lines.append(f"![Fig. {seq}: {caption}]({rel})")
