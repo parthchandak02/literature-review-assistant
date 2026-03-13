@@ -950,7 +950,7 @@ The frontend is run-centric. The sidebar is a run list, not a navigation menu. S
 
 | View | Purpose |
 |------|---------|
-| SetupView | Question-first config generation flow with 3 start modes: AI Search, Start with Master List CSV, and Search + CSV; includes YAML review/edit and "Load from past run" via `GET /api/history/{workflow_id}/config` |
+| SetupView | Question-first config generation flow with optional supplementary CSV upload; includes YAML review/edit and "Load from past run" via `GET /api/history/{workflow_id}/config` |
 | RunView | 6 base tabs (Config, Activity, Data, Cost, Results, References) plus conditional Review Screening when awaiting_review |
 | ConfigView | Shows research question and timestamped review.yaml for the run; used by agents and for copy-to-clipboard |
 | ActivityView | Phase timeline + stats strip + event log (text search); works for live SSE runs and historical fetched runs. Historical runs support two-tap phase resume directly on timeline steps (first tap arms preview range, second tap confirms resume from that phase). |

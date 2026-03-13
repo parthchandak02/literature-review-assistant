@@ -520,9 +520,9 @@ Source of truth: route decorators in `src/web/app.py`.
 `POST /api/run-with-masterlist` and `POST /api/run-with-supplementary-csv`.
 Do not document `/api/run` as multipart CSV upload.
 
-## SetupView Has Three Modes, Not Two
-`frontend/src/views/SetupView.tsx` supports `search`, `masterlist`, and `supplementary`.
-Any onboarding or docs that mention only two start modes are stale.
+## SetupView Uses One Question-First Flow
+`frontend/src/views/SetupView.tsx` uses a single setup flow with optional supplementary CSV upload.
+Any onboarding or docs that mention multiple setup mode tabs are stale.
 
 ## Run Tab State Is URL-Driven, Not localStorage
 `frontend/src/App.tsx` parses `/run/{workflowId}/{tab}` and uses navigation updates for tab state.
