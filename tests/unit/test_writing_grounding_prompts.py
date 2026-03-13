@@ -4,6 +4,7 @@ from src.models.additional import PRISMACounts
 from src.writing.context_builder import WritingGroundingData, format_grounding_block
 from src.writing.context_builder import build_writing_grounding
 from src.writing.prompts.sections import (
+    get_conclusion_prompt_context,
     get_discussion_prompt_context,
     get_methods_prompt_context,
     get_results_prompt_context,
@@ -84,6 +85,21 @@ def test_non_abstract_prompts_include_boundary_marker_rule() -> None:
     assert "SECTION_BLOCK" in discussion_prompt
 
 
+def test_methods_prompt_blocks_unsupported_claims() -> None:
+    prompt = get_methods_prompt_context()
+    assert "Do NOT claim medical librarian consultation" in prompt
+
+
+def test_conclusion_prompt_enforces_hedging_when_required() -> None:
+    data = _make_grounding(
+        conclusion_hedging_required=True,
+        conclusion_hedging_reason="low or very low GRADE certainty",
+    )
+    prompt = get_conclusion_prompt_context(data)
+    assert "CERTAINTY HEDGING RULE" in prompt
+    assert "low or very low GRADE certainty" in prompt
+
+
 def test_build_writing_grounding_zeros_automation_when_screened_gap_is_zero() -> None:
     prisma = PRISMACounts(
         databases_records={"pubmed": 100},
@@ -121,3 +137,32 @@ def test_grounding_block_mentions_overlapping_fulltext_reasons() -> None:
     out = format_grounding_block(data)
     assert "categories may overlap" in out
     assert "do NOT present reason counts as separate article totals" in out
+
+
+def test_build_writing_grounding_sets_conclusion_hedging_for_high_nonretrieval() -> None:
+    prisma = PRISMACounts(
+        databases_records={"pubmed": 20},
+        other_sources_records={},
+        total_identified_databases=20,
+        total_identified_other=0,
+        duplicates_removed=2,
+        automation_excluded=0,
+        records_screened=18,
+        records_excluded_screening=8,
+        reports_sought=10,
+        reports_not_retrieved=5,
+        reports_assessed=5,
+        reports_excluded_with_reasons={},
+        studies_included_qualitative=3,
+        studies_included_quantitative=0,
+        arithmetic_valid=True,
+    )
+    grounding = build_writing_grounding(
+        prisma_counts=prisma,
+        extraction_records=[],
+        included_papers=[],
+        narrative=None,
+        citation_catalog="",
+    )
+    assert grounding.conclusion_hedging_required is True
+    assert "high full-text non-retrieval" in grounding.conclusion_hedging_reason

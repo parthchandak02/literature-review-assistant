@@ -98,6 +98,27 @@ def test_prepare_writing_context() -> None:
     assert "Test" in catalog
 
 
+def test_prepare_writing_context_includes_background_sr_catalog() -> None:
+    papers = [
+        CandidatePaper(
+            paper_id="p1",
+            title="Primary Study",
+            authors=[],
+            year=2023,
+            source_database="pubmed",
+            source_category="database",
+        ),
+    ]
+    settings = _minimal_settings()
+    catalog = prepare_writing_context(
+        papers,
+        settings,
+        background_sr_rows=[("Smith2021SR", "Prior systematic review", 2021)],
+    )
+    assert "Background systematic reviews" in catalog
+    assert "[Smith2021SR]" in catalog
+
+
 def test_section_writer_builds_prompt() -> None:
     review = _minimal_review()
     settings = _minimal_settings()

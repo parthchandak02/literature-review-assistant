@@ -3109,7 +3109,7 @@ class WritingNode(BaseNode[ReviewState]):
                 except Exception:
                     narrative = None
 
-        citation_catalog = prepare_writing_context(state.included_papers, state.settings)
+        citation_catalog = ""
 
         sections_written: list[str] = []
         _failed_sections: list[str] = []
@@ -3189,6 +3189,25 @@ class WritingNode(BaseNode[ReviewState]):
                     len(_bg_citekeys),
                     ", ".join(_bg_citekeys),
                 )
+            _bg_rows_raw: list[tuple] = []
+            async with db.execute(
+                """
+                SELECT citekey, title, year
+                FROM citations
+                WHERE source_type = 'background_sr'
+                ORDER BY year DESC, citekey ASC
+                """
+            ) as _bg_cur:
+                _bg_rows_raw = await _bg_cur.fetchall()
+            _bg_rows: list[tuple[str, str, int | None]] = [
+                (
+                    str(r[0]),
+                    str(r[1] or ""),
+                    int(r[2]) if r[2] is not None else None,
+                )
+                for r in _bg_rows_raw
+            ]
+            citation_catalog = prepare_writing_context(state.included_papers, state.settings, _bg_rows)
 
             if len(state.included_papers) == 0:
                 # Zero-papers guard: produce minimal manuscript without LLM calls
@@ -4630,6 +4649,7 @@ class FinalizeNode(BaseNode[ReviewState]):
             try:
                 from src.export.bibtex_builder import build_bibtex as _build_bibtex
                 from src.export.ieee_latex import markdown_to_latex as _md_to_latex
+                from src.export.markdown_refs import get_latex_figure_paths
                 from src.export.submission_packager import (
                     _build_number_to_citekey,
                     llm_resolve_unmatched_citations,
@@ -4675,20 +4695,33 @@ class FinalizeNode(BaseNode[ReviewState]):
                     db_path=state.db_path,
                     workflow_id=state.workflow_id,
                 )
+                _cited_citekeys = set(_num_map.values())
                 # Also provide direct old->new key mapping so bracketed legacy keys
                 # (e.g. [Paper_xxx], [Engineering Inclusiv]) resolve to the sanitized
                 # keys used in references.bib.
                 for _old, _new in _key_map.items():
                     _num_map.setdefault(_old, _new)
                 _author = str(getattr(getattr(state, "review", None), "author_name", "") or "")
+                _figure_paths = get_latex_figure_paths(Path(_mmd_path), state.artifacts)
                 _tex_content = _md_to_latex(
                     _md_text,
                     citekeys=_citekeys,
+                    figure_paths=_figure_paths,
                     num_to_citekey=_num_map,
                     author_name=_author,
                 )
+                _has_md_figures = bool(re.search(r"!\[[^\]]*\]\([^)]+\)", _md_text))
+                _has_tex_figures = "\\includegraphics" in _tex_content
+                if _has_md_figures and not _has_tex_figures:
+                    raise RuntimeError(
+                        "LaTeX conversion emitted zero figures despite markdown figure references. "
+                        "Check figure artifact paths and markdown_to_latex figure_paths handling."
+                    )
                 _tex_path.write_text(_tex_content, encoding="utf-8")
-                _bib_path.write_text(_build_bibtex(_normalized_citations), encoding="utf-8")
+                _bib_path.write_text(
+                    _build_bibtex(_normalized_citations, cited_citekeys=_cited_citekeys),
+                    encoding="utf-8",
+                )
                 state.artifacts["manuscript_tex"] = str(_tex_path)
                 state.artifacts["references_bib"] = str(_bib_path)
                 try:

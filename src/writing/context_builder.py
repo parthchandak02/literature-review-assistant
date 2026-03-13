@@ -8,6 +8,7 @@ prompt, preventing hallucination of statistics, counts, and citation keys.
 from __future__ import annotations
 
 import math
+import re
 from datetime import datetime
 
 from pydantic import BaseModel
@@ -267,6 +268,10 @@ class WritingGroundingData(BaseModel):
     # instead of guessing. Empty dict when figure files cannot be checked.
     figure_map: dict[str, int] = {}
 
+    # True when conclusion text must be explicitly hedged due to certainty gaps.
+    conclusion_hedging_required: bool = False
+    conclusion_hedging_reason: str = ""
+
 
 def _build_screening_method_description(
     screening_decisions: list[object] | None,
@@ -299,7 +304,7 @@ def _build_screening_method_description(
 
     if not screening_decisions:
         return (
-            "Two independent reviewers screened titles and abstracts, "
+            "An AI-assisted dual-reviewer pipeline screened titles and abstracts, "
             "with disagreements resolved by a third adjudicator. "
             f"Papers advancing from title/abstract screening underwent full-text eligibility "
             f"assessment; {_RESOLVER_TEXT}. "
@@ -336,8 +341,8 @@ def _build_screening_method_description(
             f"{bm25_fwd} records to a batch LLM pre-ranker. "
             f"The pre-ranker coarse-scored all {bm25_fwd} records and auto-excluded "
             f"{batch_screen_excluded} records with low relevance scores (threshold < 35%), "
-            f"forwarding {batch_screen_forwarded} records for independent dual review. "
-            f"Two independent reviewers then screened those {batch_screen_forwarded} records, "
+            f"forwarding {batch_screen_forwarded} records for AI-assisted dual review. "
+            f"Two independent reviewers in the AI-assisted pipeline then screened those {batch_screen_forwarded} records, "
             f"with a third reviewer resolving any disagreements. "
             f"Papers advancing from title/abstract screening underwent full-text eligibility "
             f"assessment; {_RESOLVER_TEXT}. "
@@ -355,8 +360,8 @@ def _build_screening_method_description(
             f"Title and abstract screening used a tiered approach. "
             f"First, a BM25 keyword relevance pre-filter evaluated all {total_screened} records, "
             f"auto-excluding {kf_count} records with low relevance scores and routing {llm_count} "
-            f"records for independent dual review. "
-            f"Two independent reviewers then screened the {llm_count} "
+            f"records for AI-assisted dual review. "
+            f"Two independent reviewers in the AI-assisted pipeline then screened the {llm_count} "
             f"pre-filtered records, with a third reviewer resolving any disagreements. "
             f"Papers advancing from title/abstract screening underwent full-text eligibility "
             f"assessment; {_RESOLVER_TEXT}. "
@@ -365,7 +370,7 @@ def _build_screening_method_description(
     else:
         # Symmetric dual-review: both reviewers assessed all (or nearly all) records
         return (
-            "Two independent reviewers screened titles and abstracts, "
+            "An AI-assisted dual-reviewer pipeline screened titles and abstracts, "
             "with disagreements resolved by a third adjudicator. "
             f"Papers advancing from title/abstract screening underwent full-text eligibility "
             f"assessment; {_RESOLVER_TEXT}. "
@@ -546,6 +551,7 @@ def build_writing_grounding(
     # Risk-of-bias and GRADE summaries for grounding injection
     _rob_summary = _build_rob_summary(rob2_assessments or [], robins_i_assessments or [])
     _grade_summary = _build_grade_summary(grade_assessments or [])
+    _low_certainty_present = bool(re.search(r"\b(low|very low)\b", _grade_summary.lower()))
 
     _records_after_dedup = (
         prisma_counts.total_identified_databases
@@ -569,6 +575,21 @@ def build_writing_grounding(
     _search_date = (search_date or "").strip()
     if not _search_date:
         _search_date = datetime.now().date().isoformat()
+
+    _fulltext_nonretrieval_rate = (
+        (prisma_counts.reports_not_retrieved / prisma_counts.reports_sought) if prisma_counts.reports_sought > 0 else 0.0
+    )
+    _abstract_only = max(0, fulltext_total - fulltext_retrieved)
+    _abstract_only_rate = (_abstract_only / fulltext_total) if fulltext_total > 0 else 0.0
+    _hedge_reasons: list[str] = []
+    if _fulltext_nonretrieval_rate > 0.40:
+        _hedge_reasons.append(
+            f"high full-text non-retrieval ({prisma_counts.reports_not_retrieved}/{prisma_counts.reports_sought})"
+        )
+    if _abstract_only_rate > 0.40:
+        _hedge_reasons.append(f"high abstract-only evidence ({_abstract_only}/{fulltext_total})")
+    if _low_certainty_present:
+        _hedge_reasons.append("low or very low GRADE certainty")
 
     return WritingGroundingData(
         databases_searched=active_dbs,
@@ -640,6 +661,8 @@ def build_writing_grounding(
         rob_summary=_rob_summary,
         grade_summary=_grade_summary,
         figure_map=figure_map or {},
+        conclusion_hedging_required=bool(_hedge_reasons),
+        conclusion_hedging_reason="; ".join(_hedge_reasons),
     )
 
 
@@ -1041,8 +1064,8 @@ def format_grounding_block(data: WritingGroundingData) -> str:
         "actual description says a keyword filter handled most records and LLM reviewers "
         "handled fewer. Accuracy about the actual screening architecture is required for "
         "methodological transparency (PRISMA 2020 item 8). "
-        "Also: do NOT specify whether reviewers were human or AI -- use 'reviewers' or "
-        "'dual-review process' without qualifier."
+        "Also: do NOT rewrite this as a human-only process. Keep the explicit "
+        "'AI-assisted dual-reviewer pipeline' wording when present in the block."
     )
     if data.heuristic_assessment_count > 0:
         lines.append(
@@ -1070,6 +1093,17 @@ def format_grounding_block(data: WritingGroundingData) -> str:
             "CRITICAL -- GRADE REPORTING RULE: The Results section MUST report the certainty "
             "of evidence for each outcome using the GRADE levels listed above verbatim. "
             "Do NOT modify, upgrade, or downgrade these certainty assessments."
+        )
+
+    if data.conclusion_hedging_required:
+        lines.append("")
+        lines.append(
+            "CRITICAL -- CONCLUSION HEDGING REQUIRED: YES. "
+            f"Drivers: {data.conclusion_hedging_reason or 'certainty and retrieval constraints'}."
+        )
+        lines.append(
+            "The Conclusion must use cautious language and avoid definitive claims. "
+            "Do NOT state causal certainty or broad generalizability."
         )
 
     if data.rob_summary and data.grade_summary:

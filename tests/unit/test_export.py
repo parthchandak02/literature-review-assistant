@@ -7,6 +7,7 @@ from hypothesis import strategies as st
 
 from src.export.bibtex_builder import build_bibtex
 from src.export.ieee_latex import _convert_citations, _convert_md_table_to_latex, _escape_latex, markdown_to_latex
+from src.export.markdown_refs import get_existing_figure_entries, get_latex_figure_paths
 from src.export.ieee_validator import validate_ieee
 from src.export.prisma_checklist import validate_prisma
 
@@ -54,12 +55,40 @@ def test_build_bibtex_replaces_ref_numeric_placeholder_key() -> None:
     assert "@article{Atallah2025," in out
 
 
+def test_build_bibtex_prunes_uncited_entries() -> None:
+    citations = [
+        ("c1", "KeyA2023", None, "Title A", '["Author A"]', 2023, "J", None),
+        ("c2", "KeyB2024", None, "Title B", '["Author B"]', 2024, "J", None),
+    ]
+    out = build_bibtex(citations, cited_citekeys={"KeyA2023"})
+    assert "KeyA2023" in out
+    assert "KeyB2024" not in out
+
+
 def test_markdown_to_latex_basic():
     md = "**Title:** My Review\n\n**Abstract**\n\nShort abstract.\n\n## Introduction\n\nSome text."
     out = markdown_to_latex(md, citekeys=set())
     assert "\\documentclass" in out
     assert "My Review" in out
     assert "Introduction" in out and ("\\section{" in out or "\\subsection{" in out)
+
+
+def test_get_figure_entries_and_latex_paths_share_manifest(tmp_path) -> None:
+    manuscript = tmp_path / "doc_manuscript.md"
+    manuscript.write_text("stub", encoding="utf-8")
+    png_path = tmp_path / "fig_prisma_flow.png"
+    svg_path = tmp_path / "fig_concept_taxonomy.svg"
+    png_path.write_bytes(b"x")
+    svg_path.write_bytes(b"y")
+    artifacts = {
+        "prisma_diagram": str(png_path),
+        "concept_taxonomy": str(svg_path),
+    }
+    entries = get_existing_figure_entries(manuscript, artifacts)
+    latex_paths = get_latex_figure_paths(manuscript, artifacts)
+    assert len(entries) == 2
+    assert "fig_prisma_flow.png" in latex_paths
+    assert "fig_concept_taxonomy.svg" not in latex_paths
 
 
 def test_markdown_to_latex_extracts_structured_abstract_from_background_block() -> None:

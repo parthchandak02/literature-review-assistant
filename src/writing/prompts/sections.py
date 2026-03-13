@@ -207,10 +207,11 @@ def get_methods_prompt_context(
         "If inter-rater reliability (Cohen's kappa) is present in the block, report it in this section. "
         "(3) Search strategy (reference the search appendix), "
         "(4) Selection process: use the 'Screening method' text from the FACTUAL DATA BLOCK verbatim. "
-        "Use neutral phrasing such as 'two independent reviewers' or 'two reviewers'. "
-        "Do NOT specify whether reviewers were human or AI -- do not write 'large language models', "
-        "'AI reviewers', 'AI adjudicator', 'human reviewers', or 'two independent researchers'. "
-        "The block contains the exact approved neutral description. "
+        "The wording MUST explicitly describe an AI-assisted dual-reviewer pipeline when that appears "
+        "in the FACTUAL DATA BLOCK. Do NOT rewrite this as human-only screening. "
+        "Use the exact role language from the block. "
+        "Do NOT claim medical librarian consultation, manual snowball search, or any additional "
+        "operational step unless it is explicitly stated in the FACTUAL DATA BLOCK. "
         "If Cohen's kappa is present in the block, include it in this sub-section with the subset qualifier. "
         "(5) Data collection process and data items extracted, "
         "(6) Risk of bias tools (ROBINS-I for non-randomized studies; RoB 2 for RCTs -- "
@@ -365,8 +366,21 @@ def get_conclusion_prompt_context(
 ) -> str:
     """Context for conclusion."""
     prefix = _grounding_prefix(grounding)
+    hedging_rule = ""
+    if grounding is not None and getattr(grounding, "conclusion_hedging_required", False):
+        reason = getattr(grounding, "conclusion_hedging_reason", "").strip()
+        reason_clause = f" Reason: {reason}." if reason else ""
+        hedging_rule = (
+            "CRITICAL -- CERTAINTY HEDGING RULE: The conclusion MUST use cautious language "
+            "throughout and avoid definitive causal claims." + reason_clause + " "
+            "Use wording such as 'limited evidence suggests', 'findings should be interpreted "
+            "with caution', and 'further high-quality full-text evidence is required'. "
+            "Do NOT use assertive phrasing like 'demonstrates', 'proves', or 'confirms'.\n\n"
+        )
     return (
         prefix + _NO_HEADING_RULE + "\n\n"
+        + hedging_rule
+        +
         "PRIOR SECTIONS RULE: If a 'PRIOR SECTIONS CONTEXT' block appears above, use it "
         "only to inform the synthesis -- do NOT re-state the same statistics or sentences. "
         "The Conclusion must synthesize and close, not recap. Provide the 'so what' answer.\n\n"

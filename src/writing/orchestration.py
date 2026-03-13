@@ -193,6 +193,7 @@ _GENERIC_TITLE_WORDS = frozenset(
 # We split text around [...] blocks first so citation keys are never touched.
 _SNAKE_RE = re.compile(r"\b([a-z][a-z0-9]*(?:_[a-z][a-z0-9]*)+)\b")
 _ABSTRACT_FIELDS = ("Background", "Objectives", "Methods", "Results", "Conclusion", "Keywords")
+_SECTION_NAMES = frozenset({"introduction", "methods", "results", "discussion", "conclusion", "abstract"})
 
 
 def _enforce_word_limit(text: str, max_words: int) -> str:
@@ -252,6 +253,47 @@ def _sanitize_prose(content: str) -> str:
     if sanitized != content:
         logger.debug("prose sanitizer replaced snake_case identifiers in section draft")
     return sanitized
+
+
+def _sanitize_section_headings(section: str, content: str) -> str:
+    """Normalize malformed heading lines before section persistence."""
+    out_lines: list[str] = []
+    last_heading = ""
+    section_name = section.strip().lower()
+    for line in content.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("### ") or stripped.startswith("#### "):
+            prefix = "####" if stripped.startswith("#### ") else "###"
+            title = stripped[len(prefix) + 1 :].strip()
+            # Remove trailing citation list from heading text.
+            title = re.sub(r"\s*\[[^\]]+\]\s*$", "", title).strip()
+            # Drop known malformed title fragments.
+            if title.lower() in _SECTION_NAMES:
+                continue
+            if title.lower().endswith((" and", " of", " for", " to", " with")):
+                continue
+            title = re.sub(r"\s{2,}", " ", title).strip(" -:")
+            if not title:
+                continue
+            if title.lower() == last_heading.lower():
+                continue
+            line = f"{prefix} {title}"
+            last_heading = title
+        out_lines.append(line)
+    return "\n".join(out_lines).strip()
+
+
+def _strip_unsupported_methods_claims(content: str) -> str:
+    """Remove unsupported operational claims that are not in grounding data."""
+    cleaned = re.sub(
+        r"\b(search strategy|search strategies)\s+(?:was|were)\s+developed\s+in\s+consultation\s+with\s+a\s+medical\s+librarian\b\.?",
+        "",
+        content,
+        flags=re.IGNORECASE,
+    )
+    cleaned = re.sub(r"[ \t]{2,}", " ", cleaned)
+    cleaned = re.sub(r"\n{3,}", "\n\n", cleaned)
+    return cleaned.strip()
 
 
 def _ensure_structured_abstract(content: str, research_question: str) -> str:
@@ -709,6 +751,9 @@ async def write_section_with_validation(
         )
     # Safety-net: replace any leftover snake_case in prose before saving.
     content = _sanitize_prose(content)
+    content = _sanitize_section_headings(section, content)
+    if section == "methods":
+        content = _strip_unsupported_methods_claims(content)
 
     if section == "abstract":
         content = _ensure_structured_abstract(content, review.research_question)
@@ -763,9 +808,21 @@ def build_methodology_catalog() -> str:
     return "\n".join(lines)
 
 
+def build_background_sr_catalog(
+    background_sr_rows: list[tuple[str, str, int | None]],
+) -> str:
+    """Return citation catalog block for discovered background systematic reviews."""
+    lines = []
+    for citekey, title, year in background_sr_rows:
+        year_str = str(year) if year else "n.d."
+        lines.append(f"[{citekey}] {title} ({year_str})")
+    return "\n".join(lines)
+
+
 def prepare_writing_context(
     included_papers: list[CandidatePaper],
     settings: SettingsConfig,
+    background_sr_rows: list[tuple[str, str, int | None]] | None = None,
 ) -> str:
     """Build the citation catalog for the writing phase.
 
@@ -780,8 +837,12 @@ def prepare_writing_context(
     _ = settings  # reserved for future per-agent catalog filtering
     included_catalog = build_citation_catalog_from_papers(included_papers)
     methodology_catalog = build_methodology_catalog()
+    background_sr_catalog = build_background_sr_catalog(background_sr_rows or [])
     # Methodology refs appended after included studies; separator makes it clear
     catalog_parts = [included_catalog]
+    if background_sr_catalog:
+        catalog_parts.append("# Background systematic reviews (for Discussion comparison):")
+        catalog_parts.append(background_sr_catalog)
     if methodology_catalog:
         catalog_parts.append("# Methodology references (cite when describing study design, PRISMA, GRADE, RoB):")
         catalog_parts.append(methodology_catalog)
