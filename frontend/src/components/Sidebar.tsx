@@ -374,14 +374,14 @@ export function Sidebar({
             {/* Section header */}
             {!collapsed && (
               <div className="flex items-center justify-between px-1 mb-1.5">
-                <span className="label-caps font-semibold text-zinc-600">
+                <span className="label-caps font-semibold text-zinc-500">
                   Runs
                 </span>
                 <button
                   onClick={() => void loadHistory()}
                   disabled={loadingHistory}
                   aria-label="Refresh history"
-                  className="text-zinc-600 hover:text-zinc-400 transition-colors"
+                  className="text-zinc-500 hover:text-zinc-300 transition-colors"
                 >
                   <RefreshCw
                     className={cn("h-3 w-3", loadingHistory && "animate-spin")}

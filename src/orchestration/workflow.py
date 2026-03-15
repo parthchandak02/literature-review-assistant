@@ -20,7 +20,7 @@ from pydantic_graph import BaseNode, End, Graph, GraphRunContext
 from rich.table import Table
 
 from src.citation.ledger import CitationLedger
-from src.config.loader import load_configs
+from src.config.loader import get_required_env_keys, load_configs
 from src.db.database import get_db
 from src.db.repositories import CitationRepository, WorkflowRepository
 from src.db.workflow_registry import (
@@ -162,17 +162,6 @@ def _evaluate_rag_health(
     return breached, message
 
 
-_PREFIX_TO_ENV: dict[str, str] = {
-    "google-gla:": "GEMINI_API_KEY",
-    "google-vertex:": "GEMINI_API_KEY",
-    "anthropic:": "ANTHROPIC_API_KEY",
-    "openai:": "OPENAI_API_KEY",
-    "groq:": "GROQ_API_KEY",
-    "mistral:": "MISTRAL_API_KEY",
-    "cohere:": "CO_API_KEY",
-}
-
-
 def _llm_available(settings: ReviewState | None = None, settings_cfg: SettingsConfig | None = None) -> bool:  # noqa: F821
     """Return True if at least one LLM API key is set for the configured model prefixes.
 
@@ -189,10 +178,9 @@ def _llm_available(settings: ReviewState | None = None, settings_cfg: SettingsCo
         cfg = settings.settings  # type: ignore[union-attr]
     if cfg is None:
         return bool(os.getenv("GEMINI_API_KEY"))
-    for agent_cfg in cfg.agents.values():
-        for prefix, env_key in _PREFIX_TO_ENV.items():
-            if agent_cfg.model.startswith(prefix) and os.getenv(env_key):
-                return True
+    for env_key in get_required_env_keys(cfg):
+        if os.getenv(env_key):
+            return True
     return False
 
 
@@ -742,8 +730,14 @@ class ScreeningNode(BaseNode[ReviewState]):
             on_llm_call = None
             if rc and rc.verbose:
 
-                def _on_llm_call(s: object, st: object, d: object, r: object, **kw: object) -> None:
-                    rc.log_api_call(s, st, d, r, call_type="llm_screening", **kw)  # type: ignore[union-attr]
+                def _on_llm_call(*args: object, **kwargs: object) -> None:
+                    """Accept both positional and keyword callback signatures safely."""
+                    source = kwargs.pop("source", args[0] if len(args) > 0 else "screening")
+                    status = kwargs.pop("status", args[1] if len(args) > 1 else "success")
+                    details = kwargs.pop("details", args[2] if len(args) > 2 else "")
+                    records = kwargs.pop("records", args[3] if len(args) > 3 else None)
+                    call_type = kwargs.pop("call_type", "llm_screening")
+                    rc.log_api_call(source, status, details, records, call_type=call_type, **kwargs)  # type: ignore[union-attr]
 
                 on_llm_call = _on_llm_call
             use_real_client = _llm_available(settings_cfg=state.settings) and (rc is None or not rc.offline)
@@ -1106,9 +1100,10 @@ class ScreeningNode(BaseNode[ReviewState]):
                     # reviewer_b populated, which compute_cohens_kappa requires.
                     # Temporarily override threshold to reflect the bisection attempt.
                     original_include = getattr(screener.settings.screening, "stage1_include_threshold", 0.85)
+                    exclude_margin = float(getattr(screening_cfg, "calibration_exclude_margin", 0.05))
                     try:
                         screener.settings.screening.stage1_include_threshold = threshold
-                        screener.settings.screening.stage1_exclude_threshold = max(0.0, threshold - 0.05)
+                        screener.settings.screening.stage1_exclude_threshold = max(0.0, threshold - exclude_margin)
                         results = await screener.screen_batch_for_calibration(
                             workflow_id=f"{state.workflow_id}_calib",
                             papers=sample_papers,
@@ -1117,7 +1112,7 @@ class ScreeningNode(BaseNode[ReviewState]):
                         return list(results)
                     finally:
                         screener.settings.screening.stage1_include_threshold = original_include
-                        screener.settings.screening.stage1_exclude_threshold = max(0.0, original_include - 0.05)
+                        screener.settings.screening.stage1_exclude_threshold = max(0.0, original_include - exclude_margin)
 
                 try:
                     calibrated = await _calibrate_threshold(
@@ -1762,8 +1757,8 @@ class HumanReviewCheckpointNode(BaseNode[ReviewState]):
 
         import asyncio as _asyncio
 
-        poll_interval = 5
-        max_wait = 7200
+        poll_interval = max(1, int(getattr(hitl, "poll_interval_seconds", 5)))
+        max_wait = max(poll_interval, int(getattr(hitl, "max_wait_seconds", 7200)))
         waited = 0
         while waited < max_wait:
             await _asyncio.sleep(poll_interval)
@@ -2763,6 +2758,7 @@ def _reconcile_manuscript_consistency(body: str, state: ReviewState) -> str:  # 
 def _build_citation_coverage_patch(
     uncited_keys: list[str],
     citekey_to_design: dict[str, str] | None = None,
+    chunk_size: int = 8,
 ) -> str:
     """Build a Study Characteristics paragraph citing all uncited included-study keys.
 
@@ -2776,6 +2772,7 @@ def _build_citation_coverage_patch(
     """
     if not uncited_keys:
         return ""
+    chunk_size = max(1, int(chunk_size))
 
     if citekey_to_design:
         # Group by study design label for natural prose output.
@@ -2812,22 +2809,20 @@ def _build_citation_coverage_patch(
 
         sentences = []
         for label, keys in _design_buckets.items():
-            _CHUNK = 8
-            groups = [keys[i : i + _CHUNK] for i in range(0, len(keys), _CHUNK)]
+            groups = [keys[i : i + chunk_size] for i in range(0, len(keys), chunk_size)]
             clusters = "; ".join("[" + ", ".join(g) + "]" for g in groups)
             sentences.append(f"{label} in this review also include {clusters}.")
         return " ".join(sentences)
 
     # Fallback: simple chunking with improved prose
-    _CHUNK = 8
-    groups = [uncited_keys[i : i + _CHUNK] for i in range(0, len(uncited_keys), _CHUNK)]
+    groups = [uncited_keys[i : i + chunk_size] for i in range(0, len(uncited_keys), chunk_size)]
     sentences = [f"Studies contributing to the evidence base include [{', '.join(groups[0])}]."]
     for g in groups[1:]:
         sentences.append(f"Further included studies are [{', '.join(g)}].")
     return " ".join(sentences)
 
 
-def _trim_abstract_to_limit(abstract: str, limit: int = 230) -> str:
+def _trim_abstract_to_limit(abstract: str, limit: int | None = None) -> str:
     """Trim abstract body to at most `limit` words, excluding the Keywords line.
 
     Counts words in the labelled fields (Background through Conclusion) and,
@@ -2838,6 +2833,11 @@ def _trim_abstract_to_limit(abstract: str, limit: int = 230) -> str:
     the grounding block into the abstract text (e.g. "google-gla:<model-id>").
     """
     import re as _re
+
+    if limit is None:
+        from src.models.config import IEEEExportConfig
+
+        limit = int(IEEEExportConfig().max_abstract_words)
 
     # Remove raw model identifier strings before word counting / trimming.
     # Pattern covers Google Vertex/GenAI model IDs like "google-gla:<model-id>"
@@ -2980,9 +2980,13 @@ def _enforce_abstract_retrieval_caution(
     text: str,
     fulltext_sought: int,
     fulltext_not_retrieved: int,
-    threshold: float = 0.40,
+    threshold: float | None = None,
 ) -> str:
     """Ensure abstract uses hedged language when full-text non-retrieval is high."""
+    if threshold is None:
+        from src.models.config import WritingConfig
+
+        threshold = float(WritingConfig().fulltext_nonretrieval_caution_threshold)
     if fulltext_sought <= 0:
         return text
     rate = fulltext_not_retrieved / fulltext_sought
@@ -3080,6 +3084,9 @@ class WritingNode(BaseNode[ReviewState]):
             )
         assert state.review is not None
         assert state.settings is not None
+        from src.writing.prompts.sections import set_abstract_word_limit
+
+        set_abstract_word_limit(getattr(state.settings.ieee_export, "max_abstract_words", 250))
 
         # Load narrative synthesis: DB is the canonical source; JSON file is the fallback
         # for runs that predate the synthesis_results table.
@@ -3182,7 +3189,16 @@ class WritingNode(BaseNode[ReviewState]):
             # can compare findings to prior reviews (PRISMA 2020 item 27).
             _bg_kws = list(state.review.keywords)[:6] if state.review else []
             _bg_rq = state.review.research_question if state.review else ""
-            _bg_citekeys = await register_background_sr_citations(citation_repo, _bg_rq, _bg_kws, max_results=8)
+            _writing_cfg = getattr(state.settings, "writing", None)
+            _bg_citekeys = await register_background_sr_citations(
+                citation_repo,
+                _bg_rq,
+                _bg_kws,
+                max_results=int(getattr(_writing_cfg, "background_sr_max_results", 8)),
+                query_keyword_limit=int(getattr(_writing_cfg, "background_sr_query_keyword_limit", 6)),
+                topic_token_keyword_limit=int(getattr(_writing_cfg, "background_sr_topic_token_keyword_limit", 10)),
+                request_timeout_seconds=int(getattr(_writing_cfg, "background_sr_request_timeout_seconds", 20)),
+            )
             if _bg_citekeys:
                 logger.info(
                     "WritingNode: registered %d background SR citekeys: %s",
@@ -3342,6 +3358,20 @@ class WritingNode(BaseNode[ReviewState]):
                     robins_i_assessments=_robins_i_rows_w or None,
                     grade_assessments=_grade_rows_w or None,
                     figure_map=_fig_map or None,
+                    fulltext_nonretrieval_caution_threshold=float(
+                        getattr(
+                            getattr(state.settings, "writing", None),
+                            "fulltext_nonretrieval_caution_threshold",
+                            0.40,
+                        )
+                    ),
+                    abstract_only_caution_threshold=float(
+                        getattr(
+                            getattr(state.settings, "writing", None),
+                            "abstract_only_caution_threshold",
+                            0.40,
+                        )
+                    ),
                 )
 
                 def _on_write(**kw):
@@ -3909,19 +3939,17 @@ class WritingNode(BaseNode[ReviewState]):
                     )
 
                 # Abstract post-trim: enforce word limit after LLM generation.
-                # The LLM is instructed not to exceed 230 words but routinely writes
-                # 250-280. Apply a deterministic trim as a hard backstop.
-                #
-                # Root cause of off-by-one (~250 vs 230): (1) settings.ieee_export
-                # max_abstract_words is 250, so we previously trimmed to 250; (2)
-                # assemble_submission_manuscript expands words (e.g. SR citekey
-                # [Author2021SR] -> "(Author, 2021)", sanitize disclosure injection).
-                # Use a conservative target: trim to ABSTRACT_WORD_LIMIT - 20 to leave
-                # headroom, with floor at 210.
+                # Apply deterministic post-trim as a hard backstop.
+                # Target is derived from settings:
+                # max(settings.ieee_export.max_abstract_words - writing.abstract_trim_headroom_words,
+                #     writing.abstract_trim_floor_words).
                 if _abs_idx >= 0 and sections_written[_abs_idx]:
-                    from src.writing.prompts.sections import ABSTRACT_WORD_LIMIT
-
-                    _abs_limit = max(ABSTRACT_WORD_LIMIT - 20, 210)
+                    _max_abs_words = int(getattr(getattr(state.settings, "ieee_export", None), "max_abstract_words", 250))
+                    _writing_cfg = getattr(state.settings, "writing", None)
+                    _headroom = int(getattr(_writing_cfg, "abstract_trim_headroom_words", 20))
+                    _floor = int(getattr(_writing_cfg, "abstract_trim_floor_words", 210))
+                    set_abstract_word_limit(_max_abs_words)
+                    _abs_limit = max(_max_abs_words - _headroom, _floor)
                     _trimmed_abs = _trim_abstract_to_limit(sections_written[_abs_idx], limit=_abs_limit)
                     if _trimmed_abs != sections_written[_abs_idx]:
                         logger.info(
@@ -3949,6 +3977,13 @@ class WritingNode(BaseNode[ReviewState]):
                         sections_written[_abs_idx],
                         fulltext_sought=prisma_counts.reports_sought,
                         fulltext_not_retrieved=prisma_counts.reports_not_retrieved,
+                        threshold=float(
+                            getattr(
+                                getattr(state.settings, "writing", None),
+                                "fulltext_nonretrieval_caution_threshold",
+                                0.40,
+                            )
+                        ),
                     )
 
                 # Also normalize the same PRISMA sentence in Methods if present.
@@ -4220,6 +4255,7 @@ class WritingNode(BaseNode[ReviewState]):
                     _cov_patch = _build_citation_coverage_patch(
                         _uncited,
                         citekey_to_design=_citekey_to_design_cov if _citekey_to_design_cov else None,
+                        chunk_size=getattr(getattr(state.settings, "writing", None), "citation_cluster_chunk_size", 8),
                     )
                     # Inject before '### Risk of Bias' in the body; append to Results if absent.
                     _rob_marker = "### Risk of Bias"

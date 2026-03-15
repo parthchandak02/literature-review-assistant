@@ -132,6 +132,7 @@ screening:
   # meaningfully improve kappa for well-scoped topics and wastes LLM calls.
   calibration_sample_size: 15
   calibration_max_iterations: 1
+  calibration_exclude_margin: 0.05
   # Keep stub threshold at 0 to avoid dropping short but potentially relevant abstracts.
   # Empty-abstract records are handled by deterministic pre-LLM exclusion above.
   insufficient_content_min_words: 0
@@ -177,6 +178,15 @@ writing:
   # 3 concurrent sections: abstract/intro/methods kick off together, results/discussion/conclusion next.
   # Pro-tier RPM is typically 10 RPM; 3 concurrent keeps us safely under that at 45-60s per call.
   writing_concurrency: 3
+  background_sr_max_results: 8
+  background_sr_query_keyword_limit: 6
+  background_sr_topic_token_keyword_limit: 10
+  background_sr_request_timeout_seconds: 20
+  abstract_trim_headroom_words: 20
+  abstract_trim_floor_words: 210
+  fulltext_nonretrieval_caution_threshold: 0.40
+  abstract_only_caution_threshold: 0.40
+  citation_cluster_chunk_size: 8
 
 rag:
   embed_model: "google-gla:gemini-embedding-001"
@@ -220,6 +230,11 @@ ieee_export:
 citation_lineage:
   block_export_on_unresolved: true
   minimum_evidence_score: 0.5
+
+human_in_the_loop:
+  enabled: false
+  poll_interval_seconds: 5
+  max_wait_seconds: 7200
 
 web:
   # Run record TTL: evict completed _active_runs entries older than this many seconds.

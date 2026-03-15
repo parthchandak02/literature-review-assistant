@@ -2,12 +2,22 @@
 
 from __future__ import annotations
 
+import json
+from pathlib import Path
+
+import pytest
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
+from src.db.database import get_db
 from src.export.bibtex_builder import build_bibtex
+from src.export.submission_packager import _copy_included_study_pdfs
 from src.export.ieee_latex import _convert_citations, _convert_md_table_to_latex, _escape_latex, markdown_to_latex
-from src.export.markdown_refs import get_existing_figure_entries, get_latex_figure_paths
+from src.export.markdown_refs import (
+    _normalize_subsection_heading_layout,
+    get_existing_figure_entries,
+    get_latex_figure_paths,
+)
 from src.export.ieee_validator import validate_ieee
 from src.export.prisma_checklist import validate_prisma
 
@@ -140,6 +150,24 @@ def test_markdown_to_latex_splits_inline_h4_heading_body() -> None:
     out = markdown_to_latex(md, citekeys=set())
     assert "\\subsubsection{Eligibility Details}" in out
     assert "This subsection defines inclusion rules." in out
+
+
+def test_markdown_to_latex_preserves_non_inline_joined_heading() -> None:
+    md = (
+        "# Title\n\n"
+        "**Background:** Background.\n"
+        "**Objectives:** Objective.\n"
+        "**Methods:** Methods.\n"
+        "**Results:** Results.\n"
+        "**Conclusion:** Conclusion.\n"
+        "**Keywords:** a, b\n\n"
+        "## Methods\n\n"
+        "### Data Collection Process and Data Items\n"
+        "Data extraction was standardized.\n"
+    )
+    out = markdown_to_latex(md, citekeys=set())
+    assert "\\subsection{Data Collection Process and Data Items}" in out
+    assert "\\subsection{Data Collection Process}" not in out
 
 
 def test_convert_citations_resolves_mixed_list_with_space_key() -> None:
@@ -467,3 +495,150 @@ def test_markdown_to_latex_splits_known_run_on_methods_heading() -> None:
     out = markdown_to_latex(md, citekeys=set())
     assert "\\subsection{Eligibility Criteria}" in out
     assert "Studies were included between 2000 and 2026." in out
+
+
+def test_markdown_to_latex_strips_numeric_citations_from_headings() -> None:
+    md = (
+        "# Title\n\n"
+        "**Background:** Background.\n"
+        "**Objectives:** Objective.\n"
+        "**Methods:** Methods.\n"
+        "**Results:** Results.\n"
+        "**Conclusion:** Conclusion.\n"
+        "**Keywords:** a, b\n\n"
+        "## Results\n\n"
+        "### Synthesis of Findings [6] [8]\n"
+    )
+    out = markdown_to_latex(md, citekeys={"RefA", "RefB"}, num_to_citekey={"6": "RefA", "8": "RefB"})
+    assert "\\subsection{Synthesis of Findings}" in out
+    assert "[6]" not in out
+    assert "[8]" not in out
+
+
+def test_markdown_to_latex_trims_oversized_heading_spillover() -> None:
+    md = (
+        "# Title\n\n"
+        "**Background:** Background.\n"
+        "**Objectives:** Objective.\n"
+        "**Methods:** Methods.\n"
+        "**Results:** Results.\n"
+        "**Conclusion:** Conclusion.\n"
+        "**Keywords:** a, b\n\n"
+        "## Results\n\n"
+        "### Synthesis of Findings Due to heterogeneity and methodological differences across included studies\n"
+    )
+    out = markdown_to_latex(md, citekeys=set())
+    assert "\\subsection{Synthesis of Findings}" in out
+
+
+def test_normalize_subsection_heading_layout_joins_connector_with_next_title_line() -> None:
+    text = "### Data Collection Process and\n\nData Items\nData extraction was standardized."
+    out = _normalize_subsection_heading_layout(text)
+    assert "### Data Collection Process and Data Items" in out
+    assert "Data extraction was standardized." in out
+
+
+def test_normalize_subsection_heading_layout_moves_spill_token_into_body() -> None:
+    text = "### Synthesis of Findings Due\n\nto heterogeneity, meta-analysis was not feasible."
+    out = _normalize_subsection_heading_layout(text)
+    assert "### Synthesis of Findings" in out
+    assert "Due to heterogeneity, meta-analysis was not feasible." in out
+
+
+def test_normalize_subsection_heading_layout_splits_such_as_run_on_heading() -> None:
+    text = "#### Other Outcomes such as feasibility and utility considerations."
+    out = _normalize_subsection_heading_layout(text)
+    assert "#### Other Outcomes" in out
+    assert "such as feasibility and utility considerations." in out
+
+
+def test_normalize_subsection_heading_layout_preserves_joined_title_fragment() -> None:
+    text = "### Data Collection Process and Data Items"
+    out = _normalize_subsection_heading_layout(text)
+    assert "### Data Collection Process and Data Items" in out
+    assert "\n\nData Items\n" not in out
+
+
+@pytest.mark.asyncio
+async def test_copy_included_study_pdfs_copies_only_included_pdf_files(tmp_path: Path) -> None:
+    run_dir = tmp_path / "run"
+    run_dir.mkdir(parents=True, exist_ok=True)
+    db_path = run_dir / "runtime.db"
+    papers_dir = run_dir / "papers"
+    papers_dir.mkdir(parents=True, exist_ok=True)
+
+    (papers_dir / "paper-1.pdf").write_bytes(b"pdf-1")
+    (papers_dir / "paper-2.txt").write_text("text-2", encoding="utf-8")
+    (papers_dir / "paper-3.pdf").write_bytes(b"pdf-3")
+
+    manifest = {
+        "paper-1": {"file_path": str(papers_dir / "paper-1.pdf"), "file_type": "pdf"},
+        "paper-2": {"file_path": str(papers_dir / "paper-2.txt"), "file_type": "txt"},
+        "paper-3": {"file_path": str(papers_dir / "paper-3.pdf"), "file_type": "pdf"},
+    }
+    (run_dir / "data_papers_manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+
+    workflow_id = "wf-copy-pdfs"
+    async with get_db(str(db_path)) as db:
+        await db.execute(
+            "INSERT INTO workflows (workflow_id, topic, config_hash, status) VALUES (?, ?, ?, ?)",
+            (workflow_id, "Topic", "hash", "completed"),
+        )
+        for paper_id in ("paper-1", "paper-2", "paper-3"):
+            await db.execute(
+                """
+                INSERT INTO papers (paper_id, title, authors, year, source_database, doi, url)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                (paper_id, paper_id, "Author", 2024, "testdb", None, None),
+            )
+        await db.execute(
+            """
+            INSERT INTO dual_screening_results
+                (workflow_id, paper_id, stage, agreement, final_decision, adjudication_needed)
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (workflow_id, "paper-1", "fulltext", 1, "include", 0),
+        )
+        await db.execute(
+            """
+            INSERT INTO dual_screening_results
+                (workflow_id, paper_id, stage, agreement, final_decision, adjudication_needed)
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (workflow_id, "paper-2", "fulltext", 1, "include", 0),
+        )
+        await db.execute(
+            """
+            INSERT INTO dual_screening_results
+                (workflow_id, paper_id, stage, agreement, final_decision, adjudication_needed)
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (workflow_id, "paper-3", "fulltext", 1, "exclude", 0),
+        )
+        await db.commit()
+
+    dst_dir = run_dir / "submission" / "study_pdfs"
+    copied = await _copy_included_study_pdfs(str(db_path), workflow_id, run_dir, dst_dir)
+    assert copied == 1
+    assert (dst_dir / "paper-1.pdf").exists()
+    assert not (dst_dir / "paper-2.pdf").exists()
+    assert not (dst_dir / "paper-3.pdf").exists()
+
+
+@pytest.mark.asyncio
+async def test_copy_included_study_pdfs_missing_manifest_returns_zero(tmp_path: Path) -> None:
+    run_dir = tmp_path / "run"
+    run_dir.mkdir(parents=True, exist_ok=True)
+    db_path = run_dir / "runtime.db"
+    workflow_id = "wf-no-manifest"
+    async with get_db(str(db_path)) as db:
+        await db.execute(
+            "INSERT INTO workflows (workflow_id, topic, config_hash, status) VALUES (?, ?, ?, ?)",
+            (workflow_id, "Topic", "hash", "completed"),
+        )
+        await db.commit()
+    dst_dir = run_dir / "submission" / "study_pdfs"
+    copied = await _copy_included_study_pdfs(str(db_path), workflow_id, run_dir, dst_dir)
+    assert copied == 0
+    assert dst_dir.exists()

@@ -276,6 +276,15 @@ class ScreeningConfig(BaseModel):
         le=10,
         description="Maximum bisection iterations during threshold calibration.",
     )
+    calibration_exclude_margin: float = Field(
+        default=0.05,
+        ge=0.0,
+        le=0.5,
+        description=(
+            "Margin subtracted from the include threshold to derive the temporary "
+            "exclude threshold during calibration. Keeps a recall-first buffer."
+        ),
+    )
     insufficient_content_min_words: int = Field(
         default=5,
         ge=0,
@@ -401,6 +410,63 @@ class WritingConfig(BaseModel):
         le=10,
         default=3,
         description="Number of manuscript sections written concurrently. Default 3 balances throughput vs. RPM.",
+    )
+    background_sr_max_results: int = Field(
+        ge=1,
+        le=50,
+        default=8,
+        description="Maximum background systematic review citations to register.",
+    )
+    background_sr_query_keyword_limit: int = Field(
+        ge=1,
+        le=30,
+        default=6,
+        description="Number of research keywords used to build background SR discovery query.",
+    )
+    background_sr_topic_token_keyword_limit: int = Field(
+        ge=1,
+        le=50,
+        default=10,
+        description="Number of keywords used to build topic-token relevance filter for background SRs.",
+    )
+    background_sr_request_timeout_seconds: int = Field(
+        ge=5,
+        le=120,
+        default=20,
+        description="HTTP timeout in seconds for background SR API requests.",
+    )
+    abstract_trim_headroom_words: int = Field(
+        ge=0,
+        le=100,
+        default=20,
+        description=(
+            "Word headroom reserved below ieee_export.max_abstract_words before deterministic trim, "
+            "to absorb post-processing expansion."
+        ),
+    )
+    abstract_trim_floor_words: int = Field(
+        ge=50,
+        le=500,
+        default=210,
+        description="Minimum abstract trim target after applying headroom.",
+    )
+    fulltext_nonretrieval_caution_threshold: float = Field(
+        ge=0.0,
+        le=1.0,
+        default=0.40,
+        description="Trigger threshold for cautionary abstract wording when reports not retrieved is high.",
+    )
+    abstract_only_caution_threshold: float = Field(
+        ge=0.0,
+        le=1.0,
+        default=0.40,
+        description="Trigger threshold for cautionary wording when too many included studies are abstract-only.",
+    )
+    citation_cluster_chunk_size: int = Field(
+        ge=1,
+        le=50,
+        default=8,
+        description="Maximum citekeys per bracket cluster in auto-generated coverage prose.",
     )
 
 
@@ -717,6 +783,18 @@ class HumanInTheLoopConfig(BaseModel):
     enabled: bool = Field(
         default=False,
         description="Enable human review checkpoint between screening and extraction.",
+    )
+    poll_interval_seconds: int = Field(
+        ge=1,
+        le=300,
+        default=5,
+        description="Polling interval while waiting for approve-screening signal.",
+    )
+    max_wait_seconds: int = Field(
+        ge=60,
+        le=86400,
+        default=7200,
+        description="Maximum time to wait for human approval before auto-resuming.",
     )
 
 

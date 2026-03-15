@@ -111,6 +111,79 @@ async def _export_extraction_records(db_path: str, workflow_id: str, out_path: P
             writer.writerow([paper_id, study_design, primary_study_status, intervention, results])
 
 
+async def _query_included_paper_ids(db_path: str, workflow_id: str) -> list[str]:
+    """Return included paper_ids (fulltext include, fallback to extraction records)."""
+    async with get_db(db_path) as db:
+        cursor = await db.execute(
+            """
+            SELECT p.paper_id
+            FROM papers p
+            JOIN dual_screening_results ft
+              ON p.paper_id = ft.paper_id AND ft.stage = 'fulltext'
+            WHERE ft.final_decision = 'include'
+            ORDER BY p.paper_id
+            """
+        )
+        rows = await cursor.fetchall()
+        if rows:
+            return [str(r[0]) for r in rows if r and r[0]]
+
+        fallback_cursor = await db.execute(
+            """
+            SELECT p.paper_id
+            FROM papers p
+            JOIN extraction_records er
+              ON p.paper_id = er.paper_id AND er.workflow_id = ?
+            ORDER BY p.paper_id
+            """,
+            (workflow_id,),
+        )
+        fallback_rows = await fallback_cursor.fetchall()
+        return [str(r[0]) for r in fallback_rows if r and r[0]]
+
+
+async def _copy_included_study_pdfs(
+    db_path: str,
+    workflow_id: str,
+    run_dir: Path,
+    dst_dir: Path,
+) -> int:
+    """Populate dst_dir with included-study PDFs from data_papers_manifest.json."""
+    if dst_dir.exists():
+        shutil.rmtree(dst_dir)
+    dst_dir.mkdir(parents=True, exist_ok=True)
+
+    manifest_path = run_dir / "data_papers_manifest.json"
+    if not manifest_path.exists():
+        return 0
+
+    try:
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return 0
+    if not isinstance(manifest, dict):
+        return 0
+
+    included_ids = set(await _query_included_paper_ids(db_path, workflow_id))
+    copied = 0
+    for paper_id in sorted(included_ids):
+        entry = manifest.get(paper_id)
+        if not isinstance(entry, dict):
+            continue
+        file_path_str = entry.get("file_path")
+        if not file_path_str:
+            continue
+        src = Path(str(file_path_str))
+        if not src.exists() or not src.is_file():
+            continue
+        if src.suffix.lower() != ".pdf":
+            continue
+        dst = dst_dir / f"{paper_id}.pdf"
+        shutil.copy2(src, dst)
+        copied += 1
+    return copied
+
+
 def _generate_search_appendix_pdf(md_path: Path, pdf_path: Path) -> None:
     """Convert doc_search_strategies_appendix.md to PDF. Uses pdflatex if available, else md->html->weasyprint.
     If both fail, copies the markdown to supplementary so user can convert manually."""
@@ -505,6 +578,7 @@ async def package_submission(
     figures_dir.mkdir(exist_ok=True)
     supp_dir = submission_dir / "supplementary"
     supp_dir.mkdir(exist_ok=True)
+    study_pdfs_dir = submission_dir / "study_pdfs"
 
     citekeys: set[str] = set()
     async with get_db(db_path) as db:
@@ -640,5 +714,12 @@ async def package_submission(
             shutil.copy2(_prospero_docx_src, supp_dir / "prospero_registration_form.docx")
         except Exception:
             pass  # best-effort; do not fail the whole export
+
+    await _copy_included_study_pdfs(
+        db_path=db_path,
+        workflow_id=workflow_id,
+        run_dir=Path(log_dir),
+        dst_dir=study_pdfs_dir,
+    )
 
     return submission_dir

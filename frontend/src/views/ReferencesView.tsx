@@ -3,6 +3,7 @@ import { BookOpen, Download, ExternalLink, FileText, FileX, RefreshCw } from "lu
 import { fetchPapersReference, fetchPdfsForRun, paperFileUrl } from "@/lib/api"
 import type { FetchPdfsProgressEvent, FetchPdfsResult, PaperReference } from "@/lib/api"
 import { cn } from "@/lib/utils"
+import { StudyFilesDownloadButton } from "@/components/StudyFilesDownloadButton"
 
 interface ReferencesViewProps {
   runId: string
@@ -183,6 +184,11 @@ export function ReferencesView({ runId, workflowId, isDone }: ReferencesViewProp
               Abstract only
             </span>
           </div>
+          <StudyFilesDownloadButton
+            runId={effectiveId}
+            label="Download All"
+            className="border-zinc-700 text-zinc-300 hover:text-zinc-100"
+          />
           {(someFilesMissing || fetchResult) && (
             <button
               onClick={handleFetchPdfs}
