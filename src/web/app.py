@@ -2874,6 +2874,86 @@ async def get_paper_file(run_id: str, paper_id: str) -> StreamingResponse:
     )
 
 
+@app.get("/api/run/{run_id}/studies-files.zip")
+async def download_study_files_zip(run_id: str) -> StreamingResponse:
+    """Download all available included-study full-text files as a ZIP archive.
+
+    Supports both active run_id and historical workflow_id values in *run_id*.
+    Includes files listed in data_papers_manifest.json for papers that are part
+    of the included set (fulltext include when present, extraction fallback).
+    """
+    db_path = await _resolve_db_path_from_run_or_workflow(run_id)
+    run_dir = pathlib.Path(db_path).parent
+    manifest_path = run_dir / "data_papers_manifest.json"
+    if not manifest_path.exists():
+        raise HTTPException(status_code=404, detail="No papers manifest found for this run.")
+
+    try:
+        manifest = _json.loads(manifest_path.read_text(encoding="utf-8"))
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Could not read manifest: {exc}") from exc
+    if not isinstance(manifest, dict):
+        raise HTTPException(status_code=500, detail="Invalid papers manifest format.")
+
+    try:
+        async with aiosqlite.connect(db_path) as db:
+            db.row_factory = aiosqlite.Row
+            await db.execute("PRAGMA journal_mode = WAL")
+            await db.execute("PRAGMA synchronous = NORMAL")
+            await db.execute("PRAGMA foreign_keys = ON")
+            resolved_workflow_id = run_id
+            async with db.execute("SELECT workflow_id FROM workflows ORDER BY rowid DESC LIMIT 1") as wf_cur:
+                wf_row = await wf_cur.fetchone()
+                if wf_row and wf_row[0]:
+                    resolved_workflow_id = str(wf_row[0])
+            rows = await _query_included_papers_rows(db, resolved_workflow_id, for_fetch=True)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+    if not rows:
+        raise HTTPException(status_code=404, detail="No included studies found for this run.")
+
+    included_ids = {str(row["paper_id"]) for row in rows}
+    zip_entries: list[tuple[pathlib.Path, str]] = []
+    for paper_id in sorted(included_ids):
+        entry = manifest.get(paper_id, {})
+        if not isinstance(entry, dict):
+            continue
+        file_path_str = entry.get("file_path")
+        if not file_path_str:
+            continue
+        file_path = pathlib.Path(file_path_str)
+        if not file_path.exists() or not file_path.is_file():
+            continue
+        suffix = file_path.suffix.lower()
+        if suffix not in {".pdf", ".txt"}:
+            continue
+        zip_entries.append((file_path, f"{paper_id}{suffix}"))
+
+    if not zip_entries:
+        raise HTTPException(
+            status_code=404,
+            detail="No downloadable study files found (PDF/TXT not available for included studies).",
+        )
+
+    workflow_id = await _resolve_workflow_id_from_db(db_path)
+    topic = await _get_topic_for_db(db_path)
+    zip_name = _make_download_slug(workflow_id or run_id, topic) + "-studies-files.zip"
+
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, mode="w", compression=zipfile.ZIP_DEFLATED) as zf:
+        for file_path, arcname in zip_entries:
+            zf.write(file_path, arcname=arcname)
+    buf.seek(0)
+    return StreamingResponse(
+        buf,
+        media_type="application/zip",
+        headers={"Content-Disposition": f'attachment; filename="{zip_name}"'},
+    )
+
+
 @app.post("/api/run/{run_id}/fetch-pdfs")
 async def fetch_pdfs_for_run(run_id: str) -> StreamingResponse:
     """Retroactively fetch full-text PDFs/text for all included papers in a completed run.
@@ -3135,12 +3215,13 @@ async def trigger_export(run_id: str, run_root: str = "runs", force: bool = Fals
         output_dir = summary.get("output_dir", "")
         if output_dir:
             _sub_dir = pathlib.Path(output_dir) / "submission"
+            _study_pdfs_dir = _sub_dir / "study_pdfs"
             _key_files = [
                 _sub_dir / "manuscript.tex",
                 _sub_dir / "references.bib",
                 _sub_dir / "manuscript.docx",
             ]
-            if all(f.exists() for f in _key_files):
+            if all(f.exists() for f in _key_files) and _study_pdfs_dir.exists():
                 files = sorted(str(f) for f in _sub_dir.rglob("*") if f.is_file())
                 return {"submission_dir": str(_sub_dir), "files": files}
     try:

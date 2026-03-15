@@ -98,10 +98,10 @@ function levelClass(level: LogLevel): string {
     case "error":             return "text-red-400"
     case "warn":              return "text-amber-400"
     case "info":              return "text-zinc-200"
-    case "dim":               return "text-zinc-600"
+    case "dim":               return "text-zinc-500"
     case "status":            return "text-amber-500/70 italic"
     // include/exclude/exclude-heuristic handled separately as bordered cards
-    default:                  return "text-zinc-600"
+    default:                  return "text-zinc-500"
   }
 }
 
@@ -291,7 +291,7 @@ export const LogStream = forwardRef<LogStreamHandle, LogStreamProps>(function Lo
 
   if (events.length === 0) {
     return (
-      <div className="h-64 flex items-center justify-center text-sm text-zinc-600 bg-zinc-900 border border-zinc-800 rounded-xl">
+      <div className="h-64 flex items-center justify-center text-sm text-zinc-500 bg-zinc-900 border border-zinc-800 rounded-xl">
         Events will appear here once the review starts.
       </div>
     )

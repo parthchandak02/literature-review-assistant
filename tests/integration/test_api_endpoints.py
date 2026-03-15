@@ -17,7 +17,9 @@ Coverage:
 from __future__ import annotations
 
 import asyncio
+import io
 import json
+import zipfile
 from pathlib import Path
 
 import aiosqlite
@@ -398,6 +400,145 @@ async def test_papers_reference_unknown_workflow_returns_404(client: httpx.Async
     response = await client.get("/api/run/wf-9999/papers-reference")
     assert response.status_code == 404
     assert "Run not found" in response.json().get("detail", "")
+
+
+@pytest.mark.asyncio
+async def test_studies_files_zip_unknown_run_returns_404(client: httpx.AsyncClient) -> None:
+    response = await client.get("/api/run/abcd1234/studies-files.zip")
+    assert response.status_code == 404
+    assert "Run not found" in response.json().get("detail", "")
+
+
+@pytest.mark.asyncio
+async def test_studies_files_zip_returns_zip_for_included_files(
+    client: httpx.AsyncClient,
+    tmp_path: Path,
+) -> None:
+    run_id = "run-studies-zip-ok"
+    workflow_id = "wf-studies-zip-ok"
+    run_dir = tmp_path / "2026-03-10" / "wf-studies-zip-ok-topic" / "run_01-00-00PM"
+    db_path = run_dir / "runtime.db"
+    run_dir.mkdir(parents=True, exist_ok=True)
+
+    papers_dir = run_dir / "papers"
+    papers_dir.mkdir(parents=True, exist_ok=True)
+    pdf_path = papers_dir / "paper-1.pdf"
+    pdf_path.write_bytes(b"%PDF-1.4 test")
+
+    manifest_path = run_dir / "data_papers_manifest.json"
+    manifest_path.write_text(
+        json.dumps(
+            {
+                "paper-1": {
+                    "title": "Paper One",
+                    "file_path": str(pdf_path),
+                    "file_type": "pdf",
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    async with get_db(str(db_path)) as db:
+        await db.execute(
+            "INSERT INTO workflows (workflow_id, topic, config_hash, status) VALUES (?, ?, ?, ?)",
+            (workflow_id, "Topic", "hash", "completed"),
+        )
+        await db.execute(
+            """
+            INSERT INTO papers (paper_id, title, authors, year, source_database, doi, url)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            ("paper-1", "Paper One", "Author A", 2024, "testdb", "10.1000/test", "https://example.org/p1"),
+        )
+        await db.execute(
+            """
+            INSERT INTO dual_screening_results
+                (workflow_id, paper_id, stage, agreement, final_decision, adjudication_needed)
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (workflow_id, "paper-1", "fulltext", 1, "include", 0),
+        )
+        await db.commit()
+
+    record = _RunRecord(run_id, "Topic")
+    record.db_path = str(db_path)
+    record.workflow_id = workflow_id
+    record.done = True
+    _active_runs[run_id] = record
+    try:
+        response = await client.get(f"/api/run/{run_id}/studies-files.zip")
+        assert response.status_code == 200
+        assert response.headers.get("content-type", "").startswith("application/zip")
+        disposition = response.headers.get("content-disposition", "")
+        assert "studies-files.zip" in disposition
+
+        with zipfile.ZipFile(io.BytesIO(response.content)) as zf:
+            names = sorted(zf.namelist())
+            assert names == ["paper-1.pdf"]
+            assert zf.read("paper-1.pdf") == b"%PDF-1.4 test"
+    finally:
+        _active_runs.pop(run_id, None)
+
+
+@pytest.mark.asyncio
+async def test_studies_files_zip_no_files_returns_404(
+    client: httpx.AsyncClient,
+    tmp_path: Path,
+) -> None:
+    run_id = "run-studies-zip-empty"
+    workflow_id = "wf-studies-zip-empty"
+    run_dir = tmp_path / "2026-03-10" / "wf-studies-zip-empty-topic" / "run_01-00-00PM"
+    db_path = run_dir / "runtime.db"
+    run_dir.mkdir(parents=True, exist_ok=True)
+
+    manifest_path = run_dir / "data_papers_manifest.json"
+    manifest_path.write_text(
+        json.dumps(
+            {
+                "paper-1": {
+                    "title": "Paper One",
+                    "file_path": str(run_dir / "papers" / "missing.pdf"),
+                    "file_type": "pdf",
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    async with get_db(str(db_path)) as db:
+        await db.execute(
+            "INSERT INTO workflows (workflow_id, topic, config_hash, status) VALUES (?, ?, ?, ?)",
+            (workflow_id, "Topic", "hash", "completed"),
+        )
+        await db.execute(
+            """
+            INSERT INTO papers (paper_id, title, authors, year, source_database, doi, url)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            ("paper-1", "Paper One", "Author A", 2024, "testdb", "10.1000/test", "https://example.org/p1"),
+        )
+        await db.execute(
+            """
+            INSERT INTO dual_screening_results
+                (workflow_id, paper_id, stage, agreement, final_decision, adjudication_needed)
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (workflow_id, "paper-1", "fulltext", 1, "include", 0),
+        )
+        await db.commit()
+
+    record = _RunRecord(run_id, "Topic")
+    record.db_path = str(db_path)
+    record.workflow_id = workflow_id
+    record.done = True
+    _active_runs[run_id] = record
+    try:
+        response = await client.get(f"/api/run/{run_id}/studies-files.zip")
+        assert response.status_code == 404
+        assert "No downloadable study files found" in response.json().get("detail", "")
+    finally:
+        _active_runs.pop(run_id, None)
 
 
 # ---------------------------------------------------------------------------

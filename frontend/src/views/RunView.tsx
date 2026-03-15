@@ -82,7 +82,7 @@ interface InfoPillProps {
 
 function InfoPill({ children, dim }: InfoPillProps) {
   return (
-    <span className={cn("shrink-0", dim ? "text-zinc-600" : "text-zinc-400")}>
+    <span className={cn("shrink-0", dim ? "text-zinc-500" : "text-zinc-400")}>
       {children}
     </span>
   )
@@ -288,7 +288,7 @@ export function RunView({
                 {funnelStages.map((stage, i) => (
                   <span key={stage.key} className="flex items-baseline gap-1 shrink-0">
                     {i > 0 && (
-                      <span className="text-zinc-600 select-none mx-0.5">&gt;</span>
+                      <span className="text-zinc-500 select-none mx-0.5">&gt;</span>
                     )}
                     <span className={cn("font-semibold", stage.colorClass)}>
                       {stage.count.toLocaleString()}

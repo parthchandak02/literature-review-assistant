@@ -388,6 +388,7 @@ def _normalize_subsection_heading_layout(text: str) -> str:
     _sentence_start_re = re.compile(r"^(The|This|These|We|Our|In|Across|To|A|An|Studies|Study|Data)\b")
     _title_token_re = re.compile(r"^[A-Z][A-Za-z0-9()/:,\-']*$")
     _connector_tail = {"and", "or", "of", "for", "to", "with"}
+    _citation_tail_re = re.compile(r"\s*(?:\[[^\]]+\]\s*)+$")
 
     def _looks_title_fragment(s: str) -> bool:
         words = s.strip().split()
@@ -404,6 +405,16 @@ def _normalize_subsection_heading_layout(text: str) -> str:
         if m:
             level = m.group(1)
             tail = m.group(2).strip()
+            tail = _citation_tail_re.sub("", tail).strip()
+            # Handle run-on headings like "#### Other Outcomes such as ...".
+            if " such as " in tail.lower():
+                _idx = tail.lower().find(" such as ")
+                _left = tail[:_idx].strip()
+                _right = tail[_idx + 1 :].strip()
+                if _left and _right:
+                    out_lines.extend([f"{level} {_left}", "", _right])
+                    i += 1
+                    continue
             nxt_idx = i + 1
             while nxt_idx < len(lines) and not lines[nxt_idx].strip():
                 nxt_idx += 1
@@ -411,6 +422,20 @@ def _normalize_subsection_heading_layout(text: str) -> str:
             tail_words = tail.split()
             if nxt and not nxt.startswith("#"):
                 if tail_words and tail_words[-1].lower() in _connector_tail:
+                    # Case: heading line ends with connector and next line starts with
+                    # title token + sentence punctuation, e.g. "and" + "Performance. ...".
+                    _nxt_words = nxt.split()
+                    if _nxt_words:
+                        _first = _nxt_words[0]
+                        _first_clean = _first.rstrip(".,;:!?")
+                        if _first_clean and _first_clean[:1].isupper():
+                            if _first != _first_clean:
+                                _new_heading = f"{level} {tail} {_first_clean}".strip()
+                                _new_body = " ".join(_nxt_words[1:]).strip()
+                                if _new_body:
+                                    out_lines.extend([_new_heading, "", _new_body])
+                                    i = nxt_idx + 1
+                                    continue
                     nxt_words = nxt.split()
                     consumed = 0
                     for j, w in enumerate(nxt_words):
@@ -429,6 +454,20 @@ def _normalize_subsection_heading_layout(text: str) -> str:
                             i = nxt_idx + 1
                             continue
                         out_lines.append(line)
+                        i = nxt_idx + 1
+                        continue
+                # Case: heading absorbed one title token that actually begins body prose,
+                # e.g. "Risk of Bias Assessment Risk" + "of bias was assessed...".
+                if (
+                    nxt[:1].islower()
+                    and len(tail_words) >= 3
+                    and tail_words[-1][:1].isupper()
+                    and tail_words[-1].isalpha()
+                ):
+                    spill = tail_words[-1]
+                    heading_tail = " ".join(tail_words[:-1]).strip()
+                    if heading_tail:
+                        out_lines.extend([f"{level} {heading_tail}", "", f"{spill} {nxt}".strip()])
                         i = nxt_idx + 1
                         continue
                 if (tail_words and tail_words[-1].lower() in _connector_tail and _looks_title_fragment(nxt)) or (
@@ -469,7 +508,7 @@ def _normalize_subsection_heading_layout(text: str) -> str:
                             )
                         )
                         or (right and right[0].isupper() and any(c in right for c in ".,"))
-                    ):
+                    ) and not _looks_title_fragment(right):
                         out_lines.extend([f"{words[0]} {' '.join(left_words)}", "", right])
                         split_applied = True
                         break
@@ -633,7 +672,7 @@ FIGURE_DEFS: list[tuple[str, str]] = [
         "PRISMA 2020 flow diagram showing the study selection process. "
         "Records excluded at the title/abstract stage include two automated steps "
         "applied before independent dual review: (1) BM25 keyword relevance filtering "
-        "and (2) batch LLM pre-ranking (records scoring below 35% relevance were "
+        "and (2) batch LLM pre-ranking (records scoring below the configured relevance threshold were "
         "automatically excluded). Only records passing both steps were forwarded for "
         "independent dual review.",
     ),
@@ -1645,12 +1684,24 @@ def assemble_submission_manuscript(
         numbered_body = "\n".join([_title_line, ""] + _lines[_idx:]).lstrip("\n")
 
     if research_question or title:
-        # Strip any existing title block to avoid duplication when re-running finalize
+        # Strip any existing leading H1 title block to avoid duplication when re-running finalize.
+        # This applies to both:
+        # - legacy "title + optional research question" blocks
+        # - plain leading H1-only title lines.
+        numbered_body = re.sub(r"^(?:# .+\r?\n(?:\s*\r?\n)*)+", "", numbered_body, count=1)
+        # Strip any existing title+research-question composite block (in case it survived above).
         _title_block_re = re.compile(
             r"^# .+?\n\n\*\*Research Question:\*\* .+?\n\n---\n\n",
             re.DOTALL,
         )
         numbered_body = _title_block_re.sub("", numbered_body)
+        # Strip any orphaned Research Question line that may remain after the H1 was removed
+        # (happens when include_rq_block=False on a body that previously had the RQ prefix).
+        numbered_body = re.sub(
+            r"^\*\*Research Question:\*\* .+?\r?\n\r?\n---\r?\n\r?\n",
+            "",
+            numbered_body,
+        )
 
         _title = title
         if _title is None and research_question:

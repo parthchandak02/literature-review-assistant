@@ -352,6 +352,10 @@ export function submissionZipUrl(runId: string): string {
   return `${BASE}/run/${runId}/submission.zip`
 }
 
+export function studyFilesZipUrl(runId: string): string {
+  return `${BASE}/run/${runId}/studies-files.zip`
+}
+
 // Database explorer fetchers
 
 /** Extract a human-readable message from a non-OK response. */

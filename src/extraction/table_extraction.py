@@ -38,16 +38,27 @@ def _get_model_from_settings() -> str:
         from src.config.loader import load_configs
 
         _, s = load_configs(settings_path="config/settings.yaml")
-        return s.agents["table_extraction"].model.replace("google-gla:", "").replace("google-vertex:", "")
+        return s.agents["table_extraction"].model
     except Exception:
         from src.llm.model_fallback import get_fallback_model
 
-        return get_fallback_model("lite").replace("google-gla:", "").replace("google-vertex:", "")
+        return get_fallback_model("lite")
 
 
 # ---------------------------------------------------------------------------
 # Constants for the full-text retrieval tiers
 # ---------------------------------------------------------------------------
+def _get_tier_timeout() -> int:
+    """Read pdf_tier_timeout_seconds from settings.yaml; fall back to 12."""
+    try:
+        from src.config.loader import load_configs
+
+        _, s = load_configs(settings_path="config/settings.yaml")
+        return s.extraction.pdf_tier_timeout_seconds
+    except Exception:
+        return 12
+
+
 _SD_BASE = "https://api.elsevier.com/content/article/doi"
 _UNPAYWALL_BASE = "https://api.unpaywall.org/v2"
 _PMC_FETCH_URL = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi"
@@ -63,21 +74,10 @@ _MEDRXIV_PDF_BASE = "https://www.medrxiv.org/content"
 _OPENALEX_WORKS_URL = "https://api.openalex.org/works"
 _OPENALEX_CONTENT_BASE = "https://content.openalex.org/works"
 _CROSSREF_WORKS_URL = "https://api.crossref.org/works"
-_FT_TIMEOUT = 20  # seconds per individual tier HTTP request (kept for tier functions)
+_FT_TIMEOUT = _get_tier_timeout()
 _DOI_RE = re.compile(r"10\.\d{4,9}/[-._;()/:A-Z0-9]+", re.IGNORECASE)
 _TRANSIENT_HTTP_STATUSES = {408, 425, 429, 500, 502, 503, 504}
 _AUTH_OR_BOT_BLOCKED_STATUSES = {401, 403, 429}
-
-
-def _get_tier_timeout() -> int:
-    """Read pdf_tier_timeout_seconds from settings.yaml; fall back to 12."""
-    try:
-        from src.config.loader import load_configs
-
-        _, s = load_configs(settings_path="config/settings.yaml")
-        return s.extraction.pdf_tier_timeout_seconds
-    except Exception:
-        return 12
 
 
 # ScienceDirect returns non-OA papers as <500 chars -- treat as miss.
@@ -183,7 +183,7 @@ async def _fetch_sciencedirect_pdf(
                     if redirect_url and redirect_url.startswith("http"):
                         async with session.get(
                             redirect_url,
-                            timeout=aiohttp.ClientTimeout(total=30),
+                            timeout=aiohttp.ClientTimeout(total=_FT_TIMEOUT),
                         ) as r2:
                             if r2.status == 200:
                                 body = await r2.read()
@@ -304,7 +304,7 @@ async def _fetch_unpaywall(doi: str, diagnostics: list[str] | None = None) -> Fu
             for pdf_url in candidates:
                 try:
                     async with session.get(
-                        pdf_url, timeout=aiohttp.ClientTimeout(total=30), headers=pdf_headers
+                        pdf_url, timeout=aiohttp.ClientTimeout(total=_FT_TIMEOUT), headers=pdf_headers
                     ) as presp:
                         if presp.status != 200:
                             last_err = f"PDF fetch HTTP {presp.status}"
@@ -389,7 +389,7 @@ async def _fetch_semanticscholar(doi: str, diagnostics: list[str] | None = None)
             async with session.get(
                 pdf_url,
                 headers=pdf_headers,
-                timeout=aiohttp.ClientTimeout(total=30),
+                timeout=aiohttp.ClientTimeout(total=_FT_TIMEOUT),
             ) as presp:
                 if presp.status != 200:
                     _append_diag(diagnostics, "SemanticScholar", f"PDF fetch HTTP {presp.status}")
@@ -472,7 +472,7 @@ async def _fetch_core(doi: str, api_key: str, diagnostics: list[str] | None = No
             async with session.get(
                 f"{_CORE_OUTPUT_URL}/{out_id}/download",
                 headers=headers,
-                timeout=aiohttp.ClientTimeout(total=30),
+                timeout=aiohttp.ClientTimeout(total=_FT_TIMEOUT),
             ) as dresp:
                 if dresp.status == 200:
                     body = await dresp.read()
@@ -1869,7 +1869,8 @@ async def extract_tables_from_pdf(
 
     Args:
         pdf_bytes: Raw PDF bytes. If None, returns empty list.
-        model_name: Gemini model to use for vision extraction (without provider prefix).
+        model_name: Model to use for vision extraction. May be a full provider:model
+            string or bare model ref. Defaults to settings.yaml table_extraction model.
 
     Returns:
         List of OutcomeRecord objects with keys: name, description, effect_size,
@@ -1885,7 +1886,15 @@ async def extract_tables_from_pdf(
     from pydantic_ai.messages import BinaryContent
     from pydantic_ai.settings import ModelSettings
 
-    full_model = model_name if ":" in model_name else f"google-gla:{model_name}"
+    if ":" in model_name:
+        full_model = model_name
+    else:
+        configured_model = _get_model_from_settings()
+        if ":" in configured_model:
+            provider_prefix = configured_model.split(":", 1)[0]
+            full_model = f"{provider_prefix}:{model_name}"
+        else:
+            full_model = model_name
 
     try:
         agent: Agent[None, str] = Agent(full_model, output_type=str)

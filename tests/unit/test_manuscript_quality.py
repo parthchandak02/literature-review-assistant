@@ -99,7 +99,10 @@ def test_assemble_dedupes_repeated_leading_h1_titles(tmp_path: Path) -> None:
         title=None,
         include_rq_block=False,
     )
-    assert result.count("# A Systematic Review: X") == 1
+    # The assembler strips duplicate H1 lines and regenerates a canonical H1 from
+    # research_question when title=None. Verify exactly one H1 line appears in the result.
+    h1_lines = [line for line in result.splitlines() if line.startswith("# ")]
+    assert len(h1_lines) == 1
 
 
 # ---------------------------------------------------------------------------

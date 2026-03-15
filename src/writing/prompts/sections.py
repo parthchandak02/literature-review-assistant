@@ -8,18 +8,10 @@ if TYPE_CHECKING:
     from src.writing.context_builder import WritingGroundingData
 
 
-def _get_abstract_word_limit() -> int:
-    """Read max_abstract_words from settings.ieee_export; fall back to 250 (IEEE max)."""
-    try:
-        from src.config.loader import load_configs
-
-        _, _settings = load_configs(settings_path="config/settings.yaml")
-        return int(getattr(getattr(_settings, "ieee_export", None), "max_abstract_words", 250))
-    except Exception:
-        return 250
+from src.models.config import IEEEExportConfig
 
 
-ABSTRACT_WORD_LIMIT = _get_abstract_word_limit()
+ABSTRACT_WORD_LIMIT = int(IEEEExportConfig().max_abstract_words)
 
 SECTION_WORD_LIMITS: dict[str, int] = {
     "abstract": ABSTRACT_WORD_LIMIT,
@@ -29,6 +21,13 @@ SECTION_WORD_LIMITS: dict[str, int] = {
     "discussion": 900,
     "conclusion": 350,
 }
+
+
+def set_abstract_word_limit(limit: int) -> None:
+    """Set runtime abstract word limit from already-loaded settings."""
+    global ABSTRACT_WORD_LIMIT
+    ABSTRACT_WORD_LIMIT = max(50, int(limit))
+    SECTION_WORD_LIMITS["abstract"] = ABSTRACT_WORD_LIMIT
 
 SECTIONS = [
     "abstract",
@@ -132,6 +131,10 @@ def get_abstract_prompt_context(
             f"classifications that are excluded from this kappa calculation.\n\n"
         )
 
+    abstract_limit = int(SECTION_WORD_LIMITS.get("abstract", ABSTRACT_WORD_LIMIT))
+    target_high = max(120, abstract_limit - 10)
+    target_low = max(100, target_high - 25)
+
     return (
         prefix
         + meta_constraint
@@ -147,9 +150,9 @@ def get_abstract_prompt_context(
         "grouped by outcome domain, synthesis direction)\n"
         "**Conclusion:** (main implication and GRADE certainty qualifier)\n"
         "**Keywords:** (5-7 comma-separated keywords drawn from the research topic)\n\n"
-        "WORD COUNT: Target 200-220 words for the abstract body (Background through Conclusion, "
-        "excluding the Keywords line). This is safe for both IEEE Transactions (hard limit 250) "
-        "and IEEE Access (best practice). Do NOT exceed 230 words in the body.\n\n"
+        f"WORD COUNT: Target {target_low}-{target_high} words for the abstract body "
+        "(Background through Conclusion, excluding the Keywords line). "
+        f"Do NOT exceed {abstract_limit} words in the body.\n\n"
         "Use the FACTUAL DATA BLOCK above for all numbers -- "
         "do NOT invent participant counts, effect sizes, or confidence intervals. "
         "Cover: (1) Objectives with PICO, (2) Eligibility criteria, "

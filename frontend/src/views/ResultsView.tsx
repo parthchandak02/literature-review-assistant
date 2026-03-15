@@ -19,6 +19,7 @@ import {
 import { Button } from "@/components/ui/button"
 import { ResultsPanel } from "@/components/ResultsPanel"
 import { EvidenceNetworkViz } from "@/components/EvidenceNetworkViz"
+import { StudyFilesDownloadButton } from "@/components/StudyFilesDownloadButton"
 import { triggerExport, fetchPrismaChecklist, downloadUrl, submissionZipUrl } from "@/lib/api"
 import { Skeleton } from "@/components/ui/skeleton"
 import { FetchError, EmptyState } from "@/components/ui/feedback"
@@ -177,7 +178,7 @@ function ManuscriptViewer({ filePath }: { filePath: string }) {
             "flex items-center gap-1.5 text-xs rounded px-1.5 py-1 transition-colors",
             showOutline
               ? "text-zinc-300 bg-zinc-800/60 hover:bg-zinc-800"
-              : "text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800/40",
+              : "text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/40",
           )}
           title={showOutline ? "Hide outline" : "Show outline"}
         >
@@ -194,7 +195,7 @@ function ManuscriptViewer({ filePath }: { filePath: string }) {
           >
             -
           </button>
-          <span className="text-xs font-mono text-zinc-500 w-10 text-center tabular-nums">{zoom}%</span>
+          <span className="text-xs font-mono text-zinc-400 w-10 text-center tabular-nums">{zoom}%</span>
           <button
             onClick={() => setZoom((z) => Math.min(160, z + 15))}
             disabled={zoom >= 160}
@@ -219,7 +220,7 @@ function ManuscriptViewer({ filePath }: { filePath: string }) {
                     ? "text-zinc-300 font-semibold pl-4"
                     : h.level === 2
                     ? "text-zinc-400 pl-7"
-                    : "text-zinc-600 pl-10",
+                    : "text-zinc-500 pl-10",
                 )}
               >
                 {h.text}
@@ -647,6 +648,15 @@ export function ResultsView({
         icon={FileText}
         title="Artifacts"
         description="Protocol, data files, figures"
+        actions={
+          exportRunId ? (
+            <StudyFilesDownloadButton
+              runId={exportRunId}
+              label="Download All"
+              className="h-7 gap-1 text-xs border-zinc-700 text-zinc-400 hover:text-zinc-200 hover:border-zinc-500"
+            />
+          ) : null
+        }
       >
         <div className="p-4">
           <ResultsPanel outputs={effectiveOutputs} excludePaths={manuscriptExcludePaths} />

@@ -265,14 +265,20 @@ def _sanitize_section_headings(section: str, content: str) -> str:
         if stripped.startswith("### ") or stripped.startswith("#### "):
             prefix = "####" if stripped.startswith("#### ") else "###"
             title = stripped[len(prefix) + 1 :].strip()
-            # Remove trailing citation list from heading text.
-            title = re.sub(r"\s*\[[^\]]+\]\s*$", "", title).strip()
+            # Remove inline citation leakage from heading text.
+            title = re.sub(r"\s*(?:\[[^\]]+\]\s*)+", " ", title).strip()
+            title = re.sub(r"\s*\\cite\{[^}]+\}", " ", title).strip()
+            # Trim sentence spillover that should be body prose.
+            title = re.split(r"[.;:!?]\s+", title, maxsplit=1)[0]
             # Drop known malformed title fragments.
             if title.lower() in _SECTION_NAMES:
                 continue
             if title.lower().endswith((" and", " of", " for", " to", " with")):
                 continue
             title = re.sub(r"\s{2,}", " ", title).strip(" -:")
+            words = title.split()
+            if len(words) > 14:
+                title = " ".join(words[:14]).strip()
             if not title:
                 continue
             if title.lower() == last_heading.lower():
@@ -509,6 +515,9 @@ async def register_background_sr_citations(
     research_question: str,
     keywords: list[str],
     max_results: int = 8,
+    query_keyword_limit: int = 6,
+    topic_token_keyword_limit: int = 10,
+    request_timeout_seconds: int = 20,
 ) -> list[str]:
     """Discover and register background systematic reviews on the same topic.
 
@@ -525,7 +534,10 @@ async def register_background_sr_citations(
 
     from src.utils.ssl_context import tcp_connector_with_certifi
 
-    kw_query = " ".join(keywords[:6]) if keywords else research_question[:120]
+    query_keyword_limit = max(1, int(query_keyword_limit))
+    topic_token_keyword_limit = max(1, int(topic_token_keyword_limit))
+    request_timeout_seconds = max(5, int(request_timeout_seconds))
+    kw_query = " ".join(keywords[:query_keyword_limit]) if keywords else research_question[:120]
     api_key = os.getenv("SEMANTIC_SCHOLAR_API_KEY", "")
     headers: dict[str, str] = {}
     if api_key:
@@ -543,7 +555,7 @@ async def register_background_sr_citations(
             async with session.get(
                 "https://api.semanticscholar.org/graph/v1/paper/search",
                 params=params,
-                timeout=aiohttp.ClientTimeout(total=20),
+                timeout=aiohttp.ClientTimeout(total=request_timeout_seconds),
             ) as resp:
                 if resp.status != 200:
                     logger.debug("Background SR search: Semantic Scholar returned %d", resp.status)
@@ -555,7 +567,12 @@ async def register_background_sr_citations(
         # Topic relevance filter: require at least one keyword token to appear
         # in the paper title (case-insensitive). This prevents highly-cited but
         # off-topic reviews from being registered as background SR citations.
-        _topic_tokens = {tok.lower() for kw in keywords[:10] for tok in kw.replace("-", " ").split() if len(tok) > 3}
+        _topic_tokens = {
+            tok.lower()
+            for kw in keywords[:topic_token_keyword_limit]
+            for tok in kw.replace("-", " ").split()
+            if len(tok) > 3
+        }
         if not _topic_tokens:
             _topic_tokens = {tok.lower() for tok in research_question.split() if len(tok) > 3}
 

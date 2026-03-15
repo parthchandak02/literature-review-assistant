@@ -466,12 +466,22 @@ def _normalize_subsection_heading_layout(text: str) -> str:
     title_token_re = re.compile(r"^[A-Z][A-Za-z0-9()/:,\-']*$")
     sentence_start_re = re.compile(r"^(The|This|These|We|Our|In|Across|To|A|An|Studies|Study|Data)\b")
     connector_tail = {"and", "or", "of", "for", "to", "with"}
+    sentence_starters = {"the", "this", "these", "we", "our", "in", "across", "to", "a", "an", "studies", "study", "data"}
 
     def _looks_title_fragment(s: str) -> bool:
         words = s.strip().split()
         if not words or len(words) > 5:
             return False
         return all(title_token_re.match(w) or w.lower() in connector_tail for w in words)
+
+    def _starts_with_title_prefix_then_sentence(s: str) -> bool:
+        words = s.strip().split()
+        if len(words) < 3:
+            return False
+        if not (title_token_re.match(words[0]) and title_token_re.match(words[1])):
+            return False
+        remainder = " ".join(words[2:])
+        return bool(sentence_start_re.match(remainder))
 
     out: list[str] = []
     lines = text.splitlines()
@@ -492,6 +502,13 @@ def _normalize_subsection_heading_layout(text: str) -> str:
                     nxt_words = next_line.split()
                     consumed = 0
                     for j, w in enumerate(nxt_words):
+                        if (
+                            j > 0
+                            and w.lower() in sentence_starters
+                            and j + 1 < len(nxt_words)
+                            and nxt_words[j + 1][:1].islower()
+                        ):
+                            break
                         if title_token_re.match(w):
                             consumed = j + 1
                             if consumed >= 4:
@@ -548,7 +565,7 @@ def _normalize_subsection_heading_layout(text: str) -> str:
                             )
                         )
                         or (right and right[0].isupper() and any(c in right for c in ".,"))
-                    ):
+                    ) and not _looks_title_fragment(right) and not _starts_with_title_prefix_then_sentence(right):
                         out.append(f"{words[0]} {' '.join(left_words)}")
                         out.append("")
                         out.append(right)
@@ -601,6 +618,15 @@ def _md_section_to_latex(
         _heading_re = re.compile(r"^(#{3,6})\s+(.+)$")
         _sentence_start_re = re.compile(r"^(The|This|These|We|Our|In|Across|To|A|An|Studies|Study|Data)\b")
         _title_token_re = re.compile(r"^[A-Z][A-Za-z0-9()/:,\-']*$")
+        _connector_tail = {"and", "of", "for", "to", "with"}
+        _sentence_starters = {"the", "this", "these", "we", "our", "in", "across", "to", "a", "an", "studies", "study", "data"}
+
+        def _looks_title_fragment(s: str) -> bool:
+            words = s.strip().split()
+            if not words or len(words) > 5:
+                return False
+            return all(_title_token_re.match(w) or w.lower() in _connector_tail for w in words)
+
         m = _heading_re.match(line_text.strip())
         if not m:
             return None
@@ -620,9 +646,58 @@ def _md_section_to_latex(
             if not left_ok:
                 continue
             right = " ".join(right_words).strip()
-            if _sentence_start_re.match(right) or (right and right[0].isupper() and any(c in right for c in ".,")):
+            # If the split point ends on a connector and the right side begins
+            # with a short title fragment, move that fragment into the heading.
+            if (
+                left_words
+                and left_words[-1].lower() in _connector_tail
+                and right_words
+                and not _sentence_start_re.match(right)
+            ):
+                consumed = 0
+                for pos, w in enumerate(right_words):
+                    # Stop if heading fragment starts to absorb body prose, e.g.
+                    # "Findings This section ..." -> keep "This section ..." as body.
+                    if (
+                        pos > 0
+                        and w.lower() in _sentence_starters
+                        and pos + 1 < len(right_words)
+                        and right_words[pos + 1][:1].islower()
+                    ):
+                        break
+                    if _title_token_re.match(w):
+                        consumed += 1
+                        if consumed >= 3:
+                            break
+                        continue
+                    break
+                if 0 < consumed < len(right_words):
+                    merged_left = left_words + right_words[:consumed]
+                    merged_right = " ".join(right_words[consumed:]).strip()
+                    if merged_right:
+                        return level, " ".join(merged_left), merged_right
+            if (_sentence_start_re.match(right) or (right and right[0].isupper() and any(c in right for c in ".,"))) and (
+                not _looks_title_fragment(right)
+            ):
                 return level, " ".join(left_words), right
         return None
+
+    def _sanitize_heading_title(raw_title: str) -> str:
+        """Normalize malformed heading titles and strip citation leakage."""
+        title = raw_title.strip()
+        # Remove inline numeric citation clusters that should not appear in headings.
+        title = re.sub(r"\s*(?:\[\s*\d+\s*\]\s*)+", " ", title)
+        title = re.sub(r"\s*\\cite\{[^}]+\}", " ", title)
+        # Cut at sentence punctuation when run-on prose leaked into heading text.
+        title = re.split(r"[.;:!?]\s+", title, maxsplit=1)[0]
+        title = re.sub(r"\s{2,}", " ", title).strip(" -:,;.")
+        # Guardrail: overly long headings are usually sentence spillover.
+        words = title.split()
+        if len(words) > 14:
+            title = " ".join(words[:14]).strip()
+        # Trim trailing connectors that indicate a broken split.
+        title = re.sub(r"\b(and|of|for|to|with|due)\s*$", "", title, flags=re.IGNORECASE).strip()
+        return title
 
     while i < len(lines):
         line = lines[i]
@@ -632,6 +707,7 @@ def _md_section_to_latex(
         if inline_heading and inline_heading[0] == "####":
             flush_list()
             _, title, body_text = inline_heading
+            title = _sanitize_heading_title(title)
             parts.append(f"\\subsubsection{{{_escape_latex(title)}}}")
             parts.append("")
             conv = _convert_inline_formatting(
@@ -644,6 +720,7 @@ def _md_section_to_latex(
         elif inline_heading and inline_heading[0] == "###":
             flush_list()
             _, title, body_text = inline_heading
+            title = _sanitize_heading_title(title)
             parts.append(f"\\subsection{{{_escape_latex(title)}}}")
             parts.append("")
             conv = _convert_inline_formatting(
@@ -655,17 +732,17 @@ def _md_section_to_latex(
             parts.append("")
         elif stripped.startswith("#### "):
             flush_list()
-            title = stripped[5:].strip()
+            title = _sanitize_heading_title(stripped[5:].strip())
             parts.append(f"\\subsubsection{{{_escape_latex(title)}}}")
             parts.append("")
         elif stripped.startswith("### "):
             flush_list()
-            title = stripped[4:].strip()
+            title = _sanitize_heading_title(stripped[4:].strip())
             parts.append(f"\\subsection{{{_escape_latex(title)}}}")
             parts.append("")
         elif stripped.startswith("## "):
             flush_list()
-            title = stripped[3:].strip()
+            title = _sanitize_heading_title(stripped[3:].strip())
             parts.append(f"\\section{{{_escape_latex(title)}}}")
             parts.append("")
         elif stripped.startswith("# "):
@@ -673,7 +750,7 @@ def _md_section_to_latex(
             # The _extract_title_and_abstract fallback strips the header block, but
             # if any # heading survives (e.g. in appendices), emit as \section.
             flush_list()
-            title = stripped[2:].strip()
+            title = _sanitize_heading_title(stripped[2:].strip())
             parts.append(f"\\section{{{_escape_latex(title)}}}")
             parts.append("")
         elif stripped == "---":
@@ -801,23 +878,21 @@ def markdown_to_latex(
     body = _md_section_to_latex(rest, citekeys, num_to_citekey)
     body = _merge_consecutive_cites(body)
 
-    _FIGURE_CAPTIONS: dict[str, str] = {
-        "fig_prisma_flow": "PRISMA 2020 flow diagram illustrating the systematic search and screening process.",
-        "fig_rob_traffic_light": "Risk-of-bias traffic-light summary across included studies.",
-        "fig_rob2_traffic_light": "Risk-of-bias traffic-light summary (ROBINS-I) across included non-randomized studies.",
-        "fig_funnel_plot": "Funnel plot assessing publication bias across pooled effect estimates.",
-        "fig_forest_plot": "Forest plot of pooled effect estimates with 95% confidence intervals.",
-        "fig_publication_timeline": "Publication timeline of included studies.",
-        "fig_geographic_distribution": "Geographic distribution of included studies by country.",
-        "fig_evidence_network": (
-            "Evidence network of included studies. Nodes represent papers, colored by research cluster. "
-            "Edge color denotes relationship type (teal = shared outcome, gold = shared population, "
-            "blue = shared intervention, purple = embedding similarity). "
-            "Amber rings indicate papers related to identified research gaps."
-        ),
-        "fig_concept_taxonomy": "Conceptual taxonomy of key constructs across included studies.",
-        "fig_conceptual_framework": "Conceptual framework derived from included studies.",
-        "fig_methodology_flow": "Methodology flow diagram.",
+    from src.export.markdown_refs import FIGURE_DEFS
+
+    _artifact_to_caption = {artifact_key: caption for artifact_key, caption in FIGURE_DEFS}
+    _stem_to_artifact = {
+        "fig_prisma_flow": "prisma_diagram",
+        "fig_rob_traffic_light": "rob_traffic_light",
+        "fig_rob2_traffic_light": "rob2_traffic_light",
+        "fig_funnel_plot": "fig_funnel_plot",
+        "fig_forest_plot": "fig_forest_plot",
+        "fig_publication_timeline": "timeline",
+        "fig_geographic_distribution": "geographic",
+        "fig_evidence_network": "evidence_network",
+        "fig_concept_taxonomy": "concept_taxonomy",
+        "fig_conceptual_framework": "conceptual_framework",
+        "fig_methodology_flow": "methodology_flow",
     }
 
     fig_section = ""
@@ -826,7 +901,8 @@ def markdown_to_latex(
         for i, path in enumerate(figure_paths, 1):
             name = Path(path).stem
             inc_path = f"figures/{name}" if "/" not in path else path
-            caption = _FIGURE_CAPTIONS.get(name, f"Figure {i}.")
+            artifact_key = _stem_to_artifact.get(name, "")
+            caption = _artifact_to_caption.get(artifact_key, f"Figure {i}.")
             fig_section += "\\begin{figure}[htbp]\n"
             fig_section += "  \\centering\n"
             fig_section += f"  \\includegraphics[width=0.9\\columnwidth]{{{inc_path}}}\n"

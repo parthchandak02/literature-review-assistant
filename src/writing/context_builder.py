@@ -243,7 +243,7 @@ class WritingGroundingData(BaseModel):
     # Injected into the Methods section so readers know exactly which model and cut-off
     # were used -- a Q1 journal requirement when LLM exclusion exceeds 5% of records.
     batch_screener_model: str | None = None
-    batch_screen_threshold: float = 0.35
+    batch_screen_threshold: float = 0.30
     # Cross-validation of batch-excluded abstracts (NPV): populated after rank_and_split().
     # batch_screen_validation_n: how many excluded abstracts were re-scored.
     # batch_screen_validation_npv: fraction confirmed excluded on re-score (0.0-1.0).
@@ -271,6 +271,8 @@ class WritingGroundingData(BaseModel):
     # True when conclusion text must be explicitly hedged due to certainty gaps.
     conclusion_hedging_required: bool = False
     conclusion_hedging_reason: str = ""
+    fulltext_nonretrieval_caution_threshold: float = 0.40
+    abstract_only_caution_threshold: float = 0.40
 
 
 def _build_screening_method_description(
@@ -278,6 +280,7 @@ def _build_screening_method_description(
     total_screened: int,
     batch_screen_forwarded: int = 0,
     batch_screen_excluded: int = 0,
+    batch_screen_threshold: float = 0.30,
     cohens_kappa: float | None = None,
 ) -> str:
     """Compute an accurate screening method description from actual decision records.
@@ -329,6 +332,7 @@ def _build_screening_method_description(
     if batch_screen_forwarded > 0:
         # 3-stage funnel: BM25 -> batch pre-ranker -> dual reviewers
         bm25_fwd = batch_screen_forwarded + batch_screen_excluded
+        threshold_pct = int(batch_screen_threshold * 100)
         _batch_kappa = (
             f"Inter-rater reliability was measured using Cohen's kappa on the "
             f"{batch_screen_forwarded} records evaluated by the dual reviewers."
@@ -340,7 +344,7 @@ def _build_screening_method_description(
             f"First, a BM25 keyword relevance pre-filter evaluated all records, routing "
             f"{bm25_fwd} records to a batch LLM pre-ranker. "
             f"The pre-ranker coarse-scored all {bm25_fwd} records and auto-excluded "
-            f"{batch_screen_excluded} records with low relevance scores (threshold < 35%), "
+            f"{batch_screen_excluded} records with low relevance scores (threshold < {threshold_pct}%), "
             f"forwarding {batch_screen_forwarded} records for AI-assisted dual review. "
             f"Two independent reviewers in the AI-assisted pipeline then screened those {batch_screen_forwarded} records, "
             f"with a third reviewer resolving any disagreements. "
@@ -398,7 +402,7 @@ def build_writing_grounding(
     batch_screen_forwarded: int = 0,
     batch_screen_excluded: int = 0,
     batch_screener_model: str | None = None,
-    batch_screen_threshold: float = 0.35,
+    batch_screen_threshold: float = 0.30,
     batch_screen_validation_n: int = 0,
     batch_screen_validation_npv: float = 0.0,
     fulltext_sought: int = 0,
@@ -407,6 +411,8 @@ def build_writing_grounding(
     robins_i_assessments: list | None = None,
     grade_assessments: list | None = None,
     figure_map: dict[str, int] | None = None,
+    fulltext_nonretrieval_caution_threshold: float = 0.40,
+    abstract_only_caution_threshold: float = 0.40,
 ) -> WritingGroundingData:
     """Aggregate real pipeline outputs into a WritingGroundingData instance."""
 
@@ -582,11 +588,11 @@ def build_writing_grounding(
     _abstract_only = max(0, fulltext_total - fulltext_retrieved)
     _abstract_only_rate = (_abstract_only / fulltext_total) if fulltext_total > 0 else 0.0
     _hedge_reasons: list[str] = []
-    if _fulltext_nonretrieval_rate > 0.40:
+    if _fulltext_nonretrieval_rate > fulltext_nonretrieval_caution_threshold:
         _hedge_reasons.append(
             f"high full-text non-retrieval ({prisma_counts.reports_not_retrieved}/{prisma_counts.reports_sought})"
         )
-    if _abstract_only_rate > 0.40:
+    if _abstract_only_rate > abstract_only_caution_threshold:
         _hedge_reasons.append(f"high abstract-only evidence ({_abstract_only}/{fulltext_total})")
     if _low_certainty_present:
         _hedge_reasons.append("low or very low GRADE certainty")
@@ -641,6 +647,7 @@ def build_writing_grounding(
             _effective_screened,
             batch_screen_forwarded=batch_screen_forwarded,
             batch_screen_excluded=batch_screen_excluded,
+            batch_screen_threshold=batch_screen_threshold,
             cohens_kappa=cohens_kappa,
         ),
         background_sr_citekeys=background_sr_citekeys or [],
@@ -663,6 +670,8 @@ def build_writing_grounding(
         figure_map=figure_map or {},
         conclusion_hedging_required=bool(_hedge_reasons),
         conclusion_hedging_reason="; ".join(_hedge_reasons),
+        fulltext_nonretrieval_caution_threshold=fulltext_nonretrieval_caution_threshold,
+        abstract_only_caution_threshold=abstract_only_caution_threshold,
     )
 
 
@@ -905,7 +914,7 @@ def format_grounding_block(data: WritingGroundingData) -> str:
         )
         # Abstract-only rate quality gate: when >40% of included papers had no full text,
         # inject a strong synthesis caution to prevent over-confident claims.
-        if abstract_only_rate > 0.40:
+        if abstract_only_rate > data.abstract_only_caution_threshold:
             lines.append(
                 f"CAUTION -- HIGH ABSTRACT-ONLY RATE: {abstract_only_rate:.0%} of included studies "
                 f"({abstract_only} of {data.fulltext_total_count}) lacked full text. "

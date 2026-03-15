@@ -278,3 +278,23 @@ def test_assemble_manuscript_without_fulltext_ids_shows_no(tmp_path: Path) -> No
         fulltext_paper_ids=None,
     )
     assert "No" in result
+
+
+def test_assemble_submission_manuscript_strips_existing_leading_h1_before_prepend(tmp_path: Path) -> None:
+    body = (
+        "# A Systematic Review: Duplicate Title\n\n"
+        "## Introduction\n\n"
+        "Body text.\n"
+    )
+    result = assemble_submission_manuscript(
+        body=body,
+        manuscript_path=tmp_path / "ms.md",
+        artifacts={},
+        citation_rows=[],
+        papers=[],
+        extraction_records=[],
+        research_question="Duplicate Title",
+        title="A Systematic Review: Duplicate Title",
+        include_rq_block=False,
+    )
+    assert result.count("# A Systematic Review: Duplicate Title") == 1
