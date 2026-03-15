@@ -1,0 +1,9 @@
+---
+description: Keep search lightweight with rg
+alwaysApply: true
+---
+
+# Prefer rg for search
+
+- Default to `rg` for repository text/code search.
+- Use `grep` only if `rg` is unavailable or explicitly required.
