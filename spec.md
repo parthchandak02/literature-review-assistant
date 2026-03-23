@@ -689,7 +689,9 @@ submission/
 |-- figures/
 `-- supplementary/
     |-- search_strategies_appendix.pdf  (stub in v1)
-    |-- prisma_checklist.pdf            (stub in v1)
+    |-- prisma_checklist.html
+    |-- prisma_checklist.md
+    |-- prisma_checklist.csv
     |-- extracted_data.csv
     `-- screening_decisions.csv
 ```
@@ -794,10 +796,10 @@ Canonical table ownership and stat precedence are centralized in `src/db/source_
 
 ### 8.2 Central Registry
 
-`{run_root}/workflows_registry.db` holds a single `workflows_registry` table:
+`{run_root}/workflows_registry.db` holds a central `workflows_registry` table:
 
 ```
-workflow_id | topic | config_hash | db_path | status | created_at | updated_at | heartbeat_at
+workflow_id | topic | config_hash | db_path | status | created_at | updated_at | heartbeat_at | notes | is_archived | archived_at
 ```
 
 This maps (topic, config_hash) to the absolute path of the per-run `runtime.db`, enabling resume without filesystem scanning. The per-run `workflows` table still exists in `runtime.db` for local workflow metadata.
@@ -1034,6 +1036,8 @@ Run card status border (2px left): emerald = completed, violet = running/connect
 | GET | /api/history/{workflow_id}/config | Original review.yaml written at run completion |
 | POST | /api/history/attach | Attach historical run for DB explorer; loads event_log from DB |
 | POST | /api/history/resume | Resume a historical run; body includes workflow_id, optionally from_phase |
+| POST | /api/history/{workflow_id}/archive | Soft-archive a workflow row; preserves run data and artifacts |
+| POST | /api/history/{workflow_id}/restore | Restore an archived workflow row to the active list |
 | DELETE | /api/history/{workflow_id} | Delete run directory + registry entry from disk |
 | GET | /api/db/{run_id}/papers | Paginated + searchable papers from runtime.db |
 | GET | /api/db/{run_id}/papers-all | All papers with doi + url fields for clickable links |
@@ -1071,7 +1075,7 @@ Endpoint parity is enforced in CI via `scripts/check_spec_endpoint_parity.py`, w
 
 - `Run lifecycle`: `/api/run`, `/api/run-with-masterlist`, `/api/run-with-supplementary-csv`, `/api/stream/{run_id}`, `/api/cancel/{run_id}` -> handlers `@app.post("/api/run")`, `@app.post("/api/run-with-masterlist")`, `@app.post("/api/run-with-supplementary-csv")`, `@app.get("/api/stream/{run_id}")`, `@app.post("/api/cancel/{run_id}")` in `src/web/app.py`.
 - `Config`: `/api/config/review`, `/api/config/env-keys`, `/api/config/generate`, `/api/config/generate/stream` -> handlers `@app.get("/api/config/review")`, `@app.get("/api/config/env-keys")`, `@app.post("/api/config/generate")`, `@app.post("/api/config/generate/stream")`.
-- `History and notes`: `/api/history`, `/api/history/active-run`, `/api/history/{workflow_id}/config`, `/api/history/resume`, `/api/history/attach`, `/api/notes/{workflow_id}`, `/api/notes/stream` -> matching `@app.get/@app.post/@app.patch` decorators in `src/web/app.py`.
+- `History and notes`: `/api/history`, `/api/history/active-run`, `/api/history/{workflow_id}/config`, `/api/history/resume`, `/api/history/attach`, `/api/history/{workflow_id}/archive`, `/api/history/{workflow_id}/restore`, `/api/history/{workflow_id}` (DELETE), `/api/notes/{workflow_id}`, `/api/notes/stream` -> matching `@app.get/@app.post/@app.patch/@app.delete` decorators in `src/web/app.py`.
 - `DB explorer`: `/api/db/{run_id}/papers`, `/papers-all`, `/papers-facets`, `/papers-suggest`, `/screening`, `/costs`, `/tables`, `/rag-diagnostics` -> matching `@app.get("/api/db/...")` handlers.
 - `Artifacts and export`: `/api/run/{run_id}/artifacts`, `/manuscript`, `/events`, `/workflow/{workflow_id}/events`, `/export`, `/submission.zip`, `/manuscript.docx`, `/prospero-form.docx`, `/prospero-form.md`, `/logs/stream` -> matching `@app.get/@app.post` handlers.
 - `References and review controls`: `/api/run/{run_id}/papers-reference`, `/papers/{paper_id}/file`, `/fetch-pdfs`, `/screening-summary`, `/approve-screening`, `/knowledge-graph`, `/prisma-checklist`, `/grade-sof`, `/living-refresh` -> matching `@app.get/@app.post` handlers.

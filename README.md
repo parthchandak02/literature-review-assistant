@@ -23,7 +23,7 @@ Clicking **Export** in the browser (or running `uv run python -m src.main export
 - `manuscript.docx` -- Word format with figures and formatted tables (for sharing / human review)
 - `references.bib` -- all citations
 - `figures/` -- PRISMA flow diagram, RoB traffic-light, forest plot, funnel plot, publication timeline, geographic distribution
-- `supplementary/` -- search strategies appendix, screening decisions CSV, extracted data CSV
+- `supplementary/` -- search strategies appendix, screening decisions CSV, extracted data CSV, PRISMA checklist (`prisma_checklist.html`, `prisma_checklist.md`, `prisma_checklist.csv`)
 
 ---
 
@@ -87,7 +87,7 @@ A secondary "Paste YAML directly" link is also available for pasting a raw confi
 
 Your Gemini API key is required and is pre-filled from localStorage on return visits. All keys are saved locally in your browser and never sent anywhere except your local backend.
 
-The sidebar shows all your runs (live and historical) with status colors (emerald = completed, violet = running, red = error, amber = cancelled) and a stats strip (papers found, papers included, artifacts, cost). Selecting a run opens its dashboard with 6 base tabs: Config (research question + review.yaml), Activity (phase timeline + event log), Data, Cost, Results, and References (included papers list with PDF/TXT download). A conditional Review Screening tab appears only when the run pauses for human-in-the-loop screening approval (`awaiting_review`). To resume from a specific phase, use the Activity phase timeline (tap once to arm, tap again to confirm) or use the sidebar Resume button for default auto-resume. You can also delete completed runs from the sidebar.
+The sidebar shows all your runs (live and historical) with status colors (emerald = completed, violet = running, red = error, amber = cancelled) and a stats strip (papers found, papers included, artifacts, cost). Selecting a run opens its dashboard with 6 base tabs: Config (research question + review.yaml), Activity (phase timeline + event log), Data, Cost, Results, and References (included papers list with PDF/TXT download). A conditional Review Screening tab appears only when the run pauses for human-in-the-loop screening approval (`awaiting_review`). To resume from a specific phase, use the Activity phase timeline (tap once to arm, tap again to confirm) or use the sidebar Resume button for default auto-resume. Runs can be archived from the active list, restored from the Archived section, and permanently deleted from archived-item overflow actions.
 
 **Tip -- reuse a past config:** Click "+" to open the form, then use the "Load from past run" dropdown to pre-populate the form from any previous run's config. Useful for iterating on the same research question with different parameters.
 
@@ -293,7 +293,7 @@ Every factual claim in the manuscript is traced back to a citation via the citat
 Grouped endpoints most users use:
 
 - Run lifecycle: `POST /api/run`, `POST /api/run-with-masterlist`, `POST /api/run-with-supplementary-csv`, `GET /api/stream/{run_id}`, `POST /api/cancel/{run_id}`
-- History/resume: `GET /api/history`, `GET /api/history/active-run`, `POST /api/history/resume`, `POST /api/history/attach`, `GET /api/history/{workflow_id}/config`
+- History/resume: `GET /api/history`, `GET /api/history/active-run`, `GET /api/history/{workflow_id}/config`, `POST /api/history/attach`, `POST /api/history/resume`, `POST /api/history/{workflow_id}/archive`, `POST /api/history/{workflow_id}/restore`, `DELETE /api/history/{workflow_id}`
 - Results/export: `GET /api/run/{run_id}/artifacts`, `GET /api/run/{run_id}/manuscript`, `POST /api/run/{run_id}/export`, `GET /api/run/{run_id}/submission.zip`, `GET /api/run/{run_id}/manuscript.docx`, `GET /api/run/{run_id}/prospero-form.docx`
 - References/full text: `GET /api/run/{run_id}/papers-reference`, `GET /api/run/{run_id}/papers/{paper_id}/file`, `POST /api/run/{run_id}/fetch-pdfs`
 - Human review/living review: `GET /api/run/{run_id}/screening-summary`, `POST /api/run/{run_id}/approve-screening`, `POST /api/run/{run_id}/living-refresh`
