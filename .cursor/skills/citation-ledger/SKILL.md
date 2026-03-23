@@ -29,4 +29,5 @@ Guide for implementing the citation ledger (Phase 1 Foundation).
 
 ## SQLite Tables
 
-`claims`, `evidence_links`, `citations` -- see schema in v2 spec Part 3.
+`claims`, `evidence_links`, `citations` -- see `src/db/schema.sql` and implementations in
+`src/citation/ledger.py` + repository persistence in `src/db/repositories.py`.

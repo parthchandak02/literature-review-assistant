@@ -298,7 +298,7 @@ returned empty patterns and was never injected into prompts.
 `src/screening/batch_ranker.py` implements a batch scoring step that fires after BM25
 ranking and before the full dual-reviewer LLM pass. It scores papers in batches using
 the `batch_screener` agent (settings.yaml). Papers scoring below `batch_screen_threshold`
-(0.30, from the `screening:` section of settings.yaml) are auto-excluded as `batch_screened_low` and emitted via the
+(0.20, from the `screening:` section of settings.yaml) are auto-excluded as `batch_screened_low` and emitted via the
 `batch_screen_done` SSE event (visible in the FUNNEL log line). Only papers above the
 threshold proceed to the dual-reviewer. The funnel display shows "N to dual-reviewer"
 and "M auto-excluded (score < X%)" for this stage. If batch_ranker raises an exception,
@@ -347,12 +347,13 @@ original run. Fix: `src/orchestration/resume.py` reads the `phase_done` event wi
 `state.kappa_stage`, and `state.kappa_n`. If you add any other transient state fields that
 affect manuscript content, add the same restore pattern to `resume.py`.
 
-## Sidebar "Papers Included" Uses dual_screening_results With Fallbacks
+## Sidebar "Papers Included" Uses Canonical Cohort With Fallbacks
 `_fetch_run_stats()` in `src/web/app.py` derives `papers_included` with explicit precedence:
-1) `dual_screening_results` fulltext-stage rows where `final_decision IN ('include','uncertain')`
-2) `event_log` `phase_done` summary for `phase='phase_3_screening'` (historical fallback)
-3) `extraction_records` count (legacy fallback)
-This avoids abstract-stage over-counting and keeps current runs aligned with durable DB state.
+1) `study_cohort_membership` rows where `synthesis_eligibility = 'included_primary'` (canonical source)
+2) `dual_screening_results` fulltext-stage rows where `final_decision IN ('include','uncertain')`
+3) `event_log` `phase_done` summary for `phase='phase_3_screening'` (historical fallback)
+4) `extraction_records` count (legacy fallback)
+This avoids abstract-stage over-counting and keeps stats aligned with synthesis-eligible primary studies.
 
 ## doc_manuscript.tex and references.bib Are First-Class Run Artifacts
 `FinalizeNode` in `src/orchestration/workflow.py` now generates `doc_manuscript.tex` and

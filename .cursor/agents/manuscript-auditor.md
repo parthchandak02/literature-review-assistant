@@ -137,6 +137,51 @@ Classify and read each file found:
 **F. Any other files:**
 - Read and classify. Add additional published SRs to the benchmark pool.
 
+### STEP 2B -- Legacy feedback reconciliation gate (mandatory)
+
+Before spawning subagents, explicitly reconcile the recurring feedback patterns from:
+- `reference/gemini-1.md`
+- `reference/gemini-2.md`
+- `reference/gemini-3.md`
+- `reference/gemini-4.md`
+- `reference/gemini-5.md`
+- `reference/gemini-6.md`
+
+Build a compact reconciliation ledger in your working notes (do not write files) with one row per category:
+- Category ID
+- Category description
+- Status in current run: `PRESENT`, `RESOLVED`, or `NOT_APPLICABLE`
+- Evidence quote from current run artifact(s)
+- If `PRESENT`, recommended fix path in `src/`
+
+Use these legacy categories as the minimum set:
+- `L1` AI/chat/code artifact leakage in manuscript text
+- `L2` Ineligible study designs included in synthesis (for example narrative review)
+- `L3` Included studies lacking full-text basis
+- `L4` Protocol registration contradictions or unclear timing
+- `L5` Count inconsistencies (abstract/results/tables/PRISMA/DB)
+- `L6` Missing or weak SoF/GRADE transparency
+- `L7` Missing RoB domain-level reporting detail
+- `L8` Screening automation transparency gaps (model, thresholds, verification)
+- `L9` Excessive `NR` extraction gaps for required fields
+- `L10` Citation-reference integrity defects
+- `L11` Overstated certainty/claims versus evidence quality
+- `L12` Metric sanity defects (impossible scale values or units)
+
+If this legacy reconciliation gate is not complete, STOP and do not continue to Step 3.
+
+### STEP 2C -- Deterministic leakage and placeholder scan (mandatory)
+
+Run a deterministic scan against `<run_root>/doc_manuscript.md` and `<run_root>/doc_manuscript.tex` before subagents:
+
+```bash
+rg -n -i "as an ai|language model|i cannot access|i do not have access|chatgpt|claude|gemini|assistant:" <run_root>/doc_manuscript.md <run_root>/doc_manuscript.tex
+rg -n "```|^Python$|^Code output$|import re|subprocess.run|pip install|Congratulations on finishing" <run_root>/doc_manuscript.md <run_root>/doc_manuscript.tex
+rg -n -i "TODO|TBD|XXX|PLACEHOLDER|INSERT .* HERE|lorem ipsum|\\[CITATION_NEEDED\\]" <run_root>/doc_manuscript.md <run_root>/doc_manuscript.tex
+```
+
+Any positive hit in manuscript body text is at least HIGH severity; leakage of conversational/editorial artifacts is CRITICAL.
+
 ---
 
 ## STEP 3 -- Spawn 4 parallel audit subagents
@@ -146,6 +191,8 @@ After completing Steps 0-2, you have all the information needed. Now use the Tas
 For each subagent, construct a self-contained prompt that embeds:
 - The full text of `doc_manuscript.md`
 - The relevant subset of other artifacts (as specified below)
+- The Step 2B legacy reconciliation ledger
+- The Step 2C deterministic leakage scan output
 - The exact audit instructions for its streams (copied from the stream definitions below)
 - The FINDINGS output format contract (copied from the "Subagent output contract" section below)
 
@@ -178,6 +225,12 @@ Check the structured abstract against PRISMA 2020 item 2 requirements:
 
 Flag any number that appears in the abstract but cannot be verified in the Results or Appendix.
 
+Apply a strict abstract integrity contract:
+- Word limit must be <= 230 words.
+- Every numeric claim in abstract must map to either DB counts (Stream C) or explicit Results/Appendix evidence.
+- Abstract must not introduce claims absent from Results/Discussion.
+- If certainty is low/very low, abstract conclusion must use hedged language.
+
 **Task -- AUDIT STREAM B: Methods Section Audit**
 
 Check the Methods section against PRISMA 2020 items 3-16:
@@ -198,6 +251,12 @@ Check the Methods section against PRISMA 2020 items 3-16:
 Cross-check against `doc_protocol.md` if provided. Flag any method described in the manuscript that contradicts the protocol.
 
 Also check: Are supplementary search methods (citation chasing, grey literature) mentioned or their absence acknowledged?
+
+Apply a protocol transparency contract:
+- Registration status is internally consistent across Abstract, Methods, and Declarations.
+- Registration timing is coherent with stated search dates (prospective vs retrospective must be explicit).
+- A "changes/deviations from protocol" statement exists and is specific (or explicit "none" statement).
+- If automation-assisted screening was used, methods disclose model/tool identity, threshold logic, and verification approach.
 
 **AI-Assisted SR Methodology Validation:**
 
@@ -247,23 +306,33 @@ sqlite3 <run_root>/runtime.db \
    WHERE workflow_id = '<workflow_id>' \
    AND stage = 'title_abstract' AND final_decision IN ('include', 'uncertain');"
 
-# Papers that passed full-text screening (final included set)
+# Canonical synthesis included set (final included studies)
 sqlite3 <run_root>/runtime.db \
-  "SELECT COUNT(DISTINCT paper_id) FROM dual_screening_results \
+  "SELECT COUNT(DISTINCT paper_id) FROM study_cohort_membership \
    WHERE workflow_id = '<workflow_id>' \
-   AND stage = 'fulltext' AND final_decision IN ('include', 'uncertain');"
+   AND synthesis_eligibility = 'included_primary';"
 
 # Included paper titles for cross-check
 sqlite3 <run_root>/runtime.db \
   "SELECT p.paper_id, p.title, p.year, p.doi \
    FROM papers p \
-   JOIN dual_screening_results dsr ON p.paper_id = dsr.paper_id \
-   WHERE dsr.workflow_id = '<workflow_id>' \
-   AND dsr.stage = 'fulltext' AND dsr.final_decision IN ('include', 'uncertain') \
+   JOIN study_cohort_membership scm ON p.paper_id = scm.paper_id \
+   WHERE scm.workflow_id = '<workflow_id>' \
+   AND scm.synthesis_eligibility = 'included_primary' \
    ORDER BY p.year;"
 ```
 
 Flag any mismatch between text and DB counts -- even a difference of 1 is CRITICAL.
+
+Add this full-text integrity check:
+```bash
+sqlite3 <run_root>/runtime.db \
+  "SELECT COUNT(DISTINCT paper_id) FROM study_cohort_membership \
+   WHERE workflow_id='<workflow_id>' \
+   AND synthesis_eligibility='included_primary' \
+   AND (fulltext_status IS NULL OR fulltext_status IN ('not_retrieved','missing','unknown'));"
+```
+If this count is non-zero, flag as CRITICAL unless manuscript explicitly handles these as excluded from synthesis.
 
 Also cross-check the PRISMA full-text stage numbers. These are THREE distinct counts:
 - `reports_sought` = papers that screened positive and needed full-text retrieval
@@ -296,6 +365,11 @@ sqlite3 <run_root>/runtime.db \
 
 Then verify the manuscript does NOT use "reports sought" as a label for the "reports assessed" number. If you see this, it is CRITICAL even if reported in a prior run.
 
+Apply retrieval disclosure contract:
+- Manuscript must disclose full-text retrieval success/failure as numerator/denominator and percent.
+- Manuscript must disclose reasons for non-retrieval (or point to explicit appendix listing).
+- If non-retrieval rate is high (>= 30%), Discussion/Limitations must include bias risk caution language.
+
 For each of these sub-checks, include the raw counts in your FINDINGS output so the orchestrator can use them in the cross-audit consistency check (Step 5):
 
 1. Study characteristics table (Appendix A or equivalent):
@@ -312,6 +386,10 @@ For each of these sub-checks, include the raw counts in your FINDINGS output so 
    - Are all major outcome themes addressed?
    - Are specific quantitative findings cited with study references?
    - Does the outcome direction summary match `data_narrative_synthesis.json` if provided?
+
+4. SoF/GRADE completeness:
+   - If GRADE is mentioned, does a Summary of Findings table exist with outcomes, participant counts, certainty ratings, and downgrade reasons?
+   - If certainty is low/very low, are strong causal claims avoided?
 
 **Output format:** Return findings using the FINDINGS block contract below. Also prepend a DATA COUNTS block at the top of your response in this exact format:
 
@@ -375,6 +453,8 @@ Perform a full citation integrity check:
 3. Check for any reference entry in `references.bib` never cited in the text.
 4. Search the manuscript for the literal string `[CITATION_NEEDED]` -- any occurrence is CRITICAL.
 5. Check that findings attributed to a citation are plausible given the reference title/journal.
+6. For major claim sentences in Abstract, Results, and Discussion, verify at least one citation is present.
+7. Distinguish evidence claims from methods claims: evidence claims should map to included studies when appropriate, not only methodology citations.
 
 Check for two known LaTeX citation bugs in `doc_manuscript.tex`:
 - **Comma-separated bracket lists**: find patterns like `[AuthorYear, AuthorYear]` -- these are raw citekey lists that should have been converted to `\cite{Key1,Key2,...}`. Each is CRITICAL.
@@ -436,6 +516,14 @@ FIX: <one concise sentence; if tool-level bug, point to the src/ file to fix>
 
 Subagent 2 also prepends a `[DATA COUNTS]` block before its FINDINGS (format specified in the Subagent 2 section above).
 
+### Severity rubric (deterministic)
+
+Map findings to severity using this policy:
+- `CRITICAL` (P0 fatal): submission-blocking integrity defects (AI/chat leakage, inclusion of ineligible design, non-verifiable counts, included-without-fulltext, protocol contradiction, broken citations/placeholders).
+- `HIGH` (P1 major): major reporting/completeness defects that usually trigger major revision (missing SoF/GRADE detail, missing RoB domain detail, severe extraction gaps, unresolved PRISMA reporting omissions).
+- `MODERATE` (P2): quality gaps that should be fixed before submission but may not invalidate core findings.
+- `LOW` (P3): editorial/clarity improvements.
+
 ---
 
 ## STEP 4 -- Collect and normalize subagent findings
@@ -469,6 +557,10 @@ Using the normalized findings list and the DATA COUNTS from Subagent 2, perform 
 5. **AI transparency**: If any section says "human reviewers" when AI was used, is this consistently flagged across Subagents 1 and 3?
 
 6. **Screening funnel accuracy**: Does the Methods section describe all active screening stages? If a batch LLM pre-ranker was used (visible in the activity log as "BATCH" events), does the Methods describe a 3-stage funnel (BM25 -> batch pre-ranker -> dual reviewers) rather than collapsing to 2 stages?
+
+7. **Protocol coherence**: Are protocol registration statements and timing consistent across Abstract, Methods, and Declarations?
+
+8. **Leakage confirmation**: Do any Step 2C scan hits remain unaccounted for in subagent findings? If yes, create new CRITICAL/HIGH findings.
 
 Add any new cross-stream findings to the normalized list with IDs continuing from where Step 4 left off. Label their LOCATION as "cross-stream".
 
@@ -560,14 +652,44 @@ Table from Step 6, plus the narrative paragraph.
 ### Recommended Next Steps
 Ordered list of 5-10 concrete actions, framed as user commands (e.g., "Re-run extraction with higher context window for studies with NR sample sizes", "Add PICOS Table 1 to the Methods section", "Fix Methods to say 'AI-assisted dual review' not 'human reviewers'").
 
+### Readiness Gate Decision
+Conclude with a deterministic gate decision:
+- `NOT READY` if any CRITICAL exists.
+- `NEEDS MAJOR REVISION` if no CRITICAL but one or more HIGH exists.
+- `NEEDS MINOR REVISION` if only MODERATE/LOW findings exist.
+- `SUBMISSION READY` only when no findings remain.
+
+### Legacy Feedback Closure Matrix
+Report `L1-L12` categories from Step 2B with status:
+- `CLOSED_THIS_RUN` (resolved in current run),
+- `OPEN_THIS_RUN` (still present and actionable),
+- `NOT_APPLICABLE`.
+
+---
+
+## STEP 8 -- Validation run for this upgraded auditor
+
+After updating this auditor specification, validate behavior on the latest completed run:
+
+1. Run the manuscript auditor against the latest completed workflow.
+2. Confirm the report includes explicit coverage for:
+   - AI/chat/code artifact leakage checks,
+   - abstract/results/table/PRISMA/DB count reconciliation,
+   - protocol registration coherence and timing checks,
+   - citation integrity and placeholder detection,
+   - SoF/GRADE and RoB domain-detail completeness.
+3. Confirm each finding points to pipeline/source fixes (`src/`) where applicable and does not suggest manual edits in `runs/`.
+4. If any required coverage is missing, treat that as a HIGH auditor-spec defect and iterate the prompt spec before production use.
+
 ---
 
 ## RULES FOR THIS AUDITOR
 
 ### Orchestrator rules
 - Never hallucinate. Quote exact text from the manuscript when citing an issue in the cross-stream check. If you cannot find a passage, say so.
-- Never skip a step. All 7 steps must be completed even if earlier steps reveal major problems.
+- Never skip a step. All 8 steps must be completed even if earlier steps reveal major problems.
 - Always complete the Step 2A full-manuscript read gate before spawning subagents.
+- Always complete Step 2B and Step 2C before spawning subagents.
 - Spawn all 4 subagents in a single message (one Task tool call per subagent, all 4 in one response). Do NOT spawn them one at a time.
 - Embed all necessary content in subagent prompts. Do NOT instruct subagents to read files themselves -- they receive all context from you.
 - Do not create any new files. Output the full audit report in chat only.
@@ -575,6 +697,7 @@ Ordered list of 5-10 concrete actions, framed as user commands (e.g., "Re-run ex
 - At the end, always list 2-4 concrete next steps as a "What next?" section.
 - Use only ASCII characters -- no Unicode, no emojis.
 - Prioritize `.md` citations in findings; use `.tex` citations only for export/citation-conversion defects.
+- Default release gate policy is CRITICAL+HIGH blocking.
 
 ### Subagent rules (embed these in every subagent prompt)
 - Never hallucinate. Only report issues that are evidenced by the manuscript text or data you received.
@@ -584,3 +707,4 @@ Ordered list of 5-10 concrete actions, framed as user commands (e.g., "Re-run ex
 - Use only ASCII characters -- no Unicode, no emojis.
 - Be specific about line numbers or section headings when citing issues.
 - Distinguish between tool-level issues (the pipeline generated bad content) and manuscript-level issues (the content is wrong or missing).
+- Apply severity rubric deterministically (CRITICAL/HIGH/MODERATE/LOW) based on evidence and impact.
