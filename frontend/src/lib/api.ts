@@ -121,6 +121,9 @@ export interface HistoryEntry {
   live_run_id?: string | null
   /** User-authored annotation persisted in the central registry. */
   notes?: string | null
+  /** Soft archive metadata for sidebar grouping. */
+  is_archived?: boolean
+  archived_at?: string | null
 }
 
 const BASE = "/api"
@@ -893,16 +896,21 @@ export interface PrismaChecklistItem {
   item_id: string
   section: string
   description: string
-  status: "REPORTED" | "PARTIAL" | "MISSING"
+  status: "REPORTED" | "PARTIAL" | "MISSING" | "NOT_APPLICABLE"
   rationale: string
+  applies: boolean
+  evidence_terms: string[]
 }
 
 export interface PrismaChecklist {
   run_id: string
+  source_state: "artifact_missing" | "validated_md" | "validated_tex" | "validated_md_and_tex"
   total: number
+  item_total: number
   reported_count: number
   partial_count: number
   missing_count: number
+  not_applicable_count: number
   passed: boolean
   items: PrismaChecklistItem[]
 }
@@ -979,6 +987,28 @@ export async function deleteRun(workflowId: string, runRoot = "runs"): Promise<v
   if (!res.ok) {
     const text = await res.text()
     throw new Error(`Failed to delete run: ${text}`)
+  }
+}
+
+export async function archiveRun(workflowId: string, runRoot = "runs"): Promise<void> {
+  const params = new URLSearchParams({ run_root: runRoot })
+  const res = await fetch(`${BASE}/history/${workflowId}/archive?${params}`, {
+    method: "POST",
+  })
+  if (!res.ok) {
+    const text = await res.text()
+    throw new Error(`Failed to archive run: ${text}`)
+  }
+}
+
+export async function restoreRun(workflowId: string, runRoot = "runs"): Promise<void> {
+  const params = new URLSearchParams({ run_root: runRoot })
+  const res = await fetch(`${BASE}/history/${workflowId}/restore?${params}`, {
+    method: "POST",
+  })
+  if (!res.ok) {
+    const text = await res.text()
+    throw new Error(`Failed to restore run: ${text}`)
   }
 }
 

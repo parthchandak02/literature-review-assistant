@@ -12,6 +12,7 @@ import { useSSEStream } from "@/hooks/useSSEStream"
 import { useCostStats } from "@/hooks/useCostStats"
 import { useBackendHealth } from "@/hooks/useBackendHealth"
 import {
+  archiveRun,
   attachHistory,
   cancelRun,
   deleteRun,
@@ -20,6 +21,7 @@ import {
   fetchHistory,
   getDefaultReviewConfig,
   resumeRun,
+  restoreRun,
   saveLiveRun,
   loadLiveRun,
   clearLiveRun,
@@ -127,6 +129,8 @@ export default function App() {
   // --- Selected run (what is displayed in the main area) ---
   const [selectedRun, setSelectedRun] = useState<SelectedRun | null>(null)
   const [activeRunTab, setActiveRunTab] = useState<RunTab>("activity")
+  const [submissionFocusTarget, setSubmissionFocusTarget] = useState<"reference-papers" | null>(null)
+  const [submissionFocusToken, setSubmissionFocusToken] = useState(0)
   const [resumeLauncherWorkflowId, setResumeLauncherWorkflowId] = useState<string | null>(null)
   const [resumeAutoArmToken, setResumeAutoArmToken] = useState(0)
 
@@ -842,6 +846,18 @@ export default function App() {
     }
   }
 
+  async function handleSidebarArchive(workflowId: string) {
+    await archiveRun(workflowId)
+    if (selectedRun?.workflowId === workflowId) {
+      setSelectedRun(null)
+      navigate("/", { replace: true })
+    }
+  }
+
+  async function handleSidebarRestore(workflowId: string) {
+    await restoreRun(workflowId)
+  }
+
   function handleSidebarWidthChange(w: number) {
     setSidebarWidth(w)
     localStorage.setItem("sidebar-width", String(w))
@@ -850,8 +866,18 @@ export default function App() {
   // Update URL when the active tab changes.
   function handleTabChange(tab: RunTab) {
     setActiveRunTab(tab)
+    if (tab !== "results") setSubmissionFocusTarget(null)
     if (selectedRun?.workflowId) {
       navigate(`/run/${selectedRun.workflowId}/${tab}`, { replace: true })
+    }
+  }
+
+  function handleGoToSubmissionReferencePapers() {
+    setSubmissionFocusTarget("reference-papers")
+    setSubmissionFocusToken((v) => v + 1)
+    setActiveRunTab("results")
+    if (selectedRun?.workflowId) {
+      navigate(`/run/${selectedRun.workflowId}/results`, { replace: true })
     }
   }
 
@@ -904,6 +930,7 @@ export default function App() {
         costStats={isViewingLiveRun ? costStats : { total_cost: 0, total_tokens_in: 0, total_tokens_out: 0, total_calls: 0, by_model: [], by_phase: [] }}
         activeTab={activeRunTab}
         onTabChange={handleTabChange}
+        onGoToSubmissionReferencePapers={handleGoToSubmissionReferencePapers}
         onCancel={handleCancel}
         historyOutputs={historyOutputs}
         liveOutputs={isViewingLiveRun ? liveOutputs : {}}
@@ -912,6 +939,8 @@ export default function App() {
         onResumeFromPhase={!isViewingLiveRun ? handleTimelineResumePhase : undefined}
         resumeModeActive={resumeModeActive}
         autoArmFromSidebarToken={resumeAutoArmToken}
+        submissionFocusTarget={submissionFocusTarget}
+        submissionFocusToken={submissionFocusToken}
       />
     )
   }
@@ -943,6 +972,8 @@ export default function App() {
         onSelectHistory={(entry) => void handleSelectHistory(entry)}
         onNewReview={handleNewReview}
         onResume={handleSidebarResumeLauncher}
+        onArchive={handleSidebarArchive}
+        onRestore={handleSidebarRestore}
         onDelete={handleSidebarDelete}
         onCancel={handleCancel}
         isRunning={isRunning}

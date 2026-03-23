@@ -1,12 +1,15 @@
 import { useCallback, useEffect, useRef, useState } from "react"
 import {
+  Archive,
   BookMarked,
   ChevronLeft,
   ChevronRight,
   Clock,
+  MoreHorizontal,
   Play,
   Plus,
   RefreshCw,
+  RotateCcw,
   Square,
   Trash2,
 } from "lucide-react"
@@ -66,6 +69,8 @@ interface SidebarProps {
   onSelectHistory: (entry: HistoryEntry) => void
   onNewReview: () => void
   onResume?: (entry: HistoryEntry) => Promise<void>
+  onArchive?: (workflowId: string) => Promise<void>
+  onRestore?: (workflowId: string) => Promise<void>
   onDelete?: (workflowId: string) => Promise<void>
   onCancel?: () => void
   isRunning?: boolean
@@ -100,6 +105,8 @@ export function Sidebar({
   onSelectHistory,
   onNewReview,
   onResume,
+  onArchive,
+  onRestore,
   onDelete,
   onCancel,
   isRunning: isRunningProp,
@@ -115,9 +122,13 @@ export function Sidebar({
   const [historyError, setHistoryError] = useState<string | null>(null)
   const [openingId, setOpeningId] = useState<string | null>(null)
   const [resumingId, setResumingId] = useState<string | null>(null)
+  const [archivingId, setArchivingId] = useState<string | null>(null)
+  const [restoringId, setRestoringId] = useState<string | null>(null)
   const [deletingId, setDeletingId] = useState<string | null>(null)
   const [deleteConfirmWorkflowId, setDeleteConfirmWorkflowId] =
     useState<string | null>(null)
+  const [archivedExpanded, setArchivedExpanded] = useState(false)
+  const [openArchivedMenuId, setOpenArchivedMenuId] = useState<string | null>(null)
   const [wfIdCopied, setWfIdCopied] = useState<string | null>(null)
   const [isDragging, setIsDragging] = useState(false)
   const dragStartX = useRef(0)
@@ -265,6 +276,41 @@ export function Sidebar({
     }
   }
 
+  function handleArchiveClick(e: React.MouseEvent, workflowId: string) {
+    e.stopPropagation()
+    if (!onArchive) return
+    void handleArchiveConfirm(workflowId)
+  }
+
+  async function handleArchiveConfirm(workflowId: string) {
+    if (!onArchive) return
+    setArchivingId(workflowId)
+    try {
+      await onArchive(workflowId)
+      await loadHistory()
+    } finally {
+      setArchivingId(null)
+    }
+  }
+
+  function handleRestoreClick(e: React.MouseEvent, workflowId: string) {
+    e.stopPropagation()
+    if (!onRestore) return
+    void handleRestoreConfirm(workflowId)
+  }
+
+  async function handleRestoreConfirm(workflowId: string) {
+    if (!onRestore) return
+    setRestoringId(workflowId)
+    try {
+      await onRestore(workflowId)
+      setOpenArchivedMenuId((prev) => (prev === workflowId ? null : prev))
+      await loadHistory()
+    } finally {
+      setRestoringId(null)
+    }
+  }
+
   function handleDeleteClick(e: React.MouseEvent, workflowId: string) {
     e.stopPropagation()
     if (!onDelete) return
@@ -288,6 +334,9 @@ export function Sidebar({
     dragStartWidth.current = width
     setIsDragging(true)
   }
+
+  const activeHistory = history.filter((entry) => !entry.is_archived)
+  const archivedHistory = history.filter((entry) => Boolean(entry.is_archived))
 
   return (
     <TooltipProvider delayDuration={0}>
@@ -396,7 +445,7 @@ export function Sidebar({
               </div>
             )}
 
-            {loadingHistory && history.length === 0 && !liveRun && !collapsed && (
+            {loadingHistory && activeHistory.length === 0 && !liveRun && !collapsed && (
               <div className="space-y-2">
                 {[1, 2, 3].map((i) => (
                   <div key={i} className="sidebar-card px-3 py-3">
@@ -432,7 +481,7 @@ export function Sidebar({
                             <span
                               className={cn(
                                 "text-xs text-zinc-300 line-clamp-2 leading-snug",
-                                ((onDelete && liveRun.workflowId && !isRunning) || (isRunning && onCancel)) && "pr-12",
+                                ((onArchive && liveRun.workflowId && !isRunning) || (isRunning && onCancel)) && "pr-12",
                               )}
                             >
                               {liveRun.topic}
@@ -484,22 +533,22 @@ export function Sidebar({
                           <Square className="h-2.5 w-2.5 fill-white" />
                         </button>
                       )}
-                      {!collapsed && onDelete && liveRun.workflowId && !isRunning && (
+                      {!collapsed && onArchive && liveRun.workflowId && !isRunning && (
                         <button
-                          onClick={(e) => handleDeleteClick(e, liveRun.workflowId!)}
-                          disabled={deletingId === liveRun.workflowId}
-                          aria-label="Delete run"
-                          title="Delete run"
+                          onClick={(e) => handleArchiveClick(e, liveRun.workflowId!)}
+                          disabled={archivingId === liveRun.workflowId}
+                          aria-label="Archive run"
+                          title="Archive run"
                           className={cn(
                             "absolute top-0 right-0 flex items-center justify-center h-8 w-8 rounded-bl-md",
-                            "text-zinc-500 hover:text-red-400 hover:bg-red-500/10 transition-colors",
-                            deletingId === liveRun.workflowId && "opacity-50 cursor-wait",
+                            "text-zinc-500 hover:text-amber-300 hover:bg-amber-500/10 transition-colors",
+                            archivingId === liveRun.workflowId && "opacity-50 cursor-wait",
                           )}
                         >
-                          {deletingId === liveRun.workflowId ? (
+                          {archivingId === liveRun.workflowId ? (
                             <div className="h-2.5 w-2.5 border border-zinc-500 border-t-zinc-300 rounded-full animate-spin" />
                           ) : (
-                            <Trash2 className="h-3 w-3" />
+                            <Archive className="h-3 w-3" />
                           )}
                         </button>
                       )}
@@ -513,7 +562,7 @@ export function Sidebar({
                   </div>
                 </SidebarTooltip>
               )}
-              {history.map((entry) => {
+              {activeHistory.map((entry) => {
                 const isLiveRow = Boolean(
                   liveRun && (
                     (entry.live_run_id && entry.live_run_id === liveRun.runId) ||
@@ -583,7 +632,7 @@ export function Sidebar({
                               <span
                                 className={cn(
                                   "text-xs text-zinc-300 line-clamp-2 leading-snug",
-                                  (onDelete || isResumable) && "pr-12",
+                                  (onArchive || isResumable) && "pr-12",
                                 )}
                               >
                                 {entry.topic}
@@ -629,7 +678,7 @@ export function Sidebar({
                           )}
                         </button>
 
-                        {/* Action buttons: trash (all) + resume (resumable only) */}
+                        {/* Action buttons: archive + resume */}
                         {!collapsed && (
                           <div className="absolute top-0 right-0 flex items-center">
                             {isLiveRow && rowIsRunning && onCancel && (
@@ -642,29 +691,29 @@ export function Sidebar({
                                 title="Stop run"
                                 className={cn(
                                   "flex items-center justify-center h-8 w-8 bg-red-600 hover:bg-red-500 text-white",
-                                  (onDelete || isResumable) ? "" : "rounded-bl-md",
+                                  (onArchive || isResumable) ? "" : "rounded-bl-md",
                                 )}
                               >
                                 <Square className="h-2.5 w-2.5 fill-white" />
                               </button>
                             )}
-                            {onDelete && (
+                            {onArchive && !rowIsRunning && (
                               <button
-                                onClick={(e) => handleDeleteClick(e, entry.workflow_id)}
-                                disabled={deletingId === entry.workflow_id}
-                                aria-label="Delete run"
-                                title="Delete run"
+                                onClick={(e) => handleArchiveClick(e, entry.workflow_id)}
+                                disabled={archivingId === entry.workflow_id}
+                                aria-label="Archive run"
+                                title="Archive run"
                                 className={cn(
                                   "flex items-center justify-center h-8 w-8",
                                   isResumable ? "" : "rounded-bl-md",
-                                  "text-zinc-500 hover:text-red-400 hover:bg-red-500/10 transition-colors",
-                                  deletingId === entry.workflow_id && "opacity-50 cursor-wait",
+                                  "text-zinc-500 hover:text-amber-300 hover:bg-amber-500/10 transition-colors",
+                                  archivingId === entry.workflow_id && "opacity-50 cursor-wait",
                                 )}
                               >
-                                {deletingId === entry.workflow_id ? (
+                                {archivingId === entry.workflow_id ? (
                                   <div className="h-2.5 w-2.5 border border-zinc-500 border-t-zinc-300 rounded-full animate-spin" />
                                 ) : (
-                                  <Trash2 className="h-3 w-3" />
+                                  <Archive className="h-3 w-3" />
                                 )}
                               </button>
                             )}
@@ -709,7 +758,7 @@ export function Sidebar({
               })}
             </div>
 
-            {!collapsed && !loadingHistory && history.length === 0 && !shouldShowStandaloneLiveCard && (
+            {!collapsed && !loadingHistory && activeHistory.length === 0 && !shouldShowStandaloneLiveCard && (
               <div className="flex flex-col items-center py-6 gap-2">
                 <Clock className="h-6 w-6 text-zinc-700" />
                 <p className="label-muted text-center">
@@ -719,6 +768,152 @@ export function Sidebar({
             )}
           </section>
         </nav>
+
+        {!collapsed && (
+          <section className="relative z-10 border-t border-zinc-800/80 px-2 py-2 shrink-0">
+            <button
+              type="button"
+              onClick={() => setArchivedExpanded((prev) => !prev)}
+              className="w-full flex items-center justify-between px-1.5 py-1 rounded-md text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/60 transition-colors"
+            >
+              <span className="label-caps font-semibold">
+                Archived ({archivedHistory.length})
+              </span>
+              <ChevronRight
+                className={cn(
+                  "h-3.5 w-3.5 transition-transform",
+                  archivedExpanded && "rotate-90",
+                )}
+              />
+            </button>
+            {archivedExpanded && (
+              <div className="mt-1 max-h-48 overflow-y-auto space-y-1.5 pr-0.5">
+                {archivedHistory.length === 0 ? (
+                  <p className="px-2 py-1.5 text-[11px] text-zinc-500">
+                    No archived chats.
+                  </p>
+                ) : (
+                  archivedHistory.map((entry) => {
+                    const statusKey = resolveStatus(entry.status)
+                    const isSelected = selectedWorkflowId === entry.workflow_id
+                    return (
+                      <SidebarTooltip
+                        key={`archived-${entry.workflow_id}`}
+                        label={entry.topic}
+                        collapsed={collapsed}
+                        side="right"
+                      >
+                        <div
+                          className={cn(
+                            "sidebar-card sidebar-card-hover relative min-h-[120px]",
+                            "opacity-85 bg-zinc-900/55 border-zinc-800/80",
+                            isSelected && "sidebar-card-selected opacity-100",
+                          )}
+                        >
+                          <button
+                            onClick={() => void handleSelectHistory(entry)}
+                            className="w-full transition-colors text-left pl-2.5 pr-10 pt-3 pb-2.5"
+                          >
+                            <div className="flex flex-col gap-1 min-w-0">
+                              <span className="text-xs text-zinc-300 line-clamp-2 leading-snug">
+                                {entry.topic}
+                              </span>
+                              <RunCardMetrics
+                                papersFound={entry.papers_found}
+                                papersIncluded={entry.papers_included}
+                                cost={entry.total_cost}
+                                workflowId={entry.workflow_id}
+                                copiedWorkflowId={wfIdCopied}
+                                onCopyWorkflowId={async (id) => {
+                                  if (id) {
+                                    await navigator.clipboard.writeText(id)
+                                    setWfIdCopied(id)
+                                    setTimeout(() => setWfIdCopied(null), 1500)
+                                  }
+                                }}
+                              />
+                              <div className="flex items-center justify-between gap-2 min-w-0 text-meta">
+                                <div className="flex items-center gap-1.5 shrink-0">
+                                  <RunDot status={statusKey} />
+                                  <span
+                                    className={cn(
+                                      "font-semibold uppercase tracking-wide",
+                                      STATUS_TEXT[statusKey],
+                                    )}
+                                  >
+                                    {STATUS_LABEL[statusKey]}
+                                  </span>
+                                </div>
+                                {entry.created_at && (
+                                  <span className="text-zinc-500 font-medium tabular-nums shrink-0">
+                                    {formatRunDate(entry.created_at)}
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                          </button>
+
+                          <div className="absolute right-1.5 top-1.5 flex flex-col items-center gap-0.5">
+                            {onRestore && (
+                              <button
+                                onClick={(e) => handleRestoreClick(e, entry.workflow_id)}
+                                disabled={restoringId === entry.workflow_id}
+                                aria-label="Restore run"
+                                title="Restore run"
+                                className={cn(
+                                  "h-7 w-7 flex items-center justify-center rounded-md text-zinc-500 hover:text-emerald-300 hover:bg-emerald-500/10 transition-colors",
+                                  restoringId === entry.workflow_id && "opacity-50 cursor-wait",
+                                )}
+                              >
+                                {restoringId === entry.workflow_id ? (
+                                  <div className="h-2.5 w-2.5 border border-zinc-500 border-t-zinc-300 rounded-full animate-spin" />
+                                ) : (
+                                  <RotateCcw className="h-3 w-3" />
+                                )}
+                              </button>
+                            )}
+                            {onDelete && (
+                              <div className="relative">
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation()
+                                    setOpenArchivedMenuId((prev) =>
+                                      prev === entry.workflow_id ? null : entry.workflow_id,
+                                    )
+                                  }}
+                                  aria-label="More actions"
+                                  title="More actions"
+                                  className="h-7 w-7 flex items-center justify-center rounded-md text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800 transition-colors"
+                                >
+                                  <MoreHorizontal className="h-3 w-3" />
+                                </button>
+                                {openArchivedMenuId === entry.workflow_id && (
+                                  <div className="absolute right-9 top-0 z-40 min-w-[172px] rounded-lg border border-zinc-700/80 bg-zinc-900/95 shadow-xl backdrop-blur-sm p-1.5">
+                                    <button
+                                      type="button"
+                                      onClick={(e) => {
+                                        setOpenArchivedMenuId(null)
+                                        handleDeleteClick(e, entry.workflow_id)
+                                      }}
+                                      className="w-full text-left px-2.5 py-2 text-xs font-medium rounded-md transition-colors text-red-300 hover:text-red-200 hover:bg-red-500/10 flex items-center gap-2"
+                                    >
+                                      <Trash2 className="h-3.5 w-3.5 shrink-0" />
+                                      Delete permanently
+                                    </button>
+                                  </div>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      </SidebarTooltip>
+                    )
+                  })
+                )}
+              </div>
+            )}
+          </section>
+        )}
 
         {/* Collapse toggle */}
         <button

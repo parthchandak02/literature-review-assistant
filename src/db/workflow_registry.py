@@ -24,7 +24,9 @@ CREATE TABLE IF NOT EXISTS workflows_registry (
     status TEXT NOT NULL DEFAULT 'running',
     created_at TEXT DEFAULT (datetime('now')),
     updated_at TEXT DEFAULT (datetime('now')),
-    heartbeat_at TEXT
+    heartbeat_at TEXT,
+    is_archived INTEGER NOT NULL DEFAULT 0,
+    archived_at TEXT
 );
 
 CREATE INDEX IF NOT EXISTS idx_registry_topic ON workflows_registry(topic);
@@ -40,6 +42,10 @@ INSERT OR IGNORE INTO workflow_counter (id, last_seq) VALUES (1, 0);
 
 _MIGRATION_ADD_HEARTBEAT = "ALTER TABLE workflows_registry ADD COLUMN heartbeat_at TEXT"
 _MIGRATION_ADD_NOTES = "ALTER TABLE workflows_registry ADD COLUMN notes TEXT"
+_MIGRATION_ADD_IS_ARCHIVED = (
+    "ALTER TABLE workflows_registry ADD COLUMN is_archived INTEGER NOT NULL DEFAULT 0"
+)
+_MIGRATION_ADD_ARCHIVED_AT = "ALTER TABLE workflows_registry ADD COLUMN archived_at TEXT"
 
 
 @asynccontextmanager
@@ -88,6 +94,15 @@ async def _ensure_registry(run_root: str) -> str:
         # Migration: add notes column for per-workflow user annotations.
         try:
             await db.execute(_MIGRATION_ADD_NOTES)
+        except Exception:
+            pass  # Column already exists -- sqlite raises OperationalError, ignore it.
+        # Migration: add archive columns for soft-hide behavior in sidebar.
+        try:
+            await db.execute(_MIGRATION_ADD_IS_ARCHIVED)
+        except Exception:
+            pass  # Column already exists -- sqlite raises OperationalError, ignore it.
+        try:
+            await db.execute(_MIGRATION_ADD_ARCHIVED_AT)
         except Exception:
             pass  # Column already exists -- sqlite raises OperationalError, ignore it.
         # Migration: create sequential counter table for wf-NNNN IDs (existing installs).
@@ -288,6 +303,40 @@ async def update_heartbeat(run_root: str, workflow_id: str) -> None:
     async with _open_registry(path) as db:
         await db.execute(
             "UPDATE workflows_registry SET heartbeat_at = datetime('now') WHERE workflow_id = ?",
+            (workflow_id,),
+        )
+        await db.commit()
+
+
+async def archive_workflow(run_root: str, workflow_id: str) -> None:
+    """Soft archive a workflow in the registry.
+
+    Archiving hides the run from the main sidebar list without deleting runtime
+    files or registry metadata.
+    """
+    path = await _ensure_registry(run_root)
+    async with _open_registry(path) as db:
+        await db.execute(
+            """
+            UPDATE workflows_registry
+            SET is_archived = 1, archived_at = datetime('now'), updated_at = datetime('now')
+            WHERE workflow_id = ?
+            """,
+            (workflow_id,),
+        )
+        await db.commit()
+
+
+async def restore_workflow(run_root: str, workflow_id: str) -> None:
+    """Restore a previously archived workflow to active sidebar history."""
+    path = await _ensure_registry(run_root)
+    async with _open_registry(path) as db:
+        await db.execute(
+            """
+            UPDATE workflows_registry
+            SET is_archived = 0, archived_at = NULL, updated_at = datetime('now')
+            WHERE workflow_id = ?
+            """,
             (workflow_id,),
         )
         await db.commit()
