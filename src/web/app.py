@@ -42,10 +42,13 @@ from sse_starlette.sse import EventSourceResponse
 from src.config.loader import load_configs as _load_configs
 from src.db.source_of_truth import RUN_STATS_PRECEDENCE
 from src.db.workflow_registry import _open_registry as _open_registry_db
+from src.db.workflow_registry import archive_workflow as _archive_registry_workflow
+from src.db.workflow_registry import restore_workflow as _restore_registry_workflow
 from src.db.workflow_registry import update_heartbeat as _update_registry_heartbeat
 from src.db.workflow_registry import update_notes as _update_registry_notes
 from src.db.workflow_registry import update_status as _update_registry_status
 from src.export.submission_packager import package_submission
+from src.manuscript.contracts import run_manuscript_contracts
 from src.orchestration.context import WebRunContext
 from src.orchestration.workflow import run_workflow, run_workflow_resume
 from src.search.csv_import import validate_csv_file
@@ -260,6 +263,9 @@ class HistoryEntry(BaseModel):
     live_run_id: str | None = None
     # User-authored annotation stored in the central registry.
     notes: str | None = None
+    # Sidebar archive state. Archive does not affect lifecycle status.
+    is_archived: bool = False
+    archived_at: str | None = None
 
 
 class AttachRequest(BaseModel):
@@ -1139,10 +1145,28 @@ async def _fetch_run_stats(db_path: str) -> dict[str, Any]:
             await db.execute("PRAGMA journal_mode=WAL")
             papers_found = (await (await db.execute("SELECT COUNT(*) FROM papers")).fetchone())[0]
 
-            # Canonical source order is defined in src/db/source_of_truth.py.
-            # 1) fulltext-stage dual_screening_results (durable factual table)
-            # 2) event_log phase_3_screening summary (historical fallback)
-            # 3) extraction_records count (legacy fallback)
+            _workflow_row = await (
+                await db.execute("SELECT workflow_id FROM workflows ORDER BY rowid DESC LIMIT 1")
+            ).fetchone()
+            _workflow_id = str(_workflow_row[0]) if (_workflow_row and _workflow_row[0]) else ""
+
+            # Canonical source order is defined in src/db/source_of_truth.py:
+            # 1) study_cohort_membership included_primary (canonical)
+            # 2) dual_screening_results fulltext include/uncertain (fallback)
+            # 3) event_log phase_3_screening summary.included (historical fallback)
+            # 4) extraction_records count (legacy fallback)
+            included_from_cohort = await (
+                await db.execute(
+                    """
+                    SELECT COUNT(DISTINCT scm.paper_id)
+                    FROM study_cohort_membership scm
+                    WHERE scm.workflow_id = ?
+                      AND scm.synthesis_eligibility = 'included_primary'
+                    """
+                    ,
+                    (_workflow_id,),
+                )
+            ).fetchone()
             included_from_dual = await (
                 await db.execute(
                     """
@@ -1152,8 +1176,12 @@ async def _fetch_run_stats(db_path: str) -> dict[str, Any]:
                     """
                 )
             ).fetchone()
-            if included_from_dual and included_from_dual[0] is not None and int(included_from_dual[0]) > 0:
+            included_source = "study_cohort_membership_synthesis_included_primary"
+            if included_from_cohort and included_from_cohort[0] is not None and int(included_from_cohort[0]) > 0:
+                papers_included = int(included_from_cohort[0])
+            elif included_from_dual and included_from_dual[0] is not None and int(included_from_dual[0]) > 0:
                 papers_included = int(included_from_dual[0])
+                included_source = "dual_screening_results_fulltext"
             else:
                 included_from_event = await (
                     await db.execute(
@@ -1169,6 +1197,7 @@ async def _fetch_run_stats(db_path: str) -> dict[str, Any]:
                 ).fetchone()
                 if included_from_event and included_from_event[0] is not None:
                     papers_included = int(included_from_event[0])
+                    included_source = "event_log_phase_done_phase_3_screening"
                 else:
                     fallback_row = await (
                         await db.execute(
@@ -1178,8 +1207,9 @@ async def _fetch_run_stats(db_path: str) -> dict[str, Any]:
                         )
                     ).fetchone()
                     papers_included = int(fallback_row[0]) if fallback_row else 0
+                    included_source = "extraction_records"
 
-            # Guardrail: detect divergence between durable screening table and event summary.
+            # Guardrail: detect divergence between canonical cohort, durable screening table, and event summary.
             try:
                 _event_inc_row = await (
                     await db.execute(
@@ -1194,14 +1224,36 @@ async def _fetch_run_stats(db_path: str) -> dict[str, Any]:
                     )
                 ).fetchone()
                 _event_inc = int(_event_inc_row[0]) if (_event_inc_row and _event_inc_row[0] is not None) else None
+                _cohort_inc = (
+                    int(included_from_cohort[0]) if (included_from_cohort and included_from_cohort[0] is not None) else 0
+                )
                 _dual_inc = (
                     int(included_from_dual[0]) if (included_from_dual and included_from_dual[0] is not None) else 0
                 )
-                if _event_inc is not None and _dual_inc > 0 and _event_inc != _dual_inc:
+                # Event-log and dual-screening values can legitimately differ from the
+                # canonical cohort after downstream primary-study filtering. Emit warnings
+                # only when we are actively using those fallback sources.
+                if (
+                    included_source == "dual_screening_results_fulltext"
+                    and _event_inc is not None
+                    and _dual_inc > 0
+                    and _event_inc != _dual_inc
+                ):
                     _logger.warning(
                         "run-stats divergence: dual_screening_results=%s event_log=%s for db=%s",
                         _dual_inc,
                         _event_inc,
+                        db_path,
+                    )
+                if (
+                    included_source == "study_cohort_membership_synthesis_included_primary"
+                    and _cohort_inc > _dual_inc
+                    and _dual_inc > 0
+                ):
+                    _logger.warning(
+                        "run-stats divergence: cohort=%s exceeds dual_screening_results=%s for db=%s",
+                        _cohort_inc,
+                        _dual_inc,
                         db_path,
                     )
             except Exception:
@@ -1224,6 +1276,7 @@ async def _fetch_run_stats(db_path: str) -> dict[str, Any]:
             "papers_found": int(papers_found),
             "papers_included": int(papers_included),
             "total_cost": float(total_cost),
+            "papers_included_source": included_source,
             "papers_included_precedence": list(RUN_STATS_PRECEDENCE.papers_included_order),
             "artifacts_count": artifacts_count,
         }
@@ -1428,12 +1481,27 @@ async def list_history(run_root: str = "runs") -> list[HistoryEntry]:
     try:
         async with _open_registry_db(str(registry)) as db:
             db.row_factory = aiosqlite.Row
+            # Backward-safe archive migration for registries created before
+            # archive columns existed.
+            try:
+                await db.execute(
+                    "ALTER TABLE workflows_registry ADD COLUMN is_archived INTEGER NOT NULL DEFAULT 0"
+                )
+            except Exception:
+                pass
+            try:
+                await db.execute("ALTER TABLE workflows_registry ADD COLUMN archived_at TEXT")
+            except Exception:
+                pass
+            await db.commit()
             async with db.execute(
                 """SELECT workflow_id, topic, status, db_path,
                           COALESCE(created_at, '') AS created_at,
                           updated_at,
                           heartbeat_at,
-                          notes
+                          notes,
+                          COALESCE(is_archived, 0) AS is_archived,
+                          archived_at
                    FROM workflows_registry
                    ORDER BY created_at DESC"""
             ) as cur:
@@ -1485,6 +1553,8 @@ async def list_history(run_root: str = "runs") -> list[HistoryEntry]:
                 artifacts_count=s.get("artifacts_count"),
                 live_run_id=live_run_id,
                 notes=row["notes"] if row["notes"] is not None else None,
+                is_archived=bool(row["is_archived"]),
+                archived_at=row["archived_at"] if row["archived_at"] is not None else None,
             )
         )
     return enriched
@@ -1948,6 +2018,38 @@ async def delete_run(workflow_id: str, run_root: str = "runs") -> dict[str, bool
     return {"ok": True}
 
 
+@app.post("/api/history/{workflow_id}/archive")
+async def archive_history_run(workflow_id: str, run_root: str = "runs") -> dict[str, bool]:
+    """Soft-archive a workflow row without deleting any run artifacts."""
+    for record in _active_runs.values():
+        if record.workflow_id == workflow_id and not record.done:
+            raise HTTPException(
+                status_code=409,
+                detail="Cannot archive a run that is currently in progress",
+            )
+    db_path = await _resolve_db_path(run_root, workflow_id)
+    if not db_path:
+        raise HTTPException(status_code=404, detail="Workflow not found in registry")
+    await _archive_registry_workflow(run_root, workflow_id)
+    return {"ok": True}
+
+
+@app.post("/api/history/{workflow_id}/restore")
+async def restore_history_run(workflow_id: str, run_root: str = "runs") -> dict[str, bool]:
+    """Restore a previously archived workflow row into the active list."""
+    for record in _active_runs.values():
+        if record.workflow_id == workflow_id and not record.done:
+            raise HTTPException(
+                status_code=409,
+                detail="Cannot restore a run that is currently in progress",
+            )
+    db_path = await _resolve_db_path(run_root, workflow_id)
+    if not db_path:
+        raise HTTPException(status_code=404, detail="Workflow not found in registry")
+    await _restore_registry_workflow(run_root, workflow_id)
+    return {"ok": True}
+
+
 @app.post("/api/history/attach", response_model=RunResponse)
 async def attach_history(req: AttachRequest) -> RunResponse:
     """Create a read-only completed _RunRecord from a historical workflow so
@@ -2092,11 +2194,18 @@ async def _query_included_papers_rows(
 ) -> list[aiosqlite.Row]:
     """Return included-paper rows with fulltext->extraction fallback precedence."""
     if for_fetch:
-        select_cols = "p.paper_id, p.title, p.authors, p.year, p.doi, p.url, p.source_database"
+        primary_select_cols = "p.paper_id, p.title, p.authors, p.year, p.doi, p.url, p.source_database"
+        legacy_select_cols = primary_select_cols
         order_by = "p.paper_id"
-        fallback_select_cols = select_cols
+        fallback_select_cols = primary_select_cols
     else:
-        select_cols = (
+        # study_cohort_membership does not expose a fulltext decision field;
+        # in this pathway, every row is already filtered to included_primary.
+        primary_select_cols = (
+            "p.paper_id, p.title, p.authors, p.year, p.source_database, p.doi, p.url, p.country, "
+            "'include' AS final_decision"
+        )
+        legacy_select_cols = (
             "p.paper_id, p.title, p.authors, p.year, p.source_database, p.doi, p.url, p.country, ft.final_decision"
         )
         order_by = "p.year DESC"
@@ -2106,14 +2215,29 @@ async def _query_included_papers_rows(
         )
 
     primary_query = f"""
-        SELECT {select_cols}
+        SELECT {primary_select_cols}
+        FROM papers p
+        JOIN study_cohort_membership scm
+          ON p.paper_id = scm.paper_id
+        WHERE scm.workflow_id = ?
+          AND scm.synthesis_eligibility = 'included_primary'
+        ORDER BY {order_by}
+    """
+    async with db.execute(primary_query, (workflow_id,)) as cur:
+        rows = await cur.fetchall()
+
+    if rows:
+        return rows
+
+    legacy_query = f"""
+        SELECT {legacy_select_cols}
         FROM papers p
         JOIN dual_screening_results ft
           ON p.paper_id = ft.paper_id AND ft.stage = 'fulltext'
-        WHERE ft.final_decision = 'include'
+        WHERE ft.workflow_id = ? AND ft.final_decision = 'include'
         ORDER BY {order_by}
     """
-    async with db.execute(primary_query) as cur:
+    async with db.execute(legacy_query, (workflow_id,)) as cur:
         rows = await cur.fetchall()
 
     if rows:
@@ -3209,6 +3333,33 @@ async def trigger_export(run_id: str, run_root: str = "runs", force: bool = Fals
     workflow_id: str | None = summary.get("workflow_id")
     if not workflow_id:
         raise HTTPException(status_code=422, detail="workflow_id not found in run_summary")
+
+    manuscript_md = summary.get("artifacts", {}).get("manuscript_md")
+    manuscript_tex = summary.get("artifacts", {}).get("manuscript_tex")
+    if manuscript_md and pathlib.Path(str(manuscript_md)).exists():
+        from src.db.database import get_db as _get_db
+        from src.db.repositories import CitationRepository, WorkflowRepository
+
+        cfg = _load_configs()[1]
+        mode = getattr(getattr(cfg, "gates", None), "manuscript_contract_mode", "observe")
+        async with _get_db(db_path) as _db:
+            result = await run_manuscript_contracts(
+                repository=WorkflowRepository(_db),
+                citation_repository=CitationRepository(_db),
+                workflow_id=workflow_id,
+                manuscript_md_path=str(manuscript_md),
+                manuscript_tex_path=str(manuscript_tex) if manuscript_tex else None,
+                mode=mode,
+            )
+        if not result.passed:
+            raise HTTPException(
+                status_code=422,
+                detail={
+                    "message": "Manuscript contract gate blocked export.",
+                    "mode": mode,
+                    "violations": [v.model_dump() for v in result.violations],
+                },
+            )
     # Fast path: if key files are already present and caller did not force a rebuild,
     # return existing paths immediately (avoids re-running pdflatex and DOCX generation).
     if not force:
@@ -3785,11 +3936,14 @@ async def get_prisma_checklist(run_id: str) -> dict:
     result = validate_prisma(tex_content=tex_content, md_content=md_content)
     return {
         "run_id": run_id,
+        "source_state": result.source_state,
         "reported_count": result.reported_count,
         "partial_count": result.partial_count,
         "missing_count": result.missing_count,
+        "not_applicable_count": result.not_applicable_count,
         "passed": result.passed,
-        "total": len(result.items),
+        "total": result.primary_total,
+        "item_total": len(result.items),
         "items": [
             {
                 "item_id": item.item_id,
@@ -3797,6 +3951,8 @@ async def get_prisma_checklist(run_id: str) -> dict:
                 "description": item.description,
                 "status": item.status,
                 "rationale": item.rationale,
+                "applies": item.applies,
+                "evidence_terms": item.evidence_terms,
             }
             for item in result.items
         ],

@@ -17,6 +17,7 @@ from src.export.bibtex_builder import build_bibtex
 from src.export.docx_exporter import generate_docx
 from src.export.ieee_latex import markdown_to_latex
 from src.export.markdown_refs import get_existing_figure_entries, get_latex_figure_paths
+from src.export.prisma_checklist import render_prisma_csv, render_prisma_html, render_prisma_markdown_table, validate_prisma
 
 
 async def _get_run_info(run_root: str, workflow_id: str) -> tuple[str, str, str] | None:
@@ -112,17 +113,33 @@ async def _export_extraction_records(db_path: str, workflow_id: str, out_path: P
 
 
 async def _query_included_paper_ids(db_path: str, workflow_id: str) -> list[str]:
-    """Return included paper_ids (fulltext include, fallback to extraction records)."""
+    """Return canonical synthesis-included paper_ids."""
     async with get_db(db_path) as db:
+        cursor = await db.execute(
+            """
+            SELECT paper_id
+            FROM study_cohort_membership
+            WHERE workflow_id = ?
+              AND synthesis_eligibility = 'included_primary'
+            ORDER BY paper_id
+            """,
+            (workflow_id,),
+        )
+        rows = await cursor.fetchall()
+        if rows:
+            return [str(r[0]) for r in rows if r and r[0]]
+
+        # Legacy fallback for pre-ledger runs.
         cursor = await db.execute(
             """
             SELECT p.paper_id
             FROM papers p
             JOIN dual_screening_results ft
               ON p.paper_id = ft.paper_id AND ft.stage = 'fulltext'
-            WHERE ft.final_decision = 'include'
+            WHERE ft.workflow_id = ? AND ft.final_decision = 'include'
             ORDER BY p.paper_id
-            """
+            """,
+            (workflow_id,),
         )
         rows = await cursor.fetchall()
         if rows:
@@ -690,7 +707,19 @@ async def package_submission(
         _generate_search_appendix_pdf(search_appendix_md, supp_dir / "search_strategies_appendix.pdf")
     else:
         (supp_dir / "search_strategies_appendix.pdf").write_bytes(b"")
-    (supp_dir / "prisma_checklist.pdf").write_bytes(b"")
+    prisma_result = validate_prisma(tex_content=latex_content, md_content=md_content)
+    (supp_dir / "prisma_checklist.md").write_text(
+        render_prisma_markdown_table(prisma_result),
+        encoding="utf-8",
+    )
+    (supp_dir / "prisma_checklist.csv").write_text(
+        render_prisma_csv(prisma_result),
+        encoding="utf-8",
+    )
+    (supp_dir / "prisma_checklist.html").write_text(
+        render_prisma_html(prisma_result),
+        encoding="utf-8",
+    )
 
     if _run_pdflatex(manuscript_tex, submission_dir):
         pass

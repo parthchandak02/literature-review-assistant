@@ -4,22 +4,27 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
 from src.db.database import get_db
+from src.db.repositories import CitationRepository, WorkflowRepository
 from src.export.bibtex_builder import build_bibtex
 from src.export.submission_packager import _copy_included_study_pdfs
 from src.export.ieee_latex import _convert_citations, _convert_md_table_to_latex, _escape_latex, markdown_to_latex
 from src.export.markdown_refs import (
     _normalize_subsection_heading_layout,
+    build_picos_table,
+    build_compact_study_table,
     get_existing_figure_entries,
     get_latex_figure_paths,
 )
 from src.export.ieee_validator import validate_ieee
 from src.export.prisma_checklist import validate_prisma
+from src.manuscript.contracts import run_manuscript_contracts
 
 
 def test_build_bibtex_empty():
@@ -116,6 +121,21 @@ def test_markdown_to_latex_extracts_structured_abstract_from_background_block() 
     out = markdown_to_latex(md, citekeys=set())
     assert "\\begin{abstract}" in out
     assert "Background" in out
+
+
+def test_markdown_to_latex_extracts_h2_abstract_without_keywords() -> None:
+    md = (
+        "# Test Title\n\n"
+        "## Abstract\n\n"
+        "**Background:** A background sentence. **Objectives:** Objective sentence. "
+        "**Methods:** Method sentence. **Results:** Results sentence. **Conclusion:** Conclusion sentence.\n\n"
+        "## Introduction\n\n"
+        "Body text.\n"
+    )
+    out = markdown_to_latex(md, citekeys=set())
+    assert "\\begin{abstract}" in out
+    assert "Objective sentence" in out
+    assert "\\section{Introduction}" in out
 
 
 def test_markdown_to_latex_splits_inline_h3_heading_body() -> None:
@@ -283,6 +303,239 @@ def test_markdown_to_latex_merges_split_heading_with_blank_line() -> None:
     assert "\\subsection{Synthesis of Findings}" in out
 
 
+def test_compact_study_table_excludes_non_primary_records() -> None:
+    papers = [
+        SimpleNamespace(paper_id="p1", authors=["A"], year=2024, country="IN"),
+        SimpleNamespace(paper_id="p2", authors=["B"], year=2023, country="IN"),
+    ]
+    extraction_records = [
+        SimpleNamespace(
+            paper_id="p1",
+            outcomes=[],
+            study_design=SimpleNamespace(value="mixed_methods"),
+            participant_count=42,
+            results_summary={"summary": "Primary outcome improved."},
+            primary_study_status=SimpleNamespace(value="primary"),
+        ),
+        SimpleNamespace(
+            paper_id="p2",
+            outcomes=[],
+            study_design=SimpleNamespace(value="narrative_review"),
+            participant_count=None,
+            results_summary={"summary": "Secondary review summary."},
+            primary_study_status=SimpleNamespace(value="secondary_review"),
+        ),
+    ]
+    table = build_compact_study_table(papers, extraction_records)
+    assert "A (2024)" in table
+    assert "B (2023)" not in table
+    assert "Summary of 1 included studies" in table
+
+
+@pytest.mark.asyncio
+async def test_manuscript_contract_detects_included_count_mismatch(tmp_path: Path) -> None:
+    db_path = tmp_path / "runtime.db"
+    manuscript_md = tmp_path / "doc_manuscript.md"
+    manuscript_tex = tmp_path / "doc_manuscript.tex"
+    manuscript_md.write_text(
+        "\n".join(
+            [
+                "## Results",
+                "### Study Characteristics",
+                "| Study (Year) | Country | Design | N | Key Finding |",
+                "|---|---|---|---|---|",
+                "| A (2024) | IN | Mixed Methods | 42 | Improved |",
+                "| B (2023) | IN | Mixed Methods | 17 | Improved |",
+                "_Table 1. Summary of 2 included studies. See Appendix B for full characteristics._",
+                "## References",
+                "[1] Ref",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    manuscript_tex.write_text("\\section{Results}\n\\subsection{Study Characteristics}\n", encoding="utf-8")
+
+    async with get_db(str(db_path)) as db:
+        repo = WorkflowRepository(db)
+        cite_repo = CitationRepository(db)
+        await db.execute(
+            "INSERT INTO papers (paper_id, title, authors, source_database) VALUES (?, ?, ?, ?)",
+            ("p1", "Paper 1", '["A"]', "openalex"),
+        )
+        await db.execute(
+            """
+            INSERT INTO study_cohort_membership (
+                workflow_id, paper_id, screening_status, fulltext_status, synthesis_eligibility, source_phase
+            ) VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            ("wf-test", "p1", "included", "assessed", "included_primary", "phase_4_extraction_quality"),
+        )
+        await db.commit()
+        result = await run_manuscript_contracts(
+            repository=repo,
+            citation_repository=cite_repo,
+            workflow_id="wf-test",
+            manuscript_md_path=str(manuscript_md),
+            manuscript_tex_path=str(manuscript_tex),
+            mode="soft",
+        )
+    assert not result.passed
+    assert any(v.code == "INCLUDED_COUNT_MISMATCH" for v in result.violations)
+
+
+@pytest.mark.asyncio
+async def test_manuscript_contract_detects_malformed_heading_and_count_disclosure_mismatch(tmp_path: Path) -> None:
+    db_path = tmp_path / "runtime_contracts.db"
+    manuscript_md = tmp_path / "doc_manuscript.md"
+    manuscript_tex = tmp_path / "doc_manuscript.tex"
+    manuscript_md.write_text(
+        "\n".join(
+            [
+                "## Methods",
+                "### Information Sources The systematic search was conducted in PubMed.",
+                "",
+                "## Results",
+                "We included 2 studies in the final synthesis.",
+                "## References",
+                "[1] Ref",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    manuscript_tex.write_text("\\section{Methods}\n\\section{Results}\n", encoding="utf-8")
+
+    async with get_db(str(db_path)) as db:
+        repo = WorkflowRepository(db)
+        cite_repo = CitationRepository(db)
+        await db.execute(
+            "INSERT INTO papers (paper_id, title, authors, source_database) VALUES (?, ?, ?, ?)",
+            ("p1", "Paper 1", '["A"]', "openalex"),
+        )
+        await db.execute(
+            """
+            INSERT INTO study_cohort_membership (
+                workflow_id, paper_id, screening_status, fulltext_status, synthesis_eligibility, source_phase
+            ) VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            ("wf-test", "p1", "included", "assessed", "included_primary", "phase_4_extraction_quality"),
+        )
+        await db.commit()
+        result = await run_manuscript_contracts(
+            repository=repo,
+            citation_repository=cite_repo,
+            workflow_id="wf-test",
+            manuscript_md_path=str(manuscript_md),
+            manuscript_tex_path=str(manuscript_tex),
+            mode="soft",
+        )
+    assert not result.passed
+    assert any(v.code == "MALFORMED_SECTION_HEADING" for v in result.violations)
+    assert any(v.code == "COUNT_DISCLOSURE_MISMATCH" for v in result.violations)
+
+
+@pytest.mark.asyncio
+async def test_manuscript_contract_allows_optional_markdown_headings_when_tex_headings_order_matches(
+    tmp_path: Path,
+) -> None:
+    db_path = tmp_path / "runtime_contracts_headings.db"
+    manuscript_md = tmp_path / "doc_manuscript.md"
+    manuscript_tex = tmp_path / "doc_manuscript.tex"
+    manuscript_md.write_text(
+        "\n".join(
+            [
+                "## Introduction",
+                "Text.",
+                "## Figures",
+                "Figure notes.",
+                "## Appendix A: Eligibility Criteria (PICOS)",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    manuscript_tex.write_text(
+        "\\section{Introduction}\n\\section{Appendix A: Eligibility Criteria (PICOS)}\n",
+        encoding="utf-8",
+    )
+    async with get_db(str(db_path)) as db:
+        repo = WorkflowRepository(db)
+        cite_repo = CitationRepository(db)
+        await db.commit()
+        result = await run_manuscript_contracts(
+            repository=repo,
+            citation_repository=cite_repo,
+            workflow_id="wf-test",
+            manuscript_md_path=str(manuscript_md),
+            manuscript_tex_path=str(manuscript_tex),
+            mode="soft",
+        )
+    assert all(v.code != "HEADING_PARITY_MISMATCH" for v in result.violations)
+
+
+@pytest.mark.asyncio
+async def test_manuscript_contract_skips_numbered_reference_requirement_for_citekey_markdown(
+    tmp_path: Path,
+) -> None:
+    db_path = tmp_path / "runtime_contracts_refs.db"
+    manuscript_md = tmp_path / "doc_manuscript.md"
+    manuscript_tex = tmp_path / "doc_manuscript.tex"
+    manuscript_md.write_text(
+        "\n".join(
+            [
+                "## Results",
+                "Evidence supports this [Smith2021].",
+                "## References",
+                "[Smith2021] Smith A. Example reference.",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    manuscript_tex.write_text("\\section{Results}\n", encoding="utf-8")
+    async with get_db(str(db_path)) as db:
+        repo = WorkflowRepository(db)
+        cite_repo = CitationRepository(db)
+        await db.execute(
+            """
+            INSERT INTO citations (citekey, title, authors, year, source_type)
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            ("Smith2021", "Example reference", "Smith A", 2021, "included"),
+        )
+        await db.commit()
+        result = await run_manuscript_contracts(
+            repository=repo,
+            citation_repository=cite_repo,
+            workflow_id="wf-test",
+            manuscript_md_path=str(manuscript_md),
+            manuscript_tex_path=str(manuscript_tex),
+            mode="soft",
+        )
+    assert all(v.code != "UNRESOLVED_CITATIONS" for v in result.violations)
+
+
+def test_build_picos_table_removes_dangling_placeholder_fragments() -> None:
+    cfg = SimpleNamespace(
+        pico=SimpleNamespace(
+            population="Adults",
+            intervention="Automation",
+            comparison="Manual workflow",
+            outcome="Dispensing accuracy",
+            study_design="RCT",
+        ),
+        review_type="systematic",
+        date_range_start=2010,
+        date_range_end=2026,
+        inclusion_criteria=[
+            "Research published between January 2010 and December 2026 is included to ensure technological relevance",
+            "Outpatient pharmacy settings",
+        ],
+        exclusion_criteria=["Non-English reports"],
+    )
+    table = build_picos_table(cfg)
+    assert "will be considered" not in table.lower()
+    assert "to ensure technological relevance" not in table.lower()
+    assert "Outpatient pharmacy settings" in table
+
+
 def test_markdown_to_latex_splits_lowercase_run_on_heading_body() -> None:
     md = (
         "# Title\n\n"
@@ -340,7 +593,10 @@ def test_validate_ieee_word_count_ignores_latex_command_tokens() -> None:
 def test_validate_prisma_basic():
     md = "This systematic review examines objectives and methods. We searched PubMed and MEDLINE."
     r = validate_prisma(None, md)
-    assert r.reported_count >= 1
+    assert r.source_state == "validated_md"
+    assert r.primary_total == 27
+    assert len(r.items) >= 40
+    assert (r.reported_count + r.partial_count) >= 1
     assert r.items
 
 
@@ -526,6 +782,39 @@ def test_markdown_to_latex_trims_oversized_heading_spillover() -> None:
         "**Keywords:** a, b\n\n"
         "## Results\n\n"
         "### Synthesis of Findings Due to heterogeneity and methodological differences across included studies\n"
+    )
+    out = markdown_to_latex(md, citekeys=set())
+    assert "\\subsection{Synthesis of Findings}" in out
+
+
+def test_markdown_to_latex_strips_numeric_citation_list_from_heading() -> None:
+    md = (
+        "# Title\n\n"
+        "**Background:** Background.\n"
+        "**Objectives:** Objective.\n"
+        "**Methods:** Methods.\n"
+        "**Results:** Results.\n"
+        "**Conclusion:** Conclusion.\n"
+        "**Keywords:** a, b\n\n"
+        "## Results\n\n"
+        "### Synthesis of Findings [6, 8]\n"
+    )
+    out = markdown_to_latex(md, citekeys={"RefA", "RefB"}, num_to_citekey={"6": "RefA", "8": "RefB"})
+    assert "\\subsection{Synthesis of Findings}" in out
+    assert "[6, 8]" not in out
+
+
+def test_markdown_to_latex_trims_heading_spillover_after_because_clause() -> None:
+    md = (
+        "# Title\n\n"
+        "**Background:** Background.\n"
+        "**Objectives:** Objective.\n"
+        "**Methods:** Methods.\n"
+        "**Results:** Results.\n"
+        "**Conclusion:** Conclusion.\n"
+        "**Keywords:** a, b\n\n"
+        "## Results\n\n"
+        "### Synthesis of Findings because heterogeneity was high across studies\n"
     )
     out = markdown_to_latex(md, citekeys=set())
     assert "\\subsection{Synthesis of Findings}" in out

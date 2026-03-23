@@ -134,7 +134,9 @@ async def _run_validate(workflow_id: str, run_root: str, console: Console) -> bo
             console.print("[green]IEEE validation:[/] PASSED")
 
     console.print(
-        f"[green]PRISMA:[/] {prisma_result.reported_count}/27 reported "
+        f"[green]PRISMA:[/] {prisma_result.reported_count}/{prisma_result.primary_total} reported "
+        f"(partial={prisma_result.partial_count}, missing={prisma_result.missing_count}, "
+        f"n/a={prisma_result.not_applicable_count}, source={prisma_result.source_state}) "
         f"({'PASSED' if prisma_result.passed else 'FAILED'})"
     )
     return all_pass
@@ -220,7 +222,9 @@ def build_parser() -> argparse.ArgumentParser:
         help="Always start new run; skip resume prompt (needed when running in Progress context)",
     )
     run.add_argument(
-        "--verbose", "-v", action="store_true", help="Per-phase status, API call logging, screening summaries"
+        "--silent",
+        action="store_true",
+        help="Minimize console output. Default is verbose mode.",
     )
     run.add_argument("--debug", "-d", action="store_true", help="Verbose plus Pydantic model dumps at phase boundaries")
     run.add_argument(
@@ -243,7 +247,11 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Run locally even if API is up (no live progress in frontend)",
     )
-    resume.add_argument("--verbose", "-v", action="store_true")
+    resume.add_argument(
+        "--silent",
+        action="store_true",
+        help="Minimize console output. Default is verbose mode.",
+    )
     resume.add_argument("--debug", "-d", action="store_true")
 
     validate = sub.add_parser("validate")
@@ -259,7 +267,11 @@ def build_parser() -> argparse.ArgumentParser:
     prospero.add_argument("--run-root", default="runs")
     prospero.add_argument("--config", default="config/review.yaml")
     prospero.add_argument("--settings", default="config/settings.yaml")
-    prospero.add_argument("--verbose", "-v", action="store_true")
+    prospero.add_argument(
+        "--silent",
+        action="store_true",
+        help="Minimize console output. Default is verbose mode.",
+    )
     prospero.add_argument("--debug", "-d", action="store_true")
 
     status = sub.add_parser("status")
@@ -401,7 +413,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 0
 
     if args.command == "run":
-        verbose = getattr(args, "verbose", False)
+        verbose = not getattr(args, "silent", False)
         debug = getattr(args, "debug", False)
         offline = getattr(args, "offline", False)
         if debug:
@@ -438,7 +450,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         if not getattr(args, "topic", None) and not getattr(args, "workflow_id", None):
             console.print("[red]Error:[/] Either --topic or --workflow-id is required for resume.")
             return 1
-        verbose = getattr(args, "verbose", False)
+        verbose = not getattr(args, "silent", False)
         debug = getattr(args, "debug", False)
         if debug:
             verbose = True
@@ -463,7 +475,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                     )
                     topic_preview = f"{topic[:60]}..." if len(topic) > 60 else topic
                     console.print(f"  Run ID: {run_id}  |  Topic: {topic_preview}")
-                    verbose_note = " (verbose mode active on server)" if verbose or debug else ""
+                    verbose_note = "" if verbose or debug else " (silent mode active on server)"
                     console.print(
                         f"[dim]Logs: pm2 logs litreview-api (or use --no-api for terminal output){verbose_note}[/]"
                     )
@@ -549,7 +561,7 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     if args.command == "prospero":
         try:
-            verbose = getattr(args, "verbose", False)
+            verbose = not getattr(args, "silent", False)
             debug = getattr(args, "debug", False)
             if debug:
                 verbose = True

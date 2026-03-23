@@ -15,11 +15,11 @@ import {
   FileType,
   FileCode,
   RefreshCw,
+  Download,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { ResultsPanel } from "@/components/ResultsPanel"
 import { EvidenceNetworkViz } from "@/components/EvidenceNetworkViz"
-import { StudyFilesDownloadButton } from "@/components/StudyFilesDownloadButton"
 import { triggerExport, fetchPrismaChecklist, downloadUrl, submissionZipUrl } from "@/lib/api"
 import { Skeleton } from "@/components/ui/skeleton"
 import { FetchError, EmptyState } from "@/components/ui/feedback"
@@ -257,6 +257,7 @@ function ManuscriptViewer({ filePath }: { filePath: string }) {
 function PrismaStatusIcon({ status }: { status: string }) {
   if (status === "REPORTED") return <CheckCircle className="h-3.5 w-3.5 text-emerald-400 shrink-0" />
   if (status === "PARTIAL") return <AlertTriangle className="h-3.5 w-3.5 text-amber-400 shrink-0" />
+  if (status === "NOT_APPLICABLE") return <BookOpen className="h-3.5 w-3.5 text-zinc-500 shrink-0" />
   return <XCircle className="h-3.5 w-3.5 text-red-400 shrink-0" />
 }
 
@@ -267,17 +268,31 @@ function PrismaCard({ runId }: { runId: string }) {
   const [error, setError] = useState<string | null>(null)
   const [sectionFilter, setSectionFilter] = useState<string>("All")
   const hasFetched = useRef(false)
+  const fetchChecklist = useCallback(async () => {
+    setLoading(true)
+    setError(null)
+    try {
+      setData(await fetchPrismaChecklist(runId))
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setLoading(false)
+    }
+  }, [runId])
+
+  useEffect(() => {
+    // Reset sticky fetch state when user switches runs.
+    hasFetched.current = false
+    setData(null)
+    setError(null)
+    setSectionFilter("All")
+  }, [runId])
 
   function handleToggle() {
     setOpen((v) => !v)
     if (!hasFetched.current) {
       hasFetched.current = true
-      setLoading(true)
-      setError(null)
-      fetchPrismaChecklist(runId)
-        .then(setData)
-        .catch((e) => setError(e instanceof Error ? e.message : String(e)))
-        .finally(() => setLoading(false))
+      void fetchChecklist()
     }
   }
 
@@ -318,22 +333,23 @@ function PrismaCard({ runId }: { runId: string }) {
               <Skeleton className="h-4 w-full" />
             </div>
           )}
-          {error && <FetchError message={`Failed to load: ${error}`} />}
-          {data && data.total === 0 && (
+          {error && <FetchError message={`Failed to load: ${error}`} onRetry={() => void fetchChecklist()} />}
+          {data && data.source_state === "artifact_missing" && (
             <EmptyState
               icon={AlertTriangle}
-              heading="PRISMA data not yet available for this run."
-              sub="PRISMA compliance is populated after the writing phase completes and the manuscript is generated."
+              heading="PRISMA source manuscript artifact is missing."
+              sub="Run may not have reached writing/finalize yet, or manuscript artifacts are unavailable for this run."
               className="py-10"
             />
           )}
-          {data && data.total > 0 && (
+          {data && data.source_state !== "artifact_missing" && (
             <>
               {/* Summary bar */}
             <div className="flex items-center gap-4 text-xs flex-wrap p-3 rounded-lg glass-panel">
                 <span className="text-emerald-400 font-semibold">{data.reported_count} Reported</span>
                 <span className="text-amber-400 font-semibold">{data.partial_count} Partial</span>
                 <span className="text-red-400 font-semibold">{data.missing_count} Missing</span>
+                <span className="text-zinc-400 font-semibold">{data.not_applicable_count} N/A</span>
               </div>
 
               {/* Section filter chips */}
@@ -365,6 +381,8 @@ function PrismaCard({ runId }: { runId: string }) {
                         ? "bg-emerald-900/10"
                         : item.status === "PARTIAL"
                         ? "bg-amber-900/10"
+                        : item.status === "NOT_APPLICABLE"
+                        ? "bg-zinc-900/40"
                         : "bg-red-900/10",
                     )}
                   >
@@ -545,6 +563,8 @@ interface ResultsViewProps {
   isDone: boolean
   historyOutputs?: Record<string, string>
   exportRunId?: string | null
+  submissionFocusTarget?: "reference-papers" | null
+  submissionFocusToken?: number
 }
 
 export function ResultsView({
@@ -552,6 +572,8 @@ export function ResultsView({
   isDone,
   historyOutputs = {},
   exportRunId,
+  submissionFocusTarget = null,
+  submissionFocusToken = 0,
 }: ResultsViewProps) {
   const effectiveOutputs = useMemo<Record<string, unknown>>(() => {
     const base =
@@ -572,6 +594,7 @@ export function ResultsView({
   const isHistorical = !isDone && Object.keys(historyOutputs).length > 0
   const hasResults = isDone || isHistorical
   const canExport = exportRunId != null && hasResults
+  const [artifactsOpen, setArtifactsOpen] = useState(false)
 
   const manuscriptPath = useMemo(
     () => findFileByName(effectiveOutputs, "doc_manuscript"),
@@ -592,6 +615,13 @@ export function ResultsView({
     texFiles.forEach((p) => paths.add(p))
     return paths
   }, [effectiveOutputs, manuscriptPath, docxPath])
+
+  useEffect(() => {
+    if (submissionFocusTarget && !artifactsOpen) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional one-way sync from navigation focus token
+      setArtifactsOpen(true)
+    }
+  }, [submissionFocusTarget, submissionFocusToken, artifactsOpen])
 
   if (!hasResults) {
     return (
@@ -648,18 +678,31 @@ export function ResultsView({
         icon={FileText}
         title="Artifacts"
         description="Protocol, data files, figures"
+        open={artifactsOpen}
+        onToggle={() => setArtifactsOpen((v) => !v)}
         actions={
           exportRunId ? (
-            <StudyFilesDownloadButton
-              runId={exportRunId}
-              label="Download All"
-              className="h-7 gap-1 text-xs border-zinc-700 text-zinc-400 hover:text-zinc-200 hover:border-zinc-500"
-            />
+            <Button
+              size="sm"
+              asChild
+              className="h-7 gap-1 text-xs bg-emerald-600 hover:bg-emerald-500 text-zinc-950 border-0 shadow-none"
+            >
+              <a href={submissionZipUrl(exportRunId)} download>
+                <Download className="h-3 w-3" />
+                Submission Package
+              </a>
+            </Button>
           ) : null
         }
       >
         <div className="p-4">
-          <ResultsPanel outputs={effectiveOutputs} excludePaths={manuscriptExcludePaths} />
+          <ResultsPanel
+            outputs={effectiveOutputs}
+            excludePaths={manuscriptExcludePaths}
+            runId={exportRunId}
+            submissionFocusTarget={submissionFocusTarget}
+            submissionFocusToken={submissionFocusToken}
+          />
         </div>
       </CollapsibleSection>
     </div>

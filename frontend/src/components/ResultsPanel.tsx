@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback } from "react"
+import { useRef, useCallback, useEffect, useState } from "react"
 import ReactMarkdown, { defaultUrlTransform } from "react-markdown"
 import remarkGfm from "remark-gfm"
 import rehypeSlug from "rehype-slug"
@@ -24,8 +24,20 @@ import {
   FileSpreadsheet,
   FileType,
   File,
+  Search,
+  ClipboardList,
+  FileSearch,
+  BadgeCheck,
+  FileArchive,
+  FolderArchive,
+  ScrollText,
+  Database,
+  BarChart3,
+  Filter,
+  Network,
+  ShieldCheck,
 } from "lucide-react"
-import { downloadUrl } from "@/lib/api"
+import { downloadUrl, studyFilesZipUrl } from "@/lib/api"
 
 hljs.registerLanguage("latex", latex)
 
@@ -33,6 +45,11 @@ interface ResultsPanelProps {
   outputs: Record<string, unknown>
   /** File paths already rendered elsewhere that should not appear in this panel. */
   excludePaths?: Set<string>
+  /** run_id used for Reference papers only ZIP synthetic row. */
+  runId?: string | null
+  /** Optional highlight target for deep-linking into Submission Files. */
+  submissionFocusTarget?: "reference-papers" | null
+  submissionFocusToken?: number
 }
 
 function isFilePath(val: unknown): val is string {
@@ -67,7 +84,37 @@ function latexLabel(name: string): string {
 
 function fileIcon(file: OutputFile): { icon: React.ElementType; className: string } {
   const name = file.path.split("/").pop() ?? ""
+  const path = file.path.toLowerCase()
+  const lower = name.toLowerCase()
+
+  // Submission and references
+  if (path.includes("/studies-files.zip") || lower.includes("reference papers only")) {
+    return { icon: FolderArchive, className: "text-emerald-400" }
+  }
+  if (/\.zip$/i.test(name)) return { icon: FileArchive, className: "text-emerald-500" }
+  if (/\.bib$/i.test(name)) return { icon: BookMarked, className: "text-violet-400" }
+
+  // Protocol and search docs
+  if (lower.startsWith("doc_search")) return { icon: Search, className: "text-cyan-400" }
+  if (lower.startsWith("doc_protocol")) return { icon: ClipboardList, className: "text-amber-400" }
+  if (lower.startsWith("doc_fulltext")) return { icon: FileSearch, className: "text-blue-400" }
+  if (lower.startsWith("doc_prospero")) return { icon: BadgeCheck, className: "text-emerald-400" }
+
+  // Data artifacts
+  if (lower === "data_narrative_synthesis.json") return { icon: ScrollText, className: "text-indigo-400" }
+  if (lower === "data_papers_manifest.json") return { icon: Database, className: "text-fuchsia-400" }
+  if (lower === "run_summary.json") return { icon: ClipboardList, className: "text-zinc-300" }
+
+  // Figure semantics by filename for faster visual scan.
+  if (lower.includes("forest")) return { icon: BarChart3, className: "text-cyan-400" }
+  if (lower.includes("funnel")) return { icon: Filter, className: "text-amber-400" }
+  if (lower.includes("rob") || lower.includes("risk_of_bias")) {
+    return { icon: ShieldCheck, className: "text-emerald-400" }
+  }
+  if (lower.includes("network")) return { icon: Network, className: "text-violet-400" }
+
   if (/\.docx$/i.test(name)) return { icon: FileType, className: "text-blue-400" }
+  if (/\.pdf$/i.test(name)) return { icon: FileText, className: "text-rose-400" }
   if (/\.json$/i.test(name)) return { icon: FileJson, className: "text-zinc-500" }
   if (/\.csv$/i.test(name)) return { icon: FileSpreadsheet, className: "text-emerald-500" }
   if (/\.tex$/i.test(name)) return { icon: FileCode, className: "text-zinc-500" }
@@ -78,6 +125,7 @@ function fileIcon(file: OutputFile): { icon: React.ElementType; className: strin
 }
 
 type DocGroup = "manuscript" | "protocol" | "submission" | "data"
+const REFERENCE_PAPERS_ZIP_KEY = "submission.reference_papers_zip"
 
 function resolveFileUrl(path: string): string {
   return path.startsWith("/api/") ? path : downloadUrl(path)
@@ -86,7 +134,12 @@ function resolveFileUrl(path: string): string {
 function fileGroupKey(file: OutputFile): DocGroup {
   const name = (file.path.split("/").pop() ?? "").toLowerCase()
   if (name.startsWith("doc_prospero")) return "protocol"
-  if (name === "submission.zip" || name === "references.bib" || name === "cover_letter.md") return "submission"
+  if (
+    name === "submission.zip" ||
+    name === "references.bib" ||
+    name === "cover_letter.md" ||
+    name.startsWith("prisma_checklist.")
+  ) return "submission"
   // Primary deliverables
   if (
     /\.(docx)$/i.test(name) ||
@@ -456,7 +509,13 @@ function FigureRow({ file }: { file: OutputFile }) {
   )
 }
 
-export function ResultsPanel({ outputs, excludePaths }: ResultsPanelProps) {
+export function ResultsPanel({
+  outputs,
+  excludePaths,
+  runId = null,
+  submissionFocusTarget = null,
+  submissionFocusToken = 0,
+}: ResultsPanelProps) {
   const allFiles = collectFiles(outputs)
   const files = excludePaths
     ? allFiles.filter((f) => !excludePaths.has(f.path))
@@ -465,6 +524,29 @@ export function ResultsPanel({ outputs, excludePaths }: ResultsPanelProps) {
     (f) => !f.isRasterImage && !/\.(png|jpg|jpeg|svg|webp|pdf)$/i.test(f.path),
   )
   const figs = files.filter((f) => /\.(png|jpg|jpeg|svg|webp|pdf)$/i.test(f.path))
+
+  useEffect(() => {
+    if (submissionFocusTarget !== "reference-papers") return
+    const targetKey = REFERENCE_PAPERS_ZIP_KEY
+    const highlightClasses = ["ring-1", "ring-violet-500/70", "bg-violet-900/10", "p-1", "rounded-md"]
+    const raf = window.requestAnimationFrame(() => {
+      const el = document.querySelector(`[data-download-key="${targetKey}"]`)
+      if (el instanceof HTMLElement) {
+        el.scrollIntoView({ behavior: "smooth", block: "center" })
+        el.classList.add(...highlightClasses)
+      }
+    })
+    const timeout = window.setTimeout(() => {
+      const el = document.querySelector(`[data-download-key="${targetKey}"]`)
+      if (el instanceof HTMLElement) {
+        el.classList.remove(...highlightClasses)
+      }
+    }, 2500)
+    return () => {
+      window.clearTimeout(timeout)
+      window.cancelAnimationFrame(raf)
+    }
+  }, [submissionFocusTarget, submissionFocusToken])
 
   if (files.length === 0) {
     return <EmptyState icon={FileText} heading="No output files to display." className="py-16" />
@@ -479,6 +561,22 @@ export function ResultsPanel({ outputs, excludePaths }: ResultsPanelProps) {
     },
     { manuscript: [], protocol: [], submission: [], data: [] },
   )
+  if (runId) {
+    const refZipPath = studyFilesZipUrl(runId)
+    const hasRow = groupedDocs.submission.some((f) => f.path === refZipPath)
+    if (!hasRow) {
+      groupedDocs.submission.unshift({
+        key: REFERENCE_PAPERS_ZIP_KEY,
+        path: refZipPath,
+        label: "Reference papers only (ZIP)",
+        isRasterImage: false,
+        isLatex: false,
+        isMarkdown: false,
+        isJson: false,
+        isCsv: false,
+      })
+    }
+  }
 
   // Flat groups to render (skip manuscript)
   const flatGroups: { key: DocGroup; label: string }[] = [
@@ -493,20 +591,33 @@ export function ResultsPanel({ outputs, excludePaths }: ResultsPanelProps) {
     <div className="flex flex-col gap-0">
       {/* Document groups: flat label-caps headers, no outer card */}
       {hasAnyDocs && flatGroups.map(({ key, label }, idx) => {
-        const groupFiles = groupedDocs[key]
+        let groupFiles = [...groupedDocs[key]]
+        if (key === "submission") {
+          // Keep submission.zip as the top Artifacts header CTA only.
+          groupFiles = groupFiles.filter((f) => !/(^|\/)submission\.zip$/i.test(f.path))
+        }
+        if (key === "submission") {
+          groupFiles.sort((a, b) => {
+            if (a.key === REFERENCE_PAPERS_ZIP_KEY) return -1
+            if (b.key === REFERENCE_PAPERS_ZIP_KEY) return 1
+            return a.label.localeCompare(b.label)
+          })
+        }
         if (groupFiles.length === 0) return null
         const isLast = idx === flatGroups.filter((g) => groupedDocs[g.key].length > 0).length - 1
         return (
           <div key={key} className={isLast && figs.length === 0 ? "" : "pb-4 mb-4 border-b border-zinc-800/60"}>
             <p className="label-caps pb-2">{label}</p>
             <div className="flex flex-col gap-2">
-              {groupFiles.map((f) =>
-                f.isMarkdown || f.isJson || f.isLatex || f.isCsv ? (
-                  <InlineDocRow key={f.key} file={f} />
-                ) : (
-                  <FileRow key={f.key} file={f} />
-                ),
-              )}
+              {groupFiles.map((f) => (
+                <div key={f.key} data-download-key={f.key}>
+                  {f.isMarkdown || f.isJson || f.isLatex || f.isCsv ? (
+                    <InlineDocRow file={f} />
+                  ) : (
+                    <FileRow file={f} />
+                  )}
+                </div>
+              ))}
             </div>
           </div>
         )
