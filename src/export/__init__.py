@@ -11,7 +11,13 @@ from src.export.markdown_refs import (
     build_markdown_references_section,
     strip_appended_sections,
 )
-from src.export.prisma_checklist import PrismaValidationResult, validate_prisma
+from src.export.prisma_checklist import (
+    PrismaValidationResult,
+    render_prisma_csv,
+    render_prisma_html,
+    render_prisma_markdown_table,
+    validate_prisma,
+)
 from src.export.submission_packager import package_submission
 
 __all__ = [
@@ -27,4 +33,7 @@ __all__ = [
     "validate_prisma",
     "IEEEValidationResult",
     "PrismaValidationResult",
+    "render_prisma_csv",
+    "render_prisma_html",
+    "render_prisma_markdown_table",
 ]

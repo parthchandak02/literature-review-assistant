@@ -31,7 +31,7 @@ from src.db.database import get_db
 from src.db.repositories import WorkflowRepository
 from src.db.workflow_registry import REGISTRY_SCHEMA
 from src.search.pdf_retrieval import PDFRetrievalResult
-from src.web.app import _active_runs, _inject_csv_paths_into_yaml, _RunRecord, app
+from src.web.app import _active_runs, _fetch_run_stats, _inject_csv_paths_into_yaml, _RunRecord, app
 
 # ---------------------------------------------------------------------------
 # Shared fixture: async HTTP client bound to the FastAPI ASGI app
@@ -231,6 +231,63 @@ async def test_history_running_row_without_terminal_evidence_marked_stale(
     assert row["status"] == "stale"
 
 
+@pytest.mark.asyncio
+async def test_history_archive_restore_and_delete_flow(client: httpx.AsyncClient, tmp_path: Path) -> None:
+    run_root = tmp_path / "runs"
+    run_dir = run_root / "2026-03-10" / "wf-2000-topic" / "run_01-00-00PM"
+    db_path = run_dir / "runtime.db"
+    run_dir.mkdir(parents=True, exist_ok=True)
+
+    async with get_db(str(db_path)) as db:
+        await db.execute(
+            "INSERT INTO workflows (workflow_id, topic, config_hash, status) VALUES (?, ?, ?, ?)",
+            ("wf-2000", "Archive Topic", "hash", "completed"),
+        )
+        await db.commit()
+
+    registry_path = run_root / "workflows_registry.db"
+    async with aiosqlite.connect(str(registry_path)) as reg_db:
+        await reg_db.executescript(REGISTRY_SCHEMA)
+        await reg_db.execute(
+            """
+            INSERT INTO workflows_registry
+                (workflow_id, topic, config_hash, db_path, status, created_at, updated_at, heartbeat_at)
+            VALUES (?, ?, ?, ?, ?, datetime('now','-5 minutes'), datetime('now','-5 minutes'), NULL)
+            """,
+            ("wf-2000", "Archive Topic", "hash", str(db_path), "completed"),
+        )
+        await reg_db.commit()
+
+    archive_res = await client.post(f"/api/history/wf-2000/archive?run_root={run_root}")
+    assert archive_res.status_code == 200
+    assert archive_res.json().get("ok") is True
+
+    history_after_archive = await client.get(f"/api/history?run_root={run_root}")
+    assert history_after_archive.status_code == 200
+    archived_row = next(r for r in history_after_archive.json() if r["workflow_id"] == "wf-2000")
+    assert archived_row["is_archived"] is True
+    assert archived_row["archived_at"] is not None
+
+    restore_res = await client.post(f"/api/history/wf-2000/restore?run_root={run_root}")
+    assert restore_res.status_code == 200
+    assert restore_res.json().get("ok") is True
+
+    history_after_restore = await client.get(f"/api/history?run_root={run_root}")
+    assert history_after_restore.status_code == 200
+    restored_row = next(r for r in history_after_restore.json() if r["workflow_id"] == "wf-2000")
+    assert restored_row["is_archived"] is False
+    assert restored_row["archived_at"] is None
+
+    delete_res = await client.delete(f"/api/history/wf-2000?run_root={run_root}")
+    assert delete_res.status_code == 200
+    assert delete_res.json().get("ok") is True
+    assert not run_dir.exists()
+
+    history_after_delete = await client.get(f"/api/history?run_root={run_root}")
+    assert history_after_delete.status_code == 200
+    assert all(r["workflow_id"] != "wf-2000" for r in history_after_delete.json())
+
+
 # ---------------------------------------------------------------------------
 # Test 8: GET /api/stream/{run_id} for unknown run_id returns 404
 # ---------------------------------------------------------------------------
@@ -380,6 +437,75 @@ async def test_db_papers_all_supports_primary_status_filter(client: httpx.AsyncC
         _active_runs.pop(run_id, None)
 
 
+@pytest.mark.asyncio
+async def test_history_stats_prefer_canonical_cohort_count(tmp_path: Path) -> None:
+    db_path = tmp_path / "runtime_history_stats.db"
+    async with get_db(str(db_path)) as db:
+        await db.execute(
+            "INSERT INTO workflows (workflow_id, topic, config_hash, status) VALUES (?, ?, ?, ?)",
+            ("wf-cohort", "Topic", "hash", "completed"),
+        )
+        await db.execute(
+            "INSERT INTO papers (paper_id, title, authors, source_database) VALUES (?, ?, ?, ?)",
+            ("p1", "Paper 1", '["A"]', "openalex"),
+        )
+        await db.execute(
+            "INSERT INTO papers (paper_id, title, authors, source_database) VALUES (?, ?, ?, ?)",
+            ("p2", "Paper 2", '["B"]', "openalex"),
+        )
+        await db.execute(
+            """
+            INSERT INTO dual_screening_results (workflow_id, paper_id, stage, agreement, final_decision, adjudication_needed)
+            VALUES (?, ?, 'fulltext', 1, 'include', 0)
+            """,
+            ("wf-cohort", "p1"),
+        )
+        await db.execute(
+            """
+            INSERT INTO dual_screening_results (workflow_id, paper_id, stage, agreement, final_decision, adjudication_needed)
+            VALUES (?, ?, 'fulltext', 1, 'include', 0)
+            """,
+            ("wf-cohort", "p2"),
+        )
+        await db.execute(
+            """
+            INSERT INTO study_cohort_membership (
+                workflow_id, paper_id, screening_status, fulltext_status, synthesis_eligibility, source_phase
+            ) VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            ("wf-cohort", "p1", "included", "assessed", "included_primary", "phase_4_extraction_quality"),
+        )
+        await db.commit()
+    stats = await _fetch_run_stats(str(db_path))
+    assert stats["papers_included"] == 1
+    assert stats["papers_included_source"] == "study_cohort_membership_synthesis_included_primary"
+
+
+@pytest.mark.asyncio
+async def test_history_stats_falls_back_to_dual_when_cohort_missing(tmp_path: Path) -> None:
+    db_path = tmp_path / "runtime_history_stats_dual.db"
+    async with get_db(str(db_path)) as db:
+        await db.execute(
+            "INSERT INTO workflows (workflow_id, topic, config_hash, status) VALUES (?, ?, ?, ?)",
+            ("wf-dual-fallback", "Topic", "hash", "completed"),
+        )
+        await db.execute(
+            "INSERT INTO papers (paper_id, title, authors, source_database) VALUES (?, ?, ?, ?)",
+            ("p1", "Paper 1", '["A"]', "openalex"),
+        )
+        await db.execute(
+            """
+            INSERT INTO dual_screening_results (workflow_id, paper_id, stage, agreement, final_decision, adjudication_needed)
+            VALUES (?, ?, 'fulltext', 1, 'include', 0)
+            """,
+            ("wf-dual-fallback", "p1"),
+        )
+        await db.commit()
+    stats = await _fetch_run_stats(str(db_path))
+    assert stats["papers_included"] == 1
+    assert stats["papers_included_source"] == "dual_screening_results_fulltext"
+
+
 # ---------------------------------------------------------------------------
 # Test 9: GET /api/run/{run_id}/papers-reference returns 404 for unknown run_id
 #         (not in _active_runs and not in workflows_registry)
@@ -400,6 +526,54 @@ async def test_papers_reference_unknown_workflow_returns_404(client: httpx.Async
     response = await client.get("/api/run/wf-9999/papers-reference")
     assert response.status_code == 404
     assert "Run not found" in response.json().get("detail", "")
+
+
+@pytest.mark.asyncio
+async def test_papers_reference_cohort_path_returns_included_rows(
+    client: httpx.AsyncClient,
+    tmp_path: Path,
+) -> None:
+    run_id = "run-papers-reference-cohort"
+    workflow_id = "wf-papers-reference-cohort"
+    run_dir = tmp_path / "2026-03-10" / "wf-papers-reference-cohort-topic" / "run_01-00-00PM"
+    db_path = run_dir / "runtime.db"
+    run_dir.mkdir(parents=True, exist_ok=True)
+
+    async with get_db(str(db_path)) as db:
+        await db.execute(
+            "INSERT INTO workflows (workflow_id, topic, config_hash, status) VALUES (?, ?, ?, ?)",
+            (workflow_id, "Topic", "hash", "completed"),
+        )
+        await db.execute(
+            """
+            INSERT INTO papers (paper_id, title, authors, year, source_database, doi, url, country)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            ("paper-1", "Paper One", "Author A", 2024, "testdb", "10.1000/test", "https://example.org/p1", "US"),
+        )
+        await db.execute(
+            """
+            INSERT INTO study_cohort_membership (
+                workflow_id, paper_id, screening_status, fulltext_status, synthesis_eligibility, source_phase
+            ) VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (workflow_id, "paper-1", "included", "assessed", "included_primary", "phase_4_extraction_quality"),
+        )
+        await db.commit()
+
+    record = _RunRecord(run_id, "Topic")
+    record.db_path = str(db_path)
+    record.workflow_id = workflow_id
+    record.done = True
+    _active_runs[run_id] = record
+    try:
+        response = await client.get(f"/api/run/{run_id}/papers-reference")
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["total"] == 1
+        assert payload["papers"][0]["paper_id"] == "paper-1"
+    finally:
+        _active_runs.pop(run_id, None)
 
 
 @pytest.mark.asyncio
@@ -1390,3 +1564,84 @@ search_overrides:
     assert "total" in quality
     assert "keyword_quality" in quality
     assert "database_relevance" in quality
+
+
+@pytest.mark.asyncio
+async def test_prisma_checklist_endpoint_returns_missing_artifact_state(
+    client: httpx.AsyncClient,
+    tmp_path: Path,
+) -> None:
+    run_id = "run-prisma-missing"
+    workflow_id = "wf-prisma-missing"
+    run_dir = tmp_path / "2026-03-17" / "wf-prisma-missing-topic" / "run_01-00-00PM"
+    db_path = run_dir / "runtime.db"
+    run_dir.mkdir(parents=True, exist_ok=True)
+
+    async with get_db(str(db_path)) as db:
+        await db.execute(
+            "INSERT INTO workflows (workflow_id, topic, config_hash, status) VALUES (?, ?, ?, ?)",
+            (workflow_id, "Topic", "hash", "completed"),
+        )
+        await db.commit()
+
+    record = _RunRecord(run_id, "Topic")
+    record.db_path = str(db_path)
+    record.workflow_id = workflow_id
+    record.done = True
+    _active_runs[run_id] = record
+    try:
+        response = await client.get(f"/api/run/{run_id}/prisma-checklist")
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["source_state"] == "artifact_missing"
+        assert payload["total"] == 27
+        assert payload["item_total"] >= 40
+        assert len(payload["items"]) == payload["item_total"]
+    finally:
+        _active_runs.pop(run_id, None)
+
+
+@pytest.mark.asyncio
+async def test_prisma_checklist_endpoint_reads_markdown_artifact(
+    client: httpx.AsyncClient,
+    tmp_path: Path,
+) -> None:
+    run_id = "run-prisma-md"
+    workflow_id = "wf-prisma-md"
+    run_dir = tmp_path / "2026-03-17" / "wf-prisma-md-topic" / "run_01-00-00PM"
+    db_path = run_dir / "runtime.db"
+    run_dir.mkdir(parents=True, exist_ok=True)
+    (run_dir / "doc_manuscript.md").write_text(
+        (
+            "# A systematic review of robotic dispensing\n\n"
+            "## Abstract\n\n"
+            "Objective Methods Results Conclusion\n\n"
+            "## Methods\n\n"
+            "Eligibility criteria and search strategy used PubMed.\n\n"
+            "## Results\n\n"
+            "PRISMA flow and included studies were reported.\n"
+        ),
+        encoding="utf-8",
+    )
+
+    async with get_db(str(db_path)) as db:
+        await db.execute(
+            "INSERT INTO workflows (workflow_id, topic, config_hash, status) VALUES (?, ?, ?, ?)",
+            (workflow_id, "Topic", "hash", "completed"),
+        )
+        await db.commit()
+
+    record = _RunRecord(run_id, "Topic")
+    record.db_path = str(db_path)
+    record.workflow_id = workflow_id
+    record.done = True
+    _active_runs[run_id] = record
+    try:
+        response = await client.get(f"/api/run/{run_id}/prisma-checklist")
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["source_state"] == "validated_md"
+        assert payload["item_total"] >= 40
+        assert any(item["item_id"] == "1" for item in payload["items"])
+    finally:
+        _active_runs.pop(run_id, None)
