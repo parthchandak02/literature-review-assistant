@@ -188,7 +188,7 @@ Canonical storage model:
 - `run_summary.json` is the artifact index consumed by artifact endpoints.
 
 Canonical read precedence for run stats is defined in `src/db/source_of_truth.py` and applied in the API layer:
-- Included-paper stats: `dual_screening_results` first, event-derived fallback second, extraction fallback third.
+- Included-paper stats: `study_cohort_membership` (`synthesis_eligibility='included_primary'`) first, `dual_screening_results` second, event-derived fallback third, extraction fallback fourth.
 - Cost stats: `SUM(cost_usd)` from `cost_records` only.
 - Manuscript reads: DB `manuscript_assemblies` first, file fallback second.
 
@@ -387,7 +387,7 @@ PUBMED_EMAIL=...                # Required for PubMed Entrez (Biopython)
 PUBMED_API_KEY=...              # Optional; raises PubMed rate limit from 3 to 10 req/sec
 PERPLEXITY_SEARCH_API_KEY=...   # Optional; for auxiliary discovery connector
 SEMANTIC_SCHOLAR_API_KEY=...    # Optional; improves rate limits for Semantic Scholar
-PORT=8001                       # Optional; backend port (default 8001 in dev, 8000 in prod)
+PORT=8001                       # Optional; backend port (default 8001)
 UI_PORT=5173                    # Optional; Vite dev server port (dev only)
 ```
 
@@ -575,6 +575,8 @@ Stage 2 (full-text): Papers passing Stage 1 get full text via a unified tiered r
 
 **Outputs:** `DualScreeningResult` per paper, `InterRaterReliability`, `doc_disagreements_report.md`, `doc_fulltext_retrieval_coverage.md`.
 
+Canonical cohort tracking starts here: every full-text screening outcome is persisted to `study_cohort_membership` via `IncludedSetResolver.persist_screening_outcome()` with synthesis eligibility initialized to either `pending` (include/uncertain) or `excluded_screening`.
+
 ### 6.4 Phase 4: Extraction and Quality Assessment
 
 **What happens:** For each included paper, full text is fetched via the same tiered resolver used in screening (Tier 0/0.5/1/1b/2-group/6) before extraction. The study design classifier (model from `settings.yaml` `agents.study_type_detection`, confidence threshold 0.70) routes the paper to the correct risk-of-bias tool. Classifiers with confidence < 0.70 fall back to `StudyDesign.NON_RANDOMIZED`. Every classification decision is written to the decision log with confidence, threshold, and rationale.
@@ -602,6 +604,10 @@ A risk-of-bias traffic-light figure (matplotlib) shows rows = studies, columns =
 **Outputs:** `ExtractionRecord` per paper, `RoB2Assessment` / `RobinsIAssessment` per paper, `GRADEOutcomeAssessment` per outcome, `fig_rob_traffic_light.png`.
 
 Before synthesis/writing, ExtractionQualityNode applies a hard primary-study gate using `primary_study_status`: non-primary records are filtered out of `state.included_papers` so downstream synthesis and manuscript sections use empirically primary studies only.
+The same phase finalizes canonical cohort eligibility in `study_cohort_membership` via `IncludedSetResolver.persist_extraction_outcome()`:
+- `included_primary` for retained primary studies
+- `excluded_non_primary` for secondary/protocol/non-empirical records
+- `excluded_failed_extraction` when extraction fails
 
 ### 6.5 Phase 5: Synthesis
 
@@ -668,7 +674,7 @@ Publication timeline and geographic distribution figures are also generated here
 
 ### 6.8 Phase 8: Export (Part of FinalizeNode)
 
-**What happens:** `FinalizeNode` first generates `doc_manuscript.tex` and `references.bib` as first-class run artifacts directly in the run directory (no user action required). Then, when the user clicks Export (POST /api/run/{run_id}/export), `package_submission()` assembles a full submission package with `\includegraphics` figure references and attempts pdflatex compilation. IEEE LaTeX exporter uses IEEEtran.cls format with numbered `\cite{citekey}` references, `booktabs` tables, and `\includegraphics` figures. BibTeX file generated from the citation ledger.
+**What happens:** `FinalizeNode` first generates `doc_manuscript.tex` and `references.bib` as first-class run artifacts directly in the run directory (no user action required), then runs cross-artifact manuscript integrity contracts (`run_manuscript_contracts`) and records the result in `run_summary.json`. When the user clicks Export (POST /api/run/{run_id}/export), `package_submission()` assembles a full submission package with `\includegraphics` figure references and attempts pdflatex compilation. Export enforces `settings.gates.manuscript_contract_mode` (`observe`, `soft`, `strict`) and blocks when configured contract failures are present. IEEE LaTeX exporter uses IEEEtran.cls format with numbered `\cite{citekey}` references, `booktabs` tables, and `\includegraphics` figures. BibTeX file generated from the citation ledger.
 
 Note: `POST /export` has a fast-path -- if `submission/manuscript.tex`, `references.bib`, and `manuscript.docx` already exist it returns them immediately without recompiling. Use `?force=true` to force a full rebuild. The `doc_manuscript.md` source is written in the writing stage (not by export); changes to `assemble_submission_manuscript()` (e.g. `include_rq_block`, `build_compact_study_table`) affect new runs.
 
@@ -741,7 +747,7 @@ Reviewer A prompt emphasizes inclusion: "Include this paper if ANY inclusion cri
 
 ## 8. Persistence and Resume
 
-### 8.1 SQLite Schema (32 Tables)
+### 8.1 SQLite Schema (33 Tables)
 
 Each run creates its own `runtime.db`. Schema defined in `src/db/schema.sql`.
 
@@ -751,6 +757,7 @@ Each run creates its own `runtime.db`. Schema defined in `src/db/schema.sql`.
 | `search_results` | Per-database search metadata (dates, queries, counts) |
 | `screening_decisions` | Every individual reviewer decision (paper-level persistence) |
 | `dual_screening_results` | Aggregated dual-reviewer final decisions |
+| `study_cohort_membership` | Canonical cohort ledger for manuscript-facing include semantics (`synthesis_eligibility` lifecycle) |
 | `extraction_records` | Full ExtractionRecord JSON per paper |
 | `claims` | Atomic factual claims from manuscript sections |
 | `citations` | Bibliographic references (citekey unique) |
@@ -894,7 +901,7 @@ Dev mode:
 Production:
   pnpm run build -> frontend/dist/
   FastAPI serves frontend/dist/ as StaticFiles at /
-  Browser opens http://localhost:8000
+  Browser opens http://localhost:8001
 ```
 
 PM2 is the primary process manager. `ecosystem.config.js` starts `litreview-api` (port 8001) and `litreview-ui` (Vite on port 5173). Overmind (`Procfile.dev`) is the alternative for tmux-based dev.
@@ -1267,7 +1274,7 @@ After each phase, run all commands and confirm clean output before proceeding.
 ```
 cd frontend && pnpm run build         # tsc strict mode + Vite chunk split -> frontend/dist/
 # FastAPI serves frontend/dist/ at / automatically when the directory exists
-# Open http://localhost:8000 (production/static mode)
+# Open http://localhost:8001 (production/static mode)
 # Dev split mode remains: frontend on 5173, backend API on 8001
 ```
 

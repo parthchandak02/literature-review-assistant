@@ -22,6 +22,7 @@ Apply these defaults unless the user asks otherwise:
 - Use a stall threshold: if active phase progress does not advance for 10+ minutes, escalate to a blocker check.
 - For CSV row counts, do not trust physical line counts when abstracts contain embedded newlines; parse CSV rows.
 - In connector footprint queries, avoid assuming optional columns like `error_message` exist in `search_results`.
+- For final included-study audits, use `study_cohort_membership` (`synthesis_eligibility='included_primary'`) as the canonical set, with `dual_screening_results` as fallback for legacy runs.
 - Always run a final-include sanity scan for review/protocol-style titles against strict primary-study criteria.
 
 ## When To Apply
@@ -164,27 +165,21 @@ ORDER BY id DESC
 LIMIT 20;
 ```
 
-7) Candidate include mismatch scan (title heuristic):
+7) Canonical included set count:
 ```sql
-WITH finals AS (
-  SELECT id, paper_id, decision
-  FROM decision_log
-  WHERE decision_type IN ('dual_screening_final', 'screening_adjudication', 'screening_protocol_heuristic')
-    AND paper_id IS NOT NULL
-),
-latest AS (
-  SELECT f.paper_id, f.decision
-  FROM finals f
-  JOIN (
-    SELECT paper_id, MAX(id) AS max_id
-    FROM finals
-    GROUP BY paper_id
-  ) m ON f.paper_id = m.paper_id AND f.id = m.max_id
-)
+SELECT COUNT(*) AS included_primary
+FROM study_cohort_membership
+WHERE workflow_id = 'wf-XXXX'
+  AND synthesis_eligibility = 'included_primary';
+```
+
+8) Candidate include mismatch scan (title heuristic):
+```sql
 SELECT p.paper_id, p.title, p.year, p.source_database, p.doi
-FROM latest l
-JOIN papers p ON p.paper_id = l.paper_id
-WHERE l.decision = 'include'
+FROM study_cohort_membership scm
+JOIN papers p ON p.paper_id = scm.paper_id
+WHERE scm.workflow_id = 'wf-XXXX'
+  AND scm.synthesis_eligibility = 'included_primary'
   AND (
     LOWER(p.title) LIKE '%review%' OR
     LOWER(p.title) LIKE '%scoping%' OR
@@ -195,7 +190,7 @@ WHERE l.decision = 'include'
 ORDER BY p.title;
 ```
 
-8) Manual review CSV export (sqlite3 shell):
+9) Manual review CSV export (sqlite3 shell):
 ```bash
 sqlite3 -header -csv "<runtime.db>" "<SQL_QUERY>" > "<run_dir>/manual_review/<file>.csv"
 ```

@@ -70,12 +70,12 @@ cd ..
 **4. Start the server**
 
 ```bash
-uv run uvicorn src.web.app:app --port 8000
+uv run uvicorn src.web.app:app --port 8001
 ```
 
 **5. Open your browser**
 
-Go to `http://localhost:8000`. Click "+" in the sidebar to start a new review.
+Go to `http://localhost:8001`. Click "+" in the sidebar to start a new review.
 
 The setup page uses one question-first flow:
 
@@ -335,7 +335,7 @@ pm2 status                    # show process status table
 
 **IMPORTANT -- restart after code changes:** Python loads modules into memory at startup. If you modify any `src/` file while the server is running, the running process continues using the old code. Always run `pm2 restart litreview-api` (or restart the uvicorn process) after making backend changes before starting a new review run. Failure to restart means your run will use the pre-change code even though the files on disk are updated. The `--reload` flag handles this automatically in the plain-terminal dev workflow above, but PM2 does not hot-reload by default.
 
-**Production deploys -- rebuild the frontend:** When running in production (FastAPI serves `frontend/dist/` as static files on port 8000), a `pnpm build` is required after every frontend code change. The Vite dev server (port 5173) picks up changes automatically, but the production URL always serves the last built `dist/`. After rebuilding, restart the API process so it serves the new assets:
+**Production deploys -- rebuild the frontend:** When running in production (FastAPI serves `frontend/dist/` as static files on port 8001), a `pnpm build` is required after every frontend code change. The Vite dev server (port 5173) picks up changes automatically, but the production URL always serves the last built `dist/`. After rebuilding, restart the API process so it serves the new assets:
 
 ```bash
 cd frontend && pnpm build && cd ..
