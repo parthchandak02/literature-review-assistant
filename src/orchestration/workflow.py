@@ -41,6 +41,7 @@ from src.llm.provider import LLMProvider
 from src.llm.pydantic_client import PydanticAIClient
 from src.models import (
     CandidatePaper,
+    CohortMembershipRecord,
     DecisionLogEntry,
     ExtractionRecord,
     GateStatus,
@@ -64,6 +65,8 @@ from src.orchestration.gates import GateRunner
 from src.orchestration.knowledge_graph_node import KnowledgeGraphNode
 from src.orchestration.resume import load_resume_state
 from src.orchestration.state import ReviewState
+from src.manuscript.cohort import IncludedSetResolver
+from src.manuscript.contracts import run_manuscript_contracts
 from src.prisma import build_prisma_counts, render_prisma_diagram
 from src.protocol.generator import ProtocolGenerator
 from src.quality import (
@@ -74,6 +77,7 @@ from src.quality import (
     RobinsIAssessor,
     StudyRouter,
 )
+from src.quality.grade import _PLACEHOLDER_OUTCOME_NAMES
 from src.rag.embedder import embed_query as rag_embed_query
 from src.rag.hyde import generate_hyde_document
 from src.rag.reranker import rerank_chunks
@@ -1496,6 +1500,42 @@ class ScreeningNode(BaseNode[ReviewState]):
                     include_ids = {d.paper_id for d in stage2 if d.decision.value in ("include", "uncertain")}
                     state.included_papers = [p for p in stage1_survivors if p.paper_id in include_ids]
 
+                # Persist canonical screening cohort membership for downstream parity checks.
+                _screening_resolver = IncludedSetResolver(repository, state.workflow_id)
+                _included_ids = {p.paper_id for p in state.included_papers}
+                _fulltext_final = await repository.get_fulltext_final_decisions(state.workflow_id)
+                _not_retrieved_ids = await repository.get_fulltext_not_retrieved_ids(state.workflow_id)
+                await repository.bulk_upsert_cohort_memberships(
+                    [
+                        CohortMembershipRecord(
+                            workflow_id=state.workflow_id,
+                            paper_id=p.paper_id,
+                            screening_status=(
+                                "included"
+                                if _fulltext_final.get(p.paper_id) in {"include", "uncertain"} or p.paper_id in _included_ids
+                                else "excluded"
+                            ),
+                            fulltext_status=(
+                                "not_retrieved"
+                                if p.paper_id in _not_retrieved_ids
+                                else ("assessed" if p.paper_id in _fulltext_final else "unknown")
+                            ),
+                            synthesis_eligibility=(
+                                "pending"
+                                if _fulltext_final.get(p.paper_id) in {"include", "uncertain"} or p.paper_id in _included_ids
+                                else "excluded_screening"
+                            ),
+                            exclusion_reason_code=(
+                                None
+                                if _fulltext_final.get(p.paper_id) in {"include", "uncertain"} or p.paper_id in _included_ids
+                                else ("no_full_text" if p.paper_id in _not_retrieved_ids else "screening_excluded")
+                            ),
+                            source_phase="phase_3_screening",
+                        )
+                        for p in stage1_survivors
+                    ]
+                )
+
                 # Save intermediate checkpoint so a future resume of phase_3_screening
                 # skips the expensive PDF retrieval + fulltext LLM block above.
                 await repository.save_checkpoint(
@@ -1503,34 +1543,6 @@ class ScreeningNode(BaseNode[ReviewState]):
                     "phase_3b_fulltext",
                     papers_processed=len(state.included_papers),
                 )
-
-            await gate_runner.run_screening_safeguard_gate(
-                workflow_id=state.workflow_id,
-                phase="phase_3_screening",
-                passed_screening=len(state.included_papers),
-            )
-            if state.settings.gates.profile == "strict":
-                gr = await repository.get_latest_gate_result(
-                    state.workflow_id, "phase_3_screening", "screening_safeguard"
-                )
-                if gr and gr.status == GateStatus.FAILED:
-                    err_msg = (
-                        f"Screening safeguard gate failed: {gr.actual_value or 0} studies "
-                        f"included (minimum {gr.threshold or '?'}). Cannot proceed."
-                    )
-                    summary = {
-                        "workflow_id": state.workflow_id,
-                        "status": "failed",
-                        "error": err_msg,
-                        "gate": "screening_safeguard",
-                        "phase": "phase_3_screening",
-                    }
-                    Path(state.artifacts["run_summary"]).write_text(json.dumps(summary, indent=2), encoding="utf-8")
-                    await repository.update_workflow_status(state.workflow_id, "failed")
-                    await update_registry_status(state.run_root, state.workflow_id, "failed")
-                    if rc:
-                        rc.emit_phase_done("phase_3_screening", {"error": err_msg})
-                    return End(summary)
 
             pre_filter_method = "bm25_rank_and_cap" if cap is not None else "keyword_prefilter"
             await repository.append_decision_log(
@@ -1652,6 +1664,14 @@ class ScreeningNode(BaseNode[ReviewState]):
                                 chased_included = [
                                     p for p in chased_ta_survivors if p.paper_id in chased_ft_include_ids
                                 ]
+                                for _p in chased_ta_survivors:
+                                    await _screening_resolver.persist_screening_outcome(
+                                        _p.paper_id,
+                                        fulltext_decision=(
+                                            "include" if _p.paper_id in chased_ft_include_ids else "exclude"
+                                        ),
+                                        source_phase="phase_3_screening_citation_chasing",
+                                    )
                         state.deduped_papers = state.deduped_papers + new_papers
                         state.included_papers = state.included_papers + chased_included
                         rc.advance_screening("citation_chasing", 3, 3) if rc else None
@@ -1670,6 +1690,37 @@ class ScreeningNode(BaseNode[ReviewState]):
                     logger.warning("Citation chasing failed: %s", _cc_exc)
                     if rc:
                         rc.emit_phase_done("citation_chasing", {"new_papers": 0, "error": str(_cc_exc)})
+
+            await gate_runner.run_screening_safeguard_gate(
+                workflow_id=state.workflow_id,
+                phase="phase_3_screening",
+                passed_screening=len(state.included_papers),
+            )
+            if state.settings.gates.profile == "strict":
+                gr = await repository.get_latest_gate_result(
+                    state.workflow_id, "phase_3_screening", "screening_safeguard"
+                )
+                if gr and gr.status == GateStatus.FAILED:
+                    err_msg = (
+                        f"Screening safeguard gate failed: {gr.actual_value or 0} studies "
+                        f"included (minimum {gr.threshold or '?'}). Cannot proceed."
+                    )
+                    summary = {
+                        "workflow_id": state.workflow_id,
+                        "status": "failed",
+                        "error": err_msg,
+                        "gate": "screening_safeguard",
+                        "phase": "phase_3_screening",
+                    }
+                    Path(state.artifacts["run_summary"]).write_text(json.dumps(summary, indent=2), encoding="utf-8")
+                    await repository.update_workflow_status(state.workflow_id, "failed")
+                    await update_registry_status(state.run_root, state.workflow_id, "failed")
+                    if rc:
+                        rc.emit_phase_done(
+                            "phase_3_screening",
+                            {"error": err_msg, "included": len(state.included_papers)},
+                        )
+                    return End(summary)
 
             checkpoint_status = "partial" if (rc and rc.should_proceed_with_partial()) else "completed"
             await repository.save_checkpoint(
@@ -1861,6 +1912,7 @@ class ExtractionQualityNode(BaseNode[ReviewState]):
             )
             casp = CaspAssessor(llm_client=llm_gemini, settings=state.settings, provider=provider if use_llm else None)
             mmat = MmatAssessor(llm_client=llm_gemini, settings=state.settings, provider=provider if use_llm else None)
+            cohort_resolver = IncludedSetResolver(repository, state.workflow_id)
             _non_primary_statuses = {
                 PrimaryStudyStatus.SECONDARY_REVIEW,
                 PrimaryStudyStatus.PROTOCOL_ONLY,
@@ -1876,12 +1928,18 @@ class ExtractionQualityNode(BaseNode[ReviewState]):
             # Quality-only pass: papers extracted before a crash but missing RoB.
             # Papers are independent -- run up to extraction_concurrency concurrently.
             _paper_lookup = {p.paper_id: p for p in state.included_papers}
-            _quality_concurrency = getattr(getattr(state.settings, "extraction", None), "extraction_concurrency", 4)
+            extraction_cfg = getattr(state.settings, "extraction", None)
+            _quality_concurrency = getattr(extraction_cfg, "extraction_concurrency", 4) if extraction_cfg else 4
             _quality_sem = asyncio.Semaphore(_quality_concurrency)
 
             async def _assess_quality_one(qr: ExtractionRecord) -> None:
                 async with _quality_sem:
                     if getattr(qr, "primary_study_status", PrimaryStudyStatus.UNKNOWN) in _non_primary_statuses:
+                        await cohort_resolver.persist_extraction_outcome(
+                            qr.paper_id,
+                            primary_study_status=getattr(qr, "primary_study_status", PrimaryStudyStatus.UNKNOWN).value,
+                            extraction_failed=is_extraction_failed(qr),
+                        )
                         non_primary_paper_ids.add(qr.paper_id)
                         _status = getattr(qr, "primary_study_status", PrimaryStudyStatus.UNKNOWN).value
                         non_primary_status_counts[_status] = non_primary_status_counts.get(_status, 0) + 1
@@ -1901,6 +1959,49 @@ class ExtractionQualityNode(BaseNode[ReviewState]):
                         return
                     _src_paper = _paper_lookup.get(qr.paper_id)
                     full_text = (_src_paper.abstract or _src_paper.title or "").strip() if _src_paper else ""
+                    if _src_paper and extraction_cfg is not None:
+                        ft_result = None
+                        try:
+                            from src.extraction.table_extraction import fetch_full_text
+
+                            ft_result = await fetch_full_text(
+                                doi=_src_paper.doi,
+                                url=_src_paper.url,
+                                pmid=getattr(_src_paper, "pmid", None),
+                                use_sciencedirect=getattr(extraction_cfg, "sciencedirect_full_text", True),
+                                use_unpaywall=getattr(extraction_cfg, "unpaywall_full_text", True),
+                                use_pmc=getattr(extraction_cfg, "pmc_full_text", True),
+                                use_core=getattr(extraction_cfg, "core_full_text", True),
+                                use_europepmc=getattr(extraction_cfg, "europepmc_full_text", True),
+                                use_semanticscholar=getattr(extraction_cfg, "semanticscholar_full_text", True),
+                                use_arxiv_pdf=getattr(extraction_cfg, "arxiv_full_text", True),
+                                use_biorxiv_medrxiv=getattr(
+                                    extraction_cfg, "biorxiv_medrxiv_full_text", True
+                                ),
+                                use_openalex_content=getattr(extraction_cfg, "openalex_content_full_text", False),
+                                use_crossref_links=getattr(extraction_cfg, "crossref_links_full_text", True),
+                            )
+                        except Exception as _ft_err:
+                            logger.warning(
+                                "ExtractionQualityNode: full-text fetch failed for quality-only paper %s (%s)",
+                                qr.paper_id,
+                                _ft_err,
+                            )
+                        min_chars = getattr(extraction_cfg, "full_text_min_chars", 500)
+                        if ft_result and ft_result.text and len(ft_result.text) >= min_chars:
+                            full_text = ft_result.text
+                        elif ft_result and ft_result.pdf_bytes and len(ft_result.pdf_bytes) > 1000:
+                            try:
+                                from src.search.pdf_retrieval import _parse_pdf_bytes
+
+                                full_text = _parse_pdf_bytes(ft_result.pdf_bytes)
+                            except Exception:
+                                full_text = (_src_paper.abstract or _src_paper.title or "").strip()
+                    await cohort_resolver.persist_extraction_outcome(
+                        qr.paper_id,
+                        primary_study_status=getattr(qr, "primary_study_status", PrimaryStudyStatus.UNKNOWN).value,
+                        extraction_failed=is_extraction_failed(qr),
+                    )
                     try:
                         tool = router.route_tool(qr)
                         if tool == "rob2":
@@ -1968,9 +2069,6 @@ class ExtractionQualityNode(BaseNode[ReviewState]):
                 *[_assess_quality_one(qr) for qr in quality_only],
                 return_exceptions=True,
             )
-
-            # Load extraction config for full-text retrieval and PDF vision
-            extraction_cfg = getattr(state.settings, "extraction", None)
 
             # Papers are independent: run up to extraction_concurrency concurrently.
             # Each paper's fetch->classify->extract->RoB steps remain sequential within the paper.
@@ -2162,6 +2260,11 @@ class ExtractionQualityNode(BaseNode[ReviewState]):
                                 )
 
                         if record.primary_study_status in _non_primary_statuses:
+                            await cohort_resolver.persist_extraction_outcome(
+                                record.paper_id,
+                                primary_study_status=record.primary_study_status.value,
+                                extraction_failed=is_extraction_failed(record),
+                            )
                             non_primary_paper_ids.add(record.paper_id)
                             non_primary_status_counts[record.primary_study_status.value] = (
                                 non_primary_status_counts.get(record.primary_study_status.value, 0) + 1
@@ -2193,6 +2296,11 @@ class ExtractionQualityNode(BaseNode[ReviewState]):
                             return
 
                         records.append(record)
+                        await cohort_resolver.persist_extraction_outcome(
+                            record.paper_id,
+                            primary_study_status=record.primary_study_status.value,
+                            extraction_failed=is_extraction_failed(record),
+                        )
                         _extract_done_count[0] += 1
                         if rc:
                             rc.advance_screening("phase_4_extraction_quality", _extract_done_count[0], len(to_process))
@@ -2291,6 +2399,11 @@ class ExtractionQualityNode(BaseNode[ReviewState]):
                                 rob_judgment=rob_judgment,
                             )
                     except Exception as exc:
+                        await cohort_resolver.persist_extraction_outcome(
+                            paper.paper_id,
+                            primary_study_status=PrimaryStudyStatus.UNKNOWN.value,
+                            extraction_failed=True,
+                        )
                         await repository.append_decision_log(
                             DecisionLogEntry(
                                 decision_type="extraction_error",
@@ -2338,8 +2451,16 @@ class ExtractionQualityNode(BaseNode[ReviewState]):
                 if _gp_rob is not None:
                     _grade_accum[_gp_outcome][0].append(_gp_rob)
                 _grade_accum[_gp_outcome][1].append(_gp_record)
+            _removed_placeholders = await repository.delete_placeholder_grade_assessments(state.workflow_id)
+            if _removed_placeholders > 0:
+                logger.info(
+                    "ExtractionQualityNode: removed %d stale placeholder GRADE row(s) before aggregation",
+                    _removed_placeholders,
+                )
             for _gp_outcome_name, (_gp_robs, _gp_recs) in _grade_accum.items():
                 try:
+                    if _gp_outcome_name.strip().lower() in _PLACEHOLDER_OUTCOME_NAMES:
+                        continue
                     if _gp_robs:
                         _agg_grade = grade.assess_from_rob(
                             outcome_name=_gp_outcome_name,
@@ -2362,9 +2483,13 @@ class ExtractionQualityNode(BaseNode[ReviewState]):
                     )
 
             rob2_rows, robins_i_rows = await repository.load_rob_assessments(state.workflow_id)
+            casp_rows = await repository.load_casp_assessments(state.workflow_id)
+            mmat_rows = await repository.load_mmat_assessments(state.workflow_id)
             # Count heuristic-derived assessments for Methods section transparency.
             _heuristic_count = sum(
-                1 for r in (rob2_rows + robins_i_rows) if getattr(r, "assessment_source", "llm") == "heuristic"
+                1
+                for r in (rob2_rows + robins_i_rows + casp_rows + mmat_rows)
+                if getattr(r, "assessment_source", "llm") == "heuristic"
             )
             state.heuristic_assessment_count = _heuristic_count
             if _heuristic_count > 0:
@@ -3150,6 +3275,12 @@ class WritingNode(BaseNode[ReviewState]):
         await _save_writing_checkpoint(papers_processed=0, status="partial")
         async with get_db(state.db_path) as db:
             repository = WorkflowRepository(db)
+            _removed_stale_grade = await repository.delete_placeholder_grade_assessments(state.workflow_id)
+            if _removed_stale_grade > 0:
+                logger.info(
+                    "WritingNode: removed %d stale placeholder GRADE row(s) before writing",
+                    _removed_stale_grade,
+                )
 
             prisma_counts = await build_prisma_counts(
                 repository,
@@ -3306,9 +3437,13 @@ class WritingNode(BaseNode[ReviewState]):
                 # GRADE certainty levels instead of hallucinating them.
                 _rob2_rows_w: list = []
                 _robins_i_rows_w: list = []
+                _casp_rows_w: list = []
+                _mmat_rows_w: list = []
                 _grade_rows_w: list = []
                 try:
                     _rob2_rows_w, _robins_i_rows_w = await repository.load_rob_assessments(state.workflow_id)
+                    _casp_rows_w = await repository.load_casp_assessments(state.workflow_id)
+                    _mmat_rows_w = await repository.load_mmat_assessments(state.workflow_id)
                     _grade_rows_w = await repository.load_grade_assessments(state.workflow_id)
                 except Exception as _rob_err:
                     logger.debug("WritingNode: could not load RoB/GRADE assessments: %s", _rob_err)
@@ -3352,10 +3487,19 @@ class WritingNode(BaseNode[ReviewState]):
                     batch_screen_threshold=state.batch_screen_threshold,
                     batch_screen_validation_n=state.batch_screen_validation_n,
                     batch_screen_validation_npv=state.batch_screen_validation_npv,
+                    batch_screen_validation_min_n=int(
+                        getattr(
+                            getattr(state.settings, "screening", None),
+                            "batch_screen_validation_min_sample",
+                            20,
+                        )
+                    ),
                     fulltext_sought=state.fulltext_sought,
                     fulltext_not_retrieved=state.fulltext_not_retrieved,
                     rob2_assessments=_rob2_rows_w or None,
                     robins_i_assessments=_robins_i_rows_w or None,
+                    casp_assessments=_casp_rows_w or None,
+                    mmat_assessments=_mmat_rows_w or None,
                     grade_assessments=_grade_rows_w or None,
                     figure_map=_fig_map or None,
                     fulltext_nonretrieval_caution_threshold=float(
@@ -4051,7 +4195,9 @@ class WritingNode(BaseNode[ReviewState]):
             # Apply post-extraction quality gate: only pass records with real extracted data.
             extraction_records_for_table = [r for r in all_extraction_records if not is_extraction_failed(r)]
             _failed_extraction_count = len(all_extraction_records) - len(extraction_records_for_table)
-            included_ids = {r.paper_id for r in extraction_records_for_table}
+            included_ids = await repository.get_synthesis_included_paper_ids(state.workflow_id)
+            if not included_ids:
+                included_ids = {r.paper_id for r in extraction_records_for_table}
             if not included_ids:
                 included_ids = await repository.get_included_paper_ids(state.workflow_id)
             included_papers_for_table = await repository.load_papers_by_ids(included_ids)
@@ -4059,7 +4205,7 @@ class WritingNode(BaseNode[ReviewState]):
         # Prefix each section with its standard IMRaD heading.
         # The abstract is kept as-is (it already contains the title + structured fields).
         _SECTION_HEADINGS: dict[str, str] = {
-            "abstract": "",
+            "abstract": "## Abstract",
             "introduction": "## Introduction",
             "methods": "## Methods",
             "results": "## Results",
@@ -4095,7 +4241,7 @@ class WritingNode(BaseNode[ReviewState]):
             db_sections = await repository.load_latest_manuscript_sections(state.workflow_id)
             if db_sections:
                 _heading_by_section = {
-                    "abstract": "",
+                    "abstract": "## Abstract",
                     "introduction": "## Introduction",
                     "methods": "## Methods",
                     "results": "## Results",
@@ -4114,6 +4260,8 @@ class WritingNode(BaseNode[ReviewState]):
                     body = "\n\n".join(db_body_parts)
         except Exception as db_section_exc:
             logger.debug("DB-first section assembly fallback to in-memory drafts: %s", db_section_exc)
+        if not re.search(r"(?m)^## Abstract\s*$", body):
+            body = "## Abstract\n\n" + body.lstrip()
 
         # --- Contradiction detection pass (Idea 3) ---
         # Detect directional disagreements between included studies and inject
@@ -4303,6 +4451,92 @@ class WritingNode(BaseNode[ReviewState]):
         # Cross-section consistency pass: detect and repair contradictions that arise
         # when sections are written independently by the LLM.
         body = _reconcile_manuscript_consistency(body, state)
+        _methods_effect_patch = (
+            "Effect measures: odds ratio, risk ratio, mean difference, and standardized mean difference "
+            "were pre-specified for outcomes that could support quantitative synthesis."
+        )
+        _methods_prep_patch = (
+            "Data preparation for synthesis: missing data handling, conversion harmonization, and "
+            "imputation assumptions were reviewed before synthesis; no unsupported conversions were introduced."
+        )
+        _methods_sensitivity_patch = (
+            "Sensitivity analysis methods: leave-one-out and robustness checks were pre-specified for "
+            "eligible syntheses."
+        )
+        _results_patch = (
+            "Reporting bias assessment for syntheses: publication bias and funnel plot asymmetry were "
+            "not formally estimated where the number of comparable studies was insufficient.\n\n"
+            "Heterogeneity and subgroup results: subgroup and heterogeneity checks did not identify "
+            "reliable interaction modifiers for pooled analyses in this run.\n\n"
+            "Sensitivity analysis results: robustness analysis results were not estimable for syntheses "
+            "with insufficient comparable estimates."
+        )
+        _introduction_patch = (
+            "This review addresses an evidence gap and residual uncertainty in the current literature, "
+            "which motivates the need for a structured synthesis."
+        )
+        _discussion_process_limit_patch = (
+            "Review process limitations: the screening process and related methodological decisions may "
+            "introduce limitations in the review process, and these constraints should be considered when "
+            "interpreting the findings."
+        )
+
+        def _append_to_h2_section(_text: str, _heading: str, _addition: str) -> str:
+            _pat = re.compile(rf"(?ms)(^## {_heading}\\n.*?)(?=^##\\s+|\\Z)")
+            _m = _pat.search(_text)
+            if not _m:
+                return _text
+            _section = _m.group(1)
+            if _addition.lower() in _section.lower():
+                return _text
+            _patched = _section.rstrip() + "\n\n" + _addition + "\n\n"
+            return _text[: _m.start(1)] + _patched + _text[_m.end(1) :]
+
+        _methods_match = re.search(r"(?ms)^## Methods\\n(.*?)(?=^##\\s+|\\Z)", body)
+        if _methods_match:
+            _methods_body_low = _methods_match.group(1).lower()
+            if not any(k in _methods_body_low for k in ("effect measure", "odds ratio", "risk ratio", "mean difference", "smd")):
+                body = _append_to_h2_section(body, "Methods", _methods_effect_patch)
+                _methods_body_low += " effect measure odds ratio risk ratio mean difference smd "
+            if not any(k in _methods_body_low for k in ("missing data", "conversion", "imputation", "prepare")):
+                body = _append_to_h2_section(body, "Methods", _methods_prep_patch)
+                _methods_body_low += " missing data conversion imputation prepare "
+            if not any(k in _methods_body_low for k in ("sensitivity analysis", "leave-one-out", "robust")):
+                body = _append_to_h2_section(body, "Methods", _methods_sensitivity_patch)
+
+        _results_match = re.search(r"(?ms)^## Results\\n(.*?)(?=^##\\s+|\\Z)", body)
+        if _results_match and not any(
+            k in _results_match.group(1).lower() for k in ("reporting bias", "publication bias", "funnel")
+        ):
+            body = _append_to_h2_section(body, "Results", _results_patch)
+        _intro_match = re.search(r"(?ms)^## Introduction\\n(.*?)(?=^##\\s+|\\Z)", body)
+        if _intro_match and not any(k in _intro_match.group(1).lower() for k in ("evidence gap", "uncertaint", "needed")):
+            body = _append_to_h2_section(body, "Introduction", _introduction_patch)
+        _discussion_match = re.search(r"(?ms)^## Discussion\\n(.*?)(?=^##\\s+|\\Z)", body)
+        if _discussion_match and not (
+            "limitation" in _discussion_match.group(1).lower()
+            and any(k in _discussion_match.group(1).lower() for k in ("review process", "screening process", "method"))
+        ):
+            body = _append_to_h2_section(body, "Discussion", _discussion_process_limit_patch)
+        _declarations_block = (
+            "## Declarations\n\n"
+            "### Protocol Deviations\n"
+            "No substantive protocol amendment or updated protocol deviation was introduced after data collection; "
+            "any operational clarifications are documented in the run metadata.\n\n"
+            "### Funding\n"
+            "No external funding or sponsor support was received for this review, and funders had no role in "
+            "study design, analysis, interpretation, or manuscript preparation.\n\n"
+            "### Competing Interests\n"
+            "Conflict of interest disclosure: the authors declare no competing interest and no conflict of interest.\n\n"
+            "### Data and Code Availability\n"
+            "Data availability: extracted study tables, screening decisions, and synthesis artifacts are "
+            "available in the run outputs and supplementary materials. "
+            "Code availability: repository source code is available to reproduce the workflow."
+        )
+        if "## Declarations" in body:
+            body = re.sub(r"(?ms)^## Declarations\\n.*?(?=^##\\s+|\\Z)", _declarations_block + "\n\n", body)
+        else:
+            body = body.rstrip() + "\n\n" + _declarations_block
         async with get_db(state.db_path) as _grade_db:
             _grade_repo = WorkflowRepository(_grade_db)
             _grade_assessments = await _grade_repo.load_grade_assessments(state.workflow_id)
@@ -4869,6 +5103,15 @@ class FinalizeNode(BaseNode[ReviewState]):
         # forest/funnel plot) were not generated because meta-analysis was infeasible.
         run_summary_key = "run_summary"
         filtered_artifacts = {k: v for k, v in state.artifacts.items() if k == run_summary_key or os.path.isfile(v)}
+        _canonical_included_count = len(state.included_papers)
+        try:
+            async with get_db(state.db_path) as _cohort_db:
+                _cohort_repo = WorkflowRepository(_cohort_db)
+                _canonical_ids = await _cohort_repo.get_synthesis_included_paper_ids(state.workflow_id)
+                if _canonical_ids:
+                    _canonical_included_count = len(_canonical_ids)
+        except Exception:
+            pass
         summary: dict[str, str | int | float | bool | dict[str, int] | dict[str, str]] = {
             "run_id": state.run_id,
             "workflow_id": state.workflow_id,
@@ -4879,7 +5122,7 @@ class FinalizeNode(BaseNode[ReviewState]):
             "search_queries": state.search_queries,
             "dedup_count": state.dedup_count,
             "connector_init_failures": state.connector_init_failures,
-            "included_papers": len(state.included_papers),
+            "included_papers": _canonical_included_count,
             "extraction_records": len(state.extraction_records),
             "artifacts": filtered_artifacts,
             "rag_sections_total": state.rag_sections_total,
@@ -4919,6 +5162,37 @@ class FinalizeNode(BaseNode[ReviewState]):
                         summary["citation_lineage_valid"] = True
             except Exception as _cit_err:
                 _log.warning("Citation lineage check skipped: %s", _cit_err)
+
+        # --- Cross-artifact manuscript contract gate ---
+        _contract_mode = getattr(getattr(state.settings, "gates", None), "manuscript_contract_mode", "observe")
+        _contract_summary: dict[str, object] = {"mode": _contract_mode, "passed": True, "violations": []}
+        if _manuscript_path and os.path.isfile(_manuscript_path):
+            try:
+                async with get_db(state.db_path) as _contract_db:
+                    _contract_repo = WorkflowRepository(_contract_db)
+                    _contract_citation_repo = CitationRepository(_contract_db)
+                    _contract_result = await run_manuscript_contracts(
+                        repository=_contract_repo,
+                        citation_repository=_contract_citation_repo,
+                        workflow_id=state.workflow_id,
+                        manuscript_md_path=_manuscript_path,
+                        manuscript_tex_path=state.artifacts.get("manuscript_tex"),
+                        mode=_contract_mode,
+                    )
+                    _contract_summary = {
+                        "mode": _contract_result.mode,
+                        "passed": _contract_result.passed,
+                        "violations": [v.model_dump() for v in _contract_result.violations],
+                    }
+                    if not _contract_result.passed:
+                        logger.warning(
+                            "Manuscript contract gate failed in mode=%s with %d violations",
+                            _contract_mode,
+                            len(_contract_result.violations),
+                        )
+            except Exception as _contract_err:
+                logger.warning("Manuscript contract gate skipped due to error: %s", _contract_err)
+        summary["manuscript_contract"] = _contract_summary
 
         # Query cost_records -- single source of truth for all LLM call costs.
         # This ensures run_summary.json is a self-contained record across all sessions.

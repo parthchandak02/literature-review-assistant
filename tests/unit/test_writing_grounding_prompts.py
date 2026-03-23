@@ -88,6 +88,7 @@ def test_non_abstract_prompts_include_boundary_marker_rule() -> None:
 def test_methods_prompt_blocks_unsupported_claims() -> None:
     prompt = get_methods_prompt_context()
     assert "Do NOT claim medical librarian consultation" in prompt
+    assert "RoB 2, ROBINS-I, CASP, MMAT" in prompt
 
 
 def test_conclusion_prompt_enforces_hedging_when_required() -> None:
@@ -166,3 +167,17 @@ def test_build_writing_grounding_sets_conclusion_hedging_for_high_nonretrieval()
     )
     assert grounding.conclusion_hedging_required is True
     assert "high full-text non-retrieval" in grounding.conclusion_hedging_reason
+
+
+def test_grounding_block_flags_validation_sample_floor_violation() -> None:
+    data = _make_grounding(
+        batch_screen_forwarded=30,
+        batch_screen_excluded=20,
+        batch_screen_threshold=0.2,
+        batch_screen_validation_n=8,
+        batch_screen_validation_npv=0.875,
+        batch_screen_validation_min_n=20,
+    )
+    out = format_grounding_block(data)
+    assert "VALIDATION SAMPLE FLOOR" in out
+    assert "required minimum is 20" in out

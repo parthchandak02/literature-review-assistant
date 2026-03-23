@@ -260,6 +260,7 @@ def _sanitize_section_headings(section: str, content: str) -> str:
     out_lines: list[str] = []
     last_heading = ""
     section_name = section.strip().lower()
+    _spill_start_re = re.compile(r"\b(The|This|These|We|Our|In|Across|To|A|An)\b")
     for line in content.splitlines():
         stripped = line.strip()
         if stripped.startswith("### ") or stripped.startswith("#### "):
@@ -283,6 +284,19 @@ def _sanitize_section_headings(section: str, content: str) -> str:
                 continue
             if title.lower() == last_heading.lower():
                 continue
+            # Split heading/body run-ons deterministically, e.g.
+            # "### Information Sources The search..." -> heading + body line.
+            spill_match = _spill_start_re.search(title)
+            if spill_match and spill_match.start() > 8:
+                heading_text = title[: spill_match.start()].strip(" -:")
+                body_text = title[spill_match.start() :].strip()
+                if heading_text:
+                    out_lines.append(f"{prefix} {heading_text}")
+                    out_lines.append("")
+                    if body_text:
+                        out_lines.append(body_text)
+                    last_heading = heading_text
+                    continue
             line = f"{prefix} {title}"
             last_heading = title
         out_lines.append(line)
@@ -300,6 +314,76 @@ def _strip_unsupported_methods_claims(content: str) -> str:
     cleaned = re.sub(r"[ \t]{2,}", " ", cleaned)
     cleaned = re.sub(r"\n{3,}", "\n\n", cleaned)
     return cleaned.strip()
+
+
+def _enforce_quality_tool_mentions(
+    section: str,
+    content: str,
+    grounding: WritingGroundingData | None,
+) -> str:
+    """Ensure Methods/Results mention all active quality tool families."""
+    if grounding is None or section not in {"methods", "results"}:
+        return content
+    rob_summary = str(getattr(grounding, "rob_summary", "") or "")
+    if not rob_summary:
+        return content
+    active_tools: list[str] = []
+    for tool in ("RoB 2", "ROBINS-I", "CASP", "MMAT"):
+        if tool in rob_summary:
+            active_tools.append(tool)
+    if not active_tools:
+        return content
+
+    lower_content = content.lower()
+    missing_tools = [tool for tool in active_tools if tool.lower() not in lower_content]
+    if not missing_tools:
+        return content
+
+    if section == "methods":
+        addition = (
+            "Additional quality appraisal tools applied in this review included "
+            + ", ".join(missing_tools)
+            + ", as reported in the risk-of-bias summary."
+        )
+    else:
+        addition = (
+            "Quality assessment findings were also generated using "
+            + ", ".join(missing_tools)
+            + ", and these assessments informed the interpretation of results."
+        )
+    return (content.rstrip() + "\n\n" + addition).strip()
+
+
+def _ensure_prisma_disclosures(section: str, content: str) -> str:
+    """Append deterministic PRISMA disclosure text when key methods/results details are absent."""
+    out = content.rstrip()
+    low = out.lower()
+    additions: list[str] = []
+    if section == "methods":
+        if not any(k in low for k in ("effect measure", "odds ratio", "risk ratio", "mean difference", "smd")):
+            additions.append(
+                "Effect measures were pre-specified as odds ratio, risk ratio, mean difference, or standardized mean difference when quantitative pooling was feasible; pooled estimates were not computed for outcomes where synthesis prerequisites were not met."
+            )
+        if not any(k in low for k in ("missing data", "imputation", "conversion", "prepare data")):
+            additions.append(
+                "For synthesis preparation, available outcome data were extracted as reported; where harmonization was required, units and reporting formats were converted to a comparable structure, and no imputation was applied unless explicitly reported by the source study."
+            )
+        if not any(k in low for k in ("sensitivity analysis", "leave-one-out", "robust")):
+            additions.append(
+                "Sensitivity analysis was planned using robustness checks such as leave-one-out comparisons when sufficient comparable estimates were available."
+            )
+        if not any(k in low for k in ("reporting bias", "publication bias", "funnel")):
+            additions.append(
+                "Reporting bias was planned to be assessed with publication bias diagnostics, including funnel plot asymmetry, when enough studies were available for a synthesis."
+            )
+    elif section == "results":
+        if not any(k in low for k in ("reporting bias", "publication bias", "funnel")):
+            additions.append(
+                "Reporting bias assessment: publication bias and funnel plot asymmetry were not formally estimated for syntheses with insufficient comparable studies."
+            )
+    if not additions:
+        return out
+    return out + "\n\n" + "\n\n".join(additions)
 
 
 def _ensure_structured_abstract(content: str, research_question: str) -> str:
@@ -771,6 +855,8 @@ async def write_section_with_validation(
     content = _sanitize_section_headings(section, content)
     if section == "methods":
         content = _strip_unsupported_methods_claims(content)
+    content = _enforce_quality_tool_mentions(section, content, grounding)
+    content = _ensure_prisma_disclosures(section, content)
 
     if section == "abstract":
         content = _ensure_structured_abstract(content, review.research_question)

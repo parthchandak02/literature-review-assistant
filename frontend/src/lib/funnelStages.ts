@@ -100,7 +100,7 @@ export function computeFunnelStages(events: ReviewEvent[]): FunnelStage[] {
   const fulltextAssessed = fulltextPaperIds.size > 0 ? fulltextPaperIds.size : null
 
   // --- Stage 6: included ---
-  // Prefer the terminal phase_done count; fall back to live running count.
+  // Prefer the terminal phase_done count; fall back to fulltext-stage decisions.
   let included: number | null = null
   for (const e of events) {
     if (e.type === "phase_done" && e.phase === "phase_3_screening") {
@@ -109,14 +109,30 @@ export function computeFunnelStages(events: ReviewEvent[]): FunnelStage[] {
     }
   }
   if (included == null) {
-    const lastDecision = new Map<string, string>()
+    // First fallback: fulltext stage only, matching backend include semantics
+    // (include OR uncertain after fulltext adjudication).
+    const fulltextFinalDecision = new Map<string, string>()
     for (const e of events) {
-      if (e.type === "screening_decision") {
-        lastDecision.set(e.paper_id, e.decision)
+      if (e.type === "screening_decision" && e.stage === "fulltext") {
+        fulltextFinalDecision.set(e.paper_id, e.decision)
       }
     }
-    const liveCount = [...lastDecision.values()].filter((d) => d === "include").length
-    if (liveCount > 0) included = liveCount
+    const fulltextCount = [...fulltextFinalDecision.values()].filter(
+      (d) => d === "include" || d === "uncertain",
+    ).length
+    if (fulltextCount > 0) {
+      included = fulltextCount
+    } else {
+      // Legacy fallback for early-stage live runs where no fulltext decisions exist yet.
+      const lastDecision = new Map<string, string>()
+      for (const e of events) {
+        if (e.type === "screening_decision") {
+          lastDecision.set(e.paper_id, e.decision)
+        }
+      }
+      const liveCount = [...lastDecision.values()].filter((d) => d === "include" || d === "uncertain").length
+      if (liveCount > 0) included = liveCount
+    }
   }
 
   // --- Stage 7: citation chasing additions ---

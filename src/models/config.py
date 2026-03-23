@@ -328,6 +328,27 @@ class ScreeningConfig(BaseModel):
             "instead of auto-excluded. 0 keeps legacy behavior."
         ),
     )
+    batch_screen_validation_fraction: float = Field(
+        default=0.10,
+        ge=0.01,
+        le=0.50,
+        description=(
+            "Fraction of auto-excluded records to re-score for validation. "
+            "Used with min/max sample bounds below."
+        ),
+    )
+    batch_screen_validation_min_sample: int = Field(
+        default=20,
+        ge=1,
+        le=200,
+        description="Minimum validation sample size for batch pre-ranker exclusions.",
+    )
+    batch_screen_validation_max_sample: int = Field(
+        default=60,
+        ge=1,
+        le=500,
+        description="Maximum validation sample size for batch pre-ranker exclusions.",
+    )
     batch_screen_concurrency: int = Field(
         default=3,
         ge=1,
@@ -398,6 +419,13 @@ class GatesConfig(BaseModel):
     extraction_completeness_threshold: float = 0.80
     extraction_max_empty_rate: float = 0.35
     cost_budget_max: float = 20.0
+    manuscript_contract_mode: str = Field(
+        default="observe",
+        description=(
+            "Cross-artifact manuscript contract enforcement mode: "
+            "observe (log only), soft (block hard defects), strict (block all violations)."
+        ),
+    )
 
 
 class WritingConfig(BaseModel):

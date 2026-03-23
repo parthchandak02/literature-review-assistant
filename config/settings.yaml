@@ -137,14 +137,19 @@ screening:
   # Empty-abstract records are handled by deterministic pre-LLM exclusion above.
   insufficient_content_min_words: 0
   # Batch LLM pre-ranker: scores all BM25-selected papers in batches of 80 with a
-  # single LLM call each, then only forwards papers scoring >= 0.35 to the dual-reviewer.
+  # single LLM call each, then only forwards papers scoring >= 0.20 to the dual-reviewer.
   # Reduces dual-review calls by ~60-70% while maintaining recall (threshold is intentionally
   # low -- a false negative here permanently loses a study).
   batch_screen_enabled: true
   batch_screen_size: 80
-  batch_screen_threshold: 0.30
+  batch_screen_threshold: 0.20
   # Forward near-threshold records (threshold-band, threshold) instead of excluding.
-  batch_screen_uncertain_band: 0.05
+  batch_screen_uncertain_band: 0.10
+  # Validation policy for auto-excluded records from batch pre-ranker.
+  # sample_size = clamp(round(excluded * fraction), min_sample, max_sample)
+  batch_screen_validation_fraction: 0.10
+  batch_screen_validation_min_sample: 20
+  batch_screen_validation_max_sample: 60
   # Number of batch LLM ranker calls sent concurrently (default 3 balances throughput vs. RPM).
   batch_screen_concurrency: 3
   # Papers per LLM call in the dual-reviewer phase.
@@ -164,6 +169,7 @@ dual_review:
 
 gates:
   profile: "strict"
+  manuscript_contract_mode: "soft"
   search_volume_minimum: 50
   screening_minimum: 5
   extraction_completeness_threshold: 0.8

@@ -17,9 +17,14 @@ from src.models import CandidatePaper, ExtractionRecord
 from src.models.additional import PRISMACounts
 
 
-def _build_rob_summary(rob2_assessments: list, robins_i_assessments: list) -> str:
+def _build_rob_summary(
+    rob2_assessments: list,
+    robins_i_assessments: list,
+    casp_assessments: list,
+    mmat_assessments: list,
+) -> str:
     """Summarise RoB assessment counts by judgment level for grounding injection."""
-    if not rob2_assessments and not robins_i_assessments:
+    if not rob2_assessments and not robins_i_assessments and not casp_assessments and not mmat_assessments:
         return ""
     parts: list[str] = []
     if rob2_assessments:
@@ -38,6 +43,32 @@ def _build_rob_summary(rob2_assessments: list, robins_i_assessments: list) -> st
             counts[key] = counts.get(key, 0) + 1
         summary = "; ".join(f"{k}: {v}" for k, v in sorted(counts.items()))
         parts.append(f"ROBINS-I (non-RCTs, n={len(robins_i_assessments)}): {summary}")
+    if casp_assessments:
+        criteria_fields = (
+            "design_appropriate",
+            "recruitment_strategy",
+            "data_collection_rigorous",
+            "reflexivity_considered",
+            "ethics_considered",
+            "analysis_rigorous",
+            "findings_clear",
+            "value_of_research",
+        )
+        met_counts: dict[str, int] = {}
+        for a in casp_assessments:
+            met = sum(1 for field in criteria_fields if bool(getattr(a, field, False)))
+            key = f"{met}/8 criteria met"
+            met_counts[key] = met_counts.get(key, 0) + 1
+        summary = "; ".join(f"{k}: {v}" for k, v in sorted(met_counts.items()))
+        parts.append(f"CASP (cross-sectional/qualitative, n={len(casp_assessments)}): {summary}")
+    if mmat_assessments:
+        score_counts: dict[str, int] = {}
+        for a in mmat_assessments:
+            score = int(getattr(a, "overall_score", 0) or 0)
+            key = f"{score}/5"
+            score_counts[key] = score_counts.get(key, 0) + 1
+        summary = "; ".join(f"{k}: {v}" for k, v in sorted(score_counts.items()))
+        parts.append(f"MMAT (mixed-methods, n={len(mmat_assessments)}): {summary}")
     return " | ".join(parts)
 
 
@@ -249,6 +280,7 @@ class WritingGroundingData(BaseModel):
     # batch_screen_validation_npv: fraction confirmed excluded on re-score (0.0-1.0).
     batch_screen_validation_n: int = 0
     batch_screen_validation_npv: float = 0.0
+    batch_screen_validation_min_n: int = 20
 
     # Author name for CRediT statement. Defaults to generic placeholder.
     author_name: str = "Corresponding Author"
@@ -405,10 +437,13 @@ def build_writing_grounding(
     batch_screen_threshold: float = 0.30,
     batch_screen_validation_n: int = 0,
     batch_screen_validation_npv: float = 0.0,
+    batch_screen_validation_min_n: int = 20,
     fulltext_sought: int = 0,
     fulltext_not_retrieved: int = 0,
     rob2_assessments: list | None = None,
     robins_i_assessments: list | None = None,
+    casp_assessments: list | None = None,
+    mmat_assessments: list | None = None,
     grade_assessments: list | None = None,
     figure_map: dict[str, int] | None = None,
     fulltext_nonretrieval_caution_threshold: float = 0.40,
@@ -555,7 +590,12 @@ def build_writing_grounding(
     _author_name = str(getattr(review_config, "author_name", "") or "") if review_config else ""
 
     # Risk-of-bias and GRADE summaries for grounding injection
-    _rob_summary = _build_rob_summary(rob2_assessments or [], robins_i_assessments or [])
+    _rob_summary = _build_rob_summary(
+        rob2_assessments or [],
+        robins_i_assessments or [],
+        casp_assessments or [],
+        mmat_assessments or [],
+    )
     _grade_summary = _build_grade_summary(grade_assessments or [])
     _low_certainty_present = bool(re.search(r"\b(low|very low)\b", _grade_summary.lower()))
 
@@ -664,6 +704,7 @@ def build_writing_grounding(
         batch_screen_threshold=batch_screen_threshold,
         batch_screen_validation_n=batch_screen_validation_n,
         batch_screen_validation_npv=batch_screen_validation_npv,
+        batch_screen_validation_min_n=batch_screen_validation_min_n,
         author_name=_author_name or "Corresponding Author",
         rob_summary=_rob_summary,
         grade_summary=_grade_summary,
@@ -788,6 +829,12 @@ def format_grounding_block(data: WritingGroundingData) -> str:
                 f"Batch pre-ranker cross-validation: {data.batch_screen_validation_n} excluded abstracts "
                 f"were re-scored independently; NPV = {_npv_pct}%."
             )
+            if data.batch_screen_validation_n < data.batch_screen_validation_min_n:
+                lines.append(
+                    f"CRITICAL -- VALIDATION SAMPLE FLOOR: Only {data.batch_screen_validation_n} "
+                    f"records were validated; required minimum is {data.batch_screen_validation_min_n}. "
+                    "State this limitation explicitly and expand validation before submission."
+                )
             lines.append(
                 f"CRITICAL -- LLM SCREENING TRANSPARENCY (Q1 REQUIREMENT): The Methods section MUST "
                 f"include a dedicated paragraph disclosing the batch LLM pre-ranker. Write: "
@@ -1088,6 +1135,21 @@ def format_grounding_block(data: WritingGroundingData) -> str:
     if data.rob_summary:
         lines.append("")
         lines.append(f"Risk-of-bias assessment summary: {data.rob_summary}")
+        active_tool_families: list[str] = []
+        if "RoB 2" in data.rob_summary:
+            active_tool_families.append("RoB 2")
+        if "ROBINS-I" in data.rob_summary:
+            active_tool_families.append("ROBINS-I")
+        if "CASP" in data.rob_summary:
+            active_tool_families.append("CASP")
+        if "MMAT" in data.rob_summary:
+            active_tool_families.append("MMAT")
+        if active_tool_families:
+            lines.append(
+                "CRITICAL -- TOOL FAMILY COVERAGE RULE: "
+                f"The Methods and Results narrative MUST mention all active tool families: "
+                f"{', '.join(active_tool_families)}."
+            )
         lines.append(
             "CRITICAL -- ROB REPORTING RULE: The Results section MUST summarise risk-of-bias "
             "findings using the counts above. Report the distribution of low/some concerns/high "

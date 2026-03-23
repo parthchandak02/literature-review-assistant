@@ -16,6 +16,7 @@ from src.models import (
     CandidatePaper,
     CitationEntryRecord,
     ClaimRecord,
+    CohortMembershipRecord,
     CostRecord,
     DecisionLogEntry,
     EvidenceLinkRecord,
@@ -377,6 +378,7 @@ class WorkflowRepository:
         ft_assessed = 0
         ft_excluded = 0
         exclusion_reasons: dict[str, int] = {}
+        cohort_counts_available = False
 
         # Exclude batch_screened_low rows from the PRISMA counts. Those papers were
         # auto-excluded by the batch LLM pre-ranker and belong in PRISMA "automation_excluded"
@@ -423,13 +425,45 @@ class WorkflowRepository:
             key = str(reason).strip().lower().replace(" ", "_") if reason else "other"
             exclusion_reasons[key] = exclusion_reasons.get(key, 0) + int(cnt)
 
-        # Separate "not retrieved" from "assessed but excluded".
-        # no_full_text papers were never read -- they belong in the PRISMA
-        # "Reports not retrieved" box, not in "Reports excluded with reasons".
-        reports_not_retrieved = exclusion_reasons.pop("no_full_text", 0)
-        # Adjust ft_assessed and ft_excluded to exclude the not-retrieved papers.
-        ft_assessed = max(0, ft_assessed - reports_not_retrieved)
-        ft_excluded = max(0, ft_excluded - reports_not_retrieved)
+        # Canonical source: study_cohort_membership fulltext_status semantics.
+        # This table should encode fulltext outcome parity explicitly:
+        # assessed vs not_retrieved.
+        cohort_cursor = await self.db.execute(
+            """
+            SELECT
+                COUNT(DISTINCT CASE
+                    WHEN fulltext_status IN ('assessed', 'not_retrieved') THEN paper_id
+                    ELSE NULL
+                END) AS reports_sought,
+                COUNT(DISTINCT CASE
+                    WHEN fulltext_status = 'not_retrieved' THEN paper_id
+                    ELSE NULL
+                END) AS reports_not_retrieved,
+                COUNT(DISTINCT CASE
+                    WHEN fulltext_status = 'assessed' THEN paper_id
+                    ELSE NULL
+                END) AS reports_assessed
+            FROM study_cohort_membership
+            WHERE workflow_id = ?
+            """,
+            (workflow_id,),
+        )
+        cohort_row = await cohort_cursor.fetchone()
+        if cohort_row and cohort_row[0] is not None and int(cohort_row[0]) > 0:
+            cohort_counts_available = True
+            ft_sought = int(cohort_row[0])
+            reports_not_retrieved = int(cohort_row[1] or 0)
+            ft_assessed = int(cohort_row[2] or 0)
+        else:
+            # Fallback for legacy runs with sparse/missing cohort rows.
+            # Separate "not retrieved" from "assessed but excluded".
+            # no_full_text papers were never read -- they belong in the PRISMA
+            # "Reports not retrieved" box, not in "Reports excluded with reasons".
+            reports_not_retrieved = exclusion_reasons.pop("no_full_text", 0)
+            # Adjust ft_assessed and ft_excluded to exclude the not-retrieved papers.
+            ft_assessed = max(0, ft_assessed - reports_not_retrieved)
+            ft_excluded = max(0, ft_excluded - reports_not_retrieved)
+        exclusion_reasons.pop("no_full_text", None)
         # Resume/partial-run edge case: full-text retrieval can be persisted in
         # extraction_records while fulltext-stage dual_screening_results rows are
         # sparse or absent. In that case, relying only on fulltext rows collapses
@@ -437,7 +471,7 @@ class WorkflowRepository:
         # Keep the invariant:
         #   reports_sought == reports_not_retrieved + reports_assessed
         expected_assessed = max(0, ft_sought - reports_not_retrieved)
-        if expected_assessed > ft_assessed:
+        if not cohort_counts_available and expected_assessed > ft_assessed:
             ft_assessed = expected_assessed
 
         return ta_screened, ta_excluded, ft_sought, reports_not_retrieved, ft_assessed, exclusion_reasons
@@ -495,11 +529,108 @@ class WorkflowRepository:
         return {str(row[0]): str(row[1]) for row in rows}
 
     async def get_included_paper_ids(self, workflow_id: str) -> set[str]:
-        """Paper IDs that passed fulltext screening with include or uncertain decision."""
+        """Paper IDs in canonical synthesis cohort (fallback to fulltext includes)."""
+        cursor = await self.db.execute(
+            """
+            SELECT paper_id
+            FROM study_cohort_membership
+            WHERE workflow_id = ? AND synthesis_eligibility = 'included_primary'
+            """,
+            (workflow_id,),
+        )
+        rows = await cursor.fetchall()
+        if rows:
+            return {str(row[0]) for row in rows}
+
+        # Legacy fallback for runs created before cohort ledger rollout.
         cursor = await self.db.execute(
             """
             SELECT paper_id FROM dual_screening_results
             WHERE workflow_id = ? AND stage = 'fulltext' AND final_decision IN ('include', 'uncertain')
+            """,
+            (workflow_id,),
+        )
+        rows = await cursor.fetchall()
+        return {str(row[0]) for row in rows}
+
+    async def upsert_cohort_membership(self, record: CohortMembershipRecord) -> None:
+        """Create or update one canonical cohort membership row."""
+        await self.db.execute(
+            """
+            INSERT INTO study_cohort_membership (
+                workflow_id,
+                paper_id,
+                screening_status,
+                fulltext_status,
+                synthesis_eligibility,
+                exclusion_reason_code,
+                source_phase
+            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(workflow_id, paper_id) DO UPDATE SET
+                screening_status = excluded.screening_status,
+                fulltext_status = excluded.fulltext_status,
+                synthesis_eligibility = excluded.synthesis_eligibility,
+                exclusion_reason_code = excluded.exclusion_reason_code,
+                source_phase = excluded.source_phase,
+                updated_at = CURRENT_TIMESTAMP
+            """,
+            (
+                record.workflow_id,
+                record.paper_id,
+                record.screening_status,
+                record.fulltext_status,
+                record.synthesis_eligibility,
+                record.exclusion_reason_code,
+                record.source_phase,
+            ),
+        )
+        await self.db.commit()
+
+    async def bulk_upsert_cohort_memberships(self, records: list[CohortMembershipRecord]) -> None:
+        """Batch upsert canonical cohort rows in one transaction."""
+        if not records:
+            return
+        await self.db.executemany(
+            """
+            INSERT INTO study_cohort_membership (
+                workflow_id,
+                paper_id,
+                screening_status,
+                fulltext_status,
+                synthesis_eligibility,
+                exclusion_reason_code,
+                source_phase
+            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(workflow_id, paper_id) DO UPDATE SET
+                screening_status = excluded.screening_status,
+                fulltext_status = excluded.fulltext_status,
+                synthesis_eligibility = excluded.synthesis_eligibility,
+                exclusion_reason_code = excluded.exclusion_reason_code,
+                source_phase = excluded.source_phase,
+                updated_at = CURRENT_TIMESTAMP
+            """,
+            [
+                (
+                    record.workflow_id,
+                    record.paper_id,
+                    record.screening_status,
+                    record.fulltext_status,
+                    record.synthesis_eligibility,
+                    record.exclusion_reason_code,
+                    record.source_phase,
+                )
+                for record in records
+            ],
+        )
+        await self.db.commit()
+
+    async def get_synthesis_included_paper_ids(self, workflow_id: str) -> set[str]:
+        """Return paper_ids that are canonical synthesis-included."""
+        cursor = await self.db.execute(
+            """
+            SELECT paper_id
+            FROM study_cohort_membership
+            WHERE workflow_id = ? AND synthesis_eligibility = 'included_primary'
             """,
             (workflow_id,),
         )
@@ -517,6 +648,35 @@ class WorkflowRepository:
             SELECT paper_id FROM dual_screening_results
             WHERE workflow_id = ? AND stage = 'title_abstract'
               AND final_decision IN ('include', 'uncertain')
+            """,
+            (workflow_id,),
+        )
+        rows = await cursor.fetchall()
+        return {str(row[0]) for row in rows}
+
+    async def get_fulltext_final_decisions(self, workflow_id: str) -> dict[str, str]:
+        """Return paper_id -> final fulltext decision from dual screening results."""
+        cursor = await self.db.execute(
+            """
+            SELECT paper_id, final_decision
+            FROM dual_screening_results
+            WHERE workflow_id = ? AND stage = 'fulltext'
+            """,
+            (workflow_id,),
+        )
+        rows = await cursor.fetchall()
+        return {str(paper_id): str(decision) for paper_id, decision in rows}
+
+    async def get_fulltext_not_retrieved_ids(self, workflow_id: str) -> set[str]:
+        """Return paper_ids excluded at fulltext due to no_full_text."""
+        cursor = await self.db.execute(
+            """
+            SELECT DISTINCT paper_id
+            FROM screening_decisions
+            WHERE workflow_id = ?
+              AND stage = 'fulltext'
+              AND decision = 'exclude'
+              AND lower(COALESCE(exclusion_reason, '')) = 'no_full_text'
             """,
             (workflow_id,),
         )
@@ -1322,6 +1482,18 @@ class WorkflowRepository:
         return rob2_list, robins_i_list
 
     async def save_grade_assessment(self, workflow_id: str, assessment: GRADEOutcomeAssessment) -> None:
+        from src.quality.grade import _PLACEHOLDER_OUTCOME_NAMES
+
+        normalized_outcome = str(assessment.outcome_name or "").strip()
+        if normalized_outcome.lower() in _PLACEHOLDER_OUTCOME_NAMES:
+            _logger.warning(
+                "Skipping grade_assessment persistence for placeholder outcome_name=%r (workflow_id=%s)",
+                normalized_outcome,
+                workflow_id,
+            )
+            return
+        if normalized_outcome != assessment.outcome_name:
+            assessment = assessment.model_copy(update={"outcome_name": normalized_outcome})
         cursor = await self.db.execute(
             "SELECT id FROM grade_assessments WHERE workflow_id = ? AND outcome_name = ?",
             (workflow_id, assessment.outcome_name),
@@ -1351,8 +1523,34 @@ class WorkflowRepository:
             )
         await self.db.commit()
 
+    async def delete_placeholder_grade_assessments(self, workflow_id: str) -> int:
+        """Delete placeholder-named GRADE rows for a workflow.
+
+        Reruns on the same workflow_id can retain stale placeholder rows from
+        earlier pipeline versions. This method removes them before writing fresh
+        quality outputs so grade_assessments remains canonical.
+        """
+        from src.quality.grade import _PLACEHOLDER_OUTCOME_NAMES
+
+        _placeholders = tuple(_PLACEHOLDER_OUTCOME_NAMES)
+        if not _placeholders:
+            return 0
+        placeholders_q = ",".join("?" for _ in _placeholders)
+        cursor = await self.db.execute(
+            f"""
+            DELETE FROM grade_assessments
+            WHERE workflow_id = ?
+              AND lower(trim(outcome_name)) IN ({placeholders_q})
+            """,
+            (workflow_id, *_placeholders),
+        )
+        await self.db.commit()
+        return int(cursor.rowcount or 0)
+
     async def load_grade_assessments(self, workflow_id: str) -> list[GRADEOutcomeAssessment]:
         """Load all GRADE outcome assessments for a workflow."""
+        from src.quality.grade import _PLACEHOLDER_OUTCOME_NAMES
+
         assessments: list[GRADEOutcomeAssessment] = []
         async with self.db.execute(
             "SELECT assessment_data FROM grade_assessments WHERE workflow_id = ?",
@@ -1361,7 +1559,10 @@ class WorkflowRepository:
             rows = await cursor.fetchall()
         for (data,) in rows:
             try:
-                assessments.append(GRADEOutcomeAssessment.model_validate_json(data))
+                parsed = GRADEOutcomeAssessment.model_validate_json(data)
+                if str(parsed.outcome_name or "").strip().lower() in _PLACEHOLDER_OUTCOME_NAMES:
+                    continue
+                assessments.append(parsed)
             except Exception:
                 continue
         return assessments

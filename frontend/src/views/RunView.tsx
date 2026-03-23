@@ -118,6 +118,11 @@ interface RunViewProps {
   resumeModeActive?: boolean
   /** Increments when sidebar launcher requests timeline auto-arm. */
   autoArmFromSidebarToken?: number
+  /** Navigate References CTA to Results/Submission Files hub. */
+  onGoToSubmissionReferencePapers?: () => void
+  /** Highlight target used by Results/Artifacts submission download hub. */
+  submissionFocusTarget?: "reference-papers" | null
+  submissionFocusToken?: number
 }
 
 export function RunView({
@@ -136,6 +141,9 @@ export function RunView({
   onResumeFromPhase,
   resumeModeActive = false,
   autoArmFromSidebarToken = 0,
+  onGoToSubmissionReferencePapers,
+  submissionFocusTarget = null,
+  submissionFocusToken = 0,
 }: RunViewProps) {
   const [wfIdCopied, setWfIdCopied] = useState(false)
   // For historical runs, fetch stored events so the funnel can be computed.
@@ -378,6 +386,8 @@ export function RunView({
               isDone={isDone}
               historyOutputs={historyOutputs}
               exportRunId={isDone ? run.runId : null}
+              submissionFocusTarget={submissionFocusTarget}
+              submissionFocusToken={submissionFocusToken}
             />
           )}
 
@@ -415,6 +425,7 @@ export function RunView({
               runId={run.runId}
               workflowId={run.workflowId}
               isDone={isDone}
+              onGoToSubmissionReferencePapers={onGoToSubmissionReferencePapers}
             />
           )}
         </Suspense>
