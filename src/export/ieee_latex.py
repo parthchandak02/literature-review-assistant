@@ -9,6 +9,8 @@ from typing import TYPE_CHECKING
 
 from pylatexenc.latexencode import UnicodeToLatexEncoder
 
+from src.export.markdown_refs import _normalize_subsection_heading_layout as _normalize_headings_shared
+
 if TYPE_CHECKING:
     from src.models.quality import GradeSoFTable
 
@@ -311,7 +313,17 @@ def _extract_title_and_abstract(md: str) -> tuple[str | None, str | None, str]:
     abstract = "\n".join(abstract_lines).strip() if abstract_lines else None
     rest = "\n".join(rest_lines) if rest_lines else md
 
-    # Fallback: structured abstract format (Objectives: ... Keywords: before ## Introduction)
+    # Preferred modern format: explicit markdown section "## Abstract".
+    # Capture everything until the next level-2 heading.
+    m_abs = re.search(r"(?ms)^## Abstract\s*\n+(.*?)(?=^##\s+|\Z)", md)
+    if m_abs and not abstract:
+        _abs = m_abs.group(1).strip()
+        if _abs:
+            abstract = _abs
+            if rest == md:
+                rest = re.sub(r"(?ms)^## Abstract\s*\n+.*?(?=^##\s+|\Z)", "", md).lstrip()
+
+    # Fallback: structured abstract format (Objectives: ... Keywords: before next non-abstract ## heading)
     if abstract is None or title is None:
         fallback_lines = md.split("\n")
         fallback_title = None
@@ -332,7 +344,8 @@ def _extract_title_and_abstract(md: str) -> tuple[str | None, str | None, str]:
                 fallback_abstract_start = idx
             if "**Keywords:**" in ln or ln.strip().startswith("**Keywords:**"):
                 fallback_abstract_end = idx
-            if ln.strip().startswith("## ") and first_h2_idx < 0:
+            _h2 = ln.strip().lower()
+            if _h2.startswith("## ") and _h2 != "## abstract" and first_h2_idx < 0:
                 first_h2_idx = idx
         if fallback_title and title is None:
             title = fallback_title
@@ -454,131 +467,8 @@ def _strip_section_block_markers(text: str) -> str:
 
 
 def _normalize_subsection_heading_layout(text: str) -> str:
-    """Normalize malformed subsection markdown before LaTeX conversion.
-
-    Handles:
-    - inline heading/body run-ons: `### Heading Body...`
-    - multiple headings collapsed on one line
-    - split heading lines: `### Risk of` then `Bias Assessment`
-    """
-    text = re.sub(r"\s+(#{3,4}\s+)", r"\n\n\1", text)
-    heading_re = re.compile(r"^(#{3,6})\s+(.+)$")
-    title_token_re = re.compile(r"^[A-Z][A-Za-z0-9()/:,\-']*$")
-    sentence_start_re = re.compile(r"^(The|This|These|We|Our|In|Across|To|A|An|Studies|Study|Data)\b")
-    connector_tail = {"and", "or", "of", "for", "to", "with"}
-    sentence_starters = {"the", "this", "these", "we", "our", "in", "across", "to", "a", "an", "studies", "study", "data"}
-
-    def _looks_title_fragment(s: str) -> bool:
-        words = s.strip().split()
-        if not words or len(words) > 5:
-            return False
-        return all(title_token_re.match(w) or w.lower() in connector_tail for w in words)
-
-    def _starts_with_title_prefix_then_sentence(s: str) -> bool:
-        words = s.strip().split()
-        if len(words) < 3:
-            return False
-        if not (title_token_re.match(words[0]) and title_token_re.match(words[1])):
-            return False
-        remainder = " ".join(words[2:])
-        return bool(sentence_start_re.match(remainder))
-
-    out: list[str] = []
-    lines = text.splitlines()
-    i = 0
-    while i < len(lines):
-        line = lines[i]
-        m = heading_re.match(line.strip())
-        if m:
-            level = m.group(1)
-            tail = m.group(2).strip()
-            next_idx = i + 1
-            while next_idx < len(lines) and not lines[next_idx].strip():
-                next_idx += 1
-            next_line = lines[next_idx].strip() if next_idx < len(lines) else ""
-            if next_line and not next_line.startswith("#"):
-                tail_words = tail.split()
-                if tail_words and tail_words[-1].lower() in connector_tail:
-                    nxt_words = next_line.split()
-                    consumed = 0
-                    for j, w in enumerate(nxt_words):
-                        if (
-                            j > 0
-                            and w.lower() in sentence_starters
-                            and j + 1 < len(nxt_words)
-                            and nxt_words[j + 1][:1].islower()
-                        ):
-                            break
-                        if title_token_re.match(w):
-                            consumed = j + 1
-                            if consumed >= 4:
-                                break
-                            continue
-                        break
-                    if consumed > 0:
-                        title_join = " ".join(nxt_words[:consumed]).strip()
-                        body_rest = " ".join(nxt_words[consumed:]).strip()
-                        line = f"{level} {tail} {title_join}".strip()
-                        if body_rest:
-                            out.append(line)
-                            out.append("")
-                            out.append(body_rest)
-                            i = next_idx + 1
-                            continue
-                        out.append(line)
-                        i = next_idx + 1
-                        continue
-                if (tail_words and tail_words[-1].lower() in connector_tail and _looks_title_fragment(next_line)) or (
-                    len(tail_words) <= 3 and _looks_title_fragment(next_line) and not sentence_start_re.match(next_line)
-                ):
-                    line = f"{level} {tail} {next_line}".strip()
-                    i = next_idx + 1
-            words = line.strip().split()
-            if len(words) >= 4 and words[0].startswith("#"):
-                split_found = False
-                for idx in range(3, min(len(words), 12)):
-                    left_words = words[1:idx]
-                    right = " ".join(words[idx:]).strip()
-                    left_ok = all(title_token_re.match(w) or w.lower() in connector_tail for w in left_words)
-                    if not left_ok:
-                        continue
-                    right_lower = right.lower()
-                    if (
-                        sentence_start_re.match(right)
-                        or (
-                            right_lower.startswith(
-                                (
-                                    "for ",
-                                    "in ",
-                                    "across ",
-                                    "to ",
-                                    "from ",
-                                    "with ",
-                                    "is ",
-                                    "are ",
-                                    "was ",
-                                    "were ",
-                                    "followed ",
-                                    "defined ",
-                                    "developed ",
-                                )
-                            )
-                        )
-                        or (right and right[0].isupper() and any(c in right for c in ".,"))
-                    ) and not _looks_title_fragment(right) and not _starts_with_title_prefix_then_sentence(right):
-                        out.append(f"{words[0]} {' '.join(left_words)}")
-                        out.append("")
-                        out.append(right)
-                        split_found = True
-                        break
-                if not split_found:
-                    out.append(line)
-            else:
-                out.append(line)
-        else:
-            out.append(line)
-        i += 1
-    return "\n".join(out)
+    """Use shared markdown heading normalization for all exporters."""
+    return _normalize_headings_shared(text)
 
 
 def _md_section_to_latex(
@@ -683,26 +573,61 @@ def _md_section_to_latex(
         return None
 
     def _sanitize_heading_title(raw_title: str) -> str:
-        """Normalize malformed heading titles and strip citation leakage."""
-        title = raw_title.strip()
-        # Remove inline numeric citation clusters that should not appear in headings.
-        title = re.sub(r"\s*(?:\[\s*\d+\s*\]\s*)+", " ", title)
-        title = re.sub(r"\s*\\cite\{[^}]+\}", " ", title)
-        # Cut at sentence punctuation when run-on prose leaked into heading text.
-        title = re.split(r"[.;:!?]\s+", title, maxsplit=1)[0]
-        title = re.sub(r"\s{2,}", " ", title).strip(" -:,;.")
-        # Guardrail: overly long headings are usually sentence spillover.
+        """Normalize heading titles for robust LaTeX section rendering."""
+        title = re.sub(r"\s{2,}", " ", raw_title.strip())
+        # Drop trailing numeric citation tails in headings, e.g. "[6] [8]" or "[6, 8]".
+        title = re.sub(r"\s*(?:\[(?:\d+(?:\s*,\s*\d+)*)\]\s*)+$", "", title).strip()
+
+        # Remove run-on body clauses that leak into heading lines.
+        lower = title.lower()
+        spill_markers = (
+            " due to ",
+            " because ",
+            " although ",
+            " while ",
+            " since ",
+            " where ",
+            " when ",
+            " after ",
+            " before ",
+            " during ",
+        )
+        for marker in spill_markers:
+            idx = lower.find(marker)
+            if idx > 0:
+                title = title[:idx].strip()
+                break
+
+        # Handle headings where the shared normalizer split "Due to ..." across
+        # lines and left a trailing single spill token on the title.
+        title = re.sub(
+            r"\s+(Due|Because|Although|While|Since|Where|When|After|Before|During)$",
+            "",
+            title,
+            flags=re.IGNORECASE,
+        ).strip()
+
+        # If heading still contains a long lower-case prose tail, trim at the
+        # first non-connector lower-case token.
+        connectors = {"and", "or", "of", "for", "to", "with", "in", "on", "by"}
         words = title.split()
-        if len(words) > 14:
-            title = " ".join(words[:14]).strip()
-        # Trim trailing connectors that indicate a broken split.
-        title = re.sub(r"\b(and|of|for|to|with|due)\s*$", "", title, flags=re.IGNORECASE).strip()
+        if len(words) > 6:
+            keep: list[str] = []
+            for idx, word in enumerate(words):
+                clean = word.strip(".,;:!?")
+                if idx > 0 and clean[:1].islower() and clean.lower() not in connectors:
+                    break
+                keep.append(clean)
+            title = " ".join(keep).strip()
+
         return title
 
     while i < len(lines):
         line = lines[i]
         stripped = line.strip()
-        inline_heading = _split_inline_subheading(stripped)
+        # Structural repairs are centralized in markdown_refs._normalize_subsection_heading_layout.
+        # Keep LaTeX conversion as a pure mapper to avoid re-interpreting headings.
+        inline_heading = None
 
         if inline_heading and inline_heading[0] == "####":
             flush_list()
@@ -738,6 +663,31 @@ def _md_section_to_latex(
         elif stripped.startswith("### "):
             flush_list()
             title = _sanitize_heading_title(stripped[4:].strip())
+            # Recover heading fragments that were split by normalizer when the
+            # heading ends with a connector and the next line starts with title tokens.
+            nxt_idx = i + 1
+            while nxt_idx < len(lines) and not lines[nxt_idx].strip():
+                nxt_idx += 1
+            if nxt_idx < len(lines):
+                nxt_raw = lines[nxt_idx]
+                nxt = nxt_raw.strip()
+                connector_tail = {"and", "or", "of", "for", "to", "with"}
+                title_tokens = title.split()
+                if title_tokens and title_tokens[-1].lower() in connector_tail and nxt and not nxt.startswith("#"):
+                    nxt_words = nxt.split()
+                    consumed = 0
+                    for word in nxt_words:
+                        clean = word.strip(".,;:!?")
+                        if re.match(r"^[A-Z][A-Za-z0-9()/:,\-']*$", clean):
+                            consumed += 1
+                            if consumed >= 3:
+                                break
+                            continue
+                        break
+                    if consumed > 0:
+                        title = _sanitize_heading_title(f"{title} {' '.join(nxt_words[:consumed])}")
+                        remainder = " ".join(nxt_words[consumed:]).strip()
+                        lines[nxt_idx] = remainder if remainder else ""
             parts.append(f"\\subsection{{{_escape_latex(title)}}}")
             parts.append("")
         elif stripped.startswith("## "):

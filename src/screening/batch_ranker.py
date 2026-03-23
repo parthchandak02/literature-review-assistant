@@ -366,10 +366,10 @@ class BatchLLMRanker:
             uncertain_floor,
         )
 
-        # Cross-validation: re-score a random 10% sample of excluded papers to estimate NPV.
+        # Cross-validation: re-score a configurable sample of excluded papers
+        # to estimate NPV.
         # A paper is "confirmed excluded" if the re-score still falls below the threshold.
         # This produces a methodological transparency metric for the Methods section.
-        # Min sample 5, max 30 to balance cost and precision.
         await self._validate_exclusion_sample(papers, excluded, threshold)
 
         return forwarded, excluded
@@ -380,7 +380,7 @@ class BatchLLMRanker:
         excluded_decisions: list[ScreeningDecision],
         threshold: float,
     ) -> None:
-        """Cross-validate a random 10% sample of excluded papers via an independent re-score.
+        """Cross-validate a sample of excluded papers via an independent re-score.
 
         Computes the negative predictive value (NPV) of the batch pre-ranker and stores
         it in self.validation_sampled_n and self.validation_npv so callers can surface
@@ -389,7 +389,10 @@ class BatchLLMRanker:
         if not excluded_decisions:
             return
         paper_by_id = {p.paper_id: p for p in all_papers}
-        sample_size = max(5, min(30, round(len(excluded_decisions) * 0.10)))
+        fraction = float(getattr(self._screening, "batch_screen_validation_fraction", 0.10))
+        min_sample = int(getattr(self._screening, "batch_screen_validation_min_sample", 20))
+        max_sample = max(min_sample, int(getattr(self._screening, "batch_screen_validation_max_sample", 60)))
+        sample_size = max(min_sample, min(max_sample, round(len(excluded_decisions) * fraction)))
         sample_decisions = random.sample(excluded_decisions, min(sample_size, len(excluded_decisions)))
         sample_papers = [paper_by_id[d.paper_id] for d in sample_decisions if d.paper_id in paper_by_id]
         if not sample_papers:

@@ -1,15 +1,16 @@
 import { useCallback, useEffect, useState } from "react"
 import { BookOpen, Download, ExternalLink, FileText, FileX, RefreshCw } from "lucide-react"
+import { Button } from "@/components/ui/button"
 import { fetchPapersReference, fetchPdfsForRun, paperFileUrl } from "@/lib/api"
 import type { FetchPdfsProgressEvent, FetchPdfsResult, PaperReference } from "@/lib/api"
 import { cn } from "@/lib/utils"
-import { StudyFilesDownloadButton } from "@/components/StudyFilesDownloadButton"
 
 interface ReferencesViewProps {
   runId: string
   /** workflow_id (e.g. wf-0007) for 404 retry when runId evicted from _active_runs */
   workflowId?: string | null
   isDone: boolean
+  onGoToSubmissionReferencePapers?: () => void
 }
 
 function SourceBadge({ source }: { source: string }) {
@@ -64,7 +65,12 @@ interface FetchProgress {
   skipped: number
 }
 
-export function ReferencesView({ runId, workflowId, isDone }: ReferencesViewProps) {
+export function ReferencesView({
+  runId,
+  workflowId,
+  isDone,
+  onGoToSubmissionReferencePapers,
+}: ReferencesViewProps) {
   const [papers, setPapers] = useState<PaperReference[]>([])
   const [loading, setLoading] = useState(isDone)
   const [error, setError] = useState<string | null>(null)
@@ -184,11 +190,14 @@ export function ReferencesView({ runId, workflowId, isDone }: ReferencesViewProp
               Abstract only
             </span>
           </div>
-          <StudyFilesDownloadButton
-            runId={effectiveId}
-            label="Download All"
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={onGoToSubmissionReferencePapers}
             className="border-zinc-700 text-zinc-300 hover:text-zinc-100"
-          />
+          >
+            Download All
+          </Button>
           {(someFilesMissing || fetchResult) && (
             <button
               onClick={handleFetchPdfs}

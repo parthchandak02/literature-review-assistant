@@ -56,6 +56,13 @@ def _normalize_title(title: str) -> str:
     return re.sub(r"\s+", " ", s).strip()
 
 
+def _normalize_doi(doi: str | None) -> str:
+    """Normalize DOI to canonical lowercase token for exact-match dedup."""
+    cleaned = (doi or "").strip().lower()
+    cleaned = re.sub(r"^https?://(dx\.)?doi\.org/", "", cleaned)
+    return cleaned
+
+
 def _shingled_tokens(text: str, k: int = 3) -> set[str]:
     tokens = text.split()
     if len(tokens) < k:
@@ -167,7 +174,7 @@ def deduplicate_papers(
     duplicates = 0
 
     for paper in papers_list:
-        doi = (paper.doi or "").strip().lower()
+        doi = _normalize_doi(paper.doi)
         if doi:
             if doi in doi_to_index:
                 duplicates += 1

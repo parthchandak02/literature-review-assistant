@@ -122,6 +122,9 @@ class GradeAssessor:
                     rob_downgrade = max(rob_downgrade, 2)
                 elif overall in {RobinsIJudgment.SERIOUS, RobinsIJudgment.MODERATE}:
                     rob_downgrade = max(rob_downgrade, 1)
+                elif overall == RobinsIJudgment.NO_INFORMATION:
+                    # Missing methodological information should reduce certainty.
+                    rob_downgrade = max(rob_downgrade, 1)
         rob_downgrade = min(rob_downgrade, 2)
 
         # -- Imprecision downgrade --
@@ -142,6 +145,7 @@ class GradeAssessor:
         justification = (
             f"RoB downgrade={rob_downgrade} (worst-case across {len(rob_assessments)} assessments). "
             f"Imprecision downgrade={imprecision_downgrade} (total N={total_n}). "
+            "ROBINS-I no_information judgments are treated as serious risk due to insufficient methodological detail. "
             "Inconsistency/indirectness: not auto-computed from pipeline data -- manual review required."
         )
         return assessment.model_copy(

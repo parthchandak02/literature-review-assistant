@@ -84,3 +84,30 @@ def test_deduplicate_prefers_richer_metadata_for_same_doi() -> None:
     assert len(deduped) == 1
     assert deduped[0].abstract is not None
     assert deduped[0].url == "https://example.org"
+
+
+def test_deduplicate_treats_doi_url_and_token_as_same() -> None:
+    as_url = CandidatePaper(
+        paper_id="u1",
+        title="Automation in outpatient pharmacy",
+        authors=["A. One"],
+        year=2024,
+        source_database="openalex",
+        doi="https://doi.org/10.1000/shared",
+        abstract="URL DOI format",
+    )
+    as_token = CandidatePaper(
+        paper_id="u2",
+        title="Automation in outpatient pharmacy",
+        authors=["A. One", "B. Two"],
+        year=2024,
+        source_database="pubmed",
+        doi="10.1000/shared",
+        abstract="Token DOI format with richer metadata.",
+        url="https://example.org/paper",
+    )
+
+    deduped, duplicates = deduplicate_papers([as_url, as_token])
+    assert duplicates == 1
+    assert len(deduped) == 1
+    assert deduped[0].doi in {"10.1000/shared", "https://doi.org/10.1000/shared"}

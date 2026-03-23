@@ -346,6 +346,8 @@ def _sanitize_body(text: str) -> str:
             continue
         if pure_cite_re.match(line) and line.strip():
             continue
+        if re.match(r"^\s*(?:and\s+)?will\s+be\s+considered\b", line, flags=re.IGNORECASE):
+            continue
         clean.append(line)
     return "\n".join(clean)
 
@@ -439,6 +441,13 @@ def _normalize_subsection_heading_layout(text: str) -> str:
                     nxt_words = nxt.split()
                     consumed = 0
                     for j, w in enumerate(nxt_words):
+                        if (
+                            j > 0
+                            and w.lower() in {"the", "this", "these", "we", "our", "in", "across", "to", "a", "an"}
+                            and j + 1 < len(nxt_words)
+                            and nxt_words[j + 1][:1].islower()
+                        ):
+                            break
                         if _title_token_re.match(w):
                             consumed = j + 1
                             if consumed >= 4:
@@ -863,6 +872,17 @@ _RAW_SETTING_NORMALIZE = {
 }
 
 
+def _is_primary_study_record(rec: Any) -> bool:
+    """Return True unless record is explicitly marked non-primary.
+
+    Legacy runs and many unit fixtures do not carry primary_study_status.
+    Those should remain eligible unless explicitly classified as non-primary.
+    """
+    status_obj = getattr(rec, "primary_study_status", None)
+    status = getattr(status_obj, "value", status_obj)
+    return str(status or "unknown").lower() not in {"secondary_review", "protocol_only", "non_empirical"}
+
+
 def is_extraction_failed(rec: Any) -> bool:
     """Return True when LLM extraction produced only placeholder/empty data.
 
@@ -908,7 +928,7 @@ def build_compact_study_table(
     rows: list[tuple[str, str, str, str, str]] = []
     for paper_id, paper in paper_map.items():
         rec = extraction_map.get(paper_id)
-        if rec is None or is_extraction_failed(rec):
+        if rec is None or is_extraction_failed(rec) or not _is_primary_study_record(rec):
             continue
 
         # Author (Year) column
@@ -977,10 +997,14 @@ def build_compact_study_table(
     if total_usable > len(rows):
         note = (
             f"\n_Table 1. Summary of {len(rows)} of {total_usable} included studies "
-            f"(compact in-body view). See Appendix B for full characteristics._"
+            f"(compact in-body view). See Appendix B for full characteristics. "
+            "NR means not reported in the source report or unavailable after extraction._"
         )
     else:
-        note = f"\n_Table 1. Summary of {len(rows)} included studies. See Appendix B for full characteristics._"
+        note = (
+            f"\n_Table 1. Summary of {len(rows)} included studies. See Appendix B for full characteristics. "
+            "NR means not reported in the source report or unavailable after extraction._"
+        )
     return "\n".join([header, sep] + data_lines) + note
 
 
@@ -1016,7 +1040,7 @@ def build_study_characteristics_table(
         if rec is None:
             continue
 
-        if is_extraction_failed(rec):
+        if is_extraction_failed(rec) or not _is_primary_study_record(rec):
             excluded_count += 1
             continue
 
@@ -1114,7 +1138,7 @@ def build_study_characteristics_table(
 
     total_records = len(rows) + excluded_count
     footnote = (
-        "_NR = Not Reported; n.d. = no publication date available. "
+        "_NR = not reported in source report or unavailable after extraction; n.d. = no publication date available. "
         "Full Text Retrieved: Yes = full-text PDF was retrieved and used for data extraction; "
         "No = extraction used abstract and extended metadata only (no full-text PDF obtained)._"
     )
@@ -1203,6 +1227,23 @@ def build_robins_i_domain_table(
     return "## ROBINS-I Risk of Bias Assessment\n\n" + table_md
 
 
+def _normalize_criteria_text(raw_text: str) -> str:
+    """Normalize criteria lists and drop malformed placeholder fragments."""
+    if not (raw_text or "").strip():
+        return "NR"
+    parts = [p.strip(" ;") for p in raw_text.split(";")]
+    cleaned_parts: list[str] = []
+    for part in parts:
+        if not part:
+            continue
+        if re.match(r"^(?:will\s+be\s+considered|to\s+ensure\s+technological\s+relevance)\b", part, re.IGNORECASE):
+            continue
+        if len(re.findall(r"[A-Za-z]", part)) < 4:
+            continue
+        cleaned_parts.append(re.sub(r"\s{2,}", " ", part).strip())
+    return "; ".join(cleaned_parts) if cleaned_parts else "NR"
+
+
 def build_picos_table(review_config: Any) -> str:
     """Build a markdown table of eligibility criteria (PICOS) from review config.
 
@@ -1245,6 +1286,8 @@ def build_picos_table(review_config: Any) -> str:
         )
         inc_str = _date_phrase_re.sub("", inc_str).strip("; ").strip()
         exc_str = _date_phrase_re.sub("", exc_str).strip("; ").strip()
+    inc_str = _normalize_criteria_text(inc_str)
+    exc_str = _normalize_criteria_text(exc_str)
 
     # Study design row: derive from review_type and any explicit study_design field
     review_type = getattr(review_config, "review_type", "") or ""

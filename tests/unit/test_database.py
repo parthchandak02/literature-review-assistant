@@ -6,6 +6,8 @@ import pytest
 from src.db.database import get_db
 from src.db.repositories import WorkflowRepository
 from src.models import (
+    GRADECertainty,
+    GRADEOutcomeAssessment,
     DecisionLogEntry,
     ManuscriptAssembly,
     ReviewerType,
@@ -133,6 +135,119 @@ async def test_prisma_counts_assessed_falls_back_to_sought_minus_not_retrieved(t
         assert not_retrieved == 1
         assert assessed == 2
         assert reasons == {}
+
+
+@pytest.mark.asyncio
+async def test_prisma_counts_prefer_canonical_cohort_fulltext_status(tmp_path) -> None:
+    """Canonical cohort fulltext_status should drive sought/not_retrieved/assessed."""
+    db_path = tmp_path / "prisma_counts_cohort.db"
+    async with get_db(str(db_path)) as db:
+        repo = WorkflowRepository(db)
+        await repo.create_workflow("wf-prisma-cohort", "topic", "hash")
+        await db.executemany(
+            "INSERT INTO papers (paper_id, title, authors, source_database) VALUES (?, ?, ?, ?)",
+            [
+                ("p1", "t1", "[]", "openalex"),
+                ("p2", "t2", "[]", "openalex"),
+                ("p3", "t3", "[]", "openalex"),
+            ],
+        )
+        await db.executemany(
+            "INSERT INTO dual_screening_results (workflow_id, paper_id, stage, agreement, final_decision, adjudication_needed) VALUES (?, ?, ?, ?, ?, ?)",
+            [
+                ("wf-prisma-cohort", "p1", "title_abstract", 1, "include", 0),
+                ("wf-prisma-cohort", "p2", "title_abstract", 1, "include", 0),
+                ("wf-prisma-cohort", "p3", "title_abstract", 1, "include", 0),
+            ],
+        )
+        await db.executemany(
+            """
+            INSERT INTO study_cohort_membership
+                (workflow_id, paper_id, screening_status, fulltext_status, synthesis_eligibility, exclusion_reason_code, source_phase)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            [
+                ("wf-prisma-cohort", "p1", "included", "assessed", "pending", None, "phase_3_screening"),
+                ("wf-prisma-cohort", "p2", "excluded", "not_retrieved", "excluded_screening", "no_full_text", "phase_3_screening"),
+                ("wf-prisma-cohort", "p3", "excluded", "assessed", "excluded_screening", "screening_excluded", "phase_3_screening"),
+            ],
+        )
+        await db.commit()
+
+        screened, excluded, sought, not_retrieved, assessed, _reasons = await repo.get_prisma_screening_counts(
+            "wf-prisma-cohort"
+        )
+        assert screened == 3
+        assert excluded == 0
+        assert sought == 3
+        assert not_retrieved == 1
+        assert assessed == 2
+
+
+@pytest.mark.asyncio
+async def test_save_grade_assessment_skips_placeholder_outcome_names(tmp_path) -> None:
+    db_path = tmp_path / "grade_placeholder_guard.db"
+    async with get_db(str(db_path)) as db:
+        repo = WorkflowRepository(db)
+        await repo.save_grade_assessment(
+            "wf-grade",
+            GRADEOutcomeAssessment(
+                outcome_name="not reported",
+                number_of_studies=2,
+                study_designs="non_randomized",
+                starting_certainty=GRADECertainty.LOW,
+                risk_of_bias_downgrade=1,
+                inconsistency_downgrade=0,
+                indirectness_downgrade=0,
+                imprecision_downgrade=0,
+                publication_bias_downgrade=0,
+                large_effect_upgrade=0,
+                dose_response_upgrade=0,
+                residual_confounding_upgrade=0,
+                final_certainty=GRADECertainty.LOW,
+                justification="placeholder should be filtered",
+            ),
+        )
+        row = await (await db.execute("SELECT COUNT(*) FROM grade_assessments WHERE workflow_id = ?", ("wf-grade",))).fetchone()
+        assert row is not None
+        assert int(row[0]) == 0
+
+
+@pytest.mark.asyncio
+async def test_delete_placeholder_grade_assessments_removes_stale_rows(tmp_path) -> None:
+    db_path = tmp_path / "grade_placeholder_cleanup.db"
+    async with get_db(str(db_path)) as db:
+        repo = WorkflowRepository(db)
+        await db.execute(
+            """
+            INSERT INTO grade_assessments (workflow_id, outcome_name, assessment_data, final_certainty)
+            VALUES (?, ?, ?, ?)
+            """,
+            (
+                "wf-grade",
+                "not reported",
+                '{"outcome_name":"not reported","number_of_studies":1,"study_designs":"non_randomized","starting_certainty":"low","risk_of_bias_downgrade":0,"inconsistency_downgrade":0,"indirectness_downgrade":0,"imprecision_downgrade":0,"publication_bias_downgrade":0,"large_effect_upgrade":0,"dose_response_upgrade":0,"residual_confounding_upgrade":0,"final_certainty":"low","justification":"placeholder","inconsistency_assessed":true,"indirectness_assessed":true}',
+                "low",
+            ),
+        )
+        await db.execute(
+            """
+            INSERT INTO grade_assessments (workflow_id, outcome_name, assessment_data, final_certainty)
+            VALUES (?, ?, ?, ?)
+            """,
+            (
+                "wf-grade",
+                "dispensing accuracy",
+                '{"outcome_name":"dispensing accuracy","number_of_studies":1,"study_designs":"non_randomized","starting_certainty":"low","risk_of_bias_downgrade":0,"inconsistency_downgrade":0,"indirectness_downgrade":0,"imprecision_downgrade":0,"publication_bias_downgrade":0,"large_effect_upgrade":0,"dose_response_upgrade":0,"residual_confounding_upgrade":0,"final_certainty":"low","justification":"valid","inconsistency_assessed":true,"indirectness_assessed":true}',
+                "low",
+            ),
+        )
+        await db.commit()
+        removed = await repo.delete_placeholder_grade_assessments("wf-grade")
+        assert removed == 1
+        row = await (await db.execute("SELECT COUNT(*) FROM grade_assessments WHERE workflow_id = ?", ("wf-grade",))).fetchone()
+        assert row is not None
+        assert int(row[0]) == 1
 
 
 @pytest.mark.asyncio

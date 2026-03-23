@@ -15,6 +15,7 @@ TABLE_OWNERSHIP: dict[str, str] = {
     "screening_decisions": "screening_rationales_and_reasons",
     "search_results": "search_identification_counts",
     "extraction_records": "structured_extracted_evidence",
+    "study_cohort_membership": "canonical_study_cohort_membership",
     "section_drafts": "manuscript_section_state",
     "manuscript_sections": "manuscript_section_state_canonical",
     "manuscript_blocks": "manuscript_block_state_canonical",
@@ -30,10 +31,12 @@ class RunStatsPrecedence:
     """Precedence for run-level sidebar/history summary numbers."""
 
     # Source of included studies count:
-    # 1) dual_screening_results fulltext include/uncertain (durable factual table)
-    # 2) phase_3_screening phase_done summary.included (historical fallback)
-    # 3) extraction_records count (legacy fallback)
+    # 1) study_cohort_membership synthesis included_primary (canonical cohort)
+    # 2) dual_screening_results fulltext include/uncertain (durable factual table)
+    # 3) phase_3_screening phase_done summary.included (historical fallback)
+    # 4) extraction_records count (legacy fallback)
     papers_included_order: tuple[str, ...] = (
+        "study_cohort_membership_synthesis_included_primary",
         "dual_screening_results_fulltext",
         "event_log_phase_done_phase_3_screening",
         "extraction_records",
@@ -47,6 +50,14 @@ class RunStatsPrecedence:
     manuscript_content_order: tuple[str, ...] = (
         "manuscript_assemblies_latest",
         "artifact_file_fallback",
+    )
+    # Source of PRISMA screening counts:
+    # 1) repositories.get_prisma_screening_counts() using cohort fulltext_status
+    #    as canonical when available
+    # 2) legacy dual_screening_results + screening_decisions fallback
+    prisma_screening_counts_order: tuple[str, ...] = (
+        "repositories_get_prisma_screening_counts_canonical",
+        "legacy_dual_and_screening_decisions_fallback",
     )
 
 

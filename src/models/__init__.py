@@ -11,6 +11,7 @@ from src.models.additional import (
     SummaryOfFindingsRow,
 )
 from src.models.claims import CitationEntryRecord, ClaimRecord, EvidenceLinkRecord
+from src.models.cohort import CohortMembershipRecord
 from src.models.config import (
     AgentConfig,
     CitationLineageConfig,
@@ -75,6 +76,7 @@ __all__ = [
     "TaxonomyDiagramInput",
     "CandidatePaper",
     "CitationEntryRecord",
+    "CohortMembershipRecord",
     "CitationLineageConfig",
     "ClaimRecord",
     "CostRecord",

@@ -734,3 +734,21 @@ def test_sanitize_body_strips_ref_and_paper_placeholders() -> None:
     assert "Ref141" not in out
     assert "Paper_abc123" not in out
     assert "[Ref7]" not in out
+
+
+def test_sanitize_body_drops_dangling_will_be_considered_fragment() -> None:
+    from src.export.markdown_refs import _sanitize_body
+
+    text = "Eligibility was defined.\nwill be considered\nFurther details follow."
+    out = _sanitize_body(text)
+    assert "will be considered" not in out
+    assert "Further details follow." in out
+
+
+def test_sanitize_section_headings_splits_run_on_heading_into_body() -> None:
+    from src.writing.orchestration import _sanitize_section_headings
+
+    content = "### Information Sources The systematic search was conducted in PubMed."
+    out = _sanitize_section_headings("methods", content)
+    assert "### Information Sources" in out
+    assert "The systematic search was conducted in PubMed." in out

@@ -60,6 +60,19 @@ CREATE TABLE IF NOT EXISTS extraction_records (
     PRIMARY KEY (workflow_id, paper_id)
 );
 
+CREATE TABLE IF NOT EXISTS study_cohort_membership (
+    workflow_id TEXT NOT NULL,
+    paper_id TEXT NOT NULL REFERENCES papers(paper_id),
+    screening_status TEXT NOT NULL DEFAULT 'unknown',
+    fulltext_status TEXT NOT NULL DEFAULT 'unknown',
+    synthesis_eligibility TEXT NOT NULL DEFAULT 'pending',
+    exclusion_reason_code TEXT,
+    source_phase TEXT NOT NULL DEFAULT 'unknown',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (workflow_id, paper_id)
+);
+
 CREATE TABLE IF NOT EXISTS claims (
     claim_id TEXT PRIMARY KEY,
     paper_id TEXT,
@@ -278,6 +291,8 @@ CREATE INDEX IF NOT EXISTS idx_screening_paper ON screening_decisions(workflow_i
 CREATE INDEX IF NOT EXISTS idx_search_results_workflow ON search_results(workflow_id);
 CREATE INDEX IF NOT EXISTS idx_dual_screening_stage_decision ON dual_screening_results(workflow_id, stage, final_decision);
 CREATE INDEX IF NOT EXISTS idx_extraction_records_workflow ON extraction_records(workflow_id);
+CREATE INDEX IF NOT EXISTS idx_study_cohort_workflow ON study_cohort_membership(workflow_id);
+CREATE INDEX IF NOT EXISTS idx_study_cohort_synthesis ON study_cohort_membership(workflow_id, synthesis_eligibility);
 CREATE INDEX IF NOT EXISTS idx_claims_section ON claims(section);
 CREATE INDEX IF NOT EXISTS idx_evidence_claim ON evidence_links(claim_id);
 CREATE INDEX IF NOT EXISTS idx_evidence_citation ON evidence_links(citation_id);

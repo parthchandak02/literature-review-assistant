@@ -196,6 +196,28 @@ async def run_migrations(db: aiosqlite.Connection) -> None:
         10,
         "ALTER TABLE extraction_records ADD COLUMN primary_study_status TEXT NOT NULL DEFAULT 'unknown';",
     )
+    # 11. Canonical cohort membership ledger across screening/synthesis/export.
+    await _apply(
+        11,
+        """
+        CREATE TABLE IF NOT EXISTS study_cohort_membership (
+            workflow_id TEXT NOT NULL,
+            paper_id TEXT NOT NULL REFERENCES papers(paper_id),
+            screening_status TEXT NOT NULL DEFAULT 'unknown',
+            fulltext_status TEXT NOT NULL DEFAULT 'unknown',
+            synthesis_eligibility TEXT NOT NULL DEFAULT 'pending',
+            exclusion_reason_code TEXT,
+            source_phase TEXT NOT NULL DEFAULT 'unknown',
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (workflow_id, paper_id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_study_cohort_workflow
+            ON study_cohort_membership(workflow_id);
+        CREATE INDEX IF NOT EXISTS idx_study_cohort_synthesis
+            ON study_cohort_membership(workflow_id, synthesis_eligibility);
+        """,
+    )
     await _validate_schema_contract(db)
     await db.commit()
 
@@ -221,6 +243,14 @@ async def _validate_schema_contract(db: aiosqlite.Connection) -> None:
             "primary_study_status",
             "extraction_source",
             "data",
+        },
+        "study_cohort_membership": {
+            "workflow_id",
+            "paper_id",
+            "screening_status",
+            "fulltext_status",
+            "synthesis_eligibility",
+            "source_phase",
         },
         "section_drafts": {"workflow_id", "section", "version", "content"},
         "manuscript_sections": {"workflow_id", "section_key", "section_order", "version", "content"},

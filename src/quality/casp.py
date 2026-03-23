@@ -31,19 +31,21 @@ class CaspAssessment(BaseModel):
 
 class _CaspLLMResponse(BaseModel):
     design_appropriate: bool = False
-    recruitment_strategy: bool = True
+    recruitment_strategy: bool = False
     data_collection_rigorous: bool = False
     reflexivity_considered: bool = False
-    ethics_considered: bool = True
+    ethics_considered: bool = False
     analysis_rigorous: bool = False
-    findings_clear: bool = True
-    value_of_research: bool = True
+    findings_clear: bool = False
+    value_of_research: bool = False
     overall_summary: str = ""
 
 
 def _build_casp_prompt(record: ExtractionRecord, full_text: str) -> str:
     results = record.results_summary.get("summary", "")[:2000]
-    text_excerpt = full_text[:3000] if full_text.strip() else results
+    has_full_text = bool(full_text.strip()) and len(full_text.strip()) > 200
+    text_source = "full text excerpt" if has_full_text else "abstract/results summary (full text unavailable)"
+    text_excerpt = full_text[:3000] if has_full_text else results
     return "\n".join(
         [
             "You are an expert systematic review methodologist.",
@@ -51,10 +53,15 @@ def _build_casp_prompt(record: ExtractionRecord, full_text: str) -> str:
             "",
             f"Intervention / topic: {record.intervention_description[:400]}",
             f"Results summary: {results}",
+            f"Text source: {text_source}",
             "",
             "Text excerpt:",
             text_excerpt,
             "",
+            (
+                "If only abstract/results text is available (no full text), use strict conservative scoring: "
+                "set all criteria to false unless the criterion is explicitly supported by the provided text."
+            ),
             "Answer each CASP question as true or false:",
             "1. design_appropriate: Was a qualitative methodology appropriate for this research question?",
             "2. recruitment_strategy: Was the recruitment strategy appropriate to the aims of the research?",
