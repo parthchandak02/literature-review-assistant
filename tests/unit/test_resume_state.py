@@ -109,6 +109,66 @@ async def test_load_resume_state_from_phase(tmp_path) -> None:
 
 
 @pytest.mark.asyncio
+async def test_load_resume_state_from_search_clears_downstream_phase_data(tmp_path) -> None:
+    run_dir = tmp_path / "2026-02-16" / "topic" / "run_01-00-00PM"
+    run_dir.mkdir(parents=True, exist_ok=True)
+    db_path = run_dir / "runtime.db"
+    async with get_db(str(db_path)) as db:
+        await db.executescript(Path("src/db/schema.sql").read_text())
+        await db.commit()
+        repo = WorkflowRepository(db)
+        await repo.create_workflow("wf-from-search", "Test topic", "abc123")
+        await repo.save_checkpoint("wf-from-search", "phase_2_search", papers_processed=1)
+        await repo.save_checkpoint("wf-from-search", "phase_3_screening", papers_processed=1)
+        await repo.save_paper(
+            CandidatePaper(
+                paper_id="p1",
+                title="Paper 1",
+                authors=["A"],
+                source_database="openalex",
+                source_category=SourceCategory.DATABASE,
+            )
+        )
+        await db.execute(
+            """
+            INSERT INTO search_results
+            (database_name, source_category, search_date, search_query, records_retrieved, workflow_id)
+            VALUES ('openalex', 'database', '2026-03-23', 'q', 1, 'wf-from-search')
+            """
+        )
+        await db.execute(
+            """
+            INSERT INTO screening_decisions
+            (workflow_id, paper_id, stage, decision, reviewer_type, confidence)
+            VALUES ('wf-from-search', 'p1', 'title_abstract', 'include', 'reviewer_a', 0.9)
+            """
+        )
+        await db.commit()
+
+    _, next_phase = await load_resume_state(
+        db_path=str(db_path),
+        workflow_id="wf-from-search",
+        review_path="config/review.yaml",
+        settings_path="config/settings.yaml",
+        run_root=str(tmp_path),
+        from_phase="phase_2_search",
+    )
+    assert next_phase == "phase_2_search"
+
+    async with get_db(str(db_path)) as db:
+        search_count = await (
+            await db.execute("SELECT COUNT(*) FROM search_results WHERE workflow_id = ?", ("wf-from-search",))
+        ).fetchone()
+        screening_count = await (
+            await db.execute("SELECT COUNT(*) FROM screening_decisions WHERE workflow_id = ?", ("wf-from-search",))
+        ).fetchone()
+        paper_count = await (await db.execute("SELECT COUNT(*) FROM papers")).fetchone()
+    assert int(search_count[0]) == 0
+    assert int(screening_count[0]) == 0
+    assert int(paper_count[0]) == 0
+
+
+@pytest.mark.asyncio
 async def test_load_resume_state_clears_section_drafts_when_rerunning_writing(tmp_path) -> None:
     run_dir = tmp_path / "2026-02-16" / "topic" / "run_01-00-00PM"
     run_dir.mkdir(parents=True, exist_ok=True)

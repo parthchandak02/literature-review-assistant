@@ -276,62 +276,14 @@ def _sanitize_body(text: str) -> str:
       (e.g. ', Katharina2025, Importancend].' with no preceding prose)
     - Lines that consist only of bracketed citekey lists with no prose
 
-    Also normalizes reviewer wording: replaces 'human reviewer' or 'AI reviewer'
-    with 'reviewer' (and plural forms) to keep neutral language.
+    Also removes obvious unresolved fallback keys that should never reach
+    export output.
     """
-    # Normalize reviewer wording: use neutral 'reviewer(s)' only (no human/AI qualifier)
-    text = re.sub(r"\bhuman\s+reviewers\b", "reviewers", text, flags=re.IGNORECASE)
-    text = re.sub(r"\bhuman\s+reviewer\b", "reviewer", text, flags=re.IGNORECASE)
-    text = re.sub(r"\bAI\s+reviewers\b", "reviewers", text, flags=re.IGNORECASE)
-    text = re.sub(r"\bAI\s+reviewer\b", "reviewer", text, flags=re.IGNORECASE)
-    # Strip "large language model" qualifier that may appear in LLM-authored sections
-    # e.g. "Two independent large language models screened" -> "Two independent reviewers screened"
-    # e.g. "two large language model reviewers" -> "two reviewers"
-    text = re.sub(r"\blarge\s+language\s+model\s+reviewers\b", "reviewers", text, flags=re.IGNORECASE)
-    text = re.sub(r"\blarge\s+language\s+model\s+reviewer\b", "reviewer", text, flags=re.IGNORECASE)
-    text = re.sub(r"\blarge\s+language\s+models\s+screened\b", "reviewers screened", text, flags=re.IGNORECASE)
-    text = re.sub(r"\bindependent\s+large\s+language\s+models\b", "independent reviewers", text, flags=re.IGNORECASE)
 
-    # Correct "available upon request" for search strategies that are already in Appendix C.
-    # The LLM writing step produces this phrase for the search strategy section, but
-    # the strings are always included verbatim in Appendix C, making the claim false.
-    text = re.sub(
-        r"are documented in the review protocol and are available upon request",
-        "are provided in Appendix C",
-        text,
-        flags=re.IGNORECASE,
-    )
-    # Broader fallback: any mention that search strings are "available upon request"
-    # inside a search strategy context should point to the appendix instead.
-    text = re.sub(
-        r"(search strings?[^.]{0,80}?)available upon request",
-        r"\1provided in Appendix C",
-        text,
-        flags=re.IGNORECASE,
-    )
-
-    # Inject AI-assisted screening disclosure if not already present.
-    # This sentence is always added after the first occurrence of "two independent
-    # reviewers" so the Methods section transparently discloses the pipeline nature.
-    # Idempotent: skipped when the disclosure text is already in the body.
-    _disclosure = "Screening was conducted using an AI-assisted dual-reviewer pipeline."
-    if _disclosure not in text:
-        _two_rev_re = re.compile(
-            r"(two independent reviewers[^.!?]*[.!?])",
-            re.IGNORECASE,
-        )
-        text = _two_rev_re.sub(r"\1 " + _disclosure, text, count=1)
-
-    # Remove unresolved citation placeholders from final manuscript prose.
-    text = text.replace("(citation unavailable)", "")
-    text = re.sub(r"\bRef\d+\b", "", text)
-    text = re.sub(r"\bPaper_[A-Za-z0-9_\-]+\b", "", text)
-    text = re.sub(r"\[\s*Ref\d+\s*\]", "", text)
-    text = re.sub(r"\[\s*Paper_[A-Za-z0-9_\-]+\s*\]", "", text)
+    # Keep unresolved placeholders visible for contract checks; export should
+    # not silently rewrite manuscript claims.
     text = text.replace(" ,", ",")
     text = text.replace(" .", ".")
-    text = re.sub(r"\bCohen s kappa\b", "Cohen's kappa", text, flags=re.IGNORECASE)
-    text = re.sub(r"\bclinicaltrials gov\b", "clinicaltrials.gov", text, flags=re.IGNORECASE)
     text = re.sub(r"[ \t]{2,}", " ", text)
     text = re.sub(r"\[\s*,\s*\]", "", text)
 
@@ -528,44 +480,6 @@ def _normalize_subsection_heading_layout(text: str) -> str:
         i += 1
 
     return "\n".join(out_lines)
-
-
-# SR citekeys follow the pattern SurnameYYYYSR[N] (background systematic review
-# references registered by register_background_sr_citations). The LLM may hallucinate
-# SR citekeys that don't exist in the citation ledger. Instead of silently stripping
-# them, convert to readable parenthetical text "(Surname, Year)" to preserve meaning.
-# Handle both bracketed [Hanninen2021SR] and unbracketed Hanninen2021SR forms,
-# since the LLM sometimes omits brackets on these special citekeys.
-_SR_KEY_BRACKETED_RE = re.compile(
-    r"\[([\w][\w0-9_.-]*?)(\d{4})SR\d*\]",
-    re.UNICODE,
-)
-# Unbracketed form: word boundary ensures we don't match inside longer tokens.
-# The SR must be immediately after 4 digits with no space.
-_SR_KEY_PLAIN_RE = re.compile(
-    r"(?<!\[)\b([\w][\w0-9_.-]*?)(\d{4})SR(\d*)\b(?!\])",
-    re.UNICODE,
-)
-
-
-def _convert_sr_citekeys_to_text(text: str) -> str:
-    """Convert unresolved SR citekeys to readable parenthetical text.
-
-    Handles both bracketed [Hanninen2021SR] and unbracketed Hanninen2021SR
-    forms. Called after convert_to_numbered_citations so that correctly-
-    registered SR citekeys are already numbered ([N]). Only hallucinated /
-    unregistered ones remain and get converted to '(Author, Year)'.
-    """
-
-    def _replacer(m: re.Match) -> str:  # type: ignore[type-arg]
-        author_part = m.group(1).rstrip("0123456789")
-        year = m.group(2)
-        return f"({author_part}, {year})"
-
-    # Convert bracketed form first, then plain form
-    text = _SR_KEY_BRACKETED_RE.sub(_replacer, text)
-    text = _SR_KEY_PLAIN_RE.sub(_replacer, text)
-    return text
 
 
 def _dedup_citation_rows_by_doi(rows: list[tuple]) -> list[tuple]:
@@ -1710,10 +1624,6 @@ def assemble_submission_manuscript(
 
     # Convert [AuthorYear] -> [N] numbered citations
     numbered_body, ordered_citation_rows = convert_to_numbered_citations(clean_body, deduped_citation_rows)
-
-    # Convert any remaining unresolved SR citekeys (hallucinated by LLM) to
-    # parenthetical text so comparison with prior work stays readable.
-    numbered_body = _convert_sr_citekeys_to_text(numbered_body)
 
     # Prepend title and research question block when provided
     header_block = ""

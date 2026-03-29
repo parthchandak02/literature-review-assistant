@@ -148,12 +148,6 @@ def _convert_citations(
     """
     num_to_citekey = num_to_citekey or {}
     _num_key_map: dict[str, str] = {str(k).strip(): v for k, v in num_to_citekey.items()}
-    # Remove unresolved placeholder markers from final LaTeX prose.
-    text = text.replace("[CITATION_NEEDED]", "(citation unavailable)")
-    text = re.sub(r"\[\s*Ref\d+\s*\]", "(citation unavailable)", text)
-    text = re.sub(r"\bRef\d+\b", "(citation unavailable)", text)
-    text = re.sub(r"\[\s*Paper_[A-Za-z0-9_\-]+\s*\]", "(citation unavailable)", text)
-    text = re.sub(r"\bPaper_[A-Za-z0-9_\-]+\b", "(citation unavailable)", text)
 
     def _norm_token(token: str) -> str:
         # Canonical key for forgiving lookup (spaces/punctuation-insensitive).
@@ -183,14 +177,6 @@ def _convert_citations(
             return _norm_num_key_map[norm]
         return None
 
-    def _looks_like_citation_placeholder(token: str) -> bool:
-        stripped = token.strip()
-        return bool(
-            re.fullmatch(r"Ref\d+", stripped)
-            or re.fullmatch(r"Paper_[A-Za-z0-9_\-]+", stripped)
-            or re.fullmatch(r"[A-Za-z][A-Za-z0-9_\-']+\d{4}[a-z]?", stripped)
-        )
-
     # Pass 1: comma-separated bracket lists -> \cite{key1,key2,...}
     # Use a permissive pattern so one malformed key does not block valid keys.
     _list_re = re.compile(r"\[([^\[\]\n]*,[^\[\]\n]*)\]")
@@ -207,8 +193,6 @@ def _convert_citations(
                 seen_resolved.add(rk)
         if resolved:
             return f"\\cite{{{','.join(resolved)}}}"
-        if any(_looks_like_citation_placeholder(k) for k in raw_keys):
-            return "(citation unavailable)"
         return m.group(0)  # Nothing resolved -- leave as-is.
 
     text = _list_re.sub(list_repl, text)
@@ -235,8 +219,6 @@ def _convert_citations(
         resolved = _resolve_token(key)
         if resolved:
             return f"\\cite{{{resolved}}}"
-        if _looks_like_citation_placeholder(key):
-            return "(citation unavailable)"
         return m.group(0)
 
     return re.sub(r"\[([A-Za-z0-9_\-:' ]+)\]", repl, text)

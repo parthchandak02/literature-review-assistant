@@ -218,6 +218,20 @@ async def run_migrations(db: aiosqlite.Connection) -> None:
             ON study_cohort_membership(workflow_id, synthesis_eligibility);
         """,
     )
+    # 12. Screening decision idempotency for resume/re-run safety.
+    await _apply(
+        12,
+        """
+        DELETE FROM screening_decisions
+        WHERE id NOT IN (
+            SELECT MAX(id)
+            FROM screening_decisions
+            GROUP BY workflow_id, paper_id, stage, reviewer_type
+        );
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_screening_decisions_unique
+            ON screening_decisions(workflow_id, paper_id, stage, reviewer_type);
+        """,
+    )
     await _validate_schema_contract(db)
     await db.commit()
 

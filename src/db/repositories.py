@@ -97,6 +97,12 @@ class WorkflowRepository:
                 workflow_id, paper_id, stage, decision, reason, exclusion_reason,
                 reviewer_type, confidence
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(workflow_id, paper_id, stage, reviewer_type) DO UPDATE SET
+                decision = excluded.decision,
+                reason = excluded.reason,
+                exclusion_reason = excluded.exclusion_reason,
+                confidence = excluded.confidence,
+                created_at = CURRENT_TIMESTAMP
             """,
             (
                 workflow_id,
@@ -156,10 +162,16 @@ class WorkflowRepository:
 
         await self.db.executemany(
             """
-            INSERT OR IGNORE INTO screening_decisions (
+            INSERT INTO screening_decisions (
                 workflow_id, paper_id, stage, decision, reason, exclusion_reason,
                 reviewer_type, confidence
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(workflow_id, paper_id, stage, reviewer_type) DO UPDATE SET
+                decision = excluded.decision,
+                reason = excluded.reason,
+                exclusion_reason = excluded.exclusion_reason,
+                confidence = excluded.confidence,
+                created_at = CURRENT_TIMESTAMP
             """,
             [
                 (
@@ -216,6 +228,23 @@ class WorkflowRepository:
         await self.db.commit()
 
     async def save_search_result(self, result: SearchResult) -> None:
+        # Idempotency on resume/re-run: replace existing row for the same
+        # workflow/database/source/query tuple instead of accumulating duplicates.
+        await self.db.execute(
+            """
+            DELETE FROM search_results
+            WHERE workflow_id = ?
+              AND database_name = ?
+              AND source_category = ?
+              AND search_query = ?
+            """,
+            (
+                result.workflow_id,
+                result.database_name,
+                result.source_category.value,
+                result.search_query,
+            ),
+        )
         await self.db.execute(
             """
             INSERT INTO search_results (
@@ -1717,6 +1746,86 @@ class WorkflowRepository:
         )
         await self.db.commit()
 
+    async def rollback_phase_data(self, workflow_id: str, from_phase: str) -> None:
+        """Delete phase-scoped data for explicit resume rewinds.
+
+        This enforces idempotent re-runs when a user resumes from an earlier
+        phase (especially `phase_2_search`) by clearing all downstream
+        materialized state before replay.
+        """
+        phase_order = [
+            "phase_2_search",
+            "phase_3_screening",
+            "phase_4_extraction_quality",
+            "phase_4b_embedding",
+            "phase_5_synthesis",
+            "phase_5b_knowledge_graph",
+            "phase_6_writing",
+            "finalize",
+        ]
+        if from_phase not in phase_order:
+            return
+
+        start_idx = phase_order.index(from_phase)
+
+        async def _delete(table: str, has_workflow_id: bool = True) -> None:
+            if has_workflow_id:
+                await self.db.execute(f"DELETE FROM {table} WHERE workflow_id = ?", (workflow_id,))
+            else:
+                await self.db.execute(f"DELETE FROM {table}")
+
+        # Writing/finalize artifacts and citation ledger
+        if start_idx <= phase_order.index("phase_6_writing"):
+            for table in (
+                "manuscript_assemblies",
+                "manuscript_assets",
+                "manuscript_blocks",
+                "manuscript_sections",
+                "section_drafts",
+            ):
+                await _delete(table)
+            # citations/claims/evidence_links are run-local in runtime.db
+            for table in ("evidence_links", "claims", "citations"):
+                await _delete(table, has_workflow_id=False)
+
+        # Knowledge graph stage
+        if start_idx <= phase_order.index("phase_5b_knowledge_graph"):
+            for table in ("paper_relationships", "graph_communities", "research_gaps"):
+                await _delete(table)
+
+        # Synthesis stage
+        if start_idx <= phase_order.index("phase_5_synthesis"):
+            await _delete("synthesis_results")
+
+        # Embedding stage
+        if start_idx <= phase_order.index("phase_4b_embedding"):
+            await _delete("paper_chunks_meta")
+            await _delete("rag_retrieval_diagnostics")
+
+        # Extraction + quality stages
+        if start_idx <= phase_order.index("phase_4_extraction_quality"):
+            for table in (
+                "extraction_records",
+                "rob_assessments",
+                "casp_assessments",
+                "mmat_assessments",
+                "grade_assessments",
+            ):
+                await _delete(table)
+
+        # Screening stage
+        if start_idx <= phase_order.index("phase_3_screening"):
+            for table in ("dual_screening_results", "screening_decisions", "study_cohort_membership"):
+                await _delete(table)
+
+        # Search stage
+        if start_idx <= phase_order.index("phase_2_search"):
+            await _delete("search_results")
+            # papers is run-local in runtime.db
+            await _delete("papers", has_workflow_id=False)
+
+        await self.db.commit()
+
     async def has_checkpoint_integrity(self, workflow_id: str) -> bool:
         cursor = await self.db.execute(
             "SELECT COUNT(*) FROM workflows WHERE workflow_id = ?",
@@ -2048,6 +2157,28 @@ class CitationRepository:
             )
             for row in rows
         ]
+
+    async def get_citekeys_by_source_types(self, source_types: set[str]) -> set[str]:
+        """Return citekeys for source_type values.
+
+        Falls back to empty set on legacy DBs that predate source_type.
+        """
+        if not source_types:
+            return set()
+        try:
+            placeholders = ",".join("?" * len(source_types))
+            cursor = await self.db.execute(
+                f"""
+                SELECT citekey
+                FROM citations
+                WHERE lower(COALESCE(source_type, '')) IN ({placeholders})
+                """,
+                tuple(t.lower() for t in sorted(source_types)),
+            )
+            rows = await cursor.fetchall()
+        except Exception:
+            return set()
+        return {str(row[0]) for row in rows if row and row[0]}
 
 
 async def merge_papers_from_parent(

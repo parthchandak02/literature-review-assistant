@@ -189,69 +189,18 @@ _GENERIC_TITLE_WORDS = frozenset(
     }
 )
 
-# Matches lowercase_with_underscores that appear in prose (not inside brackets).
-# We split text around [...] blocks first so citation keys are never touched.
-_SNAKE_RE = re.compile(r"\b([a-z][a-z0-9]*(?:_[a-z][a-z0-9]*)+)\b")
 _ABSTRACT_FIELDS = ("Background", "Objectives", "Methods", "Results", "Conclusion", "Keywords")
 _SECTION_NAMES = frozenset({"introduction", "methods", "results", "discussion", "conclusion", "abstract"})
 
 
-def _enforce_word_limit(text: str, max_words: int) -> str:
-    """Trim text to at most max_words words, cutting at a sentence boundary.
-
-    Splits on sentence-ending punctuation so the result is never mid-sentence.
-    Falls back to word-level trim only if no earlier sentence boundary exists.
-    """
-    words = text.split()
-    if len(words) <= max_words:
-        return text
-    # Sentence boundary pattern: period/bang/question followed by whitespace or end.
-    sentence_end = re.compile(r"(?<=[.!?])\s+")
-    trimmed = " ".join(words[:max_words])
-    # Walk backwards from max_words to find a sentence boundary within the trimmed text.
-    sentences = sentence_end.split(trimmed)
-    if len(sentences) > 1:
-        # Drop the trailing incomplete sentence.
-        candidate = " ".join(sentences[:-1]).rstrip()
-        if candidate:
-            logger.debug(
-                "Abstract truncated from %d to %d words to meet IEEE limit of %d.",
-                len(words),
-                len(candidate.split()),
-                max_words,
-            )
-            return candidate
-    # No sentence boundary found -- fall back to hard word trim with ellipsis stripped.
-    logger.debug(
-        "Abstract hard-trimmed from %d to %d words (no sentence boundary found).",
-        len(words),
-        max_words,
-    )
-    return trimmed
-
-
 def _sanitize_prose(content: str) -> str:
-    """Replace any remaining snake_case identifiers in prose with spaced equivalents.
-
-    Citation keys inside [...] brackets are explicitly preserved because they
-    are split out before substitution and re-joined afterwards. This is a
-    safety net; the LLM should not produce snake_case given correct prompting.
-    """
-    # Split on [...] blocks; odd-indexed chunks are inside brackets.
-    parts = re.split(r"(\[[^\]]*\])", content)
-    result = []
-    for idx, part in enumerate(parts):
-        if idx % 2 == 1:
-            # Inside a bracket -- preserve exactly as-is (citation key or figure ref)
-            result.append(part)
-        else:
-            result.append(_SNAKE_RE.sub(lambda m: m.group(0).replace("_", " "), part))
-    sanitized = "".join(result)
+    """Normalize whitespace and enforce ASCII-safe manuscript prose."""
+    sanitized = content
     # Keep manuscript prose ASCII-only for IEEE export robustness.
     sanitized = re.sub(r"[^\x20-\x7E]", " ", sanitized)
     sanitized = re.sub(r"[ \t]{2,}", " ", sanitized)
     if sanitized != content:
-        logger.debug("prose sanitizer replaced snake_case identifiers in section draft")
+        logger.debug("prose sanitizer normalized non-ASCII and spacing in section draft")
     return sanitized
 
 
@@ -259,7 +208,6 @@ def _sanitize_section_headings(section: str, content: str) -> str:
     """Normalize malformed heading lines before section persistence."""
     out_lines: list[str] = []
     last_heading = ""
-    section_name = section.strip().lower()
     _spill_start_re = re.compile(r"\b(The|This|These|We|Our|In|Across|To|A|An)\b")
     for line in content.splitlines():
         stripped = line.strip()
@@ -301,89 +249,6 @@ def _sanitize_section_headings(section: str, content: str) -> str:
             last_heading = title
         out_lines.append(line)
     return "\n".join(out_lines).strip()
-
-
-def _strip_unsupported_methods_claims(content: str) -> str:
-    """Remove unsupported operational claims that are not in grounding data."""
-    cleaned = re.sub(
-        r"\b(search strategy|search strategies)\s+(?:was|were)\s+developed\s+in\s+consultation\s+with\s+a\s+medical\s+librarian\b\.?",
-        "",
-        content,
-        flags=re.IGNORECASE,
-    )
-    cleaned = re.sub(r"[ \t]{2,}", " ", cleaned)
-    cleaned = re.sub(r"\n{3,}", "\n\n", cleaned)
-    return cleaned.strip()
-
-
-def _enforce_quality_tool_mentions(
-    section: str,
-    content: str,
-    grounding: WritingGroundingData | None,
-) -> str:
-    """Ensure Methods/Results mention all active quality tool families."""
-    if grounding is None or section not in {"methods", "results"}:
-        return content
-    rob_summary = str(getattr(grounding, "rob_summary", "") or "")
-    if not rob_summary:
-        return content
-    active_tools: list[str] = []
-    for tool in ("RoB 2", "ROBINS-I", "CASP", "MMAT"):
-        if tool in rob_summary:
-            active_tools.append(tool)
-    if not active_tools:
-        return content
-
-    lower_content = content.lower()
-    missing_tools = [tool for tool in active_tools if tool.lower() not in lower_content]
-    if not missing_tools:
-        return content
-
-    if section == "methods":
-        addition = (
-            "Additional quality appraisal tools applied in this review included "
-            + ", ".join(missing_tools)
-            + ", as reported in the risk-of-bias summary."
-        )
-    else:
-        addition = (
-            "Quality assessment findings were also generated using "
-            + ", ".join(missing_tools)
-            + ", and these assessments informed the interpretation of results."
-        )
-    return (content.rstrip() + "\n\n" + addition).strip()
-
-
-def _ensure_prisma_disclosures(section: str, content: str) -> str:
-    """Append deterministic PRISMA disclosure text when key methods/results details are absent."""
-    out = content.rstrip()
-    low = out.lower()
-    additions: list[str] = []
-    if section == "methods":
-        if not any(k in low for k in ("effect measure", "odds ratio", "risk ratio", "mean difference", "smd")):
-            additions.append(
-                "Effect measures were pre-specified as odds ratio, risk ratio, mean difference, or standardized mean difference when quantitative pooling was feasible; pooled estimates were not computed for outcomes where synthesis prerequisites were not met."
-            )
-        if not any(k in low for k in ("missing data", "imputation", "conversion", "prepare data")):
-            additions.append(
-                "For synthesis preparation, available outcome data were extracted as reported; where harmonization was required, units and reporting formats were converted to a comparable structure, and no imputation was applied unless explicitly reported by the source study."
-            )
-        if not any(k in low for k in ("sensitivity analysis", "leave-one-out", "robust")):
-            additions.append(
-                "Sensitivity analysis was planned using robustness checks such as leave-one-out comparisons when sufficient comparable estimates were available."
-            )
-        if not any(k in low for k in ("reporting bias", "publication bias", "funnel")):
-            additions.append(
-                "Reporting bias was planned to be assessed with publication bias diagnostics, including funnel plot asymmetry, when enough studies were available for a synthesis."
-            )
-    elif section == "results":
-        if not any(k in low for k in ("reporting bias", "publication bias", "funnel")):
-            additions.append(
-                "Reporting bias assessment: publication bias and funnel plot asymmetry were not formally estimated for syntheses with insufficient comparable studies."
-            )
-    if not additions:
-        return out
-    return out + "\n\n" + "\n\n".join(additions)
 
 
 def _ensure_structured_abstract(content: str, research_question: str) -> str:
@@ -853,20 +718,8 @@ async def write_section_with_validation(
     # Safety-net: replace any leftover snake_case in prose before saving.
     content = _sanitize_prose(content)
     content = _sanitize_section_headings(section, content)
-    if section == "methods":
-        content = _strip_unsupported_methods_claims(content)
-    content = _enforce_quality_tool_mentions(section, content, grounding)
-    content = _ensure_prisma_disclosures(section, content)
-
     if section == "abstract":
         content = _ensure_structured_abstract(content, review.research_question)
-
-    # Hard-enforce word limit after generation. The LLM treats the prompt word
-    # limit as advisory and will occasionally exceed it (abstract ran to 264 for
-    # the IEEE 250-word cap). Trim at the last sentence boundary that keeps the
-    # section within the configured limit.
-    if word_limit and section == "abstract":
-        content = _enforce_word_limit(content, word_limit)
 
     # Deterministic pre-humanizer guardrails remove repetitive boilerplate while
     # preserving citations and numeric tokens.
