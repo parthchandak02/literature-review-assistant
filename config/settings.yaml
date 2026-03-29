@@ -169,7 +169,7 @@ dual_review:
 
 gates:
   profile: "strict"
-  manuscript_contract_mode: "soft"
+  manuscript_contract_mode: "strict"
   search_volume_minimum: 50
   screening_minimum: 5
   extraction_completeness_threshold: 0.8

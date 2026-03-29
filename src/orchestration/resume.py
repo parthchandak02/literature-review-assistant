@@ -169,11 +169,29 @@ async def load_resume_state(
                     extra.extend(_SUB_PHASE_CHECKPOINTS.get(phase, []))
                 phases_to_clear = list(phases_to_clear) + extra
                 await repo.delete_checkpoints_for_phases(workflow_id, phases_to_clear)
+                # Clear persisted downstream data so a rewind is a true replay,
+                # not an append onto stale rows from later phases.
+                await repo.rollback_phase_data(workflow_id, from_phase)
                 # Re-running writing (or any earlier phase that includes writing)
                 # must clear persisted section_drafts; otherwise WritingNode sees
                 # sections as already completed and skips regeneration.
                 if "phase_6_writing" in phases_to_clear:
                     await repo.delete_section_drafts(workflow_id)
+                # Refresh in-memory state after rollback so returned ReviewState
+                # reflects the post-rewind DB contents.
+                checkpoints = await repo.get_checkpoints(workflow_id)
+                search_counts = await repo.get_search_counts(workflow_id)
+                all_papers = await repo.get_all_papers()
+                deduped, recomputed_dedup_count = deduplicate_papers(all_papers)
+                stored_dedup_count = await repo.get_dedup_count(workflow_id)
+                dedup_count = stored_dedup_count if stored_dedup_count is not None else recomputed_dedup_count
+                included_ids = await repo.get_included_paper_ids(workflow_id)
+                if not included_ids:
+                    included_ids = await repo.get_title_abstract_include_ids(workflow_id)
+                included_papers_sorted = [p for p in deduped if p.paper_id in included_ids]
+                extraction_records_list = []
+                if "phase_4_extraction_quality" in checkpoints:
+                    extraction_records_list = await repo.load_extraction_records(workflow_id)
                 next_phase = from_phase
         else:
             next_phase = _next_phase(checkpoints)

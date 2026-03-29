@@ -13,18 +13,18 @@ from hypothesis import strategies as st
 from src.db.database import get_db
 from src.db.repositories import CitationRepository, WorkflowRepository
 from src.export.bibtex_builder import build_bibtex
-from src.export.submission_packager import _copy_included_study_pdfs
 from src.export.ieee_latex import _convert_citations, _convert_md_table_to_latex, _escape_latex, markdown_to_latex
+from src.export.ieee_validator import validate_ieee
 from src.export.markdown_refs import (
     _normalize_subsection_heading_layout,
-    build_picos_table,
     build_compact_study_table,
+    build_picos_table,
     get_existing_figure_entries,
     get_latex_figure_paths,
 )
-from src.export.ieee_validator import validate_ieee
 from src.export.prisma_checklist import validate_prisma
-from src.manuscript.contracts import run_manuscript_contracts
+from src.export.submission_packager import _copy_included_study_pdfs
+from src.manuscript.contracts import _hard_failure, run_manuscript_contracts
 
 
 def test_build_bibtex_empty():
@@ -78,6 +78,20 @@ def test_build_bibtex_prunes_uncited_entries() -> None:
     out = build_bibtex(citations, cited_citekeys={"KeyA2023"})
     assert "KeyA2023" in out
     assert "KeyB2024" not in out
+
+
+def test_build_bibtex_includes_background_and_methodology_when_cited_set_contains_them() -> None:
+    citations = [
+        ("c1", "Inc2024", None, "Included", '["Author A"]', 2024, "J", None),
+        ("c2", "Bg2021SR", None, "Background Review", '["Author B"]', 2021, "J", None),
+        ("c3", "Page2021", None, "PRISMA 2020", '["Page MJ"]', 2021, "BMJ", None),
+    ]
+    numbered_refs = {"Inc2024"}
+    always_export = {"Bg2021SR", "Page2021"}
+    out = build_bibtex(citations, cited_citekeys=numbered_refs | always_export)
+    assert "Inc2024" in out
+    assert "Bg2021SR" in out
+    assert "Page2021" in out
 
 
 def test_markdown_to_latex_basic():
@@ -204,12 +218,11 @@ def test_convert_citations_resolves_single_space_key() -> None:
     assert "\\cite{Engineering_Inclusiv}" in out
 
 
-def test_convert_citations_rewrites_ref_and_paper_placeholders() -> None:
+def test_convert_citations_preserves_unresolved_placeholder_tokens() -> None:
     text = "Legacy [Ref141] and [Paper_abc123] remain."
     out = _convert_citations(text, set())
-    assert "[Ref141]" not in out
-    assert "[Paper_abc123]" not in out
-    assert "(citation unavailable)" in out
+    assert "[Ref141]" in out
+    assert "[Paper_abc123]" in out
 
 
 def test_convert_citations_numeric_single_uses_number_map() -> None:
@@ -512,6 +525,229 @@ async def test_manuscript_contract_skips_numbered_reference_requirement_for_cite
     assert all(v.code != "UNRESOLVED_CITATIONS" for v in result.violations)
 
 
+@pytest.mark.asyncio
+async def test_manuscript_contract_detects_required_section_missing(tmp_path: Path) -> None:
+    db_path = tmp_path / "runtime_contracts_structure.db"
+    manuscript_md = tmp_path / "doc_manuscript.md"
+    manuscript_tex = tmp_path / "doc_manuscript.tex"
+    manuscript_md.write_text(
+        "\n".join(
+            [
+                "## Methods",
+                "Independent reviewer screening was used.",
+                "## Abstract",
+                "**Background:** text",
+                "## References",
+                "[1] Ref",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    manuscript_tex.write_text("\\section{Methods}\n\\section{Abstract}\n", encoding="utf-8")
+    async with get_db(str(db_path)) as db:
+        repo = WorkflowRepository(db)
+        cite_repo = CitationRepository(db)
+        await db.commit()
+        result = await run_manuscript_contracts(
+            repository=repo,
+            citation_repository=cite_repo,
+            workflow_id="wf-test",
+            manuscript_md_path=str(manuscript_md),
+            manuscript_tex_path=str(manuscript_tex),
+            mode="soft",
+        )
+    assert any(v.code == "REQUIRED_SECTION_MISSING" for v in result.violations)
+
+
+@pytest.mark.asyncio
+async def test_manuscript_contract_detects_section_order_invalid(tmp_path: Path) -> None:
+    db_path = tmp_path / "runtime_contracts_section_order.db"
+    manuscript_md = tmp_path / "doc_manuscript.md"
+    manuscript_tex = tmp_path / "doc_manuscript.tex"
+    manuscript_md.write_text(
+        "\n".join(
+            [
+                "## Abstract",
+                "**Background:** text",
+                "## Introduction",
+                "Intro.",
+                "## Results",
+                "Of the 10 reports sought for retrieval, 2 reports were not retrieved and 8 were assessed for eligibility, with 3 studies included.",
+                "Risk of bias was assessed.",
+                "## Methods",
+                "Protocol registration: NOT PROSPECTIVELY REGISTERED.",
+                "Independent reviewer screening was used.",
+                "## Discussion",
+                "Discussion.",
+                "## Conclusion",
+                "Conclusion.",
+                "## References",
+                "[1] Ref",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    manuscript_tex.write_text(
+        "\\section{Abstract}\n\\section{Introduction}\n\\section{Results}\n\\section{Methods}\n\\section{Discussion}\n\\section{Conclusion}\n\\section{References}\n",
+        encoding="utf-8",
+    )
+    async with get_db(str(db_path)) as db:
+        repo = WorkflowRepository(db)
+        cite_repo = CitationRepository(db)
+        await db.commit()
+        result = await run_manuscript_contracts(
+            repository=repo,
+            citation_repository=cite_repo,
+            workflow_id="wf-test",
+            manuscript_md_path=str(manuscript_md),
+            manuscript_tex_path=str(manuscript_tex),
+            mode="soft",
+        )
+    assert any(v.code == "SECTION_ORDER_INVALID" for v in result.violations)
+
+
+@pytest.mark.asyncio
+async def test_manuscript_contract_detects_prisma_statement_missing(tmp_path: Path) -> None:
+    db_path = tmp_path / "runtime_contracts_prisma_missing.db"
+    manuscript_md = tmp_path / "doc_manuscript.md"
+    manuscript_tex = tmp_path / "doc_manuscript.tex"
+    manuscript_md.write_text(
+        "\n".join(
+            [
+                "## Abstract",
+                "**Background:** text",
+                "## Introduction",
+                "Topic background.",
+                "## Methods",
+                "Methods are described briefly.",
+                "## Results",
+                "Findings are described briefly.",
+                "## Discussion",
+                "Interpretation.",
+                "## Conclusion",
+                "Conclusions.",
+                "## References",
+                "[1] Ref",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    manuscript_tex.write_text(
+        "\\section{Abstract}\n\\section{Introduction}\n\\section{Methods}\n\\section{Results}\n\\section{Discussion}\n\\section{Conclusion}\n",
+        encoding="utf-8",
+    )
+    async with get_db(str(db_path)) as db:
+        repo = WorkflowRepository(db)
+        cite_repo = CitationRepository(db)
+        await db.commit()
+        result = await run_manuscript_contracts(
+            repository=repo,
+            citation_repository=cite_repo,
+            workflow_id="wf-test",
+            manuscript_md_path=str(manuscript_md),
+            manuscript_tex_path=str(manuscript_tex),
+            mode="soft",
+        )
+    assert any(v.code == "PRISMA_STATEMENT_MISSING" for v in result.violations)
+
+
+@pytest.mark.asyncio
+async def test_manuscript_contract_allows_prisma_statement_presence(tmp_path: Path) -> None:
+    db_path = tmp_path / "runtime_contracts_prisma_present.db"
+    manuscript_md = tmp_path / "doc_manuscript.md"
+    manuscript_tex = tmp_path / "doc_manuscript.tex"
+    manuscript_md.write_text(
+        "\n".join(
+            [
+                "## Abstract",
+                "**Background:** text",
+                "**Methods:** Independent reviewer screening and risk of bias assessment were used.",
+                "**Results:** Of the 10 reports sought for retrieval, 2 reports were not retrieved and 8 were assessed for eligibility, with 3 studies included.",
+                "## Introduction",
+                "Topic background.",
+                "## Methods",
+                "Protocol registration: NOT PROSPECTIVELY REGISTERED.",
+                "Independent reviewer screening was applied.",
+                "## Results",
+                "Of the 10 reports sought for retrieval, 2 reports were not retrieved and 8 were assessed for eligibility, with 3 studies included.",
+                "Risk of bias was assessed with RoB 2.",
+                "## Discussion",
+                "Interpretation.",
+                "## Conclusion",
+                "Conclusions.",
+                "## References",
+                "[1] Ref",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    manuscript_tex.write_text(
+        "\\section{Abstract}\n\\section{Introduction}\n\\section{Methods}\n\\section{Results}\n\\section{Discussion}\n\\section{Conclusion}\n\\section{References}\n",
+        encoding="utf-8",
+    )
+    async with get_db(str(db_path)) as db:
+        repo = WorkflowRepository(db)
+        cite_repo = CitationRepository(db)
+        await db.commit()
+        result = await run_manuscript_contracts(
+            repository=repo,
+            citation_repository=cite_repo,
+            workflow_id="wf-test",
+            manuscript_md_path=str(manuscript_md),
+            manuscript_tex_path=str(manuscript_tex),
+            mode="soft",
+        )
+    assert all(v.code != "PRISMA_STATEMENT_MISSING" for v in result.violations)
+
+
+@pytest.mark.asyncio
+async def test_manuscript_contract_detects_protocol_registration_contradiction(tmp_path: Path) -> None:
+    db_path = tmp_path / "runtime_contracts_protocol_contradiction.db"
+    manuscript_md = tmp_path / "doc_manuscript.md"
+    manuscript_tex = tmp_path / "doc_manuscript.tex"
+    manuscript_md.write_text(
+        "\n".join(
+            [
+                "## Abstract",
+                "**Background:** text",
+                "## Introduction",
+                "Topic background.",
+                "## Methods",
+                "Protocol registration was not prospectively registered and was post-hoc registration.",
+                "It was also registered prospectively before screening.",
+                "Independent reviewer screening was used.",
+                "## Results",
+                "Of the 5 reports sought for retrieval, 1 report was not retrieved and 4 were assessed for eligibility, with 2 studies included.",
+                "Risk of bias was assessed.",
+                "## Discussion",
+                "Discussion.",
+                "## Conclusion",
+                "Conclusion.",
+                "## References",
+                "[1] Ref",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    manuscript_tex.write_text(
+        "\\section{Abstract}\n\\section{Introduction}\n\\section{Methods}\n\\section{Results}\n\\section{Discussion}\n\\section{Conclusion}\n\\section{References}\n",
+        encoding="utf-8",
+    )
+    async with get_db(str(db_path)) as db:
+        repo = WorkflowRepository(db)
+        cite_repo = CitationRepository(db)
+        await db.commit()
+        result = await run_manuscript_contracts(
+            repository=repo,
+            citation_repository=cite_repo,
+            workflow_id="wf-test",
+            manuscript_md_path=str(manuscript_md),
+            manuscript_tex_path=str(manuscript_tex),
+            mode="soft",
+        )
+    assert any(v.code == "PROTOCOL_REGISTRATION_CONTRADICTION" for v in result.violations)
+
+
 def test_build_picos_table_removes_dangling_placeholder_fragments() -> None:
     cfg = SimpleNamespace(
         pico=SimpleNamespace(
@@ -553,6 +789,20 @@ def test_markdown_to_latex_splits_lowercase_run_on_heading_body() -> None:
     assert "for this systematic review were predefined." in out
 
 
+def test_manuscript_contract_soft_mode_blocks_critical_zero_slip_codes() -> None:
+    critical_codes = {
+        "REQUIRED_SECTION_MISSING",
+        "SECTION_ORDER_INVALID",
+        "PRISMA_STATEMENT_MISSING",
+        "PROTOCOL_REGISTRATION_CONTRADICTION",
+        "MODEL_ID_LEAKAGE",
+        "META_FEASIBILITY_CONTRADICTION",
+        "ABSTRACT_OVER_LIMIT",
+    }
+    for code in critical_codes:
+        assert _hard_failure("soft", code) is True
+
+
 def test_validate_ieee_no_abstract():
     tex = "\\begin{document}\\end{document}"
     bib = ""
@@ -566,24 +816,14 @@ def test_validate_ieee_accepts_comma_separated_cite_groups() -> None:
         "\\begin{abstract} " + "word " * 170 + "\\end{abstract}\n"
         "Evidence \\cite{Smith2020,Jones2021} and \\cite{Brown2022}."
     )
-    bib = (
-        "@article{Smith2020,title={A}}\n"
-        "@article{Jones2021,title={B}}\n"
-        "@article{Brown2022,title={C}}\n"
-    )
+    bib = "@article{Smith2020,title={A}}\n@article{Jones2021,title={B}}\n@article{Brown2022,title={C}}\n"
     result = validate_ieee(tex, bib)
     assert result.passed, result.errors
     assert all("Unresolved citations" not in err for err in result.errors)
 
 
 def test_validate_ieee_word_count_ignores_latex_command_tokens() -> None:
-    tex = (
-        "\\begin{abstract} "
-        + ("alpha " * 240)
-        + "\\cite{Smith2020,Jones2021} "
-        + ("beta " * 8)
-        + "\\end{abstract}\n"
-    )
+    tex = "\\begin{abstract} " + ("alpha " * 240) + "\\cite{Smith2020,Jones2021} " + ("beta " * 8) + "\\end{abstract}\n"
     bib = "@article{Smith2020,title={A}}\n@article{Jones2021,title={B}}\n"
     result = validate_ieee(tex, bib)
     assert result.passed, result.errors

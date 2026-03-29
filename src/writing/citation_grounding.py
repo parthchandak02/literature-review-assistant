@@ -78,27 +78,18 @@ def _fuzzy_match_citekey(
     if len(author_token) < 2:
         return None
 
-    year_candidates = [k for k in valid_citekeys if k.endswith(year_str) or year_str in k]
+    # Restrict matching to year-anchored keys only.
+    year_candidates = [k for k in valid_citekeys if re.search(rf"{year_str}[a-z]?$", k, flags=re.IGNORECASE)]
     if not year_candidates:
         return None
 
-    # Try substring match on the author token portion
-    for cand in year_candidates:
-        cand_author = re.sub(r"\d+", "", cand).lower()
-        if author_token in cand_author or cand_author in author_token:
-            return cand
-
-    # Try first 3 chars of author as prefix (handles "castelao" vs "CastelaoLopez")
-    prefix = author_token[:3]
+    # Strict confidence gate: require a >=4-char author prefix and a unique match.
+    prefix = re.sub(r"[^a-z]", "", author_token)[:4]
+    if len(prefix) < 4:
+        return None
     prefix_matches = [k for k in year_candidates if re.sub(r"\d+", "", k).lower().startswith(prefix)]
     if len(prefix_matches) == 1:
         return prefix_matches[0]
-
-    # Last resort: if only one candidate exists for the year, accept it
-    # (avoids [CITATION_NEEDED] when the LLM abbreviates an author name
-    # not ambiguously -- e.g. "Prev2020" -> only "PreviousSR2020" has year 2020).
-    if len(year_candidates) == 1:
-        return year_candidates[0]
 
     return None
 
@@ -112,8 +103,7 @@ def repair_hallucinated_citekeys(
 
     For each hallucinated key, attempt fuzzy matching using author+year tokens:
     - If a unique match is found in valid_citekeys, substitute it and log the repair.
-    - Otherwise replace with "(citation unavailable)" to avoid unresolved
-      bracket placeholders leaking into final manuscript/LaTeX output.
+    - Otherwise drop the unresolved bracket token to avoid placeholder leakage.
     All occurrences of each hallucinated key in the text are replaced (not just the first).
     """
     if not hallucinated:
@@ -122,7 +112,7 @@ def repair_hallucinated_citekeys(
     result = text
     for key in hallucinated:
         matched = _fuzzy_match_citekey(key, valid_citekeys)
-        replacement = f"[{matched}]" if matched else "(citation unavailable)"
+        replacement = f"[{matched}]" if matched else ""
         if matched:
             logger.info(
                 "Fuzzy-matched hallucinated citekey [%s] -> [%s]",
@@ -131,4 +121,9 @@ def repair_hallucinated_citekeys(
             )
         result = re.sub(re.escape(f"[{key}]"), replacement, result)
 
+    # Cleanup punctuation/spacing artifacts after dropping unresolved tokens.
+    result = re.sub(r"\s{2,}", " ", result)
+    result = re.sub(r"\(\s*[;,]?\s*\)", "", result)
+    result = re.sub(r"\[\s*,\s*\]", "", result)
+    result = re.sub(r"\s+([,.;:])", r"\1", result)
     return result

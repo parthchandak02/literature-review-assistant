@@ -288,6 +288,8 @@ CREATE TABLE IF NOT EXISTS event_log (
 CREATE UNIQUE INDEX IF NOT EXISTS idx_papers_doi_unique ON papers(doi) WHERE doi IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_papers_doi ON papers(doi);
 CREATE INDEX IF NOT EXISTS idx_screening_paper ON screening_decisions(workflow_id, paper_id, stage);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_screening_decisions_unique
+    ON screening_decisions(workflow_id, paper_id, stage, reviewer_type);
 CREATE INDEX IF NOT EXISTS idx_search_results_workflow ON search_results(workflow_id);
 CREATE INDEX IF NOT EXISTS idx_dual_screening_stage_decision ON dual_screening_results(workflow_id, stage, final_decision);
 CREATE INDEX IF NOT EXISTS idx_extraction_records_workflow ON extraction_records(workflow_id);

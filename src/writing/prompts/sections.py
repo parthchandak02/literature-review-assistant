@@ -10,7 +10,6 @@ if TYPE_CHECKING:
 
 from src.models.config import IEEEExportConfig
 
-
 ABSTRACT_WORD_LIMIT = int(IEEEExportConfig().max_abstract_words)
 
 SECTION_WORD_LIMITS: dict[str, int] = {
@@ -28,6 +27,7 @@ def set_abstract_word_limit(limit: int) -> None:
     global ABSTRACT_WORD_LIMIT
     ABSTRACT_WORD_LIMIT = max(50, int(limit))
     SECTION_WORD_LIMITS["abstract"] = ABSTRACT_WORD_LIMIT
+
 
 SECTIONS = [
     "abstract",
@@ -160,7 +160,10 @@ def get_abstract_prompt_context(
         "(4) Risk of bias methods, (5) Exact included studies count from the block, "
         "(6) Synthesis results (narrative only -- see constraint above), "
         "(7) Key findings grounded in included studies list, "
-        "(8) Limitations and funding."
+        "(8) Limitations and funding. "
+        "If the FACTUAL DATA BLOCK includes a high full-text non-retrieval warning, "
+        "include an explicit caution sentence in the Conclusion field stating that "
+        "findings should be interpreted cautiously due to missing retrievable full texts."
     )
 
 
@@ -175,7 +178,9 @@ def get_introduction_prompt_context(
         "Cover: (1) Background on the topic and its significance and relevance, "
         "(2) Current state of the literature and the evidence gap, "
         "(3) Objective of this systematic review and its scope. "
-        "Ground specific study references in the INCLUDED STUDIES list above."
+        "Ground specific study references in the INCLUDED STUDIES list above. "
+        "Never emit placeholders such as '(citation unavailable)', 'CITATION_NEEDED', "
+        "'Ref123', or 'Paper_xxx'."
     )
 
 
@@ -213,6 +218,8 @@ def get_methods_prompt_context(
         "The wording MUST explicitly describe an AI-assisted dual-reviewer pipeline when that appears "
         "in the FACTUAL DATA BLOCK. Do NOT rewrite this as human-only screening. "
         "Use the exact role language from the block. "
+        "Use 'independent reviewer' terminology only; never write 'human reviewer', "
+        "'AI reviewer', or 'large language model reviewer'. "
         "Do NOT claim medical librarian consultation, manual snowball search, or any additional "
         "operational step unless it is explicitly stated in the FACTUAL DATA BLOCK. "
         "If Cohen's kappa is present in the block, include it in this sub-section with the subset qualifier. "
@@ -264,6 +271,8 @@ def get_results_prompt_context(
         "Structure with explicit sub-headings:\n"
         "### Study Selection\n"
         "Report exact PRISMA numbers from the block. "
+        "Include one explicit sentence with all four values: reports sought, reports not retrieved, "
+        "reports assessed for eligibility, and studies included. "
         "If a FIGURE NUMBER MAP is present in the FACTUAL DATA BLOCK, use that map for the PRISMA figure number. "
         "Only if no map is present, refer to Figure 1 (PRISMA flow diagram). "
         "If full-text articles were excluded, report the primary exclusion reasons from "
@@ -291,9 +300,13 @@ def get_results_prompt_context(
         "in the Results section -- only cite them in Methods when describing the methodology. "
         "Do NOT skip any key from the INCLUDED STUDIES list. After writing the section, "
         "self-check: for each key in the INCLUDED STUDIES block, confirm it appears in the "
-        "text you just wrote.\n"
+        "text you just wrote. "
+        "Never emit placeholders such as '(citation unavailable)', 'CITATION_NEEDED', "
+        "'Ref123', or 'Paper_xxx'.\n"
         "### Risk of Bias Assessment\n"
         "Summarise RoB findings from the block. "
+        "If multiple tool families are listed in the FACTUAL DATA BLOCK risk-of-bias summary "
+        "(for example RoB 2, ROBINS-I, CASP, MMAT), mention each listed family explicitly. "
         "If a FIGURE NUMBER MAP is present, use that map for the RoB figure number; "
         "otherwise reference Figure 2 (RoB traffic-light plot).\n"
         "### Synthesis of Findings\n"
@@ -306,7 +319,9 @@ def get_results_prompt_context(
         "Within each domain, state the direction of effect: how many studies reported improvement, "
         "no change, or worsening. Label each subsection with a heading matching the outcome domain. "
         "Do NOT write a single undifferentiated narrative paragraph. "
-        "Cite only from the VALID CITATION KEYS list."
+        "Cite only from the VALID CITATION KEYS list. "
+        "Never emit placeholders such as '(citation unavailable)', 'CITATION_NEEDED', "
+        "'Ref123', or 'Paper_xxx'."
     )
 
 
@@ -361,7 +376,9 @@ def get_discussion_prompt_context(
         "explaining which specific conclusions are therefore less reliable and why.\n"
         "### Implications for Practice and Future Research\n"
         "Translate findings into concrete recommendations. "
-        "Cite only from the VALID CITATION KEYS list."
+        "Cite only from the VALID CITATION KEYS list. "
+        "Never emit placeholders such as '(citation unavailable)', 'CITATION_NEEDED', "
+        "'Ref123', or 'Paper_xxx'."
     )
 
 
@@ -382,16 +399,19 @@ def get_conclusion_prompt_context(
             "Do NOT use assertive phrasing like 'demonstrates', 'proves', or 'confirms'.\n\n"
         )
     return (
-        prefix + _NO_HEADING_RULE + "\n\n"
+        prefix
+        + _NO_HEADING_RULE
+        + "\n\n"
         + hedging_rule
-        +
-        "PRIOR SECTIONS RULE: If a 'PRIOR SECTIONS CONTEXT' block appears above, use it "
+        + "PRIOR SECTIONS RULE: If a 'PRIOR SECTIONS CONTEXT' block appears above, use it "
         "only to inform the synthesis -- do NOT re-state the same statistics or sentences. "
         "The Conclusion must synthesize and close, not recap. Provide the 'so what' answer.\n\n"
         "Write a concise conclusion of approximately 350 words. "
         "Provide a high-level synthesis of what the evidence means, key implications for "
         "practice and future research, and a strong closing statement. "
-        "Do NOT introduce new statistics. Cite only from the VALID CITATION KEYS list."
+        "Do NOT introduce new statistics. Cite only from the VALID CITATION KEYS list. "
+        "Never emit placeholders such as '(citation unavailable)', 'CITATION_NEEDED', "
+        "'Ref123', or 'Paper_xxx'."
     )
 
 
