@@ -23,7 +23,9 @@ submission/
 |-- figures/
 |-- supplementary/
 |   |-- search_strategies_appendix.pdf
-|   |-- prisma_checklist.pdf
+|   |-- prisma_checklist.html
+|   |-- prisma_checklist.md
+|   |-- prisma_checklist.csv
 |   |-- extracted_data.csv
 |   |-- screening_decisions.csv
 |   `-- cover_letter.md

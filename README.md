@@ -260,6 +260,7 @@ Two config files control behavior:
 - Screening thresholds (include/exclude confidence cutoffs)
 - `max_llm_screen` -- hard cap on LLM screening volume (cost control)
 - `human_in_the_loop.enabled` -- pause after screening for manual review of AI decisions
+- `gates.manuscript_contract_mode` -- contract enforcement (`observe` / `soft` / `strict`, default is `strict`)
 - Quality gate thresholds
 - Search depth (records per database)
 
