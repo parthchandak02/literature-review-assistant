@@ -1189,7 +1189,7 @@ This section traces data from raw PDF bytes through every pipeline stage to the 
     |       7. humanize_async(raw_content) x humanization_iterations --> humanized_content
     |       8. verify_citation_grounding(humanized_content, valid_citekeys) --> hallucinated_keys
     |       9. repair_hallucinated_citekeys(content, hallucinated_keys, valid_citekeys)
-    |          --> all occurrences of each bad key replaced (re.sub, not str.replace)
+    |          --> strict-confidence fuzzy repair (unique year-anchored >=4-char prefix match); unresolved bracket tokens dropped
     |      10. CitationLedger.validate_section() --> unresolved claims flagged
     |      11. SectionDraft saved to section_drafts table
     -- section_drafts assembled --> doc_manuscript.md
@@ -1206,7 +1206,8 @@ This section traces data from raw PDF bytes through every pipeline stage to the 
 
 - **No LLM statistics:** All effect sizes, p-values, heterogeneity measures, and confidence intervals are computed by scipy/statsmodels only. LLMs receive pre-computed numbers verbatim in the FACTUAL DATA BLOCK.
 - **Citation lineage:** Every sentence with a `[CiteKey]` marker is registered in the citation ledger as a `ClaimRecord` linked to `EvidenceLinkRecord`s. `block_export_on_unresolved: true` prevents submission if unresolved claims remain.
-- **All citekey replacements global:** `repair_hallucinated_citekeys` uses `re.sub` to replace ALL occurrences of each hallucinated key, not just the first.
+- **All citekey replacements global:** `repair_hallucinated_citekeys` uses `re.sub` to replace ALL occurrences of each repaired hallucinated key, not just the first.
+- **No placeholder prose fallback:** unresolved hallucinated citekeys are not rewritten to prose placeholders; they are dropped from bracket tokens and surfaced by manuscript contracts.
 - **Resume safety:** `load_resume_state` restores all artifact paths including `papers_dir`, `papers_manifest`, `manuscript_tex`, and `references_bib` so phase 4+ resume never writes to empty paths.
 - **Cost tracking complete:** Every LLM call (screening, extraction, quality, writing, humanization) logs to `cost_records`. Embedding calls log with `cost_usd=0.0` (Gemini embedding-001 is free) and approximate token counts.
 
