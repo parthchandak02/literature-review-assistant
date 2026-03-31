@@ -678,13 +678,9 @@ def _md_section_to_latex(
             parts.append(f"\\section{{{_escape_latex(title)}}}")
             parts.append("")
         elif stripped.startswith("# "):
-            # Top-level title is already in \title{}; skip to avoid duplication.
-            # The _extract_title_and_abstract fallback strips the header block, but
-            # if any # heading survives (e.g. in appendices), emit as \section.
+            # Top-level title is already emitted via \title{}.
+            # Never re-emit H1 headings as \section{} in body conversion.
             flush_list()
-            title = _sanitize_heading_title(stripped[2:].strip())
-            parts.append(f"\\section{{{_escape_latex(title)}}}")
-            parts.append("")
         elif stripped == "---":
             # Markdown horizontal rules are section separators; skip silently
             flush_list()

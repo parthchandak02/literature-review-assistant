@@ -3,8 +3,36 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from typing import Literal
 
 from pydantic import BaseModel, Field
+
+
+class SectionBlock(BaseModel):
+    """Deterministic block-level unit for section rendering."""
+
+    block_type: Literal["paragraph", "subheading", "bullet_list", "table_ref", "figure_ref", "citation_group"]
+    text: str = ""
+    level: int = 3
+    citations: list[str] = Field(default_factory=list)
+
+
+class StructuredSectionDraft(BaseModel):
+    """Structured intermediate representation emitted by section writing."""
+
+    section_key: str
+    section_title: str = ""
+    required_subsections: list[str] = Field(default_factory=list)
+    cited_keys: list[str] = Field(default_factory=list)
+    blocks: list[SectionBlock] = Field(default_factory=list)
+
+
+class StructuredManuscriptDraft(BaseModel):
+    """Structured manuscript-level intermediate representation."""
+
+    workflow_id: str
+    sections: list[StructuredSectionDraft] = Field(default_factory=list)
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
 
 class SectionDraft(BaseModel):

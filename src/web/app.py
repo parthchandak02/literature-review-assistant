@@ -3349,6 +3349,10 @@ async def trigger_export(run_id: str, run_root: str = "runs", force: bool = Fals
                 workflow_id=workflow_id,
                 manuscript_md_path=str(manuscript_md),
                 manuscript_tex_path=str(manuscript_tex) if manuscript_tex else None,
+                extra_artifact_paths=[
+                    str(summary.get("artifacts", {}).get("protocol", "") or ""),
+                    str(summary.get("artifacts", {}).get("prospero_form_md", "") or ""),
+                ],
                 mode=mode,
             )
         if not result.passed:

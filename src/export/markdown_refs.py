@@ -65,6 +65,18 @@ def _sanitize_summary_text(raw_text: str) -> str:
     return summary
 
 
+def _clip_table_text(text: str, max_chars: int) -> str:
+    """Clip long table cell text at sentence boundary with ellipsis."""
+    cleaned = (text or "").strip()
+    if len(cleaned) <= max_chars:
+        return cleaned
+    window = cleaned[:max_chars].rstrip()
+    sentence_break = max(window.rfind(". "), window.rfind("; "), window.rfind(": "))
+    if sentence_break > int(max_chars * 0.6):
+        window = window[: sentence_break + 1].rstrip()
+    return window + "..."
+
+
 def _ascii_citekey(key: str) -> str:
     """Normalize a citekey to ASCII by stripping combining accent marks.
 
@@ -323,7 +335,7 @@ def _strip_section_block_markers(text: str) -> str:
 
 
 def _normalize_subsection_heading_layout(text: str) -> str:
-    """Split inline subsection heading+body into canonical multiline markdown.
+    """Split inline heading+body into canonical multiline markdown.
 
     wf-0009 showed patterns like:
       "### Information Sources The systematic search was conducted ..."
@@ -336,10 +348,12 @@ def _normalize_subsection_heading_layout(text: str) -> str:
     """
     # Some legacy runs collapse multiple markdown headings into a single line.
     # Insert hard line breaks before each heading marker first.
-    text = re.sub(r"\s+(#{3,4}\s+)", r"\n\n\1", text)
+    text = re.sub(r"\s+(#{2,6}\s+)", r"\n\n\1", text)
 
-    _heading_re = re.compile(r"^(#{3,6})\s+(.+)$")
-    _sentence_start_re = re.compile(r"^(The|This|These|We|Our|In|Across|To|A|An|Studies|Study|Data)\b")
+    _heading_re = re.compile(r"^(#{2,6})\s+(.+)$")
+    _sentence_start_re = re.compile(
+        r"^(The|This|These|We|Our|In|Across|To|A|An|Studies|Study|Data|Evidence|Findings|Overall|One|Demographic|Meta-analysis|Also)\b"
+    )
     _title_token_re = re.compile(r"^[A-Z][A-Za-z0-9()/:,\-']*$")
     _connector_tail = {"and", "or", "of", "for", "to", "with"}
     _citation_tail_re = re.compile(r"\s*(?:\[[^\]]+\]\s*)+$")
@@ -360,6 +374,18 @@ def _normalize_subsection_heading_layout(text: str) -> str:
             level = m.group(1)
             tail = m.group(2).strip()
             tail = _citation_tail_re.sub("", tail).strip()
+            if len(level) >= 4:
+                _spill = re.search(
+                    r"\b(The|This|These|We|Our|In|Across|To|A|An|Evidence|Findings|Overall|One|Demographic|Meta-analysis|Also)\b",
+                    tail,
+                )
+                if _spill and _spill.start() > 10:
+                    _left = tail[: _spill.start()].strip(" -:")
+                    _right = tail[_spill.start() :].strip()
+                    if _left and _right:
+                        out_lines.extend([f"{level} {_left}", "", _right])
+                        i += 1
+                        continue
             # Handle run-on headings like "#### Other Outcomes such as ...".
             if " such as " in tail.lower():
                 _idx = tail.lower().find(" such as ")
@@ -892,9 +918,9 @@ def build_compact_study_table(
             or ""
         ).strip()
         finding = _sanitize_summary_text(finding)
-        if len(finding) > 100:
-            finding = finding[:97] + "..."
         finding = finding if finding else "NR"
+        if finding != "NR":
+            finding = _clip_table_text(finding, max_chars=180)
         finding = _escape_table_cell(finding)
 
         rows.append((study_col, country, design_str, n_str, finding))
@@ -1008,9 +1034,7 @@ def build_study_characteristics_table(
                     paper_id,
                 )
             else:
-                outcomes_str = (
-                    sanitized_summary[:200].rstrip() + "..." if len(sanitized_summary) > 200 else sanitized_summary
-                )
+                outcomes_str = _clip_table_text(sanitized_summary, max_chars=260)
         # Escape newlines and pipe chars so the cell does not break the markdown table.
         outcomes_str = _escape_table_cell(outcomes_str)
 
@@ -1605,9 +1629,17 @@ def assemble_submission_manuscript(
     title and the abstract body. Defaults to False (omit for IEEE submissions where
     this non-standard prefix would appear before the structured abstract).
     """
-    clean_body = _strip_compact_study_tables(
-        _sanitize_body(_strip_section_block_markers(_normalize_subsection_heading_layout(body)))
+    # Structured section IR now owns heading and boundary layout for new runs.
+    # Keep legacy heading normalization only when malformed inline heading
+    # patterns are detected (resume compatibility for older artifacts/tests).
+    _body_wo_markers = _strip_section_block_markers(body)
+    _needs_legacy_heading_fix = bool(
+        re.search(r"(?m)^#{2,6}\s+.+\s+#{2,6}\s+", _body_wo_markers)
+        or re.search(r"(?m)^#{2,6}\s+\S.{8,}\s+(?:The|This|These|for|in|Across|To)\b", _body_wo_markers)
     )
+    if _needs_legacy_heading_fix:
+        _body_wo_markers = _normalize_subsection_heading_layout(_body_wo_markers)
+    clean_body = _strip_compact_study_tables(_sanitize_body(_body_wo_markers))
 
     # Normalize date range in Methods section to the authoritative protocol values
     # before citation conversion so the Methods text is consistent with PICOS table.

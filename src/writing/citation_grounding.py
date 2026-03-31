@@ -18,6 +18,11 @@ logger = logging.getLogger(__name__)
 # - placeholder fallback keys: [Ref141], [Paper_ab12cd]
 _CITEKEY_RE = re.compile(r"\[((?:[A-Za-z][A-Za-z0-9_\-']+\d{4}[a-z]?|Ref\d+|Paper_[A-Za-z0-9_\-]+))\]")
 _PLACEHOLDER_CITEKEY_RE = re.compile(r"^(Ref\d+|Paper_[A-Za-z0-9_\-]+)$")
+_UUID_LIKE_BRACKET_RE = re.compile(r"\[(?:[0-9a-f]{7,}(?:-[0-9a-f]{2,})+)\]", re.IGNORECASE)
+_TEMPLATE_BRACKET_RE = re.compile(
+    r"\[(?:INTERVENTION|OUTCOME|OUTCOME MEASURE|POPULATION|COMPARATOR)\]",
+    re.IGNORECASE,
+)
 
 
 def extract_used_citekeys(text: str) -> list[str]:
@@ -106,23 +111,24 @@ def repair_hallucinated_citekeys(
     - Otherwise drop the unresolved bracket token to avoid placeholder leakage.
     All occurrences of each hallucinated key in the text are replaced (not just the first).
     """
-    if not hallucinated:
-        return text
-
     result = text
-    for key in hallucinated:
-        matched = _fuzzy_match_citekey(key, valid_citekeys)
-        replacement = f"[{matched}]" if matched else ""
-        if matched:
-            logger.info(
-                "Fuzzy-matched hallucinated citekey [%s] -> [%s]",
-                key,
-                matched,
-            )
-        result = re.sub(re.escape(f"[{key}]"), replacement, result)
+    if hallucinated:
+        for key in hallucinated:
+            matched = _fuzzy_match_citekey(key, valid_citekeys)
+            replacement = f"[{matched}]" if matched else ""
+            if matched:
+                logger.info(
+                    "Fuzzy-matched hallucinated citekey [%s] -> [%s]",
+                    key,
+                    matched,
+                )
+            result = re.sub(re.escape(f"[{key}]"), replacement, result)
 
-    # Cleanup punctuation/spacing artifacts after dropping unresolved tokens.
-    result = re.sub(r"\s{2,}", " ", result)
+    # Cleanup punctuation/spacing artifacts after dropping unresolved tokens
+    # and after removing known non-citation bracket artifacts.
+    result = _UUID_LIKE_BRACKET_RE.sub("", result)
+    result = _TEMPLATE_BRACKET_RE.sub("", result)
+    result = re.sub(r"[ \t]{2,}", " ", result)
     result = re.sub(r"\(\s*[;,]?\s*\)", "", result)
     result = re.sub(r"\[\s*,\s*\]", "", result)
     result = re.sub(r"\s+([,.;:])", r"\1", result)

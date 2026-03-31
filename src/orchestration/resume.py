@@ -5,12 +5,15 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
+import yaml
+
 from src.config.loader import load_configs
 from src.db.database import get_db, repair_foreign_key_integrity
 
 logger = logging.getLogger(__name__)
 from src.db.repositories import WorkflowRepository
 from src.models import ExtractionRecord
+from src.models.config import ReviewConfig
 from src.orchestration.state import ReviewState
 from src.search.deduplication import deduplicate_papers
 
@@ -64,9 +67,18 @@ async def load_resume_state(
     phases have checkpoints, clear checkpoints for from_phase and later, and
     return next_phase=from_phase.
     """
-    review, settings = load_configs(review_path, settings_path)
     run_dir = Path(db_path).resolve().parent
     run_dir.mkdir(parents=True, exist_ok=True)
+    review, settings = load_configs(review_path, settings_path)
+    # Resume must use the run's captured review config, not the mutable workspace
+    # config/review.yaml, otherwise placeholder template text can leak into reruns.
+    snapshot_path = run_dir / "config_snapshot.yaml"
+    if snapshot_path.exists():
+        try:
+            snapshot_data = yaml.safe_load(snapshot_path.read_text(encoding="utf-8")) or {}
+            review = ReviewConfig.model_validate(snapshot_data)
+        except Exception as snapshot_err:
+            logger.warning("Could not load review config from %s: %s", snapshot_path, snapshot_err)
     log_dir = str(run_dir)
     output_dir = log_dir  # same directory
 

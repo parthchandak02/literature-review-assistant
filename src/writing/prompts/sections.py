@@ -148,10 +148,10 @@ def get_abstract_prompt_context(
         "risk-of-bias tool, and synthesis approach)\n"
         "**Results:** (exact included studies count from the FACTUAL DATA BLOCK, key findings "
         "grouped by outcome domain, synthesis direction)\n"
-        "**Conclusion:** (main implication and GRADE certainty qualifier)\n"
+        "**Conclusions:** (main implication and GRADE certainty qualifier)\n"
         "**Keywords:** (5-7 comma-separated keywords drawn from the research topic)\n\n"
         f"WORD COUNT: Target {target_low}-{target_high} words for the abstract body "
-        "(Background through Conclusion, excluding the Keywords line). "
+        "(Background through Conclusions, excluding the Keywords line). "
         f"Do NOT exceed {abstract_limit} words in the body.\n\n"
         "Use the FACTUAL DATA BLOCK above for all numbers -- "
         "do NOT invent participant counts, effect sizes, or confidence intervals. "
@@ -162,7 +162,7 @@ def get_abstract_prompt_context(
         "(7) Key findings grounded in included studies list, "
         "(8) Limitations and funding. "
         "If the FACTUAL DATA BLOCK includes a high full-text non-retrieval warning, "
-        "include an explicit caution sentence in the Conclusion field stating that "
+        "include an explicit caution sentence in the Conclusions field stating that "
         "findings should be interpreted cautiously due to missing retrievable full texts."
     )
 

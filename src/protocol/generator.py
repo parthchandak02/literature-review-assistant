@@ -11,7 +11,7 @@ from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
 from docx.shared import RGBColor
 
-from src.models import ProsperoRunData, ProtocolDocument, ReviewConfig
+from src.models import ProsperoRunData, ProtocolDocument, ReviewConfig, SettingsConfig
 
 # Mapping from review_type enum value to a PROSPERO-appropriate study design description.
 # PROSPERO item 21 asks for the types of *primary* studies to be included, not the review type itself.
@@ -35,7 +35,7 @@ _STUDY_DESIGN_DESCRIPTIONS: dict[str, str] = {
 def _format_run_date(run_id: str) -> str:
     """Normalize run_id/timestamp strings to YYYY-MM-DD when possible."""
     if not run_id:
-        return "[Not specified]"
+        return "Not provided"
     if re.match(r"^\d{8}(-\d{6})?$", run_id):
         return f"{run_id[0:4]}-{run_id[4:6]}-{run_id[6:8]}"
     if re.match(r"^\d{4}-\d{2}-\d{2}", run_id):
@@ -50,6 +50,9 @@ _PLACEHOLDER_PATTERNS: tuple[str, ...] = (
     r"what is the effect of",
     r"\[Not specified\]",
 )
+
+
+_NOT_PROVIDED = "Not provided"
 
 
 def _contains_placeholder_text(value: str) -> bool:
@@ -82,7 +85,16 @@ class ProtocolGenerator:
     def __init__(self, output_dir: str = "runs"):
         self.output_dir = Path(output_dir)
 
-    def generate(self, workflow_id: str, config: ReviewConfig) -> ProtocolDocument:
+    def generate(
+        self,
+        workflow_id: str,
+        config: ReviewConfig,
+        settings: SettingsConfig | None = None,
+    ) -> ProtocolDocument:
+        screening_cfg = getattr(settings, "screening", None)
+        batch_threshold = float(getattr(screening_cfg, "batch_screen_threshold", 0.20))
+        validation_fraction = float(getattr(screening_cfg, "batch_screen_validation_fraction", 0.10))
+        validation_pct = int(round(validation_fraction * 100))
         return ProtocolDocument(
             workflow_id=workflow_id,
             research_question=config.research_question,
@@ -91,12 +103,13 @@ class ProtocolGenerator:
             planned_databases=config.target_databases,
             planned_screening_method=(
                 "Three-stage: (1) BM25 keyword pre-filter; "
-                "(2) batch LLM pre-ranker (relevance threshold 0.35) with 10% cross-validation; "
+                f"(2) batch LLM pre-ranker (relevance threshold {batch_threshold:.2f}) "
+                f"with {validation_pct}% cross-validation; "
                 "(3) independent dual-reviewer screening with adjudication. "
                 "Full-text retrieval via multi-tier resolver (Unpaywall, Semantic Scholar, "
                 "Europe PMC, CORE, PubMed Central) followed by full-text eligibility assessment."
             ),
-            planned_rob_tools=["rob2", "robins_i", "casp"],
+            planned_rob_tools=["rob2", "robins_i", "casp", "mmat"],
             planned_synthesis_method=(
                 "Meta-analysis when feasible (>=2 studies, homogeneous numeric outcomes); "
                 "otherwise narrative synthesis following SWiM 2021 guidelines "
@@ -106,6 +119,17 @@ class ProtocolGenerator:
             prospero_id=config.protocol.registration_number or None,
         )
 
+    def _render_other_methods_text(self, config: ReviewConfig, run_data: ProsperoRunData | None = None) -> str:
+        observed = [m for m in (getattr(run_data, "other_methods_searched", []) or []) if m]
+        if observed:
+            return "Non-database sources used in this run: " + ", ".join(sorted(set(observed))) + "."
+        configured_non_db = [
+            src for src in (config.target_databases or []) if src in {"clinicaltrials_gov", "perplexity_search"}
+        ]
+        if configured_non_db:
+            return "Configured non-database sources: " + ", ".join(configured_non_db) + "."
+        return "No additional non-database sources were configured for this run."
+
     def validate_prospero_inputs(self, config: ReviewConfig) -> list[str]:
         """Return fields that still look like placeholders for PROSPERO output."""
         return _collect_placeholder_warnings(config)
@@ -114,15 +138,15 @@ class ProtocolGenerator:
         sections: list[tuple[str, str]] = [
             ("1. Review title", config.research_question),
             ("2. Original language title", config.research_question),
-            ("3. Anticipated start date", "TBD"),
-            ("4. Anticipated completion date", "TBD"),
+            ("3. Anticipated start date", _NOT_PROVIDED),
+            ("4. Anticipated completion date", _NOT_PROVIDED),
             ("5. Stage of review at time of registration", "Started"),
-            ("6. Named contact", "TBD"),
-            ("7. Named contact email", "TBD"),
-            ("8. Named contact address", "TBD"),
-            ("9. Named contact phone", "TBD"),
-            ("10. Organisational affiliation", "TBD"),
-            ("11. Review team members and affiliations", "TBD"),
+            ("6. Named contact", _NOT_PROVIDED),
+            ("7. Named contact email", _NOT_PROVIDED),
+            ("8. Named contact address", _NOT_PROVIDED),
+            ("9. Named contact phone", _NOT_PROVIDED),
+            ("10. Organisational affiliation", _NOT_PROVIDED),
+            ("11. Review team members and affiliations", _NOT_PROVIDED),
             ("12. Funding sources/sponsors", config.funding.source),
             ("13. Conflicts of interest", config.conflicts_of_interest),
             ("14. Review question", protocol.research_question),
@@ -180,7 +204,7 @@ class ProtocolGenerator:
             p = doc.add_paragraph()
             bold_run = p.add_run(label + ": ")
             bold_run.bold = True
-            p.add_run(value if value else "[Not specified]")
+            p.add_run(value if value else _NOT_PROVIDED)
 
         def _divider() -> None:
             p = doc.add_paragraph()
@@ -195,19 +219,19 @@ class ProtocolGenerator:
             pPr.append(pBdr)
 
         # build derived values once
-        db_list = ", ".join(config.target_databases) if config.target_databases else "[Not specified]"
-        keywords_str = "; ".join(config.keywords) if config.keywords else "[Not specified]"
+        db_list = ", ".join(config.target_databases) if config.target_databases else _NOT_PROVIDED
+        keywords_str = "; ".join(config.keywords) if config.keywords else _NOT_PROVIDED
         study_design_str = _STUDY_DESIGN_DESCRIPTIONS.get(
             config.review_type.value,
             f"Primary studies appropriate for a {config.review_type.value} review",
         )
         rob_tools_str = ", ".join(t.upper() for t in protocol.planned_rob_tools)
-        author_str = config.author_name or "[Not specified]"
+        author_str = config.author_name or _NOT_PROVIDED
         funding_str = config.funding.source if config.funding and config.funding.source else "No external funding"
         coi_str = config.conflicts_of_interest if config.conflicts_of_interest else "None declared"
-        outcome_str = config.pico.outcome if config.pico else "[Not specified]"
-        scope_str = config.scope or "[Not specified]"
-        domain_str = config.domain or "[Not specified]"
+        outcome_str = config.pico.outcome if config.pico else _NOT_PROVIDED
+        scope_str = config.scope or _NOT_PROVIDED
+        domain_str = config.domain or _NOT_PROVIDED
         run_date = _format_run_date(run_data.run_id)
         _criteria_blob = " ".join([*config.inclusion_criteria, *config.exclusion_criteria]).lower()
         language_restrictions = "No language restrictions applied."
@@ -239,9 +263,9 @@ class ProtocolGenerator:
         doc.add_paragraph(
             f"This systematic review addresses the following research question: "
             f"{config.research_question}. "
-            f"The review targets the population of {config.pico.population if config.pico else '[Not specified]'} "
+            f"The review targets the population of {config.pico.population if config.pico else _NOT_PROVIDED} "
             f"and examines the intervention/exposure of "
-            f"{config.pico.intervention if config.pico else '[Not specified]'}."
+            f"{config.pico.intervention if config.pico else _NOT_PROVIDED}."
         )
 
         _heading2("Review objectives")
@@ -253,10 +277,10 @@ class ProtocolGenerator:
         doc.add_paragraph(keywords_str)
 
         _heading2("Country")
-        doc.add_paragraph("[To be completed prior to PROSPERO submission]")
+        doc.add_paragraph(_NOT_PROVIDED)
 
         _heading2("PROSPERO registration number")
-        doc.add_paragraph("[TO BE ASSIGNED]")
+        doc.add_paragraph(_NOT_PROVIDED)
 
         # =====================================================================
         # SECTION 2: ELIGIBILITY CRITERIA
@@ -266,13 +290,13 @@ class ProtocolGenerator:
         _divider()
 
         _heading2("Population")
-        _field("Included", config.pico.population if config.pico else "[Not specified]")
+        _field("Included", config.pico.population if config.pico else _NOT_PROVIDED)
 
         _heading2("Intervention(s) or exposure(s)")
-        _field("Included", config.pico.intervention if config.pico else "[Not specified]")
+        _field("Included", config.pico.intervention if config.pico else _NOT_PROVIDED)
 
         _heading2("Comparator(s) or control(s)")
-        _field("Included", config.pico.comparison if config.pico else "[Not specified]")
+        _field("Included", config.pico.comparison if config.pico else _NOT_PROVIDED)
 
         _heading2("Main outcome(s)")
         _field("Included", outcome_str)
@@ -284,13 +308,13 @@ class ProtocolGenerator:
         for criterion in config.inclusion_criteria:
             doc.add_paragraph(criterion, style="List Bullet")
         if not config.inclusion_criteria:
-            doc.add_paragraph("[Not specified]")
+            doc.add_paragraph(_NOT_PROVIDED)
 
         _heading2("Exclusion criteria")
         for criterion in config.exclusion_criteria:
             doc.add_paragraph(criterion, style="List Bullet")
         if not config.exclusion_criteria:
-            doc.add_paragraph("[Not specified]")
+            doc.add_paragraph(_NOT_PROVIDED)
 
         _heading2("Context")
         doc.add_paragraph(scope_str)
@@ -317,15 +341,15 @@ class ProtocolGenerator:
         _divider()
 
         _heading2("Date of first submission to PROSPERO")
-        doc.add_paragraph("[TO BE COMPLETED]")
+        doc.add_paragraph(_NOT_PROVIDED)
 
         _heading2("Review timeline")
-        date_start = str(config.date_range_start) if config.date_range_start else "[Not specified]"
-        date_end = str(config.date_range_end) if config.date_range_end else "[Not specified]"
+        date_start = str(config.date_range_start) if config.date_range_start else _NOT_PROVIDED
+        date_end = str(config.date_range_end) if config.date_range_end else _NOT_PROVIDED
         doc.add_paragraph(f"Start date: {date_start}          End date: {date_end}")
 
         _heading2("Date of registration in PROSPERO")
-        doc.add_paragraph("[TO BE ASSIGNED]")
+        doc.add_paragraph(_NOT_PROVIDED)
 
         # =====================================================================
         # SECTION 5: AVAILABILITY OF FULL PROTOCOL
@@ -349,10 +373,7 @@ class ProtocolGenerator:
         _divider()
 
         _heading2("Search for unpublished studies")
-        doc.add_paragraph(
-            "Grey literature sources searched include ClinicalTrials.gov and institutional "
-            "repositories. Citation chasing (forward and backward) applied to all included studies."
-        )
+        doc.add_paragraph(self._render_other_methods_text(config, run_data))
 
         _heading2("Main bibliographic databases that will be searched")
         doc.add_paragraph(db_list)
@@ -372,8 +393,8 @@ class ProtocolGenerator:
 
         _heading2("Other methods of identifying studies")
         doc.add_paragraph(
-            "Forward citation chasing via Semantic Scholar and OpenAlex; "
-            "backward citation chasing via reference list screening of included studies."
+            "Supplementary methods are limited to non-database sources configured for this run "
+            "(for example trial registries or grey-literature endpoints)."
         )
 
         _heading2("Link to search strategy")
@@ -472,7 +493,7 @@ class ProtocolGenerator:
             p.add_run(stage_label)
 
         _heading2("Publication of review results")
-        doc.add_paragraph("[To be completed prior to PROSPERO submission]")
+        doc.add_paragraph(_NOT_PROVIDED)
 
         # =====================================================================
         # SECTION 11: REVIEW AFFILIATION, FUNDING AND PEER REVIEW
@@ -485,13 +506,13 @@ class ProtocolGenerator:
         doc.add_paragraph(author_str)
 
         _heading2("Review affiliation")
-        doc.add_paragraph("[To be completed prior to PROSPERO submission]")
+        doc.add_paragraph(_NOT_PROVIDED)
 
         _heading2("Funding source")
         doc.add_paragraph(funding_str)
 
         _heading2("Peer review")
-        doc.add_paragraph("[To be completed prior to PROSPERO submission]")
+        doc.add_paragraph(_NOT_PROVIDED)
 
         # =====================================================================
         # SECTION 12: ADDITIONAL INFORMATION
@@ -526,22 +547,22 @@ class ProtocolGenerator:
         run_data: ProsperoRunData,
     ) -> str:
         """Render the PROSPERO registration form as markdown."""
-        db_list = ", ".join(config.target_databases) if config.target_databases else "[Not specified]"
-        keywords_str = "; ".join(config.keywords) if config.keywords else "[Not specified]"
+        db_list = ", ".join(config.target_databases) if config.target_databases else _NOT_PROVIDED
+        keywords_str = "; ".join(config.keywords) if config.keywords else _NOT_PROVIDED
         study_design_str = _STUDY_DESIGN_DESCRIPTIONS.get(
             config.review_type.value,
             f"Primary studies appropriate for a {config.review_type.value} review",
         )
         rob_tools_str = ", ".join(t.upper() for t in protocol.planned_rob_tools)
-        author_str = config.author_name or "[Not specified]"
+        author_str = config.author_name or _NOT_PROVIDED
         funding_str = config.funding.source if config.funding and config.funding.source else "No external funding"
         coi_str = config.conflicts_of_interest if config.conflicts_of_interest else "None declared"
-        outcome_str = config.pico.outcome if config.pico else "[Not specified]"
-        scope_str = config.scope or "[Not specified]"
-        domain_str = config.domain or "[Not specified]"
+        outcome_str = config.pico.outcome if config.pico else _NOT_PROVIDED
+        scope_str = config.scope or _NOT_PROVIDED
+        domain_str = config.domain or _NOT_PROVIDED
         run_date = _format_run_date(run_data.run_id)
-        date_start = str(config.date_range_start) if config.date_range_start else "[Not specified]"
-        date_end = str(config.date_range_end) if config.date_range_end else "[Not specified]"
+        date_start = str(config.date_range_start) if config.date_range_start else _NOT_PROVIDED
+        date_end = str(config.date_range_end) if config.date_range_end else _NOT_PROVIDED
         synthesis_str = run_data.synthesis_method or protocol.planned_synthesis_method
         criteria_blob = " ".join([*config.inclusion_criteria, *config.exclusion_criteria]).lower()
         language_restrictions = "No language restrictions applied."
@@ -565,9 +586,9 @@ class ProtocolGenerator:
             "### Rationale for the review",
             (
                 f"This systematic review addresses the following research question: {config.research_question}. "
-                f"The review targets the population of {config.pico.population if config.pico else '[Not specified]'} "
+                f"The review targets the population of {config.pico.population if config.pico else _NOT_PROVIDED} "
                 f"and examines the intervention/exposure of "
-                f"{config.pico.intervention if config.pico else '[Not specified]'}. "
+                f"{config.pico.intervention if config.pico else _NOT_PROVIDED}. "
             ),
             "",
             "### Review objectives",
@@ -577,21 +598,21 @@ class ProtocolGenerator:
             keywords_str,
             "",
             "### Country",
-            "[To be completed prior to PROSPERO submission]",
+            _NOT_PROVIDED,
             "",
             "### PROSPERO registration number",
-            "[TO BE ASSIGNED]",
+            _NOT_PROVIDED,
             "",
             "## ELIGIBILITY CRITERIA",
             "",
             "### Population",
-            f"- Included: {config.pico.population if config.pico else '[Not specified]'}",
+            f"- Included: {config.pico.population if config.pico else _NOT_PROVIDED}",
             "",
             "### Intervention(s) or exposure(s)",
-            f"- Included: {config.pico.intervention if config.pico else '[Not specified]'}",
+            f"- Included: {config.pico.intervention if config.pico else _NOT_PROVIDED}",
             "",
             "### Comparator(s) or control(s)",
-            f"- Included: {config.pico.comparison if config.pico else '[Not specified]'}",
+            f"- Included: {config.pico.comparison if config.pico else _NOT_PROVIDED}",
             "",
             "### Main outcome(s)",
             f"- Included: {outcome_str}",
@@ -604,7 +625,7 @@ class ProtocolGenerator:
         if config.inclusion_criteria:
             lines.extend([f"- {c}" for c in config.inclusion_criteria])
         else:
-            lines.append("[Not specified]")
+            lines.append(_NOT_PROVIDED)
         lines.extend(
             [
                 "",
@@ -614,7 +635,7 @@ class ProtocolGenerator:
         if config.exclusion_criteria:
             lines.extend([f"- {c}" for c in config.exclusion_criteria])
         else:
-            lines.append("[Not specified]")
+            lines.append(_NOT_PROVIDED)
         lines.extend(
             [
                 "",
@@ -633,13 +654,13 @@ class ProtocolGenerator:
                 "## TIMELINE OF THE REVIEW",
                 "",
                 "### Date of first submission to PROSPERO",
-                "[TO BE COMPLETED]",
+                _NOT_PROVIDED,
                 "",
                 "### Review timeline",
                 f"Start date: {date_start}          End date: {date_end}",
                 "",
                 "### Date of registration in PROSPERO",
-                "[TO BE ASSIGNED]",
+                _NOT_PROVIDED,
                 "",
                 "## AVAILABILITY OF FULL PROTOCOL",
                 "",
@@ -653,10 +674,7 @@ class ProtocolGenerator:
                 "## SEARCHING AND SCREENING",
                 "",
                 "### Search for unpublished studies",
-                (
-                    "Grey literature and trial registries are considered where configured. "
-                    "Citation chasing (forward and backward) is applied to included studies."
-                ),
+                self._render_other_methods_text(config, run_data),
                 "",
                 "### Main bibliographic databases that will be searched",
                 db_list,
@@ -681,8 +699,8 @@ class ProtocolGenerator:
                 "",
                 "### Other methods of identifying studies",
                 (
-                    "Forward citation chasing via Semantic Scholar and OpenAlex; "
-                    "backward citation chasing via reference list screening of included studies."
+                    "Supplementary methods are limited to non-database sources configured for this run "
+                    "(for example trial registries or grey-literature endpoints)."
                 ),
                 "",
                 "### Link to search strategy",
@@ -752,7 +770,7 @@ class ProtocolGenerator:
                 "- [x] Data analysis",
                 "",
                 "### Publication of review results",
-                "[To be completed prior to PROSPERO submission]",
+                _NOT_PROVIDED,
                 "",
                 "## REVIEW AFFILIATION, FUNDING AND PEER REVIEW",
                 "",
@@ -760,13 +778,13 @@ class ProtocolGenerator:
                 author_str,
                 "",
                 "### Review affiliation",
-                "[To be completed prior to PROSPERO submission]",
+                _NOT_PROVIDED,
                 "",
                 "### Funding source",
                 funding_str,
                 "",
                 "### Peer review",
-                "[To be completed prior to PROSPERO submission]",
+                _NOT_PROVIDED,
                 "",
                 "## ADDITIONAL INFORMATION",
                 "",
