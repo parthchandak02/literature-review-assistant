@@ -280,7 +280,7 @@ Phase 4: Extraction + quality assessment (RoB/CASP/MMAT/GRADE routing)
 Phase 4b: Embedding sub-phase (RAG chunking + vector persistence)
 Phase 5: Synthesis (meta-analysis or narrative + sensitivity)
 Phase 5b: Knowledge-graph sub-phase (communities + gap signals)
-Phase 6: Writing + manuscript assembly (`doc_manuscript.md`) + PRISMA/timeline/geographic figures
+Phase 6: Writing via structured section IR (schema-constrained output -> completeness gates -> deterministic render) + manuscript assembly (`doc_manuscript.md`) + PRISMA/timeline/geographic figures
 Finalize: final artifacts (`doc_manuscript.tex`, `references.bib`, `run_summary.json`)
 Export (on demand): submission packaging (`submission/`, zip, docx/pdf when dependencies are available)
 ```

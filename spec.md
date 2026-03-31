@@ -452,8 +452,8 @@ All phase boundaries use Pydantic models from `src/models/`. The contract layer 
 | Screening -> Extraction | `CandidatePaper` list (included papers) | `DualScreeningResult` per paper |
 | Extraction -> Quality | `CandidatePaper` + `ExtractionRecord` | `RoB2Assessment` / `RobinsIAssessment` / `GRADEOutcomeAssessment` |
 | Quality -> Synthesis | `ExtractionRecord` list + assessments | `MetaAnalysisResult` list or `NarrativeSynthesis` |
-| Synthesis -> Writing | synthesis results + `PRISMACounts` | `SectionDraft` per section |
-| Writing -> Export | `SectionDraft` list + `CitationEntryRecord` list | IEEE LaTeX package |
+| Synthesis -> Writing | synthesis results + `PRISMACounts` | `StructuredSectionDraft` per section (rendered deterministically) |
+| Writing -> Export | rendered manuscript + `CitationEntryRecord` list | IEEE LaTeX package |
 | Any phase -> Gate | phase output values | `GateResult` |
 
 ### 5.2 Model Families (src/models/)
@@ -465,7 +465,7 @@ All phase boundaries use Pydantic models from `src/models/`. The contract layer 
 | `extraction.py` | `ExtractionRecord` -- study design, participants, intervention, outcomes, effect sizes, source spans |
 | `quality.py` | `RoB2Assessment` (5 domains), `RobinsIAssessment` (7 domains), `GRADEOutcomeAssessment` (8 factors) |
 | `claims.py` | `ClaimRecord`, `EvidenceLinkRecord`, `CitationEntryRecord` -- 3-tier citation lineage chain |
-| `writing.py` | `SectionDraft` -- versioned section with claim and citation ID lists |
+| `writing.py` | `StructuredSectionDraft`, `StructuredManuscriptDraft`, `SectionBlock` -- structured IR for deterministic render |
 | `workflow.py` | `GateResult`, `DecisionLogEntry` |
 | `additional.py` | `InterRaterReliability`, `MetaAnalysisResult`, `PRISMACounts`, `ProtocolDocument`, `SummaryOfFindingsRow`, `CostRecord` |
 | `config.py` | `ReviewConfig`, `SettingsConfig`, and all sub-configs |
@@ -640,7 +640,7 @@ WritingNode uses a two-phase approach to enable cross-section synthesis:
 
 Section word limits (`SECTION_WORD_LIMITS` in `src/writing/prompts/sections.py`): abstract 230, intro 700, methods 900, results 1400, discussion 900, conclusion 350. The abstract is capped deterministically post-LLM by `_trim_abstract_to_limit()`.
 
-A section writer (model from `settings.yaml` `agents.writing`) generates each of six manuscript sections. All section prompts enforce:
+A section writer (model from `settings.yaml` `agents.writing`) generates each of six manuscript sections as schema-constrained structured IR (`StructuredSectionDraft`). IR is validated for completeness (required subsection bodies, substantive paragraph count, tail-fragment checks), retried once deterministically on failure, then rendered with deterministic renderers. All section prompts enforce:
 - Prohibited AI-tell phrases (e.g. "Of course", "As an expert", "Certainly")
 - MANDATORY CITATION COVERAGE RULE: the LLM must cite every included study at least once
 - Citation catalog split into "INCLUDED STUDIES -- CITATION COVERAGE REQUIRED" and "METHODOLOGY REFERENCES" blocks; LLM may only use citekeys from these blocks
@@ -660,7 +660,7 @@ Each completed section is saved to the `section_drafts` table immediately. On re
 
 **Gate:** `citation_lineage` -- blocks export if `block_export_on_unresolved` is true and any claim has an unresolved citation.
 
-**Outputs:** `SectionDraft` per section (6 total), `doc_manuscript.md`. The `include_rq_block=False` default in `assemble_submission_manuscript()` omits the "Research Question:" prefix for clean IEEE output.
+**Outputs:** `StructuredSectionDraft` per section (6 total, persisted after render), `doc_manuscript.md`. The `include_rq_block=False` default in `assemble_submission_manuscript()` omits the "Research Question:" prefix for clean IEEE output.
 
 ### 6.7 Phase 7: PRISMA and Visualizations (Rendered in WritingNode)
 
@@ -1185,13 +1185,15 @@ This section traces data from raw PDF bytes through every pipeline stage to the 
     |       3. hybrid_retrieve(query_vector, query_text, bm25_index) --> top-K chunks (RRF fusion)
     |       4. rerank(query, chunks) --> reranked_chunks --> rag_context string
     |       5. get_section_context(section, grounding) --> section prompt with FACTUAL DATA BLOCK
-    |       6. SectionWriter.write_section_async(prompt + rag_context) --> raw_content
-    |       7. humanize_async(raw_content) x humanization_iterations --> humanized_content
-    |       8. verify_citation_grounding(humanized_content, valid_citekeys) --> hallucinated_keys
-    |       9. repair_hallucinated_citekeys(content, hallucinated_keys, valid_citekeys)
+    |       6. SectionWriter.write_section_structured_async(prompt + rag_context) --> StructuredSectionDraft
+    |       7. IR completeness checks (deterministic retry once if needed)
+    |       8. render_section_markdown(structured_draft) --> raw_content
+    |       9. humanize_async(raw_content) x humanization_iterations --> humanized_content
+    |      10. verify_citation_grounding(humanized_content, valid_citekeys) --> hallucinated_keys
+    |      11. repair_hallucinated_citekeys(content, hallucinated_keys, valid_citekeys)
     |          --> strict-confidence fuzzy repair (unique year-anchored >=4-char prefix match); unresolved bracket tokens dropped
-    |      10. CitationLedger.validate_section() --> unresolved claims flagged
-    |      11. SectionDraft saved to section_drafts table
+    |      12. CitationLedger.validate_section() --> unresolved claims flagged
+    |      13. Rendered section saved to section_drafts table
     -- section_drafts assembled --> doc_manuscript.md
     |
     v
