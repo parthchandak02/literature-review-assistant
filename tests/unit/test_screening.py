@@ -11,12 +11,13 @@ from src.models import (
     CandidatePaper,
     ExclusionReason,
     ReviewConfig,
+    ReviewerType,
     ReviewType,
     ScreeningDecisionType,
     SettingsConfig,
 )
 from src.models.config import ScreeningConfig
-from src.screening.dual_screener import DualReviewerScreener, ScreeningLLMClient
+from src.screening.dual_screener import DualReviewerScreener, ReviewerSpec, ScreeningLLMClient
 
 
 class _ScriptedClient(ScreeningLLMClient):
@@ -216,6 +217,26 @@ def _batch_item(pid: str, decision: str, confidence: float, reason: str = "ok") 
         "reasoning": reason,
         "exclusion_reason": None,
     }
+
+
+def test_batch_prompt_contains_explicit_allowed_ids_constraint() -> None:
+    papers = [_paper("p1"), _paper("p2"), _paper("p3")]
+    screener = DualReviewerScreener(
+        repository=None,  # type: ignore[arg-type]
+        provider=None,  # type: ignore[arg-type]
+        review=_review(),
+        settings=_batch_settings(batch_size=10),
+        llm_client=_ScriptedClient([]),
+    )
+    prompt = screener._build_batch_prompt(
+        papers=papers,
+        stage="title_abstract",
+        full_texts={},
+        spec=ReviewerSpec(agent_name="screening_reviewer_a", reviewer_type=ReviewerType.REVIEWER_A),
+    )
+    assert "CONSTRAINT: Return decisions ONLY for the exact paper_id values listed below." in prompt
+    assert "Allowed paper_ids:" in prompt
+    assert "p1, p2, p3" in prompt
 
 
 # ---------------------------------------------------------------------------
@@ -621,6 +642,9 @@ async def test_batch_reviewer_uses_array_schema_method_when_available(tmp_path) 
         assert isinstance(props, dict)
         assert "paper_id" in props
         assert "decision" in props
+        paper_id_schema = props.get("paper_id", {})
+        assert isinstance(paper_id_schema, dict)
+        assert paper_id_schema.get("enum") == ["p1", "p2", "p3"]
 
 
 @pytest.mark.asyncio
@@ -707,6 +731,59 @@ async def test_batch_reviewer_parses_wrapped_decisions_object(tmp_path) -> None:
         decision_map = {r.paper_id: r.decision for r in results}
         assert decision_map["p1"] == ScreeningDecisionType.INCLUDE
         assert decision_map["p2"] == ScreeningDecisionType.EXCLUDE
+        cur = await db.execute(
+            """
+            SELECT COUNT(*)
+            FROM decision_log
+            WHERE decision_type = 'screening_batch_parse_coverage'
+            """
+        )
+        row = await cur.fetchone()
+        assert int(row[0]) == 0
+
+
+@pytest.mark.asyncio
+async def test_batch_reviewer_maps_index_style_ids_to_chunk_members(tmp_path) -> None:
+    """Batch parser maps index aliases like [1]/index_2 back to paper ids."""
+    papers = [_paper("p1"), _paper("p2")]
+    # Simulates model drift that references chunk positions instead of paper ids.
+    index_alias_batch = [
+        {
+            "id": "[1]",
+            "decision": "include",
+            "confidence": 0.93,
+            "reasoning": "first item relevant",
+        },
+        {
+            "id": "index_2",
+            "decision": "exclude",
+            "confidence": 0.89,
+            "reasoning": "second item out of scope",
+            "exclusion_reason": "wrong_population",
+        },
+    ]
+    responses: list[object] = [index_alias_batch]
+    async with get_db(str(tmp_path / "batch_index_alias.db")) as db:
+        repo = WorkflowRepository(db)
+        await repo.create_workflow("wf-batch-index-alias", "topic", "hash")
+        provider = LLMProvider(_batch_settings(batch_size=10), repo)
+        screener = DualReviewerScreener(
+            repository=repo,
+            provider=provider,
+            review=_review(),
+            settings=_batch_settings(batch_size=10),
+            llm_client=_ScriptedClient(responses),
+        )
+        results = await screener.screen_batch(
+            workflow_id="wf-batch-index-alias",
+            stage="title_abstract",
+            papers=papers,
+        )
+        assert len(results) == 2
+        decision_map = {r.paper_id: r.decision for r in results}
+        assert decision_map["p1"] == ScreeningDecisionType.INCLUDE
+        assert decision_map["p2"] == ScreeningDecisionType.EXCLUDE
+
         cur = await db.execute(
             """
             SELECT COUNT(*)

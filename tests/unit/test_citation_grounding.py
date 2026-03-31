@@ -126,6 +126,20 @@ def test_repair_empty_text_unchanged() -> None:
     assert result == ""
 
 
+def test_repair_strips_uuid_like_bracket_tokens() -> None:
+    text = "Result remained positive [5a40ea3d-547] after screening."
+    result = repair_hallucinated_citekeys(text, [], ["Smith2023"])
+    assert "[5a40ea3d-547]" not in result
+
+
+def test_repair_strips_template_bracket_tokens() -> None:
+    text = "Effect of [INTERVENTION] on [OUTCOME] in [POPULATION]."
+    result = repair_hallucinated_citekeys(text, [], ["Smith2023"])
+    assert "[INTERVENTION]" not in result
+    assert "[OUTCOME]" not in result
+    assert "[POPULATION]" not in result
+
+
 # ---------------------------------------------------------------------------
 # verify_citation_grounding
 # ---------------------------------------------------------------------------

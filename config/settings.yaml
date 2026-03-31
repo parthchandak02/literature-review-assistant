@@ -172,6 +172,8 @@ gates:
   manuscript_contract_mode: "strict"
   search_volume_minimum: 50
   screening_minimum: 5
+  sparse_topic_min: 2
+  sparse_topic_continuation: true
   extraction_completeness_threshold: 0.8
   extraction_max_empty_rate: 0.35
   cost_budget_max: 30.0

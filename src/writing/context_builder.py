@@ -16,6 +16,29 @@ from pydantic import BaseModel
 from src.models import CandidatePaper, ExtractionRecord
 from src.models.additional import PRISMACounts
 
+_SOURCE_DISPLAY_NAMES: dict[str, str] = {
+    "openalex": "OpenAlex",
+    "semantic_scholar": "Semantic Scholar",
+    "scopus": "Scopus",
+    "ieee_xplore": "IEEE Xplore",
+    "web_of_science": "Web of Science",
+    "clinicaltrials_gov": "ClinicalTrials.gov",
+    "crossref": "Crossref",
+    "pubmed": "PubMed",
+    "arxiv": "arXiv",
+    "embase": "Embase",
+    "perplexity_search": "Perplexity Search",
+    "perplexity_web": "Perplexity Web",
+    "perplexity": "Perplexity",
+}
+
+
+def _display_source_name(name: str) -> str:
+    raw = str(name or "").strip()
+    if not raw:
+        return raw
+    return _SOURCE_DISPLAY_NAMES.get(raw.lower(), raw.replace("_", " ").title())
+
 
 def _build_rob_summary(
     rob2_assessments: list,
@@ -264,6 +287,7 @@ class WritingGroundingData(BaseModel):
     # not be retrieved; Z were assessed for eligibility."
     fulltext_sought: int = 0
     fulltext_not_retrieved: int = 0
+    sparse_evidence_mode: bool = False
 
     # Batch LLM pre-ranker counts (set during screening phase).
     # When batch_screen_forwarded > 0, the Methods section should describe a
@@ -274,7 +298,7 @@ class WritingGroundingData(BaseModel):
     # Injected into the Methods section so readers know exactly which model and cut-off
     # were used -- a Q1 journal requirement when LLM exclusion exceeds 5% of records.
     batch_screener_model: str | None = None
-    batch_screen_threshold: float = 0.30
+    batch_screen_threshold: float = 0.20
     # Cross-validation of batch-excluded abstracts (NPV): populated after rank_and_split().
     # batch_screen_validation_n: how many excluded abstracts were re-scored.
     # batch_screen_validation_npv: fraction confirmed excluded on re-score (0.0-1.0).
@@ -312,7 +336,7 @@ def _build_screening_method_description(
     total_screened: int,
     batch_screen_forwarded: int = 0,
     batch_screen_excluded: int = 0,
-    batch_screen_threshold: float = 0.30,
+    batch_screen_threshold: float = 0.20,
     cohens_kappa: float | None = None,
 ) -> str:
     """Compute an accurate screening method description from actual decision records.
@@ -434,18 +458,20 @@ def build_writing_grounding(
     batch_screen_forwarded: int = 0,
     batch_screen_excluded: int = 0,
     batch_screener_model: str | None = None,
-    batch_screen_threshold: float = 0.30,
+    batch_screen_threshold: float = 0.20,
     batch_screen_validation_n: int = 0,
     batch_screen_validation_npv: float = 0.0,
     batch_screen_validation_min_n: int = 20,
     fulltext_sought: int = 0,
     fulltext_not_retrieved: int = 0,
+    sparse_evidence_mode: bool = False,
     rob2_assessments: list | None = None,
     robins_i_assessments: list | None = None,
     casp_assessments: list | None = None,
     mmat_assessments: list | None = None,
     grade_assessments: list | None = None,
     figure_map: dict[str, int] | None = None,
+    fulltext_paper_ids: set[str] | None = None,
     fulltext_nonretrieval_caution_threshold: float = 0.40,
     abstract_only_caution_threshold: float = 0.40,
 ) -> WritingGroundingData:
@@ -453,9 +479,12 @@ def build_writing_grounding(
 
     # All bibliographic databases searched (including those with 0 records, for multi-database narrative)
     _OTHER_METHOD_NAMES = frozenset({"perplexity_web", "perplexity_search", "perplexity"})
-    active_dbs = sorted(db for db in prisma_counts.databases_records if db not in _OTHER_METHOD_NAMES)
+    active_dbs_raw = sorted(db for db in prisma_counts.databases_records if db not in _OTHER_METHOD_NAMES)
+    active_dbs = [_display_source_name(db) for db in active_dbs_raw]
     # Databases with zero records -- must be disclosed per PRISMA 2020 item 7
-    zero_yield_dbs = sorted(db for db in active_dbs if prisma_counts.databases_records.get(db, 0) == 0)
+    zero_yield_dbs = [
+        _display_source_name(db) for db in active_dbs_raw if prisma_counts.databases_records.get(db, 0) == 0
+    ]
     # Other methods (grey lit, AI discovery tools -- not bibliographic databases)
     active_other = sorted(src for src, cnt in prisma_counts.other_sources_records.items() if cnt > 0)
     # Any perplexity records that ended up in databases_records (should be rare)
@@ -467,6 +496,7 @@ def build_writing_grounding(
             if db in _OTHER_METHOD_NAMES and prisma_counts.databases_records.get(db, 0) > 0
         }
     )
+    active_other = [_display_source_name(src) for src in active_other]
 
     # Study design breakdown -- normalize enum value to readable label at source
     design_counts: dict[str, int] = {}
@@ -581,10 +611,17 @@ def build_writing_grounding(
     # Full-text retrieval counts: "text" = abstract-only baseline; anything else = full text retrieved.
     # See src/models/extraction.py for all extraction_source values.
     _ABSTRACT_ONLY_SOURCES = frozenset({"text", "heuristic", None, ""})
+    _fulltext_id_set = {str(pid) for pid in (fulltext_paper_ids or set())}
     fulltext_retrieved = sum(
-        1 for rec in extraction_records if getattr(rec, "extraction_source", "text") not in _ABSTRACT_ONLY_SOURCES
+        1
+        for rec in extraction_records
+        if (
+            getattr(rec, "extraction_source", "text") not in _ABSTRACT_ONLY_SOURCES
+            or str(getattr(rec, "paper_id", "")) in _fulltext_id_set
+        )
     )
-    fulltext_total = len(extraction_records)
+    fulltext_total = max(0, int(total_included_count))
+    fulltext_retrieved = min(fulltext_total, fulltext_retrieved)
 
     # Author name from review config
     _author_name = str(getattr(review_config, "author_name", "") or "") if review_config else ""
@@ -617,7 +654,7 @@ def build_writing_grounding(
     )
     _effective_records_excluded_screening = max(0, _effective_screened - prisma_counts.reports_sought)
 
-    _failed_dbs = sorted(set(failed_databases or []))
+    _failed_dbs = sorted({_display_source_name(db) for db in (failed_databases or [])})
     _search_date = (search_date or "").strip()
     if not _search_date:
         _search_date = datetime.now().date().isoformat()
@@ -698,6 +735,7 @@ def build_writing_grounding(
         # External parameters can be stale in resume/re-run scenarios.
         fulltext_sought=prisma_counts.reports_sought,
         fulltext_not_retrieved=prisma_counts.reports_not_retrieved,
+        sparse_evidence_mode=sparse_evidence_mode,
         batch_screen_forwarded=batch_screen_forwarded,
         batch_screen_excluded=batch_screen_excluded,
         batch_screener_model=batch_screener_model,
@@ -741,7 +779,10 @@ def format_grounding_block(data: WritingGroundingData) -> str:
             "that are not present in this block or the citation catalog below.",
             "---",
             f"Bibliographic databases searched: {', '.join(data.databases_searched) if data.databases_searched else 'see search appendix'}",
-            f"Other methods (NOT databases - list separately as supplementary search): {', '.join(data.other_methods_searched) if data.other_methods_searched else 'none'}",
+            (
+                "Other methods (NOT databases - list separately as supplementary search): "
+                f"{', '.join(data.other_methods_searched) if data.other_methods_searched else 'none recorded in discovery-stage sources'}"
+            ),
         ]
     )
     if data.zero_yield_databases:
@@ -855,8 +896,8 @@ def format_grounding_block(data: WritingGroundingData) -> str:
                 f"topic relevance (0-1 scale, threshold = {data.batch_screen_threshold}); "
                 f"{data.batch_screen_excluded} records scoring below this threshold were excluded "
                 f"without full dual review.' Also state: 'To validate this exclusion step, "
-                f"a random 10% sample of excluded records should be manually verified by the "
-                f"corresponding author prior to submission.' "
+                "a predefined holdout sample of excluded records was independently re-scored "
+                "within the pipeline and reported as negative predictive value (NPV).' "
                 f"This disclosure is MANDATORY for systematic reviews using LLM pre-ranking."
             )
         lines.append(
@@ -914,6 +955,7 @@ def format_grounding_block(data: WritingGroundingData) -> str:
         # This block adds the mandatory retrieval-effort disclosure for Q1 journals.
         if data.fulltext_not_retrieved > 0:
             _retrieval_pct = int(100 * data.fulltext_not_retrieved / data.fulltext_sought)
+            _disclosure_pct = int(round(data.fulltext_nonretrieval_caution_threshold * 100))
             lines.append(
                 f"CRITICAL -- FULL-TEXT RETRIEVAL EFFORT (Q1 REQUIREMENT): "
                 f"{data.fulltext_not_retrieved} of {data.fulltext_sought} reports "
@@ -921,14 +963,12 @@ def format_grounding_block(data: WritingGroundingData) -> str:
                 f"The Methods section MUST explicitly list the retrieval pathways attempted: "
                 f"(1) publisher open-access links and PubMed Central; "
                 f"(2) Unpaywall, CORE, and Europe PMC repositories; "
-                f"(3) Semantic Scholar and ResearchGate author profiles; "
-                f"(4) direct email correspondence with corresponding authors where contact details "
-                f"were publicly available. "
+                f"(3) Semantic Scholar, OpenAlex, Crossref links, and landing-page PDF discovery. "
                 f"Q1 journals require explicit documentation of retrieval effort when the "
-                f"non-retrieval rate exceeds 20%. Do NOT simply state 'X reports could not be "
+                f"non-retrieval rate exceeds {_disclosure_pct}%. Do NOT simply state 'X reports could not be "
                 f"located' without explaining the steps taken."
             )
-            if _retrieval_pct > 40:
+            if (data.fulltext_not_retrieved / data.fulltext_sought) > data.fulltext_nonretrieval_caution_threshold:
                 lines.append(
                     "CAUTION -- HIGH FULL-TEXT NON-RETRIEVAL RATE: "
                     f"{data.fulltext_not_retrieved} of {data.fulltext_sought} reports "
@@ -936,7 +976,13 @@ def format_grounding_block(data: WritingGroundingData) -> str:
                     "Methods and Limitations, and use hedged language in the abstract and discussion "
                     "(for example: 'limited evidence suggests', 'findings are constrained by missing full texts')."
                 )
-    elif data.fulltext_total_count > 0:
+    if data.sparse_evidence_mode:
+        lines.append(
+            "CAUTION -- SPARSE EVIDENCE MODE: Included-study volume was below the preferred screening minimum. "
+            "PRISMA interpretation must explicitly state evidence sparsity, quantitative pooling was skipped by policy, "
+            "and conclusions must remain conservative."
+        )
+    if data.fulltext_total_count > 0:
         abstract_only = data.fulltext_total_count - data.fulltext_retrieved_count
         abstract_only_rate = abstract_only / data.fulltext_total_count if data.fulltext_total_count else 0.0
         lines.append(
@@ -1233,7 +1279,8 @@ def format_grounding_block(data: WritingGroundingData) -> str:
             "evidence_network": "Evidence network",
         }
         for artifact_key, fig_num in sorted(data.figure_map.items(), key=lambda x: x[1]):
-            label = _fig_label_map.get(artifact_key, artifact_key)
+            fallback = artifact_key.replace("fig_", "", 1).replace("_", " ").strip().title()
+            label = _fig_label_map.get(artifact_key, fallback or "Figure")
             lines.append(f"  Figure {fig_num}: {label}")
         lines.append(
             "STRICT RULE: When writing 'Figure N' in the text, N MUST come from the map above. "

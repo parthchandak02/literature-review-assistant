@@ -171,11 +171,11 @@ def test_compact_table_empty_when_no_data() -> None:
 
 
 def test_compact_table_truncates_long_finding() -> None:
-    """Key findings longer than 100 chars are truncated with ellipsis."""
+    """Very long key findings are clipped with ellipsis."""
     from src.export.markdown_refs import build_compact_study_table
 
     papers = [_make_paper("p1", ["Smith A"], 2021)]
-    records = [_make_extraction("p1", "rct", 10, "A" * 120)]
+    records = [_make_extraction("p1", "rct", 10, "A" * 420)]
     result = build_compact_study_table(papers, records)
     assert "..." in result
 
@@ -567,8 +567,28 @@ def test_ensure_structured_abstract_adds_missing_fields() -> None:
 
     abstract = "**Objectives:** Goal.\n\n**Methods:** Method."
     out = _ensure_structured_abstract(abstract, "RQ")
-    for field in ["Background", "Objectives", "Methods", "Results", "Conclusion", "Keywords"]:
+    for field in ["Background", "Objectives", "Methods", "Results", "Conclusions", "Keywords"]:
         assert f"**{field}:**" in out
+
+
+def test_replace_template_tokens_uses_review_pico_values() -> None:
+    from src.orchestration.workflow import _replace_template_tokens
+
+    review = SimpleNamespace(
+        pico=SimpleNamespace(
+            intervention="GenAI tutor",
+            outcome="test scores",
+            population="health science students",
+            comparison="traditional tutoring",
+        )
+    )
+    text = "Effect of [INTERVENTION] on [OUTCOME] in [POPULATION] vs [COMPARATOR]."
+    out = _replace_template_tokens(text, review)
+    assert "GenAI tutor" in out
+    assert "test scores" in out
+    assert "health science students" in out
+    assert "traditional tutoring" in out
+    assert "[INTERVENTION]" not in out
 
 
 # ---------------------------------------------------------------------------

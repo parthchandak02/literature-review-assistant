@@ -61,7 +61,10 @@ from src.models.writing import (
     ManuscriptAsset,
     ManuscriptBlock,
     ManuscriptSection,
+    SectionBlock,
     SectionDraft,
+    StructuredManuscriptDraft,
+    StructuredSectionDraft,
 )
 
 __all__ = [
@@ -120,10 +123,13 @@ __all__ = [
     "ManuscriptAsset",
     "ManuscriptBlock",
     "ManuscriptSection",
+    "SectionBlock",
     "SectionDraft",
     "SettingsConfig",
     "SourceCategory",
     "StudyDesign",
+    "StructuredManuscriptDraft",
+    "StructuredSectionDraft",
     "SummaryOfFindingsRow",
     "WritingConfig",
 ]

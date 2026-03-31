@@ -35,7 +35,11 @@ from src.db.workflow_registry import (
 from src.db.workflow_registry import (
     update_status as update_registry_status,
 )
-from src.export.markdown_refs import assemble_submission_manuscript, is_extraction_failed
+from src.export.markdown_refs import (
+    _normalize_subsection_heading_layout,
+    assemble_submission_manuscript,
+    is_extraction_failed,
+)
 from src.extraction import ExtractionService, StudyClassifier
 from src.llm.provider import LLMProvider
 from src.llm.pydantic_client import PydanticAIClient
@@ -51,6 +55,7 @@ from src.models import (
     ManuscriptAsset,
     PrimaryStudyStatus,
     RagRetrievalDiagnostic,
+    ReviewConfig,
     SectionDraft,
     StudyDesign,
 )
@@ -127,6 +132,7 @@ from src.writing.humanizer import humanize_async
 from src.writing.humanizer_guardrails import extract_citation_blocks, extract_numeric_tokens
 from src.writing.orchestration import (
     _citation_entries_from_papers,
+    _ensure_structured_abstract,
     prepare_writing_context,
     register_background_sr_citations,
     register_citations_from_papers,
@@ -453,7 +459,7 @@ class SearchNode(BaseNode[ReviewState]):
                 await repository.save_dedup_count(state.workflow_id, dedup_count)
 
                 protocol_generator = ProtocolGenerator(output_dir=state.output_dir)
-                protocol = protocol_generator.generate(state.workflow_id, state.review)
+                protocol = protocol_generator.generate(state.workflow_id, state.review, state.settings)
                 protocol_markdown = protocol_generator.render_markdown(protocol, state.review)
                 protocol_generator.write_markdown(state.workflow_id, protocol_markdown)
                 if not await repository.has_checkpoint_integrity(state.workflow_id):
@@ -676,7 +682,7 @@ class SearchNode(BaseNode[ReviewState]):
             await repository.save_dedup_count(state.workflow_id, dedup_count)
 
             protocol_generator = ProtocolGenerator(output_dir=state.output_dir)
-            protocol = protocol_generator.generate(state.workflow_id, state.review)
+            protocol = protocol_generator.generate(state.workflow_id, state.review, state.settings)
             protocol_markdown = protocol_generator.render_markdown(protocol, state.review)
             protocol_generator.write_markdown(state.workflow_id, protocol_markdown)
             if not await repository.has_checkpoint_integrity(state.workflow_id):
@@ -1175,7 +1181,8 @@ class ScreeningNode(BaseNode[ReviewState]):
             # Coarse-scores all BM25-selected papers in batches with a single LLM call each,
             # then filters out clearly irrelevant papers before the expensive dual-reviewer.
             # Reduces dual-reviewer calls by 60-70% while maintaining recall because the
-            # threshold is intentionally liberal (default 0.35 -- uncertain papers are forwarded).
+            # threshold is intentionally liberal (default 0.20 -- uncertain papers are forwarded).
+            state.batch_screen_threshold = float(getattr(screening_cfg, "batch_screen_threshold", 0.20))
             if getattr(screening_cfg, "batch_screen_enabled", True) and papers_for_llm and use_real_client:
                 from src.screening.batch_ranker import BatchLLMRanker, PydanticAIBatchRankerClient
 
@@ -1684,15 +1691,18 @@ class ScreeningNode(BaseNode[ReviewState]):
                     if rc:
                         rc.emit_phase_done("citation_chasing", {"new_papers": 0, "error": str(_cc_exc)})
 
-            await gate_runner.run_screening_safeguard_gate(
+            gr = await gate_runner.run_screening_safeguard_gate(
                 workflow_id=state.workflow_id,
                 phase="phase_3_screening",
                 passed_screening=len(state.included_papers),
             )
-            if state.settings.gates.profile == "strict":
-                gr = await repository.get_latest_gate_result(
-                    state.workflow_id, "phase_3_screening", "screening_safeguard"
+            state.sparse_evidence_mode = gr.status == GateStatus.WARNING
+            if state.sparse_evidence_mode and rc:
+                rc.log_status(
+                    "Screening safeguard: sparse-evidence continuation mode active "
+                    f"({len(state.included_papers)} included; minimum {gr.threshold})."
                 )
+            if state.settings.gates.profile == "strict":
                 if gr and gr.status == GateStatus.FAILED:
                     err_msg = (
                         f"Screening safeguard gate failed: {gr.actual_value or 0} studies "
@@ -1760,6 +1770,7 @@ class ScreeningNode(BaseNode[ReviewState]):
                     "fast_path_include": getattr(screener, "fast_path_include_count", 0),
                     "fast_path_exclude": getattr(screener, "fast_path_exclude_count", 0),
                     "cross_reviewed": getattr(screener, "cross_review_count", 0),
+                    "sparse_evidence_mode": state.sparse_evidence_mode,
                 },
             )
             if rc.debug:
@@ -2678,7 +2689,15 @@ class SynthesisNode(BaseNode[ReviewState]):
         rendered_forest = None
         rendered_funnel = None
         sensitivity_texts: list[str] = []
-        if feasibility.feasible and state.settings.meta_analysis.enabled:
+        if state.sparse_evidence_mode and rc:
+            rc.log_status(
+                "Sparse-evidence mode: skipping quantitative meta-analysis and using narrative-only synthesis."
+            )
+        if (
+            feasibility.feasible
+            and state.settings.meta_analysis.enabled
+            and not state.sparse_evidence_mode
+        ):
             if rc:
                 rc.log_status(
                     f"Running quantitative meta-analysis and sensitivity analysis "
@@ -2734,6 +2753,7 @@ class SynthesisNode(BaseNode[ReviewState]):
         synthesis_payload: dict = {
             "feasibility": feasibility.model_dump(),
             "narrative": narrative.model_dump(),
+            "sparse_evidence_mode": state.sparse_evidence_mode,
         }
         if meta_result is not None:
             synthesis_payload["meta_analysis"] = meta_result.model_dump()
@@ -2849,6 +2869,40 @@ def _build_citation_coverage_patch(
     for g in groups[1:]:
         sentences.append(f"Further included studies are [{', '.join(g)}].")
     return " ".join(sentences)
+
+
+_TEMPLATE_TOKEN_REGEX = re.compile(
+    r"\[(INTERVENTION|OUTCOME|OUTCOME MEASURE|POPULATION|COMPARATOR)\]",
+    flags=re.IGNORECASE,
+)
+_UUID_LIKE_BRACKET_REGEX = re.compile(r"\[(?:[0-9a-f]{7,}(?:-[0-9a-f]{2,})+)\]", flags=re.IGNORECASE)
+
+
+def _replace_template_tokens(text: str, review: ReviewConfig | None) -> str:
+    """Replace scaffold placeholders with concrete review-config values."""
+    if not text:
+        return text
+    if review is None or getattr(review, "pico", None) is None:
+        cleaned = _TEMPLATE_TOKEN_REGEX.sub("", text)
+        cleaned = _UUID_LIKE_BRACKET_REGEX.sub("", cleaned)
+        cleaned = re.sub(r"[ \t]{2,}", " ", cleaned)
+        return re.sub(r"\s+([,.;:])", r"\1", cleaned)
+    pico = review.pico
+    mapping = {
+        "INTERVENTION": str(getattr(pico, "intervention", "") or "the intervention"),
+        "OUTCOME": str(getattr(pico, "outcome", "") or "the outcome"),
+        "OUTCOME MEASURE": str(getattr(pico, "outcome", "") or "the outcome"),
+        "POPULATION": str(getattr(pico, "population", "") or "the study population"),
+        "COMPARATOR": str(getattr(pico, "comparison", "") or "the comparator"),
+    }
+
+    def _repl(match: re.Match[str]) -> str:
+        return mapping.get(match.group(1).upper(), "")
+
+    cleaned = _TEMPLATE_TOKEN_REGEX.sub(_repl, text)
+    cleaned = _UUID_LIKE_BRACKET_REGEX.sub("", cleaned)
+    cleaned = re.sub(r"[ \t]{2,}", " ", cleaned)
+    return re.sub(r"\s+([,.;:])", r"\1", cleaned)
 
 
 def _trim_abstract_to_limit(abstract: str, limit: int | None = None) -> str:
@@ -3070,12 +3124,15 @@ class WritingNode(BaseNode[ReviewState]):
                     _removed_stale_grade,
                 )
 
+            _canonical_included_ids_for_prisma = await repository.get_synthesis_included_paper_ids(state.workflow_id)
+            if not _canonical_included_ids_for_prisma:
+                _canonical_included_ids_for_prisma = {str(p.paper_id) for p in state.included_papers if p.paper_id}
             prisma_counts = await build_prisma_counts(
                 repository,
                 state.workflow_id,
                 state.dedup_count,
                 included_qualitative=0,
-                included_quantitative=len(state.included_papers),
+                included_quantitative=len(_canonical_included_ids_for_prisma),
             )
             render_prisma_diagram(prisma_counts, state.artifacts["prisma_diagram"])
             render_timeline(state.included_papers, state.artifacts["timeline"])
@@ -3251,6 +3308,12 @@ class WritingNode(BaseNode[ReviewState]):
                     if _fpath_str and _pathlib.Path(_fpath_str).exists():
                         _fig_map[_fkey] = _fig_seq
                         _fig_seq += 1
+                _fulltext_ids_for_grounding: set[str] = set()
+                _papers_dir = _pathlib.Path(state.artifacts.get("papers_dir", ""))
+                if _papers_dir.exists():
+                    for _pf in _papers_dir.iterdir():
+                        if _pf.suffix.lower() in {".pdf", ".txt"} and _pf.stat().st_size > 0:
+                            _fulltext_ids_for_grounding.add(_pf.stem)
 
                 grounding = build_writing_grounding(
                     prisma_counts=prisma_counts,
@@ -3284,12 +3347,14 @@ class WritingNode(BaseNode[ReviewState]):
                     ),
                     fulltext_sought=state.fulltext_sought,
                     fulltext_not_retrieved=state.fulltext_not_retrieved,
+                    sparse_evidence_mode=state.sparse_evidence_mode,
                     rob2_assessments=_rob2_rows_w or None,
                     robins_i_assessments=_robins_i_rows_w or None,
                     casp_assessments=_casp_rows_w or None,
                     mmat_assessments=_mmat_rows_w or None,
                     grade_assessments=_grade_rows_w or None,
                     figure_map=_fig_map or None,
+                    fulltext_paper_ids=_fulltext_ids_for_grounding or None,
                     fulltext_nonretrieval_caution_threshold=float(
                         getattr(
                             getattr(state.settings, "writing", None),
@@ -3880,6 +3945,10 @@ class WritingNode(BaseNode[ReviewState]):
                             len(_trimmed_abs.split()),
                         )
                         sections_written[_abs_idx] = _trimmed_abs
+                    sections_written[_abs_idx] = _ensure_structured_abstract(
+                        sections_written[_abs_idx],
+                        state.review.research_question if state.review else "",
+                    )
                 # Do not apply post-hoc semantic prose rewrites to abstract/methods/results.
                 # Prompt-grounded generation plus manuscript contracts own these guarantees.
 
@@ -3932,8 +4001,9 @@ class WritingNode(BaseNode[ReviewState]):
                 included_ids = await repository.get_included_paper_ids(state.workflow_id)
             included_papers_for_table = await repository.load_papers_by_ids(included_ids)
 
-        # Prefix each section with its standard IMRaD heading.
-        # The abstract is kept as-is (it already contains the title + structured fields).
+        # Prefix each section with its standard IMRaD heading and normalize
+        # section-body boundaries so leaked top-level headings cannot cascade into
+        # malformed abstract/section contracts.
         _SECTION_HEADINGS: dict[str, str] = {
             "abstract": "## Abstract",
             "introduction": "## Introduction",
@@ -3942,14 +4012,37 @@ class WritingNode(BaseNode[ReviewState]):
             "discussion": "## Discussion",
             "conclusion": "## Conclusion",
         }
+        _CANONICAL_H2_NAMES = ("Abstract", "Introduction", "Methods", "Results", "Discussion", "Conclusion", "References")
+        _inline_h2_re = re.compile(
+            r"\s+(##\s+(?:Abstract|Introduction|Methods|Results|Discussion|Conclusion|References)\b)",
+            flags=re.IGNORECASE,
+        )
+
+        def _sanitize_section_body_for_assembly(section_key: str, raw_text: str) -> str:
+            text = str(raw_text or "").strip()
+            # First normalize malformed heading/body patterns.
+            text = _normalize_subsection_heading_layout(text)
+            # Split inline top-level headings before boundary checks.
+            text = _inline_h2_re.sub(r"\n\n\1", text)
+            heading = _SECTION_HEADINGS.get(section_key, "")
+            if heading:
+                _name = heading.replace("## ", "").strip()
+                text = re.sub(rf"(?is)^\s*##\s*{re.escape(_name)}\b[ \t]*\n?", "", text).lstrip()
+            # Drop any leaked next top-level section to prevent run-on joins like
+            # "## Abstract ... ## Introduction ..." inside one section payload.
+            m = re.search(
+                r"(?m)^##\s+(?:Abstract|Introduction|Methods|Results|Discussion|Conclusion|References)\b",
+                text,
+            )
+            if m:
+                text = text[: m.start()].rstrip()
+            return text
+
         titled_sections = []
         for section, content in zip(SECTIONS, sections_written):
+            content = _replace_template_tokens(content, state.review)
+            content = _sanitize_section_body_for_assembly(section, content)
             heading = _SECTION_HEADINGS.get(section, "")
-            if heading:
-                # Keep only the canonical heading inserted by assembly.
-                stripped = content.lstrip()
-                if stripped.startswith(heading):
-                    content = stripped[len(heading) :].lstrip("\n")
             titled_sections.append(f"{heading}\n\n{content}" if heading else content)
 
         manuscript_path = Path(state.artifacts["manuscript_md"])
@@ -3969,16 +4062,25 @@ class WritingNode(BaseNode[ReviewState]):
                 for s in db_sections:
                     sec_key = s.section_key
                     heading = _heading_by_section.get(sec_key, "")
+                    sec_content = _sanitize_section_body_for_assembly(sec_key, s.content)
                     if heading:
-                        db_body_parts.append(f"{heading}\n\n{s.content}")
+                        db_body_parts.append(f"{heading}\n\n{sec_content}")
                     else:
-                        db_body_parts.append(s.content)
+                        db_body_parts.append(sec_content)
                 if db_body_parts:
                     body = "\n\n".join(db_body_parts)
         except Exception as db_section_exc:
             logger.debug("DB-first section assembly fallback to in-memory drafts: %s", db_section_exc)
+        body = _normalize_subsection_heading_layout(body)
+        for _h2 in _CANONICAL_H2_NAMES:
+            body = re.sub(
+                rf"(?im)^(##\s+{re.escape(_h2)}\b)\s+(.+)$",
+                r"\1\n\n\2",
+                body,
+            )
         if not re.search(r"(?m)^## Abstract\s*$", body):
             body = "## Abstract\n\n" + body.lstrip()
+        body = _replace_template_tokens(body, state.review)
 
         # --- Contradiction detection pass (Idea 3) ---
         # Detect directional disagreements between included studies and inject
@@ -4074,6 +4176,7 @@ class WritingNode(BaseNode[ReviewState]):
                 _verified, _hallucinated = verify_citation_grounding(body, _valid_citekeys, "full_manuscript")
                 if _hallucinated:
                     body = repair_hallucinated_citekeys(body, _hallucinated, _valid_citekeys)
+                    body = _replace_template_tokens(body, state.review)
                     logger.warning(
                         "Citation grounding: repaired %d hallucinated citekeys: %s",
                         len(_hallucinated),
@@ -4594,12 +4697,6 @@ class FinalizeNode(BaseNode[ReviewState]):
                     workflow_id=state.workflow_id,
                 )
                 _cited_citekeys = set(_num_map.values())
-                # Keep methodology/background SR references in references.bib
-                # even when they are rendered in non-numeric prose forms.
-                async with get_db(state.db_path) as _cite_db:
-                    _cite_repo = CitationRepository(_cite_db)
-                    _always_export = await _cite_repo.get_citekeys_by_source_types({"background_sr", "methodology"})
-                _cited_citekeys.update(_always_export)
                 # Also provide direct old->new key mapping so bracketed legacy keys
                 # (e.g. [Paper_xxx], [Engineering Inclusiv]) resolve to the sanitized
                 # keys used in references.bib.
@@ -4674,13 +4771,40 @@ class FinalizeNode(BaseNode[ReviewState]):
                     logger.warning("FinalizeNode: %s", _msg)
                     if rc and hasattr(rc, "log_status"):
                         rc.log_status(_msg)
-                _protocol = _proto_gen.generate(state.workflow_id, state.review)
+                # Always regenerate protocol markdown during finalize so strict
+                # placeholder contracts do not rely on stale phase-2 artifacts.
+                _protocol_doc = _proto_gen.generate(state.workflow_id, state.review, state.settings)
+                _protocol_md = _proto_gen.render_markdown(_protocol_doc, state.review)
+                _protocol_md_path = _proto_gen.write_markdown(state.workflow_id, _protocol_md)
+                state.artifacts["protocol"] = str(_protocol_md_path)
+                _protocol = _protocol_doc
                 _synthesis_method: str = _protocol.planned_synthesis_method
-                _fulltext_retrieved = state.fulltext_sought - state.fulltext_not_retrieved
+                _included_ids: set[str] = set()
+                try:
+                    async with get_db(state.db_path) as _inc_db:
+                        _inc_repo = WorkflowRepository(_inc_db)
+                        _included_ids = await _inc_repo.get_synthesis_included_paper_ids(state.workflow_id)
+                except Exception:
+                    _included_ids = set()
+                if not _included_ids:
+                    _included_ids = {str(p.paper_id) for p in (state.included_papers or []) if getattr(p, "paper_id", "")}
+                _fulltext_ids: set[str] = set()
+                _manifest_path = Path(state.artifacts.get("papers_manifest", ""))
+                if _manifest_path.exists():
+                    try:
+                        _manifest = json.loads(_manifest_path.read_text(encoding="utf-8"))
+                        for _pid, _entry in (_manifest or {}).items():
+                            if (_entry or {}).get("file_path"):
+                                _fulltext_ids.add(str(_pid))
+                    except Exception as _manifest_err:  # noqa: BLE001
+                        logger.warning(
+                            "FinalizeNode: could not derive fulltext IDs from papers manifest: %s",
+                            _manifest_err,
+                        )
+                _fulltext_retrieved = len(_fulltext_ids.intersection(_included_ids)) if _included_ids else 0
                 if _fulltext_retrieved <= 0:
                     # Resume-from-finalize may not have in-memory fulltext counters.
                     # Fall back to papers manifest / papers dir on disk.
-                    _manifest_path = Path(state.artifacts.get("papers_manifest", ""))
                     if _manifest_path.exists():
                         try:
                             _manifest = json.loads(_manifest_path.read_text(encoding="utf-8"))
@@ -4704,10 +4828,17 @@ class FinalizeNode(BaseNode[ReviewState]):
                 _run_data = ProsperoRunData(
                     search_counts=state.search_counts,
                     search_queries=state.search_queries,
-                    included_count=len(state.included_papers),
+                    included_count=len(_included_ids),
                     fulltext_retrieved_count=max(0, _fulltext_retrieved),
                     run_id=state.run_id,
                     synthesis_method=_synthesis_method,
+                    other_methods_searched=sorted(
+                        {
+                            str(name)
+                            for name in (state.search_counts or {}).keys()
+                            if str(name) not in {str(db) for db in (state.review.target_databases or [])}
+                        }
+                    ),
                 )
                 _prospero_md = _proto_gen.render_prospero_markdown(_protocol, state.review, _run_data)
                 _prospero_md_path = _proto_gen.write_prospero_markdown(_prospero_md)
@@ -4811,6 +4942,10 @@ class FinalizeNode(BaseNode[ReviewState]):
                         workflow_id=state.workflow_id,
                         manuscript_md_path=_manuscript_path,
                         manuscript_tex_path=state.artifacts.get("manuscript_tex"),
+                        extra_artifact_paths=[
+                            state.artifacts.get("protocol", ""),
+                            state.artifacts.get("prospero_form_md", ""),
+                        ],
                         mode=_contract_mode,
                     )
                     _contract_summary = {

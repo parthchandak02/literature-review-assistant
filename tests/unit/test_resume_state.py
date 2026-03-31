@@ -68,6 +68,66 @@ async def test_load_resume_state_phase3(tmp_path) -> None:
 
 
 @pytest.mark.asyncio
+async def test_load_resume_state_prefers_config_snapshot_over_workspace_review(tmp_path) -> None:
+    run_dir = tmp_path / "2026-02-16" / "topic" / "run_01-00-00PM"
+    run_dir.mkdir(parents=True, exist_ok=True)
+    db_path = run_dir / "runtime.db"
+    (run_dir / "config_snapshot.yaml").write_text(
+        "\n".join(
+            [
+                "research_question: Snapshot RQ",
+                "review_type: systematic",
+                "pico:",
+                "  population: Snapshot population",
+                "  intervention: Snapshot intervention",
+                "  comparison: Snapshot comparison",
+                "  outcome: Snapshot outcome",
+                "keywords: [snapshot]",
+                "domain: Snapshot domain",
+                "scope: Snapshot scope",
+                "inclusion_criteria: ['Include snapshot']",
+                "exclusion_criteria: ['Exclude snapshot']",
+                "date_range_start: 2020",
+                "date_range_end: 2024",
+                "target_databases: [openalex]",
+                "target_sections: [abstract, introduction, methods, results, discussion, conclusion]",
+                "search_query: snapshot query",
+                "search_overrides: {}",
+                "quality_framework: rob2",
+                "meta_analysis_required: false",
+                "min_studies_for_meta: 2",
+                "citation_style: ieee",
+                "manuscript_output: markdown",
+                "protocol:",
+                "  registration_number: ''",
+                "funding:",
+                "  source: None declared",
+                "conflicts_of_interest: None declared",
+                "ethical_approval: Not required",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    async with get_db(str(db_path)) as db:
+        await db.executescript(Path("src/db/schema.sql").read_text())
+        await db.commit()
+        repo = WorkflowRepository(db)
+        await repo.create_workflow("wf-snapshot", "Workspace RQ", "abc123")
+        await repo.save_checkpoint("wf-snapshot", "phase_2_search", papers_processed=0)
+
+    state, _ = await load_resume_state(
+        db_path=str(db_path),
+        workflow_id="wf-snapshot",
+        review_path="config/review.yaml",
+        settings_path="config/settings.yaml",
+        run_root=str(tmp_path),
+    )
+    assert state.review is not None
+    assert state.review.research_question == "Snapshot RQ"
+    assert state.review.pico.intervention == "Snapshot intervention"
+
+
+@pytest.mark.asyncio
 async def test_load_resume_state_from_phase(tmp_path) -> None:
     """Resume from a specific phase clears checkpoints for that phase and later."""
     run_dir = tmp_path / "2026-02-16" / "topic" / "run_01-00-00PM"

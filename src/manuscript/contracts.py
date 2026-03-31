@@ -71,7 +71,7 @@ def _extract_headings_md(md_text: str) -> list[tuple[int, str]]:
         m = re.match(r"^(#{2,4})\s+(.+)$", line.strip())
         if not m:
             continue
-        out.append((len(m.group(1)), m.group(2).strip()))
+        out.append((len(m.group(1)), _normalize_heading_for_parity(m.group(2))))
     return out
 
 
@@ -81,17 +81,25 @@ def _extract_headings_tex(tex_text: str) -> list[tuple[int, str]]:
         s = line.strip()
         m1 = re.match(r"^\\section\{(.+)\}$", s)
         if m1:
-            out.append((2, m1.group(1).strip()))
+            out.append((2, _normalize_heading_for_parity(m1.group(1))))
             continue
         m2 = re.match(r"^\\subsection\{(.+)\}$", s)
         if m2:
-            out.append((3, m2.group(1).strip()))
+            out.append((3, _normalize_heading_for_parity(m2.group(1))))
             continue
         m3 = re.match(r"^\\subsubsection\{(.+)\}$", s)
         if m3:
-            out.append((4, m3.group(1).strip()))
+            out.append((4, _normalize_heading_for_parity(m3.group(1))))
             continue
     return out
+
+
+def _normalize_heading_for_parity(raw: str) -> str:
+    title = str(raw or "").strip()
+    title = re.sub(r"\s*(?:\[[^\]]+\]\s*)+$", "", title)
+    title = re.sub(r"\\[A-Za-z]+\{([^}]*)\}", r"\1", title)
+    title = re.sub(r"[^A-Za-z0-9 ]+", " ", title)
+    return re.sub(r"\s{2,}", " ", title).strip().lower()
 
 
 def _find_malformed_heading_lines(md_text: str) -> list[str]:
@@ -100,10 +108,13 @@ def _find_malformed_heading_lines(md_text: str) -> list[str]:
     spill_token_re = re.compile(r"\b(The|This|These|We|Our|In|Across|To|A|An)\b")
     for raw_line in md_text.splitlines():
         line = raw_line.strip()
-        m = re.match(r"^(#{3,6})\s+(.+)$", line)
+        m = re.match(r"^(#{2,6})\s+(.+)$", line)
         if not m:
             continue
         title = m.group(2).strip()
+        if "## " in title:
+            issues.append(line)
+            continue
         words = title.split()
         if not words:
             continue
@@ -126,7 +137,9 @@ def _extract_disclosed_included_counts(md_text: str) -> set[int]:
     patterns = (
         r"\b(\d{1,4})\s+(?:studies|study)\s+(?:were|was)?\s*included\b",
         r"\bincluded\s+(\d{1,4})\s+(?:studies|study)\b",
-        r"\bultimately,\s*(\d{1,4})\s+(?:studies|study)\b",
+        r"\bultimately,?\s*(\d{1,4})\s+(?:studies|study)\b",
+        r"\bwith\s+(\d{1,4})\s+(?:studies|study)\s+ultimately\s+included\b",
+        r"\bwe\s+included\s+(\d{1,4})\s+(?:studies|study)\b",
     )
     for line in body.splitlines():
         stripped = line.strip()
@@ -157,8 +170,8 @@ def _is_heading_subsequence(needles: list[tuple[int, str]], haystack: list[tuple
 
 _AI_LEAKAGE_PATTERNS = re.compile(
     r"\b("
-    r"as an ai|language model|i cannot access|i do not have access|"
-    r"chatgpt|claude|gemini|assistant:|"
+    r"as an ai language model|as a language model|i cannot access|i do not have access|"
+    r"assistant:|"
     r"```|import re\b|subprocess\.run|pip install|"
     r"Congratulations on finishing"
     r")\b",
@@ -174,7 +187,7 @@ def _find_snake_case_prose_tokens(md_text: str) -> list[str]:
     token_re = re.compile(r"\b[a-z][a-z0-9]+_[a-z0-9_]+\b")
     for line in body.splitlines():
         stripped = line.strip()
-        if not stripped or stripped.startswith("#") or stripped.startswith("|"):
+        if not stripped or stripped.startswith("#") or stripped.startswith("|") or stripped.startswith("!["):
             continue
         for token in token_re.findall(stripped):
             hits.add(token)
@@ -217,26 +230,66 @@ def _find_meta_feasibility_contradiction(md_text: str) -> bool:
 
 def _find_protocol_registration_contradiction(md_text: str) -> bool:
     """Detect contradictory protocol registration claims."""
-    low = md_text.lower()
-    prospective_markers = (
-        "registered prospectively",
-        "prospectively registered",
+    lines = [ln.strip().lower() for ln in md_text.splitlines() if ln.strip()]
+    has_non_prospective = any(
+        ("not prospectively registered" in ln) or ("post-hoc registration" in ln) for ln in lines
     )
-    non_prospective_markers = (
-        "not prospectively registered",
-        "post-hoc registration",
+    if not has_non_prospective:
+        return False
+    # Positive markers must appear in a non-negated context.
+    has_prospective_positive = any(
+        (
+            ("registered prospectively" in ln or "prospectively registered" in ln)
+            and ("not prospectively registered" not in ln)
+        )
+        for ln in lines
     )
-    return any(m in low for m in prospective_markers) and any(m in low for m in non_prospective_markers)
+    return has_non_prospective and has_prospective_positive
+
+
+def _canonical_h2_name(raw_heading: str) -> str:
+    text = re.sub(r"\*\*", "", str(raw_heading or ""))
+    text = re.sub(r"[_`]+", " ", text).strip().lower()
+    text = re.sub(r"[^a-z0-9 ]+", " ", text)
+    return re.sub(r"\s{2,}", " ", text).strip()
+
+
+def _extract_abstract_lines(md_text: str) -> list[str]:
+    normalized = re.sub(r"\s+(##\s+)", r"\n\n\1", md_text)
+    lines = normalized.splitlines()
+    in_abstract = False
+    abstract_lines: list[str] = []
+    for line in lines:
+        stripped = line.strip()
+        m = re.match(r"^##\s+abstract\b(.*)$", stripped, flags=re.IGNORECASE)
+        if m:
+            in_abstract = True
+            remainder = m.group(1).strip()
+            if remainder:
+                abstract_lines.append(remainder)
+            continue
+        if in_abstract and stripped.startswith("## "):
+            break
+        if in_abstract:
+            if stripped.lower().startswith("**keywords"):
+                continue
+            abstract_lines.append(stripped)
+    return abstract_lines
 
 
 def _find_missing_required_h2_sections(md_text: str) -> list[str]:
     """Return required top-level sections missing from manuscript."""
     required = ("abstract", "introduction", "methods", "results", "discussion", "conclusion", "references")
-    present = {
-        m.group(1).strip().lower()
-        for line in md_text.splitlines()
-        if (m := re.match(r"^##\s+(.+)$", line.strip()))
-    }
+    present: set[str] = set()
+    for line in md_text.splitlines():
+        m = re.match(r"^##\s+(.+)$", line.strip())
+        if not m:
+            continue
+        heading = _canonical_h2_name(m.group(1))
+        for name in required:
+            if heading == name or heading.startswith(f"{name} "):
+                present.add(name)
+                break
     return [name for name in required if name not in present]
 
 
@@ -248,7 +301,11 @@ def _find_section_order_violation(md_text: str) -> str | None:
         m = re.match(r"^##\s+(.+)$", line.strip())
         if not m:
             continue
-        key = m.group(1).strip().lower()
+        key = _canonical_h2_name(m.group(1))
+        for req in required:
+            if key == req or key.startswith(f"{req} "):
+                key = req
+                break
         if key in required and key not in order:
             order[key] = idx
     if len(order) < len(required):
@@ -264,11 +321,29 @@ def _find_missing_prisma_statements(md_text: str) -> list[str]:
     low = md_text.lower()
     missing: list[str] = []
 
-    if "independent reviewer" not in low:
+    if (
+        ("independent reviewer" not in low)
+        and ("independent reviewers" not in low)
+        and ("independent dual review" not in low)
+        and ("two independent reviewers" not in low)
+    ):
         missing.append("selection_process_independent_reviewers")
-    if "reports sought for retrieval" not in low:
+    if re.search(
+        r"reports?\s+(?:were\s+|was\s+|being\s+)?(?:\w+\s+){0,3}?sought\s+for(?:\s+full[-\u2010-\u2015 ]text)?\s+retrieval",
+        low,
+    ) is None and re.search(
+        r"\b(?:\d+\s+)?reports?\s+for\s+full[-\u2010-\u2015 ]text\s+retrieval\b",
+        low,
+    ) is None and re.search(
+        r"sought\s+full[-\u2010-\u2015 ]text\s+retrieval\s+for\s+(?:the\s+remaining\s+)?\d+\s+reports?",
+        low,
+    ) is None:
         missing.append("study_selection_reports_sought_sentence")
-    if "reports were not retrieved" not in low and "not retrieved" not in low:
+    if (
+        re.search(r"reports?\s+(?:were\s+|was\s+)?not\s+retrieved", low) is None
+        and re.search(r"(?:reports?\s+)?could\s+not\s+be\s+retrieved", low) is None
+        and re.search(r"reports?\s+remained\s+irretrievable", low) is None
+    ):
         missing.append("study_selection_not_retrieved_disclosure")
     if "protocol registration" not in low and "registered" not in low:
         missing.append("protocol_registration_disclosure")
@@ -283,7 +358,7 @@ def _find_duplicate_h2_sections(md_text: str) -> list[str]:
     for line in md_text.splitlines():
         m = re.match(r"^##\s+(.+)$", line.strip())
         if m:
-            headings.append(m.group(1).strip().lower())
+            headings.append(_canonical_h2_name(m.group(1)))
     counts = Counter(headings)
     return [title for title, n in counts.items() if n > 1]
 
@@ -297,6 +372,10 @@ def _detect_ai_leakage(md_text: str) -> list[str]:
         stripped = line.strip()
         if not stripped or stripped.startswith("#"):
             continue
+        # Study tables can legitimately mention AI system names (e.g., ChatGPT)
+        # as intervention content; leakage checks target narrative/code artifacts.
+        if stripped.startswith("|"):
+            continue
         if _AI_LEAKAGE_PATTERNS.search(stripped):
             hits.append(stripped[:120])
     return hits
@@ -304,25 +383,56 @@ def _detect_ai_leakage(md_text: str) -> list[str]:
 
 def _abstract_word_count(md_text: str) -> int | None:
     """Count words in the abstract body (excludes Keywords line)."""
-    lines = md_text.splitlines()
-    in_abstract = False
-    abstract_lines: list[str] = []
-    for line in lines:
-        stripped = line.strip()
-        if stripped.startswith("## ") and "abstract" in stripped.lower():
-            in_abstract = True
-            continue
-        if in_abstract and stripped.startswith("## "):
-            break
-        if in_abstract:
-            if stripped.lower().startswith("**keywords"):
-                continue
-            abstract_lines.append(stripped)
+    abstract_lines = _extract_abstract_lines(md_text)
     if not abstract_lines:
         return None
     text = " ".join(abstract_lines)
     text = re.sub(r"\*\*[^*]+\*\*:?", "", text)
     return len(text.split())
+
+
+def _missing_abstract_fields(md_text: str) -> list[str]:
+    """Return required structured abstract labels missing from abstract section."""
+    abstract_lines = _extract_abstract_lines(md_text)
+    if not abstract_lines:
+        return ["background", "objectives", "methods", "results", "conclusions"]
+    abstract_text = "\n".join(abstract_lines)
+    required = {
+        "background": r"\*\*Background:\*\*",
+        "objectives": r"\*\*Objectives:\*\*",
+        "methods": r"\*\*Methods:\*\*",
+        "results": r"\*\*Results:\*\*",
+        "conclusions": r"\*\*(Conclusion|Conclusions):\*\*",
+    }
+    return [name for name, pattern in required.items() if re.search(pattern, abstract_text, flags=re.IGNORECASE) is None]
+
+
+def _find_protocol_registration_future_tense(md_text: str) -> bool:
+    """Detect future-tense protocol registration claims in finalized manuscript."""
+    low = md_text.lower()
+    patterns = (
+        "will be registered",
+        "to be registered",
+        "planned registration",
+        "will register",
+    )
+    return any(p in low for p in patterns)
+
+
+def _extract_cited_citekeys_from_tex(tex_text: str) -> set[str]:
+    """Extract citekeys from LaTeX \\cite{...} commands."""
+    keys: set[str] = set()
+    for match in re.finditer(r"\\cite\{([^}]+)\}", tex_text):
+        for part in match.group(1).split(","):
+            k = part.strip()
+            if k:
+                keys.add(k)
+    return keys
+
+
+def _extract_bib_keys(bib_text: str) -> set[str]:
+    """Extract BibTeX entry keys from references.bib."""
+    return {m.group(1).strip() for m in re.finditer(r"@\w+\{([^,]+),", bib_text)}
 
 
 def _hard_failure(mode: str, code: str) -> bool:
@@ -344,9 +454,13 @@ def _hard_failure(mode: str, code: str) -> bool:
             "SECTION_ORDER_INVALID",
             "PRISMA_STATEMENT_MISSING",
             "PROTOCOL_REGISTRATION_CONTRADICTION",
+            "PROTOCOL_REGISTRATION_FUTURE_TENSE",
             "MODEL_ID_LEAKAGE",
             "META_FEASIBILITY_CONTRADICTION",
             "ABSTRACT_OVER_LIMIT",
+            "ABSTRACT_STRUCTURE_MISSING_FIELDS",
+            "UNUSED_BIB_ENTRY",
+            "ARTIFACT_PLACEHOLDER_LEAK",
         }
     return True
 
@@ -358,6 +472,7 @@ async def run_manuscript_contracts(
     workflow_id: str,
     manuscript_md_path: str,
     manuscript_tex_path: str | None,
+    extra_artifact_paths: list[str] | None = None,
     mode: str = "observe",
 ) -> ManuscriptContractResult:
     """Validate manuscript integrity invariants across DB and artifacts."""
@@ -479,13 +594,14 @@ async def run_manuscript_contracts(
     if manuscript_tex_path and tex_text:
         md_heads = _extract_headings_md(md_text)
         tex_heads = _extract_headings_tex(tex_text)
-        if md_heads and tex_heads and not _is_heading_subsequence(tex_heads, md_heads):
+        md_heads_for_parity = [h for h in md_heads if not (h[0] == 2 and h[1] == "abstract")]
+        if md_heads_for_parity and tex_heads and not _is_heading_subsequence(tex_heads, md_heads_for_parity):
             violations.append(
                 ContractViolation(
                     code="HEADING_PARITY_MISMATCH",
                     severity="error",
                     message="Markdown and LaTeX heading trees diverge.",
-                    expected=str(md_heads[:20]),
+                    expected=str(md_heads_for_parity[:20]),
                     actual=str(tex_heads[:20]),
                 )
             )
@@ -586,6 +702,15 @@ async def run_manuscript_contracts(
             )
         )
 
+    if _find_protocol_registration_future_tense(md_text):
+        violations.append(
+            ContractViolation(
+                code="PROTOCOL_REGISTRATION_FUTURE_TENSE",
+                severity="error",
+                message="Manuscript contains future-tense protocol registration claims.",
+            )
+        )
+
     abs_words = _abstract_word_count(md_text)
     if abs_words is not None and abs_words > 250:
         violations.append(
@@ -597,6 +722,59 @@ async def run_manuscript_contracts(
                 actual=str(abs_words),
             )
         )
+    missing_abs = _missing_abstract_fields(md_text)
+    if missing_abs:
+        violations.append(
+            ContractViolation(
+                code="ABSTRACT_STRUCTURE_MISSING_FIELDS",
+                severity="error",
+                message="Structured abstract is missing required labeled fields.",
+                actual=str(missing_abs),
+            )
+        )
+
+    if manuscript_tex_path and tex_text:
+        bib_path = Path(manuscript_tex_path).parent / "references.bib"
+        if bib_path.exists():
+            bib_keys = _extract_bib_keys(bib_path.read_text(encoding="utf-8"))
+            cited_keys = _extract_cited_citekeys_from_tex(tex_text)
+            unused = sorted(k for k in bib_keys if k not in cited_keys)
+            if unused:
+                violations.append(
+                    ContractViolation(
+                        code="UNUSED_BIB_ENTRY",
+                        severity="error",
+                        message="references.bib contains entries not cited in manuscript.tex.",
+                        actual=str(unused[:20]),
+                    )
+                )
+
+    if extra_artifact_paths:
+        leaked_files: list[str] = []
+        banned = re.compile(r"\b(TBD|TODO|TO BE ASSIGNED)\b", flags=re.IGNORECASE)
+        for p in extra_artifact_paths:
+            if not p:
+                continue
+            path = Path(p)
+            if not path.is_file():
+                continue
+            if path.suffix.lower() not in {".md", ".tex", ".txt"}:
+                continue
+            try:
+                txt = path.read_text(encoding="utf-8")
+            except Exception:
+                continue
+            if banned.search(txt):
+                leaked_files.append(path.name)
+        if leaked_files:
+            violations.append(
+                ContractViolation(
+                    code="ARTIFACT_PLACEHOLDER_LEAK",
+                    severity="error",
+                    message="Submission-critical artifacts contain banned placeholder tokens.",
+                    actual=str(sorted(set(leaked_files))),
+                )
+            )
 
     grade_count_row = await repository.db.execute(
         "SELECT COUNT(*) FROM grade_assessments WHERE workflow_id = ?",
