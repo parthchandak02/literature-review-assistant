@@ -5,7 +5,7 @@ description: Implements manuscript section writing with citation lineage. Use wh
 
 # Manuscript Section Writing
 
-Guide for implementing the section writer with full citation lineage enforcement.
+Guide for implementing structured section writing with full citation lineage enforcement.
 
 ## Per-Section Requirements
 
@@ -32,6 +32,15 @@ Must reference: PRISMA diagram, study characteristics table, RoB traffic-light f
 
 ### Discussion
 Key findings, comparison with prior work, strengths, limitations, implications.
+
+## Structured Writing Workflow (current)
+
+1. `SectionWriter.write_section_structured_async()` requests schema-constrained JSON output
+2. Validate with `StructuredSectionDraft` and sanitize block text deterministically
+3. Run completeness checks (substantive paragraphs, non-empty required subsection bodies, no trailing fragments)
+4. If completeness fails, retry once with deterministic retry instructions
+5. If still malformed, use deterministic section fallback (grounding-backed where possible)
+6. Render with deterministic renderer (`render_section_markdown`) before persistence
 
 ## Citation Lineage Workflow
 For each claim in generated text:

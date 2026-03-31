@@ -1,0 +1,29 @@
+---
+description: Enforce deterministic structured LLM outputs across pipeline
+alwaysApply: true
+---
+
+# Deterministic LLM Output Contract
+
+Treat LLM output structure as a pipeline contract, not a cosmetic cleanup step.
+
+## Core policy
+
+- Never patch run artifacts under `runs/` to make outputs look clean.
+- Fix generation-time logic in `src/` so reruns produce correct structure by default.
+- Prefer fail-fast validation over silent post-hoc rewriting.
+
+## Required implementation pattern
+
+- Every phase that consumes LLM text must define explicit expected structure.
+- Prompts must require exact labeled blocks or schema-constrained fields.
+- Add deterministic sanitization only for bounded mechanical fixes (whitespace, marker cleanup, token normalization).
+- If required structure is missing, trigger a deterministic repair pass at source or fail the gate.
+- Keep one canonical source of truth for counts/facts used across manuscript, protocol, and exports.
+
+## Quality gates and tests
+
+- Add/maintain strict contract checks for headings, abstract fields, citation tokens, placeholders, and cross-artifact consistency.
+- Extend unit tests for each new structural contract and each previous regression.
+- A fix is complete only when rerun outputs pass contracts without manual artifact edits.
+
