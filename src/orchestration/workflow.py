@@ -1594,6 +1594,26 @@ class ScreeningNode(BaseNode[ReviewState]):
                 "title_abstract_cross_reviewed",
                 getattr(screener, "cross_review_count", 0),
             )
+            await repository.save_screening_metric(
+                state.workflow_id,
+                "batch_parse_degraded",
+                getattr(screener, "batch_parse_degraded_count", 0),
+            )
+            await repository.save_screening_metric(
+                state.workflow_id,
+                "batch_id_mismatch",
+                getattr(screener, "batch_id_mismatch_count", 0),
+            )
+            await repository.save_screening_metric(
+                state.workflow_id,
+                "batch_missing_fallback",
+                getattr(screener, "batch_missing_fallback_count", 0),
+            )
+            await repository.save_screening_metric(
+                state.workflow_id,
+                "contract_violation_count",
+                getattr(screener, "contract_violation_count", 0),
+            )
 
             # -- Forward citation chasing (PRISMA 2020 snowball supplement) --
             # Chased papers are immediately screened through both stages so they contribute
@@ -1770,6 +1790,10 @@ class ScreeningNode(BaseNode[ReviewState]):
                     "fast_path_include": getattr(screener, "fast_path_include_count", 0),
                     "fast_path_exclude": getattr(screener, "fast_path_exclude_count", 0),
                     "cross_reviewed": getattr(screener, "cross_review_count", 0),
+                    "batch_parse_degraded": getattr(screener, "batch_parse_degraded_count", 0),
+                    "batch_id_mismatch": getattr(screener, "batch_id_mismatch_count", 0),
+                    "batch_missing_fallback": getattr(screener, "batch_missing_fallback_count", 0),
+                    "contract_violation_count": getattr(screener, "contract_violation_count", 0),
                     "sparse_evidence_mode": state.sparse_evidence_mode,
                 },
             )

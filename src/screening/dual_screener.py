@@ -151,6 +151,10 @@ class DualReviewerScreener:
         self.fast_path_include_count: int = 0
         self.fast_path_exclude_count: int = 0
         self.cross_review_count: int = 0
+        self.batch_parse_degraded_count: int = 0
+        self.batch_id_mismatch_count: int = 0
+        self.batch_missing_fallback_count: int = 0
+        self.contract_violation_count: int = 0
 
     async def screen_title_abstract(self, workflow_id: str, paper: CandidatePaper) -> ScreeningDecision:
         result = await self._screen_one(
@@ -1125,6 +1129,7 @@ class DualReviewerScreener:
         fallback_count = max(0, len(papers) - parsed_count)
         out_of_chunk_count = parse_stats["out_of_chunk_items"]
         if out_of_chunk_count > 0:
+            self.batch_id_mismatch_count += out_of_chunk_count
             _log.warning(
                 "Batch %s returned %d out-of-chunk paper_ids; ignored",
                 spec.reviewer_type.value,
@@ -1150,6 +1155,7 @@ class DualReviewerScreener:
                 )
             )
         if fallback_count > 0:
+            self.batch_parse_degraded_count += fallback_count
             _log.warning(
                 "Batch %s parse coverage degraded: parsed %d/%d; %d papers require fallback "
                 "(parse_failed=%d schema_mismatch=%d out_of_chunk=%d)",
@@ -1349,6 +1355,7 @@ class DualReviewerScreener:
             # Fallback: any paper missing from the batch response is individually reviewed.
             for paper in chunk:
                 if paper.paper_id not in reviewer_a_map:
+                    self.batch_missing_fallback_count += 1
                     _log.warning("Batch A missing paper %s -- falling back to individual call", paper.paper_id)
                     if self.on_status:
                         self.on_status(f"Batch A missing paper {paper.paper_id} -- falling back to individual call")
@@ -1409,6 +1416,7 @@ class DualReviewerScreener:
                 reviewer_b_map.update(batch_result)
                 for paper in chunk:
                     if paper.paper_id not in reviewer_b_map:
+                        self.batch_missing_fallback_count += 1
                         _log.warning("Batch B missing paper %s -- falling back to individual call", paper.paper_id)
                         if self.on_status:
                             self.on_status(f"Batch B missing paper {paper.paper_id} -- falling back to individual call")
@@ -1575,6 +1583,7 @@ class DualReviewerScreener:
         decision = await self._request_decision(
             prompt=prompt,
             spec=spec,
+            workflow_id=workflow_id,
             paper_id=paper.paper_id,
             other_reviewer_decision=other_reviewer_decision,
         )
@@ -1609,6 +1618,7 @@ class DualReviewerScreener:
                 agent_name="screening_adjudicator",
                 reviewer_type=ReviewerType.ADJUDICATOR,
             ),
+            workflow_id=workflow_id,
             paper_id=paper.paper_id,
         )
         await self.repository.save_screening_decision(workflow_id=workflow_id, stage=stage, decision=decision)
@@ -1628,6 +1638,7 @@ class DualReviewerScreener:
         self,
         prompt: str,
         spec: ReviewerSpec,
+        workflow_id: str,
         paper_id: str,
         other_reviewer_decision: ScreeningDecisionType | None = None,
     ) -> ScreeningDecision:
@@ -1655,6 +1666,19 @@ class DualReviewerScreener:
         elapsed_ms = int((time.perf_counter() - started) * 1000)
         cost_usd = self.provider.estimate_cost(runtime.model, tokens_in, tokens_out, cache_write, cache_read)
         parsed = self._parse_response(raw)
+        if parsed.short_reason in {"Invalid JSON", "Invalid schema"}:
+            self.contract_violation_count += 1
+            await self.repository.append_decision_log(
+                DecisionLogEntry(
+                    workflow_id=workflow_id,
+                    decision_type="screening_contract_violation",
+                    paper_id=paper_id,
+                    decision=parsed.decision.value,
+                    rationale=parsed.reasoning,
+                    actor=spec.reviewer_type.value,
+                    phase="phase_3_screening",
+                )
+            )
         if self.on_llm_call:
             self.on_llm_call(
                 spec.agent_name,

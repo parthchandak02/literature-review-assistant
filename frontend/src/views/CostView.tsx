@@ -10,8 +10,8 @@ import {
 } from "recharts"
 import { DollarSign, Zap, ArrowUpDown, Activity } from "lucide-react"
 import { cn } from "@/lib/utils"
-import { fetchDbCosts } from "@/lib/api"
-import type { DbCostRow } from "@/lib/api"
+import { fetchDbCosts, fetchWorkflowValidationSummary } from "@/lib/api"
+import type { DbCostRow, ScreeningDiagnostics, ValidationSummary } from "@/lib/api"
 import type { CostStats, ModelStat, PhaseStat } from "@/hooks/useCostStats"
 import { FetchError, EmptyState } from "@/components/ui/feedback"
 import { SkeletonCard } from "@/components/ui/skeleton"
@@ -63,12 +63,15 @@ function formatPhaseName(phase: string): string {
 interface CostViewProps {
   costStats: CostStats
   dbRunId?: string | null
+  workflowId?: string | null
   isLive?: boolean
 }
 
-export function CostView({ costStats, dbRunId, isLive }: CostViewProps) {
+export function CostView({ costStats, dbRunId, workflowId, isLive }: CostViewProps) {
   const [dbRows, setDbRows] = useState<DbCostRow[]>([])
   const [dbTotalCost, setDbTotalCost] = useState(0)
+  const [screeningDiagnostics, setScreeningDiagnostics] = useState<ScreeningDiagnostics | null>(null)
+  const [validationSummary, setValidationSummary] = useState<ValidationSummary["latest_run"] | null>(null)
   const [loadingDb, setLoadingDb] = useState(false)
   const [dbError, setDbError] = useState<string | null>(null)
 
@@ -78,7 +81,11 @@ export function CostView({ costStats, dbRunId, isLive }: CostViewProps) {
     if (!dbRows.length) setLoadingDb(true)
     setDbError(null)
     fetchDbCosts(dbRunId)
-      .then((d) => { setDbRows(d.records); setDbTotalCost(d.total_cost) })
+      .then((d) => {
+        setDbRows(d.records)
+        setDbTotalCost(d.total_cost)
+        setScreeningDiagnostics(d.screening_diagnostics ?? null)
+      })
       .catch((e: unknown) => {
         const msg = e instanceof Error ? e.message : String(e)
         setDbError(
@@ -89,6 +96,13 @@ export function CostView({ costStats, dbRunId, isLive }: CostViewProps) {
       })
       .finally(() => setLoadingDb(false))
   }, [dbRunId, dbRows.length])
+
+  useEffect(() => {
+    if (!workflowId) return
+    fetchWorkflowValidationSummary(workflowId)
+      .then((res) => setValidationSummary(res.latest_run))
+      .catch(() => setValidationSummary(null))
+  }, [workflowId])
 
   // Always load from DB on mount, and poll every 5 s while the run is active
   // so costs from all phases (screening, extraction, writing, etc.) stay accurate.
@@ -360,6 +374,32 @@ export function CostView({ costStats, dbRunId, isLive }: CostViewProps) {
                 ))}
               </tbody>
             </table>
+          </div>
+        </div>
+      )}
+
+      {(screeningDiagnostics || validationSummary) && (
+        <div className="card-surface overflow-hidden">
+          <div className="glass-toolbar px-5 py-3 border-b border-zinc-800/70">
+            <h3 className="text-sm font-semibold text-zinc-300">Validation and Screening Diagnostics</h3>
+          </div>
+          <div className="p-5 space-y-3 text-xs text-zinc-300">
+            {validationSummary && (
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+                <div>Validation status: <span className="font-semibold">{validationSummary.status}</span></div>
+                <div>Profile: <span className="font-semibold">{validationSummary.profile}</span></div>
+                <div>Error checks: <span className="font-semibold">{validationSummary.error_count}</span></div>
+                <div>Warn checks: <span className="font-semibold">{validationSummary.warn_count}</span></div>
+              </div>
+            )}
+            {screeningDiagnostics && (
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-zinc-400">
+                <div>Batch parse degraded: {screeningDiagnostics.batch_parse_degraded}</div>
+                <div>Batch id mismatch: {screeningDiagnostics.batch_id_mismatch}</div>
+                <div>Missing fallback: {screeningDiagnostics.batch_missing_fallback}</div>
+                <div>Contract violations: {screeningDiagnostics.contract_violation_count}</div>
+              </div>
+            )}
           </div>
         </div>
       )}

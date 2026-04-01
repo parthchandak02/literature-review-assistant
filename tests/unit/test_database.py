@@ -18,6 +18,8 @@ from src.models import (
     SearchResult,
     SectionDraft,
     SourceCategory,
+    ValidationCheckRecord,
+    ValidationRunRecord,
 )
 
 
@@ -216,6 +218,38 @@ async def test_get_citekeys_by_source_types(tmp_path) -> None:
         )
         keys = await repo.get_citekeys_by_source_types({"background_sr", "methodology"})
         assert keys == {"Bg2021SR", "Page2021"}
+
+
+@pytest.mark.asyncio
+async def test_validation_run_and_checks_persistence(tmp_path) -> None:
+    db_path = tmp_path / "validation_tables.db"
+    async with get_db(str(db_path)) as db:
+        repo = WorkflowRepository(db)
+        run = ValidationRunRecord(
+            validation_run_id="val-1",
+            workflow_id="wf-1",
+            profile="quick",
+            status="running",
+            tool_version="test",
+        )
+        await repo.save_validation_run(run)
+        await repo.save_validation_check(
+            ValidationCheckRecord(
+                validation_run_id="val-1",
+                workflow_id="wf-1",
+                phase="phase_3_screening",
+                check_name="batch_contract",
+                status="pass",
+                severity="warn",
+                metric_value=0.0,
+            )
+        )
+        latest = await repo.get_latest_validation_run("wf-1")
+        assert latest is not None
+        assert latest.validation_run_id == "val-1"
+        checks = await repo.get_validation_checks("val-1")
+        assert len(checks) == 1
+        assert checks[0].check_name == "batch_contract"
 
 
 @pytest.mark.asyncio
