@@ -596,6 +596,9 @@ Contract codes (checked by pipeline automatically):
 - `PROTOCOL_REGISTRATION_CONTRADICTION` -- conflicting registration timing claims
 - `ABSTRACT_OVER_LIMIT` -- abstract exceeds 250 words
 - `GRADE_UNGROUNDED` -- GRADE mentioned but no DB rows
+- `SECTION_CONTENT_INCOMPLETE` -- required Results/Discussion section content is hollow or truncated
+- `IMPLICATIONS_MISPLACED` -- discussion-style implications content appears under Conclusion
+- `ROB_FIGURE_CAPTION_MISMATCH` -- RoB figure caption does not match active quality tools
 - `SNAKE_CASE_LEAKAGE` -- raw snake_case leaked into prose
 - `MODEL_ID_LEAKAGE` -- raw model IDs leaked into prose
 - `META_FEASIBILITY_CONTRADICTION` -- conflicting feasibility narrative
