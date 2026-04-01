@@ -234,6 +234,21 @@ def _sanitize_section_headings(section: str, content: str) -> str:
         if stripped.startswith("### ") or stripped.startswith("#### "):
             prefix = "####" if stripped.startswith("#### ") else "###"
             title = stripped[len(prefix) + 1 :].strip()
+            known_heading_prefixes = (
+                "Eligibility Criteria",
+                "Information Sources",
+                "Search Strategy",
+                "Selection Process",
+                "Data Collection Process",
+                "Data Items",
+                "Risk of Bias",
+                "Risk of Bias Assessment",
+                "Synthesis Methods",
+                "Protocol Registration",
+                "Study Selection",
+                "Study Characteristics",
+                "Synthesis of Findings",
+            )
             # Rejoin split headings like:
             # "### Risk of"
             # "Bias Assessment ..."
@@ -267,7 +282,12 @@ def _sanitize_section_headings(section: str, content: str) -> str:
             title = re.sub(r"\s*\\cite\{[^}]+\}", " ", title).strip()
             # Trim sentence spillover that should be body prose.
             title = re.split(r"[.;:!?]\s+", title, maxsplit=1)[0]
-            if len(title.split()) > 8 and re.search(r"\s+(?:was|were)\s+", title):
+            lower_title = title.lower()
+            if (
+                len(title.split()) > 8
+                and re.search(r"\s+(?:was|were)\s+", title)
+                and not any(lower_title.startswith(h.lower() + " ") for h in known_heading_prefixes)
+            ):
                 title = re.split(r"\s+(?:was|were)\s+", title, maxsplit=1)[0]
             # Drop known malformed title fragments.
             if title.lower() in _SECTION_NAMES:
@@ -293,25 +313,9 @@ def _sanitize_section_headings(section: str, content: str) -> str:
                     last_heading = heading_text
                     i += 1
                     continue
-            known_heading_prefixes = (
-                "Eligibility Criteria",
-                "Information Sources",
-                "Search Strategy",
-                "Selection Process",
-                "Data Collection Process",
-                "Data Items",
-                "Risk of Bias",
-                "Risk of Bias Assessment",
-                "Synthesis Methods",
-                "Protocol Registration",
-                "Study Selection",
-                "Study Characteristics",
-                "Synthesis of Findings",
-            )
             split_applied = False
             for known in known_heading_prefixes:
                 lower_known = known.lower()
-                lower_title = title.lower()
                 if lower_title.startswith(lower_known + " "):
                     heading_text = known
                     body_text = title[len(known) :].strip()
