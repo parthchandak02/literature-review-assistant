@@ -9,7 +9,7 @@ Guide for implementing structured section writing with full citation lineage enf
 
 ## Per-Section Requirements
 
-### Abstract (<= 230 words)
+### Abstract (config-driven cap; default 250)
 Must cover all 12 PRISMA 2020 abstract items:
 1. Title -- identify as systematic review/meta-analysis
 2. Objectives -- research question with PICO
@@ -41,6 +41,10 @@ Key findings, comparison with prior work, strengths, limitations, implications.
 4. If completeness fails, retry once with deterministic retry instructions
 5. If still malformed, use deterministic section fallback (grounding-backed where possible)
 6. Render with deterministic renderer (`render_section_markdown`) before persistence
+7. Apply deterministic post-trim with runtime settings:
+   - set abstract limit from `settings.ieee_export.max_abstract_words`
+   - trim target: `max(limit - writing.abstract_trim_headroom_words, writing.abstract_trim_floor_words)`
+   - enforce structured abstract fields before persistence
 
 ## Citation Lineage Workflow
 For each claim in generated text:

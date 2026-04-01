@@ -68,7 +68,7 @@ Known contract codes the pipeline already checks (non-exhaustive; source of trut
 - `MODEL_ID_LEAKAGE` -- raw model identifiers leaked into manuscript
 - `META_FEASIBILITY_CONTRADICTION` -- feasibility narrative conflicts
 
-Record which violations are already flagged. Do NOT re-report these in your findings -- they are already caught by the pipeline. Instead, note them in a "Pipeline Contracts Status" section and focus your audit on what contracts do NOT cover.
+Record which violations are already flagged. Do NOT re-report them as new findings. Instead, note them in a "Pipeline Contracts Status" section, treat failed contracts as readiness risk, and focus additional findings on gaps that contracts do NOT cover.
 
 ---
 
@@ -233,7 +233,7 @@ Build a comparison table: Dimension | This manuscript | Threshold | Gap | Source
 Structure your output as:
 
 ### Pipeline Contracts Status
-List each contract violation from `run_summary.json` with its code and status (pass/fail). These are already caught by the pipeline -- no action needed from the auditor.
+List each contract violation from `run_summary.json` with its code and status (pass/fail). Do not duplicate them as new findings, but clearly state the submission risk implied by any failed contract.
 
 ### Executive Summary
 One paragraph: quality level, top 3 issues, readiness scale (NOT READY / NEEDS MAJOR REVISION / NEEDS MINOR REVISION / SUBMISSION READY).

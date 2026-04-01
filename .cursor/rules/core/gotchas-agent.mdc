@@ -475,6 +475,12 @@ These are recurring manuscript issues and WHERE in the pipeline to fix them (nev
 - **Abstract ends mid-sentence after trim**: Fixed in `_trim_abstract_to_limit()` in
   `src/orchestration/workflow.py` -- trim now walks back to the last sentence-ending
   punctuation before cutting. Root cause: word-boundary trim on the longest bold field.
+- **Abstract limits are layered (not a single 230 hard cap)**: Runtime ceiling is
+  `settings.ieee_export.max_abstract_words` (default 250). Writing applies a conservative
+  trim target before that ceiling using:
+  `max(max_abstract_words - writing.abstract_trim_headroom_words, writing.abstract_trim_floor_words)`.
+  Contract validation (`ABSTRACT_OVER_LIMIT`) enforces the final ceiling. If docs/rules still
+  state a universal 230 hard cap, treat that as stale and align to config-driven behavior.
 - **Manuscript says "X reports sought" but uses the wrong count**: Fixed in `format_grounding_block()`
   in `src/writing/context_builder.py` -- `fulltext_sought`, `fulltext_not_retrieved`, and
   `fulltext_assessed` are now ALL injected as separately labeled numbers with a CRITICAL

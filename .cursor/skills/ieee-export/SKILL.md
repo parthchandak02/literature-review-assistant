@@ -12,7 +12,7 @@ Guide for implementing LaTeX export and the submission package.
 - `\cite{citekey}` numbered references
 - Tables: booktabs package
 - Figures: \includegraphics with proper paths
-- Abstract: target <= 230 words in writing stage; manuscript contract hard-fail at > 250 words
+- Abstract: target is derived from runtime settings (`max_abstract_words` with trim headroom/floor); default contract hard-fail is > 250 words
 
 ## Submission Package Structure
 ```
@@ -32,7 +32,7 @@ submission/
 ```
 
 ## Validation Checks
-- Abstract: <= 230 words
+- Abstract: writing trim target is below config ceiling; manuscript contract ceiling is `ieee_export.max_abstract_words` (default 250)
 - References: warn if < 30 or > 80
 - All \cite{} resolve in .bib
 - No [?] or placeholder text
