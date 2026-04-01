@@ -29,14 +29,16 @@ When the user asks to implement a build phase, follow these steps:
 | 3: Screening | Dual-reviewer, Prompts, Kappa | test_screening, test_reliability, test_dual_screening |
 | 4: Extraction | Extractor, RoB2, ROBINS-I, CASP, GRADE | test_rob2, test_robins_i, test_quality_pipeline |
 | 5: Synthesis | Effect sizes, Meta-analysis, Forest/Funnel | test_effect_size, test_meta_analysis, test_synthesis_pipeline |
-| 6: Writing | Section writer, prompts, SoF, humanizer guardrails, citation grounding, prior-section context chaining; abstract hard cap 230 words | test_writing_pipeline |
+| 6: Writing | Section writer, prompts, SoF, humanizer guardrails, citation grounding, prior-section context chaining; abstract limit follows `settings.ieee_export.max_abstract_words` with deterministic trim headroom/floor | test_writing_pipeline |
 | 7: PRISMA/Viz | PRISMA diagram, Timeline, Geographic | test_prisma_diagram |
 | 8: Export | Graph wiring, IEEE LaTeX, submission packaging, CLI, resume, workflow_registry | test_export, test_workflow_registry, test_resume_state, integration export/api tests |
 
 ## Phase 6 Acceptance Criteria (updated)
 - Per-section persistence: interrupted runs can resume writing without losing completed sections
 - Discussion and conclusion use prior-sections context rather than repeating earlier sections
-- Abstract is deterministically trimmed to <= 230 words after LLM generation
+- Abstract is deterministically trimmed using runtime settings:
+  - target: `max(ieee_export.max_abstract_words - writing.abstract_trim_headroom_words, writing.abstract_trim_floor_words)`
+  - contract ceiling: `ieee_export.max_abstract_words` (default 250)
 
 ## References
 @file:spec.md

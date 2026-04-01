@@ -428,7 +428,7 @@ Change rarely. Values are tuned from real runs.
 | `writing.*` | `humanization`, `humanization_iterations` (2), `checkpoint_per_section`, `llm_timeout` (120s) |
 | `risk_of_bias.*` | `rct_tool` (rob2), `non_randomized_tool` (robins_i), `qualitative_tool` (casp) |
 | `meta_analysis.*` | `enabled`, `heterogeneity_threshold` (50 = I-squared cutoff for fixed vs random effects), `funnel_plot_minimum_studies` (10), effect measures |
-| `ieee_export.*` | `template` (IEEEtran), `max_abstract_words` (250 config ceiling; writing currently enforces 230 via `_trim_abstract_to_limit()`), `target_page_range` ([7, 10]) |
+| `ieee_export.*` | `template` (IEEEtran), `max_abstract_words` (default 250; hard contract/export ceiling), `target_page_range` ([7, 10]) |
 | `citation_lineage.*` | `block_export_on_unresolved` (true), `minimum_evidence_score` (0.5) |
 | `search.*` | `max_results_per_db` (global default: 500), `per_database_limits` (per-connector overrides), `citation_chasing_concurrency` (5 -- concurrent S2/OpenAlex chase requests). Note: `citation_chasing_enabled` is a config-model default (false) unless explicitly set in YAML. |
 | `extraction.*` | `core_full_text`, `europepmc_full_text`, `semanticscholar_full_text` (toggles for full-text tiers), `sciencedirect_full_text`, `unpaywall_full_text`, `pmc_full_text`, `use_pdf_vision`, `full_text_min_chars` |

@@ -56,6 +56,7 @@ uv run python scripts/validate_workflow_replay.py --workflow-id wf-XXXX --profil
 
 Use local workflow data only (no synthetic dummy fixtures) when validating end-to-end behavior.
 All replay evidence is written to validation tables in that workflow's `runtime.db`.
+If the current task is strictly read-only planning/research, explicitly defer this step because it writes validation evidence.
 
 ---
 
