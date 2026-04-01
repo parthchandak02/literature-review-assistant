@@ -50,10 +50,10 @@ def test_fuzzy_match_exact_year_substring() -> None:
     assert result == "Smith2023"
 
 
-def test_fuzzy_match_prefix_three_chars() -> None:
+def test_fuzzy_match_rejects_short_prefix() -> None:
     valid = ["Rodriguez2020", "Jones2021"]
     result = _fuzzy_match_citekey("Rod2020", valid)
-    assert result == "Rodriguez2020"
+    assert result is None
 
 
 def test_fuzzy_match_no_year_returns_none() -> None:
@@ -75,12 +75,16 @@ def test_fuzzy_match_no_candidates_returns_none() -> None:
 
 
 def test_fuzzy_match_ambiguous_prefix_returns_none() -> None:
-    # Two candidates share the same 3-char prefix -- no confident match
+    # Two candidates share a prefix -- no confident match.
     valid = ["SmithA2020", "SmithB2020"]
     result = _fuzzy_match_citekey("Smi2020", valid)
-    # Both candidates have the same year and prefix; function returns None or one of them
-    # (implementation-dependent when there are >1 prefix_matches)
-    assert result is None or result in {"SmithA2020", "SmithB2020"}
+    assert result is None
+
+
+def test_fuzzy_match_does_not_use_year_only_fallback() -> None:
+    valid = ["PreviousSR2020"]
+    result = _fuzzy_match_citekey("Pre2020", valid)
+    assert result is None
 
 
 # ---------------------------------------------------------------------------
@@ -102,10 +106,10 @@ def test_repair_exact_fuzzy_match() -> None:
     assert "[SmithLong2023]" not in result
 
 
-def test_repair_no_match_replaced_with_placeholder() -> None:
+def test_repair_no_match_drops_unresolved_bracket() -> None:
     text = "See [Xyz9999] for details."
     result = repair_hallucinated_citekeys(text, ["Xyz9999"], ["Smith2023", "Jones2024"])
-    assert "(citation unavailable)" in result
+    assert "(citation unavailable)" not in result
     assert "[Xyz9999]" not in result
 
 
@@ -120,6 +124,20 @@ def test_repair_replaces_all_occurrences() -> None:
 def test_repair_empty_text_unchanged() -> None:
     result = repair_hallucinated_citekeys("", ["Fake2020"], ["Smith2023"])
     assert result == ""
+
+
+def test_repair_strips_uuid_like_bracket_tokens() -> None:
+    text = "Result remained positive [5a40ea3d-547] after screening."
+    result = repair_hallucinated_citekeys(text, [], ["Smith2023"])
+    assert "[5a40ea3d-547]" not in result
+
+
+def test_repair_strips_template_bracket_tokens() -> None:
+    text = "Effect of [INTERVENTION] on [OUTCOME] in [POPULATION]."
+    result = repair_hallucinated_citekeys(text, [], ["Smith2023"])
+    assert "[INTERVENTION]" not in result
+    assert "[OUTCOME]" not in result
+    assert "[POPULATION]" not in result
 
 
 # ---------------------------------------------------------------------------

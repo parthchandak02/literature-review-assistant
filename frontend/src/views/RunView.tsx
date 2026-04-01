@@ -404,6 +404,7 @@ export function RunView({
             <CostView
               costStats={costStats}
               dbRunId={run.runId}
+              workflowId={run.workflowId}
               isLive={isLive}
             />
           )}

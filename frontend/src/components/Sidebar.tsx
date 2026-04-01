@@ -124,7 +124,7 @@ export function Sidebar({
   const [resumingId, setResumingId] = useState<string | null>(null)
   const [archivingId, setArchivingId] = useState<string | null>(null)
   const [restoringId, setRestoringId] = useState<string | null>(null)
-  const [deletingId, setDeletingId] = useState<string | null>(null)
+  const [, setDeletingId] = useState<string | null>(null)
   const [deleteConfirmWorkflowId, setDeleteConfirmWorkflowId] =
     useState<string | null>(null)
   const [archivedExpanded, setArchivedExpanded] = useState(false)

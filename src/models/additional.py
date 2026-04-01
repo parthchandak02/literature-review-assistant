@@ -80,6 +80,7 @@ class ProsperoRunData(BaseModel):
     fulltext_retrieved_count: int = 0
     run_id: str = ""
     synthesis_method: str = ""
+    other_methods_searched: list[str] = Field(default_factory=list)
 
 
 class SummaryOfFindingsRow(BaseModel):

@@ -15,7 +15,7 @@ Paper -> Reviewer A (model resolved from config/settings.yaml -> agents.screenin
          -- reviewer configuration can differ in prompt bias and/or model tier
 
 If agree -> final_decision = agreed decision
-If disagree -> Adjudicator (model resolved from settings.yaml, currently flash tier, temp=0.2) sees both decisions -> final
+If disagree -> Adjudicator (model resolved from settings.yaml, currently flash-lite tier by default, temp=0.2) sees both decisions -> final
 ```
 
 ## Implementation Steps

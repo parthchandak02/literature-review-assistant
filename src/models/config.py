@@ -309,13 +309,13 @@ class ScreeningConfig(BaseModel):
         description="Number of papers per batch LLM call in the batch pre-ranker.",
     )
     batch_screen_threshold: float = Field(
-        default=0.35,
+        default=0.20,
         ge=0.0,
         le=1.0,
         description=(
             "Minimum relevance score (0-1) from the batch LLM ranker to forward a paper "
             "to the dual-reviewer. Papers below this threshold are auto-excluded as "
-            "batch_screened_low. Set deliberately low (0.35) to err on the side of recall."
+            "batch_screened_low. Set deliberately low (0.20) to err on the side of recall."
         ),
     )
     batch_screen_uncertain_band: float = Field(
@@ -416,6 +416,21 @@ class GatesConfig(BaseModel):
     profile: str = "strict"
     search_volume_minimum: int = 50
     screening_minimum: int = 5
+    sparse_topic_min: int = Field(
+        default=2,
+        ge=0,
+        description=(
+            "Absolute floor for included studies at screening. "
+            "Below this count, screening_safeguard always fails."
+        ),
+    )
+    sparse_topic_continuation: bool = Field(
+        default=True,
+        description=(
+            "When true, screening counts between sparse_topic_min and screening_minimum "
+            "continue in sparse-evidence mode (warning) instead of hard fail."
+        ),
+    )
     extraction_completeness_threshold: float = 0.80
     extraction_max_empty_rate: float = 0.35
     cost_budget_max: float = 20.0

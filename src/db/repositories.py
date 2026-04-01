@@ -6,6 +6,7 @@ import json
 import logging
 import re
 import sqlite3
+from datetime import UTC, datetime
 from hashlib import sha256
 from typing import Any
 
@@ -34,6 +35,9 @@ from src.models import (
     ScreeningDecisionType,
     SearchResult,
     SectionDraft,
+    ValidationArtifactRecord,
+    ValidationCheckRecord,
+    ValidationRunRecord,
 )
 from src.models.enums import SourceCategory
 from src.models.papers import compute_display_label
@@ -97,6 +101,12 @@ class WorkflowRepository:
                 workflow_id, paper_id, stage, decision, reason, exclusion_reason,
                 reviewer_type, confidence
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(workflow_id, paper_id, stage, reviewer_type) DO UPDATE SET
+                decision = excluded.decision,
+                reason = excluded.reason,
+                exclusion_reason = excluded.exclusion_reason,
+                confidence = excluded.confidence,
+                created_at = CURRENT_TIMESTAMP
             """,
             (
                 workflow_id,
@@ -156,10 +166,16 @@ class WorkflowRepository:
 
         await self.db.executemany(
             """
-            INSERT OR IGNORE INTO screening_decisions (
+            INSERT INTO screening_decisions (
                 workflow_id, paper_id, stage, decision, reason, exclusion_reason,
                 reviewer_type, confidence
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(workflow_id, paper_id, stage, reviewer_type) DO UPDATE SET
+                decision = excluded.decision,
+                reason = excluded.reason,
+                exclusion_reason = excluded.exclusion_reason,
+                confidence = excluded.confidence,
+                created_at = CURRENT_TIMESTAMP
             """,
             [
                 (
@@ -216,6 +232,23 @@ class WorkflowRepository:
         await self.db.commit()
 
     async def save_search_result(self, result: SearchResult) -> None:
+        # Idempotency on resume/re-run: replace existing row for the same
+        # workflow/database/source/query tuple instead of accumulating duplicates.
+        await self.db.execute(
+            """
+            DELETE FROM search_results
+            WHERE workflow_id = ?
+              AND database_name = ?
+              AND source_category = ?
+              AND search_query = ?
+            """,
+            (
+                result.workflow_id,
+                result.database_name,
+                result.source_category.value,
+                result.search_query,
+            ),
+        )
         await self.db.execute(
             """
             INSERT INTO search_results (
@@ -1308,6 +1341,139 @@ class WorkflowRepository:
             )
         )
 
+    async def save_validation_run(self, record: ValidationRunRecord) -> None:
+        """Insert or update a validation run metadata row."""
+        await self.db.execute(
+            """
+            INSERT INTO validation_runs (
+                validation_run_id, workflow_id, profile, status, tool_version, summary_json, started_at, completed_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(validation_run_id) DO UPDATE SET
+                status = excluded.status,
+                summary_json = excluded.summary_json,
+                completed_at = excluded.completed_at
+            """,
+            (
+                record.validation_run_id,
+                record.workflow_id,
+                record.profile,
+                record.status,
+                record.tool_version,
+                record.summary_json,
+                record.started_at.isoformat(),
+                record.completed_at.isoformat() if record.completed_at else None,
+            ),
+        )
+        await self.db.commit()
+
+    async def save_validation_check(self, record: ValidationCheckRecord) -> None:
+        """Persist a single validation check row."""
+        await self.db.execute(
+            """
+            INSERT INTO validation_checks (
+                validation_run_id, workflow_id, phase, check_name, status, severity,
+                metric_value, details_json, source_module, paper_id, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                record.validation_run_id,
+                record.workflow_id,
+                record.phase,
+                record.check_name,
+                record.status,
+                record.severity,
+                record.metric_value,
+                record.details_json,
+                record.source_module,
+                record.paper_id,
+                record.created_at.isoformat(),
+            ),
+        )
+        await self.db.commit()
+
+    async def save_validation_artifact(self, record: ValidationArtifactRecord) -> None:
+        """Persist validation artifact metadata/content pointers."""
+        await self.db.execute(
+            """
+            INSERT INTO validation_artifacts (
+                validation_run_id, workflow_id, artifact_key, artifact_type,
+                content_path, content_text, meta_json, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                record.validation_run_id,
+                record.workflow_id,
+                record.artifact_key,
+                record.artifact_type,
+                record.content_path,
+                record.content_text,
+                record.meta_json,
+                record.created_at.isoformat(),
+            ),
+        )
+        await self.db.commit()
+
+    async def get_latest_validation_run(self, workflow_id: str) -> ValidationRunRecord | None:
+        """Return latest validation run for a workflow, if present."""
+        cursor = await self.db.execute(
+            """
+            SELECT validation_run_id, workflow_id, profile, status, tool_version, summary_json, started_at, completed_at
+            FROM validation_runs
+            WHERE workflow_id = ?
+            ORDER BY started_at DESC
+            LIMIT 1
+            """,
+            (workflow_id,),
+        )
+        row = await cursor.fetchone()
+        if not row:
+            return None
+        started = datetime.fromisoformat(str(row[6])) if row[6] else datetime.now(UTC)
+        completed = datetime.fromisoformat(str(row[7])) if row[7] else None
+        return ValidationRunRecord(
+            validation_run_id=str(row[0]),
+            workflow_id=str(row[1]),
+            profile=str(row[2]),
+            status=str(row[3]),
+            tool_version=str(row[4]),
+            summary_json=str(row[5] or "{}"),
+            started_at=started,
+            completed_at=completed,
+        )
+
+    async def get_validation_checks(self, validation_run_id: str) -> list[ValidationCheckRecord]:
+        """Return ordered validation checks for a given validation run."""
+        cursor = await self.db.execute(
+            """
+            SELECT validation_run_id, workflow_id, phase, check_name, status, severity,
+                   metric_value, details_json, source_module, paper_id, created_at
+            FROM validation_checks
+            WHERE validation_run_id = ?
+            ORDER BY id ASC
+            """,
+            (validation_run_id,),
+        )
+        rows = await cursor.fetchall()
+        checks: list[ValidationCheckRecord] = []
+        for row in rows:
+            created_at = datetime.fromisoformat(str(row[10])) if row[10] else datetime.now(UTC)
+            checks.append(
+                ValidationCheckRecord(
+                    validation_run_id=str(row[0]),
+                    workflow_id=str(row[1]),
+                    phase=str(row[2]),
+                    check_name=str(row[3]),
+                    status=str(row[4]),
+                    severity=str(row[5]),
+                    metric_value=float(row[6]) if row[6] is not None else None,
+                    details_json=str(row[7] or "{}"),
+                    source_module=str(row[8]) if row[8] else None,
+                    paper_id=str(row[9]) if row[9] else None,
+                    created_at=created_at,
+                )
+            )
+        return checks
+
     async def save_cost_record(self, record: CostRecord) -> None:
         await self.db.execute(
             """
@@ -1717,6 +1883,86 @@ class WorkflowRepository:
         )
         await self.db.commit()
 
+    async def rollback_phase_data(self, workflow_id: str, from_phase: str) -> None:
+        """Delete phase-scoped data for explicit resume rewinds.
+
+        This enforces idempotent re-runs when a user resumes from an earlier
+        phase (especially `phase_2_search`) by clearing all downstream
+        materialized state before replay.
+        """
+        phase_order = [
+            "phase_2_search",
+            "phase_3_screening",
+            "phase_4_extraction_quality",
+            "phase_4b_embedding",
+            "phase_5_synthesis",
+            "phase_5b_knowledge_graph",
+            "phase_6_writing",
+            "finalize",
+        ]
+        if from_phase not in phase_order:
+            return
+
+        start_idx = phase_order.index(from_phase)
+
+        async def _delete(table: str, has_workflow_id: bool = True) -> None:
+            if has_workflow_id:
+                await self.db.execute(f"DELETE FROM {table} WHERE workflow_id = ?", (workflow_id,))
+            else:
+                await self.db.execute(f"DELETE FROM {table}")
+
+        # Writing/finalize artifacts and citation ledger
+        if start_idx <= phase_order.index("phase_6_writing"):
+            for table in (
+                "manuscript_assemblies",
+                "manuscript_assets",
+                "manuscript_blocks",
+                "manuscript_sections",
+                "section_drafts",
+            ):
+                await _delete(table)
+            # citations/claims/evidence_links are run-local in runtime.db
+            for table in ("evidence_links", "claims", "citations"):
+                await _delete(table, has_workflow_id=False)
+
+        # Knowledge graph stage
+        if start_idx <= phase_order.index("phase_5b_knowledge_graph"):
+            for table in ("paper_relationships", "graph_communities", "research_gaps"):
+                await _delete(table)
+
+        # Synthesis stage
+        if start_idx <= phase_order.index("phase_5_synthesis"):
+            await _delete("synthesis_results")
+
+        # Embedding stage
+        if start_idx <= phase_order.index("phase_4b_embedding"):
+            await _delete("paper_chunks_meta")
+            await _delete("rag_retrieval_diagnostics")
+
+        # Extraction + quality stages
+        if start_idx <= phase_order.index("phase_4_extraction_quality"):
+            for table in (
+                "extraction_records",
+                "rob_assessments",
+                "casp_assessments",
+                "mmat_assessments",
+                "grade_assessments",
+            ):
+                await _delete(table)
+
+        # Screening stage
+        if start_idx <= phase_order.index("phase_3_screening"):
+            for table in ("dual_screening_results", "screening_decisions", "study_cohort_membership"):
+                await _delete(table)
+
+        # Search stage
+        if start_idx <= phase_order.index("phase_2_search"):
+            await _delete("search_results")
+            # papers is run-local in runtime.db
+            await _delete("papers", has_workflow_id=False)
+
+        await self.db.commit()
+
     async def has_checkpoint_integrity(self, workflow_id: str) -> bool:
         cursor = await self.db.execute(
             "SELECT COUNT(*) FROM workflows WHERE workflow_id = ?",
@@ -2048,6 +2294,28 @@ class CitationRepository:
             )
             for row in rows
         ]
+
+    async def get_citekeys_by_source_types(self, source_types: set[str]) -> set[str]:
+        """Return citekeys for source_type values.
+
+        Falls back to empty set on legacy DBs that predate source_type.
+        """
+        if not source_types:
+            return set()
+        try:
+            placeholders = ",".join("?" * len(source_types))
+            cursor = await self.db.execute(
+                f"""
+                SELECT citekey
+                FROM citations
+                WHERE lower(COALESCE(source_type, '')) IN ({placeholders})
+                """,
+                tuple(t.lower() for t in sorted(source_types)),
+            )
+            rows = await cursor.fetchall()
+        except Exception:
+            return set()
+        return {str(row[0]) for row in rows if row and row[0]}
 
 
 async def merge_papers_from_parent(

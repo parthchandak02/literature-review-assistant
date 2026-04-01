@@ -5,7 +5,7 @@ description: Implements manuscript section writing with citation lineage. Use wh
 
 # Manuscript Section Writing
 
-Guide for implementing the section writer with full citation lineage enforcement.
+Guide for implementing structured section writing with full citation lineage enforcement.
 
 ## Per-Section Requirements
 
@@ -33,11 +33,21 @@ Must reference: PRISMA diagram, study characteristics table, RoB traffic-light f
 ### Discussion
 Key findings, comparison with prior work, strengths, limitations, implications.
 
+## Structured Writing Workflow (current)
+
+1. `SectionWriter.write_section_structured_async()` requests schema-constrained JSON output
+2. Validate with `StructuredSectionDraft` and sanitize block text deterministically
+3. Run completeness checks (substantive paragraphs, non-empty required subsection bodies, no trailing fragments)
+4. If completeness fails, retry once with deterministic retry instructions
+5. If still malformed, use deterministic section fallback (grounding-backed where possible)
+6. Render with deterministic renderer (`render_section_markdown`) before persistence
+
 ## Citation Lineage Workflow
 For each claim in generated text:
-1. `CitationLedger.register_claim(claim_text, section, confidence)`
-2. `CitationLedger.link_evidence(claim_id, citation_id, evidence_span, score)`
-3. After section complete: `CitationLedger.validate_section()` -- zero unresolved claims
+1. `CitationLedger.register_claim(ClaimRecord(...))`
+2. `CitationLedger.link_evidence(EvidenceLinkRecord(...))`
+3. Register citations with `CitationLedger.register_citation(CitationEntryRecord(...))`
+4. After section complete: `CitationLedger.validate_section()` -- zero unresolved claims
 4. Export blocks if any claim lacks evidence chain
 
 ## Humanization and Guardrails

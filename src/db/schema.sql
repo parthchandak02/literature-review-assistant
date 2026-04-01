@@ -285,9 +285,49 @@ CREATE TABLE IF NOT EXISTS event_log (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
+CREATE TABLE IF NOT EXISTS validation_runs (
+    validation_run_id TEXT PRIMARY KEY,
+    workflow_id TEXT NOT NULL,
+    profile TEXT NOT NULL,
+    status TEXT NOT NULL,
+    tool_version TEXT NOT NULL,
+    summary_json TEXT NOT NULL DEFAULT '{}',
+    started_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    completed_at TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS validation_checks (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    validation_run_id TEXT NOT NULL REFERENCES validation_runs(validation_run_id),
+    workflow_id TEXT NOT NULL,
+    phase TEXT NOT NULL,
+    check_name TEXT NOT NULL,
+    status TEXT NOT NULL,
+    severity TEXT NOT NULL,
+    metric_value REAL,
+    details_json TEXT NOT NULL DEFAULT '{}',
+    source_module TEXT,
+    paper_id TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS validation_artifacts (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    validation_run_id TEXT NOT NULL REFERENCES validation_runs(validation_run_id),
+    workflow_id TEXT NOT NULL,
+    artifact_key TEXT NOT NULL,
+    artifact_type TEXT NOT NULL,
+    content_path TEXT,
+    content_text TEXT,
+    meta_json TEXT NOT NULL DEFAULT '{}',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
 CREATE UNIQUE INDEX IF NOT EXISTS idx_papers_doi_unique ON papers(doi) WHERE doi IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_papers_doi ON papers(doi);
 CREATE INDEX IF NOT EXISTS idx_screening_paper ON screening_decisions(workflow_id, paper_id, stage);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_screening_decisions_unique
+    ON screening_decisions(workflow_id, paper_id, stage, reviewer_type);
 CREATE INDEX IF NOT EXISTS idx_search_results_workflow ON search_results(workflow_id);
 CREATE INDEX IF NOT EXISTS idx_dual_screening_stage_decision ON dual_screening_results(workflow_id, stage, final_decision);
 CREATE INDEX IF NOT EXISTS idx_extraction_records_workflow ON extraction_records(workflow_id);
@@ -301,6 +341,10 @@ CREATE INDEX IF NOT EXISTS idx_decision_log_workflow_phase ON decision_log(workf
 CREATE INDEX IF NOT EXISTS idx_gate_results_phase ON gate_results(phase);
 CREATE INDEX IF NOT EXISTS idx_event_log_workflow ON event_log(workflow_id);
 CREATE INDEX IF NOT EXISTS idx_event_log_workflow_type ON event_log(workflow_id, event_type);
+CREATE INDEX IF NOT EXISTS idx_validation_runs_workflow ON validation_runs(workflow_id, started_at DESC);
+CREATE INDEX IF NOT EXISTS idx_validation_checks_run_phase ON validation_checks(validation_run_id, phase);
+CREATE INDEX IF NOT EXISTS idx_validation_checks_workflow_status ON validation_checks(workflow_id, status);
+CREATE INDEX IF NOT EXISTS idx_validation_artifacts_run_key ON validation_artifacts(validation_run_id, artifact_key);
 CREATE INDEX IF NOT EXISTS idx_section_drafts_workflow ON section_drafts(workflow_id);
 CREATE INDEX IF NOT EXISTS idx_manuscript_sections_workflow_order ON manuscript_sections(workflow_id, section_order);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_manuscript_sections_workflow_order_version

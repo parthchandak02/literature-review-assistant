@@ -452,8 +452,8 @@ All phase boundaries use Pydantic models from `src/models/`. The contract layer 
 | Screening -> Extraction | `CandidatePaper` list (included papers) | `DualScreeningResult` per paper |
 | Extraction -> Quality | `CandidatePaper` + `ExtractionRecord` | `RoB2Assessment` / `RobinsIAssessment` / `GRADEOutcomeAssessment` |
 | Quality -> Synthesis | `ExtractionRecord` list + assessments | `MetaAnalysisResult` list or `NarrativeSynthesis` |
-| Synthesis -> Writing | synthesis results + `PRISMACounts` | `SectionDraft` per section |
-| Writing -> Export | `SectionDraft` list + `CitationEntryRecord` list | IEEE LaTeX package |
+| Synthesis -> Writing | synthesis results + `PRISMACounts` | `StructuredSectionDraft` per section (rendered deterministically) |
+| Writing -> Export | rendered manuscript + `CitationEntryRecord` list | IEEE LaTeX package |
 | Any phase -> Gate | phase output values | `GateResult` |
 
 ### 5.2 Model Families (src/models/)
@@ -465,7 +465,7 @@ All phase boundaries use Pydantic models from `src/models/`. The contract layer 
 | `extraction.py` | `ExtractionRecord` -- study design, participants, intervention, outcomes, effect sizes, source spans |
 | `quality.py` | `RoB2Assessment` (5 domains), `RobinsIAssessment` (7 domains), `GRADEOutcomeAssessment` (8 factors) |
 | `claims.py` | `ClaimRecord`, `EvidenceLinkRecord`, `CitationEntryRecord` -- 3-tier citation lineage chain |
-| `writing.py` | `SectionDraft` -- versioned section with claim and citation ID lists |
+| `writing.py` | `StructuredSectionDraft`, `StructuredManuscriptDraft`, `SectionBlock` -- structured IR for deterministic render |
 | `workflow.py` | `GateResult`, `DecisionLogEntry` |
 | `additional.py` | `InterRaterReliability`, `MetaAnalysisResult`, `PRISMACounts`, `ProtocolDocument`, `SummaryOfFindingsRow`, `CostRecord` |
 | `config.py` | `ReviewConfig`, `SettingsConfig`, and all sub-configs |
@@ -640,7 +640,7 @@ WritingNode uses a two-phase approach to enable cross-section synthesis:
 
 Section word limits (`SECTION_WORD_LIMITS` in `src/writing/prompts/sections.py`): abstract 230, intro 700, methods 900, results 1400, discussion 900, conclusion 350. The abstract is capped deterministically post-LLM by `_trim_abstract_to_limit()`.
 
-A section writer (model from `settings.yaml` `agents.writing`) generates each of six manuscript sections. All section prompts enforce:
+A section writer (model from `settings.yaml` `agents.writing`) generates each of six manuscript sections as schema-constrained structured IR (`StructuredSectionDraft`). IR is validated for completeness (required subsection bodies, substantive paragraph count, tail-fragment checks), retried once deterministically on failure, then rendered with deterministic renderers. All section prompts enforce:
 - Prohibited AI-tell phrases (e.g. "Of course", "As an expert", "Certainly")
 - MANDATORY CITATION COVERAGE RULE: the LLM must cite every included study at least once
 - Citation catalog split into "INCLUDED STUDIES -- CITATION COVERAGE REQUIRED" and "METHODOLOGY REFERENCES" blocks; LLM may only use citekeys from these blocks
@@ -660,7 +660,7 @@ Each completed section is saved to the `section_drafts` table immediately. On re
 
 **Gate:** `citation_lineage` -- blocks export if `block_export_on_unresolved` is true and any claim has an unresolved citation.
 
-**Outputs:** `SectionDraft` per section (6 total), `doc_manuscript.md`. The `include_rq_block=False` default in `assemble_submission_manuscript()` omits the "Research Question:" prefix for clean IEEE output.
+**Outputs:** `StructuredSectionDraft` per section (6 total, persisted after render), `doc_manuscript.md`. The `include_rq_block=False` default in `assemble_submission_manuscript()` omits the "Research Question:" prefix for clean IEEE output.
 
 ### 6.7 Phase 7: PRISMA and Visualizations (Rendered in WritingNode)
 
@@ -776,6 +776,9 @@ Each run creates its own `runtime.db`. Schema defined in `src/db/schema.sql`.
 | `checkpoints` | Phase completion markers (key: phase string, status: completed / partial) |
 | `synthesis_results` | SynthesisFeasibility + NarrativeSynthesis JSON per outcome |
 | `event_log` | Persisted SSE event log for replay; loaded by history/attach endpoint |
+| `validation_runs` | Workflow replay validation run metadata (profile, status, summary) |
+| `validation_checks` | Phase-level validation checks and metrics for each validation run |
+| `validation_artifacts` | Optional validation artifacts and metadata pointers |
 | `paper_chunks_meta` | RAG chunk store: chunk_id, paper_id, chunk_index, content (text), embedding (JSON float array, 768-dim); indexed by workflow_id and paper_id |
 | `manuscript_sections` | Canonical DB-first manuscript section state |
 | `manuscript_blocks` | Ordered manuscript content blocks per section version |
@@ -1051,6 +1054,8 @@ Run card status border (2px left): emerald = completed, violet = running/connect
 | GET | /api/run/{run_id}/manuscript | Download manuscript content (`fmt=md` or `fmt=tex`) |
 | GET | /api/run/{run_id}/events | Replay buffer snapshot (all buffered SSE events for live run) |
 | GET | /api/workflow/{workflow_id}/events | Events from event_log table by workflow ID (historical) |
+| GET | /api/workflow/{workflow_id}/validation/summary | Latest workflow replay validation run summary |
+| GET | /api/workflow/{workflow_id}/validation/checks | Detailed checks for a validation run (latest by default) |
 | PATCH | /api/notes/{workflow_id} | Update run notes |
 | GET | /api/notes/stream | SSE stream for notes updates |
 | GET | /api/run/{run_id}/papers-reference | Included papers list with PDF/TXT file availability flags |
@@ -1185,13 +1190,15 @@ This section traces data from raw PDF bytes through every pipeline stage to the 
     |       3. hybrid_retrieve(query_vector, query_text, bm25_index) --> top-K chunks (RRF fusion)
     |       4. rerank(query, chunks) --> reranked_chunks --> rag_context string
     |       5. get_section_context(section, grounding) --> section prompt with FACTUAL DATA BLOCK
-    |       6. SectionWriter.write_section_async(prompt + rag_context) --> raw_content
-    |       7. humanize_async(raw_content) x humanization_iterations --> humanized_content
-    |       8. verify_citation_grounding(humanized_content, valid_citekeys) --> hallucinated_keys
-    |       9. repair_hallucinated_citekeys(content, hallucinated_keys, valid_citekeys)
-    |          --> all occurrences of each bad key replaced (re.sub, not str.replace)
-    |      10. CitationLedger.validate_section() --> unresolved claims flagged
-    |      11. SectionDraft saved to section_drafts table
+    |       6. SectionWriter.write_section_structured_async(prompt + rag_context) --> StructuredSectionDraft
+    |       7. IR completeness checks (deterministic retry once if needed)
+    |       8. render_section_markdown(structured_draft) --> raw_content
+    |       9. humanize_async(raw_content) x humanization_iterations --> humanized_content
+    |      10. verify_citation_grounding(humanized_content, valid_citekeys) --> hallucinated_keys
+    |      11. repair_hallucinated_citekeys(content, hallucinated_keys, valid_citekeys)
+    |          --> strict-confidence fuzzy repair (unique year-anchored >=4-char prefix match); unresolved bracket tokens dropped
+    |      12. CitationLedger.validate_section() --> unresolved claims flagged
+    |      13. Rendered section saved to section_drafts table
     -- section_drafts assembled --> doc_manuscript.md
     |
     v
@@ -1206,7 +1213,8 @@ This section traces data from raw PDF bytes through every pipeline stage to the 
 
 - **No LLM statistics:** All effect sizes, p-values, heterogeneity measures, and confidence intervals are computed by scipy/statsmodels only. LLMs receive pre-computed numbers verbatim in the FACTUAL DATA BLOCK.
 - **Citation lineage:** Every sentence with a `[CiteKey]` marker is registered in the citation ledger as a `ClaimRecord` linked to `EvidenceLinkRecord`s. `block_export_on_unresolved: true` prevents submission if unresolved claims remain.
-- **All citekey replacements global:** `repair_hallucinated_citekeys` uses `re.sub` to replace ALL occurrences of each hallucinated key, not just the first.
+- **All citekey replacements global:** `repair_hallucinated_citekeys` uses `re.sub` to replace ALL occurrences of each repaired hallucinated key, not just the first.
+- **No placeholder prose fallback:** unresolved hallucinated citekeys are not rewritten to prose placeholders; they are dropped from bracket tokens and surfaced by manuscript contracts.
 - **Resume safety:** `load_resume_state` restores all artifact paths including `papers_dir`, `papers_manifest`, `manuscript_tex`, and `references_bib` so phase 4+ resume never writes to empty paths.
 - **Cost tracking complete:** Every LLM call (screening, extraction, quality, writing, humanization) logs to `cost_records`. Embedding calls log with `cost_usd=0.0` (Gemini embedding-001 is free) and approximate token counts.
 
@@ -1268,10 +1276,16 @@ uv run ruff check . --fix && uv run ruff format .   # Python lint + format
 cd frontend && pnpm fix && pnpm typecheck           # ESLint + TypeScript
 uv run pytest tests/unit -q                         # unit tests
 uv run pytest tests/integration -q                 # integration tests (require config/review.yaml)
+uv run python scripts/validate_workflow_replay.py --workflow-id wf-XXXX --profile quick
 uv run python -m src.main --help                    # confirm CLI loads without error
 ```
 
 After each phase, run all commands and confirm clean output before proceeding.
+
+Real-workflow-first validation policy:
+- Pipeline validation uses existing workflow IDs and their `runtime.db` data.
+- Replay checks persist append-only evidence in `validation_runs` and `validation_checks`.
+- Synthetic fixtures remain useful for fast unit isolation, but they do not replace workflow replay validation.
 
 ### 12.5 Production Frontend Build
 
@@ -1333,7 +1347,7 @@ Status taxonomy:
 |-----------|--------|-------|
 | Phase 1: Foundation | Implemented | Models, SQLite, 6 gates, citation ledger, LLM provider, rate limiter |
 | Phase 2: Search | Implemented | All 12 connectors (scopus, web_of_science, openalex, pubmed, semantic_scholar, ieee_xplore, arxiv, crossref, perplexity_search, clinicaltrials, csv_import, embase) + ClinicalTrials.gov grey literature, MinHash LSH dedup (datasketch + thefuzz), BM25 ranking, protocol generator, SearchConfig |
-| Phase 3: Screening | Implemented | Dual reviewer with cross-model validation (Reviewer A=flash-lite tier, Reviewer B=flash tier -- see config/settings.yaml), keyword filter, BM25 cap, batch LLM pre-ranker (batch_ranker.py; batch_screener agent; papers below batch_screen_threshold auto-excluded as batch_screened_low), kappa injected into writing, Ctrl+C proceed-with-partial, confidence fast-path, protocol-only auto-exclusion; forward citation chasing (Semantic Scholar + OpenAlex) runs at end of ScreeningNode -- chased papers are immediately dual-screened (title/abstract + fulltext) in the same run and contribute to dual_screening_results |
+| Phase 3: Screening | Implemented | Dual reviewer with cross-model validation (Reviewer A=flash-lite tier, Reviewer B=flash-lite tier by default in config/settings.yaml; can be overridden), keyword filter, BM25 cap, batch LLM pre-ranker (batch_ranker.py; batch_screener agent; papers below batch_screen_threshold auto-excluded as batch_screened_low), kappa injected into writing, Ctrl+C proceed-with-partial, confidence fast-path, protocol-only auto-exclusion; forward citation chasing (Semantic Scholar + OpenAlex) runs at end of ScreeningNode -- chased papers are immediately dual-screened (title/abstract + fulltext) in the same run and contribute to dual_screening_results |
 | Phase 4: Extraction + Quality | Implemented | LLM extraction with PyMuPDF full-text parsing (32K char context, up from 8K), async RoB 2 / ROBINS-I / CASP with heuristic fallback tagged by assessment_source, GRADE auto-wired from RoB data (assess_from_rob), study router, RoB traffic-light figure |
 | Phase 5: Synthesis | Implemented | Hardened feasibility (requires effect_size+se in >= 2 studies), statsmodels pooling (DL), forest + funnel plots, LLM-based narrative direction classification, sensitivity analysis (leave-one-out + subgroup), synthesis_results table |
 | Phase 6: Writing | Implemented | Section writer, humanizer, deterministic guardrails (preserve citekeys and numerics), citation validation, per-section checkpoint, WritingGroundingData (includes kappa, sensitivity_results, n_studies_reporting_count, separated search sources, rob_summary, grade_summary injected from actual assessments), GRADE table + RoB summary injected into writing prompts; two-phase WritingNode (Phase A concurrent: abstract/intro/methods/results; Phase B with PRIOR SECTIONS CONTEXT: discussion/conclusion); SECTION_WORD_LIMITS (results 1400, methods 900, discussion 900, abstract 230 enforced by _trim_abstract_to_limit); MANDATORY CITATION COVERAGE RULE with design-grouped _build_citation_coverage_patch; build_compact_study_table injected at ### Study Characteristics; abstract-only rate caution gate (>40% triggers hedged-language requirement) |

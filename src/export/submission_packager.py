@@ -17,7 +17,12 @@ from src.export.bibtex_builder import build_bibtex
 from src.export.docx_exporter import generate_docx
 from src.export.ieee_latex import markdown_to_latex
 from src.export.markdown_refs import get_existing_figure_entries, get_latex_figure_paths
-from src.export.prisma_checklist import render_prisma_csv, render_prisma_html, render_prisma_markdown_table, validate_prisma
+from src.export.prisma_checklist import (
+    render_prisma_csv,
+    render_prisma_html,
+    render_prisma_markdown_table,
+    validate_prisma,
+)
 
 
 async def _get_run_info(run_root: str, workflow_id: str) -> tuple[str, str, str] | None:

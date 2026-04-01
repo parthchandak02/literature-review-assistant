@@ -65,6 +65,18 @@ def _sanitize_summary_text(raw_text: str) -> str:
     return summary
 
 
+def _clip_table_text(text: str, max_chars: int) -> str:
+    """Clip long table cell text at sentence boundary with ellipsis."""
+    cleaned = (text or "").strip()
+    if len(cleaned) <= max_chars:
+        return cleaned
+    window = cleaned[:max_chars].rstrip()
+    sentence_break = max(window.rfind(". "), window.rfind("; "), window.rfind(": "))
+    if sentence_break > int(max_chars * 0.6):
+        window = window[: sentence_break + 1].rstrip()
+    return window + "..."
+
+
 def _ascii_citekey(key: str) -> str:
     """Normalize a citekey to ASCII by stripping combining accent marks.
 
@@ -276,62 +288,14 @@ def _sanitize_body(text: str) -> str:
       (e.g. ', Katharina2025, Importancend].' with no preceding prose)
     - Lines that consist only of bracketed citekey lists with no prose
 
-    Also normalizes reviewer wording: replaces 'human reviewer' or 'AI reviewer'
-    with 'reviewer' (and plural forms) to keep neutral language.
+    Also removes obvious unresolved fallback keys that should never reach
+    export output.
     """
-    # Normalize reviewer wording: use neutral 'reviewer(s)' only (no human/AI qualifier)
-    text = re.sub(r"\bhuman\s+reviewers\b", "reviewers", text, flags=re.IGNORECASE)
-    text = re.sub(r"\bhuman\s+reviewer\b", "reviewer", text, flags=re.IGNORECASE)
-    text = re.sub(r"\bAI\s+reviewers\b", "reviewers", text, flags=re.IGNORECASE)
-    text = re.sub(r"\bAI\s+reviewer\b", "reviewer", text, flags=re.IGNORECASE)
-    # Strip "large language model" qualifier that may appear in LLM-authored sections
-    # e.g. "Two independent large language models screened" -> "Two independent reviewers screened"
-    # e.g. "two large language model reviewers" -> "two reviewers"
-    text = re.sub(r"\blarge\s+language\s+model\s+reviewers\b", "reviewers", text, flags=re.IGNORECASE)
-    text = re.sub(r"\blarge\s+language\s+model\s+reviewer\b", "reviewer", text, flags=re.IGNORECASE)
-    text = re.sub(r"\blarge\s+language\s+models\s+screened\b", "reviewers screened", text, flags=re.IGNORECASE)
-    text = re.sub(r"\bindependent\s+large\s+language\s+models\b", "independent reviewers", text, flags=re.IGNORECASE)
 
-    # Correct "available upon request" for search strategies that are already in Appendix C.
-    # The LLM writing step produces this phrase for the search strategy section, but
-    # the strings are always included verbatim in Appendix C, making the claim false.
-    text = re.sub(
-        r"are documented in the review protocol and are available upon request",
-        "are provided in Appendix C",
-        text,
-        flags=re.IGNORECASE,
-    )
-    # Broader fallback: any mention that search strings are "available upon request"
-    # inside a search strategy context should point to the appendix instead.
-    text = re.sub(
-        r"(search strings?[^.]{0,80}?)available upon request",
-        r"\1provided in Appendix C",
-        text,
-        flags=re.IGNORECASE,
-    )
-
-    # Inject AI-assisted screening disclosure if not already present.
-    # This sentence is always added after the first occurrence of "two independent
-    # reviewers" so the Methods section transparently discloses the pipeline nature.
-    # Idempotent: skipped when the disclosure text is already in the body.
-    _disclosure = "Screening was conducted using an AI-assisted dual-reviewer pipeline."
-    if _disclosure not in text:
-        _two_rev_re = re.compile(
-            r"(two independent reviewers[^.!?]*[.!?])",
-            re.IGNORECASE,
-        )
-        text = _two_rev_re.sub(r"\1 " + _disclosure, text, count=1)
-
-    # Remove unresolved citation placeholders from final manuscript prose.
-    text = text.replace("(citation unavailable)", "")
-    text = re.sub(r"\bRef\d+\b", "", text)
-    text = re.sub(r"\bPaper_[A-Za-z0-9_\-]+\b", "", text)
-    text = re.sub(r"\[\s*Ref\d+\s*\]", "", text)
-    text = re.sub(r"\[\s*Paper_[A-Za-z0-9_\-]+\s*\]", "", text)
+    # Keep unresolved placeholders visible for contract checks; export should
+    # not silently rewrite manuscript claims.
     text = text.replace(" ,", ",")
     text = text.replace(" .", ".")
-    text = re.sub(r"\bCohen s kappa\b", "Cohen's kappa", text, flags=re.IGNORECASE)
-    text = re.sub(r"\bclinicaltrials gov\b", "clinicaltrials.gov", text, flags=re.IGNORECASE)
     text = re.sub(r"[ \t]{2,}", " ", text)
     text = re.sub(r"\[\s*,\s*\]", "", text)
 
@@ -371,7 +335,7 @@ def _strip_section_block_markers(text: str) -> str:
 
 
 def _normalize_subsection_heading_layout(text: str) -> str:
-    """Split inline subsection heading+body into canonical multiline markdown.
+    """Split inline heading+body into canonical multiline markdown.
 
     wf-0009 showed patterns like:
       "### Information Sources The systematic search was conducted ..."
@@ -384,10 +348,12 @@ def _normalize_subsection_heading_layout(text: str) -> str:
     """
     # Some legacy runs collapse multiple markdown headings into a single line.
     # Insert hard line breaks before each heading marker first.
-    text = re.sub(r"\s+(#{3,4}\s+)", r"\n\n\1", text)
+    text = re.sub(r"\s+(#{2,6}\s+)", r"\n\n\1", text)
 
-    _heading_re = re.compile(r"^(#{3,6})\s+(.+)$")
-    _sentence_start_re = re.compile(r"^(The|This|These|We|Our|In|Across|To|A|An|Studies|Study|Data)\b")
+    _heading_re = re.compile(r"^(#{2,6})\s+(.+)$")
+    _sentence_start_re = re.compile(
+        r"^(The|This|These|We|Our|In|Across|To|A|An|Studies|Study|Data|Evidence|Findings|Overall|One|Demographic|Meta-analysis|Also)\b"
+    )
     _title_token_re = re.compile(r"^[A-Z][A-Za-z0-9()/:,\-']*$")
     _connector_tail = {"and", "or", "of", "for", "to", "with"}
     _citation_tail_re = re.compile(r"\s*(?:\[[^\]]+\]\s*)+$")
@@ -408,6 +374,36 @@ def _normalize_subsection_heading_layout(text: str) -> str:
             level = m.group(1)
             tail = m.group(2).strip()
             tail = _citation_tail_re.sub("", tail).strip()
+            _known_prefix_map = {
+                "data items": "Data Items",
+                "comparison with prior": "Comparison with Prior Work",
+            }
+            _tail_low = tail.lower()
+            _matched_known = False
+            for _raw_prefix, _canonical in _known_prefix_map.items():
+                _needle = _raw_prefix + " "
+                if _tail_low.startswith(_needle):
+                    _body = tail[len(_raw_prefix) :].strip()
+                    out_lines.extend([f"{level} {_canonical}", ""])
+                    if _body:
+                        out_lines.append(_body)
+                    _matched_known = True
+                    break
+            if _matched_known:
+                i += 1
+                continue
+            if len(level) >= 4:
+                _spill = re.search(
+                    r"\b(The|This|These|We|Our|In|Across|To|A|An|Evidence|Findings|Overall|One|Demographic|Meta-analysis|Also)\b",
+                    tail,
+                )
+                if _spill and _spill.start() > 10:
+                    _left = tail[: _spill.start()].strip(" -:")
+                    _right = tail[_spill.start() :].strip()
+                    if _left and _right:
+                        out_lines.extend([f"{level} {_left}", "", _right])
+                        i += 1
+                        continue
             # Handle run-on headings like "#### Other Outcomes such as ...".
             if " such as " in tail.lower():
                 _idx = tail.lower().find(" such as ")
@@ -528,44 +524,6 @@ def _normalize_subsection_heading_layout(text: str) -> str:
         i += 1
 
     return "\n".join(out_lines)
-
-
-# SR citekeys follow the pattern SurnameYYYYSR[N] (background systematic review
-# references registered by register_background_sr_citations). The LLM may hallucinate
-# SR citekeys that don't exist in the citation ledger. Instead of silently stripping
-# them, convert to readable parenthetical text "(Surname, Year)" to preserve meaning.
-# Handle both bracketed [Hanninen2021SR] and unbracketed Hanninen2021SR forms,
-# since the LLM sometimes omits brackets on these special citekeys.
-_SR_KEY_BRACKETED_RE = re.compile(
-    r"\[([\w][\w0-9_.-]*?)(\d{4})SR\d*\]",
-    re.UNICODE,
-)
-# Unbracketed form: word boundary ensures we don't match inside longer tokens.
-# The SR must be immediately after 4 digits with no space.
-_SR_KEY_PLAIN_RE = re.compile(
-    r"(?<!\[)\b([\w][\w0-9_.-]*?)(\d{4})SR(\d*)\b(?!\])",
-    re.UNICODE,
-)
-
-
-def _convert_sr_citekeys_to_text(text: str) -> str:
-    """Convert unresolved SR citekeys to readable parenthetical text.
-
-    Handles both bracketed [Hanninen2021SR] and unbracketed Hanninen2021SR
-    forms. Called after convert_to_numbered_citations so that correctly-
-    registered SR citekeys are already numbered ([N]). Only hallucinated /
-    unregistered ones remain and get converted to '(Author, Year)'.
-    """
-
-    def _replacer(m: re.Match) -> str:  # type: ignore[type-arg]
-        author_part = m.group(1).rstrip("0123456789")
-        year = m.group(2)
-        return f"({author_part}, {year})"
-
-    # Convert bracketed form first, then plain form
-    text = _SR_KEY_BRACKETED_RE.sub(_replacer, text)
-    text = _SR_KEY_PLAIN_RE.sub(_replacer, text)
-    return text
 
 
 def _dedup_citation_rows_by_doi(rows: list[tuple]) -> list[tuple]:
@@ -728,9 +686,36 @@ FIGURE_DEFS: list[tuple[str, str]] = [
 ]
 
 
+def _rob_traffic_caption_for_assessments(
+    robins_i_assessments: list[Any] | None = None,
+    casp_assessments: list[Any] | None = None,
+    mmat_assessments: list[Any] | None = None,
+) -> str:
+    """Return run-aware caption for the non-RCT risk-of-bias figure."""
+    has_robins = bool(robins_i_assessments)
+    has_casp = bool(casp_assessments)
+    has_mmat = bool(mmat_assessments)
+    if has_mmat and not has_robins and not has_casp:
+        return "Risk of bias traffic-light plot for included mixed-methods studies (MMAT)."
+    if has_mmat and has_casp and not has_robins:
+        return "Risk of bias traffic-light plot for included studies (MMAT/CASP)."
+    if has_mmat and has_robins and not has_casp:
+        return "Risk of bias traffic-light plot for included studies (ROBINS-I/MMAT)."
+    if has_mmat and has_robins and has_casp:
+        return "Risk of bias traffic-light plot for included studies (ROBINS-I/CASP/MMAT)."
+    if has_robins and has_casp:
+        return "Risk of bias traffic-light plot for included non-randomized studies and reviews (ROBINS-I/CASP)."
+    if has_robins:
+        return "Risk of bias traffic-light plot for included non-randomized studies (ROBINS-I)."
+    if has_casp:
+        return "Risk of bias traffic-light plot for included studies appraised with CASP."
+    return "Risk of bias traffic-light plot for included non-randomized studies and reviews (ROBINS-I/CASP)."
+
+
 def get_existing_figure_entries(
     manuscript_path: Path,
     artifacts: dict[str, str],
+    caption_overrides: dict[str, str] | None = None,
 ) -> list[tuple[str, Path, str]]:
     """Return ordered existing figures as (caption, absolute_path, relative_path).
 
@@ -738,6 +723,7 @@ def get_existing_figure_entries(
     paths are derived from one canonical manifest.
     """
     entries: list[tuple[str, Path, str]] = []
+    _overrides = caption_overrides or {}
     for artifact_key, default_caption in FIGURE_DEFS:
         fig_path_str = artifacts.get(artifact_key, "")
         if not fig_path_str:
@@ -745,7 +731,7 @@ def get_existing_figure_entries(
         fig_path = Path(fig_path_str)
         if not fig_path.exists():
             continue
-        caption = default_caption
+        caption = _overrides.get(artifact_key, default_caption)
         caption_sidecar = fig_path.with_suffix(".caption")
         if caption_sidecar.exists():
             try:
@@ -763,6 +749,7 @@ def get_existing_figure_entries(
 def get_latex_figure_paths(
     manuscript_path: Path,
     artifacts: dict[str, str],
+    caption_overrides: dict[str, str] | None = None,
 ) -> list[str]:
     """Return ordered figure paths safe for pdflatex includegraphics.
 
@@ -772,7 +759,7 @@ def get_latex_figure_paths(
     """
     raster_suffixes = {".png", ".jpg", ".jpeg", ".pdf"}
     paths: list[str] = []
-    for _caption, fig_path, rel_path in get_existing_figure_entries(manuscript_path, artifacts):
+    for _caption, fig_path, rel_path in get_existing_figure_entries(manuscript_path, artifacts, caption_overrides):
         if fig_path.suffix.lower() in raster_suffixes:
             paths.append(rel_path)
     return paths
@@ -781,6 +768,7 @@ def get_latex_figure_paths(
 def build_markdown_figures_section(
     manuscript_path: Path,
     artifacts: dict[str, str],
+    caption_overrides: dict[str, str] | None = None,
 ) -> str:
     """Build a Figures section with relative-path image embeds and IEEE captions.
 
@@ -792,7 +780,7 @@ def build_markdown_figures_section(
     """
     lines: list[str] = ["## Figures", ""]
     seq = 1
-    for caption, _fig_path, rel in get_existing_figure_entries(manuscript_path, artifacts):
+    for caption, _fig_path, rel in get_existing_figure_entries(manuscript_path, artifacts, caption_overrides):
         lines.append(f"**Fig. {seq}.** {caption}")
         lines.append("")
         lines.append(f"![Fig. {seq}: {caption}]({rel})")
@@ -978,9 +966,9 @@ def build_compact_study_table(
             or ""
         ).strip()
         finding = _sanitize_summary_text(finding)
-        if len(finding) > 100:
-            finding = finding[:97] + "..."
         finding = finding if finding else "NR"
+        if finding != "NR":
+            finding = _clip_table_text(finding, max_chars=180)
         finding = _escape_table_cell(finding)
 
         rows.append((study_col, country, design_str, n_str, finding))
@@ -1094,9 +1082,7 @@ def build_study_characteristics_table(
                     paper_id,
                 )
             else:
-                outcomes_str = (
-                    sanitized_summary[:200].rstrip() + "..." if len(sanitized_summary) > 200 else sanitized_summary
-                )
+                outcomes_str = _clip_table_text(sanitized_summary, max_chars=260)
         # Escape newlines and pipe chars so the cell does not break the markdown table.
         outcomes_str = _escape_table_cell(outcomes_str)
 
@@ -1506,7 +1492,9 @@ def generate_mmat_table(
         c4 = "YES" if getattr(a, "criterion_4", False) else "NO"
         c5 = "YES" if getattr(a, "criterion_5", False) else "NO"
         score = str(getattr(a, "overall_score", "NR"))
-        summary = (getattr(a, "overall_summary", "") or "")[:100].replace("|", "-").replace("\n", " ")
+        summary_raw = str(getattr(a, "overall_summary", "") or "")
+        summary_clean = summary_raw.replace("|", "-").replace("\n", " ")
+        summary = summary_clean.strip()
         rows.append("| " + " | ".join([label, stype, s1, s2, c1, c2, c3, c4, c5, score, summary]) + " |")
 
     footnote = (
@@ -1691,9 +1679,17 @@ def assemble_submission_manuscript(
     title and the abstract body. Defaults to False (omit for IEEE submissions where
     this non-standard prefix would appear before the structured abstract).
     """
-    clean_body = _strip_compact_study_tables(
-        _sanitize_body(_strip_section_block_markers(_normalize_subsection_heading_layout(body)))
+    # Structured section IR now owns heading and boundary layout for new runs.
+    # Keep legacy heading normalization only when malformed inline heading
+    # patterns are detected (resume compatibility for older artifacts/tests).
+    _body_wo_markers = _strip_section_block_markers(body)
+    _needs_legacy_heading_fix = bool(
+        re.search(r"(?m)^#{2,6}\s+.+\s+#{2,6}\s+", _body_wo_markers)
+        or re.search(r"(?m)^#{2,6}\s+\S.{8,}\s+(?:The|This|These|for|in|Across|To)\b", _body_wo_markers)
     )
+    if _needs_legacy_heading_fix:
+        _body_wo_markers = _normalize_subsection_heading_layout(_body_wo_markers)
+    clean_body = _strip_compact_study_tables(_sanitize_body(_body_wo_markers))
 
     # Normalize date range in Methods section to the authoritative protocol values
     # before citation conversion so the Methods text is consistent with PICOS table.
@@ -1710,10 +1706,6 @@ def assemble_submission_manuscript(
 
     # Convert [AuthorYear] -> [N] numbered citations
     numbered_body, ordered_citation_rows = convert_to_numbered_citations(clean_body, deduped_citation_rows)
-
-    # Convert any remaining unresolved SR citekeys (hallucinated by LLM) to
-    # parenthetical text so comparison with prior work stays readable.
-    numbered_body = _convert_sr_citekeys_to_text(numbered_body)
 
     # Prepend title and research question block when provided
     header_block = ""
@@ -1843,7 +1835,18 @@ def assemble_submission_manuscript(
             fulltext_paper_ids=fulltext_paper_ids,
         )
 
-    figures_section = build_markdown_figures_section(manuscript_path, artifacts)
+    _figure_caption_overrides = {
+        "rob_traffic_light": _rob_traffic_caption_for_assessments(
+            robins_i_assessments=robins_i_assessments or [],
+            casp_assessments=casp_assessments or [],
+            mmat_assessments=mmat_assessments or [],
+        )
+    }
+    figures_section = build_markdown_figures_section(
+        manuscript_path,
+        artifacts,
+        caption_overrides=_figure_caption_overrides,
+    )
 
     refs_section = build_markdown_references_section(numbered_body, ordered_citation_rows, numbered=True)
 

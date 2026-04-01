@@ -151,6 +151,10 @@ class DualReviewerScreener:
         self.fast_path_include_count: int = 0
         self.fast_path_exclude_count: int = 0
         self.cross_review_count: int = 0
+        self.batch_parse_degraded_count: int = 0
+        self.batch_id_mismatch_count: int = 0
+        self.batch_missing_fallback_count: int = 0
+        self.contract_violation_count: int = 0
 
     async def screen_title_abstract(self, workflow_id: str, paper: CandidatePaper) -> ScreeningDecision:
         result = await self._screen_one(
@@ -814,10 +818,21 @@ class DualReviewerScreener:
 
         header = _topic_header(self.review, role, goal, backstory)
         lines = [header, self._BATCH_SYSTEM_PROMPT, "", "Papers to screen:"]
-        for i, paper in enumerate(papers, start=1):
+        allowed_ids: list[str] = []
+        for paper in papers:
             text = full_texts.get(paper.paper_id, "") if stage == "fulltext" else ""
             content = (text[:1200] if text else (paper.abstract or ""))[:600].replace("\n", " ")
-            lines.append(f"[{i}] paper_id={paper.paper_id} | {paper.title} | {content}")
+            lines.append(f"paper_id={paper.paper_id} | {paper.title} | {content}")
+            allowed_ids.append(paper.paper_id)
+        lines.extend(
+            [
+                "",
+                "CONSTRAINT: Return decisions ONLY for the exact paper_id values listed below.",
+                "Any decision for an unlisted paper_id will be ignored and retried individually.",
+                "Allowed paper_ids:",
+                ", ".join(allowed_ids),
+            ]
+        )
         return "\n".join(lines)
 
     def _parse_batch_response(
@@ -882,11 +897,16 @@ class DualReviewerScreener:
             return {}, stats
 
         result: dict[str, ScreeningDecision] = {}
+        index_to_paper_id = {str(i): paper.paper_id for i, paper in enumerate(papers, start=1)}
         for item in items:
             if not isinstance(item, dict):
                 continue
             stats["returned_items"] += 1
-            normalized = self._normalize_batch_item(item)
+            normalized = self._normalize_batch_item(
+                item,
+                index_to_paper_id=index_to_paper_id,
+                allowed_paper_ids=allowed_paper_ids,
+            )
             if normalized is None:
                 continue
             stats["normalized_items"] += 1
@@ -912,14 +932,49 @@ class DualReviewerScreener:
         return result, stats
 
     @staticmethod
-    def _normalize_batch_item(item: dict[str, object]) -> dict[str, object] | None:
+    def _normalize_batch_item(
+        item: dict[str, object],
+        *,
+        index_to_paper_id: dict[str, str] | None = None,
+        allowed_paper_ids: set[str] | None = None,
+    ) -> dict[str, object] | None:
         """Normalize a loose batch item into _BatchScreeningItem-compatible keys.
 
         Keeps decision and exclusion_reason strongly typed while tolerating
         common output drift (id key variants, missing confidence/reasoning).
         """
-        pid = item.get("paper_id") or item.get("paperId") or item.get("id")
-        if not isinstance(pid, str) or not pid.strip():
+        def _coerce_pid(value: object) -> str | None:
+            if isinstance(value, bool) or value is None:
+                return None
+            if isinstance(value, (int, float)):
+                token = str(int(value))
+            elif isinstance(value, str):
+                token = value.strip()
+            else:
+                return None
+            if not token:
+                return None
+            if allowed_paper_ids is not None and token in allowed_paper_ids:
+                return token
+            if index_to_paper_id:
+                if token in index_to_paper_id:
+                    return index_to_paper_id[token]
+                bracketed_match = re.fullmatch(r"\[\s*(\d{1,3})\s*\]", token)
+                if bracketed_match:
+                    mapped = index_to_paper_id.get(bracketed_match.group(1))
+                    if mapped:
+                        return mapped
+                alias_match = re.fullmatch(r"(?:paper|item|idx|index)[\s_:\-]*(\d{1,3})", token, re.IGNORECASE)
+                if alias_match:
+                    mapped = index_to_paper_id.get(alias_match.group(1))
+                    if mapped:
+                        return mapped
+            return token
+
+        pid = _coerce_pid(item.get("paper_id") or item.get("paperId") or item.get("id"))
+        if pid is None:
+            pid = _coerce_pid(item.get("index") or item.get("paper_index") or item.get("idx"))
+        if pid is None:
             return None
 
         raw_decision = item.get("decision") or item.get("final_decision")
@@ -982,6 +1037,15 @@ class DualReviewerScreener:
         if not papers:
             return {}
         prompt = self._build_batch_prompt(papers, stage, full_texts, spec)
+        allowed_paper_ids = {paper.paper_id for paper in papers}
+        item_schema = _BatchScreeningItem.model_json_schema()
+        # Enforce an explicit paper_id allow-list in schema so the model cannot
+        # invent or drift to non-chunk identifiers.
+        properties = item_schema.get("properties")
+        if isinstance(properties, dict):
+            paper_id_schema = properties.get("paper_id")
+            if isinstance(paper_id_schema, dict):
+                paper_id_schema["enum"] = sorted(allowed_paper_ids)
         if self.on_prompt:
             self.on_prompt(spec.agent_name, prompt, None)
         runtime = await self.provider.reserve_call_slot(spec.agent_name)
@@ -1000,7 +1064,7 @@ class DualReviewerScreener:
                         agent_name=spec.agent_name,
                         model=runtime.model,
                         temperature=runtime.temperature,
-                        item_schema=_BatchScreeningItem.model_json_schema(),
+                        item_schema=item_schema,
                     )
                 else:
                     (
@@ -1054,7 +1118,6 @@ class DualReviewerScreener:
                 tokens_out=tokens_out,
                 cost_usd=cost_usd,
             )
-        allowed_paper_ids = {paper.paper_id for paper in papers}
         parsed_map, parse_stats = self._parse_batch_response(
             raw,
             papers,
@@ -1066,6 +1129,7 @@ class DualReviewerScreener:
         fallback_count = max(0, len(papers) - parsed_count)
         out_of_chunk_count = parse_stats["out_of_chunk_items"]
         if out_of_chunk_count > 0:
+            self.batch_id_mismatch_count += out_of_chunk_count
             _log.warning(
                 "Batch %s returned %d out-of-chunk paper_ids; ignored",
                 spec.reviewer_type.value,
@@ -1091,6 +1155,7 @@ class DualReviewerScreener:
                 )
             )
         if fallback_count > 0:
+            self.batch_parse_degraded_count += fallback_count
             _log.warning(
                 "Batch %s parse coverage degraded: parsed %d/%d; %d papers require fallback "
                 "(parse_failed=%d schema_mismatch=%d out_of_chunk=%d)",
@@ -1290,6 +1355,7 @@ class DualReviewerScreener:
             # Fallback: any paper missing from the batch response is individually reviewed.
             for paper in chunk:
                 if paper.paper_id not in reviewer_a_map:
+                    self.batch_missing_fallback_count += 1
                     _log.warning("Batch A missing paper %s -- falling back to individual call", paper.paper_id)
                     if self.on_status:
                         self.on_status(f"Batch A missing paper {paper.paper_id} -- falling back to individual call")
@@ -1350,6 +1416,7 @@ class DualReviewerScreener:
                 reviewer_b_map.update(batch_result)
                 for paper in chunk:
                     if paper.paper_id not in reviewer_b_map:
+                        self.batch_missing_fallback_count += 1
                         _log.warning("Batch B missing paper %s -- falling back to individual call", paper.paper_id)
                         if self.on_status:
                             self.on_status(f"Batch B missing paper {paper.paper_id} -- falling back to individual call")
@@ -1516,6 +1583,7 @@ class DualReviewerScreener:
         decision = await self._request_decision(
             prompt=prompt,
             spec=spec,
+            workflow_id=workflow_id,
             paper_id=paper.paper_id,
             other_reviewer_decision=other_reviewer_decision,
         )
@@ -1550,6 +1618,7 @@ class DualReviewerScreener:
                 agent_name="screening_adjudicator",
                 reviewer_type=ReviewerType.ADJUDICATOR,
             ),
+            workflow_id=workflow_id,
             paper_id=paper.paper_id,
         )
         await self.repository.save_screening_decision(workflow_id=workflow_id, stage=stage, decision=decision)
@@ -1569,6 +1638,7 @@ class DualReviewerScreener:
         self,
         prompt: str,
         spec: ReviewerSpec,
+        workflow_id: str,
         paper_id: str,
         other_reviewer_decision: ScreeningDecisionType | None = None,
     ) -> ScreeningDecision:
@@ -1596,6 +1666,19 @@ class DualReviewerScreener:
         elapsed_ms = int((time.perf_counter() - started) * 1000)
         cost_usd = self.provider.estimate_cost(runtime.model, tokens_in, tokens_out, cache_write, cache_read)
         parsed = self._parse_response(raw)
+        if parsed.short_reason in {"Invalid JSON", "Invalid schema"}:
+            self.contract_violation_count += 1
+            await self.repository.append_decision_log(
+                DecisionLogEntry(
+                    workflow_id=workflow_id,
+                    decision_type="screening_contract_violation",
+                    paper_id=paper_id,
+                    decision=parsed.decision.value,
+                    rationale=parsed.reasoning,
+                    actor=spec.reviewer_type.value,
+                    phase="phase_3_screening",
+                )
+            )
         if self.on_llm_call:
             self.on_llm_call(
                 spec.agent_name,
