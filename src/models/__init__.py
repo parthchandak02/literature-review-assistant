@@ -55,13 +55,22 @@ from src.models.extraction import ExtractionRecord, OutcomeRecord
 from src.models.papers import CandidatePaper, SearchResult
 from src.models.quality import GRADEOutcomeAssessment, RoB2Assessment, RobinsIAssessment
 from src.models.screening import DualScreeningResult, ScreeningDecision
-from src.models.workflow import DecisionLogEntry, GateResult
+from src.models.workflow import (
+    DecisionLogEntry,
+    GateResult,
+    ValidationArtifactRecord,
+    ValidationCheckRecord,
+    ValidationRunRecord,
+)
 from src.models.writing import (
     ManuscriptAssembly,
     ManuscriptAsset,
     ManuscriptBlock,
     ManuscriptSection,
+    SectionBlock,
     SectionDraft,
+    StructuredManuscriptDraft,
+    StructuredSectionDraft,
 )
 
 __all__ = [
@@ -120,10 +129,16 @@ __all__ = [
     "ManuscriptAsset",
     "ManuscriptBlock",
     "ManuscriptSection",
+    "SectionBlock",
     "SectionDraft",
     "SettingsConfig",
     "SourceCategory",
     "StudyDesign",
+    "StructuredManuscriptDraft",
+    "StructuredSectionDraft",
     "SummaryOfFindingsRow",
+    "ValidationArtifactRecord",
+    "ValidationCheckRecord",
+    "ValidationRunRecord",
     "WritingConfig",
 ]

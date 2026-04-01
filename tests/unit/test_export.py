@@ -13,18 +13,24 @@ from hypothesis import strategies as st
 from src.db.database import get_db
 from src.db.repositories import CitationRepository, WorkflowRepository
 from src.export.bibtex_builder import build_bibtex
-from src.export.submission_packager import _copy_included_study_pdfs
 from src.export.ieee_latex import _convert_citations, _convert_md_table_to_latex, _escape_latex, markdown_to_latex
+from src.export.ieee_validator import validate_ieee
 from src.export.markdown_refs import (
     _normalize_subsection_heading_layout,
-    build_picos_table,
     build_compact_study_table,
+    build_markdown_figures_section,
+    build_picos_table,
+    generate_mmat_table,
     get_existing_figure_entries,
     get_latex_figure_paths,
 )
-from src.export.ieee_validator import validate_ieee
 from src.export.prisma_checklist import validate_prisma
-from src.manuscript.contracts import run_manuscript_contracts
+from src.export.submission_packager import _copy_included_study_pdfs
+from src.manuscript.contracts import (
+    _extract_disclosed_included_counts,
+    _hard_failure,
+    run_manuscript_contracts,
+)
 
 
 def test_build_bibtex_empty():
@@ -80,6 +86,20 @@ def test_build_bibtex_prunes_uncited_entries() -> None:
     assert "KeyB2024" not in out
 
 
+def test_build_bibtex_includes_background_and_methodology_when_cited_set_contains_them() -> None:
+    citations = [
+        ("c1", "Inc2024", None, "Included", '["Author A"]', 2024, "J", None),
+        ("c2", "Bg2021SR", None, "Background Review", '["Author B"]', 2021, "J", None),
+        ("c3", "Page2021", None, "PRISMA 2020", '["Page MJ"]', 2021, "BMJ", None),
+    ]
+    numbered_refs = {"Inc2024"}
+    always_export = {"Bg2021SR", "Page2021"}
+    out = build_bibtex(citations, cited_citekeys=numbered_refs | always_export)
+    assert "Inc2024" in out
+    assert "Bg2021SR" in out
+    assert "Page2021" in out
+
+
 def test_markdown_to_latex_basic():
     md = "**Title:** My Review\n\n**Abstract**\n\nShort abstract.\n\n## Introduction\n\nSome text."
     out = markdown_to_latex(md, citekeys=set())
@@ -104,6 +124,22 @@ def test_get_figure_entries_and_latex_paths_share_manifest(tmp_path) -> None:
     assert len(entries) == 2
     assert "fig_prisma_flow.png" in latex_paths
     assert "fig_concept_taxonomy.svg" not in latex_paths
+
+
+def test_markdown_to_latex_uses_mmat_caption_for_rob_traffic_light() -> None:
+    md = (
+        "# Test Title\n\n"
+        "## Abstract\n\n"
+        "**Background:** B\n**Objectives:** O\n**Methods:** M\n**Results:** R\n**Conclusions:** C\n\n"
+        "## Methods\n\nMethod text.\n\n"
+        "## Results\n\nResult text.\n\n"
+        "## Discussion\n\nDiscussion text.\n\n"
+        "## Conclusion\n\nConclusion text.\n\n"
+        "## MMAT Quality Assessment\n\nTable text.\n"
+    )
+    out = markdown_to_latex(md, citekeys=set(), figure_paths=["fig_rob_traffic_light.png"])
+    assert "mixed-methods studies (MMAT)" in out
+    assert "ROBINS-I/CASP" not in out
 
 
 def test_markdown_to_latex_extracts_structured_abstract_from_background_block() -> None:
@@ -204,12 +240,11 @@ def test_convert_citations_resolves_single_space_key() -> None:
     assert "\\cite{Engineering_Inclusiv}" in out
 
 
-def test_convert_citations_rewrites_ref_and_paper_placeholders() -> None:
+def test_convert_citations_preserves_unresolved_placeholder_tokens() -> None:
     text = "Legacy [Ref141] and [Paper_abc123] remain."
     out = _convert_citations(text, set())
-    assert "[Ref141]" not in out
-    assert "[Paper_abc123]" not in out
-    assert "(citation unavailable)" in out
+    assert "[Ref141]" in out
+    assert "[Paper_abc123]" in out
 
 
 def test_convert_citations_numeric_single_uses_number_map() -> None:
@@ -512,6 +547,544 @@ async def test_manuscript_contract_skips_numbered_reference_requirement_for_cite
     assert all(v.code != "UNRESOLVED_CITATIONS" for v in result.violations)
 
 
+@pytest.mark.asyncio
+async def test_manuscript_contract_detects_required_section_missing(tmp_path: Path) -> None:
+    db_path = tmp_path / "runtime_contracts_structure.db"
+    manuscript_md = tmp_path / "doc_manuscript.md"
+    manuscript_tex = tmp_path / "doc_manuscript.tex"
+    manuscript_md.write_text(
+        "\n".join(
+            [
+                "## Methods",
+                "Independent reviewer screening was used.",
+                "## Abstract",
+                "**Background:** text",
+                "## References",
+                "[1] Ref",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    manuscript_tex.write_text("\\section{Methods}\n\\section{Abstract}\n", encoding="utf-8")
+    async with get_db(str(db_path)) as db:
+        repo = WorkflowRepository(db)
+        cite_repo = CitationRepository(db)
+        await db.commit()
+        result = await run_manuscript_contracts(
+            repository=repo,
+            citation_repository=cite_repo,
+            workflow_id="wf-test",
+            manuscript_md_path=str(manuscript_md),
+            manuscript_tex_path=str(manuscript_tex),
+            mode="soft",
+        )
+    assert any(v.code == "REQUIRED_SECTION_MISSING" for v in result.violations)
+
+
+@pytest.mark.asyncio
+async def test_manuscript_contract_detects_section_order_invalid(tmp_path: Path) -> None:
+    db_path = tmp_path / "runtime_contracts_section_order.db"
+    manuscript_md = tmp_path / "doc_manuscript.md"
+    manuscript_tex = tmp_path / "doc_manuscript.tex"
+    manuscript_md.write_text(
+        "\n".join(
+            [
+                "## Abstract",
+                "**Background:** text",
+                "## Introduction",
+                "Intro.",
+                "## Results",
+                "Of the 10 reports sought for retrieval, 2 reports were not retrieved and 8 were assessed for eligibility, with 3 studies included.",
+                "Risk of bias was assessed.",
+                "## Methods",
+                "Protocol registration: NOT PROSPECTIVELY REGISTERED.",
+                "Independent reviewer screening was used.",
+                "## Discussion",
+                "Discussion.",
+                "## Conclusion",
+                "Conclusion.",
+                "## References",
+                "[1] Ref",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    manuscript_tex.write_text(
+        "\\section{Abstract}\n\\section{Introduction}\n\\section{Results}\n\\section{Methods}\n\\section{Discussion}\n\\section{Conclusion}\n\\section{References}\n",
+        encoding="utf-8",
+    )
+    async with get_db(str(db_path)) as db:
+        repo = WorkflowRepository(db)
+        cite_repo = CitationRepository(db)
+        await db.commit()
+        result = await run_manuscript_contracts(
+            repository=repo,
+            citation_repository=cite_repo,
+            workflow_id="wf-test",
+            manuscript_md_path=str(manuscript_md),
+            manuscript_tex_path=str(manuscript_tex),
+            mode="soft",
+        )
+    assert any(v.code == "SECTION_ORDER_INVALID" for v in result.violations)
+
+
+@pytest.mark.asyncio
+async def test_manuscript_contract_detects_prisma_statement_missing(tmp_path: Path) -> None:
+    db_path = tmp_path / "runtime_contracts_prisma_missing.db"
+    manuscript_md = tmp_path / "doc_manuscript.md"
+    manuscript_tex = tmp_path / "doc_manuscript.tex"
+    manuscript_md.write_text(
+        "\n".join(
+            [
+                "## Abstract",
+                "**Background:** text",
+                "## Introduction",
+                "Topic background.",
+                "## Methods",
+                "Methods are described briefly.",
+                "## Results",
+                "Findings are described briefly.",
+                "## Discussion",
+                "Interpretation.",
+                "## Conclusion",
+                "Conclusions.",
+                "## References",
+                "[1] Ref",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    manuscript_tex.write_text(
+        "\\section{Abstract}\n\\section{Introduction}\n\\section{Methods}\n\\section{Results}\n\\section{Discussion}\n\\section{Conclusion}\n",
+        encoding="utf-8",
+    )
+    async with get_db(str(db_path)) as db:
+        repo = WorkflowRepository(db)
+        cite_repo = CitationRepository(db)
+        await db.commit()
+        result = await run_manuscript_contracts(
+            repository=repo,
+            citation_repository=cite_repo,
+            workflow_id="wf-test",
+            manuscript_md_path=str(manuscript_md),
+            manuscript_tex_path=str(manuscript_tex),
+            mode="soft",
+        )
+    assert any(v.code == "PRISMA_STATEMENT_MISSING" for v in result.violations)
+
+
+@pytest.mark.asyncio
+async def test_manuscript_contract_allows_prisma_statement_presence(tmp_path: Path) -> None:
+    db_path = tmp_path / "runtime_contracts_prisma_present.db"
+    manuscript_md = tmp_path / "doc_manuscript.md"
+    manuscript_tex = tmp_path / "doc_manuscript.tex"
+    manuscript_md.write_text(
+        "\n".join(
+            [
+                "## Abstract",
+                "**Background:** text",
+                "**Methods:** Independent reviewer screening and risk of bias assessment were used.",
+                "**Results:** Of the 10 reports sought for retrieval, 2 reports were not retrieved and 8 were assessed for eligibility, with 3 studies included.",
+                "## Introduction",
+                "Topic background.",
+                "## Methods",
+                "Protocol registration: NOT PROSPECTIVELY REGISTERED.",
+                "Independent reviewer screening was applied.",
+                "## Results",
+                "Of the 10 reports sought for retrieval, 2 reports were not retrieved and 8 were assessed for eligibility, with 3 studies included.",
+                "Risk of bias was assessed with RoB 2.",
+                "## Discussion",
+                "Interpretation.",
+                "## Conclusion",
+                "Conclusions.",
+                "## References",
+                "[1] Ref",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    manuscript_tex.write_text(
+        "\\section{Abstract}\n\\section{Introduction}\n\\section{Methods}\n\\section{Results}\n\\section{Discussion}\n\\section{Conclusion}\n\\section{References}\n",
+        encoding="utf-8",
+    )
+    async with get_db(str(db_path)) as db:
+        repo = WorkflowRepository(db)
+        cite_repo = CitationRepository(db)
+        await db.commit()
+        result = await run_manuscript_contracts(
+            repository=repo,
+            citation_repository=cite_repo,
+            workflow_id="wf-test",
+            manuscript_md_path=str(manuscript_md),
+            manuscript_tex_path=str(manuscript_tex),
+            mode="soft",
+        )
+    assert all(v.code != "PRISMA_STATEMENT_MISSING" for v in result.violations)
+
+
+@pytest.mark.asyncio
+async def test_manuscript_contract_detects_protocol_registration_contradiction(tmp_path: Path) -> None:
+    db_path = tmp_path / "runtime_contracts_protocol_contradiction.db"
+    manuscript_md = tmp_path / "doc_manuscript.md"
+    manuscript_tex = tmp_path / "doc_manuscript.tex"
+    manuscript_md.write_text(
+        "\n".join(
+            [
+                "## Abstract",
+                "**Background:** text",
+                "## Introduction",
+                "Topic background.",
+                "## Methods",
+                "Protocol registration was not prospectively registered and was post-hoc registration.",
+                "It was also registered prospectively before screening.",
+                "Independent reviewer screening was used.",
+                "## Results",
+                "Of the 5 reports sought for retrieval, 1 report was not retrieved and 4 were assessed for eligibility, with 2 studies included.",
+                "Risk of bias was assessed.",
+                "## Discussion",
+                "Discussion.",
+                "## Conclusion",
+                "Conclusion.",
+                "## References",
+                "[1] Ref",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    manuscript_tex.write_text(
+        "\\section{Abstract}\n\\section{Introduction}\n\\section{Methods}\n\\section{Results}\n\\section{Discussion}\n\\section{Conclusion}\n\\section{References}\n",
+        encoding="utf-8",
+    )
+    async with get_db(str(db_path)) as db:
+        repo = WorkflowRepository(db)
+        cite_repo = CitationRepository(db)
+        await db.commit()
+        result = await run_manuscript_contracts(
+            repository=repo,
+            citation_repository=cite_repo,
+            workflow_id="wf-test",
+            manuscript_md_path=str(manuscript_md),
+            manuscript_tex_path=str(manuscript_tex),
+            mode="soft",
+        )
+    assert any(v.code == "PROTOCOL_REGISTRATION_CONTRADICTION" for v in result.violations)
+
+
+@pytest.mark.asyncio
+async def test_manuscript_contract_does_not_flag_negated_prospective_as_contradiction(tmp_path: Path) -> None:
+    db_path = tmp_path / "runtime_contracts_protocol_no_false_positive.db"
+    manuscript_md = tmp_path / "doc_manuscript.md"
+    manuscript_tex = tmp_path / "doc_manuscript.tex"
+    manuscript_md.write_text(
+        "\n".join(
+            [
+                "## Abstract",
+                "**Background:** text",
+                "**Objectives:** obj",
+                "**Methods:** meth",
+                "**Results:** res",
+                "**Conclusions:** conc",
+                "## Introduction",
+                "Topic background.",
+                "## Methods",
+                "Protocol registration: not prospectively registered.",
+                "Independent dual review with adjudication was used.",
+                "## Results",
+                "Of the 5 reports being sought for full-text retrieval, 1 report was not retrieved and 4 were assessed for eligibility, with 2 studies included.",
+                "Risk of bias was assessed.",
+                "## Discussion",
+                "Discussion.",
+                "## Conclusion",
+                "Conclusion.",
+                "## References",
+                "[1] Ref",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    manuscript_tex.write_text(
+        "\\section{Abstract}\n\\section{Introduction}\n\\section{Methods}\n\\section{Results}\n\\section{Discussion}\n\\section{Conclusion}\n\\section{References}\n",
+        encoding="utf-8",
+    )
+    async with get_db(str(db_path)) as db:
+        repo = WorkflowRepository(db)
+        cite_repo = CitationRepository(db)
+        await db.commit()
+        result = await run_manuscript_contracts(
+            repository=repo,
+            citation_repository=cite_repo,
+            workflow_id="wf-test",
+            manuscript_md_path=str(manuscript_md),
+            manuscript_tex_path=str(manuscript_tex),
+            mode="soft",
+        )
+    assert all(v.code != "PROTOCOL_REGISTRATION_CONTRADICTION" for v in result.violations)
+    assert all(v.code != "PRISMA_STATEMENT_MISSING" for v in result.violations)
+
+
+@pytest.mark.asyncio
+async def test_manuscript_contract_ignores_chatgpt_in_table_for_ai_leakage(tmp_path: Path) -> None:
+    db_path = tmp_path / "runtime_contracts_ai_table.db"
+    manuscript_md = tmp_path / "doc_manuscript.md"
+    manuscript_tex = tmp_path / "doc_manuscript.tex"
+    manuscript_md.write_text(
+        "\n".join(
+            [
+                "## Abstract",
+                "**Background:** text",
+                "**Objectives:** obj",
+                "**Methods:** meth",
+                "**Results:** res",
+                "**Conclusions:** conc",
+                "## Introduction",
+                "Topic background.",
+                "## Methods",
+                "Protocol registration: not prospectively registered.",
+                "Independent reviewer screening was used.",
+                "## Results",
+                "Of the 5 reports sought for retrieval, 1 report was not retrieved and 4 were assessed for eligibility, with 2 studies included.",
+                "| Study | Intervention |",
+                "|---|---|",
+                "| A | ChatGPT tutoring |",
+                "Risk of bias was assessed.",
+                "## Discussion",
+                "Discussion.",
+                "## Conclusion",
+                "Conclusion.",
+                "## References",
+                "[1] Ref",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    manuscript_tex.write_text(
+        "\\section{Abstract}\n\\section{Introduction}\n\\section{Methods}\n\\section{Results}\n\\section{Discussion}\n\\section{Conclusion}\n\\section{References}\n",
+        encoding="utf-8",
+    )
+    async with get_db(str(db_path)) as db:
+        repo = WorkflowRepository(db)
+        cite_repo = CitationRepository(db)
+        await db.commit()
+        result = await run_manuscript_contracts(
+            repository=repo,
+            citation_repository=cite_repo,
+            workflow_id="wf-test",
+            manuscript_md_path=str(manuscript_md),
+            manuscript_tex_path=str(manuscript_tex),
+            mode="soft",
+        )
+    assert all(v.code != "AI_LEAKAGE" for v in result.violations)
+
+
+@pytest.mark.asyncio
+async def test_manuscript_contract_detects_protocol_registration_future_tense(tmp_path: Path) -> None:
+    db_path = tmp_path / "runtime_contracts_protocol_future_tense.db"
+    manuscript_md = tmp_path / "doc_manuscript.md"
+    manuscript_tex = tmp_path / "doc_manuscript.tex"
+    manuscript_md.write_text(
+        "\n".join(
+            [
+                "## Abstract",
+                "**Background:** text",
+                "**Objectives:** obj",
+                "**Methods:** meth",
+                "**Results:** res",
+                "**Conclusions:** conc",
+                "## Introduction",
+                "Topic background.",
+                "## Methods",
+                "Protocol registration will be registered prospectively after screening.",
+                "Independent reviewer screening was used.",
+                "## Results",
+                "Of the 5 reports sought for retrieval, 1 report was not retrieved and 4 were assessed for eligibility, with 2 studies included.",
+                "Risk of bias was assessed.",
+                "## Discussion",
+                "Discussion.",
+                "## Conclusion",
+                "Conclusion.",
+                "## References",
+                "[1] Ref",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    manuscript_tex.write_text(
+        "\\section{Abstract}\n\\section{Introduction}\n\\section{Methods}\n\\section{Results}\n\\section{Discussion}\n\\section{Conclusion}\n\\section{References}\n",
+        encoding="utf-8",
+    )
+    async with get_db(str(db_path)) as db:
+        repo = WorkflowRepository(db)
+        cite_repo = CitationRepository(db)
+        await db.commit()
+        result = await run_manuscript_contracts(
+            repository=repo,
+            citation_repository=cite_repo,
+            workflow_id="wf-test",
+            manuscript_md_path=str(manuscript_md),
+            manuscript_tex_path=str(manuscript_tex),
+            mode="soft",
+        )
+    assert any(v.code == "PROTOCOL_REGISTRATION_FUTURE_TENSE" for v in result.violations)
+
+
+@pytest.mark.asyncio
+async def test_manuscript_contract_detects_missing_abstract_fields(tmp_path: Path) -> None:
+    db_path = tmp_path / "runtime_contracts_abstract_fields.db"
+    manuscript_md = tmp_path / "doc_manuscript.md"
+    manuscript_tex = tmp_path / "doc_manuscript.tex"
+    manuscript_md.write_text(
+        "\n".join(
+            [
+                "## Abstract",
+                "**Background:** text",
+                "**Methods:** method only",
+                "## Introduction",
+                "Intro.",
+                "## Methods",
+                "Protocol registration: not prospectively registered.",
+                "Independent reviewer screening was used.",
+                "## Results",
+                "Of the 5 reports sought for retrieval, 1 report was not retrieved and 4 were assessed for eligibility, with 2 studies included.",
+                "Risk of bias was assessed.",
+                "## Discussion",
+                "Discussion.",
+                "## Conclusion",
+                "Conclusion.",
+                "## References",
+                "[1] Ref",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    manuscript_tex.write_text(
+        "\\section{Abstract}\n\\section{Introduction}\n\\section{Methods}\n\\section{Results}\n\\section{Discussion}\n\\section{Conclusion}\n\\section{References}\n",
+        encoding="utf-8",
+    )
+    async with get_db(str(db_path)) as db:
+        repo = WorkflowRepository(db)
+        cite_repo = CitationRepository(db)
+        await db.commit()
+        result = await run_manuscript_contracts(
+            repository=repo,
+            citation_repository=cite_repo,
+            workflow_id="wf-test",
+            manuscript_md_path=str(manuscript_md),
+            manuscript_tex_path=str(manuscript_tex),
+            mode="soft",
+        )
+    assert any(v.code == "ABSTRACT_STRUCTURE_MISSING_FIELDS" for v in result.violations)
+
+
+@pytest.mark.asyncio
+async def test_manuscript_contract_detects_unused_bib_entries(tmp_path: Path) -> None:
+    db_path = tmp_path / "runtime_contracts_unused_bib.db"
+    manuscript_md = tmp_path / "doc_manuscript.md"
+    manuscript_tex = tmp_path / "doc_manuscript.tex"
+    references_bib = tmp_path / "references.bib"
+    manuscript_md.write_text(
+        "\n".join(
+            [
+                "## Abstract",
+                "**Background:** text",
+                "**Objectives:** obj",
+                "**Methods:** meth",
+                "**Results:** res",
+                "**Conclusions:** conc",
+                "## Introduction",
+                "Intro.",
+                "## Methods",
+                "Protocol registration: not prospectively registered.",
+                "Independent reviewer screening was used.",
+                "## Results",
+                "Of the 5 reports sought for retrieval, 1 report was not retrieved and 4 were assessed for eligibility, with 2 studies included.",
+                "Risk of bias was assessed.",
+                "## Discussion",
+                "Discussion citing [1].",
+                "## Conclusion",
+                "Conclusion.",
+                "## References",
+                "[1] Ref",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    manuscript_tex.write_text(
+        "\\section{Abstract}\n\\section{Introduction}\n\\section{Methods}\n\\section{Results}\n\\section{Discussion}\\cite{Used2020}\n\\section{Conclusion}\n\\section{References}\n",
+        encoding="utf-8",
+    )
+    references_bib.write_text(
+        "@article{Used2020,\n  title={Used}\n}\n\n@article{Unused2021,\n  title={Unused}\n}\n",
+        encoding="utf-8",
+    )
+    async with get_db(str(db_path)) as db:
+        repo = WorkflowRepository(db)
+        cite_repo = CitationRepository(db)
+        await db.commit()
+        result = await run_manuscript_contracts(
+            repository=repo,
+            citation_repository=cite_repo,
+            workflow_id="wf-test",
+            manuscript_md_path=str(manuscript_md),
+            manuscript_tex_path=str(manuscript_tex),
+            mode="soft",
+        )
+    assert any(v.code == "UNUSED_BIB_ENTRY" for v in result.violations)
+
+
+@pytest.mark.asyncio
+async def test_manuscript_contract_detects_banned_placeholders_in_protocol_artifacts(tmp_path: Path) -> None:
+    db_path = tmp_path / "runtime_contracts_placeholder_artifacts.db"
+    manuscript_md = tmp_path / "doc_manuscript.md"
+    manuscript_tex = tmp_path / "doc_manuscript.tex"
+    protocol_md = tmp_path / "doc_protocol.md"
+    manuscript_md.write_text(
+        "\n".join(
+            [
+                "## Abstract",
+                "**Background:** text",
+                "**Objectives:** obj",
+                "**Methods:** meth",
+                "**Results:** res",
+                "**Conclusions:** conc",
+                "## Introduction",
+                "Intro.",
+                "## Methods",
+                "Protocol registration: not prospectively registered.",
+                "Independent reviewer screening was used.",
+                "## Results",
+                "Of the 5 reports sought for retrieval, 1 report was not retrieved and 4 were assessed for eligibility, with 2 studies included.",
+                "Risk of bias was assessed.",
+                "## Discussion",
+                "Discussion.",
+                "## Conclusion",
+                "Conclusion.",
+                "## References",
+                "[1] Ref",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    manuscript_tex.write_text(
+        "\\section{Abstract}\n\\section{Introduction}\n\\section{Methods}\n\\section{Results}\n\\section{Discussion}\n\\section{Conclusion}\n\\section{References}\n",
+        encoding="utf-8",
+    )
+    protocol_md.write_text("Country: [TO BE ASSIGNED]\n", encoding="utf-8")
+    async with get_db(str(db_path)) as db:
+        repo = WorkflowRepository(db)
+        cite_repo = CitationRepository(db)
+        await db.commit()
+        result = await run_manuscript_contracts(
+            repository=repo,
+            citation_repository=cite_repo,
+            workflow_id="wf-test",
+            manuscript_md_path=str(manuscript_md),
+            manuscript_tex_path=str(manuscript_tex),
+            extra_artifact_paths=[str(protocol_md)],
+            mode="soft",
+        )
+    assert any(v.code == "ARTIFACT_PLACEHOLDER_LEAK" for v in result.violations)
+
+
 def test_build_picos_table_removes_dangling_placeholder_fragments() -> None:
     cfg = SimpleNamespace(
         pico=SimpleNamespace(
@@ -553,6 +1126,387 @@ def test_markdown_to_latex_splits_lowercase_run_on_heading_body() -> None:
     assert "for this systematic review were predefined." in out
 
 
+def test_manuscript_contract_soft_mode_blocks_critical_zero_slip_codes() -> None:
+    critical_codes = {
+        "REQUIRED_SECTION_MISSING",
+        "SECTION_ORDER_INVALID",
+        "PRISMA_STATEMENT_MISSING",
+        "SECTION_CONTENT_INCOMPLETE",
+        "IMPLICATIONS_MISPLACED",
+        "ROB_FIGURE_CAPTION_MISMATCH",
+        "PROTOCOL_REGISTRATION_CONTRADICTION",
+        "PROTOCOL_REGISTRATION_FUTURE_TENSE",
+        "MODEL_ID_LEAKAGE",
+        "META_FEASIBILITY_CONTRADICTION",
+        "ABSTRACT_OVER_LIMIT",
+        "ABSTRACT_STRUCTURE_MISSING_FIELDS",
+        "UNUSED_BIB_ENTRY",
+        "ARTIFACT_PLACEHOLDER_LEAK",
+    }
+    for code in critical_codes:
+        assert _hard_failure("soft", code) is True
+
+
+def test_build_markdown_figures_section_applies_run_aware_caption_override(tmp_path: Path) -> None:
+    manuscript = tmp_path / "doc_manuscript.md"
+    manuscript.write_text("stub", encoding="utf-8")
+    fig = tmp_path / "fig_rob_traffic_light.png"
+    fig.write_bytes(b"x")
+    artifacts = {"rob_traffic_light": str(fig)}
+    section = build_markdown_figures_section(
+        manuscript,
+        artifacts,
+        caption_overrides={
+            "rob_traffic_light": "Risk of bias traffic-light plot for included mixed-methods studies (MMAT)."
+        },
+    )
+    assert "MMAT" in section
+    assert "ROBINS-I/CASP" not in section
+
+
+def test_generate_mmat_table_sanitizes_pipe_newline_without_forced_truncation() -> None:
+    assessment = SimpleNamespace(
+        paper_id="p1",
+        study_category=SimpleNamespace(value="mixed_methods"),
+        screening_questions={"S1_clear_questions": True, "S2_data_adequate": True},
+        criteria={
+            "C1_rationale": True,
+            "C2_integration": True,
+            "C3_interpretation": True,
+            "C4_divergence_addressed": False,
+            "C5_quality_consistency": False,
+        },
+        overall_score=3,
+        overall_summary=(
+            "This summary includes newline\nand a pipe | character and should be clipped "
+            + "without splitting words at the end " * 20
+        ),
+    )
+    table = generate_mmat_table([assessment], paper_id_to_label={"p1": "Smith2024"})
+    assert "\nand a pipe" not in table
+    assert "|" in table
+    assert "should be clipped" in table
+
+
+@pytest.mark.asyncio
+async def test_manuscript_contract_detects_incomplete_results_and_discussion_sections(tmp_path: Path) -> None:
+    db_path = tmp_path / "runtime_contracts_incomplete_sections.db"
+    manuscript_md = tmp_path / "doc_manuscript.md"
+    manuscript_tex = tmp_path / "doc_manuscript.tex"
+    manuscript_md.write_text(
+        "\n".join(
+            [
+                "## Abstract",
+                "**Background:** text",
+                "**Objectives:** obj",
+                "**Methods:** meth",
+                "**Results:** res",
+                "**Conclusions:** conc",
+                "## Introduction",
+                "Topic background.",
+                "## Methods",
+                "Two independent reviewers screened records.",
+                "Protocol registration: not prospectively registered.",
+                "## Results",
+                "### Study Selection",
+                "The review included studies and",
+                "## Discussion",
+                "### Principal Findings",
+                "Interpretation remained limited",
+                "## Conclusion",
+                "Conclusion.",
+                "## References",
+                "[1] Ref",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    manuscript_tex.write_text(
+        "\\section{Abstract}\n\\section{Introduction}\n\\section{Methods}\n\\section{Results}\n\\section{Discussion}\n\\section{Conclusion}\n\\section{References}\n",
+        encoding="utf-8",
+    )
+    async with get_db(str(db_path)) as db:
+        repo = WorkflowRepository(db)
+        cite_repo = CitationRepository(db)
+        await db.commit()
+        result = await run_manuscript_contracts(
+            repository=repo,
+            citation_repository=cite_repo,
+            workflow_id="wf-test",
+            manuscript_md_path=str(manuscript_md),
+            manuscript_tex_path=str(manuscript_tex),
+            mode="soft",
+        )
+    assert any(v.code == "SECTION_CONTENT_INCOMPLETE" for v in result.violations)
+
+
+@pytest.mark.asyncio
+async def test_manuscript_contract_detects_implications_misplaced_under_conclusion(tmp_path: Path) -> None:
+    db_path = tmp_path / "runtime_contracts_implications_misplaced.db"
+    manuscript_md = tmp_path / "doc_manuscript.md"
+    manuscript_tex = tmp_path / "doc_manuscript.tex"
+    manuscript_md.write_text(
+        "\n".join(
+            [
+                "## Abstract",
+                "**Background:** text",
+                "**Objectives:** obj",
+                "**Methods:** meth",
+                "**Results:** res",
+                "**Conclusions:** conc",
+                "## Introduction",
+                "Topic background.",
+                "## Methods",
+                "Two independent reviewers screened records.",
+                "Protocol registration: not prospectively registered.",
+                "## Results",
+                "Of the 10 reports sought for full-text retrieval, 2 reports were not retrieved and 8 were assessed for eligibility, with 3 studies included.",
+                "Risk of bias was assessed.",
+                "## Discussion",
+                "### Principal Findings",
+                "This paragraph provides detailed interpretation with clear limitations and contextual caveats for synthesis quality and external validity.",
+                "## Conclusion",
+                "### Implications for Practice",
+                "Practice implication text.",
+                "### Implications for Research",
+                "Research implication text.",
+                "## References",
+                "[1] Ref",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    manuscript_tex.write_text(
+        "\\section{Abstract}\n\\section{Introduction}\n\\section{Methods}\n\\section{Results}\n\\section{Discussion}\n\\section{Conclusion}\n\\section{References}\n",
+        encoding="utf-8",
+    )
+    async with get_db(str(db_path)) as db:
+        repo = WorkflowRepository(db)
+        cite_repo = CitationRepository(db)
+        await db.commit()
+        result = await run_manuscript_contracts(
+            repository=repo,
+            citation_repository=cite_repo,
+            workflow_id="wf-test",
+            manuscript_md_path=str(manuscript_md),
+            manuscript_tex_path=str(manuscript_tex),
+            mode="soft",
+        )
+    assert any(v.code == "IMPLICATIONS_MISPLACED" for v in result.violations)
+
+
+@pytest.mark.asyncio
+async def test_manuscript_contract_grade_ungrounded_is_error_severity(tmp_path: Path) -> None:
+    db_path = tmp_path / "runtime_contracts_grade_ungrounded.db"
+    manuscript_md = tmp_path / "doc_manuscript.md"
+    manuscript_tex = tmp_path / "doc_manuscript.tex"
+    manuscript_md.write_text(
+        "\n".join(
+            [
+                "## Abstract",
+                "**Background:** text",
+                "**Objectives:** obj",
+                "**Methods:** meth",
+                "**Results:** res",
+                "**Conclusions:** conc",
+                "## Introduction",
+                "Topic background.",
+                "## Methods",
+                "Two independent reviewers screened records.",
+                "Protocol registration: not prospectively registered.",
+                "## Results",
+                "Of the 10 reports sought for full-text retrieval, 2 reports were not retrieved and 8 were assessed for eligibility, with 3 studies included.",
+                "Risk of bias was assessed and GRADE certainty was considered.",
+                "## Discussion",
+                "Interpretation with caveats and conservative framing.",
+                "## Conclusion",
+                "Conclusion.",
+                "## References",
+                "[1] Ref",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    manuscript_tex.write_text(
+        "\\section{Abstract}\n\\section{Introduction}\n\\section{Methods}\n\\section{Results}\n\\section{Discussion}\n\\section{Conclusion}\n\\section{References}\n",
+        encoding="utf-8",
+    )
+    async with get_db(str(db_path)) as db:
+        repo = WorkflowRepository(db)
+        cite_repo = CitationRepository(db)
+        await db.commit()
+        result = await run_manuscript_contracts(
+            repository=repo,
+            citation_repository=cite_repo,
+            workflow_id="wf-test",
+            manuscript_md_path=str(manuscript_md),
+            manuscript_tex_path=str(manuscript_tex),
+            mode="soft",
+        )
+    violations = [v for v in result.violations if v.code == "GRADE_UNGROUNDED"]
+    assert violations
+    assert violations[0].severity == "error"
+
+
+@pytest.mark.asyncio
+async def test_manuscript_contract_detects_rob_figure_caption_mismatch_for_mmat(tmp_path: Path) -> None:
+    db_path = tmp_path / "runtime_contracts_rob_caption_mismatch.db"
+    manuscript_md = tmp_path / "doc_manuscript.md"
+    manuscript_tex = tmp_path / "doc_manuscript.tex"
+    manuscript_md.write_text(
+        "\n".join(
+            [
+                "## Abstract",
+                "**Background:** text",
+                "**Objectives:** obj",
+                "**Methods:** meth",
+                "**Results:** res",
+                "**Conclusions:** conc",
+                "## Introduction",
+                "Topic background.",
+                "## Methods",
+                "Two independent reviewers screened records.",
+                "Protocol registration: not prospectively registered.",
+                "## Results",
+                "Of the 10 reports sought for full-text retrieval, 2 reports were not retrieved and 8 were assessed for eligibility, with 3 studies included.",
+                "Risk of bias was assessed.",
+                "## Discussion",
+                "Interpretation with caveats and conservative framing.",
+                "## Conclusion",
+                "Conclusion.",
+                "## MMAT Quality Assessment",
+                "MMAT rows are present for mixed-methods studies.",
+                "## Figures",
+                "**Fig. 2.** Risk of bias traffic-light plot for included non-randomized studies and reviews (ROBINS-I/CASP).",
+                "## References",
+                "[1] Ref",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    manuscript_tex.write_text(
+        "\\section{Abstract}\n\\section{Introduction}\n\\section{Methods}\n\\section{Results}\n\\section{Discussion}\n\\section{Conclusion}\n\\section{Figures}\n\\section{References}\n",
+        encoding="utf-8",
+    )
+    async with get_db(str(db_path)) as db:
+        repo = WorkflowRepository(db)
+        cite_repo = CitationRepository(db)
+        await db.commit()
+        result = await run_manuscript_contracts(
+            repository=repo,
+            citation_repository=cite_repo,
+            workflow_id="wf-test",
+            manuscript_md_path=str(manuscript_md),
+            manuscript_tex_path=str(manuscript_tex),
+            mode="soft",
+        )
+    assert any(v.code == "ROB_FIGURE_CAPTION_MISMATCH" for v in result.violations)
+
+
+@pytest.mark.asyncio
+async def test_manuscript_contract_allows_advanced_to_full_text_retrieval_phrase(tmp_path: Path) -> None:
+    db_path = tmp_path / "runtime_contracts_prisma_advanced_phrase.db"
+    manuscript_md = tmp_path / "doc_manuscript.md"
+    manuscript_tex = tmp_path / "doc_manuscript.tex"
+    manuscript_md.write_text(
+        "\n".join(
+            [
+                "## Abstract",
+                "**Background:** text",
+                "**Objectives:** obj",
+                "**Methods:** meth",
+                "**Results:** res",
+                "**Conclusions:** conc",
+                "## Introduction",
+                "Topic background.",
+                "## Methods",
+                "Two independent reviewers screened records.",
+                "Protocol registration: not prospectively registered.",
+                "## Results",
+                "After title and abstract screening, 46 potentially relevant reports advanced to full-text retrieval.",
+                "Of these, 32 reports could not be retrieved and 14 were assessed for eligibility, with 1 study included.",
+                "Risk of bias was assessed.",
+                "## Discussion",
+                "Interpretation with caveats and conservative framing.",
+                "## Conclusion",
+                "Conclusion.",
+                "## References",
+                "[1] Ref",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    manuscript_tex.write_text(
+        "\\section{Abstract}\n\\section{Introduction}\n\\section{Methods}\n\\section{Results}\n\\section{Discussion}\n\\section{Conclusion}\n\\section{References}\n",
+        encoding="utf-8",
+    )
+    async with get_db(str(db_path)) as db:
+        repo = WorkflowRepository(db)
+        cite_repo = CitationRepository(db)
+        await db.commit()
+        result = await run_manuscript_contracts(
+            repository=repo,
+            citation_repository=cite_repo,
+            workflow_id="wf-test",
+            manuscript_md_path=str(manuscript_md),
+            manuscript_tex_path=str(manuscript_tex),
+            mode="soft",
+        )
+    assert all(v.code != "PRISMA_STATEMENT_MISSING" for v in result.violations)
+
+
+@pytest.mark.asyncio
+async def test_manuscript_contract_does_not_flag_grade_when_explicitly_not_performed(tmp_path: Path) -> None:
+    db_path = tmp_path / "runtime_contracts_no_grade_phrase.db"
+    manuscript_md = tmp_path / "doc_manuscript.md"
+    manuscript_tex = tmp_path / "doc_manuscript.tex"
+    manuscript_md.write_text(
+        "\n".join(
+            [
+                "## Abstract",
+                "**Background:** text",
+                "**Objectives:** obj",
+                "**Methods:** meth",
+                "**Results:** res",
+                "**Conclusions:** conc",
+                "## Introduction",
+                "Topic background.",
+                "## Methods",
+                "Two independent reviewers screened records.",
+                "Protocol registration: not prospectively registered.",
+                "## Results",
+                "Of the 10 reports sought for full-text retrieval, 2 reports were not retrieved and 8 were assessed for eligibility, with 3 studies included.",
+                "No GRADE certainty assessment was performed for this run.",
+                "Risk of bias was assessed.",
+                "## Discussion",
+                "Interpretation with caveats and conservative framing.",
+                "## Conclusion",
+                "Conclusion.",
+                "## References",
+                "[1] Ref",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    manuscript_tex.write_text(
+        "\\section{Abstract}\n\\section{Introduction}\n\\section{Methods}\n\\section{Results}\n\\section{Discussion}\n\\section{Conclusion}\n\\section{References}\n",
+        encoding="utf-8",
+    )
+    async with get_db(str(db_path)) as db:
+        repo = WorkflowRepository(db)
+        cite_repo = CitationRepository(db)
+        await db.commit()
+        result = await run_manuscript_contracts(
+            repository=repo,
+            citation_repository=cite_repo,
+            workflow_id="wf-test",
+            manuscript_md_path=str(manuscript_md),
+            manuscript_tex_path=str(manuscript_tex),
+            mode="soft",
+        )
+    assert all(v.code != "GRADE_UNGROUNDED" for v in result.violations)
+
+
 def test_validate_ieee_no_abstract():
     tex = "\\begin{document}\\end{document}"
     bib = ""
@@ -566,24 +1520,14 @@ def test_validate_ieee_accepts_comma_separated_cite_groups() -> None:
         "\\begin{abstract} " + "word " * 170 + "\\end{abstract}\n"
         "Evidence \\cite{Smith2020,Jones2021} and \\cite{Brown2022}."
     )
-    bib = (
-        "@article{Smith2020,title={A}}\n"
-        "@article{Jones2021,title={B}}\n"
-        "@article{Brown2022,title={C}}\n"
-    )
+    bib = "@article{Smith2020,title={A}}\n@article{Jones2021,title={B}}\n@article{Brown2022,title={C}}\n"
     result = validate_ieee(tex, bib)
     assert result.passed, result.errors
     assert all("Unresolved citations" not in err for err in result.errors)
 
 
 def test_validate_ieee_word_count_ignores_latex_command_tokens() -> None:
-    tex = (
-        "\\begin{abstract} "
-        + ("alpha " * 240)
-        + "\\cite{Smith2020,Jones2021} "
-        + ("beta " * 8)
-        + "\\end{abstract}\n"
-    )
+    tex = "\\begin{abstract} " + ("alpha " * 240) + "\\cite{Smith2020,Jones2021} " + ("beta " * 8) + "\\end{abstract}\n"
     bib = "@article{Smith2020,title={A}}\n@article{Jones2021,title={B}}\n"
     result = validate_ieee(tex, bib)
     assert result.passed, result.errors
@@ -931,3 +1875,357 @@ async def test_copy_included_study_pdfs_missing_manifest_returns_zero(tmp_path: 
     copied = await _copy_included_study_pdfs(str(db_path), workflow_id, run_dir, dst_dir)
     assert copied == 0
     assert dst_dir.exists()
+
+
+def test_normalize_subsection_heading_layout_splits_inline_h2_sections() -> None:
+    text = "## Abstract **Background:** A. **Results:** B. ## Introduction Intro line."
+    out = _normalize_subsection_heading_layout(text)
+    assert "## Abstract **Background:** A. **Results:** B." in out
+    assert "## Introduction Intro line." in out
+    assert "\n\n## Introduction" in out
+
+
+def test_extract_disclosed_included_counts_accepts_ultimately_included_phrase() -> None:
+    md = (
+        "## Results\n"
+        "Of the 12 reports sought for full-text retrieval, 2 could not be retrieved, "
+        "with 10 studies ultimately included.\n"
+    )
+    counts = _extract_disclosed_included_counts(md)
+    assert 10 in counts
+
+
+@pytest.mark.asyncio
+async def test_manuscript_contract_allows_prisma_variants_full_text_and_could_not(tmp_path: Path) -> None:
+    db_path = tmp_path / "runtime_contracts_prisma_variants.db"
+    manuscript_md = tmp_path / "doc_manuscript.md"
+    manuscript_tex = tmp_path / "doc_manuscript.tex"
+    manuscript_md.write_text(
+        "\n".join(
+            [
+                "## Abstract",
+                "**Background:** text",
+                "**Objectives:** obj",
+                "**Methods:** meth",
+                "**Results:** res",
+                "**Conclusions:** conc",
+                "## Introduction",
+                "Topic background.",
+                "## Methods",
+                "Two independent reviewers screened records.",
+                "Protocol registration: not prospectively registered.",
+                "## Results",
+                (
+                    "Of the 12 reports sought for full-text retrieval, 2 reports could not be retrieved "
+                    "and 10 were assessed for eligibility, with 10 studies ultimately included."
+                ),
+                "Risk of bias was assessed with RoB 2.",
+                "## Discussion",
+                "Discussion.",
+                "## Conclusion",
+                "Conclusion.",
+                "## References",
+                "[1] Ref",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    manuscript_tex.write_text(
+        "\\section{Abstract}\n\\section{Introduction}\n\\section{Methods}\n\\section{Results}\n\\section{Discussion}\n\\section{Conclusion}\n\\section{References}\n",
+        encoding="utf-8",
+    )
+    async with get_db(str(db_path)) as db:
+        repo = WorkflowRepository(db)
+        cite_repo = CitationRepository(db)
+        await db.commit()
+        result = await run_manuscript_contracts(
+            repository=repo,
+            citation_repository=cite_repo,
+            workflow_id="wf-test",
+            manuscript_md_path=str(manuscript_md),
+            manuscript_tex_path=str(manuscript_tex),
+            mode="soft",
+        )
+    assert all(v.code != "PRISMA_STATEMENT_MISSING" for v in result.violations)
+
+
+@pytest.mark.asyncio
+async def test_manuscript_contract_allows_prisma_variants_irretrievable_phrase(tmp_path: Path) -> None:
+    db_path = tmp_path / "runtime_contracts_prisma_variants_irretrievable.db"
+    manuscript_md = tmp_path / "doc_manuscript.md"
+    manuscript_tex = tmp_path / "doc_manuscript.tex"
+    manuscript_md.write_text(
+        "\n".join(
+            [
+                "## Abstract",
+                "**Background:** text",
+                "**Objectives:** obj",
+                "**Methods:** meth",
+                "**Results:** res",
+                "**Conclusions:** conc",
+                "## Introduction",
+                "Topic background.",
+                "## Methods",
+                "Two independent reviewers screened records.",
+                "Protocol registration: not prospectively registered.",
+                "## Results",
+                (
+                    "After title and abstract screening, 66 reports for full-text retrieval remained. "
+                    "Despite retrieval attempts, 33 reports remained irretrievable and 33 were assessed "
+                    "for eligibility, with 10 studies ultimately included."
+                ),
+                "Risk of bias was assessed with RoB 2.",
+                "## Discussion",
+                "Discussion.",
+                "## Conclusion",
+                "Conclusion.",
+                "## References",
+                "[1] Ref",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    manuscript_tex.write_text(
+        "\\section{Abstract}\n\\section{Introduction}\n\\section{Methods}\n\\section{Results}\n\\section{Discussion}\n\\section{Conclusion}\n\\section{References}\n",
+        encoding="utf-8",
+    )
+    async with get_db(str(db_path)) as db:
+        repo = WorkflowRepository(db)
+        cite_repo = CitationRepository(db)
+        await db.commit()
+        result = await run_manuscript_contracts(
+            repository=repo,
+            citation_repository=cite_repo,
+            workflow_id="wf-test",
+            manuscript_md_path=str(manuscript_md),
+            manuscript_tex_path=str(manuscript_tex),
+            mode="soft",
+        )
+    assert all(v.code != "PRISMA_STATEMENT_MISSING" for v in result.violations)
+
+
+@pytest.mark.asyncio
+async def test_manuscript_contract_allows_prisma_variants_subsequently_sought_phrase(tmp_path: Path) -> None:
+    db_path = tmp_path / "runtime_contracts_prisma_variants_subsequently.db"
+    manuscript_md = tmp_path / "doc_manuscript.md"
+    manuscript_tex = tmp_path / "doc_manuscript.tex"
+    manuscript_md.write_text(
+        "\n".join(
+            [
+                "## Abstract",
+                "**Background:** text",
+                "**Objectives:** obj",
+                "**Methods:** meth",
+                "**Results:** res",
+                "**Conclusions:** conc",
+                "## Introduction",
+                "Topic background.",
+                "## Methods",
+                "Two independent reviewers screened records.",
+                "Protocol registration: not prospectively registered.",
+                "## Results",
+                (
+                    "After title and abstract screening, 66 reports were subsequently sought for full\u2011text retrieval. "
+                    "Despite retrieval attempts, 33 reports remained irretrievable and 33 were assessed for eligibility, "
+                    "with 10 studies ultimately included."
+                ),
+                "Risk of bias was assessed with RoB 2.",
+                "## Discussion",
+                "Discussion.",
+                "## Conclusion",
+                "Conclusion.",
+                "## References",
+                "[1] Ref",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    manuscript_tex.write_text(
+        "\\section{Abstract}\n\\section{Introduction}\n\\section{Methods}\n\\section{Results}\n\\section{Discussion}\n\\section{Conclusion}\n\\section{References}\n",
+        encoding="utf-8",
+    )
+    async with get_db(str(db_path)) as db:
+        repo = WorkflowRepository(db)
+        cite_repo = CitationRepository(db)
+        await db.commit()
+        result = await run_manuscript_contracts(
+            repository=repo,
+            citation_repository=cite_repo,
+            workflow_id="wf-test",
+            manuscript_md_path=str(manuscript_md),
+            manuscript_tex_path=str(manuscript_tex),
+            mode="soft",
+        )
+    assert all(v.code != "PRISMA_STATEMENT_MISSING" for v in result.violations)
+
+
+@pytest.mark.asyncio
+async def test_manuscript_contract_allows_prisma_variants_sought_for_remaining_reports(tmp_path: Path) -> None:
+    db_path = tmp_path / "runtime_contracts_prisma_variants_remaining_reports.db"
+    manuscript_md = tmp_path / "doc_manuscript.md"
+    manuscript_tex = tmp_path / "doc_manuscript.tex"
+    manuscript_md.write_text(
+        "\n".join(
+            [
+                "## Abstract",
+                "**Background:** text",
+                "**Objectives:** obj",
+                "**Methods:** meth",
+                "**Results:** res",
+                "**Conclusions:** conc",
+                "## Introduction",
+                "Topic background.",
+                "## Methods",
+                "Two independent reviewers screened records.",
+                "Protocol registration: not prospectively registered.",
+                "## Results",
+                (
+                    "After title and abstract screening, we sought full-text retrieval for the remaining 66 reports. "
+                    "33 reports could not be retrieved and 33 were assessed for eligibility, with 10 studies included."
+                ),
+                "Risk of bias was assessed with RoB 2.",
+                "## Discussion",
+                "Discussion.",
+                "## Conclusion",
+                "Conclusion.",
+                "## References",
+                "[1] Ref",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    manuscript_tex.write_text(
+        "\\section{Abstract}\n\\section{Introduction}\n\\section{Methods}\n\\section{Results}\n\\section{Discussion}\n\\section{Conclusion}\n\\section{References}\n",
+        encoding="utf-8",
+    )
+    async with get_db(str(db_path)) as db:
+        repo = WorkflowRepository(db)
+        cite_repo = CitationRepository(db)
+        await db.commit()
+        result = await run_manuscript_contracts(
+            repository=repo,
+            citation_repository=cite_repo,
+            workflow_id="wf-test",
+            manuscript_md_path=str(manuscript_md),
+            manuscript_tex_path=str(manuscript_tex),
+            mode="soft",
+        )
+    assert all(v.code != "PRISMA_STATEMENT_MISSING" for v in result.violations)
+
+
+@pytest.mark.asyncio
+async def test_manuscript_contract_ignores_snake_case_in_markdown_image_paths(tmp_path: Path) -> None:
+    db_path = tmp_path / "runtime_contracts_snake_image_paths.db"
+    manuscript_md = tmp_path / "doc_manuscript.md"
+    manuscript_tex = tmp_path / "doc_manuscript.tex"
+    manuscript_md.write_text(
+        "\n".join(
+            [
+                "## Abstract",
+                "**Background:** text",
+                "**Objectives:** obj",
+                "**Methods:** meth",
+                "**Results:** res",
+                "**Conclusions:** conc",
+                "## Introduction",
+                "Topic background.",
+                "## Methods",
+                "Two independent reviewers screened records.",
+                "## Results",
+                "Of the 10 reports sought for full-text retrieval, 2 reports were not retrieved and 8 were assessed for eligibility, with 8 studies included.",
+                "Risk of bias was assessed.",
+                "![Fig. 1: PRISMA flow](fig_prisma_flow.png)",
+                "## Discussion",
+                "Discussion.",
+                "## Conclusion",
+                "Conclusion.",
+                "## References",
+                "[1] Ref",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    manuscript_tex.write_text(
+        "\\section{Abstract}\n\\section{Introduction}\n\\section{Methods}\n\\section{Results}\n\\section{Discussion}\n\\section{Conclusion}\n\\section{References}\n",
+        encoding="utf-8",
+    )
+    async with get_db(str(db_path)) as db:
+        repo = WorkflowRepository(db)
+        cite_repo = CitationRepository(db)
+        await db.commit()
+        result = await run_manuscript_contracts(
+            repository=repo,
+            citation_repository=cite_repo,
+            workflow_id="wf-test",
+            manuscript_md_path=str(manuscript_md),
+            manuscript_tex_path=str(manuscript_tex),
+            mode="soft",
+        )
+    assert all(v.code != "SNAKE_CASE_LEAKAGE" for v in result.violations)
+
+
+def test_markdown_to_latex_does_not_emit_h1_as_section() -> None:
+    md = (
+        "# A Systematic Review: Sample Title\n\n"
+        "## Abstract\n\n"
+        "**Background:** Background text.\n"
+        "**Objectives:** Objective text.\n"
+        "**Methods:** Method text.\n"
+        "**Results:** Result text.\n"
+        "**Conclusions:** Conclusion text.\n\n"
+        "## Introduction\n\n"
+        "Intro body.\n"
+    )
+    out = markdown_to_latex(md, citekeys=set())
+    assert "\\section{A Systematic Review" not in out
+    assert "\\section{Introduction}" in out
+
+
+@pytest.mark.asyncio
+async def test_manuscript_contract_does_not_flag_large_language_model_phrase(tmp_path: Path) -> None:
+    db_path = tmp_path / "runtime_contracts_llm_phrase.db"
+    manuscript_md = tmp_path / "doc_manuscript.md"
+    manuscript_tex = tmp_path / "doc_manuscript.tex"
+    manuscript_md.write_text(
+        "\n".join(
+            [
+                "## Abstract",
+                "**Background:** text",
+                "**Objectives:** obj",
+                "**Methods:** meth",
+                "**Results:** res",
+                "**Conclusions:** conc",
+                "## Introduction",
+                "Large language model tutoring systems were evaluated in health education.",
+                "## Methods",
+                "Two independent reviewers screened records.",
+                "## Results",
+                "Of the 6 reports sought for full-text retrieval, 1 report was not retrieved and 5 were assessed for eligibility, with 5 studies included.",
+                "Risk of bias was assessed.",
+                "## Discussion",
+                "Discussion.",
+                "## Conclusion",
+                "Conclusion.",
+                "## References",
+                "[1] Ref",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    manuscript_tex.write_text(
+        "\\section{Abstract}\n\\section{Introduction}\n\\section{Methods}\n\\section{Results}\n\\section{Discussion}\n\\section{Conclusion}\n\\section{References}\n",
+        encoding="utf-8",
+    )
+    async with get_db(str(db_path)) as db:
+        repo = WorkflowRepository(db)
+        cite_repo = CitationRepository(db)
+        await db.commit()
+        result = await run_manuscript_contracts(
+            repository=repo,
+            citation_repository=cite_repo,
+            workflow_id="wf-test",
+            manuscript_md_path=str(manuscript_md),
+            manuscript_tex_path=str(manuscript_tex),
+            mode="soft",
+        )
+    assert all(v.code != "AI_LEAKAGE" for v in result.violations)

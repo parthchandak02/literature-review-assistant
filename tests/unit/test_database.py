@@ -4,16 +4,22 @@ import aiosqlite
 import pytest
 
 from src.db.database import get_db
-from src.db.repositories import WorkflowRepository
+from src.db.repositories import CitationRepository, WorkflowRepository
 from src.models import (
+    CandidatePaper,
+    CitationEntryRecord,
+    DecisionLogEntry,
     GRADECertainty,
     GRADEOutcomeAssessment,
-    DecisionLogEntry,
     ManuscriptAssembly,
     ReviewerType,
     ScreeningDecision,
     ScreeningDecisionType,
+    SearchResult,
     SectionDraft,
+    SourceCategory,
+    ValidationCheckRecord,
+    ValidationRunRecord,
 )
 
 
@@ -69,6 +75,181 @@ async def test_processed_paper_ids_query(tmp_path) -> None:
         )
         processed = await repo.get_processed_paper_ids("wf1", "title_abstract")
         assert processed == {"p1"}
+
+
+@pytest.mark.asyncio
+async def test_save_search_result_is_idempotent_for_same_query(tmp_path) -> None:
+    db_path = tmp_path / "search_idempotent.db"
+    async with get_db(str(db_path)) as db:
+        repo = WorkflowRepository(db)
+        await repo.create_workflow("wf-search", "topic", "hash")
+        paper = CandidatePaper(
+            paper_id="p1",
+            title="Paper 1",
+            authors=["A"],
+            source_database="openalex",
+            source_category=SourceCategory.DATABASE,
+        )
+        sr = SearchResult(
+            workflow_id="wf-search",
+            database_name="openalex",
+            source_category=SourceCategory.DATABASE,
+            search_date="2026-03-23",
+            search_query="(ai) AND (review)",
+            limits_applied=None,
+            records_retrieved=1,
+            papers=[paper],
+        )
+        await repo.save_search_result(sr)
+        await repo.save_search_result(sr)
+        row = await (
+            await db.execute("SELECT COUNT(*) FROM search_results WHERE workflow_id = ?", ("wf-search",))
+        ).fetchone()
+        assert int(row[0]) == 1
+
+
+@pytest.mark.asyncio
+async def test_rollback_phase_data_clears_downstream_rows(tmp_path) -> None:
+    db_path = tmp_path / "rollback_phase_data.db"
+    async with get_db(str(db_path)) as db:
+        repo = WorkflowRepository(db)
+        await repo.create_workflow("wf-rb", "topic", "hash")
+        await db.execute(
+            """
+            INSERT INTO papers (paper_id, title, authors, source_database, source_category)
+            VALUES ('p1', 'Paper 1', '[]', 'openalex', 'database')
+            """
+        )
+        await db.execute(
+            """
+            INSERT INTO search_results
+            (database_name, source_category, search_date, search_query, records_retrieved, workflow_id)
+            VALUES ('openalex', 'database', '2026-03-23', 'q', 1, 'wf-rb')
+            """
+        )
+        await db.execute(
+            """
+            INSERT INTO screening_decisions
+            (workflow_id, paper_id, stage, decision, reviewer_type, confidence)
+            VALUES ('wf-rb', 'p1', 'title_abstract', 'include', 'reviewer_a', 0.9)
+            """
+        )
+        await db.execute(
+            """
+            INSERT INTO dual_screening_results
+            (workflow_id, paper_id, stage, agreement, final_decision, adjudication_needed)
+            VALUES ('wf-rb', 'p1', 'title_abstract', 1, 'include', 0)
+            """
+        )
+        await db.execute(
+            """
+            INSERT INTO study_cohort_membership
+            (workflow_id, paper_id, screening_status, fulltext_status, synthesis_eligibility, source_phase)
+            VALUES ('wf-rb', 'p1', 'included_title_abstract', 'pending', 'pending', 'phase_3_screening')
+            """
+        )
+        await db.commit()
+
+        await repo.rollback_phase_data("wf-rb", "phase_2_search")
+
+        search_count = await (
+            await db.execute("SELECT COUNT(*) FROM search_results WHERE workflow_id = 'wf-rb'")
+        ).fetchone()
+        screening_count = await (
+            await db.execute("SELECT COUNT(*) FROM screening_decisions WHERE workflow_id = 'wf-rb'")
+        ).fetchone()
+        dual_count = await (
+            await db.execute("SELECT COUNT(*) FROM dual_screening_results WHERE workflow_id = 'wf-rb'")
+        ).fetchone()
+        cohort_count = await (
+            await db.execute("SELECT COUNT(*) FROM study_cohort_membership WHERE workflow_id = 'wf-rb'")
+        ).fetchone()
+        papers_count = await (await db.execute("SELECT COUNT(*) FROM papers")).fetchone()
+        assert int(search_count[0]) == 0
+        assert int(screening_count[0]) == 0
+        assert int(dual_count[0]) == 0
+        assert int(cohort_count[0]) == 0
+        assert int(papers_count[0]) == 0
+
+
+@pytest.mark.asyncio
+async def test_get_citekeys_by_source_types(tmp_path) -> None:
+    db_path = tmp_path / "citekeys_by_source.db"
+    async with get_db(str(db_path)) as db:
+        repo = CitationRepository(db)
+        await repo.register_citation(
+            CitationEntryRecord(
+                citekey="Inc2024",
+                doi=None,
+                title="Included paper",
+                authors=["A"],
+                year=2024,
+                journal=None,
+                bibtex=None,
+                resolved=True,
+                source_type="included",
+            )
+        )
+        await repo.register_citation(
+            CitationEntryRecord(
+                citekey="Bg2021SR",
+                doi=None,
+                title="Background SR",
+                authors=["B"],
+                year=2021,
+                journal=None,
+                bibtex=None,
+                resolved=True,
+                source_type="background_sr",
+            )
+        )
+        await repo.register_citation(
+            CitationEntryRecord(
+                citekey="Page2021",
+                doi=None,
+                title="PRISMA",
+                authors=["Page, M. J."],
+                year=2021,
+                journal=None,
+                bibtex=None,
+                resolved=True,
+                source_type="methodology",
+            )
+        )
+        keys = await repo.get_citekeys_by_source_types({"background_sr", "methodology"})
+        assert keys == {"Bg2021SR", "Page2021"}
+
+
+@pytest.mark.asyncio
+async def test_validation_run_and_checks_persistence(tmp_path) -> None:
+    db_path = tmp_path / "validation_tables.db"
+    async with get_db(str(db_path)) as db:
+        repo = WorkflowRepository(db)
+        run = ValidationRunRecord(
+            validation_run_id="val-1",
+            workflow_id="wf-1",
+            profile="quick",
+            status="running",
+            tool_version="test",
+        )
+        await repo.save_validation_run(run)
+        await repo.save_validation_check(
+            ValidationCheckRecord(
+                validation_run_id="val-1",
+                workflow_id="wf-1",
+                phase="phase_3_screening",
+                check_name="batch_contract",
+                status="pass",
+                severity="warn",
+                metric_value=0.0,
+            )
+        )
+        latest = await repo.get_latest_validation_run("wf-1")
+        assert latest is not None
+        assert latest.validation_run_id == "val-1"
+        checks = await repo.get_validation_checks("val-1")
+        assert len(checks) == 1
+        assert checks[0].check_name == "batch_contract"
 
 
 @pytest.mark.asyncio
@@ -168,8 +349,24 @@ async def test_prisma_counts_prefer_canonical_cohort_fulltext_status(tmp_path) -
             """,
             [
                 ("wf-prisma-cohort", "p1", "included", "assessed", "pending", None, "phase_3_screening"),
-                ("wf-prisma-cohort", "p2", "excluded", "not_retrieved", "excluded_screening", "no_full_text", "phase_3_screening"),
-                ("wf-prisma-cohort", "p3", "excluded", "assessed", "excluded_screening", "screening_excluded", "phase_3_screening"),
+                (
+                    "wf-prisma-cohort",
+                    "p2",
+                    "excluded",
+                    "not_retrieved",
+                    "excluded_screening",
+                    "no_full_text",
+                    "phase_3_screening",
+                ),
+                (
+                    "wf-prisma-cohort",
+                    "p3",
+                    "excluded",
+                    "assessed",
+                    "excluded_screening",
+                    "screening_excluded",
+                    "phase_3_screening",
+                ),
             ],
         )
         await db.commit()
@@ -208,7 +405,9 @@ async def test_save_grade_assessment_skips_placeholder_outcome_names(tmp_path) -
                 justification="placeholder should be filtered",
             ),
         )
-        row = await (await db.execute("SELECT COUNT(*) FROM grade_assessments WHERE workflow_id = ?", ("wf-grade",))).fetchone()
+        row = await (
+            await db.execute("SELECT COUNT(*) FROM grade_assessments WHERE workflow_id = ?", ("wf-grade",))
+        ).fetchone()
         assert row is not None
         assert int(row[0]) == 0
 
@@ -245,7 +444,9 @@ async def test_delete_placeholder_grade_assessments_removes_stale_rows(tmp_path)
         await db.commit()
         removed = await repo.delete_placeholder_grade_assessments("wf-grade")
         assert removed == 1
-        row = await (await db.execute("SELECT COUNT(*) FROM grade_assessments WHERE workflow_id = ?", ("wf-grade",))).fetchone()
+        row = await (
+            await db.execute("SELECT COUNT(*) FROM grade_assessments WHERE workflow_id = ?", ("wf-grade",))
+        ).fetchone()
         assert row is not None
         assert int(row[0]) == 1
 

@@ -30,8 +30,10 @@ class SearchCompleteNode(BaseNode[ReviewState]):
 - Quality gates run at node boundaries, not within nodes
 
 ## HITL (Human-in-the-Loop)
-- Implement as checkpoint + CLI prompt at specific nodes
+- Implement as checkpoint + runtime status gate at specific nodes
 - Borderline screening review: after screening node
+- Web flow is primary: status transitions to `awaiting_review` and resumes via
+  `POST /api/run/{run_id}/approve-screening`
 
 ## Resume Logic (paper-level)
 1. `resume --topic` / `resume --workflow-id` queries `workflows_registry` (central db at `{run_root}/workflows_registry.db`); entry provides db_path to runtime.db

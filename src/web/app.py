@@ -2152,26 +2152,13 @@ async def _resolve_db_path_from_run_or_workflow(identifier: str, run_root: str =
     if not identifier.startswith("wf-"):
         raise HTTPException(status_code=404, detail="Run not found")
 
-    from src.db.workflow_registry import find_by_workflow_id, find_by_workflow_id_fallback
+    from src.db.workflow_registry import candidate_run_roots, resolve_workflow_db_path
 
-    # Support workflow-id lookups even when the API process cwd differs from
-    # the repository root by trying multiple run-root candidates.
-    _candidate_roots = [run_root]
-    _repo_runs = pathlib.Path(__file__).resolve().parents[2] / "runs"
-    _repo_runs_str = str(_repo_runs)
-    if _repo_runs_str not in _candidate_roots:
-        _candidate_roots.append(_repo_runs_str)
-
-    entry = None
-    for _root in _candidate_roots:
-        entry = await find_by_workflow_id(_root, identifier)
-        if entry is None:
-            entry = await find_by_workflow_id_fallback(_root, identifier)
-        if entry is not None and entry.db_path:
-            break
-    if entry is None or not entry.db_path:
+    roots = candidate_run_roots(run_root, anchor_file=__file__)
+    db_path = await resolve_workflow_db_path(identifier, roots)
+    if not db_path:
         raise HTTPException(status_code=404, detail="Run not found")
-    return entry.db_path
+    return db_path
 
 
 async def _resolve_workflow_id_from_db(db_path: str) -> str | None:
@@ -2685,9 +2672,160 @@ async def get_db_costs(run_id: str) -> dict[str, Any]:
                 rows = await cur.fetchall()
             async with db.execute("SELECT COALESCE(SUM(cost_usd), 0) FROM cost_records") as cur:
                 total_cost = float((await cur.fetchone())[0])  # type: ignore[index]
+            async with db.execute(
+                """
+                SELECT rationale
+                FROM decision_log
+                WHERE decision_type = 'screening_metric'
+                  AND phase = 'phase_3_screening'
+                ORDER BY id ASC
+                """
+            ) as cur:
+                metric_rows = await cur.fetchall()
 
             records = [dict(row) for row in rows]
-            return {"total_cost": total_cost, "records": records}
+            screening_metrics: dict[str, float] = {}
+            for row in metric_rows:
+                try:
+                    payload = _json.loads(str(row["rationale"] or "{}"))
+                except Exception:
+                    continue
+                metric_name = payload.get("metric")
+                metric_value = payload.get("value")
+                if not isinstance(metric_name, str):
+                    continue
+                if isinstance(metric_value, (int, float)):
+                    screening_metrics[metric_name] = float(metric_value)
+            screening_diagnostics = {
+                "batch_parse_degraded": int(screening_metrics.get("batch_parse_degraded", 0.0)),
+                "batch_id_mismatch": int(screening_metrics.get("batch_id_mismatch", 0.0)),
+                "batch_missing_fallback": int(screening_metrics.get("batch_missing_fallback", 0.0)),
+                "contract_violation_count": int(screening_metrics.get("contract_violation_count", 0.0)),
+                "fast_path_include": int(screening_metrics.get("title_abstract_fast_path_include", 0.0)),
+                "fast_path_exclude": int(screening_metrics.get("title_abstract_fast_path_exclude", 0.0)),
+                "cross_reviewed": int(screening_metrics.get("title_abstract_cross_reviewed", 0.0)),
+            }
+            return {"total_cost": total_cost, "records": records, "screening_diagnostics": screening_diagnostics}
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@app.get("/api/workflow/{workflow_id}/validation/summary")
+async def get_workflow_validation_summary(workflow_id: str) -> dict[str, Any]:
+    """Return latest validation-run summary for a workflow."""
+    db_path = await _resolve_db_path_from_run_or_workflow(workflow_id)
+    try:
+        async with aiosqlite.connect(db_path) as db:
+            db.row_factory = aiosqlite.Row
+            run_row = await (
+                await db.execute(
+                    """
+                    SELECT validation_run_id, profile, status, tool_version, summary_json, started_at, completed_at
+                    FROM validation_runs
+                    WHERE workflow_id = ?
+                    ORDER BY started_at DESC
+                    LIMIT 1
+                    """,
+                    (workflow_id,),
+                )
+            ).fetchone()
+            if not run_row:
+                return {"workflow_id": workflow_id, "latest_run": None}
+
+            check_counts = await (
+                await db.execute(
+                    """
+                    SELECT
+                        SUM(CASE WHEN status = 'fail' AND severity = 'error' THEN 1 ELSE 0 END) AS error_count,
+                        SUM(CASE WHEN severity = 'warn' AND status IN ('warn', 'fail') THEN 1 ELSE 0 END) AS warn_count,
+                        COUNT(*) AS total_checks
+                    FROM validation_checks
+                    WHERE validation_run_id = ?
+                    """,
+                    (str(run_row["validation_run_id"]),),
+                )
+            ).fetchone()
+            try:
+                summary_payload = _json.loads(str(run_row["summary_json"] or "{}"))
+            except Exception:
+                summary_payload = {}
+            latest_run = {
+                "validation_run_id": str(run_row["validation_run_id"]),
+                "profile": str(run_row["profile"]),
+                "status": str(run_row["status"]),
+                "tool_version": str(run_row["tool_version"]),
+                "summary": summary_payload,
+                "started_at": str(run_row["started_at"] or ""),
+                "completed_at": str(run_row["completed_at"] or ""),
+                "error_count": int((check_counts[0] or 0) if check_counts else 0),
+                "warn_count": int((check_counts[1] or 0) if check_counts else 0),
+                "total_checks": int((check_counts[2] or 0) if check_counts else 0),
+            }
+            return {"workflow_id": workflow_id, "latest_run": latest_run}
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@app.get("/api/workflow/{workflow_id}/validation/checks")
+async def get_workflow_validation_checks(workflow_id: str, validation_run_id: str | None = None) -> dict[str, Any]:
+    """Return ordered checks for a validation run (latest when omitted)."""
+    db_path = await _resolve_db_path_from_run_or_workflow(workflow_id)
+    try:
+        async with aiosqlite.connect(db_path) as db:
+            db.row_factory = aiosqlite.Row
+            run_id = validation_run_id
+            if not run_id:
+                run_row = await (
+                    await db.execute(
+                        """
+                        SELECT validation_run_id
+                        FROM validation_runs
+                        WHERE workflow_id = ?
+                        ORDER BY started_at DESC
+                        LIMIT 1
+                        """,
+                        (workflow_id,),
+                    )
+                ).fetchone()
+                if not run_row:
+                    return {"workflow_id": workflow_id, "validation_run_id": None, "checks": []}
+                run_id = str(run_row["validation_run_id"])
+
+            rows = await (
+                await db.execute(
+                    """
+                    SELECT phase, check_name, status, severity, metric_value, details_json, source_module, paper_id, created_at
+                    FROM validation_checks
+                    WHERE validation_run_id = ?
+                    ORDER BY id ASC
+                    """,
+                    (run_id,),
+                )
+            ).fetchall()
+            checks: list[dict[str, Any]] = []
+            for row in rows:
+                try:
+                    details = _json.loads(str(row["details_json"] or "{}"))
+                except Exception:
+                    details = {}
+                checks.append(
+                    {
+                        "phase": str(row["phase"]),
+                        "check_name": str(row["check_name"]),
+                        "status": str(row["status"]),
+                        "severity": str(row["severity"]),
+                        "metric_value": float(row["metric_value"]) if row["metric_value"] is not None else None,
+                        "details": details,
+                        "source_module": str(row["source_module"]) if row["source_module"] else None,
+                        "paper_id": str(row["paper_id"]) if row["paper_id"] else None,
+                        "created_at": str(row["created_at"] or ""),
+                    }
+                )
+            return {"workflow_id": workflow_id, "validation_run_id": run_id, "checks": checks}
     except HTTPException:
         raise
     except Exception as exc:
@@ -3349,6 +3487,10 @@ async def trigger_export(run_id: str, run_root: str = "runs", force: bool = Fals
                 workflow_id=workflow_id,
                 manuscript_md_path=str(manuscript_md),
                 manuscript_tex_path=str(manuscript_tex) if manuscript_tex else None,
+                extra_artifact_paths=[
+                    str(summary.get("artifacts", {}).get("protocol", "") or ""),
+                    str(summary.get("artifacts", {}).get("prospero_form_md", "") or ""),
+                ],
                 mode=mode,
             )
         if not result.passed:

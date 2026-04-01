@@ -13,7 +13,7 @@ Every function crossing a phase boundary MUST accept and return Pydantic models 
 - Use `ExtractionRecord`, not `dict` for extracted data
 - Use `RoB2Assessment` / `RobinsIAssessment`, not `dict` for quality assessments
 - Use `GRADEOutcomeAssessment`, not `dict` for GRADE
-- Use `SectionDraft`, not `dict` for manuscript sections
+- Use `StructuredSectionDraft` / `StructuredManuscriptDraft`, not `dict` for manuscript section boundaries
 - Use `GateResult`, not `dict` for quality gate outputs
 
 Internal helper functions within a single module may use dicts, but any function called from outside the module must use typed models.

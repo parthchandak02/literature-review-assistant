@@ -35,10 +35,16 @@ from src.db.workflow_registry import (
 from src.db.workflow_registry import (
     update_status as update_registry_status,
 )
-from src.export.markdown_refs import assemble_submission_manuscript, is_extraction_failed
+from src.export.markdown_refs import (
+    _normalize_subsection_heading_layout,
+    assemble_submission_manuscript,
+    is_extraction_failed,
+)
 from src.extraction import ExtractionService, StudyClassifier
 from src.llm.provider import LLMProvider
 from src.llm.pydantic_client import PydanticAIClient
+from src.manuscript.cohort import IncludedSetResolver
+from src.manuscript.contracts import run_manuscript_contracts
 from src.models import (
     CandidatePaper,
     CohortMembershipRecord,
@@ -49,6 +55,7 @@ from src.models import (
     ManuscriptAsset,
     PrimaryStudyStatus,
     RagRetrievalDiagnostic,
+    ReviewConfig,
     SectionDraft,
     StudyDesign,
 )
@@ -65,8 +72,6 @@ from src.orchestration.gates import GateRunner
 from src.orchestration.knowledge_graph_node import KnowledgeGraphNode
 from src.orchestration.resume import load_resume_state
 from src.orchestration.state import ReviewState
-from src.manuscript.cohort import IncludedSetResolver
-from src.manuscript.contracts import run_manuscript_contracts
 from src.prisma import build_prisma_counts, render_prisma_diagram
 from src.protocol.generator import ProtocolGenerator
 from src.quality import (
@@ -127,6 +132,7 @@ from src.writing.humanizer import humanize_async
 from src.writing.humanizer_guardrails import extract_citation_blocks, extract_numeric_tokens
 from src.writing.orchestration import (
     _citation_entries_from_papers,
+    _ensure_structured_abstract,
     prepare_writing_context,
     register_background_sr_citations,
     register_citations_from_papers,
@@ -453,7 +459,7 @@ class SearchNode(BaseNode[ReviewState]):
                 await repository.save_dedup_count(state.workflow_id, dedup_count)
 
                 protocol_generator = ProtocolGenerator(output_dir=state.output_dir)
-                protocol = protocol_generator.generate(state.workflow_id, state.review)
+                protocol = protocol_generator.generate(state.workflow_id, state.review, state.settings)
                 protocol_markdown = protocol_generator.render_markdown(protocol, state.review)
                 protocol_generator.write_markdown(state.workflow_id, protocol_markdown)
                 if not await repository.has_checkpoint_integrity(state.workflow_id):
@@ -676,7 +682,7 @@ class SearchNode(BaseNode[ReviewState]):
             await repository.save_dedup_count(state.workflow_id, dedup_count)
 
             protocol_generator = ProtocolGenerator(output_dir=state.output_dir)
-            protocol = protocol_generator.generate(state.workflow_id, state.review)
+            protocol = protocol_generator.generate(state.workflow_id, state.review, state.settings)
             protocol_markdown = protocol_generator.render_markdown(protocol, state.review)
             protocol_generator.write_markdown(state.workflow_id, protocol_markdown)
             if not await repository.has_checkpoint_integrity(state.workflow_id):
@@ -902,15 +908,9 @@ class ScreeningNode(BaseNode[ReviewState]):
                 if cap is not None:
                     bm25_validation_forwarded = max(len(papers_for_llm) - min(cap, len(to_rank)), 0)
                     if bm25_validation_forwarded > 0:
-                        bm25_validation_tail_ids = {
-                            p.paper_id for p in papers_for_llm[-bm25_validation_forwarded:]
-                        }
+                        bm25_validation_tail_ids = {p.paper_id for p in papers_for_llm[-bm25_validation_forwarded:]}
                 pre_excluded = kw_excluded + bm25_excluded
-                bm25_overflow_candidates = [
-                    paper_by_id[d.paper_id]
-                    for d in bm25_excluded
-                    if d.paper_id in paper_by_id
-                ]
+                bm25_overflow_candidates = [paper_by_id[d.paper_id] for d in bm25_excluded if d.paper_id in paper_by_id]
 
                 if kw_excluded:
                     await repository.bulk_save_screening_decisions(
@@ -1037,9 +1037,7 @@ class ScreeningNode(BaseNode[ReviewState]):
                         _qa_rows.append(
                             {
                                 "paper_id": _d.paper_id,
-                                "reason_code": str(
-                                    getattr(getattr(_d, "exclusion_reason", None), "value", "other")
-                                ),
+                                "reason_code": str(getattr(getattr(_d, "exclusion_reason", None), "value", "other")),
                                 "title": (_p.title if _p else ""),
                             }
                         )
@@ -1116,7 +1114,9 @@ class ScreeningNode(BaseNode[ReviewState]):
                         return list(results)
                     finally:
                         screener.settings.screening.stage1_include_threshold = original_include
-                        screener.settings.screening.stage1_exclude_threshold = max(0.0, original_include - exclude_margin)
+                        screener.settings.screening.stage1_exclude_threshold = max(
+                            0.0, original_include - exclude_margin
+                        )
 
                 try:
                     calibrated = await _calibrate_threshold(
@@ -1181,7 +1181,8 @@ class ScreeningNode(BaseNode[ReviewState]):
             # Coarse-scores all BM25-selected papers in batches with a single LLM call each,
             # then filters out clearly irrelevant papers before the expensive dual-reviewer.
             # Reduces dual-reviewer calls by 60-70% while maintaining recall because the
-            # threshold is intentionally liberal (default 0.35 -- uncertain papers are forwarded).
+            # threshold is intentionally liberal (default 0.20 -- uncertain papers are forwarded).
+            state.batch_screen_threshold = float(getattr(screening_cfg, "batch_screen_threshold", 0.20))
             if getattr(screening_cfg, "batch_screen_enabled", True) and papers_for_llm and use_real_client:
                 from src.screening.batch_ranker import BatchLLMRanker, PydanticAIBatchRankerClient
 
@@ -1304,11 +1305,7 @@ class ScreeningNode(BaseNode[ReviewState]):
                     _validation_tail_rate = (
                         (_validation_tail_forwarded / _validation_tail_n) if _validation_tail_n > 0 else 0.0
                     )
-                    _overflow_candidates = [
-                        p
-                        for p in bm25_overflow_candidates
-                        if p.paper_id not in _already_screened
-                    ]
+                    _overflow_candidates = [p for p in bm25_overflow_candidates if p.paper_id not in _already_screened]
                     _overflow_take = 0
                     _overflow_forwarded_n = 0
                     if (
@@ -1512,7 +1509,8 @@ class ScreeningNode(BaseNode[ReviewState]):
                             paper_id=p.paper_id,
                             screening_status=(
                                 "included"
-                                if _fulltext_final.get(p.paper_id) in {"include", "uncertain"} or p.paper_id in _included_ids
+                                if _fulltext_final.get(p.paper_id) in {"include", "uncertain"}
+                                or p.paper_id in _included_ids
                                 else "excluded"
                             ),
                             fulltext_status=(
@@ -1522,12 +1520,14 @@ class ScreeningNode(BaseNode[ReviewState]):
                             ),
                             synthesis_eligibility=(
                                 "pending"
-                                if _fulltext_final.get(p.paper_id) in {"include", "uncertain"} or p.paper_id in _included_ids
+                                if _fulltext_final.get(p.paper_id) in {"include", "uncertain"}
+                                or p.paper_id in _included_ids
                                 else "excluded_screening"
                             ),
                             exclusion_reason_code=(
                                 None
-                                if _fulltext_final.get(p.paper_id) in {"include", "uncertain"} or p.paper_id in _included_ids
+                                if _fulltext_final.get(p.paper_id) in {"include", "uncertain"}
+                                or p.paper_id in _included_ids
                                 else ("no_full_text" if p.paper_id in _not_retrieved_ids else "screening_excluded")
                             ),
                             source_phase="phase_3_screening",
@@ -1593,6 +1593,26 @@ class ScreeningNode(BaseNode[ReviewState]):
                 state.workflow_id,
                 "title_abstract_cross_reviewed",
                 getattr(screener, "cross_review_count", 0),
+            )
+            await repository.save_screening_metric(
+                state.workflow_id,
+                "batch_parse_degraded",
+                getattr(screener, "batch_parse_degraded_count", 0),
+            )
+            await repository.save_screening_metric(
+                state.workflow_id,
+                "batch_id_mismatch",
+                getattr(screener, "batch_id_mismatch_count", 0),
+            )
+            await repository.save_screening_metric(
+                state.workflow_id,
+                "batch_missing_fallback",
+                getattr(screener, "batch_missing_fallback_count", 0),
+            )
+            await repository.save_screening_metric(
+                state.workflow_id,
+                "contract_violation_count",
+                getattr(screener, "contract_violation_count", 0),
             )
 
             # -- Forward citation chasing (PRISMA 2020 snowball supplement) --
@@ -1691,15 +1711,18 @@ class ScreeningNode(BaseNode[ReviewState]):
                     if rc:
                         rc.emit_phase_done("citation_chasing", {"new_papers": 0, "error": str(_cc_exc)})
 
-            await gate_runner.run_screening_safeguard_gate(
+            gr = await gate_runner.run_screening_safeguard_gate(
                 workflow_id=state.workflow_id,
                 phase="phase_3_screening",
                 passed_screening=len(state.included_papers),
             )
-            if state.settings.gates.profile == "strict":
-                gr = await repository.get_latest_gate_result(
-                    state.workflow_id, "phase_3_screening", "screening_safeguard"
+            state.sparse_evidence_mode = gr.status == GateStatus.WARNING
+            if state.sparse_evidence_mode and rc:
+                rc.log_status(
+                    "Screening safeguard: sparse-evidence continuation mode active "
+                    f"({len(state.included_papers)} included; minimum {gr.threshold})."
                 )
+            if state.settings.gates.profile == "strict":
                 if gr and gr.status == GateStatus.FAILED:
                     err_msg = (
                         f"Screening safeguard gate failed: {gr.actual_value or 0} studies "
@@ -1767,6 +1790,11 @@ class ScreeningNode(BaseNode[ReviewState]):
                     "fast_path_include": getattr(screener, "fast_path_include_count", 0),
                     "fast_path_exclude": getattr(screener, "fast_path_exclude_count", 0),
                     "cross_reviewed": getattr(screener, "cross_review_count", 0),
+                    "batch_parse_degraded": getattr(screener, "batch_parse_degraded_count", 0),
+                    "batch_id_mismatch": getattr(screener, "batch_id_mismatch_count", 0),
+                    "batch_missing_fallback": getattr(screener, "batch_missing_fallback_count", 0),
+                    "contract_violation_count": getattr(screener, "contract_violation_count", 0),
+                    "sparse_evidence_mode": state.sparse_evidence_mode,
                 },
             )
             if rc.debug:
@@ -1975,9 +2003,7 @@ class ExtractionQualityNode(BaseNode[ReviewState]):
                                 use_europepmc=getattr(extraction_cfg, "europepmc_full_text", True),
                                 use_semanticscholar=getattr(extraction_cfg, "semanticscholar_full_text", True),
                                 use_arxiv_pdf=getattr(extraction_cfg, "arxiv_full_text", True),
-                                use_biorxiv_medrxiv=getattr(
-                                    extraction_cfg, "biorxiv_medrxiv_full_text", True
-                                ),
+                                use_biorxiv_medrxiv=getattr(extraction_cfg, "biorxiv_medrxiv_full_text", True),
                                 use_openalex_content=getattr(extraction_cfg, "openalex_content_full_text", False),
                                 use_crossref_links=getattr(extraction_cfg, "crossref_links_full_text", True),
                             )
@@ -2285,7 +2311,9 @@ class ExtractionQualityNode(BaseNode[ReviewState]):
                             )
                             _extract_done_count[0] += 1
                             if rc:
-                                rc.advance_screening("phase_4_extraction_quality", _extract_done_count[0], len(to_process))
+                                rc.advance_screening(
+                                    "phase_4_extraction_quality", _extract_done_count[0], len(to_process)
+                                )
                                 extraction_summary = (record.results_summary.get("summary") or "")[:300]
                                 rc.log_extraction_paper(
                                     paper_id=paper.paper_id,
@@ -2685,7 +2713,15 @@ class SynthesisNode(BaseNode[ReviewState]):
         rendered_forest = None
         rendered_funnel = None
         sensitivity_texts: list[str] = []
-        if feasibility.feasible and state.settings.meta_analysis.enabled:
+        if state.sparse_evidence_mode and rc:
+            rc.log_status(
+                "Sparse-evidence mode: skipping quantitative meta-analysis and using narrative-only synthesis."
+            )
+        if (
+            feasibility.feasible
+            and state.settings.meta_analysis.enabled
+            and not state.sparse_evidence_mode
+        ):
             if rc:
                 rc.log_status(
                     f"Running quantitative meta-analysis and sensitivity analysis "
@@ -2741,6 +2777,7 @@ class SynthesisNode(BaseNode[ReviewState]):
         synthesis_payload: dict = {
             "feasibility": feasibility.model_dump(),
             "narrative": narrative.model_dump(),
+            "sparse_evidence_mode": state.sparse_evidence_mode,
         }
         if meta_result is not None:
             synthesis_payload["meta_analysis"] = meta_result.model_dump()
@@ -2789,95 +2826,6 @@ class SynthesisNode(BaseNode[ReviewState]):
                     {"feasible": feasibility.feasible, "n_studies": len(state.extraction_records)},
                 )
         return KnowledgeGraphNode()
-
-
-def _reconcile_manuscript_consistency(body: str, state: ReviewState) -> str:  # type: ignore[name-defined]
-    """Detect and repair cross-section contradictions in the assembled manuscript body.
-
-    Sections are written independently by the LLM, which can produce factual
-    inconsistencies such as:
-    - Claiming meta-analysis was performed (in abstract/methods) when the
-      feasibility check declared it infeasible (narrated in discussion/limitations)
-    - Claiming the protocol was prospectively registered when it was not
-
-    This function applies targeted string corrections that preserve all other text
-    while making the inter-section claims consistent with the grounding data.
-    It is intentionally conservative: only replace well-known contradiction patterns.
-    """
-    import json
-    import re
-
-    # Determine ground-truth flags from the narrative synthesis JSON artifact on disk
-    meta_feasible: bool = False
-    meta_ran: bool = False  # True only when pooling produced a usable result
-    narrative_path = state.artifacts.get("narrative_synthesis", "")
-    if narrative_path:
-        try:
-            with open(narrative_path, encoding="utf-8") as _nf:
-                _narrative_data = json.load(_nf)
-            feasibility = _narrative_data.get("feasibility", {})
-            raw_feasible = bool(feasibility.get("feasible", False))
-            groupings = feasibility.get("groupings", [])
-            _generic = frozenset({"primary_outcome", "secondary_outcome"})
-            generic_only = not groupings or all(g in _generic for g in groupings)
-            meta_feasible = raw_feasible and not generic_only
-            # meta_analysis key only present when pooling actually produced results
-            meta_ran = bool(_narrative_data.get("meta_analysis"))
-        except Exception:
-            pass
-
-    # Apply meta-analysis contradiction fixes when:
-    # (a) feasibility check failed, OR
-    # (b) feasibility check passed but actual float-parsing/pooling failed (meta_ran=False)
-    # In both cases the manuscript MUST describe narrative synthesis only.
-    should_fix_meta = not meta_feasible or (meta_feasible and not meta_ran)
-
-    # -----------------------------------------------------------------------
-    # Fix 1: meta-analysis contradictions
-    # When pooling was not performed, replace phrases that claim it was.
-    # -----------------------------------------------------------------------
-    if should_fix_meta:
-        # Patterns that assert a meta-analysis was conducted
-        _META_ASSERTIONS = [
-            (
-                r"determined that a meta-analysis was feasible",
-                "conducted a narrative synthesis; a meta-analysis was not feasible",
-            ),
-            (
-                r"the data were deemed suitable for meta-analysis",
-                "a meta-analysis was not feasible due to heterogeneity in outcomes; a narrative synthesis was conducted",
-            ),
-            (
-                r"we conducted a meta-analysis\b",
-                "we conducted a narrative synthesis (meta-analysis was not feasible)",
-            ),
-            (
-                r"We conducted a meta-analysis\b",
-                "We conducted a narrative synthesis (meta-analysis was not feasible)",
-            ),
-            (
-                r"A meta-analysis was initially considered but was precluded",
-                "A meta-analysis was not feasible",
-            ),
-        ]
-        for pattern, replacement in _META_ASSERTIONS:
-            body = re.sub(pattern, replacement, body)
-
-    # -----------------------------------------------------------------------
-    # Fix 2: protocol registration contradictions
-    # Always use "not prospectively registered" unless we have an ID (not yet
-    # implemented -- protocol_registered is always False in grounding data).
-    # -----------------------------------------------------------------------
-    _PROTO_REGISTERED_RE = re.compile(
-        r"The\s+(?:review\s+)?protocol\s+was\s+(?:prospectively\s+)?registered\s+prospectively",
-        re.IGNORECASE,
-    )
-    body = _PROTO_REGISTERED_RE.sub(
-        "The protocol was not prospectively registered",
-        body,
-    )
-
-    return body
 
 
 def _build_citation_coverage_patch(
@@ -2947,6 +2895,40 @@ def _build_citation_coverage_patch(
     return " ".join(sentences)
 
 
+_TEMPLATE_TOKEN_REGEX = re.compile(
+    r"\[(INTERVENTION|OUTCOME|OUTCOME MEASURE|POPULATION|COMPARATOR)\]",
+    flags=re.IGNORECASE,
+)
+_UUID_LIKE_BRACKET_REGEX = re.compile(r"\[(?:[0-9a-f]{7,}(?:-[0-9a-f]{2,})+)\]", flags=re.IGNORECASE)
+
+
+def _replace_template_tokens(text: str, review: ReviewConfig | None) -> str:
+    """Replace scaffold placeholders with concrete review-config values."""
+    if not text:
+        return text
+    if review is None or getattr(review, "pico", None) is None:
+        cleaned = _TEMPLATE_TOKEN_REGEX.sub("", text)
+        cleaned = _UUID_LIKE_BRACKET_REGEX.sub("", cleaned)
+        cleaned = re.sub(r"[ \t]{2,}", " ", cleaned)
+        return re.sub(r"\s+([,.;:])", r"\1", cleaned)
+    pico = review.pico
+    mapping = {
+        "INTERVENTION": str(getattr(pico, "intervention", "") or "the intervention"),
+        "OUTCOME": str(getattr(pico, "outcome", "") or "the outcome"),
+        "OUTCOME MEASURE": str(getattr(pico, "outcome", "") or "the outcome"),
+        "POPULATION": str(getattr(pico, "population", "") or "the study population"),
+        "COMPARATOR": str(getattr(pico, "comparison", "") or "the comparator"),
+    }
+
+    def _repl(match: re.Match[str]) -> str:
+        return mapping.get(match.group(1).upper(), "")
+
+    cleaned = _TEMPLATE_TOKEN_REGEX.sub(_repl, text)
+    cleaned = _UUID_LIKE_BRACKET_REGEX.sub("", cleaned)
+    cleaned = re.sub(r"[ \t]{2,}", " ", cleaned)
+    return re.sub(r"\s+([,.;:])", r"\1", cleaned)
+
+
 def _trim_abstract_to_limit(abstract: str, limit: int | None = None) -> str:
     """Trim abstract body to at most `limit` words, excluding the Keywords line.
 
@@ -2954,21 +2936,13 @@ def _trim_abstract_to_limit(abstract: str, limit: int | None = None) -> str:
     if over limit, shortens the longest field by removing words from its end
     until the total fits. The Keywords line is never trimmed or counted.
 
-    Also strips raw LLM model identifier strings that occasionally leak from
-    the grounding block into the abstract text (e.g. "google-gla:<model-id>").
+    This is a formatting safeguard only; semantic issues are validated by
+    manuscript contracts rather than rewritten here.
     """
-    import re as _re
-
     if limit is None:
         from src.models.config import IEEEExportConfig
 
         limit = int(IEEEExportConfig().max_abstract_words)
-
-    # Remove raw model identifier strings before word counting / trimming.
-    # Pattern covers Google Vertex/GenAI model IDs like "google-gla:<model-id>"
-    # and any variant. Replace with a safe generic term.
-    _model_id_re = _re.compile(r"google[-\w]*:[^\s,;)>\"']+", _re.IGNORECASE)
-    abstract = _model_id_re.sub("automated pre-ranking model", abstract)
 
     # Separate Keywords line from the rest (always last)
     lines = abstract.split("\n")
@@ -3026,114 +3000,6 @@ def _trim_abstract_to_limit(abstract: str, limit: int | None = None) -> str:
         body = body.replace(field_text, trimmed_field, 1)
 
     return (body.strip() + ("\n\n" + kw_line if kw_line else "")).strip()
-
-
-def _enforce_prisma_sentence_counts(
-    text: str,
-    reports_sought: int,
-    reports_not_retrieved: int,
-    reports_assessed: int,
-    included_total: int,
-) -> str:
-    """Normalize the common PRISMA sentence with deterministic counts."""
-    import re as _re
-
-    reports_assessed = max(reports_assessed, included_total)
-    reports_sought = max(reports_sought, reports_not_retrieved + reports_assessed)
-
-    canonical = (
-        f"Of the {reports_sought} reports sought for retrieval, "
-        f"{reports_not_retrieved} were not retrieved and {reports_assessed} were assessed "
-        f"for eligibility, with {included_total} studies ultimately included."
-    )
-    strict_pattern = _re.compile(
-        r"Of the \d+ reports sought for retrieval, \d+ were not retrieved and \d+ were assessed "
-        r"for eligibility, with \d+ studies ultimately included\.",
-        _re.IGNORECASE,
-    )
-    text = strict_pattern.sub(canonical, text)
-    # Handle softer variants that caused contradictory prose to survive rewriting.
-    # Example variants:
-    # - "Of 49 reports sought, 0 were not retrieved, 49 were assessed and 141 included."
-    # - "Reports sought for retrieval were 49; 0 not retrieved; 49 assessed for eligibility."
-    loose_pattern = _re.compile(
-        r"(?:Of\s+the\s+|Of\s+)?\d+\s+reports?\s+sought(?:\s+for\s+retrieval)?[^.]{0,220}"
-        r"\d+\s+(?:were\s+)?not\s+retrieved[^.]{0,220}"
-        r"\d+\s+(?:were\s+)?assessed(?:\s+for\s+eligibility)?[^.]{0,220}"
-        r"(?:\d+\s+stud(?:y|ies)\s+(?:were\s+)?(?:ultimately\s+)?included)?\.",
-        _re.IGNORECASE,
-    )
-    return loose_pattern.sub(canonical, text)
-
-
-def _enforce_prisma_screening_sentence(
-    text: str,
-    records_after_deduplication: int,
-    automation_excluded: int,
-    records_screened: int,
-) -> str:
-    """Normalize screening-stage prose so automation and screened counts cannot conflict."""
-    import re as _re
-
-    records_after_deduplication = max(0, records_after_deduplication)
-    automation_excluded = max(0, min(automation_excluded, records_after_deduplication))
-    records_screened = max(0, records_screened)
-    if automation_excluded > 0:
-        records_screened = max(0, records_after_deduplication - automation_excluded)
-        canonical = (
-            f"After deduplication, {records_after_deduplication} records remained. "
-            f"An automated relevance pre-screening step excluded {automation_excluded} records, "
-            f"and {records_screened} records were screened at the title and abstract level."
-        )
-    else:
-        canonical = (
-            f"After deduplication, {records_after_deduplication} records remained, "
-            f"and {records_screened} records were screened at the title and abstract level."
-        )
-
-    # Replace common LLM variants that drift to records_after_deduplication as screened count.
-    strong_pattern = _re.compile(
-        r"(?:The\s+remaining|Consequently,|After\s+deduplication,)\s+\d+\s+records[^.]{0,260}"
-        r"screened(?:\s+at\s+the\s+title\s+and\s+abstract\s+level)?\.",
-        _re.IGNORECASE,
-    )
-    text = strong_pattern.sub(canonical, text)
-    return text
-
-
-def _enforce_abstract_retrieval_caution(
-    text: str,
-    fulltext_sought: int,
-    fulltext_not_retrieved: int,
-    threshold: float | None = None,
-) -> str:
-    """Ensure abstract uses hedged language when full-text non-retrieval is high."""
-    if threshold is None:
-        from src.models.config import WritingConfig
-
-        threshold = float(WritingConfig().fulltext_nonretrieval_caution_threshold)
-    if fulltext_sought <= 0:
-        return text
-    rate = fulltext_not_retrieved / fulltext_sought
-    if rate <= threshold:
-        return text
-    lower = text.lower()
-    has_hedge = (
-        "limited evidence suggests" in lower
-        or "findings are constrained by missing full texts" in lower
-        or "based on abstracts alone" in lower
-    )
-    if has_hedge:
-        return text
-
-    caution_sentence = (
-        f" Limited evidence suggests these findings should be interpreted cautiously, "
-        f"as {fulltext_not_retrieved} of {fulltext_sought} reports had no retrievable full text."
-    )
-    # Prefer appending in the Conclusion field for structured abstracts.
-    if "**Conclusion:**" in text:
-        return text.replace("**Conclusion:**", f"**Conclusion:**{caution_sentence} ", 1)
-    return text + caution_sentence
 
 
 def _build_minimal_sections_for_zero_papers(
@@ -3282,12 +3148,15 @@ class WritingNode(BaseNode[ReviewState]):
                     _removed_stale_grade,
                 )
 
+            _canonical_included_ids_for_prisma = await repository.get_synthesis_included_paper_ids(state.workflow_id)
+            if not _canonical_included_ids_for_prisma:
+                _canonical_included_ids_for_prisma = {str(p.paper_id) for p in state.included_papers if p.paper_id}
             prisma_counts = await build_prisma_counts(
                 repository,
                 state.workflow_id,
                 state.dedup_count,
                 included_qualitative=0,
-                included_quantitative=len(state.included_papers),
+                included_quantitative=len(_canonical_included_ids_for_prisma),
             )
             render_prisma_diagram(prisma_counts, state.artifacts["prisma_diagram"])
             render_timeline(state.included_papers, state.artifacts["timeline"])
@@ -3463,6 +3332,12 @@ class WritingNode(BaseNode[ReviewState]):
                     if _fpath_str and _pathlib.Path(_fpath_str).exists():
                         _fig_map[_fkey] = _fig_seq
                         _fig_seq += 1
+                _fulltext_ids_for_grounding: set[str] = set()
+                _papers_dir = _pathlib.Path(state.artifacts.get("papers_dir", ""))
+                if _papers_dir.exists():
+                    for _pf in _papers_dir.iterdir():
+                        if _pf.suffix.lower() in {".pdf", ".txt"} and _pf.stat().st_size > 0:
+                            _fulltext_ids_for_grounding.add(_pf.stem)
 
                 grounding = build_writing_grounding(
                     prisma_counts=prisma_counts,
@@ -3496,12 +3371,14 @@ class WritingNode(BaseNode[ReviewState]):
                     ),
                     fulltext_sought=state.fulltext_sought,
                     fulltext_not_retrieved=state.fulltext_not_retrieved,
+                    sparse_evidence_mode=state.sparse_evidence_mode,
                     rob2_assessments=_rob2_rows_w or None,
                     robins_i_assessments=_robins_i_rows_w or None,
                     casp_assessments=_casp_rows_w or None,
                     mmat_assessments=_mmat_rows_w or None,
                     grade_assessments=_grade_rows_w or None,
                     figure_map=_fig_map or None,
+                    fulltext_paper_ids=_fulltext_ids_for_grounding or None,
                     fulltext_nonretrieval_caution_threshold=float(
                         getattr(
                             getattr(state.settings, "writing", None),
@@ -4048,24 +3925,12 @@ class WritingNode(BaseNode[ReviewState]):
                 )
                 _norm_assessed = max(prisma_counts.reports_assessed, _included_total)
                 _norm_sought = max(prisma_counts.reports_sought, prisma_counts.reports_not_retrieved + _norm_assessed)
-                _records_after_dedup = (
-                    prisma_counts.total_identified_databases
-                    + prisma_counts.total_identified_other
-                    - prisma_counts.duplicates_removed
-                )
-                _automation_excluded = max(0, min(prisma_counts.automation_excluded, _records_after_dedup))
-                _screened_count = (
-                    max(0, _records_after_dedup - _automation_excluded)
-                    if _automation_excluded > 0
-                    else max(0, prisma_counts.records_screened)
-                )
                 _prisma_sentence = (
                     f"Of the {_norm_sought} reports sought for retrieval, "
                     f"{prisma_counts.reports_not_retrieved} were not retrieved and {_norm_assessed} "
                     f"were assessed for eligibility, with {_included_total} studies ultimately included."
                 )
                 _abs_idx = SECTIONS.index("abstract") if "abstract" in SECTIONS else -1
-                _results_idx = SECTIONS.index("results") if "results" in SECTIONS else -1
                 if _abs_idx >= 0 and not sections_written[_abs_idx].strip():
                     sections_written[_abs_idx] = (
                         "**Background:** This review synthesizes the available evidence for the topic. "
@@ -4088,7 +3953,9 @@ class WritingNode(BaseNode[ReviewState]):
                 # max(settings.ieee_export.max_abstract_words - writing.abstract_trim_headroom_words,
                 #     writing.abstract_trim_floor_words).
                 if _abs_idx >= 0 and sections_written[_abs_idx]:
-                    _max_abs_words = int(getattr(getattr(state.settings, "ieee_export", None), "max_abstract_words", 250))
+                    _max_abs_words = int(
+                        getattr(getattr(state.settings, "ieee_export", None), "max_abstract_words", 250)
+                    )
                     _writing_cfg = getattr(state.settings, "writing", None)
                     _headroom = int(getattr(_writing_cfg, "abstract_trim_headroom_words", 20))
                     _floor = int(getattr(_writing_cfg, "abstract_trim_floor_words", 210))
@@ -4102,56 +3969,12 @@ class WritingNode(BaseNode[ReviewState]):
                             len(_trimmed_abs.split()),
                         )
                         sections_written[_abs_idx] = _trimmed_abs
-                    # Deterministically correct the common PRISMA sentence in the
-                    # abstract when LLM arithmetic drifts.
-                    sections_written[_abs_idx] = _enforce_prisma_sentence_counts(
+                    sections_written[_abs_idx] = _ensure_structured_abstract(
                         sections_written[_abs_idx],
-                        reports_sought=prisma_counts.reports_sought,
-                        reports_not_retrieved=prisma_counts.reports_not_retrieved,
-                        reports_assessed=prisma_counts.reports_assessed,
-                        included_total=_included_total,
+                        state.review.research_question if state.review else "",
                     )
-                    sections_written[_abs_idx] = _enforce_prisma_screening_sentence(
-                        sections_written[_abs_idx],
-                        records_after_deduplication=_records_after_dedup,
-                        automation_excluded=_automation_excluded,
-                        records_screened=_screened_count,
-                    )
-                    sections_written[_abs_idx] = _enforce_abstract_retrieval_caution(
-                        sections_written[_abs_idx],
-                        fulltext_sought=prisma_counts.reports_sought,
-                        fulltext_not_retrieved=prisma_counts.reports_not_retrieved,
-                        threshold=float(
-                            getattr(
-                                getattr(state.settings, "writing", None),
-                                "fulltext_nonretrieval_caution_threshold",
-                                0.40,
-                            )
-                        ),
-                    )
-
-                # Also normalize the same PRISMA sentence in Methods if present.
-                if _methods_idx >= 0 and sections_written[_methods_idx]:
-                    sections_written[_methods_idx] = _enforce_prisma_sentence_counts(
-                        sections_written[_methods_idx],
-                        reports_sought=prisma_counts.reports_sought,
-                        reports_not_retrieved=prisma_counts.reports_not_retrieved,
-                        reports_assessed=prisma_counts.reports_assessed,
-                        included_total=_included_total,
-                    )
-                    sections_written[_methods_idx] = _enforce_prisma_screening_sentence(
-                        sections_written[_methods_idx],
-                        records_after_deduplication=_records_after_dedup,
-                        automation_excluded=_automation_excluded,
-                        records_screened=_screened_count,
-                    )
-                if _results_idx >= 0 and sections_written[_results_idx]:
-                    sections_written[_results_idx] = _enforce_prisma_screening_sentence(
-                        sections_written[_results_idx],
-                        records_after_deduplication=_records_after_dedup,
-                        automation_excluded=_automation_excluded,
-                        records_screened=_screened_count,
-                    )
+                # Do not apply post-hoc semantic prose rewrites to abstract/methods/results.
+                # Prompt-grounded generation plus manuscript contracts own these guarantees.
 
                 if _failed_sections and rc and hasattr(rc, "_emit"):
                     rc._emit(
@@ -4202,8 +4025,9 @@ class WritingNode(BaseNode[ReviewState]):
                 included_ids = await repository.get_included_paper_ids(state.workflow_id)
             included_papers_for_table = await repository.load_papers_by_ids(included_ids)
 
-        # Prefix each section with its standard IMRaD heading.
-        # The abstract is kept as-is (it already contains the title + structured fields).
+        # Prefix each section with its standard IMRaD heading and normalize
+        # section-body boundaries so leaked top-level headings cannot cascade into
+        # malformed abstract/section contracts.
         _SECTION_HEADINGS: dict[str, str] = {
             "abstract": "## Abstract",
             "introduction": "## Introduction",
@@ -4212,27 +4036,37 @@ class WritingNode(BaseNode[ReviewState]):
             "discussion": "## Discussion",
             "conclusion": "## Conclusion",
         }
-        # Patterns that match LLM-generated section-level heading variants we
-        # must strip before prepending the canonical ## heading.
-        # Covers: "## Results", "### Results", "### **Results**", etc.
-        _section_heading_strip_re = re.compile(
-            r"^#{2,3}\s+\*{0,2}(Introduction|Methods|Results|Discussion|Conclusion)\*{0,2}\s*\n+",
-            re.IGNORECASE,
+        _CANONICAL_H2_NAMES = ("Abstract", "Introduction", "Methods", "Results", "Discussion", "Conclusion", "References")
+        _inline_h2_re = re.compile(
+            r"\s+(##\s+(?:Abstract|Introduction|Methods|Results|Discussion|Conclusion|References)\b)",
+            flags=re.IGNORECASE,
         )
+
+        def _sanitize_section_body_for_assembly(section_key: str, raw_text: str) -> str:
+            text = str(raw_text or "").strip()
+            # First normalize malformed heading/body patterns.
+            text = _normalize_subsection_heading_layout(text)
+            # Split inline top-level headings before boundary checks.
+            text = _inline_h2_re.sub(r"\n\n\1", text)
+            heading = _SECTION_HEADINGS.get(section_key, "")
+            if heading:
+                _name = heading.replace("## ", "").strip()
+                text = re.sub(rf"(?is)^\s*##\s*{re.escape(_name)}\b[ \t]*\n?", "", text).lstrip()
+            # Drop any leaked next top-level section to prevent run-on joins like
+            # "## Abstract ... ## Introduction ..." inside one section payload.
+            m = re.search(
+                r"(?m)^##\s+(?:Abstract|Introduction|Methods|Results|Discussion|Conclusion|References)\b",
+                text,
+            )
+            if m:
+                text = text[: m.start()].rstrip()
+            return text
 
         titled_sections = []
         for section, content in zip(SECTIONS, sections_written):
+            content = _replace_template_tokens(content, state.review)
+            content = _sanitize_section_body_for_assembly(section, content)
             heading = _SECTION_HEADINGS.get(section, "")
-            if heading:
-                # Strip any duplicate or variant section heading the LLM may have
-                # written at the top (e.g. "## Discussion", "### **Results**").
-                stripped = content.lstrip()
-                # Exact match strip (fast path)
-                if stripped.startswith(heading):
-                    content = stripped[len(heading) :].lstrip("\n")
-                else:
-                    # Broad strip: remove any ## or ### section-level heading variant
-                    content = _section_heading_strip_re.sub("", stripped)
             titled_sections.append(f"{heading}\n\n{content}" if heading else content)
 
         manuscript_path = Path(state.artifacts["manuscript_md"])
@@ -4252,16 +4086,25 @@ class WritingNode(BaseNode[ReviewState]):
                 for s in db_sections:
                     sec_key = s.section_key
                     heading = _heading_by_section.get(sec_key, "")
+                    sec_content = _sanitize_section_body_for_assembly(sec_key, s.content)
                     if heading:
-                        db_body_parts.append(f"{heading}\n\n{s.content}")
+                        db_body_parts.append(f"{heading}\n\n{sec_content}")
                     else:
-                        db_body_parts.append(s.content)
+                        db_body_parts.append(sec_content)
                 if db_body_parts:
                     body = "\n\n".join(db_body_parts)
         except Exception as db_section_exc:
             logger.debug("DB-first section assembly fallback to in-memory drafts: %s", db_section_exc)
+        body = _normalize_subsection_heading_layout(body)
+        for _h2 in _CANONICAL_H2_NAMES:
+            body = re.sub(
+                rf"(?im)^(##\s+{re.escape(_h2)}\b)\s+(.+)$",
+                r"\1\n\n\2",
+                body,
+            )
         if not re.search(r"(?m)^## Abstract\s*$", body):
             body = "## Abstract\n\n" + body.lstrip()
+        body = _replace_template_tokens(body, state.review)
 
         # --- Contradiction detection pass (Idea 3) ---
         # Detect directional disagreements between included studies and inject
@@ -4357,6 +4200,7 @@ class WritingNode(BaseNode[ReviewState]):
                 _verified, _hallucinated = verify_citation_grounding(body, _valid_citekeys, "full_manuscript")
                 if _hallucinated:
                     body = repair_hallucinated_citekeys(body, _hallucinated, _valid_citekeys)
+                    body = _replace_template_tokens(body, state.review)
                     logger.warning(
                         "Citation grounding: repaired %d hallucinated citekeys: %s",
                         len(_hallucinated),
@@ -4448,95 +4292,6 @@ class WritingNode(BaseNode[ReviewState]):
         except Exception as _cov_exc:
             logger.warning("WritingNode: citation coverage check failed (non-fatal): %s", _cov_exc)
 
-        # Cross-section consistency pass: detect and repair contradictions that arise
-        # when sections are written independently by the LLM.
-        body = _reconcile_manuscript_consistency(body, state)
-        _methods_effect_patch = (
-            "Effect measures: odds ratio, risk ratio, mean difference, and standardized mean difference "
-            "were pre-specified for outcomes that could support quantitative synthesis."
-        )
-        _methods_prep_patch = (
-            "Data preparation for synthesis: missing data handling, conversion harmonization, and "
-            "imputation assumptions were reviewed before synthesis; no unsupported conversions were introduced."
-        )
-        _methods_sensitivity_patch = (
-            "Sensitivity analysis methods: leave-one-out and robustness checks were pre-specified for "
-            "eligible syntheses."
-        )
-        _results_patch = (
-            "Reporting bias assessment for syntheses: publication bias and funnel plot asymmetry were "
-            "not formally estimated where the number of comparable studies was insufficient.\n\n"
-            "Heterogeneity and subgroup results: subgroup and heterogeneity checks did not identify "
-            "reliable interaction modifiers for pooled analyses in this run.\n\n"
-            "Sensitivity analysis results: robustness analysis results were not estimable for syntheses "
-            "with insufficient comparable estimates."
-        )
-        _introduction_patch = (
-            "This review addresses an evidence gap and residual uncertainty in the current literature, "
-            "which motivates the need for a structured synthesis."
-        )
-        _discussion_process_limit_patch = (
-            "Review process limitations: the screening process and related methodological decisions may "
-            "introduce limitations in the review process, and these constraints should be considered when "
-            "interpreting the findings."
-        )
-
-        def _append_to_h2_section(_text: str, _heading: str, _addition: str) -> str:
-            _pat = re.compile(rf"(?ms)(^## {_heading}\\n.*?)(?=^##\\s+|\\Z)")
-            _m = _pat.search(_text)
-            if not _m:
-                return _text
-            _section = _m.group(1)
-            if _addition.lower() in _section.lower():
-                return _text
-            _patched = _section.rstrip() + "\n\n" + _addition + "\n\n"
-            return _text[: _m.start(1)] + _patched + _text[_m.end(1) :]
-
-        _methods_match = re.search(r"(?ms)^## Methods\\n(.*?)(?=^##\\s+|\\Z)", body)
-        if _methods_match:
-            _methods_body_low = _methods_match.group(1).lower()
-            if not any(k in _methods_body_low for k in ("effect measure", "odds ratio", "risk ratio", "mean difference", "smd")):
-                body = _append_to_h2_section(body, "Methods", _methods_effect_patch)
-                _methods_body_low += " effect measure odds ratio risk ratio mean difference smd "
-            if not any(k in _methods_body_low for k in ("missing data", "conversion", "imputation", "prepare")):
-                body = _append_to_h2_section(body, "Methods", _methods_prep_patch)
-                _methods_body_low += " missing data conversion imputation prepare "
-            if not any(k in _methods_body_low for k in ("sensitivity analysis", "leave-one-out", "robust")):
-                body = _append_to_h2_section(body, "Methods", _methods_sensitivity_patch)
-
-        _results_match = re.search(r"(?ms)^## Results\\n(.*?)(?=^##\\s+|\\Z)", body)
-        if _results_match and not any(
-            k in _results_match.group(1).lower() for k in ("reporting bias", "publication bias", "funnel")
-        ):
-            body = _append_to_h2_section(body, "Results", _results_patch)
-        _intro_match = re.search(r"(?ms)^## Introduction\\n(.*?)(?=^##\\s+|\\Z)", body)
-        if _intro_match and not any(k in _intro_match.group(1).lower() for k in ("evidence gap", "uncertaint", "needed")):
-            body = _append_to_h2_section(body, "Introduction", _introduction_patch)
-        _discussion_match = re.search(r"(?ms)^## Discussion\\n(.*?)(?=^##\\s+|\\Z)", body)
-        if _discussion_match and not (
-            "limitation" in _discussion_match.group(1).lower()
-            and any(k in _discussion_match.group(1).lower() for k in ("review process", "screening process", "method"))
-        ):
-            body = _append_to_h2_section(body, "Discussion", _discussion_process_limit_patch)
-        _declarations_block = (
-            "## Declarations\n\n"
-            "### Protocol Deviations\n"
-            "No substantive protocol amendment or updated protocol deviation was introduced after data collection; "
-            "any operational clarifications are documented in the run metadata.\n\n"
-            "### Funding\n"
-            "No external funding or sponsor support was received for this review, and funders had no role in "
-            "study design, analysis, interpretation, or manuscript preparation.\n\n"
-            "### Competing Interests\n"
-            "Conflict of interest disclosure: the authors declare no competing interest and no conflict of interest.\n\n"
-            "### Data and Code Availability\n"
-            "Data availability: extracted study tables, screening decisions, and synthesis artifacts are "
-            "available in the run outputs and supplementary materials. "
-            "Code availability: repository source code is available to reproduce the workflow."
-        )
-        if "## Declarations" in body:
-            body = re.sub(r"(?ms)^## Declarations\\n.*?(?=^##\\s+|\\Z)", _declarations_block + "\n\n", body)
-        else:
-            body = body.rstrip() + "\n\n" + _declarations_block
         async with get_db(state.db_path) as _grade_db:
             _grade_repo = WorkflowRepository(_grade_db)
             _grade_assessments = await _grade_repo.load_grade_assessments(state.workflow_id)
@@ -5040,13 +4795,40 @@ class FinalizeNode(BaseNode[ReviewState]):
                     logger.warning("FinalizeNode: %s", _msg)
                     if rc and hasattr(rc, "log_status"):
                         rc.log_status(_msg)
-                _protocol = _proto_gen.generate(state.workflow_id, state.review)
+                # Always regenerate protocol markdown during finalize so strict
+                # placeholder contracts do not rely on stale phase-2 artifacts.
+                _protocol_doc = _proto_gen.generate(state.workflow_id, state.review, state.settings)
+                _protocol_md = _proto_gen.render_markdown(_protocol_doc, state.review)
+                _protocol_md_path = _proto_gen.write_markdown(state.workflow_id, _protocol_md)
+                state.artifacts["protocol"] = str(_protocol_md_path)
+                _protocol = _protocol_doc
                 _synthesis_method: str = _protocol.planned_synthesis_method
-                _fulltext_retrieved = state.fulltext_sought - state.fulltext_not_retrieved
+                _included_ids: set[str] = set()
+                try:
+                    async with get_db(state.db_path) as _inc_db:
+                        _inc_repo = WorkflowRepository(_inc_db)
+                        _included_ids = await _inc_repo.get_synthesis_included_paper_ids(state.workflow_id)
+                except Exception:
+                    _included_ids = set()
+                if not _included_ids:
+                    _included_ids = {str(p.paper_id) for p in (state.included_papers or []) if getattr(p, "paper_id", "")}
+                _fulltext_ids: set[str] = set()
+                _manifest_path = Path(state.artifacts.get("papers_manifest", ""))
+                if _manifest_path.exists():
+                    try:
+                        _manifest = json.loads(_manifest_path.read_text(encoding="utf-8"))
+                        for _pid, _entry in (_manifest or {}).items():
+                            if (_entry or {}).get("file_path"):
+                                _fulltext_ids.add(str(_pid))
+                    except Exception as _manifest_err:  # noqa: BLE001
+                        logger.warning(
+                            "FinalizeNode: could not derive fulltext IDs from papers manifest: %s",
+                            _manifest_err,
+                        )
+                _fulltext_retrieved = len(_fulltext_ids.intersection(_included_ids)) if _included_ids else 0
                 if _fulltext_retrieved <= 0:
                     # Resume-from-finalize may not have in-memory fulltext counters.
                     # Fall back to papers manifest / papers dir on disk.
-                    _manifest_path = Path(state.artifacts.get("papers_manifest", ""))
                     if _manifest_path.exists():
                         try:
                             _manifest = json.loads(_manifest_path.read_text(encoding="utf-8"))
@@ -5070,10 +4852,17 @@ class FinalizeNode(BaseNode[ReviewState]):
                 _run_data = ProsperoRunData(
                     search_counts=state.search_counts,
                     search_queries=state.search_queries,
-                    included_count=len(state.included_papers),
+                    included_count=len(_included_ids),
                     fulltext_retrieved_count=max(0, _fulltext_retrieved),
                     run_id=state.run_id,
                     synthesis_method=_synthesis_method,
+                    other_methods_searched=sorted(
+                        {
+                            str(name)
+                            for name in (state.search_counts or {}).keys()
+                            if str(name) not in {str(db) for db in (state.review.target_databases or [])}
+                        }
+                    ),
                 )
                 _prospero_md = _proto_gen.render_prospero_markdown(_protocol, state.review, _run_data)
                 _prospero_md_path = _proto_gen.write_prospero_markdown(_prospero_md)
@@ -5177,6 +4966,10 @@ class FinalizeNode(BaseNode[ReviewState]):
                         workflow_id=state.workflow_id,
                         manuscript_md_path=_manuscript_path,
                         manuscript_tex_path=state.artifacts.get("manuscript_tex"),
+                        extra_artifact_paths=[
+                            state.artifacts.get("protocol", ""),
+                            state.artifacts.get("prospero_form_md", ""),
+                        ],
                         mode=_contract_mode,
                     )
                     _contract_summary = {

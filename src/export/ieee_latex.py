@@ -148,12 +148,6 @@ def _convert_citations(
     """
     num_to_citekey = num_to_citekey or {}
     _num_key_map: dict[str, str] = {str(k).strip(): v for k, v in num_to_citekey.items()}
-    # Remove unresolved placeholder markers from final LaTeX prose.
-    text = text.replace("[CITATION_NEEDED]", "(citation unavailable)")
-    text = re.sub(r"\[\s*Ref\d+\s*\]", "(citation unavailable)", text)
-    text = re.sub(r"\bRef\d+\b", "(citation unavailable)", text)
-    text = re.sub(r"\[\s*Paper_[A-Za-z0-9_\-]+\s*\]", "(citation unavailable)", text)
-    text = re.sub(r"\bPaper_[A-Za-z0-9_\-]+\b", "(citation unavailable)", text)
 
     def _norm_token(token: str) -> str:
         # Canonical key for forgiving lookup (spaces/punctuation-insensitive).
@@ -183,14 +177,6 @@ def _convert_citations(
             return _norm_num_key_map[norm]
         return None
 
-    def _looks_like_citation_placeholder(token: str) -> bool:
-        stripped = token.strip()
-        return bool(
-            re.fullmatch(r"Ref\d+", stripped)
-            or re.fullmatch(r"Paper_[A-Za-z0-9_\-]+", stripped)
-            or re.fullmatch(r"[A-Za-z][A-Za-z0-9_\-']+\d{4}[a-z]?", stripped)
-        )
-
     # Pass 1: comma-separated bracket lists -> \cite{key1,key2,...}
     # Use a permissive pattern so one malformed key does not block valid keys.
     _list_re = re.compile(r"\[([^\[\]\n]*,[^\[\]\n]*)\]")
@@ -207,8 +193,6 @@ def _convert_citations(
                 seen_resolved.add(rk)
         if resolved:
             return f"\\cite{{{','.join(resolved)}}}"
-        if any(_looks_like_citation_placeholder(k) for k in raw_keys):
-            return "(citation unavailable)"
         return m.group(0)  # Nothing resolved -- leave as-is.
 
     text = _list_re.sub(list_repl, text)
@@ -235,8 +219,6 @@ def _convert_citations(
         resolved = _resolve_token(key)
         if resolved:
             return f"\\cite{{{resolved}}}"
-        if _looks_like_citation_placeholder(key):
-            return "(citation unavailable)"
         return m.group(0)
 
     return re.sub(r"\[([A-Za-z0-9_\-:' ]+)\]", repl, text)
@@ -696,13 +678,9 @@ def _md_section_to_latex(
             parts.append(f"\\section{{{_escape_latex(title)}}}")
             parts.append("")
         elif stripped.startswith("# "):
-            # Top-level title is already in \title{}; skip to avoid duplication.
-            # The _extract_title_and_abstract fallback strips the header block, but
-            # if any # heading survives (e.g. in appendices), emit as \section.
+            # Top-level title is already emitted via \title{}.
+            # Never re-emit H1 headings as \section{} in body conversion.
             flush_list()
-            title = _sanitize_heading_title(stripped[2:].strip())
-            parts.append(f"\\section{{{_escape_latex(title)}}}")
-            parts.append("")
         elif stripped == "---":
             # Markdown horizontal rules are section separators; skip silently
             flush_list()
@@ -845,6 +823,23 @@ def markdown_to_latex(
         "fig_methodology_flow": "methodology_flow",
     }
 
+    def _resolve_figure_caption(artifact_key: str, default_caption: str) -> str:
+        if artifact_key != "rob_traffic_light":
+            return default_caption
+        low_md = rest.lower()
+        has_mmat = "## mmat quality assessment" in low_md
+        has_robins = "## robins-i risk of bias assessment" in low_md
+        has_casp = "## casp quality assessment" in low_md
+        if has_mmat and not has_robins and not has_casp:
+            return "Risk of bias traffic-light plot for included mixed-methods studies (MMAT)."
+        if has_mmat and has_casp and not has_robins:
+            return "Risk of bias traffic-light plot for included studies (MMAT/CASP)."
+        if has_mmat and has_robins and not has_casp:
+            return "Risk of bias traffic-light plot for included studies (ROBINS-I/MMAT)."
+        if has_mmat and has_robins and has_casp:
+            return "Risk of bias traffic-light plot for included studies (ROBINS-I/CASP/MMAT)."
+        return default_caption
+
     fig_section = ""
     if figure_paths:
         fig_section = "\n\\section*{Figures}\n\n"
@@ -852,7 +847,8 @@ def markdown_to_latex(
             name = Path(path).stem
             inc_path = f"figures/{name}" if "/" not in path else path
             artifact_key = _stem_to_artifact.get(name, "")
-            caption = _artifact_to_caption.get(artifact_key, f"Figure {i}.")
+            base_caption = _artifact_to_caption.get(artifact_key, f"Figure {i}.")
+            caption = _resolve_figure_caption(artifact_key, base_caption)
             fig_section += "\\begin{figure}[htbp]\n"
             fig_section += "  \\centering\n"
             fig_section += f"  \\includegraphics[width=0.9\\columnwidth]{{{inc_path}}}\n"

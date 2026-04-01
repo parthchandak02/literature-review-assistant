@@ -5,12 +5,15 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
+import yaml
+
 from src.config.loader import load_configs
 from src.db.database import get_db, repair_foreign_key_integrity
 
 logger = logging.getLogger(__name__)
 from src.db.repositories import WorkflowRepository
 from src.models import ExtractionRecord
+from src.models.config import ReviewConfig
 from src.orchestration.state import ReviewState
 from src.search.deduplication import deduplicate_papers
 
@@ -64,9 +67,18 @@ async def load_resume_state(
     phases have checkpoints, clear checkpoints for from_phase and later, and
     return next_phase=from_phase.
     """
-    review, settings = load_configs(review_path, settings_path)
     run_dir = Path(db_path).resolve().parent
     run_dir.mkdir(parents=True, exist_ok=True)
+    review, settings = load_configs(review_path, settings_path)
+    # Resume must use the run's captured review config, not the mutable workspace
+    # config/review.yaml, otherwise placeholder template text can leak into reruns.
+    snapshot_path = run_dir / "config_snapshot.yaml"
+    if snapshot_path.exists():
+        try:
+            snapshot_data = yaml.safe_load(snapshot_path.read_text(encoding="utf-8")) or {}
+            review = ReviewConfig.model_validate(snapshot_data)
+        except Exception as snapshot_err:
+            logger.warning("Could not load review config from %s: %s", snapshot_path, snapshot_err)
     log_dir = str(run_dir)
     output_dir = log_dir  # same directory
 
@@ -169,11 +181,29 @@ async def load_resume_state(
                     extra.extend(_SUB_PHASE_CHECKPOINTS.get(phase, []))
                 phases_to_clear = list(phases_to_clear) + extra
                 await repo.delete_checkpoints_for_phases(workflow_id, phases_to_clear)
+                # Clear persisted downstream data so a rewind is a true replay,
+                # not an append onto stale rows from later phases.
+                await repo.rollback_phase_data(workflow_id, from_phase)
                 # Re-running writing (or any earlier phase that includes writing)
                 # must clear persisted section_drafts; otherwise WritingNode sees
                 # sections as already completed and skips regeneration.
                 if "phase_6_writing" in phases_to_clear:
                     await repo.delete_section_drafts(workflow_id)
+                # Refresh in-memory state after rollback so returned ReviewState
+                # reflects the post-rewind DB contents.
+                checkpoints = await repo.get_checkpoints(workflow_id)
+                search_counts = await repo.get_search_counts(workflow_id)
+                all_papers = await repo.get_all_papers()
+                deduped, recomputed_dedup_count = deduplicate_papers(all_papers)
+                stored_dedup_count = await repo.get_dedup_count(workflow_id)
+                dedup_count = stored_dedup_count if stored_dedup_count is not None else recomputed_dedup_count
+                included_ids = await repo.get_included_paper_ids(workflow_id)
+                if not included_ids:
+                    included_ids = await repo.get_title_abstract_include_ids(workflow_id)
+                included_papers_sorted = [p for p in deduped if p.paper_id in included_ids]
+                extraction_records_list = []
+                if "phase_4_extraction_quality" in checkpoints:
+                    extraction_records_list = await repo.load_extraction_records(workflow_id)
                 next_phase = from_phase
         else:
             next_phase = _next_phase(checkpoints)

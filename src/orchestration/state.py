@@ -50,7 +50,7 @@ class ReviewState:
     # Model name and threshold used for batch pre-ranking (surfaced in Methods grounding block
     # so the writing LLM can cite the exact model and threshold for methodological transparency).
     batch_screener_model: str | None = None
-    batch_screen_threshold: float = 0.35
+    batch_screen_threshold: float = 0.20
     # Validation of batch-excluded abstracts: a random sample re-scored to compute NPV.
     # batch_screen_validation_n: number of excluded abstracts sampled for cross-validation.
     # batch_screen_validation_npv: negative predictive value (0.0-1.0) of the validation.
@@ -63,6 +63,8 @@ class ReviewState:
     # fulltext_not_retrieved: papers excluded because no PDF could be obtained.
     fulltext_sought: int = 0
     fulltext_not_retrieved: int = 0
+    # Set when screening passes under sparse-topic continuation policy.
+    sparse_evidence_mode: bool = False
     # RAG retrieval health counters recorded during writing.
     rag_sections_total: int = 0
     rag_sections_success: int = 0

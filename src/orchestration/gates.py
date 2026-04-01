@@ -77,17 +77,42 @@ class GateRunner:
         passed_screening: int,
     ) -> GateResult:
         minimum = self.settings.gates.screening_minimum
+        sparse_min = self.settings.gates.sparse_topic_min
+        sparse_continuation = self.settings.gates.sparse_topic_continuation
 
-        async def check() -> tuple[bool, str, str, str]:
-            passed = passed_screening >= minimum
-            return (
-                passed,
-                f"passed_screening={passed_screening}, minimum={minimum}",
-                str(minimum),
-                str(passed_screening),
+        passed = passed_screening >= minimum
+        sparse_mode = (
+            (passed_screening < minimum)
+            and (passed_screening >= sparse_min)
+            and sparse_continuation
+        )
+        if sparse_mode:
+            status = GateStatus.WARNING
+            details = (
+                f"passed_screening={passed_screening}, minimum={minimum}, "
+                f"sparse_topic_min={sparse_min}, continuation=enabled"
+            )
+        elif passed:
+            status = GateStatus.PASSED
+            details = f"passed_screening={passed_screening}, minimum={minimum}"
+        else:
+            status = GateStatus.FAILED
+            details = (
+                f"passed_screening={passed_screening}, minimum={minimum}, "
+                f"sparse_topic_min={sparse_min}"
             )
 
-        return await self.run_gate(workflow_id, phase, "screening_safeguard", check)
+        result = GateResult(
+            workflow_id=workflow_id,
+            gate_name="screening_safeguard",
+            phase=phase,
+            status=status,
+            details=details,
+            threshold=str(minimum),
+            actual_value=str(passed_screening),
+        )
+        await self.repository.save_gate_result(result)
+        return result
 
     async def run_extraction_completeness_gate(
         self,

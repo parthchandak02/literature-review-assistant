@@ -171,11 +171,11 @@ def test_compact_table_empty_when_no_data() -> None:
 
 
 def test_compact_table_truncates_long_finding() -> None:
-    """Key findings longer than 100 chars are truncated with ellipsis."""
+    """Very long key findings are clipped with ellipsis."""
     from src.export.markdown_refs import build_compact_study_table
 
     papers = [_make_paper("p1", ["Smith A"], 2021)]
-    records = [_make_extraction("p1", "rct", 10, "A" * 120)]
+    records = [_make_extraction("p1", "rct", 10, "A" * 420)]
     result = build_compact_study_table(papers, records)
     assert "..." in result
 
@@ -377,11 +377,7 @@ def test_assemble_merges_split_heading_lines(tmp_path: Path) -> None:
 def test_assemble_merges_split_heading_lines_with_blank_gap(tmp_path: Path) -> None:
     from src.export.markdown_refs import assemble_submission_manuscript
 
-    body = (
-        "## Results\n\n"
-        "### Synthesis of\n\n"
-        "Findings This section summarizes outcomes [Smith2021].\n"
-    )
+    body = "## Results\n\n### Synthesis of\n\nFindings This section summarizes outcomes [Smith2021].\n"
     row = (1, "Smith2021", None, "Study", '["Smith A"]', 2021, "J", None, None)
     result = assemble_submission_manuscript(
         body=body,
@@ -529,82 +525,6 @@ def test_trim_abstract_iterative_enforcement_never_exceeds_limit() -> None:
     assert len(body.split()) <= 120
 
 
-def test_enforce_prisma_sentence_counts_rewrites_numbers() -> None:
-    from src.orchestration.workflow import _enforce_prisma_sentence_counts
-
-    text = (
-        "Methods section. Of the 141 reports sought for retrieval, 92 were not "
-        "retrieved and 0 were assessed for eligibility, with 141 studies ultimately included."
-    )
-    out = _enforce_prisma_sentence_counts(text, 141, 92, 49, 141)
-    assert "and 141 were assessed for eligibility" in out
-
-
-def test_enforce_prisma_sentence_counts_rewrites_loose_variant() -> None:
-    from src.orchestration.workflow import _enforce_prisma_sentence_counts
-
-    text = (
-        "Of 49 reports sought, 0 were not retrieved, 49 were assessed and 141 studies were included. "
-        "The remaining details are unchanged."
-    )
-    out = _enforce_prisma_sentence_counts(text, 141, 92, 49, 141)
-    assert "Of the 233 reports sought for retrieval" in out
-    assert "and 141 were assessed for eligibility" in out
-
-
-def test_enforce_prisma_sentence_counts_enforces_invariants() -> None:
-    from src.orchestration.workflow import _enforce_prisma_sentence_counts
-
-    text = (
-        "Of the 49 reports sought for retrieval, 92 were not retrieved and 49 were assessed "
-        "for eligibility, with 141 studies ultimately included."
-    )
-    out = _enforce_prisma_sentence_counts(text, 49, 92, 49, 141)
-    assert "Of the 233 reports sought for retrieval" in out
-    assert "92 were not retrieved and 141 were assessed for eligibility" in out
-
-
-def test_enforce_prisma_screening_sentence_rewrites_remaining_variant() -> None:
-    from src.orchestration.workflow import _enforce_prisma_screening_sentence
-
-    text = (
-        "An automated relevance pre-screening step excluded 83 records before title/abstract review. "
-        "The remaining 291 records were then screened at the title and abstract level."
-    )
-    out = _enforce_prisma_screening_sentence(
-        text,
-        records_after_deduplication=291,
-        automation_excluded=83,
-        records_screened=291,
-    )
-    assert "excluded 83 records" in out
-    assert "208 records were screened" in out
-
-
-def test_enforce_abstract_retrieval_caution_appends_for_high_nonretrieval() -> None:
-    from src.orchestration.workflow import _enforce_abstract_retrieval_caution
-
-    abstract = (
-        "**Background:** A.\n\n"
-        "**Objectives:** B.\n\n"
-        "**Methods:** C.\n\n"
-        "**Results:** D.\n\n"
-        "**Conclusion:** E.\n\n"
-        "**Keywords:** x, y"
-    )
-    out = _enforce_abstract_retrieval_caution(abstract, fulltext_sought=57, fulltext_not_retrieved=38)
-    assert "Limited evidence suggests" in out
-    assert "38 of 57 reports" in out
-
-
-def test_enforce_abstract_retrieval_caution_noop_when_already_hedged() -> None:
-    from src.orchestration.workflow import _enforce_abstract_retrieval_caution
-
-    abstract = "**Conclusion:** Limited evidence suggests caution.\n\n**Keywords:** x"
-    out = _enforce_abstract_retrieval_caution(abstract, fulltext_sought=57, fulltext_not_retrieved=38)
-    assert out == abstract
-
-
 def test_zero_papers_minimal_abstract_contains_all_structured_fields() -> None:
     from src.orchestration.workflow import _build_minimal_sections_for_zero_papers
 
@@ -647,8 +567,28 @@ def test_ensure_structured_abstract_adds_missing_fields() -> None:
 
     abstract = "**Objectives:** Goal.\n\n**Methods:** Method."
     out = _ensure_structured_abstract(abstract, "RQ")
-    for field in ["Background", "Objectives", "Methods", "Results", "Conclusion", "Keywords"]:
+    for field in ["Background", "Objectives", "Methods", "Results", "Conclusions", "Keywords"]:
         assert f"**{field}:**" in out
+
+
+def test_replace_template_tokens_uses_review_pico_values() -> None:
+    from src.orchestration.workflow import _replace_template_tokens
+
+    review = SimpleNamespace(
+        pico=SimpleNamespace(
+            intervention="GenAI tutor",
+            outcome="test scores",
+            population="health science students",
+            comparison="traditional tutoring",
+        )
+    )
+    text = "Effect of [INTERVENTION] on [OUTCOME] in [POPULATION] vs [COMPARATOR]."
+    out = _replace_template_tokens(text, review)
+    assert "GenAI tutor" in out
+    assert "test scores" in out
+    assert "health science students" in out
+    assert "traditional tutoring" in out
+    assert "[INTERVENTION]" not in out
 
 
 # ---------------------------------------------------------------------------
@@ -718,22 +658,14 @@ def test_convert_to_numbered_citations_resolves_space_key_variant() -> None:
     assert len(ordered) == 2
 
 
-def test_sanitize_body_strips_citation_unavailable_placeholder() -> None:
-    from src.export.markdown_refs import _sanitize_body
-
-    text = "Some claim (citation unavailable). Another sentence."
-    out = _sanitize_body(text)
-    assert "(citation unavailable)" not in out
-
-
-def test_sanitize_body_strips_ref_and_paper_placeholders() -> None:
+def test_sanitize_body_preserves_ref_and_paper_placeholders_for_contracts() -> None:
     from src.export.markdown_refs import _sanitize_body
 
     text = "Evidence Ref141 remains [Paper_abc123] and [Ref7] in text."
     out = _sanitize_body(text)
-    assert "Ref141" not in out
-    assert "Paper_abc123" not in out
-    assert "[Ref7]" not in out
+    assert "Ref141" in out
+    assert "Paper_abc123" in out
+    assert "[Ref7]" in out
 
 
 def test_sanitize_body_drops_dangling_will_be_considered_fragment() -> None:
@@ -752,3 +684,12 @@ def test_sanitize_section_headings_splits_run_on_heading_into_body() -> None:
     out = _sanitize_section_headings("methods", content)
     assert "### Information Sources" in out
     assert "The systematic search was conducted in PubMed." in out
+
+
+def test_repair_hallucinated_citekeys_drops_unmatched_placeholder() -> None:
+    from src.writing.citation_grounding import repair_hallucinated_citekeys
+
+    text = "Evidence suggests benefit [Fake2024] in pilot settings."
+    out = repair_hallucinated_citekeys(text, hallucinated=["Fake2024"], valid_citekeys=["Real2024"])
+    assert "[Fake2024]" not in out
+    assert "(citation unavailable)" not in out

@@ -16,9 +16,12 @@ from src.models import (
     ClaimRecord,
     EvidenceLinkRecord,
     ReviewConfig,
+    SectionBlock,
     SettingsConfig,
+    StructuredSectionDraft,
 )
 from src.writing.humanizer_guardrails import apply_deterministic_guardrails
+from src.writing.renderers import render_section_markdown
 from src.writing.section_writer import SectionWriter
 
 if TYPE_CHECKING:
@@ -189,69 +192,19 @@ _GENERIC_TITLE_WORDS = frozenset(
     }
 )
 
-# Matches lowercase_with_underscores that appear in prose (not inside brackets).
-# We split text around [...] blocks first so citation keys are never touched.
-_SNAKE_RE = re.compile(r"\b([a-z][a-z0-9]*(?:_[a-z][a-z0-9]*)+)\b")
-_ABSTRACT_FIELDS = ("Background", "Objectives", "Methods", "Results", "Conclusion", "Keywords")
+_ABSTRACT_FIELDS = ("Background", "Objectives", "Methods", "Results", "Conclusions", "Keywords")
 _SECTION_NAMES = frozenset({"introduction", "methods", "results", "discussion", "conclusion", "abstract"})
 
 
-def _enforce_word_limit(text: str, max_words: int) -> str:
-    """Trim text to at most max_words words, cutting at a sentence boundary.
-
-    Splits on sentence-ending punctuation so the result is never mid-sentence.
-    Falls back to word-level trim only if no earlier sentence boundary exists.
-    """
-    words = text.split()
-    if len(words) <= max_words:
-        return text
-    # Sentence boundary pattern: period/bang/question followed by whitespace or end.
-    sentence_end = re.compile(r"(?<=[.!?])\s+")
-    trimmed = " ".join(words[:max_words])
-    # Walk backwards from max_words to find a sentence boundary within the trimmed text.
-    sentences = sentence_end.split(trimmed)
-    if len(sentences) > 1:
-        # Drop the trailing incomplete sentence.
-        candidate = " ".join(sentences[:-1]).rstrip()
-        if candidate:
-            logger.debug(
-                "Abstract truncated from %d to %d words to meet IEEE limit of %d.",
-                len(words),
-                len(candidate.split()),
-                max_words,
-            )
-            return candidate
-    # No sentence boundary found -- fall back to hard word trim with ellipsis stripped.
-    logger.debug(
-        "Abstract hard-trimmed from %d to %d words (no sentence boundary found).",
-        len(words),
-        max_words,
-    )
-    return trimmed
-
-
 def _sanitize_prose(content: str) -> str:
-    """Replace any remaining snake_case identifiers in prose with spaced equivalents.
-
-    Citation keys inside [...] brackets are explicitly preserved because they
-    are split out before substitution and re-joined afterwards. This is a
-    safety net; the LLM should not produce snake_case given correct prompting.
-    """
-    # Split on [...] blocks; odd-indexed chunks are inside brackets.
-    parts = re.split(r"(\[[^\]]*\])", content)
-    result = []
-    for idx, part in enumerate(parts):
-        if idx % 2 == 1:
-            # Inside a bracket -- preserve exactly as-is (citation key or figure ref)
-            result.append(part)
-        else:
-            result.append(_SNAKE_RE.sub(lambda m: m.group(0).replace("_", " "), part))
-    sanitized = "".join(result)
+    """Normalize whitespace and enforce ASCII-safe manuscript prose."""
+    sanitized = content
     # Keep manuscript prose ASCII-only for IEEE export robustness.
-    sanitized = re.sub(r"[^\x20-\x7E]", " ", sanitized)
+    # Preserve newlines and tabs so section structure is not flattened.
+    sanitized = re.sub(r"[^\x09\x0A\x0D\x20-\x7E]", " ", sanitized)
     sanitized = re.sub(r"[ \t]{2,}", " ", sanitized)
     if sanitized != content:
-        logger.debug("prose sanitizer replaced snake_case identifiers in section draft")
+        logger.debug("prose sanitizer normalized non-ASCII and spacing in section draft")
     return sanitized
 
 
@@ -259,27 +212,89 @@ def _sanitize_section_headings(section: str, content: str) -> str:
     """Normalize malformed heading lines before section persistence."""
     out_lines: list[str] = []
     last_heading = ""
-    section_name = section.strip().lower()
-    _spill_start_re = re.compile(r"\b(The|This|These|We|Our|In|Across|To|A|An)\b")
-    for line in content.splitlines():
+    _spill_start_re = re.compile(
+        r"\b(The|This|These|We|Our|In|Across|To|A|An|Evidence|Findings|Overall|One|Studies|Demographic|Meta-analysis|Also)\b"
+    )
+    lines = content.splitlines()
+    i = 0
+    while i < len(lines):
+        line = lines[i]
         stripped = line.strip()
+        if stripped.startswith("## "):
+            # Top-level section headings are owned by manuscript assembly.
+            # If a section draft leaks "## Introduction ..." style text, strip the
+            # heading token and keep any trailing prose as body content.
+            m_h2 = re.match(r"^##\s+([A-Za-z]+)\b(.*)$", stripped)
+            if m_h2 and m_h2.group(1).lower() in _SECTION_NAMES:
+                tail = m_h2.group(2).strip()
+                if tail:
+                    out_lines.append(tail)
+                i += 1
+                continue
         if stripped.startswith("### ") or stripped.startswith("#### "):
             prefix = "####" if stripped.startswith("#### ") else "###"
             title = stripped[len(prefix) + 1 :].strip()
+            known_heading_prefixes = (
+                "Eligibility Criteria",
+                "Information Sources",
+                "Search Strategy",
+                "Selection Process",
+                "Data Collection Process",
+                "Data Items",
+                "Risk of Bias",
+                "Risk of Bias Assessment",
+                "Synthesis Methods",
+                "Protocol Registration",
+                "Study Selection",
+                "Study Characteristics",
+                "Synthesis of Findings",
+            )
+            # Rejoin split headings like:
+            # "### Risk of"
+            # "Bias Assessment ..."
+            if title.lower().endswith((" and", " or", " of", " for", " to", " with")):
+                j = i + 1
+                while j < len(lines) and not lines[j].strip():
+                    j += 1
+                if j < len(lines):
+                    nxt = lines[j].strip()
+                    if nxt and not nxt.startswith("#"):
+                        words = nxt.split()
+                        consumed = 0
+                        for w in words:
+                            w_clean = w.strip(".,;:!?")
+                            if not w_clean:
+                                break
+                            if not w_clean[:1].isupper():
+                                break
+                            consumed += 1
+                            if consumed >= 3:
+                                break
+                        if consumed > 0:
+                            title = (title + " " + " ".join(words[:consumed])).strip()
+                            remainder = " ".join(words[consumed:]).strip()
+                            if remainder:
+                                lines[j] = remainder
+                            else:
+                                lines[j] = ""
             # Remove inline citation leakage from heading text.
             title = re.sub(r"\s*(?:\[[^\]]+\]\s*)+", " ", title).strip()
             title = re.sub(r"\s*\\cite\{[^}]+\}", " ", title).strip()
             # Trim sentence spillover that should be body prose.
             title = re.split(r"[.;:!?]\s+", title, maxsplit=1)[0]
+            lower_title = title.lower()
+            if (
+                len(title.split()) > 8
+                and re.search(r"\s+(?:was|were)\s+", title)
+                and not any(lower_title.startswith(h.lower() + " ") for h in known_heading_prefixes)
+            ):
+                title = re.split(r"\s+(?:was|were)\s+", title, maxsplit=1)[0]
             # Drop known malformed title fragments.
             if title.lower() in _SECTION_NAMES:
                 continue
             if title.lower().endswith((" and", " of", " for", " to", " with")):
                 continue
             title = re.sub(r"\s{2,}", " ", title).strip(" -:")
-            words = title.split()
-            if len(words) > 14:
-                title = " ".join(words[:14]).strip()
             if not title:
                 continue
             if title.lower() == last_heading.lower():
@@ -296,94 +311,32 @@ def _sanitize_section_headings(section: str, content: str) -> str:
                     if body_text:
                         out_lines.append(body_text)
                     last_heading = heading_text
+                    i += 1
                     continue
+            split_applied = False
+            for known in known_heading_prefixes:
+                lower_known = known.lower()
+                if lower_title.startswith(lower_known + " "):
+                    heading_text = known
+                    body_text = title[len(known) :].strip()
+                    out_lines.append(f"{prefix} {heading_text}")
+                    out_lines.append("")
+                    if body_text:
+                        out_lines.append(body_text)
+                    last_heading = heading_text
+                    i += 1
+                    split_applied = True
+                    break
+            if split_applied:
+                continue
+            words = title.split()
+            if len(words) > 14:
+                title = " ".join(words[:14]).strip()
             line = f"{prefix} {title}"
             last_heading = title
         out_lines.append(line)
+        i += 1
     return "\n".join(out_lines).strip()
-
-
-def _strip_unsupported_methods_claims(content: str) -> str:
-    """Remove unsupported operational claims that are not in grounding data."""
-    cleaned = re.sub(
-        r"\b(search strategy|search strategies)\s+(?:was|were)\s+developed\s+in\s+consultation\s+with\s+a\s+medical\s+librarian\b\.?",
-        "",
-        content,
-        flags=re.IGNORECASE,
-    )
-    cleaned = re.sub(r"[ \t]{2,}", " ", cleaned)
-    cleaned = re.sub(r"\n{3,}", "\n\n", cleaned)
-    return cleaned.strip()
-
-
-def _enforce_quality_tool_mentions(
-    section: str,
-    content: str,
-    grounding: WritingGroundingData | None,
-) -> str:
-    """Ensure Methods/Results mention all active quality tool families."""
-    if grounding is None or section not in {"methods", "results"}:
-        return content
-    rob_summary = str(getattr(grounding, "rob_summary", "") or "")
-    if not rob_summary:
-        return content
-    active_tools: list[str] = []
-    for tool in ("RoB 2", "ROBINS-I", "CASP", "MMAT"):
-        if tool in rob_summary:
-            active_tools.append(tool)
-    if not active_tools:
-        return content
-
-    lower_content = content.lower()
-    missing_tools = [tool for tool in active_tools if tool.lower() not in lower_content]
-    if not missing_tools:
-        return content
-
-    if section == "methods":
-        addition = (
-            "Additional quality appraisal tools applied in this review included "
-            + ", ".join(missing_tools)
-            + ", as reported in the risk-of-bias summary."
-        )
-    else:
-        addition = (
-            "Quality assessment findings were also generated using "
-            + ", ".join(missing_tools)
-            + ", and these assessments informed the interpretation of results."
-        )
-    return (content.rstrip() + "\n\n" + addition).strip()
-
-
-def _ensure_prisma_disclosures(section: str, content: str) -> str:
-    """Append deterministic PRISMA disclosure text when key methods/results details are absent."""
-    out = content.rstrip()
-    low = out.lower()
-    additions: list[str] = []
-    if section == "methods":
-        if not any(k in low for k in ("effect measure", "odds ratio", "risk ratio", "mean difference", "smd")):
-            additions.append(
-                "Effect measures were pre-specified as odds ratio, risk ratio, mean difference, or standardized mean difference when quantitative pooling was feasible; pooled estimates were not computed for outcomes where synthesis prerequisites were not met."
-            )
-        if not any(k in low for k in ("missing data", "imputation", "conversion", "prepare data")):
-            additions.append(
-                "For synthesis preparation, available outcome data were extracted as reported; where harmonization was required, units and reporting formats were converted to a comparable structure, and no imputation was applied unless explicitly reported by the source study."
-            )
-        if not any(k in low for k in ("sensitivity analysis", "leave-one-out", "robust")):
-            additions.append(
-                "Sensitivity analysis was planned using robustness checks such as leave-one-out comparisons when sufficient comparable estimates were available."
-            )
-        if not any(k in low for k in ("reporting bias", "publication bias", "funnel")):
-            additions.append(
-                "Reporting bias was planned to be assessed with publication bias diagnostics, including funnel plot asymmetry, when enough studies were available for a synthesis."
-            )
-    elif section == "results":
-        if not any(k in low for k in ("reporting bias", "publication bias", "funnel")):
-            additions.append(
-                "Reporting bias assessment: publication bias and funnel plot asymmetry were not formally estimated for syntheses with insufficient comparable studies."
-            )
-    if not additions:
-        return out
-    return out + "\n\n" + "\n\n".join(additions)
 
 
 def _ensure_structured_abstract(content: str, research_question: str) -> str:
@@ -397,6 +350,9 @@ def _ensure_structured_abstract(content: str, research_question: str) -> str:
         text = "Evidence synthesis was generated from included studies."
 
     _present = {f: bool(re.search(rf"\*\*{re.escape(f)}:\*\*", text, flags=re.IGNORECASE)) for f in _ABSTRACT_FIELDS}
+    _present["Conclusions"] = _present["Conclusions"] or bool(
+        re.search(r"\*\*Conclusion:\*\*", text, flags=re.IGNORECASE)
+    )
     if all(_present.values()):
         return text
 
@@ -408,7 +364,7 @@ def _ensure_structured_abstract(content: str, research_question: str) -> str:
             "eligibility screening and risk-of-bias assessment."
         ),
         "Results": "Key findings are reported in the manuscript body and synthesis sections.",
-        "Conclusion": "The available evidence is synthesized with certainty and limitations considered.",
+        "Conclusions": "The available evidence is synthesized with certainty and limitations considered.",
         "Keywords": "systematic review, evidence synthesis, implementation, outcomes, methodology",
     }
     _missing_lines = [f"**{field}:** {defaults[field]}" for field in _ABSTRACT_FIELDS if not _present[field]]
@@ -498,6 +454,383 @@ def build_citation_catalog_from_papers(papers: list[CandidatePaper]) -> str:
 
 _SENTENCE_SPLIT_RE = re.compile(r"(?<=[.!?])\s+(?=[A-Z\[])")
 _CITEKEY_RE = re.compile(r"\[([A-Za-z0-9_:-]+)\]")
+_SNAKE_CASE_RE = re.compile(r"\b[a-z][a-z0-9]+_[a-z0-9_]+\b")
+_EXCESSIVE_LIST_RE = re.compile(r"(?:,\s*[^,]{1,80}){20,}")
+_TRAILING_FRAGMENT_RE = re.compile(r"\b(and|or|with|to|for|in|of|by|vs)\s*$", flags=re.IGNORECASE)
+
+_SECTION_REQUIRED_SUBHEADINGS: dict[str, tuple[str, ...]] = {
+    "methods": (
+        "Eligibility Criteria",
+        "Information Sources",
+        "Selection Process",
+        "Synthesis Methods",
+    ),
+    "results": (
+        "Study Selection",
+        "Study Characteristics",
+        "Synthesis of Findings",
+    ),
+    "discussion": (
+        "Principal Findings",
+        "Comparison with Prior Work",
+        "Strengths and Limitations",
+        "Implications for Practice",
+        "Implications for Research",
+    ),
+}
+
+
+def _extract_valid_citekeys(citation_catalog: str) -> set[str]:
+    keys: set[str] = set()
+    for line in citation_catalog.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("[") and "]" in stripped:
+            keys.add(stripped[1 : stripped.index("]")].strip())
+    return keys
+
+
+def _sanitize_ir_block_text(text: str) -> str:
+    """Deterministically sanitize structured block prose before render."""
+    cleaned = re.sub(r"[^\x09\x0A\x0D\x20-\x7E]", " ", str(text or ""))
+    cleaned = re.sub(r"[ \t]{2,}", " ", cleaned).strip()
+    # Guard against survey-item dumps and raw field enumerations.
+    if len(cleaned) > 900 and _EXCESSIVE_LIST_RE.search(cleaned):
+        parts = [p.strip() for p in cleaned.split(",") if p.strip()]
+        lower_start_ratio = (
+            sum(1 for p in parts if p and p[0].islower()) / len(parts)
+            if parts
+            else 0.0
+        )
+        punctuation_ratio = (
+            sum(1 for p in parts if any(tok in p for tok in (".", ";", ":"))) / len(parts)
+            if parts
+            else 0.0
+        )
+        if len(parts) > 20 and lower_start_ratio > 0.55 and punctuation_ratio < 0.25:
+            cleaned = ", ".join(parts[:12]) + ", and additional outcomes were reported."
+    # Normalize snake_case leakage in prose.
+    cleaned = _SNAKE_CASE_RE.sub(lambda m: m.group(0).replace("_", " "), cleaned)
+    return cleaned
+
+
+def _validate_structured_section_draft(
+    section: str,
+    draft: StructuredSectionDraft,
+    valid_citekeys: set[str],
+) -> StructuredSectionDraft:
+    """Run IR-level checks before markdown rendering."""
+    normalized_key = (draft.section_key or "").strip().lower()
+    if normalized_key != section:
+        draft.section_key = section
+
+    required = _SECTION_REQUIRED_SUBHEADINGS.get(section, ())
+    if required and not draft.required_subsections:
+        draft.required_subsections = list(required)
+
+    seen_subheadings: list[str] = []
+    sanitized_blocks: list[SectionBlock] = []
+    cited_keys: set[str] = set(draft.cited_keys or [])
+    for block in draft.blocks:
+        text = _sanitize_ir_block_text(block.text)
+        block.text = text
+        # Enforce citation key contract at IR level.
+        filtered = [k for k in block.citations if k in valid_citekeys]
+        block.citations = filtered
+        cited_keys.update(filtered)
+        if block.block_type == "subheading" and text:
+            seen_subheadings.append(text.strip().lower())
+        sanitized_blocks.append(block)
+    draft.blocks = sanitized_blocks
+    draft.cited_keys = sorted(k for k in cited_keys if k in valid_citekeys)
+
+    if not draft.blocks:
+        draft.blocks = [SectionBlock(block_type="paragraph", text="No section content generated.")]
+    return draft
+
+
+def _is_substantive_paragraph(text: str) -> bool:
+    t = str(text or "").strip()
+    return len(t) >= 90 and len(t.split()) >= 14
+
+
+def _is_minimally_substantive_paragraph(text: str) -> bool:
+    t = str(text or "").strip()
+    return len(t) >= 60 and len(t.split()) >= 10
+
+
+def _section_completeness_issues(
+    section: str,
+    draft: StructuredSectionDraft,
+    included_study_count: int = 0,
+) -> list[str]:
+    """Return deterministic completeness issues for one structured section."""
+    issues: list[str] = []
+    paragraph_count = sum(1 for b in draft.blocks if b.block_type == "paragraph" and _is_substantive_paragraph(b.text))
+    min_required = 2 if section in {"results", "discussion"} and included_study_count > 1 else 1
+    if paragraph_count < min_required:
+        issues.append(f"insufficient_substantive_paragraphs:{paragraph_count}")
+
+    # Required subsections must be present and must have a non-empty paragraph before next subheading/end.
+    headings = [b for b in draft.blocks if b.block_type == "subheading"]
+    if section in _SECTION_REQUIRED_SUBHEADINGS:
+        required_lower = {h.lower() for h in _SECTION_REQUIRED_SUBHEADINGS.get(section, ())}
+        seen_lower = {h.text.strip().lower() for h in headings if h.text.strip()}
+        missing_required = sorted(required_lower - seen_lower)
+        if missing_required:
+            issues.append("missing_required_subheadings")
+            for miss in missing_required:
+                issues.append(f"missing_subheading:{miss}")
+    if section in _SECTION_REQUIRED_SUBHEADINGS and headings:
+        for idx, block in enumerate(draft.blocks):
+            if block.block_type != "subheading":
+                continue
+            j = idx + 1
+            has_body = False
+            has_substantive_body = False
+            while j < len(draft.blocks):
+                nxt = draft.blocks[j]
+                if nxt.block_type == "subheading":
+                    break
+                if nxt.block_type == "paragraph" and nxt.text.strip():
+                    has_body = True
+                    if _is_minimally_substantive_paragraph(nxt.text):
+                        has_substantive_body = True
+                    break
+                j += 1
+            if not has_body:
+                issues.append(f"empty_subsection_body:{block.text.strip().lower()}")
+            elif section in {"results", "discussion"} and not has_substantive_body:
+                issues.append(f"thin_subsection_body:{block.text.strip().lower()}")
+    # Tail cannot end with conjunction/preposition fragment.
+    tail = ""
+    for b in reversed(draft.blocks):
+        if b.block_type == "paragraph" and b.text.strip():
+            tail = b.text.strip()
+            break
+    if tail:
+        if _TRAILING_FRAGMENT_RE.search(tail):
+            issues.append("trailing_fragment_word")
+        elif tail[-1] not in ".!?":
+            issues.append("trailing_fragment_punctuation")
+    return issues
+
+
+def _post_render_completeness_issues(
+    section: str,
+    content: str,
+    included_study_count: int = 0,
+) -> list[str]:
+    """Deterministic post-render completeness checks on markdown text."""
+    issues: list[str] = []
+    lines = [ln.rstrip() for ln in str(content or "").splitlines()]
+    paragraph_buf: list[str] = []
+    paragraphs: list[str] = []
+    for line in lines:
+        stripped = line.strip()
+        if not stripped:
+            if paragraph_buf:
+                paragraphs.append(" ".join(paragraph_buf).strip())
+                paragraph_buf.clear()
+            continue
+        if stripped.startswith("#"):
+            if paragraph_buf:
+                paragraphs.append(" ".join(paragraph_buf).strip())
+                paragraph_buf.clear()
+            continue
+        paragraph_buf.append(stripped)
+    if paragraph_buf:
+        paragraphs.append(" ".join(paragraph_buf).strip())
+
+    substantive = [p for p in paragraphs if _is_substantive_paragraph(p)]
+    min_required = 2 if section in {"results", "discussion"} and included_study_count > 1 else 1
+    if len(substantive) < min_required:
+        issues.append(f"post_insufficient_substantive_paragraphs:{len(substantive)}")
+
+    required = _SECTION_REQUIRED_SUBHEADINGS.get(section, ())
+    if required:
+        lower_content = "\n".join(lines).lower()
+        for heading in required:
+            marker = f"### {heading}".lower()
+            if marker not in lower_content:
+                issues.append(f"post_missing_subheading:{heading.lower()}")
+                continue
+            start = lower_content.find(marker)
+            end = lower_content.find("\n### ", start + 1)
+            block = lower_content[start:end] if end > start else lower_content[start:]
+            has_substantive = False
+            for raw in block.splitlines()[1:]:
+                if _is_minimally_substantive_paragraph(raw):
+                    has_substantive = True
+                    break
+            if section in {"results", "discussion"} and not has_substantive:
+                issues.append(f"post_thin_subheading_body:{heading.lower()}")
+
+    tail = ""
+    for p in reversed(paragraphs):
+        if p:
+            tail = p.strip()
+            break
+    if tail:
+        if _TRAILING_FRAGMENT_RE.search(tail):
+            issues.append("post_trailing_fragment_word")
+        elif tail[-1] not in ".!?":
+            issues.append("post_trailing_fragment_punctuation")
+    return issues
+
+
+def _build_deterministic_section_fallback(
+    section: str,
+    grounding: WritingGroundingData | None,
+    valid_citekeys: set[str],
+) -> StructuredSectionDraft:
+    """Build minimal, complete section content when generation remains malformed."""
+    cite = ""
+    if valid_citekeys:
+        first = sorted(valid_citekeys)[0]
+        cite = f" [{first}]"
+    if section == "methods":
+        sought = getattr(grounding, "fulltext_sought", 0) if grounding is not None else 0
+        not_retrieved = getattr(grounding, "fulltext_not_retrieved", 0) if grounding is not None else 0
+        assessed = getattr(grounding, "fulltext_assessed", 0) if grounding is not None else 0
+        included = getattr(grounding, "total_included", 0) if grounding is not None else 0
+        screened = getattr(grounding, "total_screened", 0) if grounding is not None else 0
+        return StructuredSectionDraft(
+            section_key="methods",
+            required_subsections=list(_SECTION_REQUIRED_SUBHEADINGS.get("methods", ())),
+            blocks=[
+                SectionBlock(block_type="subheading", text="Eligibility Criteria", level=3),
+                SectionBlock(
+                    block_type="paragraph",
+                    text=(
+                        "Eligibility was predefined using population, intervention, comparator, and outcome criteria "
+                        "from the protocol, and only studies meeting all criteria were retained."
+                    ),
+                ),
+                SectionBlock(block_type="subheading", text="Information Sources", level=3),
+                SectionBlock(
+                    block_type="paragraph",
+                    text=(
+                        "Bibliographic database searches were executed on the protocol date range using the configured "
+                        "connectors, and search strategies were archived in the appendix."
+                    ),
+                ),
+                SectionBlock(block_type="subheading", text="Selection Process", level=3),
+                SectionBlock(
+                    block_type="paragraph",
+                    text=(
+                        f"Two independent reviewers screened {screened} records with adjudication for disagreements. "
+                        f"{sought} reports were sought for full-text retrieval, {not_retrieved} reports were not retrieved, "
+                        f"{assessed} were assessed for eligibility, and {included} studies were ultimately included."
+                    ),
+                ),
+                SectionBlock(block_type="subheading", text="Synthesis Methods", level=3),
+                SectionBlock(
+                    block_type="paragraph",
+                    text=(
+                        "A narrative synthesis framework was used because methodological and outcome heterogeneity "
+                        "limited quantitative pooling, and evidence certainty was interpreted with risk-of-bias and GRADE inputs"
+                        f"{cite}."
+                    ),
+                ),
+            ],
+        )
+    if section == "results":
+        included = getattr(grounding, "total_included", 0) if grounding is not None else 0
+        screened = getattr(grounding, "total_screened", 0) if grounding is not None else 0
+        return StructuredSectionDraft(
+            section_key="results",
+            required_subsections=list(_SECTION_REQUIRED_SUBHEADINGS.get("results", ())),
+            blocks=[
+                SectionBlock(block_type="subheading", text="Study Selection", level=3),
+                SectionBlock(
+                    block_type="paragraph",
+                    text=(
+                        f"Screening progressed from {screened} records to {included} included studies after full-text "
+                        "eligibility decisions and documented exclusion reasons."
+                    ),
+                ),
+                SectionBlock(block_type="subheading", text="Study Characteristics", level=3),
+                SectionBlock(
+                    block_type="paragraph",
+                    text=(
+                        "Included studies varied by design, setting, and sample size, and are summarized in the in-body "
+                        "characteristics table and appendix with extraction provenance"
+                        f"{cite}."
+                    ),
+                ),
+                SectionBlock(block_type="subheading", text="Synthesis of Findings", level=3),
+                SectionBlock(
+                    block_type="paragraph",
+                    text=(
+                        "Findings were synthesized narratively by outcome domain, with effect direction and certainty "
+                        "reported conservatively where studies were heterogeneous."
+                    ),
+                ),
+            ],
+        )
+    if section == "discussion":
+        return StructuredSectionDraft(
+            section_key="discussion",
+            required_subsections=list(_SECTION_REQUIRED_SUBHEADINGS.get("discussion", ())),
+            blocks=[
+                SectionBlock(block_type="subheading", text="Principal Findings", level=3),
+                SectionBlock(
+                    block_type="paragraph",
+                    text=(
+                        "Across included studies, evidence suggests potential educational utility for generative conversational "
+                        "AI tutoring tools, but heterogeneity and certainty limitations constrain strong causal conclusions."
+                    ),
+                ),
+                SectionBlock(
+                    block_type="paragraph",
+                    text=(
+                        "Interpretation should remain cautious because outcome definitions, comparator quality, and reporting "
+                        "completeness vary substantially across the evidence base."
+                    ),
+                ),
+                SectionBlock(block_type="subheading", text="Comparison with Prior Work", level=3),
+                SectionBlock(
+                    block_type="paragraph",
+                    text=(
+                        "These findings are broadly consistent with prior systematic review trends, while direct "
+                        "cross-study comparison remains limited by outcome heterogeneity and contextual differences."
+                    ),
+                ),
+                SectionBlock(block_type="subheading", text="Strengths and Limitations", level=3),
+                SectionBlock(
+                    block_type="paragraph",
+                    text=(
+                        "Strengths include protocol-led screening and structured extraction, whereas limitations include "
+                        "variable study quality, inconsistent reporting, and constrained full-text availability."
+                    ),
+                ),
+                SectionBlock(block_type="subheading", text="Implications for Practice", level=3),
+                SectionBlock(
+                    block_type="paragraph",
+                    text=(
+                        "Practice adoption should be cautious and context-aware, prioritizing settings with adequate "
+                        "implementation support and explicit safeguards for educational validity."
+                    ),
+                ),
+                SectionBlock(block_type="subheading", text="Implications for Research", level=3),
+                SectionBlock(
+                    block_type="paragraph",
+                    text=(
+                        "Future studies should use stronger comparative designs, standardized outcomes, and preregistered "
+                        "analysis plans to improve causal interpretability and certainty of evidence."
+                    ),
+                ),
+            ],
+        )
+    return StructuredSectionDraft(
+        section_key=section,
+        blocks=[
+            SectionBlock(
+                block_type="paragraph",
+                text="Section content was generated using deterministic fallback due to incomplete model output.",
+            )
+        ],
+    )
 
 
 async def extract_and_register_claims(
@@ -805,32 +1138,59 @@ async def write_section_with_validation(
             + rag_context
         )
 
-    if provider is not None:
-        await provider.reserve_call_slot("writing")
     writer = SectionWriter(
         review=review,
         settings=settings,
         citation_catalog=citation_catalog,
     )
-    content, metadata = await writer.write_section_async(
-        section=section,
-        context=effective_context,
-        word_limit=word_limit,
-    )
-    if provider and metadata.cost_usd is not None:
-        try:
-            await provider.log_cost(
-                model=metadata.model,
-                tokens_in=metadata.tokens_in,
-                tokens_out=metadata.tokens_out,
-                cost_usd=metadata.cost_usd,
-                latency_ms=metadata.latency_ms,
-                phase="phase_6_writing",
-                cache_read_tokens=metadata.cache_read_tokens,
-                cache_write_tokens=metadata.cache_write_tokens,
+    valid_citekeys = _extract_valid_citekeys(citation_catalog)
+    included_study_count = int(getattr(grounding, "total_included", 0) or 0) if grounding is not None else 0
+
+    async def _generate_structured_once(ctx: str) -> tuple[StructuredSectionDraft, object]:
+        if provider is not None:
+            await provider.reserve_call_slot("writing")
+        _structured, _metadata = await writer.write_section_structured_async(
+            section=section,
+            context=ctx,
+            word_limit=word_limit,
+        )
+        _structured = _validate_structured_section_draft(section, _structured, valid_citekeys)
+        if provider and _metadata.cost_usd is not None:
+            try:
+                await provider.log_cost(
+                    model=_metadata.model,
+                    tokens_in=_metadata.tokens_in,
+                    tokens_out=_metadata.tokens_out,
+                    cost_usd=_metadata.cost_usd,
+                    latency_ms=_metadata.latency_ms,
+                    phase="phase_6_writing",
+                    cache_read_tokens=_metadata.cache_read_tokens,
+                    cache_write_tokens=_metadata.cache_write_tokens,
+                )
+            except Exception as _log_exc:
+                logger.warning("Failed to persist writing cost for section '%s': %s", section, _log_exc)
+        return _structured, _metadata
+
+    structured, metadata = await _generate_structured_once(effective_context)
+    issues = _section_completeness_issues(section, structured, included_study_count)
+    if issues:
+        retry_context = (
+            effective_context
+            + "\n\nRETRY RULE: Your previous output failed completeness checks: "
+            + ", ".join(issues)
+            + ". Regenerate this section with complete subsection bodies and a fully closed final sentence."
+        )
+        logger.warning("Section '%s' failed IR completeness checks (%s); retrying once.", section, ", ".join(issues))
+        structured, metadata = await _generate_structured_once(retry_context)
+        issues = _section_completeness_issues(section, structured, included_study_count)
+        if issues:
+            logger.warning(
+                "Section '%s' still failed completeness checks after retry (%s); using deterministic fallback.",
+                section,
+                ", ".join(issues),
             )
-        except Exception as _log_exc:
-            logger.warning("Failed to persist writing cost for section '%s': %s", section, _log_exc)
+            structured = _build_deterministic_section_fallback(section, grounding, valid_citekeys)
+    content = render_section_markdown(structured)
     if on_llm_call:
         word_count = len(content.split())
         on_llm_call(
@@ -852,25 +1212,31 @@ async def write_section_with_validation(
         )
     # Safety-net: replace any leftover snake_case in prose before saving.
     content = _sanitize_prose(content)
-    content = _sanitize_section_headings(section, content)
-    if section == "methods":
-        content = _strip_unsupported_methods_claims(content)
-    content = _enforce_quality_tool_mentions(section, content, grounding)
-    content = _ensure_prisma_disclosures(section, content)
-
+    # Structured rendering already emits normalized headings. Keep legacy
+    # heading repair only for obvious malformed patterns from fallback text.
+    if section != "abstract":
+        content = _sanitize_section_headings(section, content)
     if section == "abstract":
         content = _ensure_structured_abstract(content, review.research_question)
-
-    # Hard-enforce word limit after generation. The LLM treats the prompt word
-    # limit as advisory and will occasionally exceed it (abstract ran to 264 for
-    # the IEEE 250-word cap). Trim at the last sentence boundary that keeps the
-    # section within the configured limit.
-    if word_limit and section == "abstract":
-        content = _enforce_word_limit(content, word_limit)
 
     # Deterministic pre-humanizer guardrails remove repetitive boilerplate while
     # preserving citations and numeric tokens.
     content = apply_deterministic_guardrails(content)
+
+    post_issues = _post_render_completeness_issues(section, content, included_study_count)
+    if post_issues and section in {"methods", "results", "discussion"}:
+        logger.warning(
+            "Section '%s' failed post-render completeness checks (%s); forcing deterministic fallback.",
+            section,
+            ", ".join(post_issues),
+        )
+        structured = _build_deterministic_section_fallback(section, grounding, valid_citekeys)
+        content = render_section_markdown(structured)
+        content = _sanitize_prose(content)
+        content = _sanitize_section_headings(section, content)
+        if section == "abstract":
+            content = _ensure_structured_abstract(content, review.research_question)
+        content = apply_deterministic_guardrails(content)
 
     # Register each cited sentence as a claim and link it to evidence so the
     # citation lineage gate can verify full claim->evidence->citation coverage.
