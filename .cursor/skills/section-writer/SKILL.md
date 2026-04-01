@@ -44,9 +44,10 @@ Key findings, comparison with prior work, strengths, limitations, implications.
 
 ## Citation Lineage Workflow
 For each claim in generated text:
-1. `CitationLedger.register_claim(claim_text, section, confidence)`
-2. `CitationLedger.link_evidence(claim_id, citation_id, evidence_span, score)`
-3. After section complete: `CitationLedger.validate_section()` -- zero unresolved claims
+1. `CitationLedger.register_claim(ClaimRecord(...))`
+2. `CitationLedger.link_evidence(EvidenceLinkRecord(...))`
+3. Register citations with `CitationLedger.register_citation(CitationEntryRecord(...))`
+4. After section complete: `CitationLedger.validate_section()` -- zero unresolved claims
 4. Export blocks if any claim lacks evidence chain
 
 ## Humanization and Guardrails

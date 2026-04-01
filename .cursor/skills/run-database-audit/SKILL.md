@@ -56,6 +56,10 @@ Apply when requests include:
   - connector retrieval counts from `search_results`
 - Use explicit SQL, then summarize results before recommending changes.
 - If connector schema differs, first inspect with `PRAGMA table_info(search_results);` and adapt query columns.
+- For replay validation audits, include:
+  - `validation_runs` (latest profile/status)
+  - `validation_checks` (phase-level failures/warnings)
+  - `validation_artifacts` (if present)
 
 3. Export detailed CSV outputs for manual review
 - Create a run-scoped review folder:
@@ -155,6 +159,23 @@ latest AS (
 SELECT decision, COUNT(*) FROM latest GROUP BY decision ORDER BY decision;
 ```
 
+10) Latest validation run summary:
+```sql
+SELECT validation_run_id, profile, status, tool_version, started_at, completed_at
+FROM validation_runs
+WHERE workflow_id = 'wf-XXXX'
+ORDER BY started_at DESC
+LIMIT 1;
+```
+
+11) Validation check breakdown:
+```sql
+SELECT phase, check_name, status, severity, metric_value
+FROM validation_checks
+WHERE validation_run_id = 'val-XXXX'
+ORDER BY id;
+```
+
 6) Live progress probe for active screening phase:
 ```sql
 SELECT payload, ts
@@ -200,6 +221,10 @@ sqlite3 -header -csv "<runtime.db>" "<SQL_QUERY>" > "<run_dir>/manual_review/<fi
 - Running workflows: query the same DB repeatedly to confirm progress.
 - Cancelled or interrupted workflows: audit last durable state from `event_log` and `decision_log`.
 - Completed workflows: perform full ratio and rationale quality audit, then suggest pipeline fixes if needed.
+- For workflow replay visibility, correlate DB checks with:
+  - `GET /api/run/{run_id}/events` (live run replay buffer)
+  - `GET /api/workflow/{workflow_id}/events` (historical DB replay)
+  - `GET /api/workflow/{workflow_id}/validation/summary` and `/validation/checks`
 - Health rule of thumb:
   - Healthy: active phase `progress.current` advances within repeated checks.
   - At risk: no active-phase progress delta for 5+ minutes.

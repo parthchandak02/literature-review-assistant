@@ -1,0 +1,13 @@
+---
+description: Remind agent to periodically restart PM2 services after frequent changes.
+alwaysApply: true
+---
+
+# PM2 Restart Reminder
+
+When making many changes in one session, periodically restart PM2 services before validating tests or reporting status.
+
+- Use exact process names: `litreview-api`, `litreview-ui`, `litreview-tunnel`.
+- After backend `src/` changes: run `pm2 restart litreview-api`.
+- After frontend changes that must reflect on production URL: run `cd frontend && pnpm build && cd ..` then `pm2 restart litreview-api`.
+- Before claiming local/online verification, run `pm2 list` and confirm required processes are online.

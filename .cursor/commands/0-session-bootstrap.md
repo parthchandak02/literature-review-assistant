@@ -45,6 +45,20 @@ Pay special attention to any uncommitted modifications (M) and untracked files (
 
 ---
 
+## Step 2.5 -- Select a real workflow for replay validation
+
+For any pipeline change (screening, extraction, quality, writing, export), select an existing
+workflow ID and run a quick replay validation before editing:
+
+```bash
+uv run python scripts/validate_workflow_replay.py --workflow-id wf-XXXX --profile quick
+```
+
+Use local workflow data only (no synthetic dummy fixtures) when validating end-to-end behavior.
+All replay evidence is written to validation tables in that workflow's `runtime.db`.
+
+---
+
 ## Step 3 -- Check process health
 
 ```bash
@@ -96,5 +110,6 @@ cd frontend && pnpm fix && pnpm typecheck
 - [ ] Understood the "Fix Processes, Not Individual Runs" principle from project-overview-always.mdc
 - [ ] Reviewed last 5 commit messages and touched files
 - [ ] Noted any uncommitted changes in git status
+- [ ] Selected a workflow ID and ran quick replay validation (or explicitly deferred for non-pipeline task)
 - [ ] Confirmed pm2 process health
 - [ ] Ran ruff + pnpm fix + pnpm typecheck (or intentionally deferred on dirty tree)
