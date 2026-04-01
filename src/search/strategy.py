@@ -6,7 +6,7 @@ import asyncio
 import logging
 from collections.abc import Callable
 from pathlib import Path
-from typing import Any, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import structlog
 
@@ -198,7 +198,7 @@ class SearchStrategyCoordinator:
         config: ReviewConfig,
         connectors: list[SearchConnector],
         repository: WorkflowRepository,
-        gate_runner: "GateRunner",
+        gate_runner: GateRunner,
         output_dir: str = "runs",
         on_connector_done: Callable[[str, str, int, str, int | None, int | None, str | None], None] | None = None,
         low_recall_threshold: int = 10,

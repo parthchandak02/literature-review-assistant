@@ -1,8 +1,7 @@
 from __future__ import annotations
 
 from src.models.additional import PRISMACounts
-from src.writing.context_builder import WritingGroundingData, format_grounding_block
-from src.writing.context_builder import build_writing_grounding
+from src.writing.context_builder import WritingGroundingData, build_writing_grounding, format_grounding_block
 from src.writing.prompts.sections import (
     get_conclusion_prompt_context,
     get_discussion_prompt_context,
