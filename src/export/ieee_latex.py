@@ -823,6 +823,23 @@ def markdown_to_latex(
         "fig_methodology_flow": "methodology_flow",
     }
 
+    def _resolve_figure_caption(artifact_key: str, default_caption: str) -> str:
+        if artifact_key != "rob_traffic_light":
+            return default_caption
+        low_md = rest.lower()
+        has_mmat = "## mmat quality assessment" in low_md
+        has_robins = "## robins-i risk of bias assessment" in low_md
+        has_casp = "## casp quality assessment" in low_md
+        if has_mmat and not has_robins and not has_casp:
+            return "Risk of bias traffic-light plot for included mixed-methods studies (MMAT)."
+        if has_mmat and has_casp and not has_robins:
+            return "Risk of bias traffic-light plot for included studies (MMAT/CASP)."
+        if has_mmat and has_robins and not has_casp:
+            return "Risk of bias traffic-light plot for included studies (ROBINS-I/MMAT)."
+        if has_mmat and has_robins and has_casp:
+            return "Risk of bias traffic-light plot for included studies (ROBINS-I/CASP/MMAT)."
+        return default_caption
+
     fig_section = ""
     if figure_paths:
         fig_section = "\n\\section*{Figures}\n\n"
@@ -830,7 +847,8 @@ def markdown_to_latex(
             name = Path(path).stem
             inc_path = f"figures/{name}" if "/" not in path else path
             artifact_key = _stem_to_artifact.get(name, "")
-            caption = _artifact_to_caption.get(artifact_key, f"Figure {i}.")
+            base_caption = _artifact_to_caption.get(artifact_key, f"Figure {i}.")
+            caption = _resolve_figure_caption(artifact_key, base_caption)
             fig_section += "\\begin{figure}[htbp]\n"
             fig_section += "  \\centering\n"
             fig_section += f"  \\includegraphics[width=0.9\\columnwidth]{{{inc_path}}}\n"

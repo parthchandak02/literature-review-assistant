@@ -118,6 +118,20 @@ def _normalize_label(raw: str) -> str:
     return raw.replace("_", " ").strip() if raw else raw
 
 
+def _normalize_criterion_date_windows(criteria: list[str], canonical_window: str) -> list[str]:
+    """Normalize date-range phrases in criteria to one canonical window."""
+    if not canonical_window:
+        return criteria
+    date_range_re = re.compile(r"\b\d{4}\s*(?:to|-)\s*(?:\d{4}|present|the present)\b", flags=re.IGNORECASE)
+    normalized: list[str] = []
+    for item in criteria:
+        txt = str(item or "").strip()
+        if not txt:
+            continue
+        normalized.append(date_range_re.sub(canonical_window, txt))
+    return normalized
+
+
 class StudySummary(BaseModel):
     """Compact per-study summary for the writing prompt."""
 
@@ -273,6 +287,9 @@ class WritingGroundingData(BaseModel):
     # Distinct from year_range which is min-max of included papers publication years.
     # This is the date range defined in review.yaml and reported in Methods.
     search_eligibility_window: str = ""
+    eligibility_inclusion_criteria: list[str] = []
+    eligibility_exclusion_criteria: list[str] = []
+    eligible_study_designs: list[str] = []
 
     # Full-text retrieval counts. For PRISMA 2020 item 10 disclosure.
     # fulltext_retrieved_count: papers where actual text was retrieved (not abstract-only).
@@ -608,6 +625,27 @@ def build_writing_grounding(
     elif _date_start:
         search_eligibility_window = f"{_date_start}-present"
 
+    _inclusion_criteria = []
+    _exclusion_criteria = []
+    if review_config is not None:
+        _inclusion_criteria = [str(x).strip() for x in (getattr(review_config, "inclusion_criteria", []) or []) if str(x).strip()]
+        _exclusion_criteria = [str(x).strip() for x in (getattr(review_config, "exclusion_criteria", []) or []) if str(x).strip()]
+    _inclusion_criteria = _normalize_criterion_date_windows(_inclusion_criteria, search_eligibility_window)
+    _exclusion_criteria = _normalize_criterion_date_windows(_exclusion_criteria, search_eligibility_window)
+    _design_keywords = (
+        "randomized",
+        "non-randomized",
+        "cohort",
+        "case-control",
+        "cross-sectional",
+        "mixed methods",
+        "qualitative",
+        "rct",
+    )
+    _eligible_study_designs = [
+        c for c in _inclusion_criteria if any(k in c.lower() for k in _design_keywords)
+    ]
+
     # Full-text retrieval counts: "text" = abstract-only baseline; anything else = full text retrieved.
     # See src/models/extraction.py for all extraction_source values.
     _ABSTRACT_ONLY_SOURCES = frozenset({"text", "heuristic", None, ""})
@@ -729,6 +767,9 @@ def build_writing_grounding(
         ),
         background_sr_citekeys=background_sr_citekeys or [],
         search_eligibility_window=search_eligibility_window,
+        eligibility_inclusion_criteria=_inclusion_criteria[:8],
+        eligibility_exclusion_criteria=_exclusion_criteria[:8],
+        eligible_study_designs=_eligible_study_designs[:6],
         fulltext_retrieved_count=fulltext_retrieved,
         fulltext_total_count=fulltext_total,
         # Use prisma_counts as the authoritative source of full-text funnel counts.
@@ -946,6 +987,25 @@ def format_grounding_block(data: WritingGroundingData) -> str:
             "Do NOT report the publication year range of included papers as the eligibility window. "
             "The eligibility window is a protocol parameter; the included papers year range is "
             "an observed characteristic of the results."
+        )
+    if data.eligibility_inclusion_criteria:
+        lines.append("Eligibility inclusion criteria (canonical):")
+        for item in data.eligibility_inclusion_criteria:
+            lines.append(f"  - {item}")
+    if data.eligibility_exclusion_criteria:
+        lines.append("Eligibility exclusion criteria (canonical):")
+        for item in data.eligibility_exclusion_criteria:
+            lines.append(f"  - {item}")
+    if data.eligible_study_designs:
+        lines.append(
+            "Eligible study design criteria (from inclusion criteria): "
+            + "; ".join(data.eligible_study_designs)
+        )
+    if data.eligibility_inclusion_criteria or data.eligibility_exclusion_criteria:
+        lines.append(
+            "CRITICAL -- ELIGIBILITY CONSISTENCY RULE: The Methods section MUST match the canonical "
+            "eligibility criteria listed above. Do NOT introduce narrower study-design restrictions "
+            "that are not explicitly listed in the canonical criteria."
         )
 
     if data.fulltext_sought > 0:
@@ -1210,6 +1270,11 @@ def format_grounding_block(data: WritingGroundingData) -> str:
             "CRITICAL -- GRADE REPORTING RULE: The Results section MUST report the certainty "
             "of evidence for each outcome using the GRADE levels listed above verbatim. "
             "Do NOT modify, upgrade, or downgrade these certainty assessments."
+        )
+    else:
+        lines.append(
+            "CRITICAL -- NO-GRADE RULE: No grade_assessments rows were generated for this run. "
+            "Do NOT claim that a GRADE certainty assessment was performed."
         )
 
     if data.conclusion_hedging_required:

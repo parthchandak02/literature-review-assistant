@@ -23,10 +23,10 @@ agents:
     model: "google-gla:gemini-2.5-flash-lite"
     temperature: 0.1
   screening_reviewer_b:
-    model: "google-gla:gemini-2.5-flash"
+    model: "google-gla:gemini-2.5-flash-lite"
     temperature: 0.1
   screening_adjudicator:
-    model: "google-gla:gemini-2.5-flash"
+    model: "google-gla:gemini-2.5-flash-lite"
     temperature: 0.2
   search:
     model: "google-gla:gemini-2.5-flash-lite"
@@ -137,12 +137,12 @@ screening:
   # Empty-abstract records are handled by deterministic pre-LLM exclusion above.
   insufficient_content_min_words: 0
   # Batch LLM pre-ranker: scores all BM25-selected papers in batches of 80 with a
-  # single LLM call each, then only forwards papers scoring >= 0.20 to the dual-reviewer.
+  # single LLM call each, then only forwards papers scoring >= 0.30 to the dual-reviewer.
   # Reduces dual-review calls by ~60-70% while maintaining recall (threshold is intentionally
-  # low -- a false negative here permanently loses a study).
+  # conservative; raise to 0.35 only after workflow replay confirms acceptable recall.
   batch_screen_enabled: true
   batch_screen_size: 80
-  batch_screen_threshold: 0.20
+  batch_screen_threshold: 0.30
   # Forward near-threshold records (threshold-band, threshold) instead of excluding.
   batch_screen_uncertain_band: 0.10
   # Validation policy for auto-excluded records from batch pre-ranker.
@@ -156,16 +156,16 @@ screening:
   # 0 = per-paper mode (one call per paper). 10 = send 10 papers per batch call.
   # Reduces dual-reviewer LLM calls by ~5x while preserving all decisions and callbacks.
   reviewer_batch_size: 10
-  # Recall-first guard: exclude decisions at title/abstract require dual review.
+  # Recall-first baseline: exclude decisions at title/abstract require dual review.
+  # Controlled cost rollout: switch to false only after DB replay comparison.
   exclude_fast_path_requires_dual: true
 
 dual_review:
   enabled: true
   kappa_warning_threshold: 0.4
   # reviewer_b_model: overridden via agents.screening_reviewer_b.model above.
-  # Reviewer A uses gemini-2.5-flash-lite; Reviewer B uses gemini-2.5-flash
-  # for genuine cross-model validation (not just temperature variation).
-  # Adjudicator also uses gemini-2.5-flash.
+  # Reviewer A/B and adjudicator use gemini-2.5-flash-lite for high-throughput
+  # low-cost screening. Keep prompt-role diversity across reviewers for coverage.
 
 gates:
   profile: "strict"

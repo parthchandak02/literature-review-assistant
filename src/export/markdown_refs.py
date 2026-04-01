@@ -668,9 +668,36 @@ FIGURE_DEFS: list[tuple[str, str]] = [
 ]
 
 
+def _rob_traffic_caption_for_assessments(
+    robins_i_assessments: list[Any] | None = None,
+    casp_assessments: list[Any] | None = None,
+    mmat_assessments: list[Any] | None = None,
+) -> str:
+    """Return run-aware caption for the non-RCT risk-of-bias figure."""
+    has_robins = bool(robins_i_assessments)
+    has_casp = bool(casp_assessments)
+    has_mmat = bool(mmat_assessments)
+    if has_mmat and not has_robins and not has_casp:
+        return "Risk of bias traffic-light plot for included mixed-methods studies (MMAT)."
+    if has_mmat and has_casp and not has_robins:
+        return "Risk of bias traffic-light plot for included studies (MMAT/CASP)."
+    if has_mmat and has_robins and not has_casp:
+        return "Risk of bias traffic-light plot for included studies (ROBINS-I/MMAT)."
+    if has_mmat and has_robins and has_casp:
+        return "Risk of bias traffic-light plot for included studies (ROBINS-I/CASP/MMAT)."
+    if has_robins and has_casp:
+        return "Risk of bias traffic-light plot for included non-randomized studies and reviews (ROBINS-I/CASP)."
+    if has_robins:
+        return "Risk of bias traffic-light plot for included non-randomized studies (ROBINS-I)."
+    if has_casp:
+        return "Risk of bias traffic-light plot for included studies appraised with CASP."
+    return "Risk of bias traffic-light plot for included non-randomized studies and reviews (ROBINS-I/CASP)."
+
+
 def get_existing_figure_entries(
     manuscript_path: Path,
     artifacts: dict[str, str],
+    caption_overrides: dict[str, str] | None = None,
 ) -> list[tuple[str, Path, str]]:
     """Return ordered existing figures as (caption, absolute_path, relative_path).
 
@@ -678,6 +705,7 @@ def get_existing_figure_entries(
     paths are derived from one canonical manifest.
     """
     entries: list[tuple[str, Path, str]] = []
+    _overrides = caption_overrides or {}
     for artifact_key, default_caption in FIGURE_DEFS:
         fig_path_str = artifacts.get(artifact_key, "")
         if not fig_path_str:
@@ -685,7 +713,7 @@ def get_existing_figure_entries(
         fig_path = Path(fig_path_str)
         if not fig_path.exists():
             continue
-        caption = default_caption
+        caption = _overrides.get(artifact_key, default_caption)
         caption_sidecar = fig_path.with_suffix(".caption")
         if caption_sidecar.exists():
             try:
@@ -703,6 +731,7 @@ def get_existing_figure_entries(
 def get_latex_figure_paths(
     manuscript_path: Path,
     artifacts: dict[str, str],
+    caption_overrides: dict[str, str] | None = None,
 ) -> list[str]:
     """Return ordered figure paths safe for pdflatex includegraphics.
 
@@ -712,7 +741,7 @@ def get_latex_figure_paths(
     """
     raster_suffixes = {".png", ".jpg", ".jpeg", ".pdf"}
     paths: list[str] = []
-    for _caption, fig_path, rel_path in get_existing_figure_entries(manuscript_path, artifacts):
+    for _caption, fig_path, rel_path in get_existing_figure_entries(manuscript_path, artifacts, caption_overrides):
         if fig_path.suffix.lower() in raster_suffixes:
             paths.append(rel_path)
     return paths
@@ -721,6 +750,7 @@ def get_latex_figure_paths(
 def build_markdown_figures_section(
     manuscript_path: Path,
     artifacts: dict[str, str],
+    caption_overrides: dict[str, str] | None = None,
 ) -> str:
     """Build a Figures section with relative-path image embeds and IEEE captions.
 
@@ -732,7 +762,7 @@ def build_markdown_figures_section(
     """
     lines: list[str] = ["## Figures", ""]
     seq = 1
-    for caption, _fig_path, rel in get_existing_figure_entries(manuscript_path, artifacts):
+    for caption, _fig_path, rel in get_existing_figure_entries(manuscript_path, artifacts, caption_overrides):
         lines.append(f"**Fig. {seq}.** {caption}")
         lines.append("")
         lines.append(f"![Fig. {seq}: {caption}]({rel})")
@@ -1444,7 +1474,9 @@ def generate_mmat_table(
         c4 = "YES" if getattr(a, "criterion_4", False) else "NO"
         c5 = "YES" if getattr(a, "criterion_5", False) else "NO"
         score = str(getattr(a, "overall_score", "NR"))
-        summary = (getattr(a, "overall_summary", "") or "")[:100].replace("|", "-").replace("\n", " ")
+        summary_raw = str(getattr(a, "overall_summary", "") or "")
+        summary_clean = summary_raw.replace("|", "-").replace("\n", " ")
+        summary = summary_clean.strip()
         rows.append("| " + " | ".join([label, stype, s1, s2, c1, c2, c3, c4, c5, score, summary]) + " |")
 
     footnote = (
@@ -1785,7 +1817,18 @@ def assemble_submission_manuscript(
             fulltext_paper_ids=fulltext_paper_ids,
         )
 
-    figures_section = build_markdown_figures_section(manuscript_path, artifacts)
+    _figure_caption_overrides = {
+        "rob_traffic_light": _rob_traffic_caption_for_assessments(
+            robins_i_assessments=robins_i_assessments or [],
+            casp_assessments=casp_assessments or [],
+            mmat_assessments=mmat_assessments or [],
+        )
+    }
+    figures_section = build_markdown_figures_section(
+        manuscript_path,
+        artifacts,
+        caption_overrides=_figure_caption_overrides,
+    )
 
     refs_section = build_markdown_references_section(numbered_body, ordered_citation_rows, numbered=True)
 

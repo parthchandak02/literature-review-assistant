@@ -316,6 +316,113 @@ def _find_section_order_violation(md_text: str) -> str | None:
     return None
 
 
+def _extract_h2_sections(md_text: str) -> dict[str, str]:
+    """Map canonical H2 names to their section body text."""
+    sections: dict[str, list[str]] = {}
+    current: str | None = None
+    for raw in md_text.splitlines():
+        stripped = raw.strip()
+        m = re.match(r"^##\s+(.+)$", stripped)
+        if m:
+            key = _canonical_h2_name(m.group(1))
+            for req in ("abstract", "introduction", "methods", "results", "discussion", "conclusion", "references"):
+                if key == req or key.startswith(f"{req} "):
+                    key = req
+                    break
+            current = key
+            sections.setdefault(current, [])
+            continue
+        if current is not None:
+            sections[current].append(raw)
+    return {k: "\n".join(v).strip() for k, v in sections.items()}
+
+
+def _find_section_content_incomplete(md_text: str, included_study_count: int) -> list[str]:
+    """Detect hollow or truncated required section bodies."""
+    issues: list[str] = []
+    sections = _extract_h2_sections(md_text)
+    trailing_re = re.compile(r"\b(and|or|with|to|for|in|of|by|vs)\s*$", flags=re.IGNORECASE)
+    for name in ("results", "discussion"):
+        body = sections.get(name, "").strip()
+        if not body:
+            issues.append(f"{name}:empty_body")
+            continue
+        paragraphs: list[str] = []
+        buf: list[str] = []
+        for line in body.splitlines():
+            s = line.strip()
+            if not s:
+                if buf:
+                    paragraphs.append(" ".join(buf).strip())
+                    buf.clear()
+                continue
+            if s.startswith("#"):
+                if buf:
+                    paragraphs.append(" ".join(buf).strip())
+                    buf.clear()
+                continue
+            buf.append(s)
+        if buf:
+            paragraphs.append(" ".join(buf).strip())
+        substantive = [p for p in paragraphs if len(p) >= 90 and len(p.split()) >= 14]
+        min_required = 2 if included_study_count > 1 else 1
+        if len(substantive) < min_required:
+            issues.append(f"{name}:insufficient_substantive_paragraphs:{len(substantive)}")
+        tail = substantive[-1] if substantive else (paragraphs[-1] if paragraphs else "")
+        if tail:
+            if trailing_re.search(tail):
+                issues.append(f"{name}:trailing_fragment_word")
+            elif tail[-1] not in ".!?":
+                issues.append(f"{name}:trailing_fragment_punctuation")
+    return issues
+
+
+def _find_implications_misplaced(md_text: str) -> list[str]:
+    """Detect implication subsections placed under Conclusion instead of Discussion."""
+    issues: list[str] = []
+    sections = _extract_h2_sections(md_text)
+    conclusion = sections.get("conclusion", "")
+    discussion = sections.get("discussion", "")
+    implications = (
+        "### Implications for Practice",
+        "### Implications for Research",
+    )
+    misplaced = [h for h in implications if h.lower() in conclusion.lower()]
+    if misplaced:
+        missing_in_discussion = [h for h in implications if h.lower() not in discussion.lower()]
+        if missing_in_discussion:
+            issues.extend(h.lower().replace("### ", "") for h in missing_in_discussion)
+    return issues
+
+
+def _find_rob_figure_caption_mismatch(md_text: str) -> bool:
+    """Detect static ROBINS-I/CASP figure caption when MMAT is the active tool family."""
+    low = md_text.lower()
+    has_mmat = "## mmat quality assessment" in low or "mmat (mixed-methods" in low
+    has_legacy_caption = "risk of bias traffic-light plot for included non-randomized studies and reviews (robins-i/casp)" in low
+    return bool(has_mmat and has_legacy_caption)
+
+
+def _grade_claimed_without_rows(md_text: str) -> bool:
+    """Return True when manuscript claims GRADE use in non-negated prose."""
+    lines = [ln.strip().lower() for ln in md_text.splitlines() if "grade" in ln.lower()]
+    if not lines:
+        return False
+    negative_markers = (
+        "no grade",
+        "without grade",
+        "grade was not",
+        "grade assessment was not",
+        "grade certainty assessment was not",
+        "no grade certainty assessment was performed",
+    )
+    for line in lines:
+        if any(marker in line for marker in negative_markers):
+            continue
+        return True
+    return False
+
+
 def _find_missing_prisma_statements(md_text: str) -> list[str]:
     """Return required PRISMA-aligned disclosure families missing from prose."""
     low = md_text.lower()
@@ -336,6 +443,12 @@ def _find_missing_prisma_statements(md_text: str) -> list[str]:
         low,
     ) is None and re.search(
         r"sought\s+full[-\u2010-\u2015 ]text\s+retrieval\s+for\s+(?:the\s+remaining\s+)?\d+\s+reports?",
+        low,
+    ) is None and re.search(
+        r"advanced\s+to\s+full[-\u2010-\u2015 ]text\s+retrieval",
+        low,
+    ) is None and re.search(
+        r"forwarded\s+for\s+full[-\u2010-\u2015 ]text\s+retrieval",
         low,
     ) is None:
         missing.append("study_selection_reports_sought_sentence")
@@ -461,6 +574,9 @@ def _hard_failure(mode: str, code: str) -> bool:
             "ABSTRACT_STRUCTURE_MISSING_FIELDS",
             "UNUSED_BIB_ENTRY",
             "ARTIFACT_PLACEHOLDER_LEAK",
+            "SECTION_CONTENT_INCOMPLETE",
+            "IMPLICATIONS_MISPLACED",
+            "ROB_FIGURE_CAPTION_MISMATCH",
         }
     return True
 
@@ -640,6 +756,37 @@ async def run_manuscript_contracts(
             )
         )
 
+    section_content_issues = _find_section_content_incomplete(md_text, len(synthesis_ids))
+    if section_content_issues:
+        violations.append(
+            ContractViolation(
+                code="SECTION_CONTENT_INCOMPLETE",
+                severity="error",
+                message="Required section content is hollow or truncated.",
+                actual=str(section_content_issues),
+            )
+        )
+
+    misplaced_implications = _find_implications_misplaced(md_text)
+    if misplaced_implications:
+        violations.append(
+            ContractViolation(
+                code="IMPLICATIONS_MISPLACED",
+                severity="error",
+                message="Implications subsections are misplaced under Conclusion while missing from Discussion.",
+                actual=str(misplaced_implications),
+            )
+        )
+
+    if _find_rob_figure_caption_mismatch(md_text):
+        violations.append(
+            ContractViolation(
+                code="ROB_FIGURE_CAPTION_MISMATCH",
+                severity="error",
+                message="Risk-of-bias figure caption family conflicts with active MMAT assessment evidence.",
+            )
+        )
+
     missing_prisma = _find_missing_prisma_statements(md_text)
     if missing_prisma:
         violations.append(
@@ -782,12 +929,12 @@ async def run_manuscript_contracts(
     )
     grade_row = await grade_count_row.fetchone()
     grade_count = int(grade_row[0]) if grade_row else 0
-    grade_mentioned = bool(re.search(r"\bGRADE\b", md_text))
-    if grade_mentioned and grade_count == 0:
+    grade_claimed = _grade_claimed_without_rows(md_text)
+    if grade_claimed and grade_count == 0:
         violations.append(
             ContractViolation(
                 code="GRADE_UNGROUNDED",
-                severity="warning",
+                severity="error",
                 message="Manuscript mentions GRADE but no grade_assessments rows exist for this run.",
                 expected=">= 1 grade_assessments row",
                 actual="0",
