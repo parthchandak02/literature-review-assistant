@@ -776,6 +776,9 @@ Each run creates its own `runtime.db`. Schema defined in `src/db/schema.sql`.
 | `checkpoints` | Phase completion markers (key: phase string, status: completed / partial) |
 | `synthesis_results` | SynthesisFeasibility + NarrativeSynthesis JSON per outcome |
 | `event_log` | Persisted SSE event log for replay; loaded by history/attach endpoint |
+| `validation_runs` | Workflow replay validation run metadata (profile, status, summary) |
+| `validation_checks` | Phase-level validation checks and metrics for each validation run |
+| `validation_artifacts` | Optional validation artifacts and metadata pointers |
 | `paper_chunks_meta` | RAG chunk store: chunk_id, paper_id, chunk_index, content (text), embedding (JSON float array, 768-dim); indexed by workflow_id and paper_id |
 | `manuscript_sections` | Canonical DB-first manuscript section state |
 | `manuscript_blocks` | Ordered manuscript content blocks per section version |
@@ -1051,6 +1054,8 @@ Run card status border (2px left): emerald = completed, violet = running/connect
 | GET | /api/run/{run_id}/manuscript | Download manuscript content (`fmt=md` or `fmt=tex`) |
 | GET | /api/run/{run_id}/events | Replay buffer snapshot (all buffered SSE events for live run) |
 | GET | /api/workflow/{workflow_id}/events | Events from event_log table by workflow ID (historical) |
+| GET | /api/workflow/{workflow_id}/validation/summary | Latest workflow replay validation run summary |
+| GET | /api/workflow/{workflow_id}/validation/checks | Detailed checks for a validation run (latest by default) |
 | PATCH | /api/notes/{workflow_id} | Update run notes |
 | GET | /api/notes/stream | SSE stream for notes updates |
 | GET | /api/run/{run_id}/papers-reference | Included papers list with PDF/TXT file availability flags |
@@ -1271,10 +1276,16 @@ uv run ruff check . --fix && uv run ruff format .   # Python lint + format
 cd frontend && pnpm fix && pnpm typecheck           # ESLint + TypeScript
 uv run pytest tests/unit -q                         # unit tests
 uv run pytest tests/integration -q                 # integration tests (require config/review.yaml)
+uv run python scripts/validate_workflow_replay.py --workflow-id wf-XXXX --profile quick
 uv run python -m src.main --help                    # confirm CLI loads without error
 ```
 
 After each phase, run all commands and confirm clean output before proceeding.
+
+Real-workflow-first validation policy:
+- Pipeline validation uses existing workflow IDs and their `runtime.db` data.
+- Replay checks persist append-only evidence in `validation_runs` and `validation_checks`.
+- Synthetic fixtures remain useful for fast unit isolation, but they do not replace workflow replay validation.
 
 ### 12.5 Production Frontend Build
 

@@ -12,7 +12,7 @@ Guide for implementing LaTeX export and the submission package.
 - `\cite{citekey}` numbered references
 - Tables: booktabs package
 - Figures: \includegraphics with proper paths
-- Abstract: <= 230 words (hard cap enforced upstream before export)
+- Abstract: target <= 230 words in writing stage; manuscript contract hard-fail at > 250 words
 
 ## Submission Package Structure
 ```

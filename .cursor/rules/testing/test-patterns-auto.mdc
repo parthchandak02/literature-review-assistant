@@ -27,6 +27,13 @@ uv run pytest tests/integration -q   # slower, may use LLM
 # tests/e2e/ does not exist yet
 ```
 
+## Real-Workflow Replay Tests
+- Integration replay coverage lives in:
+  - `tests/integration/test_workflow_replay_screening.py`
+  - `tests/integration/test_workflow_replay_extraction.py`
+  - `tests/integration/test_workflow_replay_writing_export.py`
+- Prefer these when validating pipeline behavior against existing workflow `runtime.db` data.
+
 ## Environment / API Keys In Tests
 `tests/conftest.py` (project root) calls `load_dotenv(override=True)` at pytest session
 start. This ensures `.env` values take precedence over any stale key exported in the shell.

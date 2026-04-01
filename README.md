@@ -299,6 +299,7 @@ Grouped endpoints most users use:
 - References/full text: `GET /api/run/{run_id}/papers-reference`, `GET /api/run/{run_id}/papers/{paper_id}/file`, `POST /api/run/{run_id}/fetch-pdfs`
 - Human review/living review: `GET /api/run/{run_id}/screening-summary`, `POST /api/run/{run_id}/approve-screening`, `POST /api/run/{run_id}/living-refresh`
 - Data explorer: `GET /api/db/{run_id}/papers-all`, `/screening`, `/costs`, `/tables`, `/rag-diagnostics`
+- Validation: `GET /api/workflow/{workflow_id}/validation/summary`, `GET /api/workflow/{workflow_id}/validation/checks`
 - Notes and logs: `PATCH /api/notes/{workflow_id}`, `GET /api/notes/stream`, `GET /api/logs/stream`
 
 ---
@@ -365,7 +366,16 @@ cd frontend && pnpm dev
 ```bash
 uv run pytest tests/unit -q
 uv run pytest tests/integration -q
+# real-workflow replay validation (recommended before/after pipeline edits)
+uv run python scripts/validate_workflow_replay.py --workflow-id wf-XXXX --profile quick
 ```
+
+Real-workflow-first policy:
+- For end-to-end and pipeline validation, use existing workflow IDs and their `runtime.db` records.
+- Do not rely only on synthetic dummy fixtures for pipeline behavior checks.
+- Replay validation writes append-only evidence to `validation_runs` and `validation_checks` in the same workflow DB.
+- Quick workflow picker example:
+  - `sqlite3 runs/workflows_registry.db "SELECT workflow_id, status, updated_at FROM workflows_registry ORDER BY updated_at DESC LIMIT 5;"`
 
 **Lint and fix:**
 
@@ -406,6 +416,7 @@ cd frontend && pnpm fix && pnpm typecheck
 
 | Script | Purpose |
 |--------|---------|
+| `scripts/validate_workflow_replay.py` | Runs quick/standard/deep replay validation directly on an existing workflow `runtime.db` and persists phase-level check results to `validation_runs` and `validation_checks`. |
 | `scripts/finalize_manuscript.py` | Thin regeneration utility for `doc_manuscript.md`: re-assembles all sections (Declarations, GRADE tables, Study Characteristics Table, Search appendix, Figures, References) from an existing run's runtime.db. Strips unresolved citekeys and injects IMRaD headings for historical runs. Usage: `uv run python scripts/finalize_manuscript.py --run-dir runs/YYYY-MM-DD/wf-NNNN-<topic-slug>/run_<time>` |
 | `scripts/migrate_to_runs.py` | One-time migration to move legacy run artifacts into the current `runs/YYYY-MM-DD/wf-NNNN-<topic-slug>/run_<time>/` directory structure. |
 | `scripts/re_extract.py` | Targeted re-extraction for studies with low-quality data (placeholder outcomes, missing authors). Usage: `uv run python scripts/re_extract.py --run-dir runs/YYYY-MM-DD/wf-NNNN-<topic-slug>/run_<time>` |

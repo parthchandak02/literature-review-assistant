@@ -45,7 +45,7 @@ Read `<run_root>/run_summary.json`. Look at the `manuscript_contract` key. It co
 - `mode`: "observe" | "soft" | "strict"
 - `violations`: list of `{code, severity, message, expected, actual}`
 
-Known contract codes the pipeline already checks:
+Known contract codes the pipeline already checks (non-exhaustive; source of truth is `src/manuscript/contracts.py`):
 - `INCLUDED_COUNT_MISMATCH` -- table rows vs canonical cohort
 - `NON_PRIMARY_IN_TABLE` -- non-primary studies in synthesis set
 - `PLACEHOLDER_LEAK` -- CITATION_NEEDED, TODO, TBD tokens
@@ -58,6 +58,12 @@ Known contract codes the pipeline already checks:
 - `AI_LEAKAGE` -- AI/chat/code artifacts in manuscript body
 - `ABSTRACT_OVER_LIMIT` -- abstract exceeds 250 words
 - `GRADE_UNGROUNDED` -- GRADE mentioned but no DB rows
+- `SNAKE_CASE_LEAKAGE` -- raw internal field names leaked into prose
+- `REQUIRED_SECTION_MISSING` / `SECTION_ORDER_INVALID` -- required section structure failed
+- `PRISMA_STATEMENT_MISSING` -- required PRISMA statement coverage absent
+- `PROTOCOL_REGISTRATION_CONTRADICTION` / `PROTOCOL_REGISTRATION_FUTURE_TENSE` -- registration inconsistency
+- `MODEL_ID_LEAKAGE` -- raw model identifiers leaked into manuscript
+- `META_FEASIBILITY_CONTRADICTION` -- feasibility narrative conflicts
 
 Record which violations are already flagged. Do NOT re-report these in your findings -- they are already caught by the pipeline. Instead, note them in a "Pipeline Contracts Status" section and focus your audit on what contracts do NOT cover.
 
