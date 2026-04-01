@@ -374,6 +374,24 @@ def _normalize_subsection_heading_layout(text: str) -> str:
             level = m.group(1)
             tail = m.group(2).strip()
             tail = _citation_tail_re.sub("", tail).strip()
+            _known_prefix_map = {
+                "data items": "Data Items",
+                "comparison with prior": "Comparison with Prior Work",
+            }
+            _tail_low = tail.lower()
+            _matched_known = False
+            for _raw_prefix, _canonical in _known_prefix_map.items():
+                _needle = _raw_prefix + " "
+                if _tail_low.startswith(_needle):
+                    _body = tail[len(_raw_prefix) :].strip()
+                    out_lines.extend([f"{level} {_canonical}", ""])
+                    if _body:
+                        out_lines.append(_body)
+                    _matched_known = True
+                    break
+            if _matched_known:
+                i += 1
+                continue
             if len(level) >= 4:
                 _spill = re.search(
                     r"\b(The|This|These|We|Our|In|Across|To|A|An|Evidence|Findings|Overall|One|Demographic|Meta-analysis|Also)\b",
