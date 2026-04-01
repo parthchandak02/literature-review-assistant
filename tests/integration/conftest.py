@@ -16,7 +16,13 @@ previous test.
 
 from __future__ import annotations
 
+import os
+from pathlib import Path
+
+import aiosqlite
 import pytest
+
+from src.db.workflow_registry import candidate_run_roots, resolve_workflow_db_path
 
 
 @pytest.fixture(autouse=True)
@@ -53,3 +59,42 @@ def reset_structured_log() -> None:
 
     sl._configured = False
     sl._logger = None
+
+
+@pytest.fixture
+async def real_workflow_target() -> tuple[str, Path]:
+    """Return (workflow_id, runtime_db_path) for real-data replay tests.
+
+    Priority:
+    1) WORKFLOW_REPLAY_DB_PATH + WORKFLOW_REPLAY_ID
+    2) WORKFLOW_REPLAY_ID resolved from registry
+    3) latest workflow id in registry
+    """
+    env_db = os.getenv("WORKFLOW_REPLAY_DB_PATH", "").strip()
+    env_wf = os.getenv("WORKFLOW_REPLAY_ID", "").strip()
+    if env_db and env_wf:
+        db_path = Path(env_db).expanduser().resolve()
+        if not db_path.exists():
+            pytest.skip(f"WORKFLOW_REPLAY_DB_PATH not found: {db_path}")
+        return env_wf, db_path
+
+    roots = candidate_run_roots("runs", anchor_file=__file__)
+    workflow_id = env_wf
+    if not workflow_id:
+        registry = Path(roots[0]) / "workflows_registry.db"
+        if not registry.exists():
+            pytest.skip("No workflows_registry.db found for real workflow replay tests.")
+        async with aiosqlite.connect(str(registry)) as db:
+            row = await (
+                await db.execute(
+                    "SELECT workflow_id FROM workflows_registry ORDER BY updated_at DESC LIMIT 1"
+                )
+            ).fetchone()
+        if not row or not row[0]:
+            pytest.skip("No workflow id found in workflows_registry.")
+        workflow_id = str(row[0])
+
+    resolved = await resolve_workflow_db_path(workflow_id, roots)
+    if not resolved:
+        pytest.skip(f"Could not resolve runtime.db for workflow_id={workflow_id}")
+    return workflow_id, Path(resolved).resolve()

@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import json
 import os
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Sequence
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from pathlib import Path
@@ -207,6 +207,32 @@ async def find_by_workflow_id_fallback(run_root: str, workflow_id: str) -> Regis
             created_at="",
             updated_at="",
         )
+    return None
+
+
+def candidate_run_roots(run_root: str, *, anchor_file: str | None = None) -> list[str]:
+    """Return deterministic candidate run roots for workflow DB resolution.
+
+    The first entry is always the caller-provided run_root. If anchor_file is
+    provided, a repository-root-relative runs path is appended when distinct.
+    """
+    roots = [str(Path(run_root).resolve())]
+    if anchor_file:
+        repo_runs = Path(anchor_file).resolve().parents[2] / "runs"
+        repo_runs_str = str(repo_runs)
+        if repo_runs_str not in roots:
+            roots.append(repo_runs_str)
+    return roots
+
+
+async def resolve_workflow_db_path(workflow_id: str, run_roots: Sequence[str]) -> str | None:
+    """Resolve runtime.db path for a workflow ID from registry/fallback roots."""
+    for root in run_roots:
+        entry = await find_by_workflow_id(root, workflow_id)
+        if entry is None:
+            entry = await find_by_workflow_id_fallback(root, workflow_id)
+        if entry is not None and entry.db_path:
+            return entry.db_path
     return None
 
 

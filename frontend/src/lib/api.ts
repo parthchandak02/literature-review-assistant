@@ -105,6 +105,44 @@ export interface DbCostRow {
   avg_latency_ms: number | null
 }
 
+export interface ScreeningDiagnostics {
+  batch_parse_degraded: number
+  batch_id_mismatch: number
+  batch_missing_fallback: number
+  contract_violation_count: number
+  fast_path_include: number
+  fast_path_exclude: number
+  cross_reviewed: number
+}
+
+export interface ValidationSummary {
+  workflow_id: string
+  latest_run: {
+    validation_run_id: string
+    profile: string
+    status: string
+    tool_version: string
+    summary: Record<string, unknown>
+    started_at: string
+    completed_at: string
+    error_count: number
+    warn_count: number
+    total_checks: number
+  } | null
+}
+
+export interface ValidationCheck {
+  phase: string
+  check_name: string
+  status: string
+  severity: string
+  metric_value: number | null
+  details: Record<string, unknown>
+  source_module: string | null
+  paper_id: string | null
+  created_at: string
+}
+
 export interface HistoryEntry {
   workflow_id: string
   topic: string
@@ -480,10 +518,28 @@ export async function fetchPapersSuggest(
 
 export async function fetchDbCosts(
   runId: string,
-): Promise<{ total_cost: number; records: DbCostRow[] }> {
+): Promise<{ total_cost: number; records: DbCostRow[]; screening_diagnostics?: ScreeningDiagnostics }> {
   const res = await fetch(`${BASE}/db/${runId}/costs`)
   if (!res.ok) throw await _apiError(res, "Costs fetch failed")
-  return res.json() as Promise<{ total_cost: number; records: DbCostRow[] }>
+  return res.json() as Promise<{ total_cost: number; records: DbCostRow[]; screening_diagnostics?: ScreeningDiagnostics }>
+}
+
+export async function fetchWorkflowValidationSummary(workflowId: string): Promise<ValidationSummary> {
+  const res = await fetch(`${BASE}/workflow/${workflowId}/validation/summary`)
+  if (!res.ok) throw await _apiError(res, "Validation summary fetch failed")
+  return res.json() as Promise<ValidationSummary>
+}
+
+export async function fetchWorkflowValidationChecks(
+  workflowId: string,
+  validationRunId?: string,
+): Promise<{ workflow_id: string; validation_run_id: string | null; checks: ValidationCheck[] }> {
+  const params = new URLSearchParams()
+  if (validationRunId) params.set("validation_run_id", validationRunId)
+  const suffix = params.toString() ? `?${params.toString()}` : ""
+  const res = await fetch(`${BASE}/workflow/${workflowId}/validation/checks${suffix}`)
+  if (!res.ok) throw await _apiError(res, "Validation checks fetch failed")
+  return res.json() as Promise<{ workflow_id: string; validation_run_id: string | null; checks: ValidationCheck[] }>
 }
 
 // Run artifacts + export
