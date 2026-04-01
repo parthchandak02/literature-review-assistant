@@ -134,6 +134,9 @@ def get_abstract_prompt_context(
     abstract_limit = int(SECTION_WORD_LIMITS.get("abstract", ABSTRACT_WORD_LIMIT))
     target_high = max(120, abstract_limit - 10)
     target_low = max(100, target_high - 25)
+    conclusions_instruction = "main implication"
+    if grounding is not None and getattr(grounding, "grade_summary", ""):
+        conclusions_instruction = "main implication and GRADE certainty qualifier"
 
     return (
         prefix
@@ -148,7 +151,7 @@ def get_abstract_prompt_context(
         "risk-of-bias tool, and synthesis approach)\n"
         "**Results:** (exact included studies count from the FACTUAL DATA BLOCK, key findings "
         "grouped by outcome domain, synthesis direction)\n"
-        "**Conclusions:** (main implication and GRADE certainty qualifier)\n"
+        f"**Conclusions:** ({conclusions_instruction})\n"
         "**Keywords:** (5-7 comma-separated keywords drawn from the research topic)\n\n"
         f"WORD COUNT: Target {target_low}-{target_high} words for the abstract body "
         "(Background through Conclusions, excluding the Keywords line). "
@@ -189,6 +192,12 @@ def get_methods_prompt_context(
 ) -> str:
     """Context for methods. PRISMA Items 3-16."""
     prefix = _grounding_prefix(grounding)
+    grade_instruction = "(8) GRADE certainty assessment, "
+    if grounding is not None and not getattr(grounding, "grade_summary", ""):
+        grade_instruction = (
+            "(8) Do NOT mention a GRADE certainty assessment because the FACTUAL DATA BLOCK "
+            "states that no GRADE rows exist for this run, "
+        )
     return (
         prefix
         + _NO_HEADING_RULE
@@ -198,6 +207,8 @@ def get_methods_prompt_context(
         + "Write a thorough methods section of approximately 900 words. "
         "Do not truncate or summarise -- describe each step fully. "
         "Use the FACTUAL DATA BLOCK for all database names and dates. "
+        "If canonical inclusion/exclusion criteria are listed in the FACTUAL DATA BLOCK, "
+        "mirror them exactly and do NOT add narrower study-design restrictions that are not listed. "
         "PRISMA Items 3-16: "
         "(1) Eligibility criteria using explicit PICO framework, "
         "(2) Information sources: list the 'Bibliographic databases searched' from the block. "
@@ -237,8 +248,8 @@ def get_methods_prompt_context(
         "follow it EXACTLY: name the outcome domains used to group studies, state the "
         "direction-of-effect (vote-counting) approach, and organise the Results synthesis "
         "subsection by these domains. Do NOT mix all outcomes into a single generic paragraph. "
-        "(8) GRADE certainty assessment, "
-        "(9) Protocol registration: use EXACTLY the wording shown in 'Protocol registration' "
+        + grade_instruction
+        + "(9) Protocol registration: use EXACTLY the wording shown in 'Protocol registration' "
         "in the FACTUAL DATA BLOCK -- do NOT invent or contradict it. "
         "If the block says 'NOT PROSPECTIVELY REGISTERED', write the OSF post-hoc registration "
         "statement verbatim from the block. "

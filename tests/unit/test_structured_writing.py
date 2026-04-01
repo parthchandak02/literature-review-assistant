@@ -4,6 +4,7 @@ from src.models.writing import SectionBlock, StructuredSectionDraft
 from src.writing.orchestration import (
     _build_deterministic_section_fallback,
     _extract_valid_citekeys,
+    _post_render_completeness_issues,
     _section_completeness_issues,
     _validate_structured_section_draft,
 )
@@ -29,7 +30,7 @@ def test_render_section_markdown_and_latex_from_ir() -> None:
     assert "\\begin{itemize}" in tex
 
 
-def test_validate_structured_section_filters_citations_and_adds_required_subheadings() -> None:
+def test_validate_structured_section_filters_citations_and_sets_required_subsections() -> None:
     valid = _extract_valid_citekeys("[Page2021] PRISMA\n[Smith2024] Included study")
     draft = StructuredSectionDraft(
         section_key="methods",
@@ -43,11 +44,10 @@ def test_validate_structured_section_filters_citations_and_adds_required_subhead
     )
 
     out = _validate_structured_section_draft("methods", draft, valid)
-    subheads = [b.text for b in out.blocks if b.block_type == "subheading"]
     paras = [b.text for b in out.blocks if b.block_type == "paragraph"]
 
-    assert "Eligibility Criteria" in subheads
-    assert "Information Sources" in subheads
+    assert "Eligibility Criteria" in out.required_subsections
+    assert "Information Sources" in out.required_subsections
     assert "prisma guideline" in paras[0]
     assert out.cited_keys == ["Page2021"]
 
@@ -89,4 +89,30 @@ def test_deterministic_methods_fallback_includes_prisma_sought_and_not_retrieved
     text = render_section_markdown(draft)
     assert "66 reports were sought for full-text retrieval" in text
     assert "33 reports were not retrieved" in text
+
+
+def test_section_completeness_detects_missing_discussion_required_subheadings() -> None:
+    draft = StructuredSectionDraft(
+        section_key="discussion",
+        blocks=[
+            SectionBlock(block_type="subheading", text="Principal Findings", level=3),
+            SectionBlock(
+                block_type="paragraph",
+                text="This section provides interpretation of findings and contextual caveats with adequate detail.",
+            ),
+        ],
+    )
+    issues = _section_completeness_issues("discussion", draft)
+    assert any(issue == "missing_required_subheadings" for issue in issues)
+
+
+def test_post_render_completeness_flags_truncated_discussion_tail() -> None:
+    content = (
+        "### Principal Findings\n\n"
+        "The evidence base indicates benefits in selected contexts and suggests implementation caveats.\n\n"
+        "### Comparison with Prior Work\n\n"
+        "Findings align with prior systematic reviews and"
+    )
+    issues = _post_render_completeness_issues("discussion", content)
+    assert any("post_trailing_fragment" in issue for issue in issues)
 
