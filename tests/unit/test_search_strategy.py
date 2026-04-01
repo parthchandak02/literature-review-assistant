@@ -1,12 +1,12 @@
 from __future__ import annotations
 
 from src.models import ReviewConfig, ReviewType
+from src.screening.prompts import _quality_criteria_block
 from src.search.embase import EmbaseConnector
 from src.search.pubmed import PubMedConnector
 from src.search.scopus import ScopusConnector
 from src.search.strategy import build_database_query, requires_primary_studies
 from src.search.web_of_science import WebOfScienceConnector
-from src.screening.prompts import _quality_criteria_block
 
 
 def _review() -> ReviewConfig:

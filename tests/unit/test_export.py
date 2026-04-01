@@ -17,8 +17,8 @@ from src.export.ieee_latex import _convert_citations, _convert_md_table_to_latex
 from src.export.ieee_validator import validate_ieee
 from src.export.markdown_refs import (
     _normalize_subsection_heading_layout,
-    build_markdown_figures_section,
     build_compact_study_table,
+    build_markdown_figures_section,
     build_picos_table,
     generate_mmat_table,
     get_existing_figure_entries,

@@ -1,6 +1,11 @@
 from __future__ import annotations
 
-from src.export.prisma_checklist import render_prisma_csv, render_prisma_html, render_prisma_markdown_table, validate_prisma
+from src.export.prisma_checklist import (
+    render_prisma_csv,
+    render_prisma_html,
+    render_prisma_markdown_table,
+    validate_prisma,
+)
 
 
 def test_validate_prisma_returns_deterministic_items_when_artifacts_missing() -> None:
