@@ -20,6 +20,7 @@ from src.models.config import (
     GatesConfig,
     IEEEExportConfig,
     MetaAnalysisConfig,
+    ManuscriptAuditConfig,
     PICOConfig,
     ProtocolRegistration,
     ReviewConfig,
@@ -52,6 +53,14 @@ from src.models.enums import (
     StudyDesign,
 )
 from src.models.extraction import ExtractionRecord, OutcomeRecord
+from src.models.manuscript_review import (
+    AuditProfileName,
+    AuditSeverity,
+    AuditVerdict,
+    ManuscriptAuditFinding,
+    ManuscriptAuditProfileSelection,
+    ManuscriptAuditResult,
+)
 from src.models.papers import CandidatePaper, SearchResult
 from src.models.quality import GRADEOutcomeAssessment, RoB2Assessment, RobinsIAssessment
 from src.models.screening import DualScreeningResult, ScreeningDecision
@@ -95,6 +104,9 @@ __all__ = [
     "EvidenceLinkRecord",
     "ExclusionReason",
     "ExtractionRecord",
+    "ManuscriptAuditFinding",
+    "ManuscriptAuditProfileSelection",
+    "ManuscriptAuditResult",
     "OutcomeRecord",
     "FundingInfo",
     "GatesConfig",
@@ -105,6 +117,7 @@ __all__ = [
     "IEEEExportConfig",
     "InterRaterReliability",
     "MetaAnalysisConfig",
+    "ManuscriptAuditConfig",
     "MetaAnalysisResult",
     "PICOConfig",
     "PrimaryStudyStatus",
@@ -116,6 +129,9 @@ __all__ = [
     "ReviewConfig",
     "ReviewType",
     "ReviewerType",
+    "AuditProfileName",
+    "AuditSeverity",
+    "AuditVerdict",
     "RiskOfBiasConfig",
     "RiskOfBiasJudgment",
     "RoB2Assessment",

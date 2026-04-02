@@ -441,6 +441,13 @@ class GatesConfig(BaseModel):
             "observe (log only), soft (block hard defects), strict (block all violations)."
         ),
     )
+    manuscript_audit_mode: str = Field(
+        default="observe",
+        description=(
+            "Phase-7 manuscript audit gate mode: "
+            "observe (never blocks), soft (blocks reject), strict (blocks any fail)."
+        ),
+    )
 
 
 class WritingConfig(BaseModel):
@@ -510,6 +517,30 @@ class WritingConfig(BaseModel):
         le=50,
         default=8,
         description="Maximum citekeys per bracket cluster in auto-generated coverage prose.",
+    )
+
+
+class ManuscriptAuditConfig(BaseModel):
+    """General manuscript-audit routing and budget controls."""
+
+    profile_activation: str = Field(
+        default="domain_matched",
+        description="Profile routing mode: domain_matched, manual, or always.",
+    )
+    required_profiles: list[str] = Field(
+        default_factory=lambda: ["general_systematic_review"],
+        description="Profiles to force when profile_activation is manual.",
+    )
+    max_profiles_per_run: int = Field(
+        default=2,
+        ge=1,
+        le=6,
+        description="Maximum number of profile-specific LLM audit passes per run.",
+    )
+    cost_cap_usd: float = Field(
+        default=0.25,
+        ge=0.0,
+        description="Hard per-run cost cap for the phase_7_audit LLM calls.",
     )
 
 
@@ -880,6 +911,7 @@ class SettingsConfig(BaseModel):
     dual_review: DualReviewConfig = Field(default_factory=DualReviewConfig)
     gates: GatesConfig = Field(default_factory=GatesConfig)
     writing: WritingConfig = Field(default_factory=WritingConfig)
+    manuscript_audit: ManuscriptAuditConfig = Field(default_factory=ManuscriptAuditConfig)
     risk_of_bias: RiskOfBiasConfig = Field(default_factory=RiskOfBiasConfig)
     meta_analysis: MetaAnalysisConfig = Field(default_factory=MetaAnalysisConfig)
     ieee_export: IEEEExportConfig = Field(default_factory=IEEEExportConfig)

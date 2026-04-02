@@ -170,6 +170,7 @@ dual_review:
 gates:
   profile: "strict"
   manuscript_contract_mode: "strict"
+  manuscript_audit_mode: "observe"
   search_volume_minimum: 50
   screening_minimum: 5
   sparse_topic_min: 2
@@ -177,6 +178,13 @@ gates:
   extraction_completeness_threshold: 0.8
   extraction_max_empty_rate: 0.35
   cost_budget_max: 30.0
+
+manuscript_audit:
+  profile_activation: "domain_matched"
+  required_profiles:
+    - "general_systematic_review"
+  max_profiles_per_run: 2
+  cost_cap_usd: 0.25
 
 writing:
   humanization: true

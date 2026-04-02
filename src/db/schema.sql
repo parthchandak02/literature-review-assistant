@@ -244,6 +244,39 @@ CREATE TABLE IF NOT EXISTS cost_records (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
+CREATE TABLE IF NOT EXISTS manuscript_audit_runs (
+    audit_run_id TEXT PRIMARY KEY,
+    workflow_id TEXT NOT NULL,
+    mode TEXT NOT NULL,
+    verdict TEXT NOT NULL,
+    passed INTEGER NOT NULL,
+    selected_profiles_json TEXT NOT NULL DEFAULT '[]',
+    summary TEXT NOT NULL DEFAULT '',
+    total_findings INTEGER NOT NULL DEFAULT 0,
+    major_count INTEGER NOT NULL DEFAULT 0,
+    minor_count INTEGER NOT NULL DEFAULT 0,
+    note_count INTEGER NOT NULL DEFAULT 0,
+    blocking_count INTEGER NOT NULL DEFAULT 0,
+    total_cost_usd REAL NOT NULL DEFAULT 0,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS manuscript_audit_findings (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    audit_run_id TEXT NOT NULL REFERENCES manuscript_audit_runs(audit_run_id),
+    workflow_id TEXT NOT NULL,
+    finding_id TEXT NOT NULL,
+    profile TEXT NOT NULL,
+    severity TEXT NOT NULL,
+    category TEXT NOT NULL,
+    section TEXT,
+    evidence TEXT NOT NULL,
+    recommendation TEXT NOT NULL,
+    owner_module TEXT NOT NULL,
+    blocking INTEGER NOT NULL DEFAULT 0,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
 CREATE TABLE IF NOT EXISTS workflows (
     workflow_id TEXT PRIMARY KEY,
     topic TEXT NOT NULL,
@@ -353,6 +386,8 @@ CREATE INDEX IF NOT EXISTS idx_manuscript_blocks_workflow_section_order
     ON manuscript_blocks(workflow_id, section_key, section_version, block_order);
 CREATE INDEX IF NOT EXISTS idx_manuscript_assets_workflow_type_key ON manuscript_assets(workflow_id, asset_type, asset_key);
 CREATE INDEX IF NOT EXISTS idx_cost_records_phase_model ON cost_records(phase, model);
+CREATE INDEX IF NOT EXISTS idx_manuscript_audit_runs_workflow ON manuscript_audit_runs(workflow_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_manuscript_audit_findings_run ON manuscript_audit_findings(audit_run_id, id);
 
 -- ============================================================
 -- Idea 1: RAG - paper chunk storage (vector search via Python)

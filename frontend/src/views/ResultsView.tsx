@@ -22,6 +22,7 @@ import { ResultsPanel } from "@/components/ResultsPanel"
 import { EvidenceNetworkViz } from "@/components/EvidenceNetworkViz"
 import {
   APIResponseError,
+  fetchManuscriptAudit,
   triggerExport,
   fetchPrismaChecklist,
   downloadUrl,
@@ -31,7 +32,7 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { FetchError, EmptyState } from "@/components/ui/feedback"
 import { CollapsibleSection } from "@/components/ui/section"
 import { cn } from "@/lib/utils"
-import type { PrismaChecklist } from "@/lib/api"
+import type { ManuscriptAuditPayload, PrismaChecklist } from "@/lib/api"
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -434,6 +435,114 @@ function PrismaCard({ runId }: { runId: string }) {
   )
 }
 
+function ManuscriptAuditCard({ runId }: { runId: string }) {
+  const [open, setOpen] = useState(false)
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [data, setData] = useState<ManuscriptAuditPayload | null>(null)
+  const hasFetched = useRef(false)
+
+  const load = useCallback(async () => {
+    setLoading(true)
+    setError(null)
+    try {
+      setData(await fetchManuscriptAudit(runId))
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setLoading(false)
+    }
+  }, [runId])
+
+  useEffect(() => {
+    hasFetched.current = false
+    setData(null)
+    setError(null)
+  }, [runId])
+
+  function handleToggle() {
+    setOpen((v) => !v)
+    if (!hasFetched.current) {
+      hasFetched.current = true
+      void load()
+    }
+  }
+
+  const latest = data?.latest_run ?? null
+  const findings = data?.findings ?? []
+
+  return (
+    <CollapsibleSection
+      icon={AlertTriangle}
+      title="Final Guardian Audit"
+      open={open}
+      onToggle={handleToggle}
+      badge={
+        latest ? (
+          <span className={cn(
+            "text-[10px] font-mono px-1.5 py-0.5 rounded border shrink-0",
+            latest.passed
+              ? "text-emerald-400 border-emerald-800 bg-emerald-900/20"
+              : "text-amber-400 border-amber-800 bg-amber-900/20",
+          )}>
+            {latest.verdict}
+          </span>
+        ) : null
+      }
+    >
+      <div className="p-4 space-y-3">
+        {loading && (
+          <div className="space-y-2">
+            <Skeleton className="h-4 w-full" />
+            <Skeleton className="h-4 w-5/6" />
+          </div>
+        )}
+        {error && <FetchError message={`Failed to load audit: ${error}`} onRetry={() => void load()} />}
+        {!loading && !error && !latest && (
+          <EmptyState
+            icon={AlertTriangle}
+            heading="No manuscript audit data yet."
+            sub="Run must complete phase_7_audit before findings appear."
+            className="py-6"
+          />
+        )}
+        {latest && (
+          <>
+            <div className="text-xs text-zinc-400">
+              <span className="text-zinc-300 font-medium">Summary:</span> {latest.summary || "No summary."}
+            </div>
+            <div className="flex items-center gap-3 text-xs flex-wrap p-3 rounded-lg glass-panel">
+              <span className="text-zinc-300">Findings: {latest.total_findings}</span>
+              <span className="text-red-400">Major: {latest.major_count}</span>
+              <span className="text-amber-400">Minor: {latest.minor_count}</span>
+              <span className="text-zinc-400">Notes: {latest.note_count}</span>
+              <span className="text-violet-400">Blocking: {latest.blocking_count}</span>
+            </div>
+            <div className="space-y-1">
+              {findings.slice(0, 20).map((f) => (
+                <div key={f.finding_id} className="text-xs rounded-lg px-3 py-2 bg-zinc-900/50 border border-zinc-800">
+                  <div className="flex items-center gap-2">
+                    <span className="font-mono text-zinc-500">{f.profile}</span>
+                    <span className={cn(
+                      "uppercase text-[10px] font-semibold",
+                      f.severity === "major" ? "text-red-400" : f.severity === "minor" ? "text-amber-400" : "text-zinc-400",
+                    )}>
+                      {f.severity}
+                    </span>
+                    {f.section ? <span className="text-zinc-500">[{f.section}]</span> : null}
+                  </div>
+                  <div className="text-zinc-300 mt-1">{f.evidence}</div>
+                  <div className="text-zinc-500 mt-1">Fix: {f.recommendation}</div>
+                </div>
+              ))}
+            </div>
+          </>
+        )}
+      </div>
+    </CollapsibleSection>
+  )
+}
+
 // ---------------------------------------------------------------------------
 // Evidence Network collapsible section
 // ---------------------------------------------------------------------------
@@ -735,6 +844,8 @@ export function ResultsView({
           PRISMA compliance available after run completes.
         </div>
       )}
+
+      {exportRunId ? <ManuscriptAuditCard runId={exportRunId} /> : null}
 
       {exportRunId ? <EvidenceNetworkSection runId={exportRunId} /> : null}
 

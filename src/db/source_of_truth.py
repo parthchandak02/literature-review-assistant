@@ -23,6 +23,8 @@ TABLE_OWNERSHIP: dict[str, str] = {
     "manuscript_assemblies": "manuscript_render_state_canonical",
     "checkpoints": "phase_resume_markers",
     "gate_results": "quality_gate_evaluations",
+    "manuscript_audit_runs": "phase_7_audit_summary",
+    "manuscript_audit_findings": "phase_7_audit_findings",
 }
 
 
