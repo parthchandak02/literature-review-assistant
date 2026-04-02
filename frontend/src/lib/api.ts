@@ -141,6 +141,21 @@ export interface DbCostAggregatesResponse {
   by_model: DbCostAggregateGroupRow[]
 }
 
+export interface HistoryCostAggregatesResponse {
+  run_root: string
+  start_ts: string | null
+  end_ts: string | null
+  include_archived: boolean
+  workflow_count: number
+  totals: DbCostAggregateTotals
+  by_day: DbCostAggregateBucketRow[]
+  by_week: DbCostAggregateBucketRow[]
+  by_month: DbCostAggregateBucketRow[]
+  by_workflow: DbCostAggregateGroupRow[]
+  by_phase: DbCostAggregateGroupRow[]
+  by_model: DbCostAggregateGroupRow[]
+}
+
 export type DbCostExportGranularity = "day" | "week" | "month"
 
 export interface DbCostAggregateParams {
@@ -149,6 +164,15 @@ export interface DbCostAggregateParams {
 }
 
 export interface DbCostExportParams extends DbCostAggregateParams {
+  granularity?: DbCostExportGranularity
+}
+
+export interface HistoryCostAggregateParams extends DbCostAggregateParams {
+  run_root?: string
+  include_archived?: boolean
+}
+
+export interface HistoryCostExportParams extends HistoryCostAggregateParams {
   granularity?: DbCostExportGranularity
 }
 
@@ -616,6 +640,39 @@ export function getDbCostExportUrl(runId: string, params?: DbCostExportParams): 
   if (params?.granularity) qs.set("granularity", params.granularity)
   const suffix = qs.toString() ? `?${qs.toString()}` : ""
   return `${BASE}/db/${runId}/costs/export${suffix}`
+}
+
+export async function fetchHistoryCostAggregates(
+  params?: HistoryCostAggregateParams,
+  options?: { signal?: AbortSignal },
+): Promise<HistoryCostAggregatesResponse> {
+  const qs = new URLSearchParams()
+  if (params?.run_root) qs.set("run_root", params.run_root)
+  if (params?.start_ts) qs.set("start_ts", params.start_ts)
+  if (params?.end_ts) qs.set("end_ts", params.end_ts)
+  if (params?.include_archived !== undefined) {
+    qs.set("include_archived", String(params.include_archived))
+  }
+  const suffix = qs.toString() ? `?${qs.toString()}` : ""
+  const res = await fetch(`${BASE}/history/costs/aggregates${suffix}`, {
+    cache: "no-store",
+    signal: options?.signal,
+  })
+  if (!res.ok) throw await _apiError(res, "History cost aggregates fetch failed")
+  return res.json() as Promise<HistoryCostAggregatesResponse>
+}
+
+export function getHistoryCostExportUrl(params?: HistoryCostExportParams): string {
+  const qs = new URLSearchParams()
+  if (params?.run_root) qs.set("run_root", params.run_root)
+  if (params?.start_ts) qs.set("start_ts", params.start_ts)
+  if (params?.end_ts) qs.set("end_ts", params.end_ts)
+  if (params?.granularity) qs.set("granularity", params.granularity)
+  if (params?.include_archived !== undefined) {
+    qs.set("include_archived", String(params.include_archived))
+  }
+  const suffix = qs.toString() ? `?${qs.toString()}` : ""
+  return `${BASE}/history/costs/export${suffix}`
 }
 
 export async function fetchWorkflowValidationSummary(workflowId: string): Promise<ValidationSummary> {

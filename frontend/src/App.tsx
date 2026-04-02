@@ -2,9 +2,10 @@ import { useEffect, useMemo, useRef, useState, Suspense, lazy, Component } from 
 import type { ReactNode, ErrorInfo } from "react"
 import { useNavigate, useLocation } from "react-router-dom"
 import { Toaster, toast } from "sonner"
-import { AlertTriangle, Menu } from "lucide-react"
+import { AlertTriangle, BarChart3, Menu } from "lucide-react"
 import { Sidebar } from "@/components/Sidebar"
 import type { LiveRun } from "@/components/Sidebar"
+import { GlobalCostOpsDialog } from "@/components/GlobalCostOpsDialog"
 import { computePhaseProgress } from "@/lib/phaseProgress"
 import { computeFunnelStages } from "@/lib/funnelStages"
 import { isSameRunSelection } from "@/lib/runSelection"
@@ -133,6 +134,7 @@ export default function App() {
   const [submissionFocusToken, setSubmissionFocusToken] = useState(0)
   const [resumeLauncherWorkflowId, setResumeLauncherWorkflowId] = useState<string | null>(null)
   const [resumeAutoArmToken, setResumeAutoArmToken] = useState(0)
+  const [costOpsOpen, setCostOpsOpen] = useState(false)
 
   // Artifacts for historical ResultsView
   const [historyOutputs, setHistoryOutputs] = useState<Record<string, string>>({})
@@ -881,6 +883,10 @@ export default function App() {
     }
   }
 
+  function handleOpenCostOps() {
+    setCostOpsOpen(true)
+  }
+
   // ---------------------------------------------------------------------------
   // Layout
   // ---------------------------------------------------------------------------
@@ -1070,6 +1076,18 @@ export default function App() {
         >
           {renderMain()}
         </div>
+
+        <button
+          type="button"
+          onClick={handleOpenCostOps}
+          className="fixed bottom-4 right-4 z-40 inline-flex items-center gap-2 rounded-full border border-zinc-700 bg-zinc-900/95 px-4 py-2 text-xs font-medium text-zinc-100 shadow-lg hover:bg-zinc-800 transition-colors"
+          aria-label="Open costs view"
+          title="Open Costs"
+        >
+          <BarChart3 className="h-3.5 w-3.5" />
+          Costs
+        </button>
+        <GlobalCostOpsDialog open={costOpsOpen} onOpenChange={setCostOpsOpen} />
       </main>
     </div>
   )
