@@ -27,6 +27,11 @@ Sidebar default removal is now archive, not hard delete. Backend endpoints are:
 Hard delete remains at `DELETE /api/history/{workflow_id}` and is intended as a secondary action.
 If UI behavior looks like "delete removed data immediately", verify frontend is calling archive first.
 
+## Global cost ops vs per-run Cost tab
+Per-run `CostView` uses `GET /api/db/{run_id}/costs` and related `/api/db/{run_id}/costs/*` endpoints for one workflow database.
+Global spend history uses `GET /api/history/costs/aggregates` and `GET /api/history/costs/export` across registry-linked runtime DBs (`db_path` rows in `workflows_registry.db`). Unregistered workflows or unreadable `runtime.db` paths do not contribute to global totals; per-run DB endpoints still work for the active or attached session.
+The bottom-right floating Costs button opens `GlobalCostOpsDialog` in `App.tsx` (global scope only). Do not assume it mirrors the selected run tab.
+
 ## Production Build
 The production URL (`https://litreview.parthchandak.info`) serves `frontend/dist/` -- NOT the Vite dev server.
 Frontend code changes are invisible in production until you run `cd frontend && pnpm build`.
@@ -575,6 +580,10 @@ Top-level resume order in `src/orchestration/resume.py` is:
 in `src/web/app.py` apply `start_ts` / `end_ts` filters against
 `datetime(created_at)`. Do not assume aggregate/export time buckets are driven
 by `CostRecord.timestamp` unless repository insert behavior changes.
+
+`GET /api/history/costs/aggregates` and `GET /api/history/costs/export` aggregate the same
+`cost_records` rows across registry-linked runtime DBs (optional `include_archived`). Time filters
+use `created_at` the same way. The site-wide modal is `GlobalCostOpsDialog` (`frontend/src/App.tsx`).
 
 ## Manuscript Audit Endpoints Are Legacy-Schema Safe
 Older runtime DBs may not include `manuscript_audit_runs` /

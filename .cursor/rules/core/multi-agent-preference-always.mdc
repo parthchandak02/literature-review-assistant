@@ -1,0 +1,8 @@
+---
+description: Prefer multi-agent execution whenever available
+alwaysApply: true
+---
+
+# Use Multiple Agents
+
+When multi-agent execution is available for a task, use multiple agents whenever possible for efficiency.

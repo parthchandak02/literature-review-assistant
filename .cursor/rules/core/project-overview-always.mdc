@@ -44,7 +44,8 @@ alwaysApply: true
 ## Workflow and Data Truth
 - Use `study_cohort_membership` (`synthesis_eligibility='included_primary'`) as canonical included-study set.
 - Use `cost_records` as canonical cost source.
-- Cost ops endpoints are query views over `cost_records`: `/api/db/{run_id}/costs/aggregates` and `/api/db/{run_id}/costs/export`.
+- Per-run cost ops (query views over `cost_records`): `GET /api/db/{run_id}/costs/aggregates` and `GET /api/db/{run_id}/costs/export`.
+- Global cost history across registry-linked runtime DBs: `GET /api/history/costs/aggregates` and `GET /api/history/costs/export` (UI: `GlobalCostOpsDialog` in `frontend/src/App.tsx`; client helpers in `frontend/src/lib/api.ts`).
 - Use `workflows_registry.db` `db_path` to resolve runtime DB locations; never reconstruct run paths.
 
 ## Strict Commit Safety

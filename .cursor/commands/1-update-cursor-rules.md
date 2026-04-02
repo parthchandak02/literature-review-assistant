@@ -38,6 +38,7 @@ Audit project-local `.cursor` assets against the current codebase and update sta
    - Do the PM2 process names match `ecosystem.config.js`?
    - Do referenced file paths and module names still exist?
    - Are there behavioral claims that contradict the current codebase or `gotchas-agent.mdc`?
+   - Cost APIs: per-run ops under `/api/db/{run_id}/costs/aggregates` and `/api/db/{run_id}/costs/export`; global history under `/api/history/costs/aggregates` and `/api/history/costs/export` (see `src/web/app.py`, `frontend/src/lib/api.ts`).
    Apply the same update/no-change threshold as for rule files.
 
 7. **Audit skills and agents** --
