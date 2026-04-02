@@ -45,23 +45,83 @@ def _extract_table_row_count(md_text: str) -> int | None:
     pos = md_text.find(marker)
     if pos < 0:
         return None
-    section = md_text[pos : pos + 6000]
+    section = md_text[pos:]
     lines = section.splitlines()
+    header_re = re.compile(r"^\|\s*Study \(Year\)\s*\|\s*Country\s*\|\s*Design\s*\|\s*N\s*\|\s*Key Finding\s*\|$")
+    sep_re = re.compile(r"^\|\s*---")
+    row_re = re.compile(r"^\|.*\|$")
     in_table = False
+    saw_separator = False
     rows = 0
     for line in lines:
         s = line.strip()
-        if s.startswith("| Study (Year) |"):
+        if not in_table and header_re.match(s):
             in_table = True
             continue
-        if in_table and s.startswith("|---"):
+        if not in_table:
             continue
-        if in_table and s.startswith("| ") and s.endswith(" |"):
+        if sep_re.match(s):
+            saw_separator = True
+            continue
+        if s.startswith("_Table 1."):
+            break
+        if saw_separator and row_re.match(s):
             rows += 1
             continue
-        if in_table and s.startswith("_Table 1."):
+        if saw_separator and s.startswith("### "):
             break
-    return rows if in_table else None
+    return rows if in_table and saw_separator else None
+
+
+def _extract_markdown_figure_paths(md_text: str) -> list[str]:
+    paths: list[str] = []
+    for m in re.finditer(r"!\[[^\]]*\]\(([^)]+)\)", md_text):
+        raw = m.group(1).strip()
+        if raw:
+            paths.append(raw)
+    return paths
+
+
+def _extract_markdown_figure_numbers(md_text: str) -> tuple[list[int], list[int]]:
+    heading_nums = [int(m.group(1)) for m in re.finditer(r"(?m)^\*\*Fig\.\s*(\d+)\.\*\*", md_text)]
+    embed_nums = [int(m.group(1)) for m in re.finditer(r"!\[Fig\.\s*(\d+)\s*:", md_text)]
+    return heading_nums, embed_nums
+
+
+def _extract_tex_figure_paths(tex_text: str) -> list[str]:
+    return [m.group(1).strip() for m in re.finditer(r"\\includegraphics(?:\[[^\]]*\])?\{([^}]+)\}", tex_text)]
+
+
+def _canonical_rel_path(raw: str) -> str:
+    return str(Path(str(raw).strip()).as_posix()).lstrip("./")
+
+
+def _canonical_figure_id(raw: str) -> str:
+    norm = _canonical_rel_path(raw)
+    return Path(norm).name.rsplit(".", 1)[0].lower()
+
+
+def _db_phrase(connector_name: str) -> str:
+    return str(connector_name or "").replace("_", " ").strip().lower()
+
+
+def _find_failed_db_disclosure_issues(md_text: str, failed_connectors: list[str]) -> list[str]:
+    issues: list[str] = []
+    low = md_text.lower()
+    for db in failed_connectors:
+        phrase = _db_phrase(db)
+        if not phrase:
+            continue
+        if phrase not in low:
+            issues.append(f"missing_disclosure:{phrase}")
+            continue
+        bad_pattern = re.compile(
+            rf"{re.escape(phrase)}[^.\n]{{0,180}}\b(?:yielded no relevant records|no relevant records)\b",
+            flags=re.IGNORECASE,
+        )
+        if bad_pattern.search(md_text):
+            issues.append(f"mischaracterized_failure_as_zero_yield:{phrase}")
+    return issues
 
 
 def _extract_headings_md(md_text: str) -> list[tuple[int, str]]:
@@ -368,6 +428,18 @@ def _find_section_content_incomplete(md_text: str, included_study_count: int) ->
         min_required = 2 if included_study_count > 1 else 1
         if len(substantive) < min_required:
             issues.append(f"{name}:insufficient_substantive_paragraphs:{len(substantive)}")
+        # Degenerate repetition guard: catches failures like repeated "Work"
+        # lines under Discussion subsections that pass generic length checks.
+        short_paragraphs = []
+        for p in paragraphs:
+            p_norm = re.sub(r"[^A-Za-z0-9 ]", "", p).strip().lower()
+            if not p_norm:
+                continue
+            if len(p_norm) <= 20 and len(p_norm.split()) <= 3:
+                short_paragraphs.append(p_norm)
+        repeated_short = [frag for frag, cnt in Counter(short_paragraphs).items() if cnt >= 3]
+        if repeated_short:
+            issues.append(f"{name}:degenerate_repetition:{repeated_short[0]}")
         tail = substantive[-1] if substantive else (paragraphs[-1] if paragraphs else "")
         if tail:
             if trailing_re.search(tail):
@@ -577,6 +649,11 @@ def _hard_failure(mode: str, code: str) -> bool:
             "SECTION_CONTENT_INCOMPLETE",
             "IMPLICATIONS_MISPLACED",
             "ROB_FIGURE_CAPTION_MISMATCH",
+            "FAILED_DB_DISCLOSURE_MISSING",
+            "FAILED_DB_STATUS_MISCHARACTERIZED",
+            "FIGURE_ASSET_MISSING",
+            "FIGURE_NUMBERING_INVALID",
+            "FIGURE_LATEX_MISMATCH",
         }
     return True
 
@@ -722,6 +799,68 @@ async def run_manuscript_contracts(
                 )
             )
 
+    md_figure_paths = _extract_markdown_figure_paths(md_text)
+    if md_figure_paths:
+        md_parent = Path(manuscript_md_path).parent
+        missing_figure_paths: list[str] = []
+        for rel in md_figure_paths:
+            resolved = (md_parent / rel).resolve()
+            if not resolved.exists() or resolved.stat().st_size <= 0:
+                missing_figure_paths.append(rel)
+        if missing_figure_paths:
+            violations.append(
+                ContractViolation(
+                    code="FIGURE_ASSET_MISSING",
+                    severity="error",
+                    message="Manuscript references figure assets that are missing or empty.",
+                    actual=str(sorted(set(missing_figure_paths))),
+                )
+            )
+
+        heading_nums, embed_nums = _extract_markdown_figure_numbers(md_text)
+        expected_seq = list(range(1, len(heading_nums) + 1))
+        if heading_nums and heading_nums != expected_seq:
+            violations.append(
+                ContractViolation(
+                    code="FIGURE_NUMBERING_INVALID",
+                    severity="error",
+                    message="Markdown figure headings are not strictly sequential.",
+                    expected=str(expected_seq),
+                    actual=str(heading_nums),
+                )
+            )
+        if heading_nums and embed_nums and embed_nums != heading_nums:
+            violations.append(
+                ContractViolation(
+                    code="FIGURE_NUMBERING_INVALID",
+                    severity="error",
+                    message="Markdown figure headings and image embed labels disagree.",
+                    expected=str(heading_nums),
+                    actual=str(embed_nums),
+                )
+            )
+
+    if manuscript_tex_path and tex_text and md_figure_paths:
+        raster_suffixes = {".png", ".jpg", ".jpeg", ".pdf"}
+        md_raster = sorted(
+            {
+                _canonical_figure_id(p)
+                for p in md_figure_paths
+                if Path(_canonical_rel_path(p)).suffix.lower() in raster_suffixes
+            }
+        )
+        tex_raster = sorted({_canonical_figure_id(p) for p in _extract_tex_figure_paths(tex_text)})
+        if md_raster and tex_raster and md_raster != tex_raster:
+            violations.append(
+                ContractViolation(
+                    code="FIGURE_LATEX_MISMATCH",
+                    severity="error",
+                    message="LaTeX embedded figure set diverges from markdown raster figure set.",
+                    expected=str(md_raster),
+                    actual=str(tex_raster),
+                )
+            )
+
     dup_sections = _find_duplicate_h2_sections(md_text)
     if dup_sections:
         violations.append(
@@ -786,6 +925,33 @@ async def run_manuscript_contracts(
                 message="Risk-of-bias figure caption family conflicts with active MMAT assessment evidence.",
             )
         )
+
+    try:
+        failed_connectors = await repository.get_failed_search_connectors(workflow_id)
+    except Exception:
+        failed_connectors = []
+    failed_db_issues = _find_failed_db_disclosure_issues(md_text, failed_connectors)
+    for issue in failed_db_issues:
+        if issue.startswith("missing_disclosure:"):
+            db_name = issue.split(":", 1)[1]
+            violations.append(
+                ContractViolation(
+                    code="FAILED_DB_DISCLOSURE_MISSING",
+                    severity="error",
+                    message="A failed search connector is missing from manuscript disclosure.",
+                    actual=db_name,
+                )
+            )
+        elif issue.startswith("mischaracterized_failure_as_zero_yield:"):
+            db_name = issue.split(":", 1)[1]
+            violations.append(
+                ContractViolation(
+                    code="FAILED_DB_STATUS_MISCHARACTERIZED",
+                    severity="error",
+                    message="A failed search connector is phrased as a successful zero-yield search.",
+                    actual=db_name,
+                )
+            )
 
     missing_prisma = _find_missing_prisma_statements(md_text)
     if missing_prisma:

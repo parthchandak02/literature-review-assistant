@@ -137,12 +137,22 @@ def get_abstract_prompt_context(
     conclusions_instruction = "main implication"
     if grounding is not None and getattr(grounding, "grade_summary", ""):
         conclusions_instruction = "main implication and GRADE certainty qualifier"
+    failed_db_instruction = ""
+    if grounding is not None and getattr(grounding, "failed_databases", []):
+        failed_dbs = ", ".join(getattr(grounding, "failed_databases", []))
+        failed_db_instruction = (
+            "CRITICAL -- failed database wording: if discussing search-source outcomes, "
+            f"state that {failed_dbs} could not be queried due to API/provider error. "
+            "Do NOT describe failed databases as 'yielded no relevant records' or "
+            "'no relevant studies were found'.\n\n"
+        )
 
     return (
         prefix
         + meta_constraint
         + "\n\n"
         + kappa_instruction
+        + failed_db_instruction
         + "Write the structured abstract following PRISMA 2020 abstract reporting (items 2-17). "
         "Format it with bold field labels on separate lines -- include ALL six fields:\n\n"
         "**Background:** (1-2 sentences: why this topic matters and what gap this review fills)\n"
@@ -341,8 +351,28 @@ def get_discussion_prompt_context(
 ) -> str:
     """Context for discussion."""
     prefix = _grounding_prefix(grounding)
+    topic_anchor = ""
+    if grounding is not None:
+        _rq = getattr(grounding, "research_question", "") or getattr(grounding, "review_topic", "")
+        _terms = ", ".join(getattr(grounding, "topic_anchor_terms", [])[:6])
+        if _rq:
+            topic_anchor += (
+                "TOPIC ANCHOR RULE (strict): This Discussion must answer this exact research question: "
+                f"{_rq}. "
+            )
+        if _terms:
+            topic_anchor += (
+                f"Use topic anchor terms ({_terms}) across Principal Findings and Comparison with Prior Work. "
+            )
+        if topic_anchor:
+            topic_anchor += (
+                "Do NOT reuse generic wording from other domains (for example, unrelated tutoring-only narratives)."
+            )
+    if topic_anchor:
+        topic_anchor += "\n\n"
     return (
-        prefix + _NO_HEADING_RULE + "\n\n" + _BOUNDARY_MARKER_RULE + "\n\n"
+        prefix + _NO_HEADING_RULE + "\n\n" + _BOUNDARY_MARKER_RULE + "\n\n" + topic_anchor
+        +
         "PRIOR SECTIONS RULE: If a 'PRIOR SECTIONS CONTEXT' block appears above, you MUST "
         "use it to inform this Discussion -- but do NOT copy or re-state sentences from it. "
         "Instead, interpret the findings: what do they mean? How do they compare to prior "
@@ -385,8 +415,10 @@ def get_discussion_prompt_context(
         "This paragraph must be specific and analytical -- NOT a generic 'limitations exist' sentence. "
         "Do NOT write 'most studies demonstrated moderate to serious risk of bias' without "
         "explaining which specific conclusions are therefore less reliable and why.\n"
-        "### Implications for Practice and Future Research\n"
-        "Translate findings into concrete recommendations. "
+        "### Implications for Practice\n"
+        "Translate findings into concrete practice recommendations.\n"
+        "### Implications for Research\n"
+        "Translate findings into concrete future-research recommendations. "
         "Cite only from the VALID CITATION KEYS list. "
         "Never emit placeholders such as '(citation unavailable)', 'CITATION_NEEDED', "
         "'Ref123', or 'Paper_xxx'."

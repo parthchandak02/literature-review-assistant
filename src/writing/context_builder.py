@@ -151,6 +151,9 @@ class WritingGroundingData(BaseModel):
     """
 
     # Search
+    review_topic: str = ""
+    research_question: str = ""
+    topic_anchor_terms: list[str] = []
     databases_searched: list[str]
     # Databases that were searched but returned 0 records. Must be disclosed per
     # PRISMA 2020 item 7 ("For each database or register searched, the date, scope,
@@ -494,6 +497,55 @@ def build_writing_grounding(
 ) -> WritingGroundingData:
     """Aggregate real pipeline outputs into a WritingGroundingData instance."""
 
+    def _topic_anchor_terms(review_text: str) -> list[str]:
+        stop = {
+            "the",
+            "and",
+            "for",
+            "with",
+            "from",
+            "that",
+            "this",
+            "these",
+            "those",
+            "into",
+            "across",
+            "compared",
+            "compare",
+            "between",
+            "among",
+            "what",
+            "which",
+            "where",
+            "when",
+            "will",
+            "would",
+            "could",
+            "should",
+            "their",
+            "there",
+            "about",
+            "using",
+            "use",
+            "impact",
+            "effects",
+            "effect",
+            "outcomes",
+        }
+        terms = re.findall(r"[A-Za-z][A-Za-z0-9\-]{2,}", str(review_text or "").lower())
+        ranked: list[str] = []
+        seen: set[str] = set()
+        for tok in terms:
+            if tok in stop:
+                continue
+            if tok in seen:
+                continue
+            seen.add(tok)
+            ranked.append(tok)
+            if len(ranked) >= 8:
+                break
+        return ranked
+
     # All bibliographic databases searched (including those with 0 records, for multi-database narrative)
     _OTHER_METHOD_NAMES = frozenset({"perplexity_web", "perplexity_search", "perplexity"})
     active_dbs_raw = sorted(db for db in prisma_counts.databases_records if db not in _OTHER_METHOD_NAMES)
@@ -663,6 +715,10 @@ def build_writing_grounding(
 
     # Author name from review config
     _author_name = str(getattr(review_config, "author_name", "") or "") if review_config else ""
+    _research_question = str(getattr(review_config, "research_question", "") or "") if review_config else ""
+    _review_topic = str(getattr(review_config, "topic", "") or "") if review_config else ""
+    _topic_text = _research_question or _review_topic
+    _topic_terms = _topic_anchor_terms(_topic_text)
 
     # Risk-of-bias and GRADE summaries for grounding injection
     _rob_summary = _build_rob_summary(
@@ -713,6 +769,9 @@ def build_writing_grounding(
         _hedge_reasons.append("low or very low GRADE certainty")
 
     return WritingGroundingData(
+        review_topic=_review_topic,
+        research_question=_research_question,
+        topic_anchor_terms=_topic_terms,
         databases_searched=active_dbs,
         zero_yield_databases=zero_yield_dbs,
         failed_databases=_failed_dbs,
@@ -802,6 +861,17 @@ def format_grounding_block(data: WritingGroundingData) -> str:
     from inventing any statistic or count outside this block.
     """
     lines: list[str] = []
+    if data.research_question:
+        lines.append(f"Research question: {data.research_question}")
+    elif data.review_topic:
+        lines.append(f"Review topic: {data.review_topic}")
+    if data.topic_anchor_terms:
+        lines.append(f"TOPIC ANCHOR TERMS: {', '.join(data.topic_anchor_terms)}")
+        lines.append(
+            "CRITICAL -- TOPIC CONSISTENCY RULE: Discussion and Conclusion MUST stay within this topic/question. "
+            "Do NOT import claims from unrelated prior runs or different domains."
+        )
+        lines.append("")
     if data.total_included == 0:
         lines.extend(
             [
@@ -843,7 +913,8 @@ def format_grounding_block(data: WritingGroundingData) -> str:
             f"following database(s) were searched but encountered errors and returned no records: {failed_str}. "
             "Per PRISMA 2020 item 5, all attempted sources must be reported even if the search failed. "
             "State this as: '[database] was searched but could not be queried due to an API error "
-            "and returned no records for this review.' Do NOT silently omit failed sources."
+            "and returned no records for this review.' Do NOT silently omit failed sources. "
+            "Do NOT paraphrase this as 'yielded no relevant records' because that implies a successful query."
         )
     if data.search_limitation:
         lines.append(f"Search limitation: {data.search_limitation}")

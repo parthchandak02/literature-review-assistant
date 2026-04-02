@@ -91,6 +91,17 @@ def test_deterministic_methods_fallback_includes_prisma_sought_and_not_retrieved
     assert "33 reports were not retrieved" in text
 
 
+def test_deterministic_discussion_fallback_uses_topic_scope() -> None:
+    class _Grounding:
+        research_question = "the impact of simulation training on clinical skill acquisition"
+        review_topic = ""
+
+    draft = _build_deterministic_section_fallback("discussion", _Grounding(), {"Page2021"})
+    text = render_section_markdown(draft)
+    assert "simulation training on clinical skill acquisition" in text
+    assert "generative conversational AI tutoring" not in text
+
+
 def test_section_completeness_detects_missing_discussion_required_subheadings() -> None:
     draft = StructuredSectionDraft(
         section_key="discussion",
