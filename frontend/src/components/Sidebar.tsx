@@ -499,14 +499,17 @@ export function Sidebar({
                           <CollapsedWorkflowBadge workflowId={liveRun.workflowId} />
                         ) : (
                           <div className="flex flex-col gap-1 min-w-0">
-                            <span
-                              className={cn(
-                                "text-xs text-zinc-300 line-clamp-2 leading-snug",
-                                ((onArchive && liveRun.workflowId && !isRunning) || (isRunning && onCancel)) && "pr-12",
-                              )}
-                            >
-                              {liveRun.topic}
-                            </span>
+                            <div className="flex items-start gap-2 min-w-0">
+                              <ExpandedWorkflowBadge workflowId={liveRun.workflowId} />
+                              <span
+                                className={cn(
+                                  "text-xs text-zinc-300 line-clamp-2 leading-snug min-w-0",
+                                  ((onArchive && liveRun.workflowId && !isRunning) || (isRunning && onCancel)) && "pr-12",
+                                )}
+                              >
+                                {liveRun.topic}
+                              </span>
+                            </div>
                             <RunCardMetrics
                               papersFound={liveRun.papersFound}
                               papersIncluded={liveRun.papersIncluded}
@@ -650,14 +653,17 @@ export function Sidebar({
                             <CollapsedWorkflowBadge workflowId={entry.workflow_id} />
                           ) : (
                             <div className="flex flex-col gap-1 min-w-0">
-                              <span
-                                className={cn(
-                                  "text-xs text-zinc-300 line-clamp-2 leading-snug",
-                                  (onArchive || isResumable) && "pr-12",
-                                )}
-                              >
-                                {entry.topic}
-                              </span>
+                              <div className="flex items-start gap-2 min-w-0">
+                                <ExpandedWorkflowBadge workflowId={entry.workflow_id} />
+                                <span
+                                  className={cn(
+                                    "text-xs text-zinc-300 line-clamp-2 leading-snug min-w-0",
+                                    (onArchive || isResumable) && "pr-12",
+                                  )}
+                                >
+                                  {entry.topic}
+                                </span>
+                              </div>
                               <RunCardMetrics
                                 papersFound={isLiveRow && liveRun ? (liveRun.papersFound ?? entry.papers_found) : entry.papers_found}
                                 papersIncluded={isLiveRow && liveRun ? (liveRun.papersIncluded ?? entry.papers_included) : entry.papers_included}
@@ -1143,6 +1149,23 @@ function CollapsedWorkflowBadge({
   return (
     <span
       className="inline-flex h-7 w-7 items-center justify-center rounded-md bg-zinc-800/80 text-[15px] font-bold text-zinc-100 tabular-nums"
+      title={workflowId ?? undefined}
+    >
+      {badge}
+    </span>
+  )
+}
+
+function ExpandedWorkflowBadge({
+  workflowId,
+}: {
+  workflowId?: string | null
+}) {
+  const badge = formatCollapsedWorkflowBadge(workflowId)
+  if (!badge) return null
+  return (
+    <span
+      className="inline-flex h-6 min-w-8 items-center justify-center rounded-[7px] border border-zinc-600/90 bg-zinc-900 px-1.5 text-xs font-bold text-zinc-100 tabular-nums shrink-0 shadow-[inset_0_1px_0_rgba(255,255,255,0.08),0_1px_4px_rgba(0,0,0,0.35)]"
       title={workflowId ?? undefined}
     >
       {badge}
