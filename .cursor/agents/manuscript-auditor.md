@@ -61,6 +61,8 @@ Known contract codes the pipeline already checks (non-exhaustive; source of trut
 - `SECTION_CONTENT_INCOMPLETE` -- required Results/Discussion section content is hollow or truncated
 - `IMPLICATIONS_MISPLACED` -- discussion-style implications content appears under Conclusion
 - `ROB_FIGURE_CAPTION_MISMATCH` -- RoB figure caption does not match active quality tools
+- `FAILED_DB_DISCLOSURE_MISSING` / `FAILED_DB_STATUS_MISCHARACTERIZED` -- failed connector disclosure wording defects
+- `FIGURE_ASSET_MISSING` / `FIGURE_NUMBERING_INVALID` / `FIGURE_LATEX_MISMATCH` -- figure asset/numbering/md-tex parity defects
 - `SNAKE_CASE_LEAKAGE` -- raw internal field names leaked into prose
 - `REQUIRED_SECTION_MISSING` / `SECTION_ORDER_INVALID` -- required section structure failed
 - `PRISMA_STATEMENT_MISSING` -- required PRISMA statement coverage absent
