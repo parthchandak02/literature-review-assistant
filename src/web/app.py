@@ -13,12 +13,14 @@ Or via Overmind (production, single process):
 from __future__ import annotations
 
 import asyncio
+import csv
 import datetime
 import io
 import json as _json
 import logging
 import os
 import pathlib
+import sqlite3
 import shutil
 import tempfile
 import time
@@ -115,6 +117,16 @@ _TERMINAL_EVENT_TO_STATUS = {
     "error": "failed",
     "cancelled": "interrupted",
 }
+
+
+def _is_missing_table_error(exc: Exception, table_names: set[str]) -> bool:
+    """Return True when sqlite reports a missing table from a known set."""
+    if not isinstance(exc, sqlite3.OperationalError):
+        return False
+    text = str(exc).lower()
+    if "no such table" not in text:
+        return False
+    return any(name.lower() in text for name in table_names)
 
 _lifecycle_metrics: dict[str, int] = {
     "stale_detections": 0,
@@ -1898,6 +1910,7 @@ _RESUME_PHASE_ORDER = [
     "phase_5_synthesis",
     "phase_5b_knowledge_graph",
     "phase_6_writing",
+    "phase_7_audit",
     "finalize",
 ]
 
@@ -2715,6 +2728,168 @@ async def get_db_costs(run_id: str) -> dict[str, Any]:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
+def _build_cost_time_filter(start_ts: str | None, end_ts: str | None) -> tuple[str, list[str]]:
+    clauses: list[str] = []
+    params: list[str] = []
+    if start_ts:
+        clauses.append("datetime(created_at) >= datetime(?)")
+        params.append(start_ts.strip())
+    if end_ts:
+        clauses.append("datetime(created_at) <= datetime(?)")
+        params.append(end_ts.strip())
+    if not clauses:
+        return "", params
+    return "WHERE " + " AND ".join(clauses), params
+
+
+@app.get("/api/db/{run_id}/costs/aggregates")
+async def get_db_cost_aggregates(
+    run_id: str,
+    start_ts: str | None = None,
+    end_ts: str | None = None,
+) -> dict[str, Any]:
+    """Return day/week/month plus workflow/phase/model cost aggregations."""
+    db_path = _get_db_path(run_id)
+    where_sql, where_params = _build_cost_time_filter(start_ts, end_ts)
+    try:
+        async with aiosqlite.connect(db_path) as db:
+            db.row_factory = aiosqlite.Row
+
+            async def _query_bucket(bucket_sql: str) -> list[dict[str, Any]]:
+                query = f"""
+                    SELECT {bucket_sql} AS bucket,
+                           COUNT(*) AS calls,
+                           COALESCE(SUM(tokens_in), 0) AS tokens_in,
+                           COALESCE(SUM(tokens_out), 0) AS tokens_out,
+                           COALESCE(SUM(cost_usd), 0.0) AS cost_usd
+                    FROM cost_records
+                    {where_sql}
+                    GROUP BY bucket
+                    ORDER BY bucket ASC
+                """
+                rows = await (await db.execute(query, where_params)).fetchall()
+                return [dict(r) for r in rows]
+
+            async def _query_group(group_sql: str) -> list[dict[str, Any]]:
+                query = f"""
+                    SELECT {group_sql} AS group_key,
+                           COUNT(*) AS calls,
+                           COALESCE(SUM(tokens_in), 0) AS tokens_in,
+                           COALESCE(SUM(tokens_out), 0) AS tokens_out,
+                           COALESCE(SUM(cost_usd), 0.0) AS cost_usd
+                    FROM cost_records
+                    {where_sql}
+                    GROUP BY group_key
+                    ORDER BY cost_usd DESC
+                """
+                rows = await (await db.execute(query, where_params)).fetchall()
+                return [dict(r) for r in rows]
+
+            total_row = await (
+                await db.execute(
+                    f"""
+                    SELECT COALESCE(SUM(cost_usd), 0.0) AS total_cost_usd,
+                           COUNT(*) AS total_calls,
+                           COALESCE(SUM(tokens_in), 0) AS total_tokens_in,
+                           COALESCE(SUM(tokens_out), 0) AS total_tokens_out
+                    FROM cost_records
+                    {where_sql}
+                    """,
+                    where_params,
+                )
+            ).fetchone()
+
+            by_day = await _query_bucket("date(created_at)")
+            by_week = await _query_bucket("strftime('%Y-W%W', created_at)")
+            by_month = await _query_bucket("strftime('%Y-%m', created_at)")
+            by_workflow = await _query_group("COALESCE(NULLIF(workflow_id, ''), 'unknown')")
+            by_phase = await _query_group("COALESCE(NULLIF(phase, ''), 'unknown')")
+            by_model = await _query_group("COALESCE(NULLIF(model, ''), 'unknown')")
+
+            return {
+                "run_id": run_id,
+                "start_ts": start_ts,
+                "end_ts": end_ts,
+                "totals": dict(total_row) if total_row else {},
+                "by_day": by_day,
+                "by_week": by_week,
+                "by_month": by_month,
+                "by_workflow": by_workflow,
+                "by_phase": by_phase,
+                "by_model": by_model,
+            }
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@app.get("/api/db/{run_id}/costs/export")
+async def export_db_costs_csv(
+    run_id: str,
+    start_ts: str | None = None,
+    end_ts: str | None = None,
+    granularity: str = "day",
+) -> StreamingResponse:
+    """Export reconciliation-friendly grouped cost CSV for a run."""
+    db_path = _get_db_path(run_id)
+    where_sql, where_params = _build_cost_time_filter(start_ts, end_ts)
+    bucket_by_granularity = {
+        "day": "date(created_at)",
+        "week": "strftime('%Y-W%W', created_at)",
+        "month": "strftime('%Y-%m', created_at)",
+    }
+    if granularity not in bucket_by_granularity:
+        raise HTTPException(status_code=400, detail="granularity must be one of: day, week, month")
+
+    try:
+        async with aiosqlite.connect(db_path) as db:
+            db.row_factory = aiosqlite.Row
+            query = f"""
+                SELECT {bucket_by_granularity[granularity]} AS timestamp_bucket,
+                       COALESCE(NULLIF(workflow_id, ''), 'unknown') AS workflow_id,
+                       COALESCE(NULLIF(phase, ''), 'unknown') AS phase,
+                       COALESCE(NULLIF(model, ''), 'unknown') AS model,
+                       COUNT(*) AS call_count,
+                       COALESCE(SUM(tokens_in), 0) AS tokens_in,
+                       COALESCE(SUM(tokens_out), 0) AS tokens_out,
+                       COALESCE(SUM(cost_usd), 0.0) AS cost_usd
+                FROM cost_records
+                {where_sql}
+                GROUP BY timestamp_bucket, workflow_id, phase, model
+                ORDER BY timestamp_bucket ASC, cost_usd DESC
+            """
+            rows = await (await db.execute(query, where_params)).fetchall()
+
+        buffer = io.StringIO()
+        writer = csv.writer(buffer)
+        writer.writerow(["timestamp_bucket", "workflow_id", "phase", "model", "call_count", "tokens_in", "tokens_out", "cost_usd"])
+        for row in rows:
+            writer.writerow(
+                [
+                    row["timestamp_bucket"],
+                    row["workflow_id"],
+                    row["phase"],
+                    row["model"],
+                    row["call_count"],
+                    row["tokens_in"],
+                    row["tokens_out"],
+                    row["cost_usd"],
+                ]
+            )
+        csv_text = buffer.getvalue()
+        filename = f"cost_export_{run_id}_{granularity}.csv"
+        return StreamingResponse(
+            iter([csv_text]),
+            media_type="text/csv",
+            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        )
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
 @app.get("/api/workflow/{workflow_id}/validation/summary")
 async def get_workflow_validation_summary(workflow_id: str) -> dict[str, Any]:
     """Return latest validation-run summary for a workflow."""
@@ -2832,6 +3007,101 @@ async def get_workflow_validation_checks(workflow_id: str, validation_run_id: st
     except HTTPException:
         raise
     except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@app.get("/api/workflow/{workflow_id}/manuscript-audit/summary")
+async def get_workflow_manuscript_audit_summary(workflow_id: str, limit: int = 20) -> dict[str, Any]:
+    """Return latest and historical phase_7_audit summaries for a workflow."""
+    db_path = await _resolve_db_path_from_run_or_workflow(workflow_id)
+    try:
+        from src.db.repositories import WorkflowRepository as _WorkflowRepository
+
+        async with aiosqlite.connect(db_path) as db:
+            repo = _WorkflowRepository(db)
+            latest = await repo.get_latest_manuscript_audit(workflow_id)
+            history = await repo.get_manuscript_audit_history(workflow_id, limit=max(1, min(limit, 100)))
+            return {"workflow_id": workflow_id, "latest_run": latest, "history": history}
+    except HTTPException:
+        raise
+    except Exception as exc:
+        if _is_missing_table_error(exc, {"manuscript_audit_runs"}):
+            return {"workflow_id": workflow_id, "latest_run": None, "history": []}
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@app.get("/api/workflow/{workflow_id}/manuscript-audit/findings")
+async def get_workflow_manuscript_audit_findings(
+    workflow_id: str,
+    audit_run_id: str | None = None,
+) -> dict[str, Any]:
+    """Return findings for a manuscript audit run (latest when omitted)."""
+    db_path = await _resolve_db_path_from_run_or_workflow(workflow_id)
+    try:
+        from src.db.repositories import WorkflowRepository as _WorkflowRepository
+
+        async with aiosqlite.connect(db_path) as db:
+            repo = _WorkflowRepository(db)
+            run_id = audit_run_id
+            if not run_id:
+                latest = await repo.get_latest_manuscript_audit(workflow_id)
+                if latest is None:
+                    return {"workflow_id": workflow_id, "audit_run_id": None, "findings": []}
+                run_id = str(latest["audit_run_id"])
+            else:
+                scoped_run = await repo.get_manuscript_audit_run(workflow_id, str(run_id))
+                if scoped_run is None:
+                    return {"workflow_id": workflow_id, "audit_run_id": None, "findings": []}
+            findings = await repo.get_manuscript_audit_findings(str(run_id))
+            return {"workflow_id": workflow_id, "audit_run_id": run_id, "findings": findings}
+    except HTTPException:
+        raise
+    except Exception as exc:
+        if _is_missing_table_error(exc, {"manuscript_audit_runs", "manuscript_audit_findings"}):
+            return {"workflow_id": workflow_id, "audit_run_id": None, "findings": []}
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@app.get("/api/run/{run_id}/manuscript-audit")
+async def get_run_manuscript_audit(run_id: str, history_limit: int = 20) -> dict[str, Any]:
+    """Return manuscript audit payload for a run/workflow identifier."""
+    db_path = await _resolve_db_path_from_run_or_workflow(run_id)
+    workflow_id = run_id
+    try:
+        from src.db.repositories import WorkflowRepository as _WorkflowRepository
+
+        async with aiosqlite.connect(db_path) as db:
+            db.row_factory = aiosqlite.Row
+            repo = _WorkflowRepository(db)
+            wf_row = await (
+                await db.execute(
+                    "SELECT workflow_id FROM workflows ORDER BY updated_at DESC, rowid DESC LIMIT 1"
+                )
+            ).fetchone()
+            workflow_id = str(wf_row["workflow_id"]) if wf_row and wf_row["workflow_id"] else run_id
+            latest = await repo.get_latest_manuscript_audit(workflow_id)
+            history = await repo.get_manuscript_audit_history(workflow_id, limit=max(1, min(history_limit, 100)))
+            findings: list[dict[str, Any]] = []
+            if latest is not None:
+                findings = await repo.get_manuscript_audit_findings(str(latest["audit_run_id"]))
+            return {
+                "run_id": run_id,
+                "workflow_id": workflow_id,
+                "latest_run": latest,
+                "history": history,
+                "findings": findings,
+            }
+    except HTTPException:
+        raise
+    except Exception as exc:
+        if _is_missing_table_error(exc, {"manuscript_audit_runs", "manuscript_audit_findings"}):
+            return {
+                "run_id": run_id,
+                "workflow_id": workflow_id,
+                "latest_run": None,
+                "history": [],
+                "findings": [],
+            }
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
@@ -3843,6 +4113,7 @@ async def approve_screening(
                     import os as _os
 
                     from src.config.loader import load_configs as _load_cfgs
+                    from src.db.repositories import WorkflowRepository as _WorkflowRepository
 
                     _refine_model: str | None = None
                     try:
@@ -3859,6 +4130,8 @@ async def approve_screening(
                         paper_titles,
                         model_name=_refine_model,
                         api_key=_os.environ.get("GEMINI_API_KEY", ""),
+                        repository=_WorkflowRepository(_corr_db),
+                        workflow_id=workflow_id,
                     )
                     if learned:
                         await save_learned_criteria(_corr_db, workflow_id, learned)

@@ -10,8 +10,14 @@ import {
 } from "recharts"
 import { DollarSign, Zap, ArrowUpDown, Activity } from "lucide-react"
 import { cn } from "@/lib/utils"
-import { fetchDbCosts, fetchWorkflowValidationSummary } from "@/lib/api"
-import type { DbCostRow, ScreeningDiagnostics, ValidationSummary } from "@/lib/api"
+import { fetchDbCostAggregates, fetchDbCosts, fetchWorkflowValidationSummary, getDbCostExportUrl } from "@/lib/api"
+import type {
+  DbCostAggregatesResponse,
+  DbCostExportGranularity,
+  DbCostRow,
+  ScreeningDiagnostics,
+  ValidationSummary,
+} from "@/lib/api"
 import type { CostStats, ModelStat, PhaseStat } from "@/hooks/useCostStats"
 import { FetchError, EmptyState } from "@/components/ui/feedback"
 import { SkeletonCard } from "@/components/ui/skeleton"
@@ -60,6 +66,10 @@ function formatPhaseName(phase: string): string {
     .join(" ")
 }
 
+function formatUsd(value: number): string {
+  return `$${value.toFixed(4)}`
+}
+
 interface CostViewProps {
   costStats: CostStats
   dbRunId?: string | null
@@ -74,6 +84,18 @@ export function CostView({ costStats, dbRunId, workflowId, isLive }: CostViewPro
   const [validationSummary, setValidationSummary] = useState<ValidationSummary["latest_run"] | null>(null)
   const [loadingDb, setLoadingDb] = useState(false)
   const [dbError, setDbError] = useState<string | null>(null)
+  const [opsAggregates, setOpsAggregates] = useState<DbCostAggregatesResponse | null>(null)
+  const [opsLoading, setOpsLoading] = useState(false)
+  const [opsError, setOpsError] = useState<string | null>(null)
+  const [opsStartDate, setOpsStartDate] = useState("")
+  const [opsEndDate, setOpsEndDate] = useState("")
+  const [opsGranularity, setOpsGranularity] = useState<DbCostExportGranularity>("day")
+
+  const opsEnabled = useMemo(() => {
+    if (typeof window === "undefined") return false
+    const q = new URLSearchParams(window.location.search)
+    return q.get("ops") === "1"
+  }, [])
 
   const loadDbCosts = useCallback(() => {
     if (!dbRunId) return
@@ -119,6 +141,27 @@ export function CostView({ costStats, dbRunId, workflowId, isLive }: CostViewPro
     return () => clearInterval(id)
     // eslint-disable-next-line react-hooks/exhaustive-deps -- loadDbCosts identity changes on dbRows.length; use stable refs via interval
   }, [isLive, dbRunId])
+
+  const loadOpsAggregates = useCallback(() => {
+    if (!dbRunId || !opsEnabled) return
+    setOpsLoading(true)
+    setOpsError(null)
+    fetchDbCostAggregates(dbRunId, {
+      start_ts: opsStartDate || undefined,
+      end_ts: opsEndDate || undefined,
+    })
+      .then((data) => setOpsAggregates(data))
+      .catch((e: unknown) => {
+        const msg = e instanceof Error ? e.message : String(e)
+        setOpsError(msg)
+      })
+      .finally(() => setOpsLoading(false))
+  }, [dbRunId, opsEnabled, opsStartDate, opsEndDate])
+
+  useEffect(() => {
+    if (!opsEnabled || !dbRunId) return
+    loadOpsAggregates()
+  }, [opsEnabled, dbRunId, loadOpsAggregates])
 
   // Aggregate DbCostRow[] into the same CostStats shape the rendering already uses.
   const dbCostStats = useMemo<CostStats | null>(() => {
@@ -175,6 +218,13 @@ export function CostView({ costStats, dbRunId, workflowId, isLive }: CostViewPro
   const nonZeroPhasesCount = chartData.filter((d) => d.cost > 0).length
 
   const hasCosts = total_calls > 0 || total_cost > 0
+  const opsExportUrl = dbRunId
+    ? getDbCostExportUrl(dbRunId, {
+      start_ts: opsStartDate || undefined,
+      end_ts: opsEndDate || undefined,
+      granularity: opsGranularity,
+    })
+    : ""
 
   if (loadingDb) {
     return (
@@ -374,6 +424,108 @@ export function CostView({ costStats, dbRunId, workflowId, isLive }: CostViewPro
                 ))}
               </tbody>
             </table>
+          </div>
+        </div>
+      )}
+
+      {opsEnabled && dbRunId && (
+        <div className="card-surface overflow-hidden">
+          <div className="glass-toolbar px-5 py-3 border-b border-zinc-800/70 flex items-center justify-between gap-3">
+            <h3 className="text-sm font-semibold text-zinc-300">Ops Cost Diagnostics</h3>
+            <div className="label-muted">Hidden mode (`ops=1`)</div>
+          </div>
+          <div className="p-5 space-y-4">
+            <div className="grid grid-cols-1 md:grid-cols-5 gap-3">
+              <label className="flex flex-col gap-1 text-xs text-zinc-400">
+                Start
+                <input
+                  type="date"
+                  value={opsStartDate}
+                  onChange={(e) => setOpsStartDate(e.target.value)}
+                  className="h-9 rounded-md border border-zinc-800 bg-zinc-900 px-2 text-zinc-200"
+                />
+              </label>
+              <label className="flex flex-col gap-1 text-xs text-zinc-400">
+                End
+                <input
+                  type="date"
+                  value={opsEndDate}
+                  onChange={(e) => setOpsEndDate(e.target.value)}
+                  className="h-9 rounded-md border border-zinc-800 bg-zinc-900 px-2 text-zinc-200"
+                />
+              </label>
+              <label className="flex flex-col gap-1 text-xs text-zinc-400">
+                CSV Bucket
+                <select
+                  value={opsGranularity}
+                  onChange={(e) => setOpsGranularity(e.target.value as DbCostExportGranularity)}
+                  className="h-9 rounded-md border border-zinc-800 bg-zinc-900 px-2 text-zinc-200"
+                >
+                  <option value="day">day</option>
+                  <option value="week">week</option>
+                  <option value="month">month</option>
+                </select>
+              </label>
+              <div className="flex items-end gap-2 md:col-span-2">
+                <button
+                  type="button"
+                  onClick={loadOpsAggregates}
+                  className="h-9 px-3 rounded-md border border-zinc-700 bg-zinc-900 text-zinc-200 text-xs hover:bg-zinc-800"
+                >
+                  Refresh
+                </button>
+                <a
+                  href={opsExportUrl}
+                  className="h-9 px-3 rounded-md border border-zinc-700 bg-zinc-900 text-zinc-200 text-xs hover:bg-zinc-800 inline-flex items-center"
+                >
+                  Export CSV
+                </a>
+              </div>
+            </div>
+
+            {opsLoading && <div className="text-xs text-zinc-500">Loading ops aggregates...</div>}
+            {opsError && <div className="text-xs text-rose-400">{opsError}</div>}
+
+            {opsAggregates?.totals && (
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-xs">
+                <div className="text-zinc-400">Total cost: <span className="text-zinc-200 font-mono">{formatUsd(Number(opsAggregates.totals.total_cost_usd || 0))}</span></div>
+                <div className="text-zinc-400">Calls: <span className="text-zinc-200 font-mono">{Number(opsAggregates.totals.total_calls || 0)}</span></div>
+                <div className="text-zinc-400">Tokens in: <span className="text-zinc-200 font-mono">{Number(opsAggregates.totals.total_tokens_in || 0).toLocaleString()}</span></div>
+                <div className="text-zinc-400">Tokens out: <span className="text-zinc-200 font-mono">{Number(opsAggregates.totals.total_tokens_out || 0).toLocaleString()}</span></div>
+              </div>
+            )}
+
+            {opsAggregates && (
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-xs">
+                <div className="rounded-md border border-zinc-800 p-3">
+                  <div className="text-zinc-400 mb-2">Top phases</div>
+                  {opsAggregates.by_phase.slice(0, 5).map((row) => (
+                    <div key={row.group_key} className="flex items-center justify-between py-1 text-zinc-300">
+                      <span>{formatPhaseName(row.group_key)}</span>
+                      <span className="font-mono">{formatUsd(Number(row.cost_usd))}</span>
+                    </div>
+                  ))}
+                </div>
+                <div className="rounded-md border border-zinc-800 p-3">
+                  <div className="text-zinc-400 mb-2">Top models</div>
+                  {opsAggregates.by_model.slice(0, 5).map((row) => (
+                    <div key={row.group_key} className="flex items-center justify-between py-1 text-zinc-300">
+                      <span>{row.group_key}</span>
+                      <span className="font-mono">{formatUsd(Number(row.cost_usd))}</span>
+                    </div>
+                  ))}
+                </div>
+                <div className="rounded-md border border-zinc-800 p-3">
+                  <div className="text-zinc-400 mb-2">Recent buckets</div>
+                  {opsAggregates.by_day.slice(-5).map((row) => (
+                    <div key={row.bucket} className="flex items-center justify-between py-1 text-zinc-300">
+                      <span>{row.bucket}</span>
+                      <span className="font-mono">{formatUsd(Number(row.cost_usd))}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
         </div>
       )}
