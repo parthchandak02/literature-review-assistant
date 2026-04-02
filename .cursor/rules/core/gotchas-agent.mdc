@@ -605,6 +605,8 @@ Contract codes (checked by pipeline automatically):
 - `SECTION_CONTENT_INCOMPLETE` -- required Results/Discussion section content is hollow or truncated
 - `IMPLICATIONS_MISPLACED` -- discussion-style implications content appears under Conclusion
 - `ROB_FIGURE_CAPTION_MISMATCH` -- RoB figure caption does not match active quality tools
+- `FAILED_DB_DISCLOSURE_MISSING` / `FAILED_DB_STATUS_MISCHARACTERIZED` -- failed search connectors missing or misworded as zero-yield
+- `FIGURE_ASSET_MISSING` / `FIGURE_NUMBERING_INVALID` / `FIGURE_LATEX_MISMATCH` -- figure file integrity and md/tex parity failures
 - `SNAKE_CASE_LEAKAGE` -- raw snake_case leaked into prose
 - `MODEL_ID_LEAKAGE` -- raw model IDs leaked into prose
 - `META_FEASIBILITY_CONTRADICTION` -- conflicting feasibility narrative
