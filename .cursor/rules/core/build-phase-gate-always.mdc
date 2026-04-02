@@ -6,9 +6,11 @@ alwaysApply: false
 
 # Build Phase Status
 
-## All 8 Phases Complete
-Phase 1: Foundation, Phase 2: Search, Phase 3: Screening, Phase 4: Extraction & Quality,
-Phase 5: Synthesis, Phase 6: Writing, Phase 7: PRISMA & Viz, Phase 8: Export & Orchestration
+## Runtime Pipeline Status
+Current top-level runtime checkpoint order in `src/orchestration/resume.py`:
+`phase_2_search` -> `phase_3_screening` -> `phase_4_extraction_quality` ->
+`phase_4b_embedding` -> `phase_5_synthesis` -> `phase_5b_knowledge_graph` ->
+`phase_6_writing` -> `phase_7_audit` -> `finalize`
 
 All phases implemented and verified. See `spec.md` Implementation Status and Definition of Done sections for detailed acceptance criteria.
 
@@ -26,4 +28,6 @@ cd frontend && pnpm lint     # ESLint
 cd frontend && pnpm typecheck  # TypeScript type check
 ```
 
-New work should extend existing phases, not introduce new phase ordering constraints.
+When adding a new phase, update all phase-order surfaces together:
+`src/orchestration/workflow.py`, `src/orchestration/resume.py`,
+`src/web/app.py`, and `frontend/src/lib/constants.ts`.

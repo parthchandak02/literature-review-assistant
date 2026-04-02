@@ -33,6 +33,11 @@ When the user asks to implement a build phase, follow these steps:
 | 7: PRISMA/Viz | PRISMA diagram, Timeline, Geographic | test_prisma_diagram |
 | 8: Export | Graph wiring, IEEE LaTeX, submission packaging, CLI, resume, workflow_registry | test_export, test_workflow_registry, test_resume_state, integration export/api tests |
 
+Naming note: build-phase numbering (1-8) is not the same as runtime checkpoint
+key names. The orchestration graph includes a post-writing checkpoint key
+`phase_7_audit` before `finalize` in `src/orchestration/resume.py`. Keep
+discussion of build "Phase 7: PRISMA/Viz" separate from runtime `phase_7_audit`.
+
 ## Phase 6 Acceptance Criteria (updated)
 - Per-section persistence: interrupted runs can resume writing without losing completed sections
 - Discussion and conclusion use prior-sections context rather than repeating earlier sections

@@ -261,6 +261,8 @@ Two config files control behavior:
 - `max_llm_screen` -- hard cap on LLM screening volume (cost control)
 - `human_in_the_loop.enabled` -- pause after screening for manual review of AI decisions
 - `gates.manuscript_contract_mode` -- contract enforcement (`observe` / `soft` / `strict`, default is `strict`)
+- `gates.manuscript_audit_mode` -- manuscript audit gate mode (`observe` / `soft` / `strict`)
+- `manuscript_audit.*` -- profile activation and `cost_cap_usd` for `phase_7_audit`
 - Quality gate thresholds
 - Search depth (records per database)
 
@@ -270,7 +272,7 @@ Full documentation of every config field is in `spec.md` Section 4.
 
 ## How It Works
 
-The pipeline runs as an 8-phase PydanticAI graph (with two enhancement sub-phases). Each phase writes results to SQLite immediately so a crash can resume from the first incomplete checkpoint.
+The pipeline runs as a staged PydanticAI graph (with enhancement sub-phases). Each phase writes results to SQLite immediately so a crash can resume from the first incomplete checkpoint.
 
 ```text
 Phase 1: Foundation/startup (load config, initialize DB, set run artifacts and workflow state)
@@ -281,6 +283,7 @@ Phase 4b: Embedding sub-phase (RAG chunking + vector persistence)
 Phase 5: Synthesis (meta-analysis or narrative + sensitivity)
 Phase 5b: Knowledge-graph sub-phase (communities + gap signals)
 Phase 6: Writing via structured section IR (schema-constrained output -> completeness gates -> deterministic render) + manuscript assembly (`doc_manuscript.md`) + PRISMA/timeline/geographic figures
+Phase 7: Manuscript audit (profile-routed final guardian checks with bounded cost, persisted findings, gate-mode aware pass/fail)
 Finalize: final artifacts (`doc_manuscript.tex`, `references.bib`, `run_summary.json`)
 Export (on demand): submission packaging (`submission/`, zip, docx/pdf when dependencies are available)
 ```
@@ -298,7 +301,8 @@ Grouped endpoints most users use:
 - Results/export: `GET /api/run/{run_id}/artifacts`, `GET /api/run/{run_id}/manuscript`, `POST /api/run/{run_id}/export`, `GET /api/run/{run_id}/submission.zip`, `GET /api/run/{run_id}/manuscript.docx`, `GET /api/run/{run_id}/prospero-form.docx`
 - References/full text: `GET /api/run/{run_id}/papers-reference`, `GET /api/run/{run_id}/papers/{paper_id}/file`, `POST /api/run/{run_id}/fetch-pdfs`
 - Human review/living review: `GET /api/run/{run_id}/screening-summary`, `POST /api/run/{run_id}/approve-screening`, `POST /api/run/{run_id}/living-refresh`
-- Data explorer: `GET /api/db/{run_id}/papers-all`, `/screening`, `/costs`, `/tables`, `/rag-diagnostics`
+- Data explorer: `GET /api/db/{run_id}/papers-all`, `/screening`, `/costs`, `/costs/aggregates`, `/costs/export`, `/tables`, `/rag-diagnostics`
+- Manuscript audit: `GET /api/workflow/{workflow_id}/manuscript-audit/summary`, `GET /api/workflow/{workflow_id}/manuscript-audit/findings`, `GET /api/run/{run_id}/manuscript-audit`
 - Validation: `GET /api/workflow/{workflow_id}/validation/summary`, `GET /api/workflow/{workflow_id}/validation/checks`
 - Notes and logs: `PATCH /api/notes/{workflow_id}`, `GET /api/notes/stream`, `GET /api/logs/stream`
 

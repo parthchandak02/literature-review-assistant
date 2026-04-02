@@ -564,7 +564,23 @@ Do not document markdown manuscript assembly as a finalize responsibility.
 Top-level resume order in `src/orchestration/resume.py` is:
 `phase_2_search`, `phase_3_screening`, `phase_4_extraction_quality`,
 `phase_4b_embedding`, `phase_5_synthesis`, `phase_5b_knowledge_graph`,
-`phase_6_writing`, `finalize`.
+`phase_6_writing`, `phase_7_audit`, `finalize`.
+
+## Cost Aggregates Filter On `created_at` (Not `CostRecord.timestamp`)
+`CostRecord` in `src/models/additional.py` includes a `timestamp` field, but
+`WorkflowRepository.save_cost_record()` persists rows via table defaults where
+`cost_records.created_at` is the effective stored event time.
+
+`GET /api/db/{run_id}/costs/aggregates` and `GET /api/db/{run_id}/costs/export`
+in `src/web/app.py` apply `start_ts` / `end_ts` filters against
+`datetime(created_at)`. Do not assume aggregate/export time buckets are driven
+by `CostRecord.timestamp` unless repository insert behavior changes.
+
+## Manuscript Audit Endpoints Are Legacy-Schema Safe
+Older runtime DBs may not include `manuscript_audit_runs` /
+`manuscript_audit_findings`. In `src/web/app.py`, manuscript-audit endpoints now
+return empty payloads instead of HTTP 500 when those tables are missing.
+If audit cards are empty on historical runs, validate schema vintage first.
 
 ## Current Default LLM RPMs
 Current `config/settings.yaml` defaults are:

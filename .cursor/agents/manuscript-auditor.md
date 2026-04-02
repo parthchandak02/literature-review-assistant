@@ -72,6 +72,18 @@ Known contract codes the pipeline already checks (non-exhaustive; source of trut
 
 Record which violations are already flagged. Do NOT re-report them as new findings. Instead, note them in a "Pipeline Contracts Status" section, treat failed contracts as readiness risk, and focus additional findings on gaps that contracts do NOT cover.
 
+When available, also cross-check runtime audit persistence:
+- `manuscript_audit_runs`
+- `manuscript_audit_findings`
+
+You may read these directly from `runtime.db` or via API:
+- `GET /api/workflow/{workflow_id}/manuscript-audit/summary`
+- `GET /api/workflow/{workflow_id}/manuscript-audit/findings`
+- `GET /api/run/{run_id}/manuscript-audit`
+
+Use this as supplemental evidence alignment with `phase_7_audit`; keep
+artifact-based contract reading (`run_summary.json`) as primary.
+
 ---
 
 ## STEP 3 -- Read primary artifacts

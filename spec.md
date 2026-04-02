@@ -112,6 +112,9 @@ KnowledgeGraphNode            (phase_5b_knowledge_graph)
 WritingNode                   (phase_6_writing)
     |
     v
+ManuscriptAuditNode           (phase_7_audit)
+    |
+    v
 FinalizeNode                  (finalize)
     |
     v
@@ -119,7 +122,7 @@ End
 ```
 
 Resume order is driven by `checkpoints` phase keys:
-`phase_2_search`, `phase_3_screening`, `phase_4_extraction_quality`, `phase_4b_embedding`, `phase_5_synthesis`, `phase_5b_knowledge_graph`, `phase_6_writing`, `finalize`.
+`phase_2_search`, `phase_3_screening`, `phase_4_extraction_quality`, `phase_4b_embedding`, `phase_5_synthesis`, `phase_5b_knowledge_graph`, `phase_6_writing`, `phase_7_audit`, `finalize`.
 `phase_3b_fulltext` is a screening sub-phase marker and not part of top-level order.
 
 ### 2.4 Phase/Subphase Execution Contract
@@ -137,6 +140,7 @@ The table below is the high-level contract from node entry to persisted outputs.
 | Synthesis | Feasibility, narrative synthesis, optional meta-analysis and sensitivity | `synthesis_results`, figure artifacts, `checkpoints(phase_5_synthesis)` |
 | Knowledge graph | Relationship graph, communities, gap detection | `paper_relationships`, `graph_communities`, `research_gaps`, `checkpoints(phase_5b_knowledge_graph)` |
 | Writing | Grounding build, HyDE + RAG retrieval, section writing/humanizer, citation repair, persistence invariants | `section_drafts`, `citations`, `claims`, `evidence_links`, `manuscript_*`, `rag_retrieval_diagnostics`, `checkpoints(phase_6_*)` |
+| Manuscript audit | Profile routing, bounded LLM audit checks, findings merge, strict/soft/observe gate pass-through | `manuscript_audit_runs`, `manuscript_audit_findings`, `checkpoints(phase_7_audit)` |
 | Finalize | Manuscript export artifacts, package pre-population, summary finalization | `doc_manuscript.tex`, `references.bib`, `submission/*`, `run_summary.json`, final workflow status |
 
 ### 2.5 Screening Internals (Expanded)
@@ -218,7 +222,7 @@ This map links runtime API surfaces to frontend consumers.
 | `/api/stream/{run_id}`, `/api/run/{run_id}/events`, `/api/workflow/{workflow_id}/events` | `frontend/src/hooks/useSSEStream.ts`, `frontend/src/views/RunView.tsx`, `frontend/src/views/ActivityView.tsx` |
 | `/api/history*`, `/api/notes/*` | `frontend/src/components/Sidebar.tsx`, `frontend/src/App.tsx` |
 | `/api/db/{run_id}/*` | `frontend/src/views/DatabaseView.tsx`, `frontend/src/views/CostView.tsx` |
-| `/api/run/{run_id}/artifacts`, `/api/run/{run_id}/export`, `/api/download`, `/api/run/{run_id}/submission.zip`, `/api/run/{run_id}/manuscript.docx` | `frontend/src/views/ResultsView.tsx` |
+| `/api/run/{run_id}/artifacts`, `/api/run/{run_id}/export`, `/api/download`, `/api/run/{run_id}/submission.zip`, `/api/run/{run_id}/manuscript.docx`, `/api/run/{run_id}/manuscript-audit` | `frontend/src/views/ResultsView.tsx` |
 | `/api/run/{run_id}/papers-reference`, `/api/run/{run_id}/papers/{paper_id}/file`, `/api/run/{run_id}/fetch-pdfs` | `frontend/src/views/ReferencesView.tsx` |
 | `/api/run/{run_id}/screening-summary`, `/api/run/{run_id}/approve-screening` | `frontend/src/views/ScreeningReviewView.tsx` |
 
@@ -491,7 +495,7 @@ Implementation uses two libraries: `nameparser.HumanName(authors[0]).last` for a
 
 ## 6. Pipeline Phases
 
-Eight build phases in strict dependency order. Each phase writes a completion marker to the `checkpoints` table (except FinalizeNode, which uses `run_summary.json`). The canonical phase key strings are fixed -- any mismatch silently breaks resume.
+Build phases and enhancement checkpoints in strict dependency order. Each phase writes a completion marker to the `checkpoints` table (except FinalizeNode, which uses `run_summary.json`). The canonical phase key strings are fixed -- any mismatch silently breaks resume.
 
 ```
 Phase 1: Foundation        -> no checkpoint (workflow row serves as marker)
@@ -502,6 +506,7 @@ Phase 4b: Embedding        -> checkpoint key: "phase_4b_embedding"
 Phase 5: Synthesis         -> checkpoint key: "phase_5_synthesis"
 Phase 5b: Knowledge Graph  -> checkpoint key: "phase_5b_knowledge_graph"
 Phase 6: Writing           -> checkpoint key: "phase_6_writing"
+Phase 7: Manuscript audit  -> checkpoint key: "phase_7_audit"
 Finalize                   -> writes run_summary.json + registry status = "completed"
 ```
 
@@ -664,6 +669,8 @@ Each completed section is saved to the `section_drafts` table immediately. On re
 
 ### 6.7 Phase 7: PRISMA and Visualizations (Rendered in WritingNode)
 
+Disambiguation: this subsection covers PRISMA/timeline/geographic outputs rendered during `phase_6_writing`. It is distinct from checkpoint key `phase_7_audit`, which is a separate post-writing ManuscriptAuditNode.
+
 **What happens:** PRISMA 2020 flow diagram rendered using the `prisma-flow-diagram` library (`plot_prisma2020_new`) with a matplotlib fallback on ImportError. Two-column structure: databases left, other sources right. Per-database counts in the identification box. Exclusion reasons categorized from `ExclusionReason` enum. Arithmetic validation runs (records in = records out at every stage).
 
 Current behavior: the right-hand "other sources" column is active in `render_prisma_diagram()` through `other_methods` mapping. Counts are sourced from `PRISMACounts` category splits.
@@ -730,6 +737,10 @@ A sliding-window + min-interval rate limiter in `src/llm/rate_limiter.py` enforc
 
 Every LLM call records a `CostRecord` to the `cost_records` table immediately after the call completes. The `cost_budget` gate queries the cumulative total at the end of each phase. The web UI `CostView` reads cost data from the `cost_records` table via `GET /api/db/{run_id}/costs` (DB polling every 5s for active runs), which is the complete and authoritative source across all phases. SSE `api_call` events are used as a last-resort fallback only if the DB has not yet responded. The `useCostStats` hook aggregates SSE events for the sidebar badge display only.
 
+Operational cost endpoints:
+- `GET /api/db/{run_id}/costs/aggregates` -- totals plus day/week/month/workflow/phase/model grouped views (optional `start_ts`, `end_ts` filters)
+- `GET /api/db/{run_id}/costs/export` -- CSV reconciliation export (`granularity=day|week|month`, optional `start_ts`, `end_ts`)
+
 ### 7.4 PydanticAI Client (Shared)
 
 `src/llm/pydantic_client.py` provides the shared `PydanticAIClient` with:
@@ -749,7 +760,7 @@ Reviewer A prompt emphasizes inclusion: "Include this paper if ANY inclusion cri
 
 ## 8. Persistence and Resume
 
-### 8.1 SQLite Schema (33 Tables)
+### 8.1 SQLite Schema (Core Tables)
 
 Each run creates its own `runtime.db`. Schema defined in `src/db/schema.sql`.
 
@@ -772,6 +783,8 @@ Each run creates its own `runtime.db`. Schema defined in `src/db/schema.sql`.
 | `gate_results` | Quality gate outcomes per phase |
 | `decision_log` | Append-only audit trail for all decisions |
 | `cost_records` | LLM call cost tracking (model, tokens, USD, latency, phase) |
+| `manuscript_audit_runs` | Persisted phase_7_audit run summary (mode, verdict, counts, cost) |
+| `manuscript_audit_findings` | Persisted manuscript audit findings linked to audit_run_id |
 | `workflows` | Per-run metadata (topic, config_hash, status, dedup_count) |
 | `checkpoints` | Phase completion markers (key: phase string, status: completed / partial) |
 | `synthesis_results` | SynthesisFeasibility + NarrativeSynthesis JSON per outcome |
@@ -822,6 +835,7 @@ PHASE_ORDER = [
     "phase_5_synthesis",
     "phase_5b_knowledge_graph",
     "phase_6_writing",
+    "phase_7_audit",
     "finalize",
 ]
 ```
@@ -854,7 +868,7 @@ Within that phase: query per-paper table for already-processed IDs
 Skip processed papers -> process remaining -> write to SQLite immediately
 ```
 
-Topic-based auto-resume: if `run` is called and a workflow already exists for the same `config_hash`, the CLI prompts: "Found existing run for this topic (phase N/8 complete). Resume? [Y/n]".
+Topic-based auto-resume: if `run` is called and a workflow already exists for the same `config_hash`, the CLI prompts with a checkpoint progress label ("Found existing run for this topic (... complete). Resume? [Y/n]").
 
 Fallback for old runs: if the registry is missing, `resume --workflow-id` scans `run_summary.json` files under the run root to locate the runtime.db.
 
@@ -966,7 +980,7 @@ The frontend is run-centric. The sidebar is a run list, not a navigation menu. S
 | RunView | 6 base tabs (Config, Activity, Data, Cost, Results, References) plus conditional Review Screening when awaiting_review |
 | ConfigView | Shows research question and timestamped review.yaml for the run; used by agents and for copy-to-clipboard |
 | ActivityView | Phase timeline + stats strip + event log (text search); works for live SSE runs and historical fetched runs. Historical runs support two-tap phase resume directly on timeline steps (first tap arms preview range, second tap confirms resume from that phase). |
-| CostView | Recharts bar chart grouped by model/phase + sortable cost/token tables; reads from cost_records DB via /api/db/{run_id}/costs (primary, polls every 5s while active); SSE api_call events used as fallback before first DB response |
+| CostView | Recharts bar chart grouped by model/phase + sortable cost/token tables; reads from cost_records DB via /api/db/{run_id}/costs (primary, polls every 5s while active); supports ops aggregates/export via `/api/db/{run_id}/costs/aggregates` and `/api/db/{run_id}/costs/export` when `?ops=1`; SSE api_call events used as fallback before first DB response |
 | ResultsView | LaTeX export trigger, DOCX download, inline manuscript viewer, collapsible artifact browser, PRISMA compliance panel, evidence network panel (available when run is done) |
 | DatabaseView | Paginated papers (with search), filterable screening decisions, cost records from runtime.db |
 | Sidebar (history) | Past runs from workflows_registry shown in one stable run list (no live-card reshuffle once history row exists); one-click Resume triggers default auto-resume; no separate HistoryView file exists |
@@ -1048,6 +1062,8 @@ Run card status border (2px left): emerald = completed, violet = running/connect
 | GET | /api/db/{run_id}/papers-suggest | Autocomplete suggestions for paper search |
 | GET | /api/db/{run_id}/screening | Screening decisions with stage/decision filters |
 | GET | /api/db/{run_id}/costs | Cost records grouped by model and phase (includes embedding phase) |
+| GET | /api/db/{run_id}/costs/aggregates | Time-bucket and dimension cost aggregates (day/week/month/workflow/phase/model) |
+| GET | /api/db/{run_id}/costs/export | CSV export for reconciliation (day/week/month buckets) |
 | GET | /api/db/{run_id}/tables | Vision-extracted table rows from papers |
 | GET | /api/db/{run_id}/rag-diagnostics | Per-section RAG retrieval diagnostics |
 | GET | /api/run/{run_id}/artifacts | Full run_summary.json for any run (live or historical) |
@@ -1056,6 +1072,8 @@ Run card status border (2px left): emerald = completed, violet = running/connect
 | GET | /api/workflow/{workflow_id}/events | Events from event_log table by workflow ID (historical) |
 | GET | /api/workflow/{workflow_id}/validation/summary | Latest workflow replay validation run summary |
 | GET | /api/workflow/{workflow_id}/validation/checks | Detailed checks for a validation run (latest by default) |
+| GET | /api/workflow/{workflow_id}/manuscript-audit/summary | Latest + history manuscript audit run summaries |
+| GET | /api/workflow/{workflow_id}/manuscript-audit/findings | Manuscript audit findings for latest or explicit audit_run_id |
 | PATCH | /api/notes/{workflow_id} | Update run notes |
 | GET | /api/notes/stream | SSE stream for notes updates |
 | GET | /api/run/{run_id}/papers-reference | Included papers list with PDF/TXT file availability flags |
@@ -1069,9 +1087,11 @@ Run card status border (2px left): emerald = completed, violet = running/connect
 | POST | /api/run/{run_id}/living-refresh | Start incremental re-run from last_search_date for living reviews |
 | POST | /api/run/{run_id}/export | Package IEEE LaTeX submission; calls package_submission() |
 | GET | /api/run/{run_id}/submission.zip | Download the submission ZIP package |
+| GET | /api/run/{run_id}/studies-files.zip | Download bundled per-study full-text files (PDF/TXT) for included studies |
 | GET | /api/run/{run_id}/manuscript.docx | Download the Word DOCX manuscript |
 | GET | /api/run/{run_id}/prospero-form.docx | Download generated PROSPERO registration form (DOCX) |
 | GET | /api/run/{run_id}/prospero-form.md | Download generated PROSPERO registration form (Markdown) |
+| GET | /api/run/{run_id}/manuscript-audit | Consolidated manuscript-audit payload resolved from run/workflow identifier |
 | GET | /api/logs/stream | SSE tail of per-run PM2 log file; filtered by run_id query param |
 
 ### 10.1.1 Endpoint Parity Checklist
@@ -1081,8 +1101,9 @@ Endpoint parity is enforced in CI via `scripts/check_spec_endpoint_parity.py`, w
 - `Run lifecycle`: `/api/run`, `/api/run-with-masterlist`, `/api/run-with-supplementary-csv`, `/api/stream/{run_id}`, `/api/cancel/{run_id}` -> handlers `@app.post("/api/run")`, `@app.post("/api/run-with-masterlist")`, `@app.post("/api/run-with-supplementary-csv")`, `@app.get("/api/stream/{run_id}")`, `@app.post("/api/cancel/{run_id}")` in `src/web/app.py`.
 - `Config`: `/api/config/review`, `/api/config/env-keys`, `/api/config/generate`, `/api/config/generate/stream` -> handlers `@app.get("/api/config/review")`, `@app.get("/api/config/env-keys")`, `@app.post("/api/config/generate")`, `@app.post("/api/config/generate/stream")`.
 - `History and notes`: `/api/history`, `/api/history/active-run`, `/api/history/{workflow_id}/config`, `/api/history/resume`, `/api/history/attach`, `/api/history/{workflow_id}/archive`, `/api/history/{workflow_id}/restore`, `/api/history/{workflow_id}` (DELETE), `/api/notes/{workflow_id}`, `/api/notes/stream` -> matching `@app.get/@app.post/@app.patch/@app.delete` decorators in `src/web/app.py`.
-- `DB explorer`: `/api/db/{run_id}/papers`, `/papers-all`, `/papers-facets`, `/papers-suggest`, `/screening`, `/costs`, `/tables`, `/rag-diagnostics` -> matching `@app.get("/api/db/...")` handlers.
-- `Artifacts and export`: `/api/run/{run_id}/artifacts`, `/manuscript`, `/events`, `/workflow/{workflow_id}/events`, `/export`, `/submission.zip`, `/manuscript.docx`, `/prospero-form.docx`, `/prospero-form.md`, `/logs/stream` -> matching `@app.get/@app.post` handlers.
+- `DB explorer`: `/api/db/{run_id}/papers`, `/papers-all`, `/papers-facets`, `/papers-suggest`, `/screening`, `/costs`, `/costs/aggregates`, `/costs/export`, `/tables`, `/rag-diagnostics` -> matching `@app.get("/api/db/...")` handlers.
+- `Artifacts and export`: `/api/run/{run_id}/artifacts`, `/manuscript`, `/events`, `/workflow/{workflow_id}/events`, `/export`, `/submission.zip`, `/studies-files.zip`, `/manuscript.docx`, `/prospero-form.docx`, `/prospero-form.md`, `/logs/stream` -> matching `@app.get/@app.post` handlers.
+- `Manuscript audit`: `/api/workflow/{workflow_id}/manuscript-audit/summary`, `/api/workflow/{workflow_id}/manuscript-audit/findings`, `/api/run/{run_id}/manuscript-audit` -> matching `@app.get` handlers.
 - `References and review controls`: `/api/run/{run_id}/papers-reference`, `/papers/{paper_id}/file`, `/fetch-pdfs`, `/screening-summary`, `/approve-screening`, `/knowledge-graph`, `/prisma-checklist`, `/grade-sof`, `/living-refresh` -> matching `@app.get/@app.post` handlers.
 
 ### 10.2 SSE Event Types

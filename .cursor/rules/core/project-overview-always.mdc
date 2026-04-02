@@ -29,6 +29,7 @@ alwaysApply: true
 - LLM provider/rate limiting/fallback: `src/llm/`
 - Writing and citation grounding: `src/writing/`
 - Manuscript contracts: `src/manuscript/contracts.py`
+- Manuscript audit orchestration: `src/manuscript/reviewer.py`
 - Export pipeline: `src/export/`
 - Web API: `src/web/app.py`
 - Frontend typed API/events: `frontend/src/lib/api.ts`
@@ -43,6 +44,7 @@ alwaysApply: true
 ## Workflow and Data Truth
 - Use `study_cohort_membership` (`synthesis_eligibility='included_primary'`) as canonical included-study set.
 - Use `cost_records` as canonical cost source.
+- Cost ops endpoints are query views over `cost_records`: `/api/db/{run_id}/costs/aggregates` and `/api/db/{run_id}/costs/export`.
 - Use `workflows_registry.db` `db_path` to resolve runtime DB locations; never reconstruct run paths.
 
 ## Strict Commit Safety
