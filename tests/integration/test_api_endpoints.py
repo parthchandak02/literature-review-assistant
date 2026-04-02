@@ -479,6 +479,154 @@ async def test_db_costs_export_invalid_granularity_400(
 
 
 @pytest.mark.asyncio
+async def test_history_costs_aggregates_returns_cross_run_payload(
+    client: httpx.AsyncClient,
+    tmp_path: Path,
+) -> None:
+    run_root = tmp_path / "runs"
+    run_root.mkdir(parents=True, exist_ok=True)
+    db_a = run_root / "runtime_a.db"
+    db_b = run_root / "runtime_b.db"
+
+    async def _seed_runtime_db(db_path: Path, workflow_id: str, topic: str, cost_rows: list[tuple[str, str, int, int, float, str]]) -> None:
+        async with get_db(str(db_path)) as db:
+            await db.execute(
+                "INSERT INTO workflows (workflow_id, topic, config_hash, status) VALUES (?, ?, ?, ?)",
+                (workflow_id, topic, "hash", "completed"),
+            )
+            for created_at, model, tokens_in, tokens_out, cost_usd, phase in cost_rows:
+                await db.execute(
+                    """
+                    INSERT INTO cost_records
+                        (workflow_id, model, tokens_in, tokens_out, cost_usd, latency_ms, phase, created_at, cache_read_tokens, cache_write_tokens)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (workflow_id, model, tokens_in, tokens_out, cost_usd, 1000, phase, created_at, 0, 0),
+                )
+            await db.commit()
+
+    await _seed_runtime_db(
+        db_a,
+        "wf-cost-a",
+        "Topic A",
+        [
+            ("2026-03-28 10:00:00", "google-gla:gemini-2.5-flash", 100, 50, 0.0100, "phase_3_screening"),
+            ("2026-03-29 11:00:00", "google-gla:gemini-2.5-pro", 120, 60, 0.0200, "phase_6_writing"),
+        ],
+    )
+    await _seed_runtime_db(
+        db_b,
+        "wf-cost-b",
+        "Topic B",
+        [
+            ("2026-03-29 12:00:00", "google-gla:gemini-2.5-flash", 90, 40, 0.0300, "phase_4_extraction"),
+        ],
+    )
+
+    registry_path = run_root / "workflows_registry.db"
+    async with aiosqlite.connect(str(registry_path)) as reg_db:
+        await reg_db.executescript(REGISTRY_SCHEMA)
+        await reg_db.execute(
+            """
+            INSERT INTO workflows_registry
+                (workflow_id, topic, config_hash, db_path, status, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, datetime('now'), datetime('now'))
+            """,
+            ("wf-cost-a", "Topic A", "hash", str(db_a), "completed"),
+        )
+        await reg_db.execute(
+            """
+            INSERT INTO workflows_registry
+                (workflow_id, topic, config_hash, db_path, status, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, datetime('now'), datetime('now'))
+            """,
+            ("wf-cost-b", "Topic B", "hash", str(db_b), "completed"),
+        )
+        await reg_db.commit()
+
+    response = await client.get(
+        "/api/history/costs/aggregates",
+        params={
+            "run_root": str(run_root),
+            "start_ts": "2026-03-28 00:00:00",
+            "end_ts": "2026-03-30 23:59:59",
+        },
+    )
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["workflow_count"] == 2
+    assert payload["totals"]["total_calls"] == 3
+    assert payload["totals"]["total_cost_usd"] == pytest.approx(0.06)
+    assert len(payload["by_day"]) == 2
+    assert payload["by_workflow"][0]["group_key"] in {"wf-cost-a", "wf-cost-b"}
+
+
+@pytest.mark.asyncio
+async def test_history_costs_export_returns_csv(
+    client: httpx.AsyncClient,
+    tmp_path: Path,
+) -> None:
+    run_root = tmp_path / "runs"
+    run_root.mkdir(parents=True, exist_ok=True)
+    db_path = run_root / "runtime_export.db"
+    workflow_id = "wf-history-export"
+
+    async with get_db(str(db_path)) as db:
+        await db.execute(
+            "INSERT INTO workflows (workflow_id, topic, config_hash, status) VALUES (?, ?, ?, ?)",
+            (workflow_id, "Topic Export", "hash", "completed"),
+        )
+        await db.execute(
+            """
+            INSERT INTO cost_records
+                (workflow_id, model, tokens_in, tokens_out, cost_usd, latency_ms, phase, created_at, cache_read_tokens, cache_write_tokens)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                workflow_id,
+                "google-gla:gemini-2.5-flash",
+                33,
+                22,
+                0.0042,
+                800,
+                "phase_4_extraction",
+                "2026-03-28 09:30:00",
+                0,
+                0,
+            ),
+        )
+        await db.commit()
+
+    registry_path = run_root / "workflows_registry.db"
+    async with aiosqlite.connect(str(registry_path)) as reg_db:
+        await reg_db.executescript(REGISTRY_SCHEMA)
+        await reg_db.execute(
+            """
+            INSERT INTO workflows_registry
+                (workflow_id, topic, config_hash, db_path, status, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, datetime('now'), datetime('now'))
+            """,
+            (workflow_id, "Topic Export", "hash", str(db_path), "completed"),
+        )
+        await reg_db.commit()
+
+    response = await client.get(
+        "/api/history/costs/export",
+        params={
+            "run_root": str(run_root),
+            "granularity": "day",
+        },
+    )
+    assert response.status_code == 200
+    assert response.headers.get("content-type", "").startswith("text/csv")
+    disposition = response.headers.get("content-disposition", "")
+    assert "history_cost_export_day.csv" in disposition
+    lines = [ln for ln in response.text.splitlines() if ln.strip()]
+    assert lines[0] == "timestamp_bucket,workflow_id,phase,model,call_count,tokens_in,tokens_out,cost_usd"
+    assert any("wf-history-export" in line for line in lines[1:])
+
+
+@pytest.mark.asyncio
 async def test_db_papers_all_supports_primary_status_filter(client: httpx.AsyncClient, tmp_path: Path) -> None:
     db_path = tmp_path / "runtime_primary_status.db"
     workflow_id = "wf-primary-status"

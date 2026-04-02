@@ -1,7 +1,7 @@
 # LitReview -- Unified System Specification
 
-**Version:** 1.1
-**Date:** March 2026
+**Version:** 1.2
+**Date:** April 2026
 **Owner:** Parth Chandak
 **Purpose:** Single living recipe for building and maintaining the LitReview systematic review automation system. Covers architecture, technology decisions, data flow, phase design, and operating procedures. This document is the sole source of truth -- read it before writing any code.
 
@@ -219,9 +219,11 @@ This map links runtime API surfaces to frontend consumers.
 | API Surface | Primary Frontend Consumer |
 |-------------|---------------------------|
 | `/api/run*`, `/api/cancel/{run_id}` | `frontend/src/App.tsx`, `frontend/src/views/SetupView.tsx` |
+| `/api/config/review`, `/api/config/env-keys`, `/api/config/generate`, `/api/config/generate/stream` | `frontend/src/views/SetupView.tsx` (via `frontend/src/lib/api.ts`) |
 | `/api/stream/{run_id}`, `/api/run/{run_id}/events`, `/api/workflow/{workflow_id}/events` | `frontend/src/hooks/useSSEStream.ts`, `frontend/src/views/RunView.tsx`, `frontend/src/views/ActivityView.tsx` |
-| `/api/history*`, `/api/notes/*` | `frontend/src/components/Sidebar.tsx`, `frontend/src/App.tsx` |
+| `/api/history*`, `/api/notes/*` | `frontend/src/components/Sidebar.tsx`, `frontend/src/App.tsx`, `frontend/src/components/GlobalCostOpsDialog.tsx` |
 | `/api/db/{run_id}/*` | `frontend/src/views/DatabaseView.tsx`, `frontend/src/views/CostView.tsx` |
+| `/api/workflow/{workflow_id}/validation/summary`, `/api/workflow/{workflow_id}/validation/checks` | `frontend/src/views/CostView.tsx` |
 | `/api/run/{run_id}/artifacts`, `/api/run/{run_id}/export`, `/api/download`, `/api/run/{run_id}/submission.zip`, `/api/run/{run_id}/manuscript.docx`, `/api/run/{run_id}/manuscript-audit` | `frontend/src/views/ResultsView.tsx` |
 | `/api/run/{run_id}/papers-reference`, `/api/run/{run_id}/papers/{paper_id}/file`, `/api/run/{run_id}/fetch-pdfs` | `frontend/src/views/ReferencesView.tsx` |
 | `/api/run/{run_id}/screening-summary`, `/api/run/{run_id}/approve-screening` | `frontend/src/views/ScreeningReviewView.tsx` |
@@ -428,7 +430,7 @@ Change rarely. Values are tuned from real runs.
 | `agents.*` | Per-agent model string (e.g. `google-gla:gemini-2.5-flash-lite`) and temperature. Changing a model requires only a YAML edit. |
 | `screening.*` | `stage1_include_threshold` (0.85), `stage1_exclude_threshold` (0.80), `screening_concurrency` (asyncio.Semaphore), `max_llm_screen` (optional BM25 cap), `skip_fulltext_if_no_pdf`, `pdf_retrieval_concurrency` (20 -- concurrent PDF fetches), `batch_screen_concurrency` (3 -- concurrent batch ranker batches), `reviewer_batch_size` (default 10 -- papers per dual-reviewer LLM call; 0 = per-paper legacy mode) |
 | `dual_review.*` | `enabled`, `kappa_warning_threshold` (0.4) |
-| `gates.*` | `profile` (strict / warning), `search_volume_minimum` (50), `screening_minimum` (5), `extraction_completeness_threshold` (0.80), `cost_budget_max` (USD) |
+| `gates.*` | `profile` (strict / warning), `manuscript_contract_mode` (observe / soft / strict), `manuscript_audit_mode` (observe / soft / strict), `search_volume_minimum`, `screening_minimum`, `sparse_topic_min`, `sparse_topic_continuation`, `extraction_completeness_threshold`, `extraction_max_empty_rate`, `cost_budget_max` (USD) |
 | `writing.*` | `humanization`, `humanization_iterations` (2), `checkpoint_per_section`, `llm_timeout` (120s) |
 | `risk_of_bias.*` | `rct_tool` (rob2), `non_randomized_tool` (robins_i), `qualitative_tool` (casp) |
 | `meta_analysis.*` | `enabled`, `heterogeneity_threshold` (50 = I-squared cutoff for fixed vs random effects), `funnel_plot_minimum_studies` (10), effect measures |
@@ -740,6 +742,8 @@ Every LLM call records a `CostRecord` to the `cost_records` table immediately af
 Operational cost endpoints:
 - `GET /api/db/{run_id}/costs/aggregates` -- totals plus day/week/month/workflow/phase/model grouped views (optional `start_ts`, `end_ts` filters)
 - `GET /api/db/{run_id}/costs/export` -- CSV reconciliation export (`granularity=day|week|month`, optional `start_ts`, `end_ts`)
+- `GET /api/history/costs/aggregates` -- global totals plus day/week/month/workflow/phase/model grouped views across registry-linked runtime DBs (optional `start_ts`, `end_ts`, `include_archived`)
+- `GET /api/history/costs/export` -- global CSV reconciliation export across registry-linked runtime DBs (`granularity=day|week|month`, optional `start_ts`, `end_ts`, `include_archived`)
 
 ### 7.4 PydanticAI Client (Shared)
 
@@ -980,7 +984,8 @@ The frontend is run-centric. The sidebar is a run list, not a navigation menu. S
 | RunView | 6 base tabs (Config, Activity, Data, Cost, Results, References) plus conditional Review Screening when awaiting_review |
 | ConfigView | Shows research question and timestamped review.yaml for the run; used by agents and for copy-to-clipboard |
 | ActivityView | Phase timeline + stats strip + event log (text search); works for live SSE runs and historical fetched runs. Historical runs support two-tap phase resume directly on timeline steps (first tap arms preview range, second tap confirms resume from that phase). |
-| CostView | Recharts bar chart grouped by model/phase + sortable cost/token tables; reads from cost_records DB via /api/db/{run_id}/costs (primary, polls every 5s while active); supports ops aggregates/export via `/api/db/{run_id}/costs/aggregates` and `/api/db/{run_id}/costs/export` when `?ops=1`; SSE api_call events used as fallback before first DB response |
+| CostView | Recharts bar chart grouped by model/phase + sortable cost/token tables; reads from cost_records DB via /api/db/{run_id}/costs (primary, polls every 5s while active); supports run-scoped ops aggregates/export via `/api/db/{run_id}/costs/aggregates` and `/api/db/{run_id}/costs/export` when `?ops=1`; SSE api_call events used as fallback before first DB response |
+| GlobalCostOpsDialog | Floating site-wide Cost Ops entry in `App.tsx`; reads real spend over custom ranges and presets from `/api/history/costs/aggregates` and exports CSV via `/api/history/costs/export` using registry-linked runtime DBs as the source of truth |
 | ResultsView | LaTeX export trigger, DOCX download, inline manuscript viewer, collapsible artifact browser, PRISMA compliance panel, evidence network panel (available when run is done) |
 | DatabaseView | Paginated papers (with search), filterable screening decisions, cost records from runtime.db |
 | Sidebar (history) | Past runs from workflows_registry shown in one stable run list (no live-card reshuffle once history row exists); one-click Resume triggers default auto-resume; no separate HistoryView file exists |
@@ -1050,6 +1055,8 @@ Run card status border (2px left): emerald = completed, violet = running/connect
 | GET | /api/health | Health check; polled every 6s by useBackendHealth hook |
 | GET | /api/history | Past runs from workflows_registry.db |
 | GET | /api/history/active-run | Whether a run for the given workflow_id is currently active |
+| GET | /api/history/costs/aggregates | Global cost aggregates across registry-linked runtime.db files |
+| GET | /api/history/costs/export | Global cost CSV export across registry-linked runtime.db files |
 | GET | /api/history/{workflow_id}/config | Original review.yaml written at run completion |
 | POST | /api/history/attach | Attach historical run for DB explorer; loads event_log from DB |
 | POST | /api/history/resume | Resume a historical run; body includes workflow_id, optionally from_phase |
@@ -1100,7 +1107,7 @@ Endpoint parity is enforced in CI via `scripts/check_spec_endpoint_parity.py`, w
 
 - `Run lifecycle`: `/api/run`, `/api/run-with-masterlist`, `/api/run-with-supplementary-csv`, `/api/stream/{run_id}`, `/api/cancel/{run_id}` -> handlers `@app.post("/api/run")`, `@app.post("/api/run-with-masterlist")`, `@app.post("/api/run-with-supplementary-csv")`, `@app.get("/api/stream/{run_id}")`, `@app.post("/api/cancel/{run_id}")` in `src/web/app.py`.
 - `Config`: `/api/config/review`, `/api/config/env-keys`, `/api/config/generate`, `/api/config/generate/stream` -> handlers `@app.get("/api/config/review")`, `@app.get("/api/config/env-keys")`, `@app.post("/api/config/generate")`, `@app.post("/api/config/generate/stream")`.
-- `History and notes`: `/api/history`, `/api/history/active-run`, `/api/history/{workflow_id}/config`, `/api/history/resume`, `/api/history/attach`, `/api/history/{workflow_id}/archive`, `/api/history/{workflow_id}/restore`, `/api/history/{workflow_id}` (DELETE), `/api/notes/{workflow_id}`, `/api/notes/stream` -> matching `@app.get/@app.post/@app.patch/@app.delete` decorators in `src/web/app.py`.
+- `History and notes`: `/api/history`, `/api/history/active-run`, `/api/history/costs/aggregates`, `/api/history/costs/export`, `/api/history/{workflow_id}/config`, `/api/history/resume`, `/api/history/attach`, `/api/history/{workflow_id}/archive`, `/api/history/{workflow_id}/restore`, `/api/history/{workflow_id}` (DELETE), `/api/notes/{workflow_id}`, `/api/notes/stream` -> matching `@app.get/@app.post/@app.patch/@app.delete` decorators in `src/web/app.py`.
 - `DB explorer`: `/api/db/{run_id}/papers`, `/papers-all`, `/papers-facets`, `/papers-suggest`, `/screening`, `/costs`, `/costs/aggregates`, `/costs/export`, `/tables`, `/rag-diagnostics` -> matching `@app.get("/api/db/...")` handlers.
 - `Artifacts and export`: `/api/run/{run_id}/artifacts`, `/manuscript`, `/events`, `/workflow/{workflow_id}/events`, `/export`, `/submission.zip`, `/studies-files.zip`, `/manuscript.docx`, `/prospero-form.docx`, `/prospero-form.md`, `/logs/stream` -> matching `@app.get/@app.post` handlers.
 - `Manuscript audit`: `/api/workflow/{workflow_id}/manuscript-audit/summary`, `/api/workflow/{workflow_id}/manuscript-audit/findings`, `/api/run/{run_id}/manuscript-audit` -> matching `@app.get` handlers.
@@ -1372,9 +1379,10 @@ Status taxonomy:
 | Phase 4: Extraction + Quality | Implemented | LLM extraction with PyMuPDF full-text parsing (32K char context, up from 8K), async RoB 2 / ROBINS-I / CASP with heuristic fallback tagged by assessment_source, GRADE auto-wired from RoB data (assess_from_rob), study router, RoB traffic-light figure |
 | Phase 5: Synthesis | Implemented | Hardened feasibility (requires effect_size+se in >= 2 studies), statsmodels pooling (DL), forest + funnel plots, LLM-based narrative direction classification, sensitivity analysis (leave-one-out + subgroup), synthesis_results table |
 | Phase 6: Writing | Implemented | Section writer, humanizer, deterministic guardrails (preserve citekeys and numerics), citation validation, per-section checkpoint, WritingGroundingData (includes kappa, sensitivity_results, n_studies_reporting_count, separated search sources, rob_summary, grade_summary, and topic-grounding anchors injected from actual run config/assessments), GRADE table + RoB summary injected into writing prompts; two-phase WritingNode (Phase A concurrent: abstract/intro/methods/results; Phase B with PRIOR SECTIONS CONTEXT: discussion/conclusion); SECTION_WORD_LIMITS (results 1400, methods 900, discussion 900, abstract config-driven via `max_abstract_words` and enforced by `_trim_abstract_to_limit`); MANDATORY CITATION COVERAGE RULE with design-grouped _build_citation_coverage_patch; build_compact_study_table injected at ### Study Characteristics; abstract-only rate caution gate (>40% triggers hedged-language requirement) |
-| Phase 7: PRISMA + Viz | Implemented | PRISMA diagram (prisma-flow-diagram + fallback), timeline, geographic, ROBINS-I in RoB figure, uniform artifact naming |
+| Manuscript audit (phase_7_audit) | Implemented | ManuscriptAuditNode after writing; `manuscript_audit_runs` / `manuscript_audit_findings`; gate modes from settings; API: `/api/workflow/{workflow_id}/manuscript-audit/summary`, `/findings`, `/api/run/{run_id}/manuscript-audit`; ResultsView loads consolidated audit payload |
+| PRISMA + figures (WritingNode) | Implemented | PRISMA diagram (prisma-flow-diagram + fallback), timeline, geographic, ROBINS-I in RoB figure, uniform artifact naming (artifact generation during phase_6_writing; not the same checkpoint as phase_7_audit) |
 | Phase 8: Export + Orchestration | Implemented | Run/resume, IEEE LaTeX, BibTeX, validators, Word DOCX export (pypandoc + python-docx), submission packager, pdflatex, CLI subcommands |
-| Web UI | Partial | FastAPI SSE backend (40+ endpoints incl. screening-summary, approve-screening, living-refresh, prisma-checklist, papers-reference, papers/{id}/file, fetch-pdfs), React/Vite/TypeScript frontend, structured Setup form, run-centric sidebar, RunView with 6 base tabs (Config -> Activity -> Data -> Cost -> Results -> References, with step numbers and chevron connectors) plus conditional Review Screening when awaiting_review, Config tab shows research question and timestamped review.yaml for agent reference, DB explorer with heuristic RoB filter, cost tracking, grouped Results panel with PRISMA checklist panel, ScreeningReviewView for HITL approval, ReferencesView (tab 6) shows included papers with PDF/TXT download and retroactive "Fetch PDFs" button; NOTE: living-refresh backend endpoint exists but no frontend control is currently wired to it -- trigger via CLI or direct API call; history UX lives in Sidebar.tsx (not a separate HistoryView component) |
+| Web UI | Partial | FastAPI backend (~60 REST endpoints in Section 10.1; screening-summary, approve-screening, living-refresh, prisma-checklist, papers-reference, papers/{id}/file, fetch-pdfs, manuscript-audit, validation, history cost aggregates/export, etc.), React/Vite/TypeScript frontend, structured Setup form, run-centric sidebar, RunView with 6 base tabs (Config -> Activity -> Data -> Cost -> Results -> References, with step numbers and chevron connectors) plus conditional Review Screening when awaiting_review, floating GlobalCostOpsDialog (global cost history) via bottom-right Costs button, Config tab shows research question and timestamped review.yaml for agent reference, DB explorer with heuristic RoB filter, cost tracking, grouped Results panel with PRISMA checklist panel, ScreeningReviewView for HITL approval, ReferencesView (tab 6) shows included papers with PDF/TXT download and retroactive "Fetch PDFs" button; NOTE: living-refresh backend endpoint exists but no frontend control is currently wired to it -- trigger via CLI or direct API call; history UX lives in Sidebar.tsx (not a separate HistoryView component) |
 | Human-in-the-Loop | Implemented | HumanReviewCheckpointNode pauses run at awaiting_review status; approve-screening API resumes; frontend shows Review Screening tab with AI decisions + confidence |
 | Living Review | Implemented | living_review + last_search_date in review.yaml; SearchNode skips previously-screened DOIs; POST /api/run/{run_id}/living-refresh creates incremental re-run |
 | Resume | Implemented | Central registry, topic auto-resume, mid-phase resume, resume-from-phase (backend API supports from_phase param; UI phase-picker modal removed -- resume via CLI --from-phase flag or direct API call), fallback scan of run_summary.json |
