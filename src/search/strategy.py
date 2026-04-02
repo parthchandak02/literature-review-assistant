@@ -219,23 +219,51 @@ class SearchStrategyCoordinator:
         max_results: int = 500,
         per_database_limits: dict[str, int] | None = None,
     ) -> tuple[list[SearchResult], int]:
-        tasks: list[tuple[SearchConnector, str, Any]] = []
+        # One asyncio task per connector so completions stream to the UI as each DB returns
+        # (asyncio.gather would defer all on_connector_done callbacks until every search finished).
+        query_pairs: list[tuple[SearchConnector, str]] = []
+        pending: list[asyncio.Task[Any]] = []
         for connector in self.connectors:
             query = build_database_query(self.config, connector.name)
             limit = (per_database_limits or {}).get(connector.name, max_results)
-            task = connector.search(
-                query=query,
-                max_results=limit,
-                date_start=self.config.date_range_start,
-                date_end=self.config.date_range_end,
-            )
-            tasks.append((connector, query, task))
+            query_pairs.append((connector, query))
 
-        gathered = await asyncio.gather(*(t[2] for t in tasks), return_exceptions=True)
+            async def _run_connector(
+                c: SearchConnector = connector,
+                q: str = query,
+                lim: int = limit,
+            ) -> tuple[SearchConnector, str, Any]:
+                try:
+                    out = await c.search(
+                        query=q,
+                        max_results=lim,
+                        date_start=self.config.date_range_start,
+                        date_end=self.config.date_range_end,
+                    )
+                    return (c, q, out)
+                except Exception as exc:
+                    return (c, q, exc)
+
+            pending.append(asyncio.create_task(_run_connector()))
+
         results: list[SearchResult] = []
         connector_results: dict[str, list[SearchResult]] = {}
         errors: dict[str, str] = {}
-        for (connector, query, _), outcome in zip(tasks, gathered):
+
+        async def _save_one(r: SearchResult) -> None:
+            try:
+                await self.repository.save_search_result(r)
+            except Exception:
+                _logger.exception(
+                    "save_search_result failed: workflow_id=%s, papers=%d, first_paper=%s",
+                    self.workflow_id,
+                    len(r.papers),
+                    r.papers[0].paper_id if r.papers else None,
+                )
+                raise
+
+        for fut in asyncio.as_completed(pending):
+            connector, query, outcome = await fut
             if isinstance(outcome, Exception):
                 err_msg = f"{type(outcome).__name__}: {outcome}"
                 errors[connector.name] = err_msg
@@ -274,19 +302,6 @@ class SearchStrategyCoordinator:
                     self.config.date_range_end,
                     None,
                 )
-
-            async def _save_one(r: SearchResult) -> None:
-                try:
-                    await self.repository.save_search_result(r)
-                except Exception:
-                    _logger.exception(
-                        "save_search_result failed: workflow_id=%s, papers=%d, first_paper=%s",
-                        self.workflow_id,
-                        len(r.papers),
-                        r.papers[0].paper_id if r.papers else None,
-                    )
-                    raise
-
             await asyncio.gather(*[_save_one(r) for r in result_list])
             results.extend(result_list)
 
@@ -308,7 +323,7 @@ class SearchStrategyCoordinator:
 
         all_papers = [paper for result in results for paper in result.papers]
         _, dedup_count = deduplicate_papers(all_papers)
-        query_map = {connector.name: query for connector, query, _ in tasks}
+        query_map = {connector.name: query for connector, query in query_pairs}
         self.query_map = query_map
         await self._write_search_appendix(query_map, connector_results, errors, dedup_count)
         await self.gate_runner.run_search_volume_gate(

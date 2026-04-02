@@ -16,7 +16,7 @@ const SKIP_EVENT_TYPES = new Set(["workflow_id_ready", "heartbeat"])
 // ---------------------------------------------------------------------------
 
 type RenderItem =
-  | { kind: "phase-sep"; phase: string; label: string; key: string }
+  | { kind: "phase-sep"; phase: string; label: string; description?: string; key: string }
   | { kind: "event"; ev: ReviewEvent; entry: LogRenderEntry; key: string }
 
 function stableStringify(value: unknown): string {
@@ -68,10 +68,14 @@ function buildRenderItems(events: ReviewEvent[]): RenderItem[] {
     const evKey = duplicateIndex === 0 ? rawKey : `${rawKey}-dup-${duplicateIndex}`
 
     if (ev.type === "phase_start") {
+      const descRaw = (ev as { description?: string }).description
+      const desc =
+        typeof descRaw === "string" && descRaw.trim().length > 0 ? descRaw.trim() : undefined
       items.push({
         kind: "phase-sep",
         phase: ev.phase,
         label: PHASE_LABELS[ev.phase] ?? ev.phase,
+        description: desc,
         key: `sep-${ev.phase}-${evKey}-${ts}`,
       })
       // phase_start is represented by a separator only to avoid duplicate rows.
@@ -315,15 +319,20 @@ export const LogStream = forwardRef<LogStreamHandle, LogStreamProps>(function Lo
                 key={item.key}
                 data-phase={item.phase}
                 className={cn(
-                  "flex items-center gap-2 mt-3 mb-1 first:mt-0 bg-background/95",
+                  "flex flex-col gap-0.5 mt-3 mb-1 first:mt-0 bg-background/95",
                   virtualEnabled ? "" : "sticky top-0 z-10 backdrop-blur-sm",
                 )}
               >
-                <div className="h-px flex-1 bg-zinc-800" />
-                <span className="text-[10px] font-semibold tracking-widest uppercase text-violet-500/80 shrink-0 px-1">
-                  {item.label}
-                </span>
-                <div className="h-px flex-1 bg-zinc-800" />
+                <div className="flex items-center gap-2">
+                  <div className="h-px flex-1 bg-zinc-800" />
+                  <span className="text-[10px] font-semibold tracking-widest uppercase text-violet-500/80 shrink-0 px-1">
+                    {item.label}
+                  </span>
+                  <div className="h-px flex-1 bg-zinc-800" />
+                </div>
+                {item.description ? (
+                  <div className="text-[10px] text-zinc-500 pl-0.5 pr-1 leading-snug">{item.description}</div>
+                ) : null}
               </div>
             )
           }

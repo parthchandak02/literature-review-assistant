@@ -585,6 +585,12 @@ class SearchNode(BaseNode[ReviewState]):
                 low_recall_threshold=state.settings.search.low_recall_warning_threshold,
             )
             search_cfg = state.settings.search
+            if rc and hasattr(rc, "log_status"):
+                _names = ", ".join(c.name for c in connectors)
+                rc.log_status(
+                    f"Search: {len(connectors)} connector(s) queued ({_names}). "
+                    "Each database line appears when that search finishes (order varies)."
+                )
             results, dedup_count = await coordinator.run(
                 max_results=search_cfg.max_results_per_db,
                 per_database_limits=search_cfg.per_database_limits or None,

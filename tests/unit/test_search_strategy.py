@@ -1,11 +1,17 @@
 from __future__ import annotations
 
+import asyncio
+
+import pytest
+
 from src.models import ReviewConfig, ReviewType
+from src.models.enums import SourceCategory
+from src.models.papers import SearchResult
 from src.screening.prompts import _quality_criteria_block
 from src.search.embase import EmbaseConnector
 from src.search.pubmed import PubMedConnector
 from src.search.scopus import ScopusConnector
-from src.search.strategy import build_database_query, requires_primary_studies
+from src.search.strategy import SearchStrategyCoordinator, build_database_query, requires_primary_studies
 from src.search.web_of_science import WebOfScienceConnector
 
 
@@ -80,6 +86,81 @@ def test_screening_quality_block_preserves_secondary_review_guard() -> None:
 
 def test_requires_primary_studies_for_systematic_reviews() -> None:
     assert requires_primary_studies(_review()) is True
+
+
+class _DelayedConnector:
+    """Minimal connector for coordinator tests (protocol-compatible)."""
+
+    def __init__(self, name: str, delay_s: float, records: int = 1) -> None:
+        self.name = name
+        self.source_category = SourceCategory.DATABASE
+        self._delay = delay_s
+        self._records = records
+
+    async def search(
+        self,
+        query: str,
+        max_results: int = 100,
+        date_start: int | None = None,
+        date_end: int | None = None,
+    ) -> SearchResult:
+        await asyncio.sleep(self._delay)
+        return SearchResult(
+            workflow_id="wf-test",
+            database_name=self.name,
+            source_category=self.source_category,
+            search_date="2026-01-01",
+            search_query=query,
+            records_retrieved=self._records,
+            papers=[],
+        )
+
+
+class _StubSearchRepo:
+    async def save_search_result(self, _r: SearchResult) -> None:
+        return None
+
+    async def append_decision_log(self, _entry: object) -> None:
+        return None
+
+
+class _StubGateRunner:
+    async def run_search_volume_gate(self, **_kwargs: object) -> None:
+        return None
+
+
+@pytest.mark.asyncio
+async def test_search_coordinator_streams_on_connector_done_in_completion_order() -> None:
+    """Fast connector must emit before slow; previously gather deferred all callbacks."""
+    order: list[str] = []
+
+    def on_done(
+        name: str,
+        status: str,
+        records: int,
+        query: str,
+        date_start: int | None,
+        date_end: int | None,
+        error: str | None,
+    ) -> None:
+        assert status == "success"
+        assert error is None
+        order.append(name)
+
+    coordinator = SearchStrategyCoordinator(
+        workflow_id="wf-test",
+        config=_review(),
+        connectors=[
+            _DelayedConnector("slow", 0.12),
+            _DelayedConnector("fast", 0.02),
+        ],
+        repository=_StubSearchRepo(),  # type: ignore[arg-type]
+        gate_runner=_StubGateRunner(),  # type: ignore[arg-type]
+        on_connector_done=on_done,
+        low_recall_threshold=0,
+    )
+    await coordinator.run(max_results=50)
+    assert order == ["fast", "slow"]
 
 
 def test_build_database_query_scoping_does_not_force_primary_only_clause() -> None:
