@@ -14,6 +14,25 @@ export function formatWorkflowId(id: string | null | undefined): string {
 }
 
 /**
+ * Compact sidebar badge text for collapsed mode.
+ * - wf-0040 -> "40"
+ * - wf-7a1f6b39 -> "7a1"
+ * Returns null when id is missing or malformed.
+ */
+export function formatCollapsedWorkflowBadge(id: string | null | undefined): string | null {
+  if (!id) return null
+  const token = id.startsWith("wf-") ? id.slice(3) : id
+  if (!token) return null
+  if (/^\d+$/.test(token)) {
+    return String(Number.parseInt(token, 10))
+  }
+  if (/^[a-zA-Z0-9]+$/.test(token)) {
+    return token.slice(0, 3)
+  }
+  return null
+}
+
+/**
  * Parse an ISO or SQLite-style timestamp string into a Date object.
  * SQLite timestamps are stored without "T" and without timezone suffix;
  * we treat them as UTC by appending "Z".

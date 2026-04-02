@@ -14,7 +14,7 @@ import {
   Trash2,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
-import { formatRunDate, formatWorkflowId } from "@/lib/format"
+import { formatCollapsedWorkflowBadge, formatRunDate, formatWorkflowId } from "@/lib/format"
 import { fetchHistory, saveNote } from "@/lib/api"
 import type { HistoryEntry } from "@/lib/api"
 import type { FunnelStage } from "@/lib/funnelStages"
@@ -215,6 +215,27 @@ export function Sidebar({
       return () => clearTimeout(timer)
     }
   }, [liveRun?.status, loadHistory])
+
+  // Some runs persist terminal status to workflows_registry with slight delay.
+  // Keep a short retry window so the sidebar card transitions without manual refresh.
+  useEffect(() => {
+    if (
+      !liveRun?.workflowId ||
+      (liveRun?.status !== "done" &&
+        liveRun?.status !== "error" &&
+        liveRun?.status !== "cancelled")
+    ) {
+      return
+    }
+    let attempts = 0
+    const maxAttempts = 8
+    const timer = setInterval(() => {
+      attempts += 1
+      void loadHistory()
+      if (attempts >= maxAttempts) clearInterval(timer)
+    }, 2000)
+    return () => clearInterval(timer)
+  }, [liveRun?.status, liveRun?.workflowId, loadHistory])
 
   // Drag-to-resize the sidebar
   useEffect(() => {
@@ -475,7 +496,7 @@ export function Sidebar({
                         )}
                       >
                         {collapsed ? (
-                          <RunDot status={liveRun.status} animate={isRunning} />
+                          <CollapsedWorkflowBadge workflowId={liveRun.workflowId} />
                         ) : (
                           <div className="flex flex-col gap-1 min-w-0">
                             <span
@@ -626,7 +647,7 @@ export function Sidebar({
                           )}
                         >
                           {collapsed ? (
-                            <RunDot status={statusKey} />
+                            <CollapsedWorkflowBadge workflowId={entry.workflow_id} />
                           ) : (
                             <div className="flex flex-col gap-1 min-w-0">
                               <span
@@ -1100,6 +1121,32 @@ function CardProgressBar({
         />
       )}
     </div>
+  )
+}
+
+function CollapsedWorkflowBadge({
+  workflowId,
+}: {
+  workflowId?: string | null
+}) {
+  const badge = formatCollapsedWorkflowBadge(workflowId)
+  if (!badge) {
+    return (
+      <span
+        className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-red-500/70 bg-red-500/20 text-[10px] font-bold text-red-300"
+        title={workflowId ?? "Invalid workflow id"}
+      >
+        ERR
+      </span>
+    )
+  }
+  return (
+    <span
+      className="inline-flex h-7 w-7 items-center justify-center rounded-md bg-zinc-800/80 text-[15px] font-bold text-zinc-100 tabular-nums"
+      title={workflowId ?? undefined}
+    >
+      {badge}
+    </span>
   )
 }
 

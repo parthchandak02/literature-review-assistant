@@ -20,7 +20,13 @@ import {
 import { Button } from "@/components/ui/button"
 import { ResultsPanel } from "@/components/ResultsPanel"
 import { EvidenceNetworkViz } from "@/components/EvidenceNetworkViz"
-import { triggerExport, fetchPrismaChecklist, downloadUrl, submissionZipUrl } from "@/lib/api"
+import {
+  APIResponseError,
+  triggerExport,
+  fetchPrismaChecklist,
+  downloadUrl,
+  submissionZipUrl,
+} from "@/lib/api"
 import { Skeleton } from "@/components/ui/skeleton"
 import { FetchError, EmptyState } from "@/components/ui/feedback"
 import { CollapsibleSection } from "@/components/ui/section"
@@ -100,6 +106,27 @@ function extractHeadings(markdown: string): { level: number; text: string; slug:
     headings.push({ level: match[1].length, text, slug: slugify(text) })
   }
   return headings
+}
+
+function formatExportError(error: unknown): string {
+  if (error instanceof APIResponseError) {
+    if (
+      error.detail &&
+      typeof error.detail === "object" &&
+      "violations" in error.detail &&
+      Array.isArray((error.detail as { violations?: unknown[] }).violations)
+    ) {
+      const violations = (error.detail as { violations: Array<{ code?: string }> }).violations
+      const firstCode = violations[0]?.code
+      if (firstCode) {
+        return `${error.message} (${firstCode}${violations.length > 1 ? ` +${violations.length - 1} more` : ""})`
+      }
+      return `${error.message} (${violations.length} contract violation${violations.length === 1 ? "" : "s"})`
+    }
+    return error.message
+  }
+  if (error instanceof Error) return error.message
+  return "Export failed"
 }
 
 // ---------------------------------------------------------------------------
@@ -437,24 +464,36 @@ interface ManuscriptActionsProps {
   canExport: boolean
   exportRunId: string | null | undefined
   allOutputs: Record<string, unknown>
+  onExportReadyChange?: (ready: boolean) => void
 }
 
-function ManuscriptActions({ docxPath, canExport, exportRunId, allOutputs }: ManuscriptActionsProps) {
+function ManuscriptActions({
+  docxPath,
+  canExport,
+  exportRunId,
+  allOutputs,
+  onExportReadyChange,
+}: ManuscriptActionsProps) {
   const [exportState, setExportState] = useState<ExportState>("idle")
   const [exportFiles, setExportFiles] = useState<string[]>([])
+  const [exportError, setExportError] = useState<string | null>(null)
   const prefix = exportRunId ?? "manuscript"
 
   const handleExport = useCallback(async (force = false) => {
     if (!exportRunId) return
+    setExportError(null)
     setExportState("loading")
     try {
       const result = await triggerExport(exportRunId, force)
       setExportFiles(result.files)
+      onExportReadyChange?.(result.files.length > 0)
       setExportState("done")
-    } catch {
+    } catch (error) {
+      setExportError(formatExportError(error))
+      onExportReadyChange?.(false)
       setExportState("error")
     }
-  }, [exportRunId])
+  }, [exportRunId, onExportReadyChange])
 
   // Auto-trigger export once when the component mounts and a run is ready.
   // handleExport is async and sets state only after the await resolves, so
@@ -511,15 +550,22 @@ function ManuscriptActions({ docxPath, canExport, exportRunId, allOutputs }: Man
 
       {/* Retry button on failure */}
       {exportState === "error" && (
-        <Button
-          size="sm"
-          variant="outline"
-          onClick={() => void handleExport()}
-          className={sharedCls}
-        >
-          <AlertTriangle className="h-3 w-3 text-red-400" />
-          Retry export
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => void handleExport()}
+            className={sharedCls}
+          >
+            <AlertTriangle className="h-3 w-3 text-red-400" />
+            Retry export
+          </Button>
+          {exportError && (
+            <span className="text-xs text-red-400 max-w-[28rem] truncate" title={exportError}>
+              {exportError}
+            </span>
+          )}
+        </div>
       )}
 
       {/* Download buttons -- shown once export is done (or if artifacts were already present) */}
@@ -595,6 +641,19 @@ export function ResultsView({
   const hasResults = isDone || isHistorical
   const canExport = exportRunId != null && hasResults
   const [artifactsOpen, setArtifactsOpen] = useState(false)
+  const [submissionReady, setSubmissionReady] = useState(false)
+
+  const hasSubmissionArtifacts = useCallback((obj: unknown): boolean => {
+    if (typeof obj === "string" && isFilePath(obj)) {
+      return /\/submission\//.test(obj)
+    }
+    if (obj && typeof obj === "object" && !Array.isArray(obj)) {
+      for (const value of Object.values(obj as Record<string, unknown>)) {
+        if (hasSubmissionArtifacts(value)) return true
+      }
+    }
+    return false
+  }, [])
 
   const manuscriptPath = useMemo(
     () => findFileByName(effectiveOutputs, "doc_manuscript"),
@@ -615,6 +674,10 @@ export function ResultsView({
     texFiles.forEach((p) => paths.add(p))
     return paths
   }, [effectiveOutputs, manuscriptPath, docxPath])
+
+  useEffect(() => {
+    setSubmissionReady(hasSubmissionArtifacts(effectiveOutputs))
+  }, [effectiveOutputs, hasSubmissionArtifacts])
 
   useEffect(() => {
     if (submissionFocusTarget && !artifactsOpen) {
@@ -657,6 +720,7 @@ export function ResultsView({
               canExport={canExport}
               exportRunId={exportRunId}
               allOutputs={effectiveOutputs}
+              onExportReadyChange={setSubmissionReady}
             />
           }
         >
@@ -682,16 +746,28 @@ export function ResultsView({
         onToggle={() => setArtifactsOpen((v) => !v)}
         actions={
           exportRunId ? (
-            <Button
-              size="sm"
-              asChild
-              className="h-7 gap-1 text-xs bg-emerald-600 hover:bg-emerald-500 text-zinc-950 border-0 shadow-none"
-            >
-              <a href={submissionZipUrl(exportRunId)} download>
+            submissionReady ? (
+              <Button
+                size="sm"
+                asChild
+                className="h-7 gap-1 text-xs bg-emerald-600 hover:bg-emerald-500 text-zinc-950 border-0 shadow-none"
+              >
+                <a href={submissionZipUrl(exportRunId)} download>
+                  <Download className="h-3 w-3" />
+                  Submission Package
+                </a>
+              </Button>
+            ) : (
+              <Button
+                size="sm"
+                disabled
+                className="h-7 gap-1 text-xs bg-zinc-800 text-zinc-400 border-0 shadow-none cursor-not-allowed"
+                title="Run manuscript export first"
+              >
                 <Download className="h-3 w-3" />
                 Submission Package
-              </a>
-            </Button>
+              </Button>
+            )
           ) : null
         }
       >

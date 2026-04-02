@@ -166,6 +166,18 @@ export interface HistoryEntry {
 
 const BASE = "/api"
 
+export class APIResponseError extends Error {
+  status: number
+  detail: unknown
+
+  constructor(message: string, status: number, detail: unknown) {
+    super(message)
+    this.name = "APIResponseError"
+    this.status = status
+    this.detail = detail
+  }
+}
+
 function _sanitizePageNumber(value: number, fallback: number, minValue = 0): number {
   if (!Number.isFinite(value)) return fallback
   const normalized = Math.trunc(value)
@@ -401,14 +413,27 @@ export function studyFilesZipUrl(runId: string): string {
 
 /** Extract a human-readable message from a non-OK response. */
 async function _apiError(res: Response, label: string): Promise<Error> {
-  let detail = `HTTP ${res.status}`
+  let detail: unknown = `HTTP ${res.status}`
+  let message = `HTTP ${res.status}`
   try {
-    const body = await res.json() as { detail?: string }
-    if (body.detail) detail = body.detail
+    const body = await res.json() as { detail?: unknown }
+    if ("detail" in body) {
+      detail = body.detail
+      if (typeof body.detail === "string") {
+        message = body.detail
+      } else if (
+        body.detail &&
+        typeof body.detail === "object" &&
+        "message" in body.detail &&
+        typeof (body.detail as { message?: unknown }).message === "string"
+      ) {
+        message = (body.detail as { message: string }).message
+      }
+    }
   } catch {
     // ignore parse error; use status code
   }
-  return new Error(`${label}: ${detail}`)
+  return new APIResponseError(`${label}: ${message}`, res.status, detail)
 }
 
 export async function fetchPapers(
@@ -981,7 +1006,7 @@ export async function fetchPrismaChecklist(runId: string): Promise<PrismaCheckli
 
 export async function fetchHistory(runRoot = "runs"): Promise<HistoryEntry[]> {
   const params = new URLSearchParams({ run_root: runRoot })
-  const res = await fetch(`${BASE}/history?${params}`)
+  const res = await fetch(`${BASE}/history?${params}`, { cache: "no-store" })
   if (!res.ok) return []
   return res.json() as Promise<HistoryEntry[]>
 }
