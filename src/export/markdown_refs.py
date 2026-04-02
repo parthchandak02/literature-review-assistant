@@ -376,7 +376,9 @@ def _normalize_subsection_heading_layout(text: str) -> str:
             tail = _citation_tail_re.sub("", tail).strip()
             _known_prefix_map = {
                 "data items": "Data Items",
-                "comparison with prior": "Comparison with Prior Work",
+                "comparison with prior work": "Comparison with Prior Work",
+                "search strategy": "Search Strategy",
+                "risk of bias and critical appraisal": "Risk of Bias and Critical Appraisal",
             }
             _tail_low = tail.lower()
             _matched_known = False
@@ -1213,6 +1215,59 @@ def build_robins_i_domain_table(
     return "## ROBINS-I Risk of Bias Assessment\n\n" + table_md
 
 
+def build_quality_assessment_coverage_table(
+    papers: list[Any],
+    rob2_assessments: list[Any] | None = None,
+    robins_i_assessments: list[Any] | None = None,
+    casp_assessments: list[Any] | None = None,
+    mmat_assessments: list[Any] | None = None,
+) -> str:
+    """Build per-study quality tool coverage table for included studies.
+
+    This avoids appendix ambiguity where a single tool table (for example,
+    ROBINS-I) can look incomplete when other included studies were assessed
+    with CASP/MMAT/RoB 2.
+    """
+    if not papers:
+        return ""
+
+    tool_map: dict[str, tuple[str, str]] = {}
+    for a in rob2_assessments or []:
+        judgment = _robins_judgment_display(getattr(a, "overall_judgment", None))
+        tool_map[str(getattr(a, "paper_id", ""))] = ("RoB 2", judgment)
+    for a in robins_i_assessments or []:
+        judgment = _robins_judgment_display(getattr(a, "overall_judgment", None))
+        tool_map[str(getattr(a, "paper_id", ""))] = ("ROBINS-I", judgment)
+    for a in casp_assessments or []:
+        summary = (str(getattr(a, "overall_summary", "") or "").strip() or "NR").replace("|", "-")
+        tool_map[str(getattr(a, "paper_id", ""))] = ("CASP", summary[:80])
+    for a in mmat_assessments or []:
+        score = getattr(a, "overall_score", None)
+        score_str = f"score {score}/5" if score is not None else "NR"
+        tool_map[str(getattr(a, "paper_id", ""))] = ("MMAT", score_str)
+
+    header = "| Study | Tool Used | Overall Assessment |"
+    sep = "|---|---|---|"
+    rows = [header, sep]
+    missing = 0
+    for p in sorted(papers, key=lambda x: _paper_author_year(x)):
+        pid = str(getattr(p, "paper_id", ""))
+        label = _paper_author_year(p)
+        tool, overall = tool_map.get(pid, ("Not mapped", "NR"))
+        if tool == "Not mapped":
+            missing += 1
+        rows.append(f"| {label} | {tool} | {overall} |")
+
+    note = (
+        "_Coverage table maps each included study to the quality tool that generated "
+        "its final risk-of-bias assessment. Use this table to interpret why a given "
+        "study may appear in ROBINS-I, CASP, MMAT, or RoB 2 sections._"
+    )
+    if missing > 0:
+        note += f" _Warning: {missing} included study row(s) had no mapped quality assessment._"
+    return "## Quality Assessment Coverage\n\n" + "\n".join(rows) + "\n\n" + note
+
+
 def _normalize_criteria_text(raw_text: str) -> str:
     """Normalize criteria lists and drop malformed placeholder fragments."""
     if not (raw_text or "").strip():
@@ -1642,6 +1697,7 @@ def assemble_submission_manuscript(
     funding: str = "",
     coi: str = "",
     grade_assessments: list[Any] | None = None,
+    rob2_assessments: list[Any] | None = None,
     robins_i_assessments: list[Any] | None = None,
     casp_assessments: list[Any] | None = None,
     mmat_assessments: list[Any] | None = None,
@@ -1783,6 +1839,15 @@ def assemble_submission_manuscript(
     robins_section = ""
     if papers and robins_i_assessments:
         robins_section = build_robins_i_domain_table(papers, robins_i_assessments)
+    quality_coverage_section = ""
+    if papers and (rob2_assessments or robins_i_assessments or casp_assessments or mmat_assessments):
+        quality_coverage_section = build_quality_assessment_coverage_table(
+            papers,
+            rob2_assessments=rob2_assessments or [],
+            robins_i_assessments=robins_i_assessments or [],
+            casp_assessments=casp_assessments or [],
+            mmat_assessments=mmat_assessments or [],
+        )
 
     # Build paper_id -> citekey label map for CASP/MMAT tables.
     # Primary: use the DOI-based map from the repository (get_paper_id_to_citekey_map).
@@ -1877,6 +1942,8 @@ def assemble_submission_manuscript(
         parts.append(sof_section)
     if robins_section:
         parts.append(robins_section)
+    if quality_coverage_section:
+        parts.append(quality_coverage_section)
     if casp_section:
         parts.append(casp_section)
     if mmat_section:

@@ -47,6 +47,17 @@ def test_grounding_block_includes_failed_database_disclosure_rule() -> None:
     assert "Do NOT silently omit failed sources" in out
 
 
+def test_grounding_block_includes_topic_anchor_rule() -> None:
+    data = _make_grounding(
+        research_question="What is the impact of simulation and AI on undergraduate medical education outcomes?",
+        topic_anchor_terms=["simulation", "medical", "education"],
+    )
+    out = format_grounding_block(data)
+    assert "Research question:" in out
+    assert "TOPIC ANCHOR TERMS" in out
+    assert "TOPIC CONSISTENCY RULE" in out
+
+
 def test_grounding_block_includes_kappa_subset_qualifier() -> None:
     data = _make_grounding(
         cohens_kappa=0.613,
@@ -82,6 +93,16 @@ def test_non_abstract_prompts_include_boundary_marker_rule() -> None:
     assert "SECTION_BLOCK" in methods_prompt
     assert "SECTION_BLOCK" in results_prompt
     assert "SECTION_BLOCK" in discussion_prompt
+
+
+def test_discussion_prompt_includes_topic_anchor_when_grounding_present() -> None:
+    data = _make_grounding(
+        research_question="How does simulation training affect skill acquisition?",
+        topic_anchor_terms=["simulation", "skill", "acquisition"],
+    )
+    prompt = get_discussion_prompt_context(data)
+    assert "TOPIC ANCHOR RULE" in prompt
+    assert "How does simulation training affect skill acquisition?" in prompt
 
 
 def test_methods_prompt_blocks_unsupported_claims() -> None:

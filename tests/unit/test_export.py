@@ -20,6 +20,7 @@ from src.export.markdown_refs import (
     build_compact_study_table,
     build_markdown_figures_section,
     build_picos_table,
+    build_quality_assessment_coverage_table,
     generate_mmat_table,
     get_existing_figure_entries,
     get_latex_figure_paths,
@@ -419,6 +420,62 @@ async def test_manuscript_contract_detects_included_count_mismatch(tmp_path: Pat
 
 
 @pytest.mark.asyncio
+async def test_manuscript_contract_does_not_false_flag_large_study_table_count(tmp_path: Path) -> None:
+    db_path = tmp_path / "runtime_large_table.db"
+    manuscript_md = tmp_path / "doc_manuscript.md"
+    manuscript_tex = tmp_path / "doc_manuscript.tex"
+    long_intro = "A" * 7005
+    table_rows = [
+        f"| Study {i} (2024) | IN | Mixed Methods | {10+i} | Improved outcome |" for i in range(1, 55)
+    ]
+    manuscript_md.write_text(
+        "\n".join(
+            [
+                "## Results",
+                "### Study Characteristics",
+                long_intro,
+                "| Study (Year) | Country | Design | N | Key Finding |",
+                "|---|---|---|---|---|",
+                *table_rows,
+                "_Table 1. Summary of 54 included studies. See Appendix B for full characteristics._",
+                "## References",
+                "[1] Ref",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    manuscript_tex.write_text("\\section{Results}\n\\subsection{Study Characteristics}\n", encoding="utf-8")
+
+    async with get_db(str(db_path)) as db:
+        repo = WorkflowRepository(db)
+        cite_repo = CitationRepository(db)
+        for i in range(1, 55):
+            pid = f"p{i}"
+            await db.execute(
+                "INSERT INTO papers (paper_id, title, authors, source_database) VALUES (?, ?, ?, ?)",
+                (pid, f"Paper {i}", '["A"]', "openalex"),
+            )
+            await db.execute(
+                """
+                INSERT INTO study_cohort_membership (
+                    workflow_id, paper_id, screening_status, fulltext_status, synthesis_eligibility, source_phase
+                ) VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                ("wf-large", pid, "included", "assessed", "included_primary", "phase_4_extraction_quality"),
+            )
+        await db.commit()
+        result = await run_manuscript_contracts(
+            repository=repo,
+            citation_repository=cite_repo,
+            workflow_id="wf-large",
+            manuscript_md_path=str(manuscript_md),
+            manuscript_tex_path=str(manuscript_tex),
+            mode="soft",
+        )
+    assert all(v.code != "INCLUDED_COUNT_MISMATCH" for v in result.violations)
+
+
+@pytest.mark.asyncio
 async def test_manuscript_contract_detects_malformed_heading_and_count_disclosure_mismatch(tmp_path: Path) -> None:
     db_path = tmp_path / "runtime_contracts.db"
     manuscript_md = tmp_path / "doc_manuscript.md"
@@ -466,6 +523,56 @@ async def test_manuscript_contract_detects_malformed_heading_and_count_disclosur
     assert not result.passed
     assert any(v.code == "MALFORMED_SECTION_HEADING" for v in result.violations)
     assert any(v.code == "COUNT_DISCLOSURE_MISMATCH" for v in result.violations)
+
+
+@pytest.mark.asyncio
+async def test_manuscript_contract_detects_failed_database_status_mischaracterized(tmp_path: Path) -> None:
+    db_path = tmp_path / "runtime_failed_db_wording.db"
+    manuscript_md = tmp_path / "doc_manuscript.md"
+    manuscript_tex = tmp_path / "doc_manuscript.tex"
+    manuscript_md.write_text(
+        "\n".join(
+            [
+                "## Methods",
+                "Web of Science yielded no relevant records.",
+                "## Results",
+                "Narrative summary.",
+                "## References",
+                "[1] Ref",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    manuscript_tex.write_text("\\section{Methods}\n\\section{Results}\n", encoding="utf-8")
+
+    async with get_db(str(db_path)) as db:
+        repo = WorkflowRepository(db)
+        cite_repo = CitationRepository(db)
+        await db.execute(
+            """
+            INSERT INTO decision_log (workflow_id, decision_type, paper_id, decision, rationale, actor, phase)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "wf-failed-db",
+                "search_connector_error",
+                None,
+                "error",
+                "web_of_science: RuntimeError: provider 512",
+                "search_phase",
+                "phase_2_search",
+            ),
+        )
+        await db.commit()
+        result = await run_manuscript_contracts(
+            repository=repo,
+            citation_repository=cite_repo,
+            workflow_id="wf-failed-db",
+            manuscript_md_path=str(manuscript_md),
+            manuscript_tex_path=str(manuscript_tex),
+            mode="soft",
+        )
+    assert any(v.code == "FAILED_DB_STATUS_MISCHARACTERIZED" for v in result.violations)
 
 
 @pytest.mark.asyncio
@@ -1792,6 +1899,45 @@ def test_normalize_subsection_heading_layout_preserves_joined_title_fragment() -
     assert "\n\nData Items\n" not in out
 
 
+def test_normalize_subsection_heading_layout_keeps_comparison_with_prior_work_heading() -> None:
+    text = "### Comparison with Prior Work"
+    out = _normalize_subsection_heading_layout(text)
+    assert "### Comparison with Prior Work" in out
+    assert "\n\nWork\n" not in out
+
+
+def test_normalize_subsection_heading_layout_splits_search_strategy_run_on_heading() -> None:
+    text = (
+        "### Search Strategy combined keywords related to simulation and AI. "
+        "Boolean operators were used."
+    )
+    out = _normalize_subsection_heading_layout(text)
+    assert "### Search Strategy" in out
+    assert "combined keywords related to simulation and AI." in out
+
+
+def test_quality_assessment_coverage_table_includes_all_included_studies() -> None:
+    papers = [
+        SimpleNamespace(paper_id="p1", authors=["Smith A"], year=2023),
+        SimpleNamespace(paper_id="p2", authors=["Jones B"], year=2022),
+        SimpleNamespace(paper_id="p3", authors=["Lee C"], year=2021),
+    ]
+    rob2 = [SimpleNamespace(paper_id="p1", overall_judgment=SimpleNamespace(value="low"))]
+    robins = [SimpleNamespace(paper_id="p2", overall_judgment=SimpleNamespace(value="serious"))]
+    mmat = [SimpleNamespace(paper_id="p3", overall_score=4)]
+
+    out = build_quality_assessment_coverage_table(
+        papers,
+        rob2_assessments=rob2,
+        robins_i_assessments=robins,
+        mmat_assessments=mmat,
+    )
+    assert "## Quality Assessment Coverage" in out
+    assert "| RoB 2 | Low |" in out
+    assert "| ROBINS-I | Serious |" in out
+    assert "| MMAT | score 4/5 |" in out
+
+
 @pytest.mark.asyncio
 async def test_copy_included_study_pdfs_copies_only_included_pdf_files(tmp_path: Path) -> None:
     run_dir = tmp_path / "run"
@@ -2229,3 +2375,161 @@ async def test_manuscript_contract_does_not_flag_large_language_model_phrase(tmp
             mode="soft",
         )
     assert all(v.code != "AI_LEAKAGE" for v in result.violations)
+
+
+@pytest.mark.asyncio
+async def test_manuscript_contract_detects_degenerate_discussion_repetition(tmp_path: Path) -> None:
+    db_path = tmp_path / "runtime_contracts_degenerate.db"
+    manuscript_md = tmp_path / "doc_manuscript.md"
+    manuscript_tex = tmp_path / "doc_manuscript.tex"
+    manuscript_md.write_text(
+        "\n".join(
+            [
+                "## Abstract",
+                "**Background:** text",
+                "**Objectives:** obj",
+                "**Methods:** meth",
+                "**Results:** res",
+                "**Conclusions:** conc",
+                "## Introduction",
+                "Topic background.",
+                "## Methods",
+                "Two independent reviewers screened records.",
+                "Protocol registration: not prospectively registered.",
+                "Web of Science was searched but could not be queried due to an API error and returned no records.",
+                "## Results",
+                "Of the 12 reports sought for full-text retrieval, 2 reports could not be retrieved and 10 were assessed for eligibility, with 10 studies ultimately included.",
+                "Risk of bias was assessed with RoB 2.",
+                "## Discussion",
+                "### Principal Findings",
+                "The review indicates mixed evidence with substantial heterogeneity across settings and interventions.",
+                "### Comparison with Prior Work",
+                "Work",
+                "",
+                "Work",
+                "",
+                "Work",
+                "### Strengths and Limitations",
+                "Strengths and limitations were considered in interpretation.",
+                "## Conclusion",
+                "Conclusion with cautious interpretation.",
+                "## References",
+                "[1] Ref",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    manuscript_tex.write_text(
+        "\\section{Abstract}\n\\section{Introduction}\n\\section{Methods}\n\\section{Results}\n\\section{Discussion}\n\\section{Conclusion}\n\\section{References}\n",
+        encoding="utf-8",
+    )
+    async with get_db(str(db_path)) as db:
+        await db.execute(
+            "INSERT INTO workflows (workflow_id, topic, config_hash, status) VALUES (?, ?, ?, ?)",
+            ("wf-degenerate", "Topic", "hash", "completed"),
+        )
+        for pid in ("p1", "p2", "p3"):
+            await db.execute(
+                """
+                INSERT INTO papers (paper_id, title, authors, year, source_database, doi, url)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                (pid, f"Title {pid}", "Author", 2024, "testdb", None, None),
+            )
+            await db.execute(
+                """
+                INSERT INTO study_cohort_membership (workflow_id, paper_id, synthesis_eligibility)
+                VALUES (?, ?, ?)
+                """,
+                ("wf-degenerate", pid, "included_primary"),
+            )
+        await db.commit()
+
+    async with get_db(str(db_path)) as db:
+        repo = WorkflowRepository(db)
+        cite_repo = CitationRepository(db)
+        result = await run_manuscript_contracts(
+            repository=repo,
+            citation_repository=cite_repo,
+            workflow_id="wf-degenerate",
+            manuscript_md_path=str(manuscript_md),
+            manuscript_tex_path=str(manuscript_tex),
+            mode="strict",
+        )
+    section_violations = [v for v in result.violations if v.code == "SECTION_CONTENT_INCOMPLETE"]
+    assert section_violations
+    assert "degenerate_repetition" in (section_violations[0].actual or "")
+
+
+@pytest.mark.asyncio
+async def test_manuscript_contract_detects_missing_figure_asset(tmp_path: Path) -> None:
+    db_path = tmp_path / "runtime_missing_figure.db"
+    manuscript_md = tmp_path / "doc_manuscript.md"
+    manuscript_tex = tmp_path / "doc_manuscript.tex"
+    manuscript_md.write_text(
+        "\n".join(
+            [
+                "## Figures",
+                "**Fig. 1.** Test figure",
+                "![Fig. 1: Test figure](fig_missing.png)",
+                "## References",
+                "[1] Ref",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    manuscript_tex.write_text(
+        "\\begin{figure}\n\\includegraphics{fig_missing.png}\n\\end{figure}\n",
+        encoding="utf-8",
+    )
+    async with get_db(str(db_path)) as db:
+        repo = WorkflowRepository(db)
+        cite_repo = CitationRepository(db)
+        await db.commit()
+        result = await run_manuscript_contracts(
+            repository=repo,
+            citation_repository=cite_repo,
+            workflow_id="wf-fig",
+            manuscript_md_path=str(manuscript_md),
+            manuscript_tex_path=str(manuscript_tex),
+            mode="soft",
+        )
+    assert any(v.code == "FIGURE_ASSET_MISSING" for v in result.violations)
+
+
+@pytest.mark.asyncio
+async def test_manuscript_contract_detects_latex_markdown_figure_mismatch(tmp_path: Path) -> None:
+    db_path = tmp_path / "runtime_figure_parity.db"
+    manuscript_md = tmp_path / "doc_manuscript.md"
+    manuscript_tex = tmp_path / "doc_manuscript.tex"
+    (tmp_path / "fig_a.png").write_bytes(b"png-a")
+    (tmp_path / "fig_b.png").write_bytes(b"png-b")
+    manuscript_md.write_text(
+        "\n".join(
+            [
+                "## Figures",
+                "**Fig. 1.** A",
+                "![Fig. 1: A](fig_a.png)",
+                "## References",
+                "[1] Ref",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    manuscript_tex.write_text(
+        "\\begin{figure}\n\\includegraphics{fig_b.png}\n\\end{figure}\n",
+        encoding="utf-8",
+    )
+    async with get_db(str(db_path)) as db:
+        repo = WorkflowRepository(db)
+        cite_repo = CitationRepository(db)
+        await db.commit()
+        result = await run_manuscript_contracts(
+            repository=repo,
+            citation_repository=cite_repo,
+            workflow_id="wf-fig-mismatch",
+            manuscript_md_path=str(manuscript_md),
+            manuscript_tex_path=str(manuscript_tex),
+            mode="soft",
+        )
+    assert any(v.code == "FIGURE_LATEX_MISMATCH" for v in result.violations)

@@ -243,11 +243,13 @@ def _sanitize_section_headings(section: str, content: str) -> str:
                 "Data Items",
                 "Risk of Bias",
                 "Risk of Bias Assessment",
+                "Risk of Bias and Critical Appraisal",
                 "Synthesis Methods",
                 "Protocol Registration",
                 "Study Selection",
                 "Study Characteristics",
                 "Synthesis of Findings",
+                "Comparison with Prior Work",
             )
             # Rejoin split headings like:
             # "### Risk of"
@@ -259,16 +261,41 @@ def _sanitize_section_headings(section: str, content: str) -> str:
                 if j < len(lines):
                     nxt = lines[j].strip()
                     if nxt and not nxt.startswith("#"):
+                        if title.lower() == "risk of" and nxt.lower().startswith("bias and critical appraisal"):
+                            title = "Risk of Bias and Critical Appraisal"
+                            remainder = nxt[len("Bias and Critical Appraisal") :].strip()
+                            lines[j] = remainder if remainder else ""
+                            nxt = lines[j].strip()
+                        # Promote to a known canonical heading when the continuation
+                        # line starts with its remaining tail (e.g. "Risk of" + "Bias and ...").
+                        title_low = title.lower()
+                        matched_known = None
+                        for known in sorted(known_heading_prefixes, key=len, reverse=True):
+                            known_low = known.lower()
+                            if known_low.startswith(title_low + " "):
+                                remainder_tail = known[len(title) :].strip()
+                                if nxt.lower().startswith(remainder_tail.lower()):
+                                    matched_known = (known, remainder_tail)
+                                    break
+                        if matched_known is not None:
+                            known_title, tail = matched_known
+                            title = known_title
+                            remainder = nxt[len(tail) :].strip()
+                            lines[j] = remainder if remainder else ""
+                            nxt = lines[j].strip()
                         words = nxt.split()
                         consumed = 0
                         for w in words:
                             w_clean = w.strip(".,;:!?")
                             if not w_clean:
                                 break
+                            if w_clean.lower() in {"and", "or", "of", "for", "to", "with"}:
+                                consumed += 1
+                                continue
                             if not w_clean[:1].isupper():
                                 break
                             consumed += 1
-                            if consumed >= 3:
+                            if consumed >= 6:
                                 break
                         if consumed > 0:
                             title = (title + " " + " ".join(words[:consumed])).strip()
@@ -678,6 +705,30 @@ def _post_render_completeness_issues(
     return issues
 
 
+def _topic_anchor_issues(
+    section: str,
+    content: str,
+    grounding: WritingGroundingData | None,
+) -> list[str]:
+    """Return deterministic topic-consistency issues for discussion/conclusion."""
+    if grounding is None or section not in {"discussion", "conclusion"}:
+        return []
+    issues: list[str] = []
+    topic_terms = [str(t).strip().lower() for t in (getattr(grounding, "topic_anchor_terms", []) or []) if str(t).strip()]
+    low = str(content or "").lower()
+    if topic_terms:
+        matched = [t for t in topic_terms[:6] if re.search(rf"\b{re.escape(t)}\b", low)]
+        if len(matched) < 2:
+            issues.append("topic_anchor_terms_missing")
+    research_scope = (
+        str(getattr(grounding, "research_question", "") or getattr(grounding, "review_topic", "")).strip().lower()
+    )
+    bleed_phrase = "generative conversational ai tutoring"
+    if bleed_phrase in low and bleed_phrase not in research_scope:
+        issues.append("cross_run_topic_bleed_phrase")
+    return issues
+
+
 def _build_deterministic_section_fallback(
     section: str,
     grounding: WritingGroundingData | None,
@@ -769,6 +820,13 @@ def _build_deterministic_section_fallback(
             ],
         )
     if section == "discussion":
+        topic_scope = ""
+        if grounding is not None:
+            topic_scope = str(
+                getattr(grounding, "research_question", "") or getattr(grounding, "review_topic", "")
+            ).strip()
+        if not topic_scope:
+            topic_scope = "the review question"
         return StructuredSectionDraft(
             section_key="discussion",
             required_subsections=list(_SECTION_REQUIRED_SUBHEADINGS.get("discussion", ())),
@@ -777,8 +835,8 @@ def _build_deterministic_section_fallback(
                 SectionBlock(
                     block_type="paragraph",
                     text=(
-                        "Across included studies, evidence suggests potential educational utility for generative conversational "
-                        "AI tutoring tools, but heterogeneity and certainty limitations constrain strong causal conclusions."
+                        f"Across included studies addressing {topic_scope}, evidence indicates potentially meaningful "
+                        "educational effects, but heterogeneity and certainty limitations constrain strong causal conclusions."
                     ),
                 ),
                 SectionBlock(
@@ -1224,7 +1282,10 @@ async def write_section_with_validation(
     content = apply_deterministic_guardrails(content)
 
     post_issues = _post_render_completeness_issues(section, content, included_study_count)
-    if post_issues and section in {"methods", "results", "discussion"}:
+    topic_issues = _topic_anchor_issues(section, content, grounding)
+    if topic_issues:
+        post_issues.extend(topic_issues)
+    if post_issues and section in {"methods", "results", "discussion", "conclusion"}:
         logger.warning(
             "Section '%s' failed post-render completeness checks (%s); forcing deterministic fallback.",
             section,
