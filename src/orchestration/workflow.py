@@ -45,6 +45,7 @@ from src.llm.provider import LLMProvider
 from src.llm.pydantic_client import PydanticAIClient
 from src.manuscript.cohort import IncludedSetResolver
 from src.manuscript.contracts import run_manuscript_contracts
+from src.manuscript.reviewer import run_manuscript_audit, serialize_contract_summary
 from src.models import (
     CandidatePaper,
     CohortMembershipRecord,
@@ -265,6 +266,7 @@ class ResumeStartNode(BaseNode[ReviewState]):
         | SynthesisNode
         | KnowledgeGraphNode
         | WritingNode
+        | ManuscriptAuditNode
         | FinalizeNode
     ):
         state = ctx.state
@@ -298,6 +300,8 @@ class ResumeStartNode(BaseNode[ReviewState]):
             return KnowledgeGraphNode()
         if phase == "phase_6_writing":
             return WritingNode()
+        if phase == "phase_7_audit":
+            return ManuscriptAuditNode()
         if phase == "finalize":
             return FinalizeNode()
         return SearchNode()
@@ -2264,6 +2268,8 @@ class ExtractionQualityNode(BaseNode[ReviewState]):
                                 vision_outcomes = await extract_tables_from_pdf(
                                     ft_result.pdf_bytes,
                                     model_name=vision_model,
+                                    repository=repository,
+                                    workflow_id=state.workflow_id,
                                 )
                                 if vision_outcomes:
                                     merged, _merge_source = merge_outcomes(list(record.outcomes), vision_outcomes)
@@ -3064,7 +3070,7 @@ def _validate_writing_persistence_invariant(
 class WritingNode(BaseNode[ReviewState]):
     """Write manuscript sections, validate citations, save drafts."""
 
-    async def run(self, ctx: GraphRunContext[ReviewState]) -> FinalizeNode:
+    async def run(self, ctx: GraphRunContext[ReviewState]) -> ManuscriptAuditNode:
         state = ctx.state
         rc = _rc(state)
         if rc:
@@ -4149,6 +4155,8 @@ class WritingNode(BaseNode[ReviewState]):
                         flags,
                         model_name=_contra_model,
                         api_key=api_key if _use_llm_contra else None,
+                        repository=repository,
+                        workflow_id=state.workflow_id,
                     )
                     if contra_paragraph and "## Discussion" in body:
                         # Inject after the first paragraph of the Discussion section
@@ -4655,7 +4663,101 @@ class WritingNode(BaseNode[ReviewState]):
         except Exception as _patch_exc:  # noqa: BLE001
             logger.warning("WritingNode: concept diagram manuscript patch failed (non-fatal): %s", _patch_exc)
 
-        return FinalizeNode()
+        return ManuscriptAuditNode()
+
+
+class ManuscriptAuditNode(BaseNode[ReviewState]):
+    """Run bounded profile-based manuscript audit before finalize."""
+
+    async def run(self, ctx: GraphRunContext[ReviewState]) -> FinalizeNode:
+        state = ctx.state
+        rc = _rc(state)
+        if rc:
+            rc.emit_phase_start("phase_7_audit", "Running final manuscript audit...")
+        assert state.review is not None
+        assert state.settings is not None
+        manuscript_path = state.artifacts.get("manuscript_md", "")
+        if not manuscript_path or not os.path.isfile(manuscript_path):
+            if rc:
+                rc.emit_phase_done("phase_7_audit", {"status": "skipped", "reason": "manuscript_missing"})
+            async with get_db(state.db_path) as db:
+                await WorkflowRepository(db).save_checkpoint(
+                    state.workflow_id,
+                    "phase_7_audit",
+                    papers_processed=0,
+                    status="completed",
+                )
+            return FinalizeNode()
+
+        mode = str(getattr(state.settings.gates, "manuscript_audit_mode", "observe"))
+        try:
+            manuscript_text = Path(manuscript_path).read_text(encoding="utf-8")
+            async with get_db(state.db_path) as db:
+                repository = WorkflowRepository(db)
+                citation_repo = CitationRepository(db)
+                provider = LLMProvider(state.settings, repository)
+                contract_result = await run_manuscript_contracts(
+                    repository=repository,
+                    citation_repository=citation_repo,
+                    workflow_id=state.workflow_id,
+                    manuscript_md_path=manuscript_path,
+                    manuscript_tex_path=state.artifacts.get("manuscript_tex"),
+                    extra_artifact_paths=[
+                        state.artifacts.get("protocol", ""),
+                        state.artifacts.get("prospero_form_md", ""),
+                    ],
+                    mode="observe",
+                )
+                contract_summary = {
+                    "mode": contract_result.mode,
+                    "passed": contract_result.passed,
+                    "violations": [v.model_dump() for v in contract_result.violations],
+                }
+                audit_result, findings = await run_manuscript_audit(
+                    workflow_id=state.workflow_id,
+                    review=state.review,
+                    settings=state.settings,
+                    manuscript_text=manuscript_text,
+                    contract_summary_json=serialize_contract_summary(contract_summary),
+                    provider=provider,
+                )
+                await repository.save_manuscript_audit(audit_result, findings)
+
+                if mode in {"soft", "strict"} and not audit_result.passed:
+                    raise RuntimeError(
+                        f"manuscript audit failed in mode={mode} "
+                        f"(verdict={audit_result.verdict}, blocking={audit_result.blocking_count})"
+                    )
+
+                await repository.save_checkpoint(
+                    state.workflow_id,
+                    "phase_7_audit",
+                    papers_processed=len(findings),
+                    status="completed",
+                )
+                if rc:
+                    rc.emit_phase_done(
+                        "phase_7_audit",
+                        {
+                            "passed": audit_result.passed,
+                            "verdict": audit_result.verdict,
+                            "findings": audit_result.total_findings,
+                            "blocking": audit_result.blocking_count,
+                            "profiles": list(audit_result.selected_profiles),
+                            "cost_usd": audit_result.total_cost_usd,
+                            "mode": mode,
+                        },
+                    )
+            return FinalizeNode()
+        except Exception:
+            async with get_db(state.db_path) as db:
+                await WorkflowRepository(db).save_checkpoint(
+                    state.workflow_id,
+                    "phase_7_audit",
+                    papers_processed=0,
+                    status="partial",
+                )
+            raise
 
 
 class FinalizeNode(BaseNode[ReviewState]):
@@ -4988,6 +5090,14 @@ class FinalizeNode(BaseNode[ReviewState]):
             except Exception as _contract_err:
                 logger.warning("Manuscript contract gate skipped due to error: %s", _contract_err)
         summary["manuscript_contract"] = _contract_summary
+        try:
+            async with get_db(state.db_path) as _audit_db:
+                _audit_repo = WorkflowRepository(_audit_db)
+                _latest_audit = await _audit_repo.get_latest_manuscript_audit(state.workflow_id)
+                if _latest_audit is not None:
+                    summary["manuscript_audit"] = _latest_audit
+        except Exception as _audit_err:
+            logger.warning("FinalizeNode: could not load manuscript audit summary: %s", _audit_err)
 
         # Query cost_records -- single source of truth for all LLM call costs.
         # This ensures run_summary.json is a self-contained record across all sessions.
@@ -5021,6 +5131,7 @@ RUN_GRAPH = Graph(
         SynthesisNode,
         KnowledgeGraphNode,
         WritingNode,
+        ManuscriptAuditNode,
         FinalizeNode,
     ],
     state_type=ReviewState,
@@ -5115,7 +5226,7 @@ async def run_workflow(
             repo = WorkflowRepository(db)
             checkpoints = await repo.get_checkpoints(entry.workflow_id)
         phase_count = len(checkpoints)
-        phase_label = f"phase {phase_count}/6" if phase_count < 6 else "finalize"
+        phase_label = f"phase {phase_count}/7" if phase_count < 7 else "finalize"
         _console = getattr(run_context, "console", None) if run_context else None
         if _console is not None:
             from rich.prompt import Confirm

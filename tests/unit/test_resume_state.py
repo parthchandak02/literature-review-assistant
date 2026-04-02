@@ -13,7 +13,7 @@ from src.db.workflow_registry import RegistryEntry
 from src.models import CandidatePaper, SectionDraft
 from src.models.enums import ScreeningDecisionType, SourceCategory
 from src.orchestration import workflow as workflow_module
-from src.orchestration.resume import load_resume_state
+from src.orchestration.resume import PHASE_ORDER, load_resume_state
 from src.orchestration.state import ReviewState
 from src.orchestration.workflow import _rc_print
 
@@ -372,3 +372,8 @@ async def test_run_workflow_web_context_without_console_uses_non_console_resume_
         fresh=False,
     )
     assert out["status"] == "ok"
+
+
+def test_phase_order_includes_phase_7_audit_before_finalize() -> None:
+    assert "phase_7_audit" in PHASE_ORDER
+    assert PHASE_ORDER.index("phase_7_audit") < PHASE_ORDER.index("finalize")

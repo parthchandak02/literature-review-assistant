@@ -232,6 +232,47 @@ async def run_migrations(db: aiosqlite.Connection) -> None:
             ON screening_decisions(workflow_id, paper_id, stage, reviewer_type);
         """,
     )
+    # 13. Manuscript audit persistence tables (phase_7_audit).
+    await _apply(
+        13,
+        """
+        CREATE TABLE IF NOT EXISTS manuscript_audit_runs (
+            audit_run_id TEXT PRIMARY KEY,
+            workflow_id TEXT NOT NULL,
+            mode TEXT NOT NULL,
+            verdict TEXT NOT NULL,
+            passed INTEGER NOT NULL,
+            selected_profiles_json TEXT NOT NULL DEFAULT '[]',
+            summary TEXT NOT NULL DEFAULT '',
+            total_findings INTEGER NOT NULL DEFAULT 0,
+            major_count INTEGER NOT NULL DEFAULT 0,
+            minor_count INTEGER NOT NULL DEFAULT 0,
+            note_count INTEGER NOT NULL DEFAULT 0,
+            blocking_count INTEGER NOT NULL DEFAULT 0,
+            total_cost_usd REAL NOT NULL DEFAULT 0,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE TABLE IF NOT EXISTS manuscript_audit_findings (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            audit_run_id TEXT NOT NULL REFERENCES manuscript_audit_runs(audit_run_id),
+            workflow_id TEXT NOT NULL,
+            finding_id TEXT NOT NULL,
+            profile TEXT NOT NULL,
+            severity TEXT NOT NULL,
+            category TEXT NOT NULL,
+            section TEXT,
+            evidence TEXT NOT NULL,
+            recommendation TEXT NOT NULL,
+            owner_module TEXT NOT NULL,
+            blocking INTEGER NOT NULL DEFAULT 0,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE INDEX IF NOT EXISTS idx_manuscript_audit_runs_workflow
+            ON manuscript_audit_runs(workflow_id, created_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_manuscript_audit_findings_run
+            ON manuscript_audit_findings(audit_run_id, id);
+        """,
+    )
     await _validate_schema_contract(db)
     await db.commit()
 
@@ -270,6 +311,8 @@ async def _validate_schema_contract(db: aiosqlite.Connection) -> None:
         "manuscript_sections": {"workflow_id", "section_key", "section_order", "version", "content"},
         "manuscript_blocks": {"workflow_id", "section_key", "section_version", "block_order", "block_type", "text"},
         "manuscript_assemblies": {"workflow_id", "assembly_id", "target_format", "content", "manifest_json"},
+        "manuscript_audit_runs": {"audit_run_id", "workflow_id", "mode", "verdict", "passed"},
+        "manuscript_audit_findings": {"audit_run_id", "workflow_id", "finding_id", "severity", "evidence"},
     }
     for table, required_cols in required.items():
         cols = await _table_columns(db, table)

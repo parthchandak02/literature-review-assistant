@@ -25,6 +25,7 @@ PHASE_ORDER = [
     "phase_5_synthesis",
     "phase_5b_knowledge_graph",
     "phase_6_writing",
+    "phase_7_audit",
     "finalize",
 ]
 

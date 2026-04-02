@@ -26,6 +26,8 @@ from src.models import (
     GRADEOutcomeAssessment,
     ManuscriptAssembly,
     ManuscriptAsset,
+    ManuscriptAuditFinding,
+    ManuscriptAuditResult,
     ManuscriptBlock,
     ManuscriptSection,
     RagRetrievalDiagnostic,
@@ -1279,6 +1281,200 @@ class WorkflowRepository:
             actual_value=str(row[6]) if row[6] is not None else None,
         )
 
+    async def save_manuscript_audit(
+        self,
+        result: ManuscriptAuditResult,
+        findings: list[ManuscriptAuditFinding],
+    ) -> None:
+        await self.db.execute(
+            """
+            INSERT INTO manuscript_audit_runs (
+                audit_run_id, workflow_id, mode, verdict, passed, selected_profiles_json, summary,
+                total_findings, major_count, minor_count, note_count, blocking_count, total_cost_usd
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                result.audit_run_id,
+                result.workflow_id,
+                result.mode,
+                result.verdict,
+                1 if result.passed else 0,
+                json.dumps(result.selected_profiles, ensure_ascii=True),
+                result.summary,
+                result.total_findings,
+                result.major_count,
+                result.minor_count,
+                result.note_count,
+                result.blocking_count,
+                result.total_cost_usd,
+            ),
+        )
+        for finding in findings:
+            await self.db.execute(
+                """
+                INSERT INTO manuscript_audit_findings (
+                    audit_run_id, workflow_id, finding_id, profile, severity, category, section,
+                    evidence, recommendation, owner_module, blocking
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    result.audit_run_id,
+                    result.workflow_id,
+                    finding.finding_id,
+                    finding.profile,
+                    finding.severity,
+                    finding.category,
+                    finding.section,
+                    finding.evidence,
+                    finding.recommendation,
+                    finding.owner_module,
+                    1 if finding.blocking else 0,
+                ),
+            )
+        await self.db.commit()
+
+    async def get_latest_manuscript_audit(self, workflow_id: str) -> dict[str, Any] | None:
+        row = await (
+            await self.db.execute(
+                """
+                SELECT audit_run_id, workflow_id, mode, verdict, passed, selected_profiles_json, summary,
+                       total_findings, major_count, minor_count, note_count, blocking_count, total_cost_usd, created_at
+                FROM manuscript_audit_runs
+                WHERE workflow_id = ?
+                ORDER BY created_at DESC
+                LIMIT 1
+                """,
+                (workflow_id,),
+            )
+        ).fetchone()
+        if row is None:
+            return None
+        try:
+            profiles = json.loads(str(row[5] or "[]"))
+        except Exception:
+            profiles = []
+        return {
+            "audit_run_id": str(row[0]),
+            "workflow_id": str(row[1]),
+            "mode": str(row[2]),
+            "verdict": str(row[3]),
+            "passed": bool(row[4]),
+            "selected_profiles": profiles,
+            "summary": str(row[6] or ""),
+            "total_findings": int(row[7] or 0),
+            "major_count": int(row[8] or 0),
+            "minor_count": int(row[9] or 0),
+            "note_count": int(row[10] or 0),
+            "blocking_count": int(row[11] or 0),
+            "total_cost_usd": float(row[12] or 0.0),
+            "created_at": str(row[13] or ""),
+        }
+
+    async def get_manuscript_audit_run(self, workflow_id: str, audit_run_id: str) -> dict[str, Any] | None:
+        row = await (
+            await self.db.execute(
+                """
+                SELECT audit_run_id, workflow_id, mode, verdict, passed, selected_profiles_json, summary,
+                       total_findings, major_count, minor_count, note_count, blocking_count, total_cost_usd, created_at
+                FROM manuscript_audit_runs
+                WHERE workflow_id = ? AND audit_run_id = ?
+                LIMIT 1
+                """,
+                (workflow_id, audit_run_id),
+            )
+        ).fetchone()
+        if row is None:
+            return None
+        try:
+            profiles = json.loads(str(row[5] or "[]"))
+        except Exception:
+            profiles = []
+        return {
+            "audit_run_id": str(row[0]),
+            "workflow_id": str(row[1]),
+            "mode": str(row[2]),
+            "verdict": str(row[3]),
+            "passed": bool(row[4]),
+            "selected_profiles": profiles,
+            "summary": str(row[6] or ""),
+            "total_findings": int(row[7] or 0),
+            "major_count": int(row[8] or 0),
+            "minor_count": int(row[9] or 0),
+            "note_count": int(row[10] or 0),
+            "blocking_count": int(row[11] or 0),
+            "total_cost_usd": float(row[12] or 0.0),
+            "created_at": str(row[13] or ""),
+        }
+
+    async def get_manuscript_audit_history(self, workflow_id: str, limit: int = 20) -> list[dict[str, Any]]:
+        rows = await (
+            await self.db.execute(
+                """
+                SELECT audit_run_id, mode, verdict, passed, selected_profiles_json, summary,
+                       total_findings, major_count, minor_count, note_count, blocking_count, total_cost_usd, created_at
+                FROM manuscript_audit_runs
+                WHERE workflow_id = ?
+                ORDER BY created_at DESC
+                LIMIT ?
+                """,
+                (workflow_id, limit),
+            )
+        ).fetchall()
+        out: list[dict[str, Any]] = []
+        for row in rows:
+            try:
+                profiles = json.loads(str(row[4] or "[]"))
+            except Exception:
+                profiles = []
+            out.append(
+                {
+                    "audit_run_id": str(row[0]),
+                    "mode": str(row[1]),
+                    "verdict": str(row[2]),
+                    "passed": bool(row[3]),
+                    "selected_profiles": profiles,
+                    "summary": str(row[5] or ""),
+                    "total_findings": int(row[6] or 0),
+                    "major_count": int(row[7] or 0),
+                    "minor_count": int(row[8] or 0),
+                    "note_count": int(row[9] or 0),
+                    "blocking_count": int(row[10] or 0),
+                    "total_cost_usd": float(row[11] or 0.0),
+                    "created_at": str(row[12] or ""),
+                }
+            )
+        return out
+
+    async def get_manuscript_audit_findings(self, audit_run_id: str) -> list[dict[str, Any]]:
+        rows = await (
+            await self.db.execute(
+                """
+                SELECT finding_id, profile, severity, category, section, evidence, recommendation, owner_module, blocking, created_at
+                FROM manuscript_audit_findings
+                WHERE audit_run_id = ?
+                ORDER BY id ASC
+                """,
+                (audit_run_id,),
+            )
+        ).fetchall()
+        out: list[dict[str, Any]] = []
+        for row in rows:
+            out.append(
+                {
+                    "finding_id": str(row[0]),
+                    "profile": str(row[1]),
+                    "severity": str(row[2]),
+                    "category": str(row[3]),
+                    "section": str(row[4]) if row[4] else None,
+                    "evidence": str(row[5]),
+                    "recommendation": str(row[6]),
+                    "owner_module": str(row[7]),
+                    "blocking": bool(row[8]),
+                    "created_at": str(row[9] or ""),
+                }
+            )
+        return out
+
     async def get_screening_summary(self, workflow_id: str) -> list[tuple[str, str, str, str]]:
         """Return (paper_id, stage, final_decision, rationale) for screening summary table."""
         cursor = await self.db.execute(
@@ -1898,6 +2094,7 @@ class WorkflowRepository:
             "phase_5_synthesis",
             "phase_5b_knowledge_graph",
             "phase_6_writing",
+            "phase_7_audit",
             "finalize",
         ]
         if from_phase not in phase_order:
@@ -1924,6 +2121,11 @@ class WorkflowRepository:
             # citations/claims/evidence_links are run-local in runtime.db
             for table in ("evidence_links", "claims", "citations"):
                 await _delete(table, has_workflow_id=False)
+
+        # Manuscript audit stage
+        if start_idx <= phase_order.index("phase_7_audit"):
+            for table in ("manuscript_audit_findings", "manuscript_audit_runs"):
+                await _delete(table)
 
         # Knowledge graph stage
         if start_idx <= phase_order.index("phase_5b_knowledge_graph"):
