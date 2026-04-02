@@ -209,6 +209,30 @@ export function RunView({
 
   // Compute the full pipeline funnel stages from events (both live and replayed historical).
   const funnelStages = useMemo(() => computeFunnelStages(effectiveEvents), [effectiveEvents])
+  const canonicalIncluded =
+    (isHistorical || isDone) && run.papersIncluded != null && run.papersIncluded > 0
+      ? run.papersIncluded
+      : null
+  const displayFunnelStages = useMemo(() => {
+    if (funnelStages.length === 0) return funnelStages
+    if (canonicalIncluded == null) return funnelStages
+    const next = [...funnelStages]
+    const includedIdx = next.findIndex((s) => s.key === "included")
+    if (includedIdx >= 0) {
+      next[includedIdx] = {
+        ...next[includedIdx],
+        count: canonicalIncluded,
+      }
+      return next
+    }
+    next.push({
+      key: "included",
+      label: "included",
+      count: canonicalIncluded,
+      colorClass: "text-emerald-400",
+    })
+    return next
+  }, [funnelStages, canonicalIncluded])
 
   // Fallback simple counts used when there are no events at all (e.g. history entry
   // viewed before the event stream has loaded or for very old runs without events).
@@ -288,12 +312,12 @@ export function RunView({
           </>
         )}
         {/* Paper funnel: shows each filtering stage as count -> count -> ... */}
-        {funnelStages.length > 0 ? (
+        {displayFunnelStages.length > 0 ? (
           <>
             <InfoPill dim>|</InfoPill>
             <InfoPill>
               <span className="flex items-baseline gap-1 flex-wrap">
-                {funnelStages.map((stage, i) => (
+                {displayFunnelStages.map((stage, i) => (
                   <span key={stage.key} className="flex items-baseline gap-1 shrink-0">
                     {i > 0 && (
                       <span className="text-zinc-500 select-none mx-0.5">&gt;</span>

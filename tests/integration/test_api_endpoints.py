@@ -131,6 +131,9 @@ async def test_history_returns_list(client: httpx.AsyncClient) -> None:
     assert response.status_code == 200
     body = response.json()
     assert isinstance(body, list)
+    assert response.headers.get("cache-control") == "no-store, no-cache, must-revalidate, max-age=0"
+    assert response.headers.get("pragma") == "no-cache"
+    assert response.headers.get("expires") == "0"
 
 
 @pytest.mark.asyncio
@@ -1317,6 +1320,127 @@ async def test_attach_history_injects_event_id_when_missing_in_payload(
     assert len(events) == 2
     assert str(events[0].get("id", "")).startswith("db-")
     assert events[1]["id"] == "evt-existing-1"
+
+
+@pytest.mark.asyncio
+async def test_export_endpoint_accepts_workflow_identifier_via_resolver(
+    client: httpx.AsyncClient,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workflow_id = "wf-export-fallback"
+    run_dir = tmp_path / "2026-03-17" / "wf-export-fallback-topic" / "run_01-00-00PM"
+    db_path = run_dir / "runtime.db"
+    submission_dir = run_dir / "submission"
+    study_pdfs_dir = submission_dir / "study_pdfs"
+    run_dir.mkdir(parents=True, exist_ok=True)
+    submission_dir.mkdir(parents=True, exist_ok=True)
+    study_pdfs_dir.mkdir(parents=True, exist_ok=True)
+    (submission_dir / "manuscript.tex").write_text("tex", encoding="utf-8")
+    (submission_dir / "references.bib").write_text("bib", encoding="utf-8")
+    (submission_dir / "manuscript.docx").write_bytes(b"docx")
+    (run_dir / "run_summary.json").write_text(
+        json.dumps(
+            {
+                "workflow_id": workflow_id,
+                "output_dir": str(run_dir),
+                "artifacts": {},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    async def _resolve(_identifier: str, _run_root: str = "runs") -> str:
+        return str(db_path)
+
+    monkeypatch.setattr("src.web.app._resolve_db_path_from_run_or_workflow", _resolve)
+
+    response = await client.post(f"/api/run/{workflow_id}/export?run_root={tmp_path}")
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["submission_dir"] == str(submission_dir)
+    assert any(path.endswith("manuscript.docx") for path in payload["files"])
+
+
+@pytest.mark.asyncio
+async def test_submission_zip_endpoint_accepts_workflow_identifier_via_resolver(
+    client: httpx.AsyncClient,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workflow_id = "wf-submission-fallback"
+    run_dir = tmp_path / "2026-03-17" / "wf-submission-fallback-topic" / "run_01-00-00PM"
+    db_path = run_dir / "runtime.db"
+    submission_dir = run_dir / "submission"
+    run_dir.mkdir(parents=True, exist_ok=True)
+    submission_dir.mkdir(parents=True, exist_ok=True)
+    (submission_dir / "manuscript.tex").write_text("tex", encoding="utf-8")
+    (run_dir / "run_summary.json").write_text(
+        json.dumps(
+            {
+                "workflow_id": workflow_id,
+                "output_dir": str(run_dir),
+                "artifacts": {},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    async def _resolve(_identifier: str, _run_root: str = "runs") -> str:
+        return str(db_path)
+
+    async def _topic(_db_path: str) -> str:
+        return "Topic"
+
+    monkeypatch.setattr("src.web.app._resolve_db_path_from_run_or_workflow", _resolve)
+    monkeypatch.setattr("src.web.app._get_topic_for_db", _topic)
+
+    response = await client.get(f"/api/run/{workflow_id}/submission.zip")
+    assert response.status_code == 200
+    assert response.headers.get("content-type", "").startswith("application/zip")
+    with zipfile.ZipFile(io.BytesIO(response.content)) as zf:
+        assert "manuscript.tex" in zf.namelist()
+
+
+@pytest.mark.asyncio
+async def test_manuscript_docx_endpoint_accepts_workflow_identifier_via_resolver(
+    client: httpx.AsyncClient,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workflow_id = "wf-docx-fallback"
+    run_dir = tmp_path / "2026-03-17" / "wf-docx-fallback-topic" / "run_01-00-00PM"
+    db_path = run_dir / "runtime.db"
+    submission_dir = run_dir / "submission"
+    run_dir.mkdir(parents=True, exist_ok=True)
+    submission_dir.mkdir(parents=True, exist_ok=True)
+    (submission_dir / "manuscript.docx").write_bytes(b"docx")
+    (run_dir / "run_summary.json").write_text(
+        json.dumps(
+            {
+                "workflow_id": workflow_id,
+                "output_dir": str(run_dir),
+                "artifacts": {},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    async def _resolve(_identifier: str, _run_root: str = "runs") -> str:
+        return str(db_path)
+
+    async def _topic(_db_path: str) -> str:
+        return "Topic"
+
+    monkeypatch.setattr("src.web.app._resolve_db_path_from_run_or_workflow", _resolve)
+    monkeypatch.setattr("src.web.app._get_topic_for_db", _topic)
+
+    response = await client.get(f"/api/run/{workflow_id}/manuscript.docx")
+    assert response.status_code == 200
+    assert (
+        response.headers.get("content-type", "")
+        == "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+    )
 
 
 @pytest.mark.asyncio

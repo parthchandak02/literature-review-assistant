@@ -32,7 +32,7 @@ import aiofiles
 import aiosqlite
 import pydantic
 import yaml
-from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
+from fastapi import FastAPI, File, Form, HTTPException, Request, Response, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
@@ -1472,10 +1472,13 @@ async def _resolve_effective_status(
 
 
 @app.get("/api/history")
-async def list_history(run_root: str = "runs") -> list[HistoryEntry]:
+async def list_history(response: Response, run_root: str = "runs") -> list[HistoryEntry]:
     """Return all past runs from the central workflows_registry.db, enriched
     with per-run aggregate stats fetched in parallel from each runtime.db."""
     registry = pathlib.Path(run_root) / "workflows_registry.db"
+    response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+    response.headers["Pragma"] = "no-cache"
+    response.headers["Expires"] = "0"
     if not registry.exists():
         return []
     try:
@@ -3463,7 +3466,7 @@ async def trigger_export(run_id: str, run_root: str = "runs", force: bool = Fals
 
     Pass force=True to force a full re-package (used by the Refresh button).
     """
-    db_path = _get_db_path(run_id)
+    db_path = await _resolve_db_path_from_run_or_workflow(run_id, run_root)
     summary_path = pathlib.Path(db_path).parent / "run_summary.json"
     if not summary_path.exists():
         raise HTTPException(status_code=404, detail="run_summary.json not found")
@@ -3535,7 +3538,7 @@ async def download_submission_zip(run_id: str) -> StreamingResponse:
     Returns a downloadable application/zip response named
     '<workflow_id>-<short-topic>.zip'.
     """
-    db_path = _get_db_path(run_id)
+    db_path = await _resolve_db_path_from_run_or_workflow(run_id)
     summary_path = pathlib.Path(db_path).parent / "run_summary.json"
     if not summary_path.exists():
         raise HTTPException(status_code=404, detail="run_summary.json not found -- run export first")
@@ -3574,7 +3577,7 @@ async def download_manuscript_docx(run_id: str) -> FileResponse:
     The submission directory must exist (call POST /api/run/{run_id}/export first).
     Returns a downloadable response named '<workflow_id>-<short-topic>.docx'.
     """
-    db_path = _get_db_path(run_id)
+    db_path = await _resolve_db_path_from_run_or_workflow(run_id)
     summary_path = pathlib.Path(db_path).parent / "run_summary.json"
     if not summary_path.exists():
         raise HTTPException(status_code=404, detail="run_summary.json not found -- run export first")
