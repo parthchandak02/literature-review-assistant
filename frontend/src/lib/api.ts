@@ -105,6 +105,53 @@ export interface DbCostRow {
   avg_latency_ms: number | null
 }
 
+export interface DbCostAggregateBucketRow {
+  bucket: string
+  calls: number
+  tokens_in: number
+  tokens_out: number
+  cost_usd: number
+}
+
+export interface DbCostAggregateGroupRow {
+  group_key: string
+  calls: number
+  tokens_in: number
+  tokens_out: number
+  cost_usd: number
+}
+
+export interface DbCostAggregateTotals {
+  total_cost_usd: number
+  total_calls: number
+  total_tokens_in: number
+  total_tokens_out: number
+}
+
+export interface DbCostAggregatesResponse {
+  run_id: string
+  start_ts: string | null
+  end_ts: string | null
+  totals: DbCostAggregateTotals
+  by_day: DbCostAggregateBucketRow[]
+  by_week: DbCostAggregateBucketRow[]
+  by_month: DbCostAggregateBucketRow[]
+  by_workflow: DbCostAggregateGroupRow[]
+  by_phase: DbCostAggregateGroupRow[]
+  by_model: DbCostAggregateGroupRow[]
+}
+
+export type DbCostExportGranularity = "day" | "week" | "month"
+
+export interface DbCostAggregateParams {
+  start_ts?: string
+  end_ts?: string
+}
+
+export interface DbCostExportParams extends DbCostAggregateParams {
+  granularity?: DbCostExportGranularity
+}
+
 export interface ScreeningDiagnostics {
   batch_parse_degraded: number
   batch_id_mismatch: number
@@ -547,6 +594,28 @@ export async function fetchDbCosts(
   const res = await fetch(`${BASE}/db/${runId}/costs`)
   if (!res.ok) throw await _apiError(res, "Costs fetch failed")
   return res.json() as Promise<{ total_cost: number; records: DbCostRow[]; screening_diagnostics?: ScreeningDiagnostics }>
+}
+
+export async function fetchDbCostAggregates(
+  runId: string,
+  params?: DbCostAggregateParams,
+): Promise<DbCostAggregatesResponse> {
+  const qs = new URLSearchParams()
+  if (params?.start_ts) qs.set("start_ts", params.start_ts)
+  if (params?.end_ts) qs.set("end_ts", params.end_ts)
+  const suffix = qs.toString() ? `?${qs.toString()}` : ""
+  const res = await fetch(`${BASE}/db/${runId}/costs/aggregates${suffix}`)
+  if (!res.ok) throw await _apiError(res, "Cost aggregates fetch failed")
+  return res.json() as Promise<DbCostAggregatesResponse>
+}
+
+export function getDbCostExportUrl(runId: string, params?: DbCostExportParams): string {
+  const qs = new URLSearchParams()
+  if (params?.start_ts) qs.set("start_ts", params.start_ts)
+  if (params?.end_ts) qs.set("end_ts", params.end_ts)
+  if (params?.granularity) qs.set("granularity", params.granularity)
+  const suffix = qs.toString() ? `?${qs.toString()}` : ""
+  return `${BASE}/db/${runId}/costs/export${suffix}`
 }
 
 export async function fetchWorkflowValidationSummary(workflowId: string): Promise<ValidationSummary> {
@@ -1000,6 +1069,50 @@ export async function fetchPrismaChecklist(runId: string): Promise<PrismaCheckli
   const res = await fetch(`${BASE}/run/${runId}/prisma-checklist`)
   if (!res.ok) throw await _apiError(res, "PRISMA checklist fetch failed")
   return res.json() as Promise<PrismaChecklist>
+}
+
+export interface ManuscriptAuditFinding {
+  finding_id: string
+  profile: string
+  severity: "major" | "minor" | "note"
+  category: string
+  section: string | null
+  evidence: string
+  recommendation: string
+  owner_module: string
+  blocking: boolean
+  created_at: string
+}
+
+export interface ManuscriptAuditRun {
+  audit_run_id: string
+  workflow_id?: string
+  mode: string
+  verdict: "accept" | "minor_revisions" | "major_revisions" | "reject"
+  passed: boolean
+  selected_profiles: string[]
+  summary: string
+  total_findings: number
+  major_count: number
+  minor_count: number
+  note_count: number
+  blocking_count: number
+  total_cost_usd: number
+  created_at: string
+}
+
+export interface ManuscriptAuditPayload {
+  run_id: string
+  workflow_id: string
+  latest_run: ManuscriptAuditRun | null
+  history: ManuscriptAuditRun[]
+  findings: ManuscriptAuditFinding[]
+}
+
+export async function fetchManuscriptAudit(runId: string): Promise<ManuscriptAuditPayload> {
+  const res = await fetch(`${BASE}/run/${runId}/manuscript-audit`)
+  if (!res.ok) throw await _apiError(res, "Manuscript audit fetch failed")
+  return res.json() as Promise<ManuscriptAuditPayload>
 }
 
 // History endpoints

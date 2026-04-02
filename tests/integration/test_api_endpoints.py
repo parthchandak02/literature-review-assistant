@@ -354,6 +354,131 @@ async def test_db_rag_diagnostics_returns_records(client: httpx.AsyncClient, tmp
 
 
 @pytest.mark.asyncio
+async def test_db_costs_aggregates_returns_grouped_payload(
+    client: httpx.AsyncClient,
+    tmp_path: Path,
+) -> None:
+    run_id = "cost-agg-run"
+    workflow_id = "wf-cost-agg"
+    db_path = tmp_path / "runtime_cost_agg.db"
+    async with get_db(str(db_path)) as db:
+        await db.execute(
+            "INSERT INTO workflows (workflow_id, topic, config_hash, status) VALUES (?, ?, ?, ?)",
+            (workflow_id, "Cost topic", "hash", "completed"),
+        )
+        await db.execute(
+            """
+            INSERT INTO cost_records
+                (workflow_id, model, tokens_in, tokens_out, cost_usd, latency_ms, phase, cache_read_tokens, cache_write_tokens)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (workflow_id, "google-gla:gemini-2.5-flash", 120, 80, 0.0123, 1200, "phase_3_screening", 0, 0),
+        )
+        await db.execute(
+            """
+            INSERT INTO cost_records
+                (workflow_id, model, tokens_in, tokens_out, cost_usd, latency_ms, phase, cache_read_tokens, cache_write_tokens)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (workflow_id, "google-gla:gemini-2.5-pro", 200, 140, 0.055, 1800, "phase_6_writing", 0, 0),
+        )
+        await db.commit()
+
+    record = _RunRecord(run_id, "Cost topic")
+    record.db_path = str(db_path)
+    record.workflow_id = workflow_id
+    record.done = True
+    _active_runs[run_id] = record
+    try:
+        response = await client.get(f"/api/db/{run_id}/costs/aggregates")
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["run_id"] == run_id
+        assert "totals" in payload
+        assert payload["totals"]["total_calls"] == 2
+        assert len(payload["by_phase"]) >= 2
+        assert len(payload["by_model"]) >= 2
+        assert isinstance(payload["by_day"], list)
+    finally:
+        _active_runs.pop(run_id, None)
+
+
+@pytest.mark.asyncio
+async def test_db_costs_aggregates_unknown_run_404(client: httpx.AsyncClient) -> None:
+    response = await client.get("/api/db/unknown-run/costs/aggregates")
+    assert response.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_db_costs_export_returns_csv(
+    client: httpx.AsyncClient,
+    tmp_path: Path,
+) -> None:
+    run_id = "cost-export-run"
+    workflow_id = "wf-cost-export"
+    db_path = tmp_path / "runtime_cost_export.db"
+    async with get_db(str(db_path)) as db:
+        await db.execute(
+            "INSERT INTO workflows (workflow_id, topic, config_hash, status) VALUES (?, ?, ?, ?)",
+            (workflow_id, "Cost export topic", "hash", "completed"),
+        )
+        await db.execute(
+            """
+            INSERT INTO cost_records
+                (workflow_id, model, tokens_in, tokens_out, cost_usd, latency_ms, phase, cache_read_tokens, cache_write_tokens)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (workflow_id, "google-gla:gemini-2.5-flash", 42, 28, 0.005, 900, "phase_4_extraction", 0, 0),
+        )
+        await db.commit()
+
+    record = _RunRecord(run_id, "Cost export topic")
+    record.db_path = str(db_path)
+    record.workflow_id = workflow_id
+    record.done = True
+    _active_runs[run_id] = record
+    try:
+        response = await client.get(f"/api/db/{run_id}/costs/export?granularity=day")
+        assert response.status_code == 200
+        assert response.headers.get("content-type", "").startswith("text/csv")
+        disposition = response.headers.get("content-disposition", "")
+        assert f"cost_export_{run_id}_day.csv" in disposition
+        lines = [ln for ln in response.text.splitlines() if ln.strip()]
+        assert lines
+        assert lines[0] == "timestamp_bucket,workflow_id,phase,model,call_count,tokens_in,tokens_out,cost_usd"
+        assert any("phase_4_extraction" in line for line in lines[1:])
+    finally:
+        _active_runs.pop(run_id, None)
+
+
+@pytest.mark.asyncio
+async def test_db_costs_export_invalid_granularity_400(
+    client: httpx.AsyncClient,
+    tmp_path: Path,
+) -> None:
+    run_id = "cost-export-bad-granularity"
+    workflow_id = "wf-cost-export-invalid"
+    db_path = tmp_path / "runtime_cost_export_invalid.db"
+    async with get_db(str(db_path)) as db:
+        await db.execute(
+            "INSERT INTO workflows (workflow_id, topic, config_hash, status) VALUES (?, ?, ?, ?)",
+            (workflow_id, "Topic", "hash", "completed"),
+        )
+        await db.commit()
+
+    record = _RunRecord(run_id, "Topic")
+    record.db_path = str(db_path)
+    record.workflow_id = workflow_id
+    record.done = True
+    _active_runs[run_id] = record
+    try:
+        response = await client.get(f"/api/db/{run_id}/costs/export?granularity=hour")
+        assert response.status_code == 400
+    finally:
+        _active_runs.pop(run_id, None)
+
+
+@pytest.mark.asyncio
 async def test_db_papers_all_supports_primary_status_filter(client: httpx.AsyncClient, tmp_path: Path) -> None:
     db_path = tmp_path / "runtime_primary_status.db"
     workflow_id = "wf-primary-status"
@@ -1767,5 +1892,260 @@ async def test_prisma_checklist_endpoint_reads_markdown_artifact(
         assert payload["source_state"] == "validated_md"
         assert payload["item_total"] >= 40
         assert any(item["item_id"] == "1" for item in payload["items"])
+    finally:
+        _active_runs.pop(run_id, None)
+
+
+@pytest.mark.asyncio
+async def test_workflow_manuscript_audit_endpoints_return_expected_shapes(
+    client: httpx.AsyncClient,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workflow_id = "wf-audit-shape"
+    run_dir = tmp_path / "2026-03-17" / "wf-audit-shape-topic" / "run_01-00-00PM"
+    db_path = run_dir / "runtime.db"
+    run_dir.mkdir(parents=True, exist_ok=True)
+    async with get_db(str(db_path)) as db:
+        await db.execute(
+            "INSERT INTO workflows (workflow_id, topic, config_hash, status) VALUES (?, ?, ?, ?)",
+            (workflow_id, "Topic", "hash", "completed"),
+        )
+        await db.execute(
+            """
+            INSERT INTO manuscript_audit_runs (
+                audit_run_id, workflow_id, mode, verdict, passed, selected_profiles_json, summary,
+                total_findings, major_count, minor_count, note_count, blocking_count, total_cost_usd
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "audit-001",
+                workflow_id,
+                "observe",
+                "minor_revisions",
+                1,
+                json.dumps(["general_systematic_review"]),
+                "Looks mostly good",
+                1,
+                0,
+                1,
+                0,
+                0,
+                0.031,
+            ),
+        )
+        await db.execute(
+            """
+            INSERT INTO manuscript_audit_findings (
+                audit_run_id, workflow_id, finding_id, profile, severity, category, section, evidence,
+                recommendation, owner_module, blocking
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "audit-001",
+                workflow_id,
+                "general_systematic_review-1",
+                "general_systematic_review",
+                "minor",
+                "reporting",
+                "Methods",
+                "Eligibility details are short",
+                "Expand inclusion criteria details",
+                "writing",
+                0,
+            ),
+        )
+        await db.commit()
+
+    async def _resolve(_identifier: str, _run_root: str = "runs") -> str:
+        return str(db_path)
+
+    monkeypatch.setattr("src.web.app._resolve_db_path_from_run_or_workflow", _resolve)
+
+    summary_resp = await client.get(f"/api/workflow/{workflow_id}/manuscript-audit/summary")
+    assert summary_resp.status_code == 200
+    summary_payload = summary_resp.json()
+    assert summary_payload["workflow_id"] == workflow_id
+    assert summary_payload["latest_run"]["audit_run_id"] == "audit-001"
+    assert isinstance(summary_payload["history"], list)
+    assert summary_payload["history"][0]["selected_profiles"] == ["general_systematic_review"]
+
+    findings_resp = await client.get(f"/api/workflow/{workflow_id}/manuscript-audit/findings")
+    assert findings_resp.status_code == 200
+    findings_payload = findings_resp.json()
+    assert findings_payload["audit_run_id"] == "audit-001"
+    assert len(findings_payload["findings"]) == 1
+    assert findings_payload["findings"][0]["owner_module"] == "writing"
+
+
+@pytest.mark.asyncio
+async def test_workflow_manuscript_audit_findings_returns_empty_for_unknown_or_wrong_scope(
+    client: httpx.AsyncClient,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workflow_id = "wf-audit-empty"
+    run_dir = tmp_path / "2026-03-17" / "wf-audit-empty-topic" / "run_01-00-00PM"
+    db_path = run_dir / "runtime.db"
+    run_dir.mkdir(parents=True, exist_ok=True)
+    async with get_db(str(db_path)) as db:
+        await db.execute(
+            "INSERT INTO workflows (workflow_id, topic, config_hash, status) VALUES (?, ?, ?, ?)",
+            (workflow_id, "Topic", "hash", "completed"),
+        )
+        await db.execute(
+            """
+            INSERT INTO manuscript_audit_runs (
+                audit_run_id, workflow_id, mode, verdict, passed, selected_profiles_json, summary
+            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "audit-other",
+                "wf-different",
+                "observe",
+                "accept",
+                1,
+                "[]",
+                "other workflow run",
+            ),
+        )
+        await db.commit()
+
+    async def _resolve(_identifier: str, _run_root: str = "runs") -> str:
+        return str(db_path)
+
+    monkeypatch.setattr("src.web.app._resolve_db_path_from_run_or_workflow", _resolve)
+
+    latest_resp = await client.get(f"/api/workflow/{workflow_id}/manuscript-audit/findings")
+    assert latest_resp.status_code == 200
+    latest_payload = latest_resp.json()
+    assert latest_payload == {"workflow_id": workflow_id, "audit_run_id": None, "findings": []}
+
+    scoped_resp = await client.get(f"/api/workflow/{workflow_id}/manuscript-audit/findings?audit_run_id=audit-other")
+    assert scoped_resp.status_code == 200
+    scoped_payload = scoped_resp.json()
+    assert scoped_payload == {"workflow_id": workflow_id, "audit_run_id": None, "findings": []}
+
+
+@pytest.mark.asyncio
+async def test_run_manuscript_audit_endpoint_returns_empty_payload_when_no_audit_data(
+    client: httpx.AsyncClient,
+    tmp_path: Path,
+) -> None:
+    run_id = "run-audit-empty"
+    workflow_id = "wf-audit-empty-run"
+    run_dir = tmp_path / "2026-03-17" / "wf-audit-empty-run-topic" / "run_01-00-00PM"
+    db_path = run_dir / "runtime.db"
+    run_dir.mkdir(parents=True, exist_ok=True)
+
+    async with get_db(str(db_path)) as db:
+        await db.execute(
+            "INSERT INTO workflows (workflow_id, topic, config_hash, status) VALUES (?, ?, ?, ?)",
+            (workflow_id, "Topic", "hash", "completed"),
+        )
+        await db.commit()
+
+    record = _RunRecord(run_id, "Topic")
+    record.db_path = str(db_path)
+    record.workflow_id = workflow_id
+    record.done = True
+    _active_runs[run_id] = record
+    try:
+        response = await client.get(f"/api/run/{run_id}/manuscript-audit")
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["run_id"] == run_id
+        assert payload["workflow_id"] == workflow_id
+        assert payload["latest_run"] is None
+        assert payload["history"] == []
+        assert payload["findings"] == []
+    finally:
+        _active_runs.pop(run_id, None)
+
+
+@pytest.mark.asyncio
+async def test_workflow_manuscript_audit_endpoints_graceful_when_audit_tables_missing(
+    client: httpx.AsyncClient,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workflow_id = "wf-audit-legacy"
+    run_dir = tmp_path / "2026-03-17" / "wf-audit-legacy-topic" / "run_01-00-00PM"
+    db_path = run_dir / "runtime.db"
+    run_dir.mkdir(parents=True, exist_ok=True)
+    async with aiosqlite.connect(str(db_path)) as db:
+        await db.execute(
+            """
+            CREATE TABLE workflows (
+                workflow_id TEXT PRIMARY KEY,
+                topic TEXT NOT NULL,
+                config_hash TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'running',
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+            """
+        )
+        await db.execute(
+            "INSERT INTO workflows (workflow_id, topic, config_hash, status) VALUES (?, ?, ?, ?)",
+            (workflow_id, "Topic", "hash", "completed"),
+        )
+        await db.commit()
+
+    async def _resolve(_identifier: str, _run_root: str = "runs") -> str:
+        return str(db_path)
+
+    monkeypatch.setattr("src.web.app._resolve_db_path_from_run_or_workflow", _resolve)
+
+    summary_resp = await client.get(f"/api/workflow/{workflow_id}/manuscript-audit/summary")
+    assert summary_resp.status_code == 200
+    assert summary_resp.json() == {"workflow_id": workflow_id, "latest_run": None, "history": []}
+
+    findings_resp = await client.get(f"/api/workflow/{workflow_id}/manuscript-audit/findings")
+    assert findings_resp.status_code == 200
+    assert findings_resp.json() == {"workflow_id": workflow_id, "audit_run_id": None, "findings": []}
+
+
+@pytest.mark.asyncio
+async def test_run_manuscript_audit_endpoint_graceful_when_audit_tables_missing(
+    client: httpx.AsyncClient,
+    tmp_path: Path,
+) -> None:
+    run_id = "run-audit-legacy"
+    workflow_id = "wf-audit-legacy-run"
+    run_dir = tmp_path / "2026-03-17" / "wf-audit-legacy-run-topic" / "run_01-00-00PM"
+    db_path = run_dir / "runtime.db"
+    run_dir.mkdir(parents=True, exist_ok=True)
+    async with aiosqlite.connect(str(db_path)) as db:
+        await db.execute(
+            """
+            CREATE TABLE workflows (
+                workflow_id TEXT PRIMARY KEY,
+                topic TEXT NOT NULL,
+                config_hash TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'running',
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+            """
+        )
+        await db.execute(
+            "INSERT INTO workflows (workflow_id, topic, config_hash, status) VALUES (?, ?, ?, ?)",
+            (workflow_id, "Topic", "hash", "completed"),
+        )
+        await db.commit()
+
+    record = _RunRecord(run_id, "Topic")
+    record.db_path = str(db_path)
+    record.workflow_id = workflow_id
+    record.done = True
+    _active_runs[run_id] = record
+    try:
+        response = await client.get(f"/api/run/{run_id}/manuscript-audit")
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["run_id"] == run_id
+        assert payload["workflow_id"] == workflow_id
+        assert payload["latest_run"] is None
+        assert payload["history"] == []
+        assert payload["findings"] == []
     finally:
         _active_runs.pop(run_id, None)

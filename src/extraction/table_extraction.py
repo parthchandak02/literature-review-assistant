@@ -10,8 +10,6 @@ Full-text retrieval uses a tiered resolver (Unpaywall first, then publisher APIs
 Table extraction uses Gemini vision to parse quantitative outcome data from PDF
 bytes returned by Unpaywall. Falls back gracefully if no PDF is available or
 the API call fails.
-
-Every LLM call is the caller's responsibility for cost tracking.
 """
 
 from __future__ import annotations
@@ -21,12 +19,16 @@ import json
 import logging
 import os
 import re
+import time
 from dataclasses import dataclass
 from html.parser import HTMLParser
 from urllib.parse import parse_qsl, quote, urlencode, urljoin, urlparse, urlunparse
 
 import aiohttp
 
+from src.db.repositories import WorkflowRepository
+from src.llm.provider import LLMProvider
+from src.models import CostRecord
 from src.models.extraction import OutcomeRecord
 from src.utils.ssl_context import tcp_connector_with_certifi
 
@@ -1861,6 +1863,8 @@ def _parse_table_json(raw: str) -> list[dict[str, str]]:
 async def extract_tables_from_pdf(
     pdf_bytes: bytes | None,
     model_name: str | None = None,
+    repository: WorkflowRepository | None = None,
+    workflow_id: str = "",
 ) -> list[OutcomeRecord]:
     """Extract quantitative outcome tables from PDF bytes via PydanticAI multimodal.
 
@@ -1897,12 +1901,40 @@ async def extract_tables_from_pdf(
             full_model = model_name
 
     try:
+        t0 = time.monotonic()
         agent: Agent[None, str] = Agent(full_model, output_type=str)
         pdf_part = BinaryContent(data=pdf_bytes, media_type="application/pdf")
         result = await agent.run(
             [pdf_part, _TABLE_EXTRACTION_PROMPT],
             model_settings=ModelSettings(temperature=0.1),
         )
+        elapsed_ms = int((time.monotonic() - t0) * 1000)
+
+        if repository is not None and workflow_id:
+            usage = result.usage()
+            tokens_in = int(usage.input_tokens or 0)
+            tokens_out = int(usage.output_tokens or 0)
+            cache_write_tokens = int(usage.cache_write_tokens or 0)
+            cache_read_tokens = int(usage.cache_read_tokens or 0)
+            await repository.save_cost_record(
+                CostRecord(
+                    workflow_id=workflow_id,
+                    model=full_model,
+                    phase="phase_4_pdf_vision_table_extraction",
+                    tokens_in=tokens_in,
+                    tokens_out=tokens_out,
+                    cost_usd=LLMProvider.estimate_cost_usd(
+                        model=full_model,
+                        tokens_in=tokens_in,
+                        tokens_out=tokens_out,
+                        cache_write=cache_write_tokens,
+                        cache_read=cache_read_tokens,
+                    ),
+                    latency_ms=elapsed_ms,
+                    cache_read_tokens=cache_read_tokens,
+                    cache_write_tokens=cache_write_tokens,
+                )
+            )
         raw_dicts = _parse_table_json(result.output)
         return [OutcomeRecord(**{k: v for k, v in d.items() if k in OutcomeRecord.model_fields}) for d in raw_dicts]
     except json.JSONDecodeError as exc:

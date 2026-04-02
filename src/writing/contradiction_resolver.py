@@ -11,7 +11,12 @@ from __future__ import annotations
 
 import logging
 import os
+import time
+from dataclasses import dataclass
 
+from src.db.repositories import WorkflowRepository
+from src.llm.provider import LLMProvider
+from src.models import CostRecord
 from src.synthesis.contradiction_detector import ContradictionFlag
 
 logger = logging.getLogger(__name__)
@@ -56,28 +61,70 @@ def _format_contradiction_list(flags: list[ContradictionFlag]) -> str:
     return "\n".join(lines)
 
 
-def _generate_paragraph_sync(flags: list[ContradictionFlag], model_name: str, api_key: str) -> str:
+@dataclass
+class _ResolverCallResult:
+    paragraph: str
+    tokens_in: int
+    tokens_out: int
+    latency_ms: int
+
+
+def _generate_paragraph_sync(
+    flags: list[ContradictionFlag],
+    model_name: str,
+    api_key: str,
+) -> _ResolverCallResult:
     try:
         import google.generativeai as genai  # type: ignore[import-untyped]
     except ImportError:
-        return _fallback_paragraph(flags)
+        return _ResolverCallResult(
+            paragraph=_fallback_paragraph(flags),
+            tokens_in=0,
+            tokens_out=0,
+            latency_ms=0,
+        )
 
     if not api_key:
-        return _fallback_paragraph(flags)
+        return _ResolverCallResult(
+            paragraph=_fallback_paragraph(flags),
+            tokens_in=0,
+            tokens_out=0,
+            latency_ms=0,
+        )
 
     genai.configure(api_key=api_key)
     prompt = _RESOLVER_PROMPT_TEMPLATE.format(contradiction_list=_format_contradiction_list(flags))
 
     try:
+        started = time.perf_counter()
         model = genai.GenerativeModel(model_name)
         response = model.generate_content(prompt)
+        latency_ms = int((time.perf_counter() - started) * 1000)
+        usage = getattr(response, "usage_metadata", None)
+        tokens_in = int(getattr(usage, "prompt_token_count", 0) or 0)
+        tokens_out = int(getattr(usage, "candidates_token_count", 0) or 0)
         text = response.text.strip()
         if len(text) < 50:
-            return _fallback_paragraph(flags)
-        return text
+            return _ResolverCallResult(
+                paragraph=_fallback_paragraph(flags),
+                tokens_in=tokens_in,
+                tokens_out=tokens_out,
+                latency_ms=latency_ms,
+            )
+        return _ResolverCallResult(
+            paragraph=text,
+            tokens_in=tokens_in,
+            tokens_out=tokens_out,
+            latency_ms=latency_ms,
+        )
     except Exception as exc:
         logger.warning("Contradiction resolver LLM call failed: %s", exc)
-        return _fallback_paragraph(flags)
+        return _ResolverCallResult(
+            paragraph=_fallback_paragraph(flags),
+            tokens_in=0,
+            tokens_out=0,
+            latency_ms=0,
+        )
 
 
 def _fallback_paragraph(flags: list[ContradictionFlag]) -> str:
@@ -97,6 +144,8 @@ async def generate_contradiction_paragraph(
     flags: list[ContradictionFlag],
     model_name: str | None = None,
     api_key: str | None = None,
+    repository: WorkflowRepository | None = None,
+    workflow_id: str = "",
 ) -> str:
     """Generate a Discussion paragraph addressing contradictions.
 
@@ -113,7 +162,25 @@ async def generate_contradiction_paragraph(
     import asyncio
 
     loop = asyncio.get_event_loop()
-    return await loop.run_in_executor(None, _generate_paragraph_sync, flags, raw_model, key)
+    result = await loop.run_in_executor(None, _generate_paragraph_sync, flags, raw_model, key)
+
+    if repository is not None and workflow_id:
+        await repository.save_cost_record(
+            CostRecord(
+                workflow_id=workflow_id,
+                model=model_name,
+                phase="writing_contradiction_resolver",
+                tokens_in=result.tokens_in,
+                tokens_out=result.tokens_out,
+                cost_usd=LLMProvider.estimate_cost_usd(
+                    model=model_name,
+                    tokens_in=result.tokens_in,
+                    tokens_out=result.tokens_out,
+                ),
+                latency_ms=result.latency_ms,
+            )
+        )
+    return result.paragraph
 
 
 def build_conflicting_evidence_section(

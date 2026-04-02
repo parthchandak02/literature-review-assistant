@@ -16,9 +16,13 @@ import json
 import logging
 import os
 import re
+import time
 from dataclasses import dataclass
 
 import aiosqlite
+from src.db.repositories import WorkflowRepository
+from src.llm.provider import LLMProvider
+from src.models import CostRecord
 
 logger = logging.getLogger(__name__)
 
@@ -78,6 +82,14 @@ class LearnedCriterion:
     version: int = 1
 
 
+@dataclass
+class _RefinementCallResult:
+    criteria: list[LearnedCriterion]
+    tokens_in: int
+    tokens_out: int
+    latency_ms: int
+
+
 def _sanitize_criterion(text: str) -> str:
     """Strip prompt injection patterns and enforce length limit."""
     cleaned = _INJECTION_PATTERNS.sub("[REMOVED]", text)
@@ -105,22 +117,27 @@ def _call_refinement_llm_sync(
     papers: dict[str, str],
     model_name: str,
     api_key: str,
-) -> list[LearnedCriterion]:
+) -> _RefinementCallResult:
     """Synchronous LLM call for criteria refinement."""
     try:
         import google.generativeai as genai  # type: ignore[import-untyped]
     except ImportError:
-        return []
+        return _RefinementCallResult(criteria=[], tokens_in=0, tokens_out=0, latency_ms=0)
 
     if not api_key:
-        return []
+        return _RefinementCallResult(criteria=[], tokens_in=0, tokens_out=0, latency_ms=0)
 
     genai.configure(api_key=api_key)
     prompt = _REFINEMENT_PROMPT_TEMPLATE.format(corrections=_format_corrections_for_prompt(corrections, papers))
 
     try:
+        started = time.perf_counter()
         model = genai.GenerativeModel(model_name)
         response = model.generate_content(prompt)
+        latency_ms = int((time.perf_counter() - started) * 1000)
+        usage = getattr(response, "usage_metadata", None)
+        tokens_in = int(getattr(usage, "prompt_token_count", 0) or 0)
+        tokens_out = int(getattr(usage, "candidates_token_count", 0) or 0)
         raw = response.text.strip()
         if raw.startswith("```"):
             raw = raw.split("```")[1]
@@ -128,7 +145,7 @@ def _call_refinement_llm_sync(
                 raw = raw[4:]
         data = json.loads(raw)
         if not isinstance(data, list):
-            return []
+            return _RefinementCallResult(criteria=[], tokens_in=tokens_in, tokens_out=tokens_out, latency_ms=latency_ms)
 
         source_ids = [c.paper_id for c in corrections]
         results: list[LearnedCriterion] = []
@@ -146,11 +163,16 @@ def _call_refinement_llm_sync(
                     source_paper_ids=source_ids,
                 )
             )
-        return results
+        return _RefinementCallResult(
+            criteria=results,
+            tokens_in=tokens_in,
+            tokens_out=tokens_out,
+            latency_ms=latency_ms,
+        )
 
     except (json.JSONDecodeError, Exception) as exc:
         logger.warning("Criteria refinement LLM failed: %s", exc)
-        return []
+        return _RefinementCallResult(criteria=[], tokens_in=0, tokens_out=0, latency_ms=0)
 
 
 async def refine_criteria_from_corrections(
@@ -158,6 +180,8 @@ async def refine_criteria_from_corrections(
     papers: dict[str, str],
     model_name: str | None = None,
     api_key: str | None = None,
+    repository: WorkflowRepository | None = None,
+    workflow_id: str = "",
 ) -> list[LearnedCriterion]:
     """Generate refined screening criteria from human corrections.
 
@@ -181,7 +205,25 @@ async def refine_criteria_from_corrections(
     import asyncio
 
     loop = asyncio.get_event_loop()
-    return await loop.run_in_executor(None, _call_refinement_llm_sync, corrections, papers, raw_model, key)
+    result = await loop.run_in_executor(None, _call_refinement_llm_sync, corrections, papers, raw_model, key)
+
+    if repository is not None and workflow_id:
+        await repository.save_cost_record(
+            CostRecord(
+                workflow_id=workflow_id,
+                model=model_name,
+                phase="criteria_refinement",
+                tokens_in=result.tokens_in,
+                tokens_out=result.tokens_out,
+                cost_usd=LLMProvider.estimate_cost_usd(
+                    model=model_name,
+                    tokens_in=result.tokens_in,
+                    tokens_out=result.tokens_out,
+                ),
+                latency_ms=result.latency_ms,
+            )
+        )
+    return result.criteria
 
 
 async def save_corrections(
