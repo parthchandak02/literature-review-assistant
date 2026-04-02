@@ -14,7 +14,7 @@ You operate as a SINGLE-PASS auditor. You read artifacts, run checks, and produc
 
 Read these files (in parallel where possible):
 
-1. `.cursor/rules/core/project-overview-always.mdc` -- directory map, critical constraints, "Fix Processes Not Individual Runs" principle
+1. `.cursor/rules/core/project-overview-always.mdc` -- canonical paths; fix process code in `src/`, never patch artifacts under `runs/`
 2. `config/review.yaml` -- topic, PICO, databases, date range
 3. `config/settings.yaml` -- model tiers, thresholds
 

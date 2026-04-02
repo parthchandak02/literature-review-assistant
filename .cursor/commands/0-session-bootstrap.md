@@ -14,9 +14,9 @@ than any single doc:
 
 - `spec.md` -- full technical specification (all 8 phases, acceptance criteria, implementation status)
 - `README.md` -- quick-start, production URLs, PM2 process names
-- `.cursor/rules/core/project-overview-always.mdc` -- maps every directory; ALWAYS-ON so it loads automatically.
-  Pay special attention to the **"Fix Processes, Not Individual Runs"** section -- the most important
-  engineering constraint in this codebase. Never manually edit files under `runs/`.
+- `.cursor/rules/core/project-overview-always.mdc` -- canonical paths and ALWAYS-ON invariants. The top
+  engineering constraint is: fix process code in `src/`, never patch artifacts under `runs/`.
+  Never manually edit files under `runs/` to paper over pipeline bugs.
 - `.cursor/rules/core/gotchas-agent.mdc` -- operational gotchas (PRISMA, run directories, frontend builds,
   runtime quirks, and known pipeline bug fix locations). Check before assuming any behavior that "should work but doesn't."
 
@@ -108,7 +108,7 @@ cd frontend && pnpm fix && pnpm typecheck
 
 - [ ] Read spec.md and README.md
 - [ ] Read .cursor/rules/core/project-overview-always.mdc and gotchas-agent.mdc
-- [ ] Understood the "Fix Processes, Not Individual Runs" principle from project-overview-always.mdc
+- [ ] Understood the src/-only fix / no `runs/` patches principle from project-overview-always.mdc
 - [ ] Reviewed last 5 commit messages and touched files
 - [ ] Noted any uncommitted changes in git status
 - [ ] Selected a workflow ID and ran quick replay validation (or explicitly deferred for non-pipeline task)
