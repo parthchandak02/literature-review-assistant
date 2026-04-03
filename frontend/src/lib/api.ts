@@ -1141,6 +1141,14 @@ export interface ManuscriptAuditFinding {
   created_at: string
 }
 
+export interface ManuscriptContractViolation {
+  code: string
+  severity: string
+  message: string
+  expected: string | null
+  actual: string | null
+}
+
 export interface ManuscriptAuditRun {
   audit_run_id: string
   workflow_id?: string
@@ -1154,6 +1162,12 @@ export interface ManuscriptAuditRun {
   minor_count: number
   note_count: number
   blocking_count: number
+  contract_mode: string
+  contract_passed: boolean
+  contract_violation_count: number
+  contract_violations: ManuscriptContractViolation[]
+  gate_blocked: boolean
+  gate_failure_reasons: string[]
   total_cost_usd: number
   created_at: string
 }
@@ -1170,6 +1184,34 @@ export async function fetchManuscriptAudit(runId: string): Promise<ManuscriptAud
   const res = await fetch(`${BASE}/run/${runId}/manuscript-audit`)
   if (!res.ok) throw await _apiError(res, "Manuscript audit fetch failed")
   return res.json() as Promise<ManuscriptAuditPayload>
+}
+
+export interface WorkflowManuscriptAuditSummary {
+  workflow_id: string
+  latest_run: ManuscriptAuditRun | null
+  history: ManuscriptAuditRun[]
+}
+
+export interface WorkflowManuscriptAuditFindings {
+  workflow_id: string
+  audit_run_id: string | null
+  findings: ManuscriptAuditFinding[]
+}
+
+export async function fetchWorkflowManuscriptAuditSummary(workflowId: string): Promise<WorkflowManuscriptAuditSummary> {
+  const res = await fetch(`${BASE}/workflow/${workflowId}/manuscript-audit/summary`)
+  if (!res.ok) throw await _apiError(res, "Manuscript audit summary fetch failed")
+  return res.json() as Promise<WorkflowManuscriptAuditSummary>
+}
+
+export async function fetchWorkflowManuscriptAuditFindings(
+  workflowId: string,
+  auditRunId?: string | null,
+): Promise<WorkflowManuscriptAuditFindings> {
+  const suffix = auditRunId ? `?audit_run_id=${encodeURIComponent(auditRunId)}` : ""
+  const res = await fetch(`${BASE}/workflow/${workflowId}/manuscript-audit/findings${suffix}`)
+  if (!res.ok) throw await _apiError(res, "Manuscript audit findings fetch failed")
+  return res.json() as Promise<WorkflowManuscriptAuditFindings>
 }
 
 // History endpoints

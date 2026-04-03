@@ -2063,13 +2063,15 @@ async def test_workflow_manuscript_audit_endpoints_return_expected_shapes(
             """
             INSERT INTO manuscript_audit_runs (
                 audit_run_id, workflow_id, mode, verdict, passed, selected_profiles_json, summary,
-                total_findings, major_count, minor_count, note_count, blocking_count, total_cost_usd
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                total_findings, major_count, minor_count, note_count, blocking_count,
+                contract_mode, contract_passed, contract_violation_count, contract_violations_json,
+                gate_blocked, gate_failure_reasons_json, total_cost_usd
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 "audit-001",
                 workflow_id,
-                "observe",
+                "strict",
                 "minor_revisions",
                 1,
                 json.dumps(["general_systematic_review"]),
@@ -2079,6 +2081,29 @@ async def test_workflow_manuscript_audit_endpoints_return_expected_shapes(
                 1,
                 0,
                 0,
+                "strict",
+                0,
+                1,
+                json.dumps(
+                    [
+                        {
+                            "code": "PLACEHOLDER_LEAK",
+                            "severity": "error",
+                            "message": "placeholder leaked",
+                            "expected": None,
+                            "actual": None,
+                        },
+                        {
+                            "code": "UNRESOLVED_CITATIONS",
+                            "severity": "error",
+                            "message": "citations unresolved",
+                            "expected": None,
+                            "actual": None,
+                        }
+                    ]
+                ),
+                1,
+                json.dumps(["contract gate failed in mode=strict with 1 violation(s)"]),
                 0.031,
             ),
         )
@@ -2117,6 +2142,8 @@ async def test_workflow_manuscript_audit_endpoints_return_expected_shapes(
     assert summary_payload["latest_run"]["audit_run_id"] == "audit-001"
     assert isinstance(summary_payload["history"], list)
     assert summary_payload["history"][0]["selected_profiles"] == ["general_systematic_review"]
+    assert summary_payload["history"][0]["contract_passed"] is False
+    assert summary_payload["history"][0]["gate_blocked"] is True
 
     findings_resp = await client.get(f"/api/workflow/{workflow_id}/manuscript-audit/findings")
     assert findings_resp.status_code == 200
@@ -2207,6 +2234,177 @@ async def test_run_manuscript_audit_endpoint_returns_empty_payload_when_no_audit
         assert payload["latest_run"] is None
         assert payload["history"] == []
         assert payload["findings"] == []
+    finally:
+        _active_runs.pop(run_id, None)
+
+
+@pytest.mark.asyncio
+async def test_run_manuscript_audit_endpoint_exposes_gate_metadata(
+    client: httpx.AsyncClient,
+    tmp_path: Path,
+) -> None:
+    run_id = "run-audit-gated"
+    workflow_id = "wf-audit-gated"
+    run_dir = tmp_path / "2026-03-17" / "wf-audit-gated-topic" / "run_01-00-00PM"
+    db_path = run_dir / "runtime.db"
+    run_dir.mkdir(parents=True, exist_ok=True)
+
+    async with get_db(str(db_path)) as db:
+        await db.execute(
+            "INSERT INTO workflows (workflow_id, topic, config_hash, status) VALUES (?, ?, ?, ?)",
+            (workflow_id, "Topic", "hash", "failed"),
+        )
+        await db.execute(
+            """
+            INSERT INTO manuscript_audit_runs (
+                audit_run_id, workflow_id, mode, verdict, passed, selected_profiles_json, summary,
+                total_findings, major_count, minor_count, note_count, blocking_count,
+                contract_mode, contract_passed, contract_violation_count, contract_violations_json,
+                gate_blocked, gate_failure_reasons_json, total_cost_usd
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "audit-gated-001",
+                workflow_id,
+                "strict",
+                "reject",
+                0,
+                json.dumps(["general_systematic_review"]),
+                "Gate blocked",
+                2,
+                1,
+                1,
+                0,
+                1,
+                "strict",
+                0,
+                2,
+                json.dumps(
+                    [
+                        {
+                            "code": "PLACEHOLDER_LEAK",
+                            "severity": "error",
+                            "message": "placeholder leaked",
+                            "expected": None,
+                            "actual": None,
+                        }
+                    ]
+                ),
+                1,
+                json.dumps(
+                    [
+                        "contract gate failed in mode=strict with 2 violation(s)",
+                        "audit gate failed in mode=strict (verdict=reject, blocking=1)",
+                    ]
+                ),
+                0.07,
+            ),
+        )
+        await db.execute(
+            """
+            INSERT INTO manuscript_audit_findings (
+                audit_run_id, workflow_id, finding_id, profile, severity, category, section, evidence,
+                recommendation, owner_module, blocking
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "audit-gated-001",
+                workflow_id,
+                "general_systematic_review-1",
+                "general_systematic_review",
+                "major",
+                "integrity",
+                "Methods",
+                "Placeholder remained in manuscript",
+                "Remove placeholder and regenerate methods section",
+                "writing",
+                1,
+            ),
+        )
+        await db.commit()
+
+    record = _RunRecord(run_id, "Topic")
+    record.db_path = str(db_path)
+    record.workflow_id = workflow_id
+    record.done = True
+    _active_runs[run_id] = record
+    try:
+        response = await client.get(f"/api/run/{run_id}/manuscript-audit")
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["latest_run"]["contract_mode"] == "strict"
+        assert payload["latest_run"]["contract_passed"] is False
+        assert payload["latest_run"]["contract_violation_count"] == 2
+        assert payload["latest_run"]["gate_blocked"] is True
+        assert len(payload["latest_run"]["gate_failure_reasons"]) == 2
+        assert payload["findings"][0]["blocking"] is True
+    finally:
+        _active_runs.pop(run_id, None)
+
+
+@pytest.mark.asyncio
+async def test_run_manuscript_audit_endpoint_exposes_passed_gate_metadata(
+    client: httpx.AsyncClient,
+    tmp_path: Path,
+) -> None:
+    run_id = "run-audit-passed"
+    workflow_id = "wf-audit-passed"
+    run_dir = tmp_path / "2026-03-17" / "wf-audit-passed-topic" / "run_01-00-00PM"
+    db_path = run_dir / "runtime.db"
+    run_dir.mkdir(parents=True, exist_ok=True)
+
+    async with get_db(str(db_path)) as db:
+        await db.execute(
+            "INSERT INTO workflows (workflow_id, topic, config_hash, status) VALUES (?, ?, ?, ?)",
+            (workflow_id, "Topic", "hash", "completed"),
+        )
+        await db.execute(
+            """
+            INSERT INTO manuscript_audit_runs (
+                audit_run_id, workflow_id, mode, verdict, passed, selected_profiles_json, summary,
+                total_findings, major_count, minor_count, note_count, blocking_count,
+                contract_mode, contract_passed, contract_violation_count, contract_violations_json,
+                gate_blocked, gate_failure_reasons_json, total_cost_usd
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "audit-pass-001",
+                workflow_id,
+                "strict",
+                "accept",
+                1,
+                json.dumps(["general_systematic_review"]),
+                "Gate passed",
+                0,
+                0,
+                0,
+                0,
+                0,
+                "strict",
+                1,
+                0,
+                "[]",
+                0,
+                "[]",
+                0.03,
+            ),
+        )
+        await db.commit()
+
+    record = _RunRecord(run_id, "Topic")
+    record.db_path = str(db_path)
+    record.workflow_id = workflow_id
+    record.done = True
+    _active_runs[run_id] = record
+    try:
+        response = await client.get(f"/api/run/{run_id}/manuscript-audit")
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["latest_run"]["contract_mode"] == "strict"
+        assert payload["latest_run"]["contract_passed"] is True
+        assert payload["latest_run"]["contract_violation_count"] == 0
+        assert payload["latest_run"]["gate_blocked"] is False
+        assert payload["latest_run"]["gate_failure_reasons"] == []
     finally:
         _active_runs.pop(run_id, None)
 

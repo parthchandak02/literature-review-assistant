@@ -476,6 +476,118 @@ async def test_manuscript_contract_does_not_false_flag_large_study_table_count(t
 
 
 @pytest.mark.asyncio
+async def test_manuscript_contract_tolerates_missing_optional_tex_artifact(tmp_path: Path) -> None:
+    db_path = tmp_path / "runtime_missing_tex.db"
+    manuscript_md = tmp_path / "doc_manuscript.md"
+    missing_tex = tmp_path / "doc_manuscript.tex"
+    manuscript_md.write_text(
+        "# Title\n\n## Abstract\n\nShort abstract.\n\n## Methods\n\nMethod text.\n",
+        encoding="utf-8",
+    )
+
+    async with get_db(str(db_path)) as db:
+        repo = WorkflowRepository(db)
+        cite_repo = CitationRepository(db)
+        await db.execute(
+            "INSERT INTO workflows (workflow_id, topic, config_hash, status) VALUES (?, ?, ?, ?)",
+            ("wf-missing-tex", "Topic", "hash", "running"),
+        )
+        await db.commit()
+        result = await run_manuscript_contracts(
+            repository=repo,
+            citation_repository=cite_repo,
+            workflow_id="wf-missing-tex",
+            manuscript_md_path=str(manuscript_md),
+            manuscript_tex_path=str(missing_tex),
+            mode="observe",
+        )
+
+    assert isinstance(result.violations, list)
+
+
+@pytest.mark.asyncio
+async def test_manuscript_contract_missing_tex_still_reports_strict_violations(tmp_path: Path) -> None:
+    db_path = tmp_path / "runtime_missing_tex_strict.db"
+    manuscript_md = tmp_path / "doc_manuscript.md"
+    missing_tex = tmp_path / "doc_manuscript.tex"
+    manuscript_md.write_text(
+        "\n".join(
+            [
+                "## Methods",
+                "### Information Sources The systematic search was conducted in PubMed.",
+                "",
+                "## Results",
+                "We included 2 studies in the final synthesis.",
+                "## References",
+                "[1] Ref",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    async with get_db(str(db_path)) as db:
+        repo = WorkflowRepository(db)
+        cite_repo = CitationRepository(db)
+        await db.execute(
+            "INSERT INTO papers (paper_id, title, authors, source_database) VALUES (?, ?, ?, ?)",
+            ("p1", "Paper 1", '["A"]', "openalex"),
+        )
+        await db.execute(
+            """
+            INSERT INTO study_cohort_membership (
+                workflow_id, paper_id, screening_status, fulltext_status, synthesis_eligibility, source_phase
+            ) VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            ("wf-missing-tex-strict", "p1", "included", "assessed", "included_primary", "phase_4_extraction_quality"),
+        )
+        await db.commit()
+        result = await run_manuscript_contracts(
+            repository=repo,
+            citation_repository=cite_repo,
+            workflow_id="wf-missing-tex-strict",
+            manuscript_md_path=str(manuscript_md),
+            manuscript_tex_path=str(missing_tex),
+            mode="strict",
+        )
+
+    assert not result.passed
+    assert any(v.code == "MALFORMED_SECTION_HEADING" for v in result.violations)
+
+
+@pytest.mark.asyncio
+async def test_manuscript_contract_tolerates_missing_optional_extra_artifacts(tmp_path: Path) -> None:
+    db_path = tmp_path / "runtime_missing_optional_extra.db"
+    manuscript_md = tmp_path / "doc_manuscript.md"
+    manuscript_md.write_text(
+        "# Title\n\n## Abstract\n\nShort abstract.\n\n## Methods\n\nMethod text.\n",
+        encoding="utf-8",
+    )
+    missing_protocol = tmp_path / "doc_protocol.md"
+    missing_prospero = tmp_path / "doc_prospero_registration.md"
+
+    async with get_db(str(db_path)) as db:
+        repo = WorkflowRepository(db)
+        cite_repo = CitationRepository(db)
+        await db.execute(
+            "INSERT INTO workflows (workflow_id, topic, config_hash, status) VALUES (?, ?, ?, ?)",
+            ("wf-missing-extra", "Topic", "hash", "running"),
+        )
+        await db.commit()
+        result = await run_manuscript_contracts(
+            repository=repo,
+            citation_repository=cite_repo,
+            workflow_id="wf-missing-extra",
+            manuscript_md_path=str(manuscript_md),
+            manuscript_tex_path=None,
+            extra_artifact_paths=[str(missing_protocol), str(missing_prospero)],
+            mode="observe",
+        )
+
+    assert isinstance(result.violations, list)
+    assert all(v.code != "ARTIFACT_PLACEHOLDER_LEAK" for v in result.violations)
+
+
+@pytest.mark.asyncio
 async def test_manuscript_contract_detects_malformed_heading_and_count_disclosure_mismatch(tmp_path: Path) -> None:
     db_path = tmp_path / "runtime_contracts.db"
     manuscript_md = tmp_path / "doc_manuscript.md"

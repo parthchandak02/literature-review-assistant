@@ -23,6 +23,8 @@ import { EvidenceNetworkViz } from "@/components/EvidenceNetworkViz"
 import {
   APIResponseError,
   fetchManuscriptAudit,
+  fetchWorkflowManuscriptAuditFindings,
+  fetchWorkflowManuscriptAuditSummary,
   triggerExport,
   fetchPrismaChecklist,
   downloadUrl,
@@ -32,7 +34,12 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { FetchError, EmptyState } from "@/components/ui/feedback"
 import { CollapsibleSection } from "@/components/ui/section"
 import { cn } from "@/lib/utils"
-import type { ManuscriptAuditPayload, PrismaChecklist } from "@/lib/api"
+import type { ManuscriptAuditFinding, ManuscriptAuditPayload, PrismaChecklist } from "@/lib/api"
+import {
+  describeManuscriptContract,
+  describeManuscriptGate,
+  selectManuscriptAuditRun,
+} from "@/lib/manuscriptAudit"
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -440,13 +447,35 @@ function ManuscriptAuditCard({ runId }: { runId: string }) {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [data, setData] = useState<ManuscriptAuditPayload | null>(null)
+  const [findings, setFindings] = useState<ManuscriptAuditFinding[]>([])
+  const [selectedAuditRunId, setSelectedAuditRunId] = useState<string | null>(null)
   const hasFetched = useRef(false)
 
   const load = useCallback(async () => {
     setLoading(true)
     setError(null)
     try {
-      setData(await fetchManuscriptAudit(runId))
+      const payload = await fetchManuscriptAudit(runId)
+      let nextPayload = payload
+      let nextFindings = payload.findings
+      let nextSelectedAuditRunId = payload.latest_run?.audit_run_id ?? null
+      if (payload.workflow_id) {
+        const summary = await fetchWorkflowManuscriptAuditSummary(payload.workflow_id)
+        nextPayload = {
+          ...payload,
+          latest_run: summary.latest_run,
+          history: summary.history,
+        }
+        nextSelectedAuditRunId = summary.latest_run?.audit_run_id ?? nextSelectedAuditRunId
+        const findingsPayload = await fetchWorkflowManuscriptAuditFindings(
+          payload.workflow_id,
+          nextSelectedAuditRunId,
+        )
+        nextFindings = findingsPayload.findings
+      }
+      setSelectedAuditRunId(nextSelectedAuditRunId)
+      setFindings(nextFindings)
+      setData(nextPayload)
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
     } finally {
@@ -454,9 +483,24 @@ function ManuscriptAuditCard({ runId }: { runId: string }) {
     }
   }, [runId])
 
+  const loadSelectedFindings = useCallback(async (workflowId: string, auditRunId: string | null) => {
+    setLoading(true)
+    setError(null)
+    try {
+      const payload = await fetchWorkflowManuscriptAuditFindings(workflowId, auditRunId)
+      setFindings(payload.findings)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setLoading(false)
+    }
+  }, [])
+
   useEffect(() => {
     hasFetched.current = false
     setData(null)
+    setFindings([])
+    setSelectedAuditRunId(null)
     setError(null)
   }, [runId])
 
@@ -469,7 +513,14 @@ function ManuscriptAuditCard({ runId }: { runId: string }) {
   }
 
   const latest = data?.latest_run ?? null
-  const findings = data?.findings ?? []
+  const history = data?.history ?? []
+  const selectedRun = selectManuscriptAuditRun(latest, history, selectedAuditRunId)
+
+  useEffect(() => {
+    if (!open || !hasFetched.current || !data?.workflow_id || !selectedAuditRunId) return
+    if (selectedAuditRunId === latest?.audit_run_id) return
+    void loadSelectedFindings(data.workflow_id, selectedAuditRunId)
+  }, [data?.workflow_id, latest?.audit_run_id, loadSelectedFindings, open, selectedAuditRunId])
 
   return (
     <CollapsibleSection
@@ -478,14 +529,14 @@ function ManuscriptAuditCard({ runId }: { runId: string }) {
       open={open}
       onToggle={handleToggle}
       badge={
-        latest ? (
+        selectedRun ? (
           <span className={cn(
             "text-[10px] font-mono px-1.5 py-0.5 rounded border shrink-0",
-            latest.passed
+            selectedRun.passed && !selectedRun.gate_blocked
               ? "text-emerald-400 border-emerald-800 bg-emerald-900/20"
               : "text-amber-400 border-amber-800 bg-amber-900/20",
           )}>
-            {latest.verdict}
+            {selectedRun.verdict}
           </span>
         ) : null
       }
@@ -506,17 +557,53 @@ function ManuscriptAuditCard({ runId }: { runId: string }) {
             className="py-6"
           />
         )}
-        {latest && (
+        {selectedRun && (
           <>
+            <div className="flex items-center gap-2 flex-wrap">
+              {history.map((run) => (
+                <button
+                  key={run.audit_run_id}
+                  type="button"
+                  className={cn(
+                    "text-[10px] font-mono px-2 py-1 rounded border",
+                    selectedAuditRunId === run.audit_run_id
+                      ? "border-violet-700 bg-violet-900/30 text-violet-200"
+                      : "border-zinc-800 bg-zinc-900/40 text-zinc-400 hover:text-zinc-200",
+                  )}
+                  onClick={() => {
+                    setSelectedAuditRunId(run.audit_run_id)
+                    if (data?.workflow_id) void loadSelectedFindings(data.workflow_id, run.audit_run_id)
+                  }}
+                >
+                  {run.audit_run_id}
+                </button>
+              ))}
+            </div>
             <div className="text-xs text-zinc-400">
-              <span className="text-zinc-300 font-medium">Summary:</span> {latest.summary || "No summary."}
+              <span className="text-zinc-300 font-medium">Summary:</span> {selectedRun.summary || "No summary."}
             </div>
             <div className="flex items-center gap-3 text-xs flex-wrap p-3 rounded-lg glass-panel">
-              <span className="text-zinc-300">Findings: {latest.total_findings}</span>
-              <span className="text-red-400">Major: {latest.major_count}</span>
-              <span className="text-amber-400">Minor: {latest.minor_count}</span>
-              <span className="text-zinc-400">Notes: {latest.note_count}</span>
-              <span className="text-violet-400">Blocking: {latest.blocking_count}</span>
+              <span className="text-zinc-300">Findings: {selectedRun.total_findings}</span>
+              <span className="text-red-400">Major: {selectedRun.major_count}</span>
+              <span className="text-amber-400">Minor: {selectedRun.minor_count}</span>
+              <span className="text-zinc-400">Notes: {selectedRun.note_count}</span>
+              <span className="text-violet-400">Blocking: {selectedRun.blocking_count}</span>
+            </div>
+            <div className="text-xs rounded-lg px-3 py-2 bg-zinc-900/50 border border-zinc-800 space-y-1">
+              <div className="text-zinc-200">{describeManuscriptGate(selectedRun)}</div>
+              <div className="text-zinc-400">{describeManuscriptContract(selectedRun)}</div>
+              {selectedRun.gate_failure_reasons.length > 0 && (
+                <div className="space-y-1 pt-1">
+                  {selectedRun.gate_failure_reasons.map((reason) => (
+                    <div key={reason} className="text-amber-300">{reason}</div>
+                  ))}
+                </div>
+              )}
+              {selectedRun.contract_violations.slice(0, 5).map((violation) => (
+                <div key={`${violation.code}-${violation.message}`} className="text-zinc-500">
+                  {violation.code}: {violation.message}
+                </div>
+              ))}
             </div>
             <div className="space-y-1">
               {findings.slice(0, 20).map((f) => (

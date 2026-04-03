@@ -1,13 +1,12 @@
 """Cross-artifact manuscript integrity contracts.
 
-Contracts are deterministic, fast checks that run during FinalizeNode and
-at the /api/run/{run_id}/manuscript-contracts endpoint. They catch
-structural/integrity defects that must never reach the auditor or a
-human reviewer.
+Contracts are deterministic, fast checks that run during manuscript audit,
+finalization, and export. They catch structural/integrity defects that should
+feed gate decisions before release.
 
-The manuscript-auditor agent reads the contract results from
-run_summary.json and only audits what contracts do NOT cover:
-methodology compliance, narrative quality, benchmark comparison.
+The manuscript auditor consumes contract summaries as bounded grounding so the
+LLM focuses on methodology compliance, narrative quality, and benchmark
+comparison rather than rediscovering deterministic defects.
 """
 
 from __future__ import annotations
@@ -38,6 +37,21 @@ class ManuscriptContractResult(BaseModel):
     passed: bool
     mode: str
     violations: list[ContractViolation] = Field(default_factory=list)
+
+
+def _read_optional_utf8_text(path_str: str | None) -> str:
+    """Return file contents for optional artifacts that may not exist yet."""
+    if not path_str:
+        return ""
+    path = Path(path_str)
+    if not path.is_file():
+        return ""
+    try:
+        return path.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        return ""
+    except IsADirectoryError:
+        return ""
 
 
 def _extract_table_row_count(md_text: str) -> int | None:
@@ -671,7 +685,7 @@ async def run_manuscript_contracts(
     """Validate manuscript integrity invariants across DB and artifacts."""
     violations: list[ContractViolation] = []
     md_text = Path(manuscript_md_path).read_text(encoding="utf-8")
-    tex_text = Path(manuscript_tex_path).read_text(encoding="utf-8") if manuscript_tex_path else ""
+    tex_text = _read_optional_utf8_text(manuscript_tex_path)
 
     synthesis_ids = await repository.get_synthesis_included_paper_ids(workflow_id)
     if not synthesis_ids:

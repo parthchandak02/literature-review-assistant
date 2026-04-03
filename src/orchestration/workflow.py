@@ -4672,6 +4672,24 @@ class WritingNode(BaseNode[ReviewState]):
         return ManuscriptAuditNode()
 
 
+def _collect_manuscript_gate_failure_reasons(
+    contract_result: "ManuscriptContractResult",
+    audit_result: "ManuscriptAuditResult",
+) -> list[str]:
+    reasons: list[str] = []
+    if not contract_result.passed:
+        reasons.append(
+            f"contract gate failed in mode={contract_result.mode} "
+            f"with {len(contract_result.violations)} violation(s)"
+        )
+    if not audit_result.passed:
+        reasons.append(
+            f"audit gate failed in mode={audit_result.mode} "
+            f"(verdict={audit_result.verdict}, blocking={audit_result.blocking_count})"
+        )
+    return reasons
+
+
 class ManuscriptAuditNode(BaseNode[ReviewState]):
     """Run bounded profile-based manuscript audit before finalize."""
 
@@ -4696,23 +4714,27 @@ class ManuscriptAuditNode(BaseNode[ReviewState]):
             return FinalizeNode()
 
         mode = str(getattr(state.settings.gates, "manuscript_audit_mode", "observe"))
+        contract_mode = str(getattr(state.settings.gates, "manuscript_contract_mode", "observe"))
+        blocked_checkpoint_status = "partial"
+        blocked_papers_processed = 0
         try:
             manuscript_text = Path(manuscript_path).read_text(encoding="utf-8")
             async with get_db(state.db_path) as db:
                 repository = WorkflowRepository(db)
                 citation_repo = CitationRepository(db)
                 provider = LLMProvider(state.settings, repository)
+                phase7_tex_path = state.artifacts.get("manuscript_tex")
                 contract_result = await run_manuscript_contracts(
                     repository=repository,
                     citation_repository=citation_repo,
                     workflow_id=state.workflow_id,
                     manuscript_md_path=manuscript_path,
-                    manuscript_tex_path=state.artifacts.get("manuscript_tex"),
+                    manuscript_tex_path=phase7_tex_path if phase7_tex_path and os.path.isfile(phase7_tex_path) else None,
                     extra_artifact_paths=[
                         state.artifacts.get("protocol", ""),
                         state.artifacts.get("prospero_form_md", ""),
                     ],
-                    mode="observe",
+                    mode=contract_mode,
                 )
                 contract_summary = {
                     "mode": contract_result.mode,
@@ -4727,12 +4749,66 @@ class ManuscriptAuditNode(BaseNode[ReviewState]):
                     contract_summary_json=serialize_contract_summary(contract_summary),
                     provider=provider,
                 )
-                await repository.save_manuscript_audit(audit_result, findings)
+                gate_failure_reasons = _collect_manuscript_gate_failure_reasons(contract_result, audit_result)
+                gate_blocked = len(gate_failure_reasons) > 0
+                await repository.save_manuscript_audit(
+                    audit_result,
+                    findings,
+                    contract_result=contract_result,
+                    gate_blocked=gate_blocked,
+                    gate_failure_reasons=gate_failure_reasons,
+                )
 
-                if mode in {"soft", "strict"} and not audit_result.passed:
+                if gate_blocked:
+                    blocked_checkpoint_status = "blocked"
+                    blocked_papers_processed = len(findings)
+                    filtered_artifacts = {
+                        k: v for k, v in state.artifacts.items() if k == "run_summary" or os.path.isfile(v)
+                    }
+                    error_message = "; ".join(gate_failure_reasons)
+                    summary = {
+                        "workflow_id": state.workflow_id,
+                        "status": "failed",
+                        "error": error_message,
+                        "gate": "manuscript_audit",
+                        "phase": "phase_7_audit",
+                        "output_dir": state.output_dir,
+                        "artifacts": filtered_artifacts,
+                        "manuscript_contract": contract_summary,
+                        "manuscript_audit": {
+                            **audit_result.model_dump(mode="json"),
+                            "gate_blocked": True,
+                            "gate_failure_reasons": gate_failure_reasons,
+                        },
+                    }
+                    Path(state.artifacts["run_summary"]).write_text(json.dumps(summary, indent=2), encoding="utf-8")
+                    await repository.save_checkpoint(
+                        state.workflow_id,
+                        "phase_7_audit",
+                        papers_processed=blocked_papers_processed,
+                        status=blocked_checkpoint_status,
+                    )
+                    await repository.update_workflow_status(state.workflow_id, "failed")
+                    await update_registry_status(state.run_root, state.workflow_id, "failed")
+                    if rc:
+                        rc.emit_phase_done(
+                            "phase_7_audit",
+                            {
+                                "passed": audit_result.passed,
+                                "verdict": audit_result.verdict,
+                                "findings": audit_result.total_findings,
+                                "blocking": audit_result.blocking_count,
+                                "profiles": list(audit_result.selected_profiles),
+                                "cost_usd": audit_result.total_cost_usd,
+                                "mode": mode,
+                                "contract_mode": contract_mode,
+                                "contract_passed": contract_result.passed,
+                                "gate_blocked": True,
+                                "gate_failure_reasons": gate_failure_reasons,
+                            },
+                        )
                     raise RuntimeError(
-                        f"manuscript audit failed in mode={mode} "
-                        f"(verdict={audit_result.verdict}, blocking={audit_result.blocking_count})"
+                        "manuscript audit gate blocked finalize: " + error_message
                     )
 
                 await repository.save_checkpoint(
@@ -4760,8 +4836,8 @@ class ManuscriptAuditNode(BaseNode[ReviewState]):
                 await WorkflowRepository(db).save_checkpoint(
                     state.workflow_id,
                     "phase_7_audit",
-                    papers_processed=0,
-                    status="partial",
+                    papers_processed=blocked_papers_processed,
+                    status=blocked_checkpoint_status,
                 )
             raise
 

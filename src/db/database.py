@@ -249,6 +249,12 @@ async def run_migrations(db: aiosqlite.Connection) -> None:
             minor_count INTEGER NOT NULL DEFAULT 0,
             note_count INTEGER NOT NULL DEFAULT 0,
             blocking_count INTEGER NOT NULL DEFAULT 0,
+            contract_mode TEXT NOT NULL DEFAULT 'observe',
+            contract_passed INTEGER NOT NULL DEFAULT 1,
+            contract_violation_count INTEGER NOT NULL DEFAULT 0,
+            contract_violations_json TEXT NOT NULL DEFAULT '[]',
+            gate_blocked INTEGER NOT NULL DEFAULT 0,
+            gate_failure_reasons_json TEXT NOT NULL DEFAULT '[]',
             total_cost_usd REAL NOT NULL DEFAULT 0,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         );
@@ -271,6 +277,18 @@ async def run_migrations(db: aiosqlite.Connection) -> None:
             ON manuscript_audit_runs(workflow_id, created_at DESC);
         CREATE INDEX IF NOT EXISTS idx_manuscript_audit_findings_run
             ON manuscript_audit_findings(audit_run_id, id);
+        """,
+    )
+    # 14. Persist contract and gate-block metadata on manuscript audit runs.
+    await _apply(
+        14,
+        """
+        ALTER TABLE manuscript_audit_runs ADD COLUMN contract_mode TEXT NOT NULL DEFAULT 'observe';
+        ALTER TABLE manuscript_audit_runs ADD COLUMN contract_passed INTEGER NOT NULL DEFAULT 1;
+        ALTER TABLE manuscript_audit_runs ADD COLUMN contract_violation_count INTEGER NOT NULL DEFAULT 0;
+        ALTER TABLE manuscript_audit_runs ADD COLUMN contract_violations_json TEXT NOT NULL DEFAULT '[]';
+        ALTER TABLE manuscript_audit_runs ADD COLUMN gate_blocked INTEGER NOT NULL DEFAULT 0;
+        ALTER TABLE manuscript_audit_runs ADD COLUMN gate_failure_reasons_json TEXT NOT NULL DEFAULT '[]';
         """,
     )
     await _validate_schema_contract(db)
@@ -311,7 +329,16 @@ async def _validate_schema_contract(db: aiosqlite.Connection) -> None:
         "manuscript_sections": {"workflow_id", "section_key", "section_order", "version", "content"},
         "manuscript_blocks": {"workflow_id", "section_key", "section_version", "block_order", "block_type", "text"},
         "manuscript_assemblies": {"workflow_id", "assembly_id", "target_format", "content", "manifest_json"},
-        "manuscript_audit_runs": {"audit_run_id", "workflow_id", "mode", "verdict", "passed"},
+        "manuscript_audit_runs": {
+            "audit_run_id",
+            "workflow_id",
+            "mode",
+            "verdict",
+            "passed",
+            "contract_mode",
+            "contract_passed",
+            "gate_blocked",
+        },
         "manuscript_audit_findings": {"audit_run_id", "workflow_id", "finding_id", "severity", "evidence"},
     }
     for table, required_cols in required.items():
