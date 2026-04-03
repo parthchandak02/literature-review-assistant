@@ -257,6 +257,12 @@ CREATE TABLE IF NOT EXISTS manuscript_audit_runs (
     minor_count INTEGER NOT NULL DEFAULT 0,
     note_count INTEGER NOT NULL DEFAULT 0,
     blocking_count INTEGER NOT NULL DEFAULT 0,
+    contract_mode TEXT NOT NULL DEFAULT 'observe',
+    contract_passed INTEGER NOT NULL DEFAULT 1,
+    contract_violation_count INTEGER NOT NULL DEFAULT 0,
+    contract_violations_json TEXT NOT NULL DEFAULT '[]',
+    gate_blocked INTEGER NOT NULL DEFAULT 0,
+    gate_failure_reasons_json TEXT NOT NULL DEFAULT '[]',
     total_cost_usd REAL NOT NULL DEFAULT 0,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );

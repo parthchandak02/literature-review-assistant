@@ -1285,29 +1285,74 @@ class WorkflowRepository:
         self,
         result: ManuscriptAuditResult,
         findings: list[ManuscriptAuditFinding],
+        contract_result: "ManuscriptContractResult | None" = None,
+        gate_blocked: bool = False,
+        gate_failure_reasons: list[str] | None = None,
     ) -> None:
+        contract_payload = contract_result
+        failure_reasons = gate_failure_reasons or []
+        run_columns = await self._table_columns("manuscript_audit_runs")
+        insert_columns = [
+            "audit_run_id",
+            "workflow_id",
+            "mode",
+            "verdict",
+            "passed",
+            "selected_profiles_json",
+            "summary",
+            "total_findings",
+            "major_count",
+            "minor_count",
+            "note_count",
+            "blocking_count",
+        ]
+        insert_values: list[object] = [
+            result.audit_run_id,
+            result.workflow_id,
+            result.mode,
+            result.verdict,
+            1 if result.passed else 0,
+            json.dumps(result.selected_profiles, ensure_ascii=True),
+            result.summary,
+            result.total_findings,
+            result.major_count,
+            result.minor_count,
+            result.note_count,
+            result.blocking_count,
+        ]
+        if "contract_mode" in run_columns:
+            insert_columns.append("contract_mode")
+            insert_values.append(str(contract_payload.mode) if contract_payload is not None else "observe")
+        if "contract_passed" in run_columns:
+            insert_columns.append("contract_passed")
+            insert_values.append(1 if (contract_payload.passed if contract_payload is not None else True) else 0)
+        if "contract_violation_count" in run_columns:
+            insert_columns.append("contract_violation_count")
+            insert_values.append(len(contract_payload.violations) if contract_payload is not None else 0)
+        if "contract_violations_json" in run_columns:
+            insert_columns.append("contract_violations_json")
+            insert_values.append(
+                json.dumps(
+                    [v.model_dump() for v in contract_payload.violations] if contract_payload is not None else [],
+                    ensure_ascii=True,
+                )
+            )
+        if "gate_blocked" in run_columns:
+            insert_columns.append("gate_blocked")
+            insert_values.append(1 if gate_blocked else 0)
+        if "gate_failure_reasons_json" in run_columns:
+            insert_columns.append("gate_failure_reasons_json")
+            insert_values.append(json.dumps(failure_reasons, ensure_ascii=True))
+        insert_columns.append("total_cost_usd")
+        insert_values.append(result.total_cost_usd)
+        placeholders = ", ".join("?" for _ in insert_columns)
         await self.db.execute(
-            """
+            f"""
             INSERT INTO manuscript_audit_runs (
-                audit_run_id, workflow_id, mode, verdict, passed, selected_profiles_json, summary,
-                total_findings, major_count, minor_count, note_count, blocking_count, total_cost_usd
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                {", ".join(insert_columns)}
+            ) VALUES ({placeholders})
             """,
-            (
-                result.audit_run_id,
-                result.workflow_id,
-                result.mode,
-                result.verdict,
-                1 if result.passed else 0,
-                json.dumps(result.selected_profiles, ensure_ascii=True),
-                result.summary,
-                result.total_findings,
-                result.major_count,
-                result.minor_count,
-                result.note_count,
-                result.blocking_count,
-                result.total_cost_usd,
-            ),
+            tuple(insert_values),
         )
         for finding in findings:
             await self.db.execute(
@@ -1333,12 +1378,118 @@ class WorkflowRepository:
             )
         await self.db.commit()
 
+    async def _table_columns(self, table: str) -> set[str]:
+        try:
+            async with self.db.execute(f"PRAGMA table_info({table})") as cur:
+                rows = await cur.fetchall()
+        except Exception:
+            return set()
+        return {str(row[1]) for row in rows}
+
+    @staticmethod
+    def _decode_json_list(raw: object) -> list[object]:
+        try:
+            value = json.loads(str(raw or "[]"))
+        except Exception:
+            return []
+        return value if isinstance(value, list) else []
+
+    def _manuscript_audit_select_sql(self, include_workflow_id: bool) -> str:
+        base_columns = ["audit_run_id"]
+        if include_workflow_id:
+            base_columns.append("workflow_id")
+        base_columns.extend(
+            [
+                "mode",
+                "verdict",
+                "passed",
+                "selected_profiles_json",
+                "summary",
+                "total_findings",
+                "major_count",
+                "minor_count",
+                "note_count",
+                "blocking_count",
+                "total_cost_usd",
+                "created_at",
+            ]
+        )
+        return ", ".join(base_columns)
+
+    def _decode_manuscript_audit_row(self, row: tuple[Any, ...], include_workflow_id: bool) -> dict[str, Any]:
+        idx = 0
+        payload: dict[str, Any] = {"audit_run_id": str(row[idx])}
+        idx += 1
+        if include_workflow_id:
+            payload["workflow_id"] = str(row[idx])
+            idx += 1
+        payload["mode"] = str(row[idx])
+        idx += 1
+        payload["verdict"] = str(row[idx])
+        idx += 1
+        payload["passed"] = bool(row[idx])
+        idx += 1
+        payload["selected_profiles"] = self._decode_json_list(row[idx])
+        idx += 1
+        payload["summary"] = str(row[idx] or "")
+        idx += 1
+        payload["total_findings"] = int(row[idx] or 0)
+        idx += 1
+        payload["major_count"] = int(row[idx] or 0)
+        idx += 1
+        payload["minor_count"] = int(row[idx] or 0)
+        idx += 1
+        payload["note_count"] = int(row[idx] or 0)
+        idx += 1
+        payload["blocking_count"] = int(row[idx] or 0)
+        idx += 1
+        payload["total_cost_usd"] = float(row[idx] or 0.0)
+        idx += 1
+        payload["created_at"] = str(row[idx] or "")
+        idx += 1
+        if len(row) > idx:
+            payload["contract_mode"] = str(row[idx] or "observe")
+            idx += 1
+            payload["contract_passed"] = bool(row[idx])
+            idx += 1
+            payload["contract_violation_count"] = int(row[idx] or 0)
+            idx += 1
+            payload["contract_violations"] = self._decode_json_list(row[idx])
+            idx += 1
+            payload["gate_blocked"] = bool(row[idx])
+            idx += 1
+            payload["gate_failure_reasons"] = self._decode_json_list(row[idx])
+            idx += 1
+        else:
+            payload["contract_mode"] = "observe"
+            payload["contract_passed"] = True
+            payload["contract_violation_count"] = 0
+            payload["contract_violations"] = []
+            payload["gate_blocked"] = False
+            payload["gate_failure_reasons"] = []
+        return payload
+
+    async def _manuscript_audit_optional_select_columns(self) -> str:
+        cols = await self._table_columns("manuscript_audit_runs")
+        wanted = [
+            "contract_mode",
+            "contract_passed",
+            "contract_violation_count",
+            "contract_violations_json",
+            "gate_blocked",
+            "gate_failure_reasons_json",
+        ]
+        available = [name for name in wanted if name in cols]
+        if not available:
+            return ""
+        return ", " + ", ".join(available)
+
     async def get_latest_manuscript_audit(self, workflow_id: str) -> dict[str, Any] | None:
+        optional_columns = await self._manuscript_audit_optional_select_columns()
         row = await (
             await self.db.execute(
-                """
-                SELECT audit_run_id, workflow_id, mode, verdict, passed, selected_profiles_json, summary,
-                       total_findings, major_count, minor_count, note_count, blocking_count, total_cost_usd, created_at
+                f"""
+                SELECT {self._manuscript_audit_select_sql(include_workflow_id=True)}{optional_columns}
                 FROM manuscript_audit_runs
                 WHERE workflow_id = ?
                 ORDER BY created_at DESC
@@ -1349,33 +1500,14 @@ class WorkflowRepository:
         ).fetchone()
         if row is None:
             return None
-        try:
-            profiles = json.loads(str(row[5] or "[]"))
-        except Exception:
-            profiles = []
-        return {
-            "audit_run_id": str(row[0]),
-            "workflow_id": str(row[1]),
-            "mode": str(row[2]),
-            "verdict": str(row[3]),
-            "passed": bool(row[4]),
-            "selected_profiles": profiles,
-            "summary": str(row[6] or ""),
-            "total_findings": int(row[7] or 0),
-            "major_count": int(row[8] or 0),
-            "minor_count": int(row[9] or 0),
-            "note_count": int(row[10] or 0),
-            "blocking_count": int(row[11] or 0),
-            "total_cost_usd": float(row[12] or 0.0),
-            "created_at": str(row[13] or ""),
-        }
+        return self._decode_manuscript_audit_row(row, include_workflow_id=True)
 
     async def get_manuscript_audit_run(self, workflow_id: str, audit_run_id: str) -> dict[str, Any] | None:
+        optional_columns = await self._manuscript_audit_optional_select_columns()
         row = await (
             await self.db.execute(
-                """
-                SELECT audit_run_id, workflow_id, mode, verdict, passed, selected_profiles_json, summary,
-                       total_findings, major_count, minor_count, note_count, blocking_count, total_cost_usd, created_at
+                f"""
+                SELECT {self._manuscript_audit_select_sql(include_workflow_id=True)}{optional_columns}
                 FROM manuscript_audit_runs
                 WHERE workflow_id = ? AND audit_run_id = ?
                 LIMIT 1
@@ -1385,33 +1517,14 @@ class WorkflowRepository:
         ).fetchone()
         if row is None:
             return None
-        try:
-            profiles = json.loads(str(row[5] or "[]"))
-        except Exception:
-            profiles = []
-        return {
-            "audit_run_id": str(row[0]),
-            "workflow_id": str(row[1]),
-            "mode": str(row[2]),
-            "verdict": str(row[3]),
-            "passed": bool(row[4]),
-            "selected_profiles": profiles,
-            "summary": str(row[6] or ""),
-            "total_findings": int(row[7] or 0),
-            "major_count": int(row[8] or 0),
-            "minor_count": int(row[9] or 0),
-            "note_count": int(row[10] or 0),
-            "blocking_count": int(row[11] or 0),
-            "total_cost_usd": float(row[12] or 0.0),
-            "created_at": str(row[13] or ""),
-        }
+        return self._decode_manuscript_audit_row(row, include_workflow_id=True)
 
     async def get_manuscript_audit_history(self, workflow_id: str, limit: int = 20) -> list[dict[str, Any]]:
+        optional_columns = await self._manuscript_audit_optional_select_columns()
         rows = await (
             await self.db.execute(
-                """
-                SELECT audit_run_id, mode, verdict, passed, selected_profiles_json, summary,
-                       total_findings, major_count, minor_count, note_count, blocking_count, total_cost_usd, created_at
+                f"""
+                SELECT {self._manuscript_audit_select_sql(include_workflow_id=False)}{optional_columns}
                 FROM manuscript_audit_runs
                 WHERE workflow_id = ?
                 ORDER BY created_at DESC
@@ -1422,27 +1535,7 @@ class WorkflowRepository:
         ).fetchall()
         out: list[dict[str, Any]] = []
         for row in rows:
-            try:
-                profiles = json.loads(str(row[4] or "[]"))
-            except Exception:
-                profiles = []
-            out.append(
-                {
-                    "audit_run_id": str(row[0]),
-                    "mode": str(row[1]),
-                    "verdict": str(row[2]),
-                    "passed": bool(row[3]),
-                    "selected_profiles": profiles,
-                    "summary": str(row[5] or ""),
-                    "total_findings": int(row[6] or 0),
-                    "major_count": int(row[7] or 0),
-                    "minor_count": int(row[8] or 0),
-                    "note_count": int(row[9] or 0),
-                    "blocking_count": int(row[10] or 0),
-                    "total_cost_usd": float(row[11] or 0.0),
-                    "created_at": str(row[12] or ""),
-                }
-            )
+            out.append(self._decode_manuscript_audit_row(row, include_workflow_id=False))
         return out
 
     async def get_manuscript_audit_findings(self, audit_run_id: str) -> list[dict[str, Any]]:
