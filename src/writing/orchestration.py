@@ -516,6 +516,67 @@ def _extract_valid_citekeys(citation_catalog: str) -> set[str]:
     return keys
 
 
+def _extract_included_study_citekeys(citation_catalog: str) -> set[str]:
+    """Extract citekeys from the INCLUDED STUDIES portion of the catalog only."""
+    keys: set[str] = set()
+    in_included_block = False
+    for line in citation_catalog.splitlines():
+        stripped = line.strip()
+        upper = stripped.upper()
+        if "INCLUDED STUDIES" in upper or "CITATION COVERAGE" in upper:
+            in_included_block = True
+            continue
+        if in_included_block and ("METHODOLOGY" in upper or "BACKGROUND" in upper):
+            in_included_block = False
+            continue
+        if in_included_block and stripped.startswith("[") and "]" in stripped:
+            keys.add(stripped[1 : stripped.index("]")].strip())
+    return keys
+
+
+def _compute_section_citation_budget(
+    section: str,
+    citation_catalog: str,
+    valid_citekeys: set[str],
+) -> set[str]:
+    """Return the set of citekeys that a section MUST cite.
+
+    - results: all included study citekeys (every study must appear)
+    - discussion, methods, introduction, abstract, conclusion: no mandatory budget
+    """
+    if section != "results":
+        return set()
+    included_keys = _extract_included_study_citekeys(citation_catalog)
+    return included_keys & valid_citekeys
+
+
+def _citation_coverage_issues(
+    section: str,
+    draft: StructuredSectionDraft,
+    must_cite: set[str],
+) -> tuple[list[str], set[str]]:
+    """Check which must-cite keys are missing from the draft.
+
+    Returns (issue_descriptions, missing_keys).
+    """
+    if not must_cite:
+        return [], set()
+    cited_in_draft = set(draft.cited_keys or [])
+    for block in draft.blocks:
+        cited_in_draft.update(block.citations or [])
+    cited_in_draft.update(
+        re.findall(
+            r"\[([A-Za-z][A-Za-z0-9_\-']+\d{4}[a-z]?)\]",
+            " ".join(b.text for b in draft.blocks),
+        )
+    )
+    missing = must_cite - cited_in_draft
+    if not missing:
+        return [], set()
+    issues = [f"missing_required_citations:{len(missing)}"]
+    return issues, missing
+
+
 def _sanitize_ir_block_text(text: str) -> str:
     """Deterministically sanitize structured block prose before render."""
     cleaned = re.sub(r"[^\x09\x0A\x0D\x20-\x7E]", " ", str(text or ""))
@@ -1229,15 +1290,27 @@ async def write_section_with_validation(
                 logger.warning("Failed to persist writing cost for section '%s': %s", section, _log_exc)
         return _structured, _metadata
 
+    must_cite = _compute_section_citation_budget(section, citation_catalog, valid_citekeys)
+
     structured, metadata = await _generate_structured_once(effective_context)
     issues = _section_completeness_issues(section, structured, included_study_count)
+    cite_issues, missing_keys = _citation_coverage_issues(section, structured, must_cite)
+    issues.extend(cite_issues)
     if issues:
-        retry_context = (
-            effective_context
-            + "\n\nRETRY RULE: Your previous output failed completeness checks: "
+        retry_parts = [
+            "\n\nRETRY RULE: Your previous output failed completeness checks: "
             + ", ".join(issues)
-            + ". Regenerate this section with complete subsection bodies and a fully closed final sentence."
-        )
+            + ". Regenerate this section with complete subsection bodies and a fully closed final sentence.",
+        ]
+        if missing_keys:
+            sorted_missing = sorted(missing_keys)[:30]
+            retry_parts.append(
+                "\n\nCRITICAL CITATION COVERAGE: You MUST cite the following studies that were "
+                "omitted from your previous output. Each study must appear at least once as "
+                "[AuthorYear] in the section text:\n"
+                + "\n".join(f"  - [{k}]" for k in sorted_missing)
+            )
+        retry_context = effective_context + "".join(retry_parts)
         logger.warning("Section '%s' failed IR completeness checks (%s); retrying once.", section, ", ".join(issues))
         structured, metadata = await _generate_structured_once(retry_context)
         issues = _section_completeness_issues(section, structured, included_study_count)

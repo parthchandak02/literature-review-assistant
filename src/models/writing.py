@@ -89,3 +89,50 @@ class ManuscriptAssembly(BaseModel):
     content: str
     manifest_json: str
     timestamp: datetime = Field(default_factory=lambda: datetime.now(UTC))
+
+
+class WritingPrepOutput(BaseModel):
+    """Contract between PrepWritingNode and SectionWriterNode.
+
+    Encapsulates all pre-computed context that section writers need,
+    so they never re-query the database or re-compute counts.
+    """
+
+    workflow_id: str
+    citation_catalog: str
+    valid_citekeys: list[str] = Field(default_factory=list)
+    included_study_citekeys: list[str] = Field(default_factory=list)
+    section_order: list[str] = Field(default_factory=list)
+    already_completed: list[str] = Field(default_factory=list)
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(UTC))
+
+
+class SectionWriteResult(BaseModel):
+    """Contract between SectionWriterNode and AssembleManuscriptNode.
+
+    Each section emits a validated SectionWriteResult that carries the
+    rendered markdown, structured IR, and citation coverage metadata.
+    """
+
+    section_key: str
+    content_markdown: str
+    structured_draft: StructuredSectionDraft
+    cited_keys: list[str] = Field(default_factory=list)
+    word_count: int = 0
+    validation_retries: int = 0
+    used_deterministic_fallback: bool = False
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(UTC))
+
+
+class AssemblyInput(BaseModel):
+    """Contract for AssembleManuscriptNode input.
+
+    Aggregates all section results plus global metadata needed to
+    render the final manuscript in one deterministic pass.
+    """
+
+    workflow_id: str
+    section_results: list[SectionWriteResult] = Field(default_factory=list)
+    citation_catalog: str = ""
+    valid_citekeys: list[str] = Field(default_factory=list)
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(UTC))

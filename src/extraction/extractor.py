@@ -365,14 +365,16 @@ class ExtractionService:
 
         text = _select_extraction_text(full_text)
         prompt = _build_extraction_prompt(paper, text, self.review)
-        schema = _ExtractionLLMResponse.model_json_schema()
 
         if self.provider is not None:
             await self.provider.reserve_call_slot("extraction")
         t0 = time.monotonic()
         if self.provider is not None and isinstance(self.llm_client, PydanticAIClient):
-            raw, tok_in, tok_out, cw, cr = await self.llm_client.complete_with_usage(
-                prompt, model=model, temperature=temperature, json_schema=schema
+            parsed, tok_in, tok_out, cw, cr, retries = await self.llm_client.complete_validated(
+                prompt,
+                model=model,
+                temperature=temperature,
+                response_model=_ExtractionLLMResponse,
             )
             latency_ms = int((time.monotonic() - t0) * 1000)
             cost = self.provider.estimate_cost_usd(model, tok_in, tok_out, cw, cr)
@@ -386,9 +388,16 @@ class ExtractionService:
                 cache_read_tokens=cr,
                 cache_write_tokens=cw,
             )
+            if retries > 0:
+                logger.info(
+                    "Extraction for %s succeeded after %d validation retry(ies).",
+                    paper.paper_id[:12],
+                    retries,
+                )
         else:
+            schema = _ExtractionLLMResponse.model_json_schema()
             raw = await self.llm_client.complete(prompt, model=model, temperature=temperature, json_schema=schema)
-        parsed = _ExtractionLLMResponse.model_validate_json(raw)
+            parsed = _ExtractionLLMResponse.model_validate_json(raw)
 
         outcomes: list[OutcomeRecord] = []
         for o in parsed.outcomes or []:

@@ -324,7 +324,7 @@ async def build_prisma_counts(
         and reports_assessed == excluded_total + included_total
     )
 
-    return PRISMACounts(
+    counts = PRISMACounts(
         databases_records=databases,
         other_sources_records=other,
         total_identified_databases=total_db,
@@ -340,4 +340,8 @@ async def build_prisma_counts(
         studies_included_qualitative=included_qualitative,
         studies_included_quantitative=included_quantitative,
         arithmetic_valid=arithmetic_valid,
+        records_after_deduplication=records_after_dedup,
+        total_included=included_total,
     )
+    counts.validate_arithmetic()
+    return counts

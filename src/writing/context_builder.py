@@ -665,7 +665,9 @@ def build_writing_grounding(
                 _title_part = _rest[:_paren_idx].strip() if _paren_idx > 0 else _rest
                 citekey_title_map[key] = _title_part[:60]
 
-    total_included_count = prisma_counts.studies_included_qualitative + prisma_counts.studies_included_quantitative
+    total_included_count = prisma_counts.total_included or (
+        prisma_counts.studies_included_qualitative + prisma_counts.studies_included_quantitative
+    )
     fulltext_excluded_count = max(0, prisma_counts.reports_assessed - total_included_count)
 
     # Search eligibility window from review config
@@ -730,17 +732,12 @@ def build_writing_grounding(
     _grade_summary = _build_grade_summary(grade_assessments or [])
     _low_certainty_present = bool(re.search(r"\b(low|very low)\b", _grade_summary.lower()))
 
-    _records_after_dedup = (
+    _records_after_dedup = prisma_counts.records_after_deduplication or (
         prisma_counts.total_identified_databases
         + prisma_counts.total_identified_other
         - prisma_counts.duplicates_removed
     )
-    _automation_excluded = max(0, prisma_counts.automation_excluded)
-    if _automation_excluded > _records_after_dedup:
-        _automation_excluded = _records_after_dedup
-    # Prefer PRISMA arithmetic invariants for writing-grounding counts.
-    # This keeps section prose deterministic even when intermediate DB rows from
-    # older runs represented screening stages differently.
+    _automation_excluded = min(max(0, prisma_counts.automation_excluded), _records_after_dedup)
     _effective_screened = (
         max(0, _records_after_dedup - _automation_excluded)
         if _automation_excluded > 0

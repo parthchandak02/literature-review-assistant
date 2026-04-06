@@ -217,15 +217,17 @@ class MmatAssessor:
         model = agent.model
         temperature = agent.temperature
         prompt = _build_mmat_prompt(record, study_type, full_text)
-        schema = _MmatLLMResponse.model_json_schema()
 
         try:
             if self.provider is not None:
                 await self.provider.reserve_call_slot("quality_assessment")
             t0 = time.monotonic()
             if self.provider is not None and isinstance(self.llm_client, PydanticAIClient):
-                raw, tok_in, tok_out, cw, cr = await self.llm_client.complete_with_usage(
-                    prompt, model=model, temperature=temperature, json_schema=schema
+                parsed, tok_in, tok_out, cw, cr, _retries = await self.llm_client.complete_validated(
+                    prompt,
+                    model=model,
+                    temperature=temperature,
+                    response_model=_MmatLLMResponse,
                 )
                 latency_ms = int((time.monotonic() - t0) * 1000)
                 cost = self.provider.estimate_cost_usd(model, tok_in, tok_out, cw, cr)
@@ -240,8 +242,9 @@ class MmatAssessor:
                     cache_write_tokens=cw,
                 )
             else:
+                schema = _MmatLLMResponse.model_json_schema()
                 raw = await self.llm_client.complete(prompt, model=model, temperature=temperature, json_schema=schema)
-            parsed = _MmatLLMResponse.model_validate_json(raw)
+                parsed = _MmatLLMResponse.model_validate_json(raw)
             score = sum(
                 [
                     parsed.criterion_1,
