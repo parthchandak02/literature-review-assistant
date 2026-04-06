@@ -20,8 +20,8 @@ import json as _json
 import logging
 import os
 import pathlib
-import sqlite3
 import shutil
+import sqlite3
 import tempfile
 import time
 import uuid
@@ -50,7 +50,7 @@ from src.db.workflow_registry import update_heartbeat as _update_registry_heartb
 from src.db.workflow_registry import update_notes as _update_registry_notes
 from src.db.workflow_registry import update_status as _update_registry_status
 from src.export.submission_packager import package_submission
-from src.manuscript.contracts import run_manuscript_contracts
+from src.manuscript.readiness import compute_readiness_scorecard
 from src.orchestration.context import WebRunContext
 from src.orchestration.workflow import run_workflow, run_workflow_resume
 from src.search.csv_import import validate_csv_file
@@ -270,6 +270,8 @@ class HistoryEntry(BaseModel):
     papers_included: int | None = None
     total_cost: float | None = None
     artifacts_count: int | None = None
+    stats_ok: bool | None = None
+    stats_error: str | None = None
     # Populated when a workflow is actively running in-process.
     # The frontend uses this to connect a live SSE stream instead of replaying DB events.
     live_run_id: str | None = None
@@ -504,20 +506,35 @@ async def _flush_pending_events(record: _RunRecord) -> None:
         record._flush_index += len(new)
 
 
+_DURABLE_EVENT_TYPES = frozenset(
+    {
+        "phase_start",
+        "phase_done",
+        "done",
+        "error",
+        "cancelled",
+        "workflow_id_ready",
+        "db_ready",
+    }
+)
+
+
 def _append_event(record: _RunRecord, event: dict[str, Any]) -> None:
     """Append event to replay log and notify all live stream subscribers."""
     if not event.get("id"):
         event["id"] = f"evt-{uuid.uuid4().hex}"
     if not event.get("ts"):
         event["ts"] = datetime.datetime.now(datetime.UTC).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
+    _etype = str(event.get("type") or "")
+    event["durability"] = "durable" if _etype in _DURABLE_EVENT_TYPES else "eventual"
     record.event_log.append(event)
     try:
         asyncio.create_task(_notify_new_event(record))
     except Exception:
         pass
 
-    # Persist critical events immediately to reduce loss window on abrupt exits.
-    if event.get("type") in {"phase_done", "done", "error", "cancelled"}:
+    # Persist transition-critical events immediately to reduce loss window on abrupt exits.
+    if _etype in _DURABLE_EVENT_TYPES:
         try:
             asyncio.create_task(_flush_pending_events(record))
         except Exception:
@@ -1149,7 +1166,7 @@ async def _fetch_run_stats(db_path: str) -> dict[str, Any]:
     """Open a run's runtime.db and return lightweight aggregate stats.
 
     Uses WAL mode for safe concurrent reads (no exclusive lock needed).
-    Returns {} on any error so a corrupt/missing DB never blocks the endpoint.
+    On failure returns ok=false with diagnostics instead of an empty dict.
     Also reads the sibling run_summary.json to count generated artifacts.
     """
     try:
@@ -1285,6 +1302,7 @@ async def _fetch_run_stats(db_path: str) -> dict[str, Any]:
                 pass
 
         return {
+            "ok": True,
             "papers_found": int(papers_found),
             "papers_included": int(papers_included),
             "total_cost": float(total_cost),
@@ -1292,8 +1310,17 @@ async def _fetch_run_stats(db_path: str) -> dict[str, Any]:
             "papers_included_precedence": list(RUN_STATS_PRECEDENCE.papers_included_order),
             "artifacts_count": artifacts_count,
         }
-    except Exception:
-        return {}
+    except Exception as exc:
+        return {
+            "ok": False,
+            "error": str(exc),
+            "papers_found": 0,
+            "papers_included": 0,
+            "total_cost": 0.0,
+            "papers_included_source": "error",
+            "papers_included_precedence": list(RUN_STATS_PRECEDENCE.papers_included_order),
+            "artifacts_count": None,
+        }
 
 
 def _bump_lifecycle_metric(name: str) -> None:
@@ -1566,6 +1593,8 @@ async def list_history(response: Response, run_root: str = "runs") -> list[Histo
                 papers_included=s.get("papers_included"),
                 total_cost=s.get("total_cost"),
                 artifacts_count=s.get("artifacts_count"),
+                stats_ok=s.get("ok"),
+                stats_error=s.get("error"),
                 live_run_id=live_run_id,
                 notes=row["notes"] if row["notes"] is not None else None,
                 is_archived=bool(row["is_archived"]),
@@ -4001,31 +4030,30 @@ async def trigger_export(run_id: str, run_root: str = "runs", force: bool = Fals
     manuscript_md = summary.get("artifacts", {}).get("manuscript_md")
     manuscript_tex = summary.get("artifacts", {}).get("manuscript_tex")
     if manuscript_md and pathlib.Path(str(manuscript_md)).exists():
-        from src.db.database import get_db as _get_db
-        from src.db.repositories import CitationRepository, WorkflowRepository
-
         cfg = _load_configs()[1]
         mode = getattr(getattr(cfg, "gates", None), "manuscript_contract_mode", "observe")
-        async with _get_db(db_path) as _db:
-            result = await run_manuscript_contracts(
-                repository=WorkflowRepository(_db),
-                citation_repository=CitationRepository(_db),
-                workflow_id=workflow_id,
-                manuscript_md_path=str(manuscript_md),
-                manuscript_tex_path=str(manuscript_tex) if manuscript_tex else None,
-                extra_artifact_paths=[
-                    str(summary.get("artifacts", {}).get("protocol", "") or ""),
-                    str(summary.get("artifacts", {}).get("prospero_form_md", "") or ""),
-                ],
-                mode=mode,
-            )
-        if not result.passed:
+        _extra_paths: list[str] = []
+        for _k in ("protocol", "prospero_form_md"):
+            _p = summary.get("artifacts", {}).get(_k)
+            if _p and pathlib.Path(str(_p)).is_file():
+                _extra_paths.append(str(_p))
+        _tex = str(manuscript_tex) if manuscript_tex and pathlib.Path(str(manuscript_tex)).is_file() else None
+        scorecard = await compute_readiness_scorecard(
+            db_path=db_path,
+            workflow_id=str(workflow_id),
+            manuscript_md_path=str(manuscript_md),
+            manuscript_tex_path=_tex,
+            extra_artifact_paths=_extra_paths,
+            contract_mode=mode,
+        )
+        if not scorecard.ready:
             raise HTTPException(
                 status_code=422,
                 detail={
-                    "message": "Manuscript contract gate blocked export.",
+                    "message": "Readiness scorecard blocked export.",
                     "mode": mode,
-                    "violations": [v.model_dump() for v in result.violations],
+                    "blocking_reasons": scorecard.blocking_reasons,
+                    "checks": [c.model_dump() for c in scorecard.checks],
                 },
             )
     # Fast path: if key files are already present and caller did not force a rebuild,
@@ -4051,6 +4079,40 @@ async def trigger_export(run_id: str, run_root: str = "runs", force: bool = Fals
         raise HTTPException(status_code=500, detail="Export failed: manuscript not found")
     files = sorted(str(f) for f in submission_dir.rglob("*") if f.is_file())
     return {"submission_dir": str(submission_dir), "files": files}
+
+
+@app.get("/api/run/{run_id}/readiness")
+async def get_run_readiness(run_id: str, run_root: str = "runs") -> dict[str, Any]:
+    """Return the readiness scorecard for export and operational review."""
+    db_path = await _resolve_db_path_from_run_or_workflow(run_id, run_root)
+    summary_path = pathlib.Path(db_path).parent / "run_summary.json"
+    if not summary_path.exists():
+        raise HTTPException(status_code=404, detail="run_summary.json not found")
+    summary = _json.loads(summary_path.read_text(encoding="utf-8"))
+    workflow_id = summary.get("workflow_id")
+    if not workflow_id:
+        raise HTTPException(status_code=422, detail="workflow_id not found in run_summary")
+    manuscript_md = summary.get("artifacts", {}).get("manuscript_md")
+    if not manuscript_md or not pathlib.Path(str(manuscript_md)).exists():
+        raise HTTPException(status_code=404, detail="manuscript_md not found")
+    manuscript_tex = summary.get("artifacts", {}).get("manuscript_tex")
+    cfg = _load_configs()[1]
+    mode = getattr(getattr(cfg, "gates", None), "manuscript_contract_mode", "observe")
+    extra_paths: list[str] = []
+    for _k in ("protocol", "prospero_form_md"):
+        _p = summary.get("artifacts", {}).get(_k)
+        if _p and pathlib.Path(str(_p)).is_file():
+            extra_paths.append(str(_p))
+    tex_resolved = str(manuscript_tex) if manuscript_tex and pathlib.Path(str(manuscript_tex)).is_file() else None
+    scorecard = await compute_readiness_scorecard(
+        db_path=db_path,
+        workflow_id=str(workflow_id),
+        manuscript_md_path=str(manuscript_md),
+        manuscript_tex_path=tex_resolved,
+        extra_artifact_paths=extra_paths,
+        contract_mode=mode,
+    )
+    return scorecard.model_dump()
 
 
 @app.get("/api/run/{run_id}/submission.zip")

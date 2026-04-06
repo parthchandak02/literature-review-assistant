@@ -35,7 +35,10 @@ export interface RunResults {
 // SSE event types emitted by WebRunContext
 type ReviewEventIdentity = { id?: string }
 
-export type ReviewEvent =
+/** Present on SSE events when the backend labels durability for replay contracts. */
+export type EventDurability = "durable" | "eventual"
+
+export type ReviewEvent = (
   | ({ type: "phase_start"; phase: string; description: string; total: number | null; ts: string; reason_code?: string | null; reason_label?: string | null; action?: string | null; entity_type?: string | null; entity_id?: string | null } & ReviewEventIdentity)
   | ({ type: "phase_done"; phase: string; summary: Record<string, unknown>; total: number | null; completed: number | null; ts: string; reason_code?: string | null; reason_label?: string | null; action?: string | null; entity_type?: string | null; entity_id?: string | null } & ReviewEventIdentity)
   | ({ type: "progress"; phase: string; current: number; total: number; ts: string } & ReviewEventIdentity)
@@ -59,6 +62,7 @@ export type ReviewEvent =
   | ({ type: "done"; outputs: Record<string, unknown>; ts?: string } & ReviewEventIdentity)
   | ({ type: "error"; msg: string; traceback?: string; ts?: string } & ReviewEventIdentity)
   | ({ type: "cancelled"; ts?: string } & ReviewEventIdentity)
+) & { durability?: EventDurability }
 
 // Database explorer types
 export interface PaperRow {
@@ -225,6 +229,8 @@ export interface HistoryEntry {
   papers_included?: number | null
   total_cost?: number | null
   artifacts_count?: number | null
+  stats_ok?: boolean | null
+  stats_error?: string | null
   /** Set when the workflow has an active in-process task. The frontend uses
    *  this to connect a live SSE stream instead of replaying historical DB events. */
   live_run_id?: string | null
@@ -709,6 +715,27 @@ export async function fetchArtifacts(runId: string): Promise<Record<string, stri
   if (!res.ok) throw await _apiError(res, "Artifacts fetch failed")
   const data = await res.json() as { artifacts?: Record<string, string>; outputs?: Record<string, string> }
   return (data.artifacts ?? data.outputs ?? {}) as Record<string, string>
+}
+
+export interface ReadinessCheckRow {
+  name: string
+  ok: boolean
+  detail?: string | null
+}
+
+export interface ReadinessScorecard {
+  workflow_id: string
+  ready: boolean
+  checks: ReadinessCheckRow[]
+  contract_passed: boolean
+  blocking_reasons: string[]
+}
+
+export async function fetchRunReadiness(runId: string, runRoot = "runs"): Promise<ReadinessScorecard> {
+  const q = new URLSearchParams({ run_root: runRoot })
+  const res = await fetch(`${BASE}/run/${encodeURIComponent(runId)}/readiness?${q.toString()}`)
+  if (!res.ok) throw await _apiError(res, "Readiness fetch failed")
+  return (await res.json()) as ReadinessScorecard
 }
 
 // ---------------------------------------------------------------------------
