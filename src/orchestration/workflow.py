@@ -2221,9 +2221,12 @@ class ExtractionQualityNode(BaseNode[ReviewState]):
                                 "ExtractionNode: could not save fulltext for %s: %s", paper.paper_id, _save_err
                             )
 
+                    _is_abstract_only = not ft_result or not ft_result.text
                     try:
                         try:
-                            design = await classifier.classify(state.workflow_id, paper)
+                            design = await classifier.classify(
+                                state.workflow_id, paper, abstract_only=_is_abstract_only,
+                            )
                         except Exception as exc:
                             design = StudyDesign.NON_RANDOMIZED
                             await repository.append_decision_log(
@@ -2461,8 +2464,36 @@ class ExtractionQualityNode(BaseNode[ReviewState]):
 
             await asyncio.gather(*[_extract_one_paper(p) for p in to_process], return_exceptions=True)
 
+            # -- Fulltext retrieval warning gate --
+            _abstract_only_sources = frozenset({"text", "heuristic", "", None})
+            _abstract_only_count = sum(
+                1 for r in records
+                if getattr(r, "extraction_source", "text") in _abstract_only_sources
+            )
+            if records and _abstract_only_count / len(records) > 0.80:
+                _pct = int(100 * _abstract_only_count / len(records))
+                _msg = (
+                    f"fulltext_retrieval_low: {_abstract_only_count}/{len(records)} "
+                    f"({_pct}%) papers extracted from abstract only. "
+                    f"Classification and extraction quality may be degraded."
+                )
+                logger.warning("ExtractionQualityNode: %s", _msg)
+                await repository.append_decision_log(
+                    DecisionLogEntry(
+                        decision_type="gate_advisory",
+                        paper_id="__pipeline__",
+                        decision="fulltext_retrieval_low",
+                        rationale=_msg,
+                        actor="extraction_quality_gate",
+                        phase="phase_4_extraction_quality",
+                    )
+                )
+                if rc:
+                    rc.log_status(f"[yellow]WARNING:[/] {_msg}")
+
             # Apply a hard gate so downstream synthesis and writing include only
             # empirically primary studies.
+            state.excluded_non_primary_count = len(non_primary_paper_ids)
             if non_primary_paper_ids:
                 _before = len(state.included_papers)
                 _primary_ids = {r.paper_id for r in records}
@@ -3406,6 +3437,7 @@ class WritingNode(BaseNode[ReviewState]):
                             0.40,
                         )
                     ),
+                    excluded_non_primary_count=state.excluded_non_primary_count,
                 )
 
                 def _on_write(**kw):

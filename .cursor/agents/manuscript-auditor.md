@@ -144,7 +144,46 @@ sqlite3 <run_root>/runtime.db \
   "SELECT COUNT(*) FROM grade_assessments WHERE workflow_id='<wf>';"
 ```
 
-Record the raw counts -- you will use them in Step 6.
+Record the raw counts -- you will use them in Steps 5b and 6.
+
+---
+
+## STEP 5b -- Pipeline Yield Analysis
+
+Run these additional SQL queries to assess pipeline health:
+
+```bash
+# primary_study_status breakdown
+sqlite3 <run_root>/runtime.db \
+  "SELECT primary_study_status, COUNT(*) FROM extraction_records \
+   WHERE workflow_id='<wf>' GROUP BY primary_study_status;"
+
+# extraction_source breakdown (full text vs abstract only)
+sqlite3 <run_root>/runtime.db \
+  "SELECT extraction_source, COUNT(*) FROM extraction_records \
+   WHERE workflow_id='<wf>' GROUP BY extraction_source;"
+
+# exclusion reason breakdown from cohort
+sqlite3 <run_root>/runtime.db \
+  "SELECT synthesis_eligibility, exclusion_reason, COUNT(*) \
+   FROM study_cohort_membership \
+   WHERE workflow_id='<wf>' GROUP BY synthesis_eligibility, exclusion_reason;"
+
+# papers that passed fulltext screening
+sqlite3 <run_root>/runtime.db \
+  "SELECT COUNT(DISTINCT paper_id) FROM dual_screening_results \
+   WHERE workflow_id='<wf>' AND stage='fulltext' \
+   AND final_decision IN ('include','uncertain');"
+```
+
+Flags to raise:
+
+- **CRITICAL**: >60% of extracted papers have `primary_study_status` that maps to `excluded_non_primary` (likely classifier over-exclusion in the study type classifier at `src/extraction/study_classifier.py`)
+- **HIGH**: 100% (or >80%) of papers have `extraction_source = 'text'` (PDF retrieval total failure -- check `src/search/pdf_retrieval.py` and API key configuration)
+- **HIGH**: `included_primary` count < 5 when >15 papers passed fulltext screening (suspicious yield -- ratio < 33% indicates possible classifier bias)
+- **MODERATE**: >50% of extraction records have `extraction_source = 'text'` but not 100% (partial PDF retrieval degradation)
+
+Record these counts and flags for use in Steps 6 and 8.
 
 ---
 
@@ -177,6 +216,8 @@ Work through these six audit streams sequentially. For each, produce findings us
 - Count of NR fields -- flag if excessive.
 - RoB summary: domain-level or collapsed? Traffic-light figure referenced?
 - PRISMA full-text counts: reports_sought vs reports_not_retrieved vs reports_assessed are distinct and consistent?
+- Post-extraction non-primary exclusions: if Step 5b found papers excluded as `excluded_non_primary`, are these exclusions reported in the PRISMA flow? The manuscript should account for the full attrition path from fulltext screening through extraction to final inclusion.
+- PRISMA diagram accounts for the full attrition path (identification -> screening -> eligibility -> extraction classification -> inclusion)?
 - Narrative synthesis covers all major outcome themes?
 - SoF/GRADE table present if GRADE is mentioned?
 
@@ -239,6 +280,8 @@ Read `reference/gold_standard_benchmark.json` if it exists. Use `derived_thresho
 | N figures | 2 | 5 |
 
 Build a comparison table: Dimension | This manuscript | Threshold | Gap | Source (benchmark/fallback).
+
+Add a "Yield ratio" row: `included_primary / papers_passed_fulltext_screening` (from Step 5b counts). Flag if yield < 20% as a pipeline health concern rather than just a topic niche indicator. A very low yield ratio combined with high abstract-only extraction (from Step 5b) strongly suggests a study classifier bias issue in `src/extraction/study_classifier.py`.
 
 ---
 
