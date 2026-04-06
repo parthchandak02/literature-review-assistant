@@ -16,6 +16,7 @@ Treat LLM output structure as a pipeline contract, not a cosmetic cleanup step.
 ## Required implementation pattern
 
 - Every phase that consumes LLM text must define explicit expected structure.
+- Use `PydanticAIClient.complete_validated()` from `src/llm/pydantic_client.py` for all new LLM calls that produce structured output. It validates against a Pydantic model and retries on schema mismatch.
 - Prompts must require exact labeled blocks or schema-constrained fields.
 - Add deterministic sanitization only for bounded mechanical fixes (whitespace, marker cleanup, token normalization).
 - If required structure is missing, trigger a deterministic repair pass at source or fail the gate.

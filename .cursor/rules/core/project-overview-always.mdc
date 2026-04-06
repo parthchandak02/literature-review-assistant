@@ -29,6 +29,11 @@ alwaysApply: true
 - LLM provider/rate limiting/fallback: `src/llm/`
 - Writing and citation grounding: `src/writing/`
 - Manuscript contracts: `src/manuscript/contracts.py`
+- Manuscript readiness scorecard: `src/manuscript/readiness.py`
+- Manuscript violation policy: `src/manuscript/violation_policy.py`
+- Manuscript contract matrix (phase-aware): `src/manuscript/contract_matrix.py`
+- PRISMA disclosure checks: `src/manuscript/prisma_disclosure.py`
+- Manuscript canonical disclosures IR: `src/models/manuscript_ir.py`
 - Manuscript audit orchestration: `src/manuscript/reviewer.py`
 - Export pipeline: `src/export/`
 - Web API: `src/web/app.py`
