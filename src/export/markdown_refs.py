@@ -1709,6 +1709,7 @@ def assemble_submission_manuscript(
     title: str | None = None,
     fulltext_paper_ids: set[str] | None = None,
     include_rq_block: bool = False,
+    ir_validated: bool = False,
 ) -> str:
     """Combine all manuscript sections with HR separators.
 
@@ -1734,18 +1735,21 @@ def assemble_submission_manuscript(
     include_rq_block: when True, prepend "Research Question: <question>" between the
     title and the abstract body. Defaults to False (omit for IEEE submissions where
     this non-standard prefix would appear before the structured abstract).
+    ir_validated: when True, the body came from validated IR blocks (WS1+WS2 path)
+    and redundant sanitization passes are skipped. The assembly does only structural
+    transforms (citation numbering, table insertion, appendix stitching).
     """
-    # Structured section IR now owns heading and boundary layout for new runs.
-    # Keep legacy heading normalization only when malformed inline heading
-    # patterns are detected (resume compatibility for older artifacts/tests).
     _body_wo_markers = _strip_section_block_markers(body)
-    _needs_legacy_heading_fix = bool(
-        re.search(r"(?m)^#{2,6}\s+.+\s+#{2,6}\s+", _body_wo_markers)
-        or re.search(r"(?m)^#{2,6}\s+\S.{8,}\s+(?:The|This|These|for|in|Across|To)\b", _body_wo_markers)
-    )
-    if _needs_legacy_heading_fix:
-        _body_wo_markers = _normalize_subsection_heading_layout(_body_wo_markers)
-    clean_body = _strip_compact_study_tables(_sanitize_body(_body_wo_markers))
+    if ir_validated:
+        clean_body = _strip_compact_study_tables(_body_wo_markers)
+    else:
+        _needs_legacy_heading_fix = bool(
+            re.search(r"(?m)^#{2,6}\s+.+\s+#{2,6}\s+", _body_wo_markers)
+            or re.search(r"(?m)^#{2,6}\s+\S.{8,}\s+(?:The|This|These|for|in|Across|To)\b", _body_wo_markers)
+        )
+        if _needs_legacy_heading_fix:
+            _body_wo_markers = _normalize_subsection_heading_layout(_body_wo_markers)
+        clean_body = _strip_compact_study_tables(_sanitize_body(_body_wo_markers))
 
     # Normalize date range in Methods section to the authoritative protocol values
     # before citation conversion so the Methods text is consistent with PICOS table.

@@ -186,13 +186,15 @@ class RobinsIAssessor:
                 model = agent.model
                 temperature = agent.temperature
                 prompt = _build_robins_prompt(record, full_text)
-                schema = _RobinsILLMResponse.model_json_schema()
                 if self.provider is not None:
                     await self.provider.reserve_call_slot("quality_assessment")
                 t0 = time.monotonic()
                 if self.provider is not None and isinstance(self.llm_client, PydanticAIClient):
-                    raw, tok_in, tok_out, cw, cr = await self.llm_client.complete_with_usage(
-                        prompt, model=model, temperature=temperature, json_schema=schema
+                    parsed, tok_in, tok_out, cw, cr, _retries = await self.llm_client.complete_validated(
+                        prompt,
+                        model=model,
+                        temperature=temperature,
+                        response_model=_RobinsILLMResponse,
                     )
                     latency_ms = int((time.monotonic() - t0) * 1000)
                     cost = self.provider.estimate_cost_usd(model, tok_in, tok_out, cw, cr)
@@ -207,10 +209,11 @@ class RobinsIAssessor:
                         cache_write_tokens=cw,
                     )
                 else:
+                    schema = _RobinsILLMResponse.model_json_schema()
                     raw = await self.llm_client.complete(
                         prompt, model=model, temperature=temperature, json_schema=schema
                     )
-                parsed = _RobinsILLMResponse.model_validate_json(raw)
+                    parsed = _RobinsILLMResponse.model_validate_json(raw)
                 d1 = _to_robins_judgment(parsed.domain_1_confounding)
                 d2 = _to_robins_judgment(parsed.domain_2_selection)
                 d3 = _to_robins_judgment(parsed.domain_3_classification)

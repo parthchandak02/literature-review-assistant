@@ -127,13 +127,15 @@ class Rob2Assessor:
                 model = agent.model
                 temperature = agent.temperature
                 prompt = _build_rob2_prompt(record, full_text)
-                schema = _Rob2LLMResponse.model_json_schema()
                 if self.provider is not None:
                     await self.provider.reserve_call_slot("quality_assessment")
                 t0 = time.monotonic()
                 if self.provider is not None and isinstance(self.llm_client, PydanticAIClient):
-                    raw, tok_in, tok_out, cw, cr = await self.llm_client.complete_with_usage(
-                        prompt, model=model, temperature=temperature, json_schema=schema
+                    parsed, tok_in, tok_out, cw, cr, _retries = await self.llm_client.complete_validated(
+                        prompt,
+                        model=model,
+                        temperature=temperature,
+                        response_model=_Rob2LLMResponse,
                     )
                     latency_ms = int((time.monotonic() - t0) * 1000)
                     cost = self.provider.estimate_cost_usd(model, tok_in, tok_out, cw, cr)
@@ -148,10 +150,11 @@ class Rob2Assessor:
                         cache_write_tokens=cw,
                     )
                 else:
+                    schema = _Rob2LLMResponse.model_json_schema()
                     raw = await self.llm_client.complete(
                         prompt, model=model, temperature=temperature, json_schema=schema
                     )
-                parsed = _Rob2LLMResponse.model_validate_json(raw)
+                    parsed = _Rob2LLMResponse.model_validate_json(raw)
                 return RoB2Assessment(
                     paper_id=record.paper_id,
                     domain_1_randomization=_to_rob2_judgment(parsed.domain_1_randomization),

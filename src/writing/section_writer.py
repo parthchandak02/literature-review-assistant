@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-import json
+import logging
 import re
 import time
 from dataclasses import dataclass
@@ -12,6 +12,8 @@ from src.llm.pydantic_client import PydanticAIClient
 from src.models import ReviewConfig, SettingsConfig
 from src.models.writing import SectionBlock, StructuredSectionDraft
 from src.writing.renderers import render_section_markdown
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -194,12 +196,32 @@ class SectionWriter:
 
         start = time.perf_counter()
         client = PydanticAIClient()
-        content, tokens_in, tokens_out, cache_write, cache_read = await client.complete_with_usage(
-            prompt,
-            model=full_model,
-            temperature=agent_cfg.temperature,
-            json_schema=self._structured_schema(),
-        )
+        try:
+            structured, tokens_in, tokens_out, cache_write, cache_read, retries = (
+                await client.complete_validated(
+                    prompt,
+                    model=full_model,
+                    temperature=agent_cfg.temperature,
+                    response_model=StructuredSectionDraft,
+                    json_schema=self._structured_schema(),
+                )
+            )
+            if retries > 0:
+                logger.info(
+                    "Section '%s' structured output succeeded after %d validation retry(ies).",
+                    section,
+                    retries,
+                )
+        except Exception:
+            # Last-resort fallback if validation retries are exhausted.
+            content, tokens_in, tokens_out, cache_write, cache_read = await client.complete_with_usage(
+                prompt,
+                model=full_model,
+                temperature=agent_cfg.temperature,
+                json_schema=self._structured_schema(),
+            )
+            structured = self._fallback_structured_from_text(section, content)
+
         elapsed_ms = int((time.perf_counter() - start) * 1000)
         cost_usd = LLMProvider.estimate_cost_usd(full_model, tokens_in, tokens_out, cache_write, cache_read)
 
@@ -212,12 +234,6 @@ class SectionWriter:
             cache_read_tokens=cache_read,
             cache_write_tokens=cache_write,
         )
-        try:
-            payload = json.loads(content)
-            structured = StructuredSectionDraft.model_validate(payload)
-        except Exception:
-            # Fallback path if model still returns malformed JSON despite schema retries.
-            structured = self._fallback_structured_from_text(section, content)
         if not structured.section_key:
             structured.section_key = section
         return structured, metadata

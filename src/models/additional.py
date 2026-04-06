@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+import logging
 from datetime import UTC, datetime
 
 from pydantic import BaseModel, Field
 
 from src.models.config import PICOConfig
 from src.models.enums import GRADECertainty
+
+_logger = logging.getLogger(__name__)
 
 
 class InterRaterReliability(BaseModel):
@@ -38,6 +41,12 @@ class MetaAnalysisResult(BaseModel):
 
 
 class PRISMACounts(BaseModel):
+    """PRISMA 2020 flow counts computed once and frozen for all consumers.
+
+    Derived fields (records_after_deduplication, total_included) are pre-computed
+    so downstream code and writing LLMs never perform arithmetic on these values.
+    """
+
     databases_records: dict[str, int]
     other_sources_records: dict[str, int]
     total_identified_databases: int
@@ -56,6 +65,55 @@ class PRISMACounts(BaseModel):
     studies_included_qualitative: int
     studies_included_quantitative: int
     arithmetic_valid: bool
+
+    records_after_deduplication: int = 0
+    total_included: int = 0
+
+    def validate_arithmetic(self, *, strict: bool = False) -> bool:
+        """Check PRISMA arithmetic invariants and log any violations.
+
+        When *strict* is True, raises ValueError on invalid arithmetic.
+        Returns the arithmetic_valid flag.
+        """
+        violations: list[str] = []
+
+        expected_after_dedup = (
+            self.total_identified_databases + self.total_identified_other - self.duplicates_removed
+        )
+        if self.records_after_deduplication != expected_after_dedup and self.records_after_deduplication > 0:
+            violations.append(
+                f"records_after_deduplication mismatch: "
+                f"stored={self.records_after_deduplication}, "
+                f"expected={expected_after_dedup}"
+            )
+
+        if not (
+            self.records_screened == self.records_excluded_screening + self.reports_sought
+            or self.automation_excluded > 0
+        ):
+            violations.append(
+                f"screened != excluded_screening + sought: "
+                f"{self.records_screened} != {self.records_excluded_screening} + {self.reports_sought}"
+            )
+
+        if self.reports_sought != self.reports_not_retrieved + self.reports_assessed:
+            violations.append(
+                f"sought != not_retrieved + assessed: "
+                f"{self.reports_sought} != {self.reports_not_retrieved} + {self.reports_assessed}"
+            )
+
+        expected_included = self.studies_included_qualitative + self.studies_included_quantitative
+        if self.total_included != expected_included and self.total_included > 0:
+            violations.append(
+                f"total_included mismatch: stored={self.total_included}, expected={expected_included}"
+            )
+
+        if violations:
+            msg = "PRISMA arithmetic violations: " + "; ".join(violations)
+            _logger.warning(msg)
+            if strict:
+                raise ValueError(msg)
+        return self.arithmetic_valid
 
 
 class ProtocolDocument(BaseModel):

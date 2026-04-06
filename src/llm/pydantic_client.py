@@ -19,12 +19,15 @@ import asyncio
 import json
 import logging
 import random
-from typing import Any
+from typing import Any, TypeVar
 
+from pydantic import BaseModel
 from pydantic_ai import Agent, NativeOutput, StructuredDict
 from pydantic_ai.settings import ModelSettings
 
 logger = logging.getLogger(__name__)
+
+_T = TypeVar("_T", bound=BaseModel)
 
 _GEMINI_PREFIXES = ("google-gla:", "google-vertex:")
 
@@ -215,3 +218,70 @@ class PydanticAIClient:
             usage.cache_write_tokens or 0,
             usage.cache_read_tokens or 0,
         )
+
+    async def complete_validated(
+        self,
+        prompt: str,
+        *,
+        model: str,
+        temperature: float,
+        response_model: type[_T],
+        json_schema: dict | None = None,
+        max_validation_retries: int = 2,
+    ) -> tuple[_T, int, int, int, int, int]:
+        """Run LLM completion with schema enforcement and caller-side validation retry.
+
+        Returns (validated_model, total_input_tokens, total_output_tokens,
+                 total_cache_write, total_cache_read, validation_retries_used).
+
+        On Pydantic ValidationError or JSON decode failure after the provider
+        returns, the LLM is re-prompted with the validation error details
+        appended so the model can self-correct. This eliminates silent fallback
+        to heuristic paths for recoverable schema mismatches.
+
+        If *json_schema* is not provided it is derived from
+        ``response_model.model_json_schema()``.
+
+        After *max_validation_retries* attempts the last exception propagates
+        so callers can still fall back to a heuristic if desired.
+        """
+        effective_schema = json_schema or response_model.model_json_schema()
+        total_in = total_out = total_cw = total_cr = 0
+        current_prompt = prompt
+        last_exc: Exception | None = None
+
+        for attempt in range(1 + max_validation_retries):
+            text, tok_in, tok_out, cw, cr = await self.complete_with_usage(
+                current_prompt,
+                model=model,
+                temperature=temperature,
+                json_schema=effective_schema,
+            )
+            total_in += tok_in
+            total_out += tok_out
+            total_cw += cw
+            total_cr += cr
+
+            try:
+                validated = response_model.model_validate_json(text)
+                return validated, total_in, total_out, total_cw, total_cr, attempt
+            except Exception as exc:
+                last_exc = exc
+                if attempt < max_validation_retries:
+                    error_detail = str(exc)[:800]
+                    current_prompt = (
+                        f"{prompt}\n\n"
+                        f"YOUR PREVIOUS RESPONSE FAILED VALIDATION.\n"
+                        f"Fix the following errors and return corrected JSON:\n"
+                        f"{error_detail}"
+                    )
+                    logger.warning(
+                        "Validation retry %d/%d for %s: %s",
+                        attempt + 1,
+                        max_validation_retries,
+                        response_model.__name__,
+                        str(exc)[:200],
+                    )
+                    continue
+        assert last_exc is not None  # guaranteed by loop structure
+        raise last_exc

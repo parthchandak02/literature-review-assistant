@@ -19,8 +19,8 @@ from src.models.config import (
     FundingInfo,
     GatesConfig,
     IEEEExportConfig,
-    MetaAnalysisConfig,
     ManuscriptAuditConfig,
+    MetaAnalysisConfig,
     PICOConfig,
     ProtocolRegistration,
     ReviewConfig,
@@ -53,6 +53,7 @@ from src.models.enums import (
     StudyDesign,
 )
 from src.models.extraction import ExtractionRecord, OutcomeRecord
+from src.models.manuscript_ir import ManuscriptCanonicalDisclosures
 from src.models.manuscript_review import (
     AuditProfileName,
     AuditSeverity,
@@ -72,14 +73,17 @@ from src.models.workflow import (
     ValidationRunRecord,
 )
 from src.models.writing import (
+    AssemblyInput,
     ManuscriptAssembly,
     ManuscriptAsset,
     ManuscriptBlock,
     ManuscriptSection,
     SectionBlock,
     SectionDraft,
+    SectionWriteResult,
     StructuredManuscriptDraft,
     StructuredSectionDraft,
+    WritingPrepOutput,
 )
 
 __all__ = [
@@ -107,6 +111,7 @@ __all__ = [
     "ManuscriptAuditFinding",
     "ManuscriptAuditProfileSelection",
     "ManuscriptAuditResult",
+    "ManuscriptCanonicalDisclosures",
     "OutcomeRecord",
     "FundingInfo",
     "GatesConfig",
@@ -157,4 +162,7 @@ __all__ = [
     "ValidationCheckRecord",
     "ValidationRunRecord",
     "WritingConfig",
+    "WritingPrepOutput",
+    "SectionWriteResult",
+    "AssemblyInput",
 ]
