@@ -309,6 +309,11 @@ class WritingGroundingData(BaseModel):
     fulltext_not_retrieved: int = 0
     sparse_evidence_mode: bool = False
 
+    # Post-extraction non-primary exclusion count (papers that passed fulltext
+    # screening but were classified as non-primary study types during extraction).
+    # PRISMA 2020 requires this attrition to be reported in the flow diagram.
+    excluded_non_primary_count: int = 0
+
     # Batch LLM pre-ranker counts (set during screening phase).
     # When batch_screen_forwarded > 0, the Methods section should describe a
     # 3-stage funnel: BM25 -> batch pre-ranker -> dual-reviewer.
@@ -494,6 +499,7 @@ def build_writing_grounding(
     fulltext_paper_ids: set[str] | None = None,
     fulltext_nonretrieval_caution_threshold: float = 0.40,
     abstract_only_caution_threshold: float = 0.40,
+    excluded_non_primary_count: int = 0,
 ) -> WritingGroundingData:
     """Aggregate real pipeline outputs into a WritingGroundingData instance."""
 
@@ -833,6 +839,7 @@ def build_writing_grounding(
         fulltext_sought=prisma_counts.reports_sought,
         fulltext_not_retrieved=prisma_counts.reports_not_retrieved,
         sparse_evidence_mode=sparse_evidence_mode,
+        excluded_non_primary_count=excluded_non_primary_count,
         batch_screen_forwarded=batch_screen_forwarded,
         batch_screen_excluded=batch_screen_excluded,
         batch_screener_model=batch_screener_model,
@@ -868,6 +875,19 @@ def format_grounding_block(data: WritingGroundingData) -> str:
             "CRITICAL -- TOPIC CONSISTENCY RULE: Discussion and Conclusion MUST stay within this topic/question. "
             "Do NOT import claims from unrelated prior runs or different domains."
         )
+        _domain = data.review_topic or data.research_question
+        if _domain:
+            lines.append("")
+            lines.append(
+                f"CRITICAL -- DOMAIN ENFORCEMENT: You are writing for the domain implied by: '{_domain}'. "
+                "Use ONLY vocabulary, framing, and terminology appropriate to this specific domain. "
+                "Read the research question carefully and derive your technical language from it. "
+                "Do NOT default to clinical, medical, or educational framing unless the research "
+                "question is explicitly about clinical, medical, or educational topics. "
+                "Every domain has its own standard terminology -- use the terms that an expert "
+                "reader in this specific field would expect. When in doubt, mirror the language "
+                "used in the research question and the included study summaries below."
+            )
         lines.append("")
     if data.total_included == 0:
         lines.extend(
@@ -959,6 +979,19 @@ def format_grounding_block(data: WritingGroundingData) -> str:
         f"Full-text articles excluded after assessment: {data.fulltext_excluded}",
         f"Studies included: {data.total_included}",
     ]
+    if data.excluded_non_primary_count > 0:
+        lines.append(
+            f"Post-extraction non-primary exclusions: {data.excluded_non_primary_count} papers "
+            "passed fulltext screening but were classified as non-primary study types "
+            "(e.g., reviews, protocols, conference abstracts, development studies) during "
+            "data extraction and excluded from synthesis."
+        )
+        lines.append(
+            "CRITICAL -- PRISMA ATTRITION REPORTING: The Methods and Results sections MUST "
+            f"report that {data.excluded_non_primary_count} papers were excluded after "
+            "full-text assessment because they did not meet the primary study design criteria. "
+            "This attrition step occurs between eligibility assessment and final inclusion."
+        )
     if data.batch_screen_forwarded > 0:
         _bm25_fwd = data.batch_screen_forwarded + data.batch_screen_excluded
         _threshold_pct = int(data.batch_screen_threshold * 100)

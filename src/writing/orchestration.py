@@ -384,7 +384,7 @@ def _ensure_structured_abstract(content: str, research_question: str) -> str:
         return text
 
     defaults = {
-        "Background": "This topic has important clinical and implementation implications.",
+        "Background": "This topic has important practical and implementation implications.",
         "Objectives": f"This systematic review addressed {research_question}.",
         "Methods": (
             "Bibliographic databases were searched according to protocol, with "
@@ -897,7 +897,7 @@ def _build_deterministic_section_fallback(
                     block_type="paragraph",
                     text=(
                         f"Across included studies addressing {topic_scope}, evidence indicates potentially meaningful "
-                        "educational effects, but heterogeneity and certainty limitations constrain strong causal conclusions."
+                        "effects, but heterogeneity and certainty limitations constrain strong causal conclusions."
                     ),
                 ),
                 SectionBlock(
@@ -928,7 +928,7 @@ def _build_deterministic_section_fallback(
                     block_type="paragraph",
                     text=(
                         "Practice adoption should be cautious and context-aware, prioritizing settings with adequate "
-                        "implementation support and explicit safeguards for educational validity."
+                        "implementation support and robust evidence of effectiveness."
                     ),
                 ),
                 SectionBlock(block_type="subheading", text="Implications for Research", level=3),
@@ -1112,15 +1112,29 @@ async def register_background_sr_citations(
         if not _topic_tokens:
             _topic_tokens = {tok.lower() for tok in research_question.split() if len(tok) > 3}
 
+        _min_token_matches = 2 if len(_topic_tokens) >= 4 else 1
+
         def _is_topic_relevant(paper: dict) -> bool:
             title_lower = (paper.get("title") or "").lower()
-            return any(tok in title_lower for tok in _topic_tokens)
+            matched = sum(1 for tok in _topic_tokens if tok in title_lower)
+            return matched >= _min_token_matches
 
         papers_relevant = [p for p in papers_raw if _is_topic_relevant(p)]
-        # Fall back to unfiltered set if no papers survive the filter (very rare).
+        _filtered_out = [p for p in papers_raw if not _is_topic_relevant(p)]
+        if _filtered_out:
+            logger.info(
+                "Background SR relevance filter excluded %d of %d candidates: %s",
+                len(_filtered_out),
+                len(papers_raw),
+                "; ".join((p.get("title") or "?")[:60] for p in _filtered_out[:5]),
+            )
         if not papers_relevant:
-            papers_relevant = papers_raw
-            logger.debug("Background SR topic filter matched 0 papers; falling back to unfiltered set.")
+            logger.info(
+                "Background SR topic filter matched 0 of %d papers; "
+                "returning empty to avoid off-topic citations.",
+                len(papers_raw),
+            )
+            return []
 
         # Sort by citation count descending; take top max_results
         papers_sorted = sorted(

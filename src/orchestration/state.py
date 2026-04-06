@@ -63,6 +63,9 @@ class ReviewState:
     # fulltext_not_retrieved: papers excluded because no PDF could be obtained.
     fulltext_sought: int = 0
     fulltext_not_retrieved: int = 0
+    # Count of papers excluded as non-primary after extraction classification.
+    # Tracks attrition between fulltext eligibility and final inclusion.
+    excluded_non_primary_count: int = 0
     # Set when screening passes under sparse-topic continuation policy.
     sparse_evidence_mode: bool = False
     # RAG retrieval health counters recorded during writing.

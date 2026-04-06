@@ -103,59 +103,87 @@ class StudyClassifier:
         # Use quality_assessment profile for single Pro-tier behavior.
         self.agent_name = "quality_assessment"
 
-    def _build_prompt(self, paper: CandidatePaper) -> str:
-        return "\n".join(
-            [
-                "Role: Study Design Classification Specialist",
-                "Goal: Classify study design for downstream quality-assessment routing.",
-                "Backstory: You support systematic reviews across changing domains and topics.",
-                f"Topic: {self.review.scope}",
-                f"Research Question: {self.review.research_question}",
-                f"Domain: {self.review.domain}",
-                f"Keywords: {', '.join(self.review.keywords)}",
+    def _build_prompt(self, paper: CandidatePaper, *, abstract_only: bool = False) -> str:
+        lines = [
+            "Role: Study Design Classification Specialist",
+            "Goal: Classify study design for downstream quality-assessment routing.",
+            "Backstory: You support systematic reviews across changing domains and topics.",
+            f"Topic: {self.review.scope}",
+            f"Research Question: {self.review.research_question}",
+            f"Domain: {self.review.domain}",
+            f"Keywords: {', '.join(self.review.keywords)}",
+            "",
+            f"Paper ID: {paper.paper_id}",
+            f"Title: {paper.title}",
+            f"Abstract: {paper.abstract or ''}",
+            "",
+            "Classify the study design. Choose the most appropriate value:",
+            "  rct                - Randomized controlled trial with random allocation to groups.",
+            "  non_randomized     - Non-randomized CONTROLLED study with a defined intervention",
+            "    AND a comparator/control group. ROBINS-I applies.",
+            "    Covers any domain: clinical trials without randomization, simulation/computational",
+            "    studies comparing multiple conditions with controlled variables, laboratory bench",
+            "    tests with controlled parameters, A/B comparisons in software or policy, etc.",
+            "    Do NOT use for single-group pre-post studies without a control arm.",
+            "  quasi_experimental - Controlled study with non-equivalent groups (convenience assignment)",
+            "    or interrupted time series. Has a comparator but groups are not randomly assigned.",
+            "    Covers any domain: classroom vs classroom, before/after policy changes with a",
+            "    control region, baseline vs modified configuration comparisons, historical controls.",
+            "  cohort             - Cohort study (prospective or retrospective) following a group over time.",
+            "  case_control       - Case-control study comparing cases with matched controls.",
+            "  pre_post           - Single-group before/after (pre-post) study with NO control arm.",
+            "    Use when: a single group or system is measured at baseline and after an intervention,",
+            "    but there is no comparison group. Applies in any domain: clinical, educational,",
+            "    engineering, policy, etc. Appraisable with MMAT (quantitative descriptive).",
+            "  qualitative        - Qualitative study: interviews, focus groups, thematic analysis.",
+            "  mixed_methods      - Mixed quantitative + qualitative methods in a single study.",
+            "  cross_sectional    - Cross-sectional survey, audit, or single time-point observation.",
+            "    Use when: data collected at one time point with no before/after measurement.",
+            "  usability_study    - UX/acceptability evaluation only (System Usability Scale, TAM,",
+            "    think-aloud, heuristic evaluation). Primary outcome is usability/acceptability.",
+            "    No pre-post measurement of domain-specific outcomes.",
+            "  development_study  - PURE system design, architecture, or proof-of-concept paper with",
+            "    NO quantitative evaluation or empirical results whatsoever.",
+            "    Use ONLY when: the paper describes a system, framework, method, or model but reports",
+            "    NO performance metrics, NO simulation/experimental data, NO quantitative comparisons,",
+            "    and NO measured outcomes of any kind. If the abstract mentions ANY quantitative results",
+            "    -- regardless of domain -- classify as an empirical category instead.",
+            "    Not appraisable with standard RoB tools.",
+            "  protocol           - Registered trial protocol or study design paper (no results yet).",
+            "  conference_abstract - Conference poster or abstract only (not a full peer-reviewed paper).",
+            "    Use this when: the DOI contains 'conf', 'conference', 'abstract', 'supplement', 'poster',",
+            "    or similar conference identifiers; or the title/abstract indicates poster/abstract only.",
+            "  narrative_review   - Narrative, scoping, or umbrella review (not a primary evidence study).",
+            "    Use this when: the title or abstract explicitly says 'systematic review', 'scoping review',",
+            "    'narrative review', 'meta-analysis', 'review of literature', 'overview', etc.",
+            "  other              - Study type genuinely not covered by any category above.",
+            "",
+            "DISAMBIGUATION RULE (applies to ALL domains): If the abstract mentions quantitative",
+            "results, measured outcomes, performance metrics, experimental evaluation, simulation data,",
+            "statistical analysis, or any kind of empirical comparison, the paper is a primary",
+            "empirical study -- classify as non_randomized, quasi_experimental, pre_post, or another",
+            "empirical category. Do NOT classify it as development_study. Papers that both propose",
+            "a new system/method AND evaluate it quantitatively are empirical studies, not",
+            "development studies. This rule applies regardless of domain (clinical, engineering,",
+            "education, social science, computer science, etc.).",
+        ]
+        if abstract_only:
+            lines.extend([
                 "",
-                f"Paper ID: {paper.paper_id}",
-                f"Title: {paper.title}",
-                f"Abstract: {paper.abstract or ''}",
-                "",
-                "Classify the study design. Choose the most appropriate value:",
-                "  rct                - Randomized controlled trial with random allocation to groups.",
-                "  non_randomized     - Non-randomized CONTROLLED study with a defined intervention group",
-                "    AND a comparator/control group (e.g., two classes, waitlist control). ROBINS-I applies.",
-                "    Do NOT use for single-group pre-post studies without a control arm.",
-                "  quasi_experimental - Controlled study with non-equivalent groups (convenience assignment)",
-                "    or interrupted time series. Has a comparator but groups are not randomly assigned.",
-                "    Examples: two intact classrooms, historical controls, non-equivalent control group designs.",
-                "  cohort             - Cohort study (prospective or retrospective) following a group over time.",
-                "  case_control       - Case-control study comparing cases with matched controls.",
-                "  pre_post           - Single-group before/after (pre-post) study with NO control arm.",
-                "    Use when: participants are measured at baseline and after an intervention, but there is",
-                "    no comparison group. Very common in ITS and chatbot evaluations. Appraisable with MMAT",
-                "    (quantitative descriptive category). Do NOT use non_randomized for this design.",
-                "  qualitative        - Qualitative study: interviews, focus groups, thematic analysis.",
-                "  mixed_methods      - Mixed quantitative + qualitative methods in a single study.",
-                "  cross_sectional    - Cross-sectional survey, audit, or single time-point observation.",
-                "    Use when: data collected at one time point with no before/after measurement.",
-                "  usability_study    - UX/acceptability evaluation only (System Usability Scale, TAM,",
-                "    think-aloud, heuristic evaluation). Primary outcome is usability, not learning.",
-                "    No pre-post measurement of learning outcomes.",
-                "  development_study  - System design, architecture, or proof-of-concept paper.",
-                "    Use when: the primary contribution is the system itself (an ITS, chatbot, or virtual",
-                "    patient). May include a small pilot or expert review, but NOT a full outcomes study.",
-                "    Not appraisable with standard RoB tools.",
-                "  protocol           - Registered trial protocol or study design paper (no results yet).",
-                "  conference_abstract - Conference poster or abstract only (not a full peer-reviewed paper).",
-                "    Use this when: the DOI contains 'conf', 'conference', 'abstract', 'supplement', 'poster',",
-                "    or similar conference identifiers; or the title/abstract indicates poster/abstract only.",
-                "  narrative_review   - Narrative, scoping, or umbrella review (not a primary evidence study).",
-                "    Use this when: the title or abstract explicitly says 'systematic review', 'scoping review',",
-                "    'narrative review', 'meta-analysis', 'review of literature', 'overview', etc.",
-                "  other              - Study type genuinely not covered by any category above.",
-                "",
-                "Return ONLY valid JSON matching this exact schema:",
-                '{"study_design":"rct|non_randomized|quasi_experimental|cohort|case_control|pre_post|qualitative|mixed_methods|cross_sectional|usability_study|development_study|protocol|conference_abstract|narrative_review|other","confidence":0.0,"reasoning":"..."}',
-            ]
-        )
+                "ABSTRACT-ONLY CLASSIFICATION: You are classifying from title and abstract ONLY",
+                "(full text was not available). When uncertain between development_study and an",
+                "empirical category (non_randomized, quasi_experimental, pre_post), PREFER the",
+                "empirical category. Across all domains, papers routinely describe their method",
+                "or system in the abstract while the full quantitative evaluation appears only",
+                "in the body. Reserve development_study ONLY for papers whose abstract explicitly",
+                "states that NO evaluation, testing, or results are presented.",
+            ])
+        lines.extend([
+            "",
+            "Return ONLY valid JSON matching this exact schema:",
+            '{"study_design":"rct|non_randomized|quasi_experimental|cohort|case_control|pre_post|qualitative|mixed_methods|cross_sectional|usability_study|development_study|protocol|conference_abstract|narrative_review|other","confidence":0.0,"reasoning":"..."}',
+        ])
+        return "\n".join(lines)
 
     @staticmethod
     def _parse_response(raw: str) -> StudyClassificationResult | None:
@@ -191,7 +219,7 @@ class StudyClassifier:
         "overview of",
     )
 
-    async def classify(self, workflow_id: str, paper: CandidatePaper) -> StudyDesign:
+    async def classify(self, workflow_id: str, paper: CandidatePaper, *, abstract_only: bool = False) -> StudyDesign:
         # Heuristic pre-classification: DOI-based conference abstract detection
         doi_lower = (paper.doi or "").lower()
         if any(signal in doi_lower for signal in self._CONFERENCE_DOI_SIGNALS):
@@ -228,7 +256,7 @@ class StudyClassifier:
             )
             return StudyDesign.NARRATIVE_REVIEW
 
-        prompt = self._build_prompt(paper)
+        prompt = self._build_prompt(paper, abstract_only=abstract_only)
         runtime = await self.provider.reserve_call_slot(self.agent_name)
         started = time.perf_counter()
         if hasattr(self.llm_client, "complete_json_with_usage"):
@@ -290,6 +318,20 @@ class StudyClassifier:
             rationale = (
                 f"Low confidence ({parsed.confidence:.2f} < {self.low_confidence_threshold:.2f}). "
                 "Applied non_randomized fallback."
+            )
+            confidence = parsed.confidence
+            predicted = parsed.study_design.value
+        elif (
+            abstract_only
+            and parsed.study_design == StudyDesign.DEVELOPMENT_STUDY
+            and parsed.confidence < 0.85
+        ):
+            final_design = StudyDesign.NON_RANDOMIZED
+            rationale = (
+                f"Abstract-only classification returned development_study with "
+                f"confidence={parsed.confidence:.2f} < 0.85. Upgrading to non_randomized "
+                f"because abstract-only context is insufficient to confirm absence of "
+                f"empirical evaluation."
             )
             confidence = parsed.confidence
             predicted = parsed.study_design.value
