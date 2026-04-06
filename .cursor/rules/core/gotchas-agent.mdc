@@ -652,3 +652,43 @@ run benchmark comparisons. It contains `gold_standard_benchmark.json` (derived t
 published SR PDFs, and optional legacy feedback files (`gemini-*.md`).
 The auditor treats all `reference/` files as optional -- missing files are skipped,
 not treated as blocking gates.
+
+## FinalizeNode Now Writes a `finalize` Checkpoint
+`FinalizeNode` in `src/orchestration/workflow.py` saves a `finalize` checkpoint to the
+`checkpoints` table after writing `run_summary.json` and updating workflow status.
+The readiness scorecard (`src/manuscript/readiness.py`) checks for
+`checkpoints.get("finalize") == "completed"`. Without this checkpoint, the readiness
+endpoint reports `ready: false` with `finalize_checkpoint: missing` even when all
+artifacts are present. This was the root cause of `ready: false` on otherwise-complete
+runs (wf-0051, wf-0053) before the fix was applied.
+
+## `complete_validated` Is the Standard LLM Structured Output Pattern
+`PydanticAIClient.complete_validated()` in `src/llm/pydantic_client.py` wraps LLM
+completion with Pydantic schema validation and automatic retries. All LLM-consuming
+modules (extraction, quality assessment, section writing) use this instead of raw
+text completion. The method returns a validated Pydantic model instance or raises after
+exhausting retries. When adding new LLM calls, use `complete_validated` -- do NOT parse
+raw text into dicts.
+
+## Readiness Scorecard Checks Three Gates
+`compute_readiness_scorecard()` in `src/manuscript/readiness.py` checks:
+1. `finalize` checkpoint exists and is `completed`
+2. PRISMA arithmetic is valid (`PRISMACounts.validate_arithmetic()`)
+3. Manuscript contracts pass in the given mode
+All three must pass for `ready: true`. The API endpoint is
+`GET /api/run/{workflow_id}/readiness`.
+
+## Contract Matrix Makes TeX Checks Phase-Aware
+`src/manuscript/contract_matrix.py` defines `PHASES_TEX_OPTIONAL` (phases where
+`doc_manuscript.tex` may not exist yet). During `phase_7_audit`, TeX-related contract
+checks are skipped via `tex_optional_for_phase("phase_7_audit")`. This prevents the
+audit from failing with "No such file: doc_manuscript.tex" -- that file is generated
+later in FinalizeNode. Do NOT add TeX-dependent assertions to contracts without
+checking `tex_optional_for_phase()` first.
+
+## Violation Policy Separates Soft-Block From Hard-Fail
+`src/manuscript/violation_policy.py` categorizes contract violation codes into
+`SOFT_BLOCK_CODES` (report but do not block) and phase-7-only availability codes.
+`hard_failure(code, phase)` returns True only for violations that should block the
+pipeline. Remaining violations are surfaced in audit findings without halting the run.
+This prevents cosmetic issues from blocking manuscript generation.

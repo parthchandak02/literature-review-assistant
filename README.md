@@ -306,6 +306,7 @@ Grouped endpoints most users use:
 - Extra run views (Results when done): `GET /api/run/{run_id}/knowledge-graph`, `GET /api/run/{run_id}/prisma-checklist`, `GET /api/run/{run_id}/grade-sof`
 - Data explorer: `GET /api/db/{run_id}/papers`, `/papers-all`, `/papers-facets`, `/papers-suggest`, `/screening`, `/costs`, `/costs/aggregates`, `/costs/export`, `/tables`, `/rag-diagnostics`
 - Manuscript audit: `GET /api/workflow/{workflow_id}/manuscript-audit/summary`, `GET /api/workflow/{workflow_id}/manuscript-audit/findings`, `GET /api/run/{run_id}/manuscript-audit`
+- Readiness: `GET /api/run/{workflow_id}/readiness`
 - Validation: `GET /api/workflow/{workflow_id}/validation/summary`, `GET /api/workflow/{workflow_id}/validation/checks`
 - Notes and logs: `PATCH /api/notes/{workflow_id}`, `GET /api/notes/stream`, `GET /api/logs/stream`
 
