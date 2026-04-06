@@ -19,6 +19,10 @@ from pydantic import BaseModel, Field
 
 from src.db.repositories import CitationRepository, WorkflowRepository
 from src.export.markdown_refs import _normalize_subsection_heading_layout
+from src.manuscript.prisma_disclosure import prisma_disclosure_gaps, should_use_db_prisma_flow_checks
+from src.manuscript.violation_policy import hard_failure, violation_category
+from src.models.manuscript_ir import ManuscriptCanonicalDisclosures
+from src.prisma.diagram import build_prisma_counts
 
 
 class ContractViolation(BaseModel):
@@ -29,6 +33,7 @@ class ContractViolation(BaseModel):
     message: str
     expected: str | None = None
     actual: str | None = None
+    category: str | None = None
 
 
 class ManuscriptContractResult(BaseModel):
@@ -36,7 +41,14 @@ class ManuscriptContractResult(BaseModel):
 
     passed: bool
     mode: str
+    contract_phase: str = "finalize"
+    canonical_disclosures: ManuscriptCanonicalDisclosures | None = None
     violations: list[ContractViolation] = Field(default_factory=list)
+
+
+def _hard_failure(mode: str, code: str, contract_phase: str = "finalize") -> bool:
+    """Back-compat wrapper; prefer src.manuscript.violation_policy.hard_failure."""
+    return hard_failure(mode, code, contract_phase)
 
 
 def _read_optional_utf8_text(path_str: str | None) -> str:
@@ -509,48 +521,6 @@ def _grade_claimed_without_rows(md_text: str) -> bool:
     return False
 
 
-def _find_missing_prisma_statements(md_text: str) -> list[str]:
-    """Return required PRISMA-aligned disclosure families missing from prose."""
-    low = md_text.lower()
-    missing: list[str] = []
-
-    if (
-        ("independent reviewer" not in low)
-        and ("independent reviewers" not in low)
-        and ("independent dual review" not in low)
-        and ("two independent reviewers" not in low)
-    ):
-        missing.append("selection_process_independent_reviewers")
-    if re.search(
-        r"reports?\s+(?:were\s+|was\s+|being\s+)?(?:\w+\s+){0,3}?sought\s+for(?:\s+full[-\u2010-\u2015 ]text)?\s+retrieval",
-        low,
-    ) is None and re.search(
-        r"\b(?:\d+\s+)?reports?\s+for\s+full[-\u2010-\u2015 ]text\s+retrieval\b",
-        low,
-    ) is None and re.search(
-        r"sought\s+full[-\u2010-\u2015 ]text\s+retrieval\s+for\s+(?:the\s+remaining\s+)?\d+\s+reports?",
-        low,
-    ) is None and re.search(
-        r"advanced\s+to\s+full[-\u2010-\u2015 ]text\s+retrieval",
-        low,
-    ) is None and re.search(
-        r"forwarded\s+for\s+full[-\u2010-\u2015 ]text\s+retrieval",
-        low,
-    ) is None:
-        missing.append("study_selection_reports_sought_sentence")
-    if (
-        re.search(r"reports?\s+(?:were\s+|was\s+)?not\s+retrieved", low) is None
-        and re.search(r"(?:reports?\s+)?could\s+not\s+be\s+retrieved", low) is None
-        and re.search(r"reports?\s+remained\s+irretrievable", low) is None
-    ):
-        missing.append("study_selection_not_retrieved_disclosure")
-    if "protocol registration" not in low and "registered" not in low:
-        missing.append("protocol_registration_disclosure")
-    if "risk of bias" not in low and "rob " not in low and "robins-i" not in low:
-        missing.append("risk_of_bias_disclosure")
-    return missing
-
-
 def _find_duplicate_h2_sections(md_text: str) -> list[str]:
     """Return H2 heading titles that appear more than once."""
     headings: list[str] = []
@@ -634,44 +604,6 @@ def _extract_bib_keys(bib_text: str) -> set[str]:
     return {m.group(1).strip() for m in re.finditer(r"@\w+\{([^,]+),", bib_text)}
 
 
-def _hard_failure(mode: str, code: str) -> bool:
-    if mode == "observe":
-        return False
-    if mode == "soft":
-        return code in {
-            "PLACEHOLDER_LEAK",
-            "UNRESOLVED_CITATIONS",
-            "NON_PRIMARY_IN_TABLE",
-            "INCLUDED_COUNT_MISMATCH",
-            "HEADING_PARITY_MISMATCH",
-            "MALFORMED_SECTION_HEADING",
-            "PLACEHOLDER_FRAGMENT",
-            "COUNT_DISCLOSURE_MISMATCH",
-            "AI_LEAKAGE",
-            "DUPLICATE_H2_SECTION",
-            "REQUIRED_SECTION_MISSING",
-            "SECTION_ORDER_INVALID",
-            "PRISMA_STATEMENT_MISSING",
-            "PROTOCOL_REGISTRATION_CONTRADICTION",
-            "PROTOCOL_REGISTRATION_FUTURE_TENSE",
-            "MODEL_ID_LEAKAGE",
-            "META_FEASIBILITY_CONTRADICTION",
-            "ABSTRACT_OVER_LIMIT",
-            "ABSTRACT_STRUCTURE_MISSING_FIELDS",
-            "UNUSED_BIB_ENTRY",
-            "ARTIFACT_PLACEHOLDER_LEAK",
-            "SECTION_CONTENT_INCOMPLETE",
-            "IMPLICATIONS_MISPLACED",
-            "ROB_FIGURE_CAPTION_MISMATCH",
-            "FAILED_DB_DISCLOSURE_MISSING",
-            "FAILED_DB_STATUS_MISCHARACTERIZED",
-            "FIGURE_ASSET_MISSING",
-            "FIGURE_NUMBERING_INVALID",
-            "FIGURE_LATEX_MISMATCH",
-        }
-    return True
-
-
 async def run_manuscript_contracts(
     *,
     repository: WorkflowRepository,
@@ -681,15 +613,34 @@ async def run_manuscript_contracts(
     manuscript_tex_path: str | None,
     extra_artifact_paths: list[str] | None = None,
     mode: str = "observe",
+    contract_phase: str = "finalize",
 ) -> ManuscriptContractResult:
     """Validate manuscript integrity invariants across DB and artifacts."""
     violations: list[ContractViolation] = []
+    phase_label = contract_phase or "finalize"
     md_text = Path(manuscript_md_path).read_text(encoding="utf-8")
     tex_text = _read_optional_utf8_text(manuscript_tex_path)
 
     synthesis_ids = await repository.get_synthesis_included_paper_ids(workflow_id)
     if not synthesis_ids:
         synthesis_ids = await repository.get_included_paper_ids(workflow_id)
+
+    dedup_count = await repository.get_dedup_count(workflow_id)
+    if dedup_count is None:
+        dedup_count = 0
+    prisma_counts = await build_prisma_counts(
+        repository,
+        workflow_id,
+        dedup_count,
+        0,
+        len(synthesis_ids),
+    )
+    use_db_prisma = should_use_db_prisma_flow_checks(prisma_counts)
+    canonical_disclosures = ManuscriptCanonicalDisclosures(
+        workflow_id=workflow_id,
+        prisma=prisma_counts,
+        use_db_flow_checks=use_db_prisma,
+    )
 
     table_row_count = _extract_table_row_count(md_text)
     if table_row_count is not None and table_row_count != len(synthesis_ids):
@@ -967,7 +918,11 @@ async def run_manuscript_contracts(
                 )
             )
 
-    missing_prisma = _find_missing_prisma_statements(md_text)
+    missing_prisma = prisma_disclosure_gaps(
+        md_text,
+        prisma_counts,
+        use_db_flow_checks=use_db_prisma,
+    )
     if missing_prisma:
         violations.append(
             ContractViolation(
@@ -1121,5 +1076,14 @@ async def run_manuscript_contracts(
             )
         )
 
-    passed = all(not _hard_failure(mode, v.code) for v in violations)
-    return ManuscriptContractResult(passed=passed, mode=mode, violations=violations)
+    violations_out = [
+        v.model_copy(update={"category": violation_category(v.code, phase_label)}) for v in violations
+    ]
+    passed = all(not hard_failure(mode, v.code, phase_label) for v in violations_out)
+    return ManuscriptContractResult(
+        passed=passed,
+        mode=mode,
+        contract_phase=phase_label,
+        canonical_disclosures=canonical_disclosures,
+        violations=violations_out,
+    )

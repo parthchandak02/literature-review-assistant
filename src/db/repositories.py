@@ -8,7 +8,7 @@ import re
 import sqlite3
 from datetime import UTC, datetime
 from hashlib import sha256
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import aiosqlite
 from pydantic import ValidationError
@@ -45,6 +45,9 @@ from src.models.enums import SourceCategory
 from src.models.papers import compute_display_label
 from src.synthesis.feasibility import SynthesisFeasibility
 from src.synthesis.narrative import NarrativeSynthesis
+
+if TYPE_CHECKING:
+    from src.manuscript.contracts import ManuscriptContractResult
 
 _logger = logging.getLogger(__name__)
 _HEADING_RE = re.compile(r"^(#{2,6})\s+(.+)$")
@@ -1285,7 +1288,7 @@ class WorkflowRepository:
         self,
         result: ManuscriptAuditResult,
         findings: list[ManuscriptAuditFinding],
-        contract_result: "ManuscriptContractResult | None" = None,
+        contract_result: ManuscriptContractResult | None = None,
         gate_blocked: bool = False,
         gate_failure_reasons: list[str] | None = None,
     ) -> None:

@@ -7,7 +7,6 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
-
 AuditProfileName = Literal[
     "general_systematic_review",
     "health_economics",
