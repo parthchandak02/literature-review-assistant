@@ -224,6 +224,18 @@ async def load_resume_state(
                     await repo.delete_checkpoints_for_phases(workflow_id, ["phase_6_writing"])
                     next_phase = "phase_6_writing"
 
+        if next_phase == "finalize" and checkpoints.get("phase_7_audit") == "completed":
+            _audit_md = run_dir / "doc_manuscript.md"
+            if not _audit_md.exists():
+                logger.warning(
+                    "phase_7_audit checkpoint completed but %s is missing; "
+                    "clearing checkpoint so ManuscriptAuditNode can re-run.",
+                    _audit_md,
+                )
+                await repo.delete_checkpoints_for_phases(workflow_id, ["phase_7_audit"])
+                checkpoints = await repo.get_checkpoints(workflow_id)
+                next_phase = "phase_7_audit"
+
     artifacts = {
         "run_summary": str(run_dir / "run_summary.json"),
         "search_appendix": str(run_dir / "doc_search_strategies_appendix.md"),

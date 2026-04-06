@@ -44,7 +44,7 @@ from src.extraction import ExtractionService, StudyClassifier
 from src.llm.provider import LLMProvider
 from src.llm.pydantic_client import PydanticAIClient
 from src.manuscript.cohort import IncludedSetResolver
-from src.manuscript.contracts import run_manuscript_contracts
+from src.manuscript.contracts import ManuscriptContractResult, run_manuscript_contracts
 from src.manuscript.reviewer import run_manuscript_audit, serialize_contract_summary
 from src.models import (
     CandidatePaper,
@@ -54,6 +54,7 @@ from src.models import (
     GateStatus,
     ManuscriptAssembly,
     ManuscriptAsset,
+    ManuscriptAuditResult,
     PrimaryStudyStatus,
     RagRetrievalDiagnostic,
     ReviewConfig,
@@ -4673,8 +4674,8 @@ class WritingNode(BaseNode[ReviewState]):
 
 
 def _collect_manuscript_gate_failure_reasons(
-    contract_result: "ManuscriptContractResult",
-    audit_result: "ManuscriptAuditResult",
+    contract_result: ManuscriptContractResult,
+    audit_result: ManuscriptAuditResult,
 ) -> list[str]:
     reasons: list[str] = []
     if not contract_result.passed:
@@ -4735,6 +4736,7 @@ class ManuscriptAuditNode(BaseNode[ReviewState]):
                         state.artifacts.get("prospero_form_md", ""),
                     ],
                     mode=contract_mode,
+                    contract_phase="phase_7_audit",
                 )
                 contract_summary = {
                     "mode": contract_result.mode,
@@ -5192,7 +5194,9 @@ class FinalizeNode(BaseNode[ReviewState]):
         Path(state.artifacts["run_summary"]).write_text(json.dumps(summary, indent=2), encoding="utf-8")
         await update_registry_status(state.run_root, state.workflow_id, "completed")
         async with get_db(state.db_path) as db:
-            await WorkflowRepository(db).update_workflow_status(state.workflow_id, "completed")
+            repo = WorkflowRepository(db)
+            await repo.update_workflow_status(state.workflow_id, "completed")
+            await repo.save_checkpoint(state.workflow_id, "finalize", papers_processed=summary.get("included_papers", 0))
         if rc and rc.verbose:
             _rc_print(rc, f"  Run summary: {state.artifacts['run_summary']}")
             _rc_print(rc, f"  Output dir: {state.output_dir}")

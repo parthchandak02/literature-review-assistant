@@ -753,6 +753,7 @@ async def test_history_stats_prefer_canonical_cohort_count(tmp_path: Path) -> No
         )
         await db.commit()
     stats = await _fetch_run_stats(str(db_path))
+    assert stats.get("ok") is True
     assert stats["papers_included"] == 1
     assert stats["papers_included_source"] == "study_cohort_membership_synthesis_included_primary"
 
@@ -778,6 +779,7 @@ async def test_history_stats_falls_back_to_dual_when_cohort_missing(tmp_path: Pa
         )
         await db.commit()
     stats = await _fetch_run_stats(str(db_path))
+    assert stats.get("ok") is True
     assert stats["papers_included"] == 1
     assert stats["papers_included_source"] == "dual_screening_results_fulltext"
 
