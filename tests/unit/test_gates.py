@@ -44,6 +44,45 @@ async def test_all_gates_run_in_warning_mode(tmp_path) -> None:
 
 
 @pytest.mark.asyncio
+async def test_search_volume_sparse_continuation_returns_warning(tmp_path) -> None:
+    db_path = tmp_path / "search_sparse_warning.db"
+    async with get_db(str(db_path)) as db:
+        repo = WorkflowRepository(db)
+        await repo.create_workflow("wf", "topic", "hash")
+        settings = SettingsConfig(
+            agents={"search": AgentConfig(model="google-gla:gemini-2.5-flash", temperature=0.1)},
+            search={"low_recall_warning_threshold": 10},
+            gates={
+                "profile": "strict",
+                "search_volume_minimum": 50,
+            },
+        )
+        runner = GateRunner(repo, settings)
+        result = await runner.run_search_volume_gate("wf", "phase_2_search", total_records=33)
+        assert result.status.value == "warning"
+        assert "continuation=enabled" in (result.details or "")
+
+
+@pytest.mark.asyncio
+async def test_search_volume_below_sparse_min_fails(tmp_path) -> None:
+    db_path = tmp_path / "search_sparse_fail.db"
+    async with get_db(str(db_path)) as db:
+        repo = WorkflowRepository(db)
+        await repo.create_workflow("wf", "topic", "hash")
+        settings = SettingsConfig(
+            agents={"search": AgentConfig(model="google-gla:gemini-2.5-flash", temperature=0.1)},
+            search={"low_recall_warning_threshold": 10},
+            gates={
+                "profile": "strict",
+                "search_volume_minimum": 50,
+            },
+        )
+        runner = GateRunner(repo, settings)
+        result = await runner.run_search_volume_gate("wf", "phase_2_search", total_records=5)
+        assert result.status.value == "failed"
+
+
+@pytest.mark.asyncio
 async def test_screening_safeguard_sparse_continuation_returns_warning(tmp_path) -> None:
     db_path = tmp_path / "sparse_warning.db"
     async with get_db(str(db_path)) as db:

@@ -105,7 +105,7 @@ screening:
   # papers screened on abstract alone are incorrectly included in synthesis.
   # Note: this may exclude paywalled papers with no open-access PDF; those papers
   # should appear in the PRISMA flow as "not retrieved" rather than as included studies.
-  skip_fulltext_if_no_pdf: true
+  skip_fulltext_if_no_pdf: false
   screening_concurrency: 5
   # Number of PDFs fetched concurrently during full-text retrieval (phase 3).
   # Each fetch hits a different upstream host (Unpaywall, CORE, Semantic Scholar,
@@ -220,6 +220,7 @@ rag:
   final_k: 8           # Final context chunks injected into writing prompt
   min_chunks_per_section: 1
   max_empty_sections: 2
+  rag_empty_policy: "warn"
   block_writing_on_rag_failure: false
 
 risk_of_bias:
@@ -271,7 +272,7 @@ extraction:
   # so each tier has this timeout independently; the race resolves on the first
   # successful result. Reducing from 20 -> 12 is safe: most open-access APIs
   # respond in <5s; slow responses indicate the paper is unavailable on that host.
-  pdf_tier_timeout_seconds: 12
+  pdf_tier_timeout_seconds: 20
   sciencedirect_full_text: true
   unpaywall_full_text: true
   pmc_full_text: true
