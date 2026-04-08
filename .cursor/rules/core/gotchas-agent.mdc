@@ -13,6 +13,21 @@ Apply this rule when touching PRISMA, run history, export, or production serving
 The API reads `doc_manuscript.md` from the run directory, NOT `manuscript.md`.
 If the PRISMA checklist card shows "data not available", check that `doc_manuscript.md` exists.
 
+## prisma-flow-diagram Requires colrev Stub (Do NOT Remove prisma-flow-diagram)
+The `prisma-flow-diagram` package produces the proper PRISMA 2020 two-column flow diagram
+(orange headers, blue phase labels, dynamic layout, 300 DPI). Its `__init__.py` eagerly
+imports `loader.py` which requires `colrev.loader.load_utils`. We removed `colrev` from
+`pyproject.toml` (Apr 2026) because it is a heavyweight transitive dependency tree (640+
+lock file lines) and our code never calls colrev directly. To avoid the import failure,
+`_ensure_colrev_stub()` in `src/prisma/diagram.py` injects a minimal `colrev` module stub
+into `sys.modules` before importing `prisma_flow_diagram`. This lets the renderer load
+without pulling in the real colrev package. DO NOT:
+- Remove `prisma-flow-diagram` from `pyproject.toml` (it IS the renderer)
+- Remove `_ensure_colrev_stub()` from `diagram.py` (the import will fail again)
+- Re-add `colrev` to `pyproject.toml` (unnecessary bloat; the stub is sufficient)
+If the PRISMA diagram degrades to a simple single-column matplotlib chart, check that
+`_ensure_colrev_stub()` is still called before the library import.
+
 ## Historical Run Endpoints
 PRISMA and results endpoints require the run to be registered in `_active_runs` in memory.
 After a server restart, historical runs are NOT in `_active_runs`.

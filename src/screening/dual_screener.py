@@ -363,6 +363,8 @@ class DualReviewerScreener:
         for item in raw:
             if isinstance(item, DualScreeningResult):
                 results.append(item)
+            elif isinstance(item, BaseException):
+                _log.warning("Calibration screening failed for one paper: %s", item)
         return results
 
     async def screen_batch(
@@ -379,6 +381,7 @@ class DualReviewerScreener:
         # Clear consumed flag at the start of every new batch so subsequent
         # Ctrl+C events (after a reset) are still honoured.
         self._partial_flag_consumed = False
+        self.last_fulltext_coverage: FullTextCoverageSummary | None = None
 
         # Determine which papers still need processing BEFORE fetching PDFs so
         # we do not re-download full text for papers that already have a decision
@@ -404,7 +407,6 @@ class DualReviewerScreener:
                     full_text_by_paper = {
                         paper_id: result.full_text for paper_id, result in retrieval_results.items() if result.success
                     }
-                    # Abstract fallback for unprocessed papers without full text
                     skip_no_pdf = self.settings.screening.skip_fulltext_if_no_pdf
                     if not skip_no_pdf:
                         for paper in to_process:
@@ -412,11 +414,11 @@ class DualReviewerScreener:
                                 fallback = (paper.abstract or paper.title or "").strip()
                                 full_text_by_paper[paper.paper_id] = fallback
                 else:
-                    # All papers already have persisted decisions; skip retrieval.
                     coverage = self._coverage_from_map([], {})
                     full_text_by_paper = {}
             else:
                 coverage = self._coverage_from_map(to_process, full_text_by_paper)
+            self.last_fulltext_coverage = coverage
             await self._persist_fulltext_coverage(
                 workflow_id=workflow_id,
                 stage=stage,
@@ -912,7 +914,8 @@ class DualReviewerScreener:
             stats["normalized_items"] += 1
             try:
                 parsed = _BatchScreeningItem.model_validate(normalized)
-            except Exception:
+            except Exception as exc:
+                _log.warning("Batch screening item validation failed: %s | item=%s", exc, normalized)
                 continue
             stats["validated_items"] += 1
             if allowed_paper_ids is not None and parsed.paper_id not in allowed_paper_ids:

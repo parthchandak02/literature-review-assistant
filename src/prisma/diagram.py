@@ -211,24 +211,49 @@ def _render_fallback(counts: PRISMACounts, path: Path) -> Path:
     return path
 
 
+def _ensure_colrev_stub() -> None:
+    """Provide a lightweight colrev stub so prisma-flow-diagram can import.
+
+    The prisma-flow-diagram package eagerly imports its loader module which
+    requires ``colrev.loader.load_utils``.  We never use that loader -- only
+    the pure-matplotlib renderer in ``prisma_flow_diagram.prisma`` -- so we
+    inject a minimal stub to satisfy the import chain without pulling in the
+    heavyweight colrev package tree.
+    """
+    import sys
+    import types
+
+    for mod_name in ("colrev", "colrev.loader", "colrev.loader.load_utils"):
+        if mod_name not in sys.modules:
+            sys.modules[mod_name] = types.ModuleType(mod_name)
+    sys.modules["colrev.loader"].load_utils = sys.modules["colrev.loader.load_utils"]  # type: ignore[attr-defined]
+    sys.modules["colrev"].loader = sys.modules["colrev.loader"]  # type: ignore[attr-defined]
+    if not hasattr(sys.modules["colrev.loader.load_utils"], "load"):
+        sys.modules["colrev.loader.load_utils"].load = lambda **kw: {}  # type: ignore[attr-defined]
+
+
 def render_prisma_diagram(counts: PRISMACounts, output_path: str) -> Path:
     """Render PRISMA 2020 two-column flow diagram to PNG."""
     path = Path(output_path)
     path.parent.mkdir(parents=True, exist_ok=True)
     try:
         from prisma_flow_diagram import plot_prisma2020_new
-
-        db_registers, included, other_methods = _map_counts_to_library_format(counts)
-        plot_prisma2020_new(
-            db_registers=db_registers,
-            included=included,
-            other_methods=other_methods,
-            filename=str(path),
-            show=False,
-        )
-        return path
     except ImportError:
-        return _render_fallback(counts, path)
+        _ensure_colrev_stub()
+        try:
+            from prisma_flow_diagram import plot_prisma2020_new
+        except ImportError:
+            return _render_fallback(counts, path)
+
+    db_registers, included, other_methods = _map_counts_to_library_format(counts)
+    plot_prisma2020_new(
+        db_registers=db_registers,
+        included=included,
+        other_methods=other_methods,
+        filename=str(path),
+        show=False,
+    )
+    return path
 
 
 async def build_prisma_counts(
