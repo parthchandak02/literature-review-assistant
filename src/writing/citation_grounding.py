@@ -1,9 +1,9 @@
 """Post-draft citation grounding verification.
 
-After the LLM writes a manuscript section, this module verifies that every
-citekey used in the text corresponds to a known paper in the citation catalog.
-Hallucinated citekeys are flagged and logged so they can be surfaced to the
-user or auto-corrected by the reconciliation pass.
+The normal writing path should keep citekeys in structured citation fields,
+not inline prose. This module therefore serves two roles:
+1. Verify rendered manuscript text against the known citation catalog.
+2. Provide narrow legacy cleanup helpers for older text-first drafts.
 """
 
 from __future__ import annotations
@@ -13,10 +13,14 @@ import re
 
 logger = logging.getLogger(__name__)
 
+# Canonical bracket parser shared by writing, validation, and export checks.
+_BRACKET_BLOCK_RE = re.compile(r"\[([^\[\]\n]{1,120})\]")
+
 # Accepted citation token patterns in brackets:
 # - canonical AuthorYear keys: [Smith2023], [DeVries2021a]
 # - placeholder fallback keys: [Ref141], [Paper_ab12cd]
 _CITEKEY_RE = re.compile(r"\[((?:[A-Za-z][A-Za-z0-9_\-']+\d{4}[a-z]?|Ref\d+|Paper_[A-Za-z0-9_\-]+))\]")
+_NUMERIC_CITATION_RE = re.compile(r"^\d+$")
 _PLACEHOLDER_CITEKEY_RE = re.compile(r"^(Ref\d+|Paper_[A-Za-z0-9_\-]+)$")
 _UUID_LIKE_BRACKET_RE = re.compile(r"\[(?:[0-9a-f]{7,}(?:-[0-9a-f]{2,})+)\]", re.IGNORECASE)
 _TEMPLATE_BRACKET_RE = re.compile(
@@ -25,9 +29,43 @@ _TEMPLATE_BRACKET_RE = re.compile(
 )
 
 
+def extract_bracket_blocks(text: str) -> list[str]:
+    """Return bracket contents in stable order without classifying them."""
+    return list(dict.fromkeys(_BRACKET_BLOCK_RE.findall(str(text or ""))))
+
+
 def extract_used_citekeys(text: str) -> list[str]:
     """Extract all citekeys in [AuthorYear] format used in a text."""
     return list(dict.fromkeys(_CITEKEY_RE.findall(text)))
+
+
+def extract_numeric_citation_refs(text: str) -> list[str]:
+    """Extract numeric bracket citations like [1] in stable order."""
+    return [
+        token
+        for token in extract_bracket_blocks(text)
+        if _NUMERIC_CITATION_RE.fullmatch(token.strip())
+    ]
+
+
+def extract_and_strip_inline_citekeys(text: str) -> tuple[str, list[str]]:
+    """Remove inline citekey tokens from prose and return the extracted keys.
+
+    Structured section drafts should carry citekeys in ``block.citations`` rather
+    than embedding ``[AuthorYear]`` tokens directly inside block text. This helper
+    normalizes prose back to citation-free text while exposing contract violations
+    to the caller.
+    """
+    raw = str(text or "")
+    extracted = extract_used_citekeys(raw)
+    cleaned = _CITEKEY_RE.sub("", raw)
+    cleaned = _UUID_LIKE_BRACKET_RE.sub("", cleaned)
+    cleaned = _TEMPLATE_BRACKET_RE.sub("", cleaned)
+    cleaned = re.sub(r"[ \t]{2,}", " ", cleaned)
+    cleaned = re.sub(r"\(\s*[;,]?\s*\)", "", cleaned)
+    cleaned = re.sub(r"\[\s*,\s*\]", "", cleaned)
+    cleaned = re.sub(r"\s+([,.;:])", r"\1", cleaned)
+    return cleaned.strip(), extracted
 
 
 def verify_citation_grounding(
@@ -104,24 +142,29 @@ def repair_hallucinated_citekeys(
     hallucinated: list[str],
     valid_citekeys: list[str],
 ) -> str:
-    """Replace hallucinated citekeys with fuzzy-matched valid keys or safe prose.
+    """Legacy safety-net for text-first drafts with unresolved citekeys.
 
     For each hallucinated key, attempt fuzzy matching using author+year tokens:
     - If a unique match is found in valid_citekeys, substitute it and log the repair.
-    - Otherwise drop the unresolved bracket token to avoid placeholder leakage.
+    - Otherwise replace the unresolved bracket token with a visible placeholder so
+      manuscript contracts can flag the degraded citation state.
     All occurrences of each hallucinated key in the text are replaced (not just the first).
+
+    Normal section generation should not depend on this function.
     """
     result = text
     if hallucinated:
         for key in hallucinated:
             matched = _fuzzy_match_citekey(key, valid_citekeys)
-            replacement = f"[{matched}]" if matched else ""
+            replacement = f"[{matched}]" if matched else "(citation unavailable)"
             if matched:
                 logger.info(
                     "Fuzzy-matched hallucinated citekey [%s] -> [%s]",
                     key,
                     matched,
                 )
+            else:
+                logger.warning("Unresolved hallucinated citekey [%s] replaced with visible placeholder", key)
             result = re.sub(re.escape(f"[{key}]"), replacement, result)
 
     # Cleanup punctuation/spacing artifacts after dropping unresolved tokens

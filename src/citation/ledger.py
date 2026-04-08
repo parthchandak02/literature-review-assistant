@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
-import re
 from dataclasses import dataclass
 
 from src.db.repositories import CitationRepository
 from src.models import CitationEntryRecord, ClaimRecord, EvidenceLinkRecord
+from src.writing.citation_grounding import extract_numeric_citation_refs, extract_used_citekeys
 
 
 @dataclass
@@ -32,16 +32,15 @@ class CitationLedger:
         return link
 
     async def validate_manuscript(self, text: str) -> ManuscriptValidationResult:
-        all_bracket_keys = set(re.findall(r"\[([A-Za-z0-9_:-]+)\]", text))
         known_citekeys = set(await self.repository.get_citekeys())
+        alpha_keys = set(extract_used_citekeys(text))
 
         # Separate purely-numeric keys from author-year keys.
         # Numeric keys ([1], [2], ...) appear after convert_to_numbered_citations()
         # replaces author-year citekeys with sequential numbers in the final manuscript.
         # We accept a numeric key as valid when its value is in [1, N] where N is the
         # number of known citations, rather than requiring an exact string match.
-        numeric_keys = {k for k in all_bracket_keys if k.isdigit()}
-        alpha_keys = all_bracket_keys - numeric_keys
+        numeric_keys = set(extract_numeric_citation_refs(text))
 
         known_count = len(known_citekeys)
         unresolved_numeric = {k for k in numeric_keys if int(k) < 1 or int(k) > known_count}

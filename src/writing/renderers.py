@@ -5,14 +5,58 @@ from __future__ import annotations
 from src.models.writing import SectionBlock, StructuredManuscriptDraft, StructuredSectionDraft
 
 
+def _dedupe_citations(citations: list[str]) -> list[str]:
+    seen: set[str] = set()
+    ordered: list[str] = []
+    for citation in citations:
+        key = str(citation or "").strip()
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        ordered.append(key)
+    return ordered
+
+
+def collect_section_citations(section: StructuredSectionDraft) -> list[str]:
+    """Collect citekeys from structured section fields in stable order."""
+    ordered: list[str] = []
+    seen: set[str] = set()
+    for key in _dedupe_citations(section.cited_keys or []):
+        seen.add(key)
+        ordered.append(key)
+    for block in section.blocks:
+        for key in _dedupe_citations(block.citations or []):
+            if key in seen:
+                continue
+            seen.add(key)
+            ordered.append(key)
+    return ordered
+
+
+def _append_citations(text: str, citations: list[str], *, bullet_list: bool = False) -> str:
+    body = text.strip()
+    ordered = _dedupe_citations(citations)
+    if not ordered:
+        return body
+    suffix = f" [{', '.join(ordered)}]"
+    if bullet_list:
+        lines = [line.rstrip() for line in body.splitlines() if line.strip()]
+        if not lines:
+            return ""
+        lines[-1] = f"{lines[-1]}{suffix}"
+        return "\n".join(lines)
+    return f"{body}{suffix}".strip()
+
+
 def _render_block_markdown(block: SectionBlock) -> str:
     if block.block_type == "subheading":
         level = min(max(int(block.level or 3), 3), 4)
         return f"{'#' * level} {block.text.strip()}".strip()
     if block.block_type == "bullet_list":
         items = [item.strip(" -") for item in block.text.split("\n") if item.strip()]
-        return "\n".join(f"- {item}" for item in items)
-    return block.text.strip()
+        rendered = "\n".join(f"- {item}" for item in items)
+        return _append_citations(rendered, block.citations or [], bullet_list=True)
+    return _append_citations(block.text, block.citations or [])
 
 
 def render_section_markdown(section: StructuredSectionDraft) -> str:
@@ -44,10 +88,14 @@ def render_section_latex(section: StructuredSectionDraft) -> str:
             if not items:
                 continue
             lines.append("\\begin{itemize}")
-            lines.extend(f"\\item {item}" for item in items)
+            rendered_items = [f"\\item {item}" for item in items]
+            ordered = _dedupe_citations(block.citations or [])
+            if ordered:
+                rendered_items[-1] = f"{rendered_items[-1]} [{', '.join(ordered)}]"
+            lines.extend(rendered_items)
             lines.append("\\end{itemize}")
             continue
-        lines.append(text)
+        lines.append(_append_citations(text, block.citations or []))
     return "\n\n".join(lines).strip()
 
 

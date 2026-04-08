@@ -44,6 +44,9 @@ class SectionWriter:
         self.review = review
         self.settings = settings
         self.citation_catalog = citation_catalog
+        self._timeout_seconds = float(
+            getattr(getattr(settings, "llm", None), "request_timeout_seconds", 180)
+        )
 
     def _build_section_prompt(
         self,
@@ -84,7 +87,9 @@ class SectionWriter:
             "Return only JSON. Do not return markdown outside JSON fields.",
             "Ignore prior marker instructions such as SECTION_BLOCK comments.",
             "Use paragraph and subheading blocks only when possible.",
-            "Citations must use only keys provided in the citation catalog.",
+            "The text field must contain prose only and must not contain bracketed citekeys.",
+            "Store every citation only in the citations arrays and cited_keys field.",
+            "Citations must use only exact keys provided in the citation catalog.",
             "",
             "Context:",
             context,
@@ -98,16 +103,27 @@ class SectionWriter:
             parts.append(f"\nWord limit: {word_limit} words.")
         return "\n".join(parts)
 
-    @staticmethod
-    def _structured_schema() -> dict:
+    def _catalog_citekeys(self) -> list[str]:
+        keys: list[str] = []
+        for line in self.citation_catalog.splitlines():
+            stripped = line.strip()
+            if stripped.startswith("[") and "]" in stripped:
+                keys.append(stripped[1 : stripped.index("]")].strip())
+        return list(dict.fromkeys(k for k in keys if k))
+
+    def _structured_schema(self) -> dict:
         """JSON schema for section intermediate representation output."""
+        valid_citekeys = self._catalog_citekeys()
+        citation_item_schema: dict[str, object] = {"type": "string"}
+        if valid_citekeys and len(valid_citekeys) <= 500:
+            citation_item_schema = {"type": "string", "enum": valid_citekeys}
         return {
             "type": "object",
             "properties": {
                 "section_key": {"type": "string"},
                 "section_title": {"type": "string"},
                 "required_subsections": {"type": "array", "items": {"type": "string"}},
-                "cited_keys": {"type": "array", "items": {"type": "string"}},
+                "cited_keys": {"type": "array", "items": citation_item_schema},
                 "blocks": {
                     "type": "array",
                     "items": {
@@ -126,7 +142,7 @@ class SectionWriter:
                             },
                             "text": {"type": "string"},
                             "level": {"type": "integer", "minimum": 2, "maximum": 4},
-                            "citations": {"type": "array", "items": {"type": "string"}},
+                            "citations": {"type": "array", "items": citation_item_schema},
                         },
                         "required": ["block_type", "text"],
                         "additionalProperties": False,
@@ -195,7 +211,7 @@ class SectionWriter:
         full_model = agent_cfg.model
 
         start = time.perf_counter()
-        client = PydanticAIClient()
+        client = PydanticAIClient(timeout_seconds=self._timeout_seconds)
         try:
             structured, tokens_in, tokens_out, cache_write, cache_read, retries = (
                 await client.complete_validated(

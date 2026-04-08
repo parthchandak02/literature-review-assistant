@@ -46,3 +46,20 @@ async def test_unresolved_citation_blocks_export(tmp_path) -> None:
         ledger = CitationLedger(CitationRepository(db))
         blocked = await ledger.block_export_if_invalid("Unknown cite [Missing2025].")
         assert blocked is True
+
+
+@pytest.mark.asyncio
+async def test_numeric_citation_within_catalog_range_is_valid(tmp_path) -> None:
+    db_path = tmp_path / "ledger_numeric.db"
+    async with get_db(str(db_path)) as db:
+        repo = CitationRepository(db)
+        ledger = CitationLedger(repo)
+        await ledger.register_citation(
+            CitationEntryRecord(citekey="Smith2024", title="Study A", authors=["Smith"], resolved=True)
+        )
+        await ledger.register_citation(
+            CitationEntryRecord(citekey="Jones2025", title="Study B", authors=["Jones"], resolved=True)
+        )
+
+        result = await ledger.validate_manuscript("Evidence [1] and [2] supports this.")
+        assert result.unresolved_citations == []

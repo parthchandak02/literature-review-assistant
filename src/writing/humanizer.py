@@ -72,6 +72,7 @@ async def humanize_async(
     temperature: float = 0.3,
     max_chars: int = 12_000,
     provider: LLMProvider | None = None,
+    timeout_seconds: float | None = None,
 ) -> str:
     """Refine AI-generated text for academic naturalness using Gemini Pro.
 
@@ -88,9 +89,16 @@ async def humanize_async(
         cut = len(text)
     if model is None:
         model = _get_model_from_settings()
+    if timeout_seconds is None:
+        try:
+            from src.config.loader import load_configs
+            _, s = load_configs(settings_path="config/settings.yaml")
+            timeout_seconds = float(s.llm.request_timeout_seconds)
+        except Exception:
+            timeout_seconds = 180.0
     truncated = text[:cut]
     prompt = _HUMANIZE_PROMPT_TEMPLATE.format(text=truncated)
-    client = PydanticAIClient()
+    client = PydanticAIClient(timeout_seconds=timeout_seconds)
     try:
         t0 = time.monotonic()
         refined, tok_in, tok_out, cw, cr = await client.complete_with_usage(
