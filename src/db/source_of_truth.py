@@ -10,6 +10,7 @@ from dataclasses import dataclass
 
 TABLE_OWNERSHIP: dict[str, str] = {
     "event_log": "activity_feed",
+    "fallback_events": "degraded_mode_execution_tracking",
     "cost_records": "llm_cost_accounting",
     "dual_screening_results": "screening_outcomes",
     "screening_decisions": "screening_rationales_and_reasons",

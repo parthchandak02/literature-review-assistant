@@ -22,6 +22,7 @@ from src.models import (
     DecisionLogEntry,
     EvidenceLinkRecord,
     ExtractionRecord,
+    FallbackEventRecord,
     GateResult,
     GRADEOutcomeAssessment,
     ManuscriptAssembly,
@@ -1608,6 +1609,55 @@ class WorkflowRepository:
             ),
         )
         await self.db.commit()
+
+    async def save_fallback_event(self, record: FallbackEventRecord) -> None:
+        await self.db.execute(
+            """
+            INSERT INTO fallback_events (
+                workflow_id, phase, module, fallback_type, reason, paper_id, details_json
+            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                record.workflow_id,
+                record.phase,
+                record.module,
+                record.fallback_type,
+                record.reason,
+                record.paper_id,
+                record.details_json,
+            ),
+        )
+        await self.db.commit()
+
+    async def count_fallback_events(self, workflow_id: str) -> int:
+        cursor = await self.db.execute(
+            "SELECT COUNT(*) FROM fallback_events WHERE workflow_id = ?",
+            (workflow_id,),
+        )
+        row = await cursor.fetchone()
+        return int(row[0]) if row and row[0] is not None else 0
+
+    async def get_fallback_event_summary(self, workflow_id: str) -> list[dict[str, object]]:
+        cursor = await self.db.execute(
+            """
+            SELECT phase, module, fallback_type, COUNT(*) AS event_count
+            FROM fallback_events
+            WHERE workflow_id = ?
+            GROUP BY phase, module, fallback_type
+            ORDER BY event_count DESC, phase ASC, module ASC
+            """,
+            (workflow_id,),
+        )
+        rows = await cursor.fetchall()
+        return [
+            {
+                "phase": str(row[0]),
+                "module": str(row[1]),
+                "fallback_type": str(row[2]),
+                "event_count": int(row[3]),
+            }
+            for row in rows
+        ]
 
     async def save_screening_metric(
         self,

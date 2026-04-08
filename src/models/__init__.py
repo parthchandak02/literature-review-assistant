@@ -67,6 +67,7 @@ from src.models.quality import GRADEOutcomeAssessment, RoB2Assessment, RobinsIAs
 from src.models.screening import DualScreeningResult, ScreeningDecision
 from src.models.workflow import (
     DecisionLogEntry,
+    FallbackEventRecord,
     GateResult,
     ValidationArtifactRecord,
     ValidationCheckRecord,
@@ -103,6 +104,7 @@ __all__ = [
     "ClaimRecord",
     "CostRecord",
     "DecisionLogEntry",
+    "FallbackEventRecord",
     "DualReviewConfig",
     "DualScreeningResult",
     "EvidenceLinkRecord",

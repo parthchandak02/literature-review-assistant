@@ -24,6 +24,7 @@ class RoB2Assessment(BaseModel):
     overall_judgment: RiskOfBiasJudgment
     overall_rationale: str
     assessment_source: Literal["llm", "heuristic"] = "llm"
+    fallback_used: bool = False
 
 
 class RobinsIAssessment(BaseModel):
@@ -45,6 +46,7 @@ class RobinsIAssessment(BaseModel):
     overall_judgment: RobinsIJudgment
     overall_rationale: str
     assessment_source: Literal["llm", "heuristic"] = "llm"
+    fallback_used: bool = False
 
 
 class GRADEOutcomeAssessment(BaseModel):

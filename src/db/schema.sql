@@ -230,6 +230,18 @@ CREATE TABLE IF NOT EXISTS decision_log (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
+CREATE TABLE IF NOT EXISTS fallback_events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    workflow_id TEXT NOT NULL,
+    phase TEXT NOT NULL,
+    module TEXT NOT NULL,
+    fallback_type TEXT NOT NULL,
+    reason TEXT NOT NULL,
+    paper_id TEXT,
+    details_json TEXT NOT NULL DEFAULT '{}',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
 CREATE TABLE IF NOT EXISTS cost_records (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     workflow_id TEXT NOT NULL DEFAULT '',
@@ -377,6 +389,7 @@ CREATE INDEX IF NOT EXISTS idx_evidence_claim ON evidence_links(claim_id);
 CREATE INDEX IF NOT EXISTS idx_evidence_citation ON evidence_links(citation_id);
 CREATE INDEX IF NOT EXISTS idx_decision_log_phase ON decision_log(phase);
 CREATE INDEX IF NOT EXISTS idx_decision_log_workflow_phase ON decision_log(workflow_id, phase);
+CREATE INDEX IF NOT EXISTS idx_fallback_events_workflow_phase ON fallback_events(workflow_id, phase, created_at);
 CREATE INDEX IF NOT EXISTS idx_gate_results_phase ON gate_results(phase);
 CREATE INDEX IF NOT EXISTS idx_event_log_workflow ON event_log(workflow_id);
 CREATE INDEX IF NOT EXISTS idx_event_log_workflow_type ON event_log(workflow_id, event_type);
