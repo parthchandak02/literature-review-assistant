@@ -63,8 +63,9 @@ class FullTextCoverageSummary(BaseModel):
 
 
 class PDFRetriever:
-    def __init__(self, timeout_seconds: int = 20):
+    def __init__(self, timeout_seconds: int = 20, extraction_config: object | None = None):
         self.timeout_seconds = timeout_seconds
+        self._ext_cfg = extraction_config
 
     @staticmethod
     def _infer_reason_code(source: str, diagnostics: list[str], error: str | None) -> str:
@@ -96,15 +97,32 @@ class PDFRetriever:
             try:
                 from src.extraction.table_extraction import fetch_full_text
 
-                # Enable OpenAlex Content tier when the API key is available.
-                _use_openalex = bool(os.getenv("OPENALEX_API_KEY", "").strip())
                 _diag: list[str] = []
+                _ext = self._ext_cfg
+                _use_openalex = bool(os.getenv("OPENALEX_API_KEY", "").strip())
+                _tier_kwargs: dict[str, bool] = {
+                    "use_openalex_content": _use_openalex,
+                }
+                if _ext is not None:
+                    _tier_kwargs.update({
+                        "use_sciencedirect": getattr(_ext, "sciencedirect_full_text", True),
+                        "use_unpaywall": getattr(_ext, "unpaywall_full_text", True),
+                        "use_pmc": getattr(_ext, "pmc_full_text", True),
+                        "use_core": getattr(_ext, "core_full_text", True),
+                        "use_europepmc": getattr(_ext, "europepmc_full_text", True),
+                        "use_semanticscholar": getattr(_ext, "semanticscholar_full_text", True),
+                        "use_arxiv_pdf": getattr(_ext, "arxiv_full_text", True),
+                        "use_biorxiv_medrxiv": getattr(_ext, "biorxiv_medrxiv_full_text", True),
+                        "use_crossref_links": getattr(_ext, "crossref_links_full_text", True),
+                    })
+                    if getattr(_ext, "openalex_content_full_text", False) and _use_openalex:
+                        _tier_kwargs["use_openalex_content"] = True
                 ft_result = await fetch_full_text(
                     doi=paper.doi,
                     url=paper.url,
                     pmid=getattr(paper, "pmid", None),
-                    use_openalex_content=_use_openalex,
                     diagnostics=_diag,
+                    **_tier_kwargs,
                 )
                 if ft_result and ft_result.source != "abstract":
                     if ft_result.text and len(ft_result.text) >= 500:
@@ -121,7 +139,7 @@ class PDFRetriever:
                             success=True,
                         )
                     if ft_result.pdf_bytes and len(ft_result.pdf_bytes) > 1000:
-                        parsed = _parse_pdf_bytes(ft_result.pdf_bytes)
+                        parsed = await asyncio.to_thread(_parse_pdf_bytes, ft_result.pdf_bytes)
                         return PDFRetrievalResult(
                             paper_id=paper.paper_id,
                             resolved_url=paper.url,
@@ -144,7 +162,7 @@ class PDFRetriever:
                         error=_err,
                     )
             except Exception as exc:
-                logger.debug("PDFRetriever: fetch_full_text failed for %s: %s", paper.paper_id, exc)
+                logger.warning("PDFRetriever: fetch_full_text failed for %s: %s", paper.paper_id, exc)
 
         # Fallback: legacy URL-based retrieval (paper.url, Unpaywall, Semantic Scholar)
         candidate_urls = await self._candidate_urls(paper)
@@ -165,7 +183,7 @@ class PDFRetriever:
                         content_type = response.headers.get("Content-Type", "").lower()
                         body = await response.read()
                 if "application/pdf" in content_type:
-                    parsed_text = _parse_pdf_bytes(body)
+                    parsed_text = await asyncio.to_thread(_parse_pdf_bytes, body)
                     return PDFRetrievalResult(
                         paper_id=paper.paper_id,
                         resolved_url=url,
@@ -186,7 +204,7 @@ class PDFRetriever:
                         full_text = lp.text
                         lp_pdf = lp.pdf_bytes if lp.pdf_bytes and len(lp.pdf_bytes) > 1000 else None
                         if not full_text and lp_pdf:
-                            full_text = _parse_pdf_bytes(lp_pdf)
+                            full_text = await asyncio.to_thread(_parse_pdf_bytes, lp_pdf)
                         if full_text and len(full_text.strip()) >= 500:
                             return PDFRetrievalResult(
                                 paper_id=paper.paper_id,
@@ -209,7 +227,8 @@ class PDFRetriever:
                         reason_code="oa_recovered",
                         success=True,
                     )
-            except Exception:
+            except Exception as exc:
+                logger.warning("PDFRetriever: legacy URL retrieval failed for %s via %s: %s", paper.paper_id, url, exc)
                 continue
         return PDFRetrievalResult(
             paper_id=paper.paper_id,
@@ -253,6 +272,14 @@ class PDFRetriever:
                         success=False,
                         error=f"per-paper timeout after {per_paper_timeout}s",
                     )
+                except Exception as exc:
+                    logger.warning("PDFRetriever: unhandled retrieval error for %s: %s", paper.paper_id, exc)
+                    outcome = PDFRetrievalResult(
+                        paper_id=paper.paper_id,
+                        reason_code="unexpected_error",
+                        success=False,
+                        error=str(exc)[:400],
+                    )
             # asyncio is single-threaded: dict/list mutations here are safe
             results[paper.paper_id] = outcome
             if not outcome.success:
@@ -261,19 +288,37 @@ class PDFRetriever:
             if on_progress is not None:
                 try:
                     on_progress(done_count[0], total)
-                except Exception:
-                    pass
+                except Exception as exc:
+                    logger.warning("PDFRetriever: on_progress callback failed: %s", exc)
             if on_result is not None:
                 try:
                     on_result(paper.paper_id, paper.title, outcome.source, outcome.success, outcome.reason_code)
-                except Exception:
-                    pass
+                except Exception as exc:
+                    logger.warning("PDFRetriever: on_result callback failed for %s: %s", paper.paper_id, exc)
 
         await asyncio.gather(*[_fetch_one(p) for p in papers], return_exceptions=True)
         attempted = len(papers)
         succeeded = attempted - len(failed_ids)
         failed = len(failed_ids)
         success_rate = float(succeeded) / float(attempted) if attempted else 0.0
+
+        # Per-source and per-reason breakdowns for diagnostic logging
+        source_counts: dict[str, int] = {}
+        reason_counts: dict[str, int] = {}
+        for r in results.values():
+            src = r.source or "unknown"
+            source_counts[src] = source_counts.get(src, 0) + 1
+            rc = r.reason_code or "unknown"
+            reason_counts[rc] = reason_counts.get(rc, 0) + 1
+        logger.info(
+            "PDF retrieval batch: %d/%d succeeded (%.0f%%) | sources=%s | reasons=%s",
+            succeeded,
+            attempted,
+            success_rate * 100,
+            source_counts,
+            reason_counts,
+        )
+
         summary = FullTextCoverageSummary(
             attempted=attempted,
             succeeded=succeeded,

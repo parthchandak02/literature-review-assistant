@@ -27,6 +27,7 @@ class CaspAssessment(BaseModel):
     value_of_research: bool
     overall_summary: str
     assessment_source: str = "llm"
+    fallback_used: bool = False
 
 
 class _CaspLLMResponse(BaseModel):
@@ -109,6 +110,7 @@ class CaspAssessor:
             value_of_research=False,
             overall_summary="Heuristic fallback: LLM unavailable; conservative defaults applied.",
             assessment_source="heuristic",
+            fallback_used=True,
         )
 
     async def assess(self, record: ExtractionRecord, full_text: str = "") -> CaspAssessment:
@@ -160,6 +162,8 @@ class CaspAssessor:
                     findings_clear=parsed.findings_clear,
                     value_of_research=parsed.value_of_research,
                     overall_summary=summary,
+                    assessment_source="llm",
+                    fallback_used=False,
                 )
             except Exception as exc:
                 logger.warning(

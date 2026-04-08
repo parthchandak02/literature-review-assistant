@@ -116,6 +116,7 @@ class Rob2Assessor:
             overall_judgment=sc,
             overall_rationale="Heuristic fallback: conservative overall judgment.",
             assessment_source="heuristic",
+            fallback_used=True,
         )
 
     async def assess(self, record: ExtractionRecord, full_text: str = "") -> RoB2Assessment:
@@ -169,6 +170,8 @@ class Rob2Assessor:
                     domain_5_rationale=parsed.domain_5_rationale or "LLM assessment.",
                     overall_judgment=_to_rob2_judgment(parsed.overall_judgment),
                     overall_rationale=parsed.overall_rationale or "LLM overall judgment.",
+                    assessment_source="llm",
+                    fallback_used=False,
                 )
             except Exception as exc:
                 logger.warning(
