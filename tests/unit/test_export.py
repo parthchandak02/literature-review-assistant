@@ -26,7 +26,7 @@ from src.export.markdown_refs import (
     get_latex_figure_paths,
 )
 from src.export.prisma_checklist import validate_prisma
-from src.export.submission_packager import _copy_included_study_pdfs
+from src.export.submission_packager import _copy_included_study_pdfs, _strict_export_unresolved_tokens
 from src.manuscript.contracts import (
     _extract_disclosed_included_counts,
     _hard_failure,
@@ -265,6 +265,11 @@ def test_convert_citations_numeric_with_spaces_and_punctuation() -> None:
     out = _convert_citations(text, {"Cohen1960"}, {"1": "Cohen1960"})
     assert "\\cite{Cohen1960}" in out
     assert "[ 1 ]" not in out
+
+
+def test_strict_export_unresolved_tokens_detects_leftover_citations() -> None:
+    text = "Body retains [Missing2024] and [12] after conversion."
+    assert _strict_export_unresolved_tokens(text) == ["Missing2024", "12"]
 
 
 def test_markdown_to_latex_strips_section_block_markers() -> None:

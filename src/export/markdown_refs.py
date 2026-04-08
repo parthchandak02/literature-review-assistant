@@ -738,8 +738,8 @@ def get_existing_figure_entries(
         if caption_sidecar.exists():
             try:
                 caption = caption_sidecar.read_text(encoding="utf-8").strip() or caption
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.warning("Could not read figure caption sidecar %s: %s", caption_sidecar, exc)
         try:
             rel_path = str(fig_path.relative_to(manuscript_path.parent))
         except ValueError:

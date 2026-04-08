@@ -37,6 +37,7 @@ SOFT_BLOCK_CODES: frozenset[str] = frozenset(
         "FIGURE_ASSET_MISSING",
         "FIGURE_NUMBERING_INVALID",
         "FIGURE_LATEX_MISMATCH",
+        "SECTION_DETERMINISTIC_FALLBACK",
     }
 )
 
