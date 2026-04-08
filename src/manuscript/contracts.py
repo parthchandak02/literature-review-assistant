@@ -614,6 +614,7 @@ async def run_manuscript_contracts(
     extra_artifact_paths: list[str] | None = None,
     mode: str = "observe",
     contract_phase: str = "finalize",
+    abstract_word_limit: int = 250,
 ) -> ManuscriptContractResult:
     """Validate manuscript integrity invariants across DB and artifacts."""
     violations: list[ContractViolation] = []
@@ -994,13 +995,13 @@ async def run_manuscript_contracts(
         )
 
     abs_words = _abstract_word_count(md_text)
-    if abs_words is not None and abs_words > 250:
+    if abs_words is not None and abs_words > abstract_word_limit:
         violations.append(
             ContractViolation(
                 code="ABSTRACT_OVER_LIMIT",
                 severity="error",
-                message="Abstract exceeds 250-word IEEE limit.",
-                expected="<= 250",
+                message="Abstract exceeds configured IEEE word limit.",
+                expected=f"<= {abstract_word_limit}",
                 actual=str(abs_words),
             )
         )
@@ -1073,6 +1074,29 @@ async def run_manuscript_contracts(
                 message="Manuscript mentions GRADE but no grade_assessments rows exist for this run.",
                 expected=">= 1 grade_assessments row",
                 actual="0",
+            )
+        )
+
+    fallback_cursor = await repository.db.execute(
+        """
+        SELECT COUNT(*)
+        FROM fallback_events
+        WHERE workflow_id = ?
+          AND module = 'writing.section_writer'
+          AND fallback_type = 'deterministic_section_fallback'
+        """,
+        (workflow_id,),
+    )
+    fallback_row = await fallback_cursor.fetchone()
+    deterministic_fallback_count = int(fallback_row[0]) if fallback_row else 0
+    if deterministic_fallback_count > 0:
+        violations.append(
+            ContractViolation(
+                code="SECTION_DETERMINISTIC_FALLBACK",
+                severity="error",
+                message="One or more manuscript sections used deterministic fallback text.",
+                expected="0",
+                actual=str(deterministic_fallback_count),
             )
         )
 

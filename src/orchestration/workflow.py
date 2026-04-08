@@ -51,6 +51,7 @@ from src.models import (
     CohortMembershipRecord,
     DecisionLogEntry,
     ExtractionRecord,
+    FallbackEventRecord,
     GateStatus,
     ManuscriptAssembly,
     ManuscriptAsset,
@@ -124,7 +125,7 @@ from src.visualization import (
 from src.visualization.concept_diagrams import render_concept_diagrams
 from src.visualization.forest_plot import render_forest_plot
 from src.visualization.funnel_plot import render_funnel_plot
-from src.writing.citation_grounding import repair_hallucinated_citekeys, verify_citation_grounding
+from src.writing.citation_grounding import extract_numeric_citation_refs, extract_used_citekeys, verify_citation_grounding
 from src.writing.context_builder import build_writing_grounding
 from src.writing.contradiction_resolver import (
     build_conflicting_evidence_section,
@@ -1443,7 +1444,7 @@ class ScreeningNode(BaseNode[ReviewState]):
                     stage="fulltext",
                     papers=stage1_survivors,
                     full_text_by_paper=None,
-                    retriever=PDFRetriever(),
+                    retriever=PDFRetriever(extraction_config=state.settings.extraction),
                     coverage_report_path=state.artifacts["coverage_report"],
                     on_pdf_progress=_pdf_progress if rc else None,
                     on_pdf_result=_on_pdf_result if rc else None,
@@ -1456,14 +1457,22 @@ class ScreeningNode(BaseNode[ReviewState]):
                     )
                 # Track PRISMA full-text retrieval counts for accurate Methods disclosure.
                 # fulltext_sought = all papers forwarded to stage-2 (stage1_survivors).
-                # fulltext_not_retrieved = papers auto-excluded because no PDF was found
-                # (identified by ExclusionReason.NO_FULL_TEXT in stage2 decisions).
+                # fulltext_not_retrieved = papers where PDF retrieval failed. When
+                # skip_fulltext_if_no_pdf=false these papers are still screened using
+                # abstract text but PRISMA reports them as "not retrieved".
                 from src.models.enums import ExclusionReason as _ExclusionReason
 
                 state.fulltext_sought = len(stage1_survivors)
-                state.fulltext_not_retrieved = sum(
-                    1 for d in stage2 if getattr(d, "exclusion_reason", None) == _ExclusionReason.NO_FULL_TEXT
-                )
+                # Primary: use retrieval coverage from the screener (accurate regardless
+                # of skip_fulltext_if_no_pdf setting).
+                _ft_coverage = getattr(screener, "last_fulltext_coverage", None)
+                if _ft_coverage is not None:
+                    state.fulltext_not_retrieved = _ft_coverage.failed
+                else:
+                    # Fallback for legacy path: count NO_FULL_TEXT exclusions
+                    state.fulltext_not_retrieved = sum(
+                        1 for d in stage2 if getattr(d, "exclusion_reason", None) == _ExclusionReason.NO_FULL_TEXT
+                    )
                 # Fallback guard: if stage 2 returned nothing for a non-empty input,
                 # either the interrupt flag was consumed OR all papers already had
                 # persisted fulltext decisions from a prior interrupted run.
@@ -1685,7 +1694,7 @@ class ScreeningNode(BaseNode[ReviewState]):
                                     stage="fulltext",
                                     papers=chased_ta_survivors,
                                     full_text_by_paper=None,
-                                    retriever=PDFRetriever(),
+                                    retriever=PDFRetriever(extraction_config=state.settings.extraction),
                                     coverage_report_path=state.artifacts["coverage_report"],
                                     on_pdf_progress=_chased_pdf_progress if rc else None,
                                 )
@@ -2031,8 +2040,9 @@ class ExtractionQualityNode(BaseNode[ReviewState]):
                             try:
                                 from src.search.pdf_retrieval import _parse_pdf_bytes
 
-                                full_text = _parse_pdf_bytes(ft_result.pdf_bytes)
-                            except Exception:
+                                full_text = await asyncio.to_thread(_parse_pdf_bytes, ft_result.pdf_bytes)
+                            except Exception as exc:
+                                logger.warning("Phase 4 retry PDF parse failed for %s: %s", qr.paper_id, exc)
                                 full_text = (_src_paper.abstract or _src_paper.title or "").strip()
                     await cohort_resolver.persist_extraction_outcome(
                         qr.paper_id,
@@ -2044,12 +2054,45 @@ class ExtractionQualityNode(BaseNode[ReviewState]):
                         if tool == "rob2":
                             assessment = await rob2.assess(qr, full_text=full_text)
                             await repository.save_rob2_assessment(state.workflow_id, assessment)
+                            if getattr(assessment, "fallback_used", False):
+                                await repository.save_fallback_event(
+                                    FallbackEventRecord(
+                                        workflow_id=state.workflow_id,
+                                        phase="phase_4_extraction_quality",
+                                        module="quality.rob2",
+                                        fallback_type="heuristic_assessment",
+                                        reason=getattr(assessment, "overall_rationale", "heuristic fallback"),
+                                        paper_id=qr.paper_id,
+                                    )
+                                )
                         elif tool == "robins_i":
                             assessment = await robins_i.assess(qr, full_text=full_text)
                             await repository.save_robins_i_assessment(state.workflow_id, assessment)
+                            if getattr(assessment, "fallback_used", False):
+                                await repository.save_fallback_event(
+                                    FallbackEventRecord(
+                                        workflow_id=state.workflow_id,
+                                        phase="phase_4_extraction_quality",
+                                        module="quality.robins_i",
+                                        fallback_type="heuristic_assessment",
+                                        reason=getattr(assessment, "overall_rationale", "heuristic fallback"),
+                                        paper_id=qr.paper_id,
+                                    )
+                                )
                         elif tool == "casp":
                             assessment = await casp.assess(qr, full_text=full_text)
                             await repository.save_casp_assessment(state.workflow_id, qr.paper_id, assessment)
+                            if getattr(assessment, "fallback_used", False):
+                                await repository.save_fallback_event(
+                                    FallbackEventRecord(
+                                        workflow_id=state.workflow_id,
+                                        phase="phase_4_extraction_quality",
+                                        module="quality.casp",
+                                        fallback_type="heuristic_assessment",
+                                        reason=getattr(assessment, "overall_summary", "heuristic fallback"),
+                                        paper_id=qr.paper_id,
+                                    )
+                                )
                             await repository.append_decision_log(
                                 DecisionLogEntry(
                                     decision_type="casp_assessment",
@@ -2063,6 +2106,17 @@ class ExtractionQualityNode(BaseNode[ReviewState]):
                         elif tool == "mmat":
                             mmat_result = await mmat.assess(qr, full_text=full_text)
                             await repository.save_mmat_assessment(state.workflow_id, qr.paper_id, mmat_result)
+                            if getattr(mmat_result, "fallback_used", False):
+                                await repository.save_fallback_event(
+                                    FallbackEventRecord(
+                                        workflow_id=state.workflow_id,
+                                        phase="phase_4_extraction_quality",
+                                        module="quality.mmat",
+                                        fallback_type="heuristic_assessment",
+                                        reason=getattr(mmat_result, "overall_summary", "heuristic fallback"),
+                                        paper_id=qr.paper_id,
+                                    )
+                                )
                             await repository.append_decision_log(
                                 DecisionLogEntry(
                                     decision_type="mmat_assessment",
@@ -2164,13 +2218,14 @@ class ExtractionQualityNode(BaseNode[ReviewState]):
                         try:
                             from src.search.pdf_retrieval import _parse_pdf_bytes
 
-                            full_text = _parse_pdf_bytes(ft_result.pdf_bytes)
+                            full_text = await asyncio.to_thread(_parse_pdf_bytes, ft_result.pdf_bytes)
                             if rc and rc.verbose:
                                 _rc_print(
                                     rc,
                                     f"    [dim]full-text via {ft_result.source} PDF ({len(full_text)} chars)[/]",
                                 )
-                        except Exception:
+                        except Exception as exc:
+                            logger.warning("Phase 4 PDF parse failed for %s: %s", paper.paper_id, exc)
                             full_text = (paper.abstract or paper.title or "").strip()
                     else:
                         full_text = (paper.abstract or paper.title or "").strip()
@@ -2355,6 +2410,17 @@ class ExtractionQualityNode(BaseNode[ReviewState]):
                         if tool == "rob2":
                             assessment = await rob2.assess(record, full_text=full_text)
                             await repository.save_rob2_assessment(state.workflow_id, assessment)
+                            if getattr(assessment, "fallback_used", False):
+                                await repository.save_fallback_event(
+                                    FallbackEventRecord(
+                                        workflow_id=state.workflow_id,
+                                        phase="phase_4_extraction_quality",
+                                        module="quality.rob2",
+                                        fallback_type="heuristic_assessment",
+                                        reason=getattr(assessment, "overall_rationale", "heuristic fallback"),
+                                        paper_id=record.paper_id,
+                                    )
+                                )
                             rob_assessment_obj = assessment
                             rob_judgment = (
                                 assessment.overall_judgment.value
@@ -2364,6 +2430,17 @@ class ExtractionQualityNode(BaseNode[ReviewState]):
                         elif tool == "robins_i":
                             assessment = await robins_i.assess(record, full_text=full_text)
                             await repository.save_robins_i_assessment(state.workflow_id, assessment)
+                            if getattr(assessment, "fallback_used", False):
+                                await repository.save_fallback_event(
+                                    FallbackEventRecord(
+                                        workflow_id=state.workflow_id,
+                                        phase="phase_4_extraction_quality",
+                                        module="quality.robins_i",
+                                        fallback_type="heuristic_assessment",
+                                        reason=getattr(assessment, "overall_rationale", "heuristic fallback"),
+                                        paper_id=record.paper_id,
+                                    )
+                                )
                             rob_assessment_obj = assessment
                             rob_judgment = (
                                 assessment.overall_judgment.value
@@ -2374,6 +2451,17 @@ class ExtractionQualityNode(BaseNode[ReviewState]):
                             assessment = await casp.assess(record, full_text=full_text)
                             rob_judgment = getattr(assessment, "overall_summary", "completed")[:80]
                             await repository.save_casp_assessment(state.workflow_id, record.paper_id, assessment)
+                            if getattr(assessment, "fallback_used", False):
+                                await repository.save_fallback_event(
+                                    FallbackEventRecord(
+                                        workflow_id=state.workflow_id,
+                                        phase="phase_4_extraction_quality",
+                                        module="quality.casp",
+                                        fallback_type="heuristic_assessment",
+                                        reason=getattr(assessment, "overall_summary", "heuristic fallback"),
+                                        paper_id=record.paper_id,
+                                    )
+                                )
                             await repository.append_decision_log(
                                 DecisionLogEntry(
                                     decision_type="casp_assessment",
@@ -2388,6 +2476,17 @@ class ExtractionQualityNode(BaseNode[ReviewState]):
                             mmat_result = await mmat.assess(record, full_text=full_text)
                             rob_judgment = f"MMAT score {mmat_result.overall_score}/5"
                             await repository.save_mmat_assessment(state.workflow_id, record.paper_id, mmat_result)
+                            if getattr(mmat_result, "fallback_used", False):
+                                await repository.save_fallback_event(
+                                    FallbackEventRecord(
+                                        workflow_id=state.workflow_id,
+                                        phase="phase_4_extraction_quality",
+                                        module="quality.mmat",
+                                        fallback_type="heuristic_assessment",
+                                        reason=getattr(mmat_result, "overall_summary", "heuristic fallback"),
+                                        paper_id=record.paper_id,
+                                    )
+                                )
                             await repository.append_decision_log(
                                 DecisionLogEntry(
                                     decision_type="mmat_assessment",
@@ -3457,6 +3556,7 @@ class WritingNode(BaseNode[ReviewState]):
                 min_chunks_per_section = getattr(rag_cfg, "min_chunks_per_section", 1)
                 max_empty_sections = getattr(rag_cfg, "max_empty_sections", 2)
                 block_on_rag_failure = getattr(rag_cfg, "block_writing_on_rag_failure", False)
+                rag_empty_policy = getattr(rag_cfg, "rag_empty_policy", "warn")
                 if candidate_k < final_k:
                     candidate_k = final_k
 
@@ -3744,29 +3844,77 @@ class WritingNode(BaseNode[ReviewState]):
                                     latency_ms=rag_latency_ms,
                                 )
                             )
+                            if rag_status in {"empty", "error"}:
+                                await repository.save_fallback_event(
+                                    FallbackEventRecord(
+                                        workflow_id=state.workflow_id,
+                                        phase="phase_6_writing",
+                                        module="rag.retrieval",
+                                        fallback_type=(
+                                            "empty_retrieval_context" if rag_status == "empty" else "rag_retrieval_error"
+                                        ),
+                                        reason=rag_error or f"section={section}; retrieved={rag_retrieved_count}",
+                                    )
+                                )
                             if rag_retrieved_count < min_chunks_per_section and rc:
                                 rc.log_status(
                                     f"RAG warning [{section}]: status={rag_status}, retrieved={rag_retrieved_count}, "
                                     f"minimum={min_chunks_per_section}"
                                 )
+                        if rag_status == "empty" and rag_empty_policy == "block":
+                            raise RuntimeError(f"RAG returned zero chunks for section '{section}' and rag_empty_policy=block")
 
-                        _content = await write_section_with_validation(
-                            section=section,
-                            context=context,
-                            workflow_id=state.workflow_id,
-                            review=state.review,
-                            settings=state.settings,
-                            citation_repo=citation_repo,
-                            citation_catalog=citation_catalog,
-                            word_limit=word_limit,
-                            on_llm_call=_on_write if rc else None,
-                            provider=provider,
-                            grounding=grounding,
-                            rag_context=rag_context,
-                            prior_sections_context=prior_sections_context,
+                        _llm_timeout_writing = float(
+                            getattr(getattr(state.settings, "writing", None), "llm_timeout", 120)
                         )
+                        _request_timeout = float(
+                            getattr(getattr(state.settings, "llm", None), "request_timeout_seconds", 180)
+                        )
+                        _section_write_timeout = max(_request_timeout * 2.5, 300.0)
+                        _section_result = None
+                        try:
+                            _section_result = await asyncio.wait_for(
+                                write_section_with_validation(
+                                    section=section,
+                                    context=context,
+                                    workflow_id=state.workflow_id,
+                                    review=state.review,
+                                    settings=state.settings,
+                                    citation_repo=citation_repo,
+                                    citation_catalog=citation_catalog,
+                                    word_limit=word_limit,
+                                    on_llm_call=_on_write if rc else None,
+                                    provider=provider,
+                                    grounding=grounding,
+                                    rag_context=rag_context,
+                                    prior_sections_context=prior_sections_context,
+                                ),
+                                timeout=_section_write_timeout,
+                            )
+                            _content = _section_result.content_markdown
+                        except TimeoutError:
+                            logger.error(
+                                "write_section_with_validation timed out for '%s' after %.0fs",
+                                section,
+                                _section_write_timeout,
+                            )
+                            raise
+                        if _section_result is not None and _section_result.fallback_used:
+                            await repository.save_fallback_event(
+                                FallbackEventRecord(
+                                    workflow_id=state.workflow_id,
+                                    phase="phase_6_writing",
+                                    module="writing.section_writer",
+                                    fallback_type="deterministic_section_fallback",
+                                    reason=(
+                                        f"section={section}; validation_retries="
+                                        f"{_section_result.validation_retries}"
+                                    ),
+                                )
+                            )
 
                         # Humanization pass: apply configured number of iterations
+                        _humanizer_timeout = max(_llm_timeout_writing, _request_timeout)
                         if do_humanize and use_llm_write:
                             humanizer_agent = state.settings.agents["humanizer"]
                             h_model = humanizer_agent.model
@@ -3782,13 +3930,26 @@ class WritingNode(BaseNode[ReviewState]):
                                 _before_h = _content
                                 if provider is not None:
                                     await provider.reserve_call_slot("humanizer")
-                                _content = await humanize_async(
-                                    _content,
-                                    model=h_model,
-                                    temperature=h_temp,
-                                    max_chars=12000,
-                                    provider=provider if use_llm_write else None,
-                                )
+                                try:
+                                    _content = await asyncio.wait_for(
+                                        humanize_async(
+                                            _content,
+                                            model=h_model,
+                                            temperature=h_temp,
+                                            max_chars=12000,
+                                            provider=provider if use_llm_write else None,
+                                        ),
+                                        timeout=_humanizer_timeout,
+                                    )
+                                except TimeoutError:
+                                    logger.warning(
+                                        "Humanizer timed out for section '%s' after %.0fs; "
+                                        "using pre-humanizer text.",
+                                        section,
+                                        _humanizer_timeout,
+                                    )
+                                    _content = _before_h
+                                    continue
                                 # Workflow-level safety hook for each humanizer pass.
                                 if extract_citation_blocks(_before_h) != extract_citation_blocks(
                                     _content
@@ -4246,10 +4407,8 @@ class WritingNode(BaseNode[ReviewState]):
             if _valid_citekeys:
                 _verified, _hallucinated = verify_citation_grounding(body, _valid_citekeys, "full_manuscript")
                 if _hallucinated:
-                    body = repair_hallucinated_citekeys(body, _hallucinated, _valid_citekeys)
-                    body = _replace_template_tokens(body, state.review)
                     logger.warning(
-                        "Citation grounding: repaired %d hallucinated citekeys: %s",
+                        "Citation grounding: detected %d unresolved citekeys in assembled manuscript: %s",
                         len(_hallucinated),
                         _hallucinated[:5],
                     )
@@ -4262,12 +4421,7 @@ class WritingNode(BaseNode[ReviewState]):
                 _cov_repo = CitationRepository(_cov_db)
                 _included_keys = set(await _cov_repo.get_included_citekeys())
             if _included_keys:
-                _cited_in_body = set(
-                    re.findall(
-                        r"\[((?:[A-Za-z][A-Za-z0-9_\-']+\d{4}[a-z]?|Ref\d+|Paper_[A-Za-z0-9_\-]+))\]",
-                        body,
-                    )
-                )
+                _cited_in_body = set(extract_used_citekeys(body))
                 _uncited = sorted(_included_keys - _cited_in_body)
                 if _uncited:
                     logger.warning(
@@ -4769,6 +4923,7 @@ class ManuscriptAuditNode(BaseNode[ReviewState]):
                     ],
                     mode=contract_mode,
                     contract_phase="phase_7_audit",
+                    abstract_word_limit=state.settings.ieee_export.max_abstract_words,
                 )
                 contract_summary = {
                     "mode": contract_result.mode,
@@ -4841,9 +4996,7 @@ class ManuscriptAuditNode(BaseNode[ReviewState]):
                                 "gate_failure_reasons": gate_failure_reasons,
                             },
                         )
-                    raise RuntimeError(
-                        "manuscript audit gate blocked finalize: " + error_message
-                    )
+                    return End(summary)
 
                 await repository.save_checkpoint(
                     state.workflow_id,
@@ -4884,6 +5037,9 @@ class FinalizeNode(BaseNode[ReviewState]):
         rc = _rc(state)
         if rc:
             rc.emit_phase_start("finalize", "Writing run summary...")
+        _contract_mode = str(getattr(getattr(state.settings, "gates", None), "manuscript_contract_mode", "observe"))
+        _strict_finalize = _contract_mode == "strict"
+        _finalize_errors: list[str] = []
 
         # Generate doc_manuscript.tex and references.bib as first-class run artifacts.
         # These live in the run dir alongside doc_manuscript.md so the frontend can
@@ -4933,13 +5089,14 @@ class FinalizeNode(BaseNode[ReviewState]):
                 # Three-layer mechanical matching (DOI -> URL -> title)
                 _num_map = _build_number_to_citekey(_md_text, _normalized_citations)
                 # Layer 4: LLM batch fallback for any still-unresolved [N] entries
-                _num_map = await llm_resolve_unmatched_citations(
-                    _md_text,
-                    _normalized_citations,
-                    _num_map,
-                    db_path=state.db_path,
-                    workflow_id=state.workflow_id,
-                )
+                if not _strict_finalize:
+                    _num_map = await llm_resolve_unmatched_citations(
+                        _md_text,
+                        _normalized_citations,
+                        _num_map,
+                        db_path=state.db_path,
+                        workflow_id=state.workflow_id,
+                    )
                 _cited_citekeys = set(_num_map.values())
                 # Also provide direct old->new key mapping so bracketed legacy keys
                 # (e.g. [Paper_xxx], [Engineering Inclusiv]) resolve to the sanitized
@@ -4962,6 +5119,15 @@ class FinalizeNode(BaseNode[ReviewState]):
                         "LaTeX conversion emitted zero figures despite markdown figure references. "
                         "Check figure artifact paths and markdown_to_latex figure_paths handling."
                     )
+                if _strict_finalize:
+                    _unresolved_alpha = extract_used_citekeys(_tex_content)
+                    _unresolved_numeric = extract_numeric_citation_refs(_tex_content)
+                    if _unresolved_alpha or _unresolved_numeric:
+                        _unresolved_tokens = _unresolved_alpha[:10] + _unresolved_numeric[:10]
+                        raise RuntimeError(
+                            "strict finalize blocked: unresolved citations remain after deterministic conversion: "
+                            + ", ".join(_unresolved_tokens[:10])
+                        )
                 _tex_path.write_text(_tex_content, encoding="utf-8")
                 _bib_path.write_text(
                     _build_bibtex(_normalized_citations, cited_citekeys=_cited_citekeys),
@@ -4996,6 +5162,8 @@ class FinalizeNode(BaseNode[ReviewState]):
                     logger.debug("FinalizeNode: failed to persist tex assembly (non-fatal): %s", _asm_tex_err)
                 logger.info("FinalizeNode: wrote doc_manuscript.tex and references.bib")
             except Exception as _tex_err:  # noqa: BLE001
+                if _strict_finalize:
+                    _finalize_errors.append(f"latex_export_failed:{_tex_err}")
                 logger.warning("FinalizeNode: LaTeX artifact generation failed (non-fatal): %s", _tex_err)
 
         # Generate doc_prospero_registration.docx as a first-class run artifact.
@@ -5167,13 +5335,16 @@ class FinalizeNode(BaseNode[ReviewState]):
                             "to suppress this warning."
                         )
                         summary["citation_lineage_valid"] = False
+                        if _strict_finalize:
+                            _finalize_errors.append("citation_lineage_invalid")
                     else:
                         summary["citation_lineage_valid"] = True
             except Exception as _cit_err:
                 _log.warning("Citation lineage check skipped: %s", _cit_err)
+                if _strict_finalize:
+                    _finalize_errors.append(f"citation_lineage_check_failed:{_cit_err}")
 
         # --- Cross-artifact manuscript contract gate ---
-        _contract_mode = getattr(getattr(state.settings, "gates", None), "manuscript_contract_mode", "observe")
         _contract_summary: dict[str, object] = {"mode": _contract_mode, "passed": True, "violations": []}
         if _manuscript_path and os.path.isfile(_manuscript_path):
             try:
@@ -5191,6 +5362,7 @@ class FinalizeNode(BaseNode[ReviewState]):
                             state.artifacts.get("prospero_form_md", ""),
                         ],
                         mode=_contract_mode,
+                        abstract_word_limit=state.settings.ieee_export.max_abstract_words,
                     )
                     _contract_summary = {
                         "mode": _contract_result.mode,
@@ -5203,8 +5375,14 @@ class FinalizeNode(BaseNode[ReviewState]):
                             _contract_mode,
                             len(_contract_result.violations),
                         )
+                        if _strict_finalize:
+                            _finalize_errors.append(
+                                "manuscript_contract_failed:" + ",".join(v.code for v in _contract_result.violations[:10])
+                            )
             except Exception as _contract_err:
                 logger.warning("Manuscript contract gate skipped due to error: %s", _contract_err)
+                if _strict_finalize:
+                    _finalize_errors.append(f"manuscript_contract_check_failed:{_contract_err}")
         summary["manuscript_contract"] = _contract_summary
         try:
             async with get_db(state.db_path) as _audit_db:
@@ -5223,17 +5401,31 @@ class FinalizeNode(BaseNode[ReviewState]):
             ).fetchone()
             summary["total_cost"] = float(_cost_row[0]) if _cost_row else 0.0
 
+        if _finalize_errors:
+            summary["status"] = "failed"
+            summary["error"] = "; ".join(_finalize_errors)
         Path(state.artifacts["run_summary"]).write_text(json.dumps(summary, indent=2), encoding="utf-8")
-        await update_registry_status(state.run_root, state.workflow_id, "completed")
+        await update_registry_status(state.run_root, state.workflow_id, "failed" if _finalize_errors else "completed")
         async with get_db(state.db_path) as db:
             repo = WorkflowRepository(db)
-            await repo.update_workflow_status(state.workflow_id, "completed")
-            await repo.save_checkpoint(state.workflow_id, "finalize", papers_processed=summary.get("included_papers", 0))
+            await repo.update_workflow_status(state.workflow_id, "failed" if _finalize_errors else "completed")
+            await repo.save_checkpoint(
+                state.workflow_id,
+                "finalize",
+                papers_processed=summary.get("included_papers", 0),
+                status="blocked" if _finalize_errors else "completed",
+            )
         if rc and rc.verbose:
             _rc_print(rc, f"  Run summary: {state.artifacts['run_summary']}")
             _rc_print(rc, f"  Output dir: {state.output_dir}")
         if rc:
-            rc.emit_phase_done("finalize")
+            if _finalize_errors:
+                rc.emit_phase_done("finalize", {"error": "; ".join(_finalize_errors)})
+            else:
+                rc.emit_phase_done("finalize")
+        if _finalize_errors:
+            summary["status"] = "failed"
+            summary["error"] = "; ".join(_finalize_errors)
         return End(summary)
 
 

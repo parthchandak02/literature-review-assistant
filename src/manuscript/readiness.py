@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from pydantic import BaseModel, Field
 
 from src.db.database import get_db
@@ -25,6 +27,7 @@ class ReadinessScorecard(BaseModel):
     ready: bool
     checks: list[ReadinessCheck] = Field(default_factory=list)
     contract_passed: bool = False
+    fallback_event_count: int = 0
     blocking_reasons: list[str] = Field(default_factory=list)
 
 
@@ -36,6 +39,7 @@ async def compute_readiness_scorecard(
     manuscript_tex_path: str | None,
     extra_artifact_paths: list[str] | None = None,
     contract_mode: str = "strict",
+    abstract_word_limit: int = 250,
 ) -> ReadinessScorecard:
     """Compute readiness using finalize-phase contracts and DB invariants."""
     checks: list[ReadinessCheck] = []
@@ -43,6 +47,7 @@ async def compute_readiness_scorecard(
     fin_ok = False
     prisma_ok = False
     contract_passed = False
+    fallback_event_count = 0
 
     async with get_db(db_path) as db:
         repo = WorkflowRepository(db)
@@ -87,6 +92,7 @@ async def compute_readiness_scorecard(
             extra_artifact_paths=extra_artifact_paths,
             mode=contract_mode,
             contract_phase="finalize",
+            abstract_word_limit=abstract_word_limit,
         )
         contract_passed = contract.passed
         checks.append(
@@ -100,11 +106,37 @@ async def compute_readiness_scorecard(
             codes = [v.code for v in contract.violations]
             blocking.append(f"manuscript contracts failed: {','.join(codes[:12])}")
 
-    ready = fin_ok and prisma_ok and contract_passed
+        fallback_event_count = await repo.count_fallback_events(workflow_id)
+        checks.append(
+            ReadinessCheck(
+                name="fallback_events",
+                ok=fallback_event_count == 0,
+                detail=str(fallback_event_count),
+            )
+        )
+        if fallback_event_count > 0:
+            blocking.append(f"fallback events present: {fallback_event_count}")
+
+    pdf_ok = False
+    pdf_detail = "missing"
+    if manuscript_tex_path:
+        pdf_path = str(Path(manuscript_tex_path).with_suffix(".pdf"))
+        pdf_ok = Path(pdf_path).exists()
+        pdf_detail = pdf_path if pdf_ok else "missing"
+    checks.append(
+        ReadinessCheck(
+            name="submission_pdf_present",
+            ok=pdf_ok,
+            detail=pdf_detail,
+        )
+    )
+
+    ready = fin_ok and prisma_ok and contract_passed and fallback_event_count == 0
     return ReadinessScorecard(
         workflow_id=workflow_id,
         ready=ready,
         checks=checks,
         contract_passed=contract_passed,
+        fallback_event_count=fallback_event_count,
         blocking_reasons=blocking,
     )

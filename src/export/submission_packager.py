@@ -23,6 +23,7 @@ from src.export.prisma_checklist import (
     render_prisma_markdown_table,
     validate_prisma,
 )
+from src.writing.citation_grounding import extract_numeric_citation_refs, extract_used_citekeys
 
 
 async def _get_run_info(run_root: str, workflow_id: str) -> tuple[str, str, str] | None:
@@ -243,6 +244,11 @@ def _normalize_title_for_match(title: str) -> str:
     import string
 
     return title.lower().translate(str.maketrans("", "", string.punctuation)).split()[:8]
+
+
+def _strict_export_unresolved_tokens(text: str) -> list[str]:
+    """Return unresolved citation-like tokens that survived deterministic conversion."""
+    return extract_used_citekeys(text) + extract_numeric_citation_refs(text)
 
 
 def _build_number_to_citekey(
@@ -542,38 +548,47 @@ async def llm_resolve_unmatched_citations(
     return num_to_citekey
 
 
-def _run_pdflatex(tex_path: Path, cwd: Path) -> bool:
-    """Run pdflatex and bibtex to produce PDF. Returns True on success."""
+def _run_pdflatex(tex_path: Path, cwd: Path) -> tuple[bool, str | None]:
+    """Run pdflatex and bibtex to produce PDF. Returns (success, diagnostic)."""
     try:
-        subprocess.run(
+        first = subprocess.run(
             ["pdflatex", "-interaction=nonstopmode", tex_path.name],
             cwd=cwd,
             capture_output=True,
             timeout=60,
         )
         stem = tex_path.stem
-        subprocess.run(
+        bib = subprocess.run(
             ["bibtex", stem],
             cwd=cwd,
             capture_output=True,
             timeout=30,
         )
-        subprocess.run(
+        second = subprocess.run(
             ["pdflatex", "-interaction=nonstopmode", tex_path.name],
             cwd=cwd,
             capture_output=True,
             timeout=60,
         )
-        subprocess.run(
+        third = subprocess.run(
             ["pdflatex", "-interaction=nonstopmode", tex_path.name],
             cwd=cwd,
             capture_output=True,
             timeout=60,
         )
         pdf_path = tex_path.with_suffix(".pdf")
-        return pdf_path.exists()
-    except (subprocess.TimeoutExpired, FileNotFoundError):
-        return False
+        if pdf_path.exists():
+            return True, None
+        stderr_parts = []
+        for proc in (first, bib, second, third):
+            if proc.stderr:
+                stderr_parts.append(proc.stderr.decode("utf-8", errors="ignore")[:500])
+        detail = "\n".join(part for part in stderr_parts if part).strip() or "pdflatex finished without creating PDF"
+        return False, detail
+    except subprocess.TimeoutExpired as exc:
+        return False, f"pdflatex timeout: {exc}"
+    except FileNotFoundError as exc:
+        return False, f"TeX toolchain missing: {exc}"
 
 
 async def package_submission(
@@ -590,6 +605,15 @@ async def package_submission(
     info = await _get_run_info(run_root, workflow_id)
     if info is None:
         return None
+    contract_mode = "strict"
+    try:
+        from src.config.loader import load_configs as _load_cfgs
+
+        _, _settings = _load_cfgs()
+        contract_mode = str(getattr(getattr(_settings, "gates", None), "manuscript_contract_mode", "strict"))
+    except Exception:
+        contract_mode = "strict"
+    strict_export = contract_mode == "strict"
     db_path, output_dir, log_dir = info
     output_path = Path(output_dir)
     manuscript_md = output_path / "doc_manuscript.md"
@@ -679,15 +703,18 @@ async def package_submission(
         if not manuscript_md.exists():
             return None
         md_content = manuscript_md.read_text(encoding="utf-8")
-    # Three-layer mechanical matching (DOI -> URL -> title), then LLM batch fallback.
+    # Three-layer mechanical matching (DOI -> URL -> title).
+    # In strict mode, keep export deterministic and fail if unresolved references remain.
+    # In non-strict modes, allow the existing best-effort LLM fallback for legacy runs.
     num_to_citekey = _build_number_to_citekey(md_content, citations)
-    num_to_citekey = await llm_resolve_unmatched_citations(
-        md_content,
-        citations,
-        num_to_citekey,
-        db_path=db_path,
-        workflow_id=workflow_id,
-    )
+    if not strict_export:
+        num_to_citekey = await llm_resolve_unmatched_citations(
+            md_content,
+            citations,
+            num_to_citekey,
+            db_path=db_path,
+            workflow_id=workflow_id,
+        )
     bib_content = build_bibtex(citations, cited_citekeys=set(num_to_citekey.values()))
     (submission_dir / "references.bib").write_text(bib_content, encoding="utf-8")
     latex_content = markdown_to_latex(
@@ -697,6 +724,13 @@ async def package_submission(
         num_to_citekey=num_to_citekey,
         author_name=_author_name,
     )
+    if strict_export:
+        unresolved_tokens = _strict_export_unresolved_tokens(latex_content)
+        if unresolved_tokens:
+            raise RuntimeError(
+                "strict export blocked: unresolved citations remain after deterministic conversion: "
+                + ", ".join(unresolved_tokens[:10])
+            )
     manuscript_tex = submission_dir / "manuscript.tex"
     manuscript_tex.write_text(latex_content, encoding="utf-8")
 
@@ -726,28 +760,29 @@ async def package_submission(
         encoding="utf-8",
     )
 
-    if _run_pdflatex(manuscript_tex, submission_dir):
-        pass
+    pdf_ok, pdf_detail = _run_pdflatex(manuscript_tex, submission_dir)
+    if not pdf_ok:
+        logger.warning("Submission packaging: PDF build failed for %s: %s", workflow_id, pdf_detail)
 
     loop = asyncio.get_event_loop()
     try:
         await loop.run_in_executor(None, generate_docx, manuscript_md, submission_dir / "manuscript.docx")
-    except Exception:
-        pass  # docx generation is best-effort; do not fail the whole export
+    except Exception as exc:
+        logger.warning("Submission packaging: DOCX generation failed for %s: %s", workflow_id, exc)
 
     # Copy PROSPERO registration artifacts into supplementary/ if they were generated.
     _prospero_md_src = output_path / "doc_prospero_registration.md"
     if _prospero_md_src.exists():
         try:
             shutil.copy2(_prospero_md_src, supp_dir / "prospero_registration_form.md")
-        except Exception:
-            pass  # best-effort; do not fail the whole export
+        except Exception as exc:
+            logger.warning("Submission packaging: could not copy PROSPERO markdown for %s: %s", workflow_id, exc)
     _prospero_docx_src = output_path / "doc_prospero_registration.docx"
     if _prospero_docx_src.exists():
         try:
             shutil.copy2(_prospero_docx_src, supp_dir / "prospero_registration_form.docx")
-        except Exception:
-            pass  # best-effort; do not fail the whole export
+        except Exception as exc:
+            logger.warning("Submission packaging: could not copy PROSPERO docx for %s: %s", workflow_id, exc)
 
     await _copy_included_study_pdfs(
         db_path=db_path,
