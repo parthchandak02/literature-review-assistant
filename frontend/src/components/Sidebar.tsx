@@ -1151,7 +1151,7 @@ function CollapsedWorkflowBadge({
       className="inline-flex h-7 w-7 items-center justify-center rounded-md bg-zinc-800/80 text-[15px] font-bold text-zinc-100 tabular-nums"
       title={workflowId ?? undefined}
     >
-      {badge}
+      #{badge}
     </span>
   )
 }
@@ -1168,7 +1168,7 @@ function ExpandedWorkflowBadge({
       className="inline-flex h-6 min-w-8 items-center justify-center rounded-[7px] border border-zinc-600/90 bg-zinc-900 px-1.5 text-xs font-bold text-zinc-100 tabular-nums shrink-0 shadow-[inset_0_1px_0_rgba(255,255,255,0.08),0_1px_4px_rgba(0,0,0,0.35)]"
       title={workflowId ?? undefined}
     >
-      {badge}
+      #{badge}
     </span>
   )
 }
