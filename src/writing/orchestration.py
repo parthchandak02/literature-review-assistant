@@ -16,12 +16,14 @@ from src.models import (
     ClaimRecord,
     EvidenceLinkRecord,
     ReviewConfig,
+    SectionWriteResult,
     SectionBlock,
     SettingsConfig,
     StructuredSectionDraft,
 )
+from src.writing.citation_grounding import extract_and_strip_inline_citekeys
 from src.writing.humanizer_guardrails import apply_deterministic_guardrails
-from src.writing.renderers import render_section_markdown
+from src.writing.renderers import collect_section_citations, render_section_markdown
 from src.writing.section_writer import SectionWriter
 
 if TYPE_CHECKING:
@@ -605,8 +607,9 @@ def _validate_structured_section_draft(
     section: str,
     draft: StructuredSectionDraft,
     valid_citekeys: set[str],
-) -> StructuredSectionDraft:
+) -> tuple[StructuredSectionDraft, list[str]]:
     """Run IR-level checks before markdown rendering."""
+    contract_issues: list[str] = []
     normalized_key = (draft.section_key or "").strip().lower()
     if normalized_key != section:
         draft.section_key = section
@@ -617,23 +620,52 @@ def _validate_structured_section_draft(
 
     seen_subheadings: list[str] = []
     sanitized_blocks: list[SectionBlock] = []
-    cited_keys: set[str] = set(draft.cited_keys or [])
+    invalid_structured_keys: set[str] = set()
+    invalid_inline_keys: set[str] = set()
     for block in draft.blocks:
         text = _sanitize_ir_block_text(block.text)
+        text, inline_citekeys = extract_and_strip_inline_citekeys(text)
         block.text = text
-        # Enforce citation key contract at IR level.
-        filtered = [k for k in block.citations if k in valid_citekeys]
-        block.citations = filtered
-        cited_keys.update(filtered)
+        inline_key_set = {str(k).strip() for k in inline_citekeys if str(k).strip()}
+        merged_citations: list[str] = []
+        merged_seen: set[str] = set()
+        for raw_key in list(block.citations or []):
+            key = str(raw_key or "").strip()
+            if not key:
+                continue
+            if key not in valid_citekeys:
+                invalid_structured_keys.add(key)
+                continue
+            if key in merged_seen:
+                continue
+            merged_seen.add(key)
+            merged_citations.append(key)
+        block.citations = merged_citations
+        invalid_inline_keys.update(inline_key_set)
         if block.block_type == "subheading" and text:
             seen_subheadings.append(text.strip().lower())
         sanitized_blocks.append(block)
     draft.blocks = sanitized_blocks
-    draft.cited_keys = sorted(k for k in cited_keys if k in valid_citekeys)
+    draft.cited_keys = collect_section_citations(draft)
+
+    if invalid_structured_keys:
+        contract_issues.append(f"invalid_structured_citations:{len(invalid_structured_keys)}")
+        logger.warning(
+            "Section '%s' emitted invalid structured citekeys: %s",
+            section,
+            sorted(invalid_structured_keys)[:10],
+        )
+    if invalid_inline_keys:
+        contract_issues.append(f"invalid_inline_citations:{len(invalid_inline_keys)}")
+        logger.warning(
+            "Section '%s' emitted inline citekeys instead of structured citations: %s",
+            section,
+            sorted(invalid_inline_keys)[:10],
+        )
 
     if not draft.blocks:
         draft.blocks = [SectionBlock(block_type="paragraph", text="No section content generated.")]
-    return draft
+    return draft, contract_issues
 
 
 def _is_substantive_paragraph(text: str) -> bool:
@@ -796,10 +828,10 @@ def _build_deterministic_section_fallback(
     valid_citekeys: set[str],
 ) -> StructuredSectionDraft:
     """Build minimal, complete section content when generation remains malformed."""
-    cite = ""
+    fallback_citations: list[str] = []
     if valid_citekeys:
         first = sorted(valid_citekeys)[0]
-        cite = f" [{first}]"
+        fallback_citations = [first]
     if section == "methods":
         sought = getattr(grounding, "fulltext_sought", 0) if grounding is not None else 0
         not_retrieved = getattr(grounding, "fulltext_not_retrieved", 0) if grounding is not None else 0
@@ -808,6 +840,7 @@ def _build_deterministic_section_fallback(
         screened = getattr(grounding, "total_screened", 0) if grounding is not None else 0
         return StructuredSectionDraft(
             section_key="methods",
+            cited_keys=fallback_citations,
             required_subsections=list(_SECTION_REQUIRED_SUBHEADINGS.get("methods", ())),
             blocks=[
                 SectionBlock(block_type="subheading", text="Eligibility Criteria", level=3),
@@ -840,9 +873,9 @@ def _build_deterministic_section_fallback(
                     block_type="paragraph",
                     text=(
                         "A narrative synthesis framework was used because methodological and outcome heterogeneity "
-                        "limited quantitative pooling, and evidence certainty was interpreted with risk-of-bias and GRADE inputs"
-                        f"{cite}."
+                        "limited quantitative pooling, and evidence certainty was interpreted with risk-of-bias and GRADE inputs."
                     ),
+                    citations=fallback_citations,
                 ),
             ],
         )
@@ -851,6 +884,7 @@ def _build_deterministic_section_fallback(
         screened = getattr(grounding, "total_screened", 0) if grounding is not None else 0
         return StructuredSectionDraft(
             section_key="results",
+            cited_keys=fallback_citations,
             required_subsections=list(_SECTION_REQUIRED_SUBHEADINGS.get("results", ())),
             blocks=[
                 SectionBlock(block_type="subheading", text="Study Selection", level=3),
@@ -866,9 +900,9 @@ def _build_deterministic_section_fallback(
                     block_type="paragraph",
                     text=(
                         "Included studies varied by design, setting, and sample size, and are summarized in the in-body "
-                        "characteristics table and appendix with extraction provenance"
-                        f"{cite}."
+                        "characteristics table and appendix with extraction provenance."
                     ),
+                    citations=fallback_citations,
                 ),
                 SectionBlock(block_type="subheading", text="Synthesis of Findings", level=3),
                 SectionBlock(
@@ -1239,7 +1273,7 @@ async def write_section_with_validation(
     grounding: WritingGroundingData | None = None,
     rag_context: str = "",
     prior_sections_context: str = "",
-) -> str:
+) -> SectionWriteResult:
     """Write a section, validate with citation ledger, return content.
 
     Orchestrates: SectionWriter -> CitationLedger.validate_section.
@@ -1279,7 +1313,7 @@ async def write_section_with_validation(
     valid_citekeys = _extract_valid_citekeys(citation_catalog)
     included_study_count = int(getattr(grounding, "total_included", 0) or 0) if grounding is not None else 0
 
-    async def _generate_structured_once(ctx: str) -> tuple[StructuredSectionDraft, object]:
+    async def _generate_structured_once(ctx: str) -> tuple[StructuredSectionDraft, object, list[str]]:
         if provider is not None:
             await provider.reserve_call_slot("writing")
         _structured, _metadata = await writer.write_section_structured_async(
@@ -1287,7 +1321,7 @@ async def write_section_with_validation(
             context=ctx,
             word_limit=word_limit,
         )
-        _structured = _validate_structured_section_draft(section, _structured, valid_citekeys)
+        _structured, _contract_issues = _validate_structured_section_draft(section, _structured, valid_citekeys)
         if provider and _metadata.cost_usd is not None:
             try:
                 await provider.log_cost(
@@ -1302,15 +1336,19 @@ async def write_section_with_validation(
                 )
             except Exception as _log_exc:
                 logger.warning("Failed to persist writing cost for section '%s': %s", section, _log_exc)
-        return _structured, _metadata
+        return _structured, _metadata, _contract_issues
 
     must_cite = _compute_section_citation_budget(section, citation_catalog, valid_citekeys)
 
-    structured, metadata = await _generate_structured_once(effective_context)
+    validation_retries = 0
+    used_deterministic_fallback = False
+    structured, metadata, contract_issues = await _generate_structured_once(effective_context)
     issues = _section_completeness_issues(section, structured, included_study_count)
+    issues.extend(contract_issues)
     cite_issues, missing_keys = _citation_coverage_issues(section, structured, must_cite)
     issues.extend(cite_issues)
     if issues:
+        validation_retries += 1
         retry_parts = [
             "\n\nRETRY RULE: Your previous output failed completeness checks: "
             + ", ".join(issues)
@@ -1320,14 +1358,15 @@ async def write_section_with_validation(
             sorted_missing = sorted(missing_keys)[:30]
             retry_parts.append(
                 "\n\nCRITICAL CITATION COVERAGE: You MUST cite the following studies that were "
-                "omitted from your previous output. Each study must appear at least once as "
-                "[AuthorYear] in the section text:\n"
+                "omitted from your previous output. Add each study to the relevant block.citations "
+                "array and include it in cited_keys. Do NOT place [AuthorYear] tokens in block.text:\n"
                 + "\n".join(f"  - [{k}]" for k in sorted_missing)
             )
         retry_context = effective_context + "".join(retry_parts)
         logger.warning("Section '%s' failed IR completeness checks (%s); retrying once.", section, ", ".join(issues))
-        structured, metadata = await _generate_structured_once(retry_context)
+        structured, metadata, contract_issues = await _generate_structured_once(retry_context)
         issues = _section_completeness_issues(section, structured, included_study_count)
+        issues.extend(contract_issues)
         if issues:
             logger.warning(
                 "Section '%s' still failed completeness checks after retry (%s); using deterministic fallback.",
@@ -1335,6 +1374,7 @@ async def write_section_with_validation(
                 ", ".join(issues),
             )
             structured = _build_deterministic_section_fallback(section, grounding, valid_citekeys)
+            used_deterministic_fallback = True
     content = render_section_markdown(structured)
     if on_llm_call:
         word_count = len(content.split())
@@ -1379,6 +1419,7 @@ async def write_section_with_validation(
             ", ".join(post_issues),
         )
         structured = _build_deterministic_section_fallback(section, grounding, valid_citekeys)
+        used_deterministic_fallback = True
         content = render_section_markdown(structured)
         content = _sanitize_prose(content)
         content = _sanitize_section_headings(section, content)
@@ -1410,7 +1451,16 @@ async def write_section_with_validation(
             section,
             len(result.unresolved_claims),
         )
-    return content
+    return SectionWriteResult(
+        section_key=section,
+        content_markdown=content,
+        structured_draft=structured,
+        cited_keys=sorted(structured.cited_keys or []),
+        word_count=len(content.split()),
+        validation_retries=validation_retries,
+        fallback_used=used_deterministic_fallback,
+        used_deterministic_fallback=used_deterministic_fallback,
+    )
 
 
 def build_methodology_catalog() -> str:

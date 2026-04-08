@@ -106,10 +106,10 @@ def test_repair_exact_fuzzy_match() -> None:
     assert "[SmithLong2023]" not in result
 
 
-def test_repair_no_match_drops_unresolved_bracket() -> None:
+def test_repair_no_match_emits_visible_placeholder() -> None:
     text = "See [Xyz9999] for details."
     result = repair_hallucinated_citekeys(text, ["Xyz9999"], ["Smith2023", "Jones2024"])
-    assert "(citation unavailable)" not in result
+    assert "(citation unavailable)" in result
     assert "[Xyz9999]" not in result
 
 
