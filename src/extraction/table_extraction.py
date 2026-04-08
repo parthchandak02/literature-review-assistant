@@ -25,8 +25,10 @@ from html.parser import HTMLParser
 from urllib.parse import parse_qsl, quote, urlencode, urljoin, urlparse, urlunparse
 
 import aiohttp
+from pydantic import BaseModel
 
 from src.db.repositories import WorkflowRepository
+from src.llm.pydantic_client import PydanticAIClient
 from src.llm.provider import LLMProvider
 from src.models import CostRecord
 from src.models.extraction import OutcomeRecord
@@ -51,14 +53,14 @@ def _get_model_from_settings() -> str:
 # Constants for the full-text retrieval tiers
 # ---------------------------------------------------------------------------
 def _get_tier_timeout() -> int:
-    """Read pdf_tier_timeout_seconds from settings.yaml; fall back to 12."""
+    """Read pdf_tier_timeout_seconds from settings.yaml; fall back to 20."""
     try:
         from src.config.loader import load_configs
 
         _, s = load_configs(settings_path="config/settings.yaml")
         return s.extraction.pdf_tier_timeout_seconds
     except Exception:
-        return 12
+        return 20
 
 
 _SD_BASE = "https://api.elsevier.com/content/article/doi"
@@ -269,7 +271,12 @@ async def _fetch_unpaywall(doi: str, diagnostics: list[str] | None = None) -> Fu
     bare_doi = _normalize_doi(doi)
     if not bare_doi:
         return None
-    meta_url = f"{_UNPAYWALL_BASE}/{bare_doi}?email=litreview@app.local"
+    _uw_email = (
+        os.environ.get("CROSSREF_EMAIL", "").strip()
+        or os.environ.get("PUBMED_EMAIL", "").strip()
+        or "litreview@app.local"
+    )
+    meta_url = f"{_UNPAYWALL_BASE}/{bare_doi}?email={_uw_email}"
     try:
         async with aiohttp.ClientSession() as session:
             async with session.get(meta_url, timeout=aiohttp.ClientTimeout(total=_FT_TIMEOUT)) as resp:
@@ -979,7 +986,7 @@ class _DomainPolicy:
 
 _DEFAULT_POLICY = _DomainPolicy(
     mode="direct_pdf_allowed",
-    max_attempts=2,
+    max_attempts=3,
     retry_statuses=frozenset(_TRANSIENT_HTTP_STATUSES),
 )
 _DOMAIN_POLICIES: dict[str, _DomainPolicy] = {
@@ -1148,6 +1155,8 @@ async def _fetch_url_direct(
                         if resp.status in _AUTH_OR_BOT_BLOCKED_STATUSES:
                             _append_diag(diagnostics, "Policy", f"{policy.mode} blocked at status {resp.status}")
                         if resp.status in policy.retry_statuses and attempt < policy.max_attempts:
+                            _retry_after = min(int(resp.headers.get("Retry-After", "3")), 10)
+                            await asyncio.sleep(_retry_after)
                             continue
                         return None
                     pct = resp.headers.get("Content-Type", "").lower()
@@ -1619,8 +1628,8 @@ async def _race_first_success(
                     if r is not None:
                         found = r
                         return found
-                except Exception:
-                    pass
+                except Exception as exc:
+                    logger.warning("_race_first_success task failed: %s", exc)
         return None
     finally:
         for t in tasks:
@@ -1743,10 +1752,14 @@ async def fetch_full_text(
     _core_key = os.environ.get("CORE_API_KEY", "").strip()
     if use_core and _core_key and effective_doi:
         oa_coros.append(_fetch_core(effective_doi, _core_key, diagnostics=diagnostics))
+    elif use_core and not _core_key:
+        _append_diag(diagnostics, "CORE", "SKIPPED: CORE_API_KEY not set in env")
 
     # Tier 2d: OpenAlex Content (paid $0.01/file; ~60M OA works; opt-in)
     if use_openalex_content and effective_doi:
         oa_coros.append(_fetch_openalex_content(effective_doi, diagnostics=diagnostics))
+    elif not use_openalex_content:
+        _append_diag(diagnostics, "OpenAlexContent", "SKIPPED: use_openalex_content=False")
 
     # Tier 2e: Europe PMC (OA subset, no auth)
     if use_europepmc and (effective_doi or pmid):
@@ -1760,7 +1773,9 @@ async def fetch_full_text(
                 effective_doi,
                 result.source,
             )
+            _append_diag(diagnostics, "GroupB", f"SUCCESS via {result.source}")
             return result
+        _append_diag(diagnostics, "GroupB", f"all {len(oa_coros)} OA tiers missed (timeout={t}s)")
 
     # -----------------------------------------------------------------------
     # Group C: Auth-required or inherently slow sources (sequential).
@@ -1820,6 +1835,8 @@ async def fetch_full_text(
         "fetch_full_text: all tiers missed for doi=%s -- using abstract fallback",
         effective_doi,
     )
+    if diagnostics is not None:
+        _append_diag(diagnostics, "SUMMARY", f"ALL_TIERS_EXHAUSTED doi={effective_doi or 'none'}")
     return FullTextResult(text="", source="abstract")
 
 
@@ -1838,9 +1855,26 @@ For each table row that reports a quantitative result, output one JSON object wi
   - ci_upper: upper bound of 95% CI (numeric string)
   - group: intervention group label if applicable
 
-Return a JSON array of outcome objects. If no quantitative tables are found, return [].
+Return a JSON object with an "outcomes" array of outcome objects.
+If no quantitative tables are found, return {"outcomes": []}.
 Return ONLY valid JSON -- no markdown, no explanation.
 """
+
+
+class _TableOutcomePayload(BaseModel):
+    name: str = ""
+    description: str = ""
+    effect_size: str = ""
+    se: str = ""
+    n: str = ""
+    p_value: str = ""
+    ci_lower: str = ""
+    ci_upper: str = ""
+    group: str = ""
+
+
+class _TableOutcomePayloadEnvelope(BaseModel):
+    outcomes: list[_TableOutcomePayload]
 
 
 def _parse_table_json(raw: str) -> list[dict[str, str]]:
@@ -1850,7 +1884,11 @@ def _parse_table_json(raw: str) -> list[dict[str, str]]:
         text = text.split("```")[1]
         if text.startswith("json"):
             text = text[4:]
-    data = json.loads(text)
+    try:
+        data = json.loads(text)
+    except json.JSONDecodeError as exc:
+        logger.warning("Table extraction: malformed JSON payload from model: %s", exc)
+        raise
     if isinstance(data, list):
         return [
             {k: str(v) for k, v in item.items() if isinstance(v, (str, int, float))}
@@ -1886,9 +1924,7 @@ async def extract_tables_from_pdf(
     if model_name is None:
         model_name = _get_model_from_settings()
 
-    from pydantic_ai import Agent
     from pydantic_ai.messages import BinaryContent
-    from pydantic_ai.settings import ModelSettings
 
     if ":" in model_name:
         full_model = model_name
@@ -1902,20 +1938,19 @@ async def extract_tables_from_pdf(
 
     try:
         t0 = time.monotonic()
-        agent: Agent[None, str] = Agent(full_model, output_type=str)
         pdf_part = BinaryContent(data=pdf_bytes, media_type="application/pdf")
-        result = await agent.run(
-            [pdf_part, _TABLE_EXTRACTION_PROMPT],
-            model_settings=ModelSettings(temperature=0.1),
+        client = PydanticAIClient()
+        parsed, tokens_in, tokens_out, cache_write_tokens, cache_read_tokens, _retries = (
+            await client.complete_validated_parts(
+                [pdf_part, _TABLE_EXTRACTION_PROMPT],
+                model=full_model,
+                temperature=0.1,
+                response_model=_TableOutcomePayloadEnvelope,
+            )
         )
         elapsed_ms = int((time.monotonic() - t0) * 1000)
 
         if repository is not None and workflow_id:
-            usage = result.usage()
-            tokens_in = int(usage.input_tokens or 0)
-            tokens_out = int(usage.output_tokens or 0)
-            cache_write_tokens = int(usage.cache_write_tokens or 0)
-            cache_read_tokens = int(usage.cache_read_tokens or 0)
             await repository.save_cost_record(
                 CostRecord(
                     workflow_id=workflow_id,
@@ -1935,8 +1970,10 @@ async def extract_tables_from_pdf(
                     cache_write_tokens=cache_write_tokens,
                 )
             )
-        raw_dicts = _parse_table_json(result.output)
-        return [OutcomeRecord(**{k: v for k, v in d.items() if k in OutcomeRecord.model_fields}) for d in raw_dicts]
+        return [
+            OutcomeRecord(**{k: v for k, v in item.model_dump().items() if k in OutcomeRecord.model_fields})
+            for item in parsed.outcomes
+        ]
     except json.JSONDecodeError as exc:
         logger.warning("Table extraction: JSON parse error: %s", exc)
     except Exception as exc:
