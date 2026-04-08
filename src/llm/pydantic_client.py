@@ -285,3 +285,62 @@ class PydanticAIClient:
                     continue
         assert last_exc is not None  # guaranteed by loop structure
         raise last_exc
+
+    async def complete_validated_parts(
+        self,
+        prompt_parts: list[Any],
+        *,
+        model: str,
+        temperature: float,
+        response_model: type[_T],
+        json_schema: dict | None = None,
+        max_validation_retries: int = 2,
+    ) -> tuple[_T, int, int, int, int, int]:
+        """Run multimodal completion with schema validation and retry.
+
+        Mirrors ``complete_validated()`` but accepts prompt parts such as
+        BinaryContent instances plus text instructions for multimodal calls.
+        """
+        effective_schema = json_schema or response_model.model_json_schema()
+        total_in = total_out = total_cw = total_cr = 0
+        current_parts = list(prompt_parts)
+        last_exc: Exception | None = None
+        settings = ModelSettings(temperature=temperature, timeout=self._timeout_seconds)
+
+        for attempt in range(1 + max_validation_retries):
+            if _is_gemini(model):
+                output_type = NativeOutput(StructuredDict(effective_schema))
+            else:
+                output_type = StructuredDict(effective_schema)
+            agent: Agent = Agent(model, output_type=output_type, retries=3, output_retries=3)  # type: ignore[arg-type]
+            result = await _run_with_retry(agent, current_parts, model_settings=settings)
+            usage = result.usage()
+            total_in += usage.input_tokens
+            total_out += usage.output_tokens
+            total_cw += usage.cache_write_tokens or 0
+            total_cr += usage.cache_read_tokens or 0
+            text = json.dumps(result.output) if isinstance(result.output, (dict, list)) else str(result.output)
+
+            try:
+                validated = response_model.model_validate_json(text)
+                return validated, total_in, total_out, total_cw, total_cr, attempt
+            except Exception as exc:
+                last_exc = exc
+                if attempt < max_validation_retries:
+                    error_detail = str(exc)[:800]
+                    retry_msg = (
+                        "YOUR PREVIOUS RESPONSE FAILED VALIDATION.\n"
+                        "Fix the following errors and return corrected JSON only:\n"
+                        f"{error_detail}"
+                    )
+                    current_parts = list(prompt_parts) + [retry_msg]
+                    logger.warning(
+                        "Validation retry %d/%d for %s multimodal response: %s",
+                        attempt + 1,
+                        max_validation_retries,
+                        response_model.__name__,
+                        str(exc)[:200],
+                    )
+                    continue
+        assert last_exc is not None
+        raise last_exc
