@@ -31,6 +31,19 @@ class DecisionLogEntry(BaseModel):
     timestamp: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
 
+class FallbackEventRecord(BaseModel):
+    """Structured record for degraded-mode execution during a workflow run."""
+
+    workflow_id: str
+    phase: str
+    module: str
+    fallback_type: str
+    reason: str
+    paper_id: str | None = None
+    details_json: str = "{}"
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(UTC))
+
+
 class ValidationRunRecord(BaseModel):
     """Workflow-scoped validation execution metadata."""
 

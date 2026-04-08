@@ -291,6 +291,25 @@ async def run_migrations(db: aiosqlite.Connection) -> None:
         ALTER TABLE manuscript_audit_runs ADD COLUMN gate_failure_reasons_json TEXT NOT NULL DEFAULT '[]';
         """,
     )
+    # 15. Centralized degraded-mode execution tracking.
+    await _apply(
+        15,
+        """
+        CREATE TABLE IF NOT EXISTS fallback_events (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            workflow_id TEXT NOT NULL,
+            phase TEXT NOT NULL,
+            module TEXT NOT NULL,
+            fallback_type TEXT NOT NULL,
+            reason TEXT NOT NULL,
+            paper_id TEXT,
+            details_json TEXT NOT NULL DEFAULT '{}',
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE INDEX IF NOT EXISTS idx_fallback_events_workflow_phase
+            ON fallback_events(workflow_id, phase, created_at);
+        """,
+    )
     await _validate_schema_contract(db)
     await db.commit()
 
@@ -307,6 +326,7 @@ async def _validate_schema_contract(db: aiosqlite.Connection) -> None:
         "event_log": {"workflow_id", "event_type", "payload", "ts"},
         "cost_records": {"workflow_id", "model", "phase", "tokens_in", "tokens_out", "cost_usd", "latency_ms"},
         "decision_log": {"workflow_id", "decision_type", "phase", "actor"},
+        "fallback_events": {"workflow_id", "phase", "module", "fallback_type", "reason", "details_json"},
         "dual_screening_results": {"workflow_id", "paper_id", "stage", "final_decision"},
         "screening_decisions": {"workflow_id", "paper_id", "stage", "decision"},
         "extraction_records": {

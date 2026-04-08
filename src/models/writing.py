@@ -120,6 +120,7 @@ class SectionWriteResult(BaseModel):
     cited_keys: list[str] = Field(default_factory=list)
     word_count: int = 0
     validation_retries: int = 0
+    fallback_used: bool = False
     used_deterministic_fallback: bool = False
     timestamp: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
