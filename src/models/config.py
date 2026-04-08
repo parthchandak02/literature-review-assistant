@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import uuid
+from typing import Literal
 
 from pydantic import BaseModel, Field
 
@@ -191,7 +192,13 @@ class ScreeningConfig(BaseModel):
         description="Minimum title keyword matches required for empty-abstract rescue forwarding.",
     )
     skip_fulltext_if_no_pdf: bool = Field(
-        default=True, description="Skip stage 2 when no real PDFs are retrieved; treats stage-1 survivors as included."
+        default=False,
+        description=(
+            "When True, papers without retrievable full text are excluded at stage 2. "
+            "When False (default), abstract text is used as fallback for fulltext screening "
+            "so no papers are lost to retrieval failure. PRISMA reports_not_retrieved is "
+            "tracked from retrieval results regardless of this setting."
+        ),
     )
     screening_concurrency: int = Field(
         ge=1, le=20, default=5, description="Number of papers screened concurrently by the LLM dual-reviewer."
@@ -749,7 +756,7 @@ class ExtractionConfig(BaseModel):
     pdf_tier_timeout_seconds: int = Field(
         ge=5,
         le=60,
-        default=12,
+        default=20,
         description=(
             "Per-tier HTTP timeout (seconds) used inside fetch_full_text(). "
             "Open-access tiers (Unpaywall, CORE, S2, EuropePMC) are raced in parallel, "
@@ -829,6 +836,13 @@ class RagConfig(BaseModel):
         ge=0,
         le=20,
         description="Maximum sections allowed with empty retrieval before run-level RAG warning/failure.",
+    )
+    rag_empty_policy: Literal["warn", "block"] = Field(
+        default="warn",
+        description=(
+            "Per-section policy when RAG retrieval returns zero chunks. "
+            "'warn' continues writing with degraded grounding, while 'block' fails the section."
+        ),
     )
     block_writing_on_rag_failure: bool = Field(
         default=False,

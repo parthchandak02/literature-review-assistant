@@ -58,17 +58,35 @@ class GateRunner:
         total_records: int,
     ) -> GateResult:
         minimum = self.settings.gates.search_volume_minimum
+        sparse_min = self.settings.search.low_recall_warning_threshold
+        sparse_mode = (
+            (total_records < minimum)
+            and (sparse_min > 0)
+            and (total_records >= sparse_min)
+        )
 
-        async def check() -> tuple[bool, str, str, str]:
-            passed = total_records >= minimum
-            return (
-                passed,
-                f"total_records={total_records}, minimum={minimum}",
-                str(minimum),
-                str(total_records),
+        if sparse_mode:
+            status = GateStatus.WARNING
+            details = (
+                f"total_records={total_records}, minimum={minimum}, "
+                f"sparse_search_min={sparse_min}, continuation=enabled"
             )
+        else:
+            passed = total_records >= minimum
+            status = self._status_for(passed)
+            details = f"total_records={total_records}, minimum={minimum}"
 
-        return await self.run_gate(workflow_id, phase, "search_volume", check)
+        result = GateResult(
+            workflow_id=workflow_id,
+            gate_name="search_volume",
+            phase=phase,
+            status=status,
+            details=details,
+            threshold=str(minimum),
+            actual_value=str(total_records),
+        )
+        await self.repository.save_gate_result(result)
+        return result
 
     async def run_screening_safeguard_gate(
         self,
