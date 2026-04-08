@@ -50,6 +50,14 @@ def test_compute_cohens_kappa_and_report(tmp_path) -> None:
     assert "Paper p2" in text
 
 
+def test_compute_cohens_kappa_coerces_nan_to_zero() -> None:
+    results = [
+        _result("p1", ScreeningDecisionType.INCLUDE, ScreeningDecisionType.INCLUDE, ScreeningDecisionType.INCLUDE)
+    ]
+    reliability = compute_cohens_kappa(results, stage="title_abstract")
+    assert reliability.cohens_kappa == 0.0
+
+
 @pytest.mark.asyncio
 async def test_log_reliability_to_decision_log(tmp_path) -> None:
     results = [

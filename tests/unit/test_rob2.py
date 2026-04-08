@@ -15,18 +15,20 @@ def _record(summary: str) -> ExtractionRecord:
 
 
 @pytest.mark.asyncio
-async def test_rob2_all_low_when_positive_signals_present() -> None:
+async def test_rob2_heuristic_marks_fallback_used() -> None:
     assessor = Rob2Assessor()
     assessment = await assessor.assess(_record("random protocol validated outcome reporting complete"))
-    assert assessment.overall_judgment == RiskOfBiasJudgment.LOW
+    assert assessment.overall_judgment == RiskOfBiasJudgment.SOME_CONCERNS
+    assert assessment.fallback_used is True
 
 
 @pytest.mark.asyncio
-async def test_rob2_high_when_missing_data_signal_present() -> None:
+async def test_rob2_heuristic_is_conservative_for_missing_data_signal() -> None:
     assessor = Rob2Assessor()
     assessment = await assessor.assess(_record("random protocol validated missing data concerns"))
-    assert assessment.domain_3_missing_data == RiskOfBiasJudgment.HIGH
-    assert assessment.overall_judgment == RiskOfBiasJudgment.HIGH
+    assert assessment.domain_3_missing_data == RiskOfBiasJudgment.SOME_CONCERNS
+    assert assessment.overall_judgment == RiskOfBiasJudgment.SOME_CONCERNS
+    assert assessment.fallback_used is True
 
 
 @pytest.mark.asyncio
@@ -34,3 +36,4 @@ async def test_rob2_some_concerns_when_no_high_and_not_all_low() -> None:
     assessor = Rob2Assessor()
     assessment = await assessor.assess(_record("randomized trial"))
     assert assessment.overall_judgment == RiskOfBiasJudgment.SOME_CONCERNS
+    assert assessment.fallback_used is True

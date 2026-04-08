@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import math
 import random
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
@@ -35,6 +36,13 @@ def compute_cohens_kappa(results: Sequence[DualScreeningResult], stage: str) -> 
     agreements = sum(1 for a, b in zip(reviewer_a, reviewer_b) if a == b)
     total = len(results)
     kappa = float(cohen_kappa_score(reviewer_a, reviewer_b))
+    if math.isnan(kappa):
+        logger.warning(
+            "compute_cohens_kappa produced NaN for stage=%s (n=%d); coercing to 0.0",
+            stage,
+            total,
+        )
+        kappa = 0.0
     return InterRaterReliability(
         stage=stage,
         total_screened=total,

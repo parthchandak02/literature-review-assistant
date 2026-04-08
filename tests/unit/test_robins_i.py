@@ -19,6 +19,7 @@ async def test_robins_i_defaults_to_moderate_without_major_signals() -> None:
     assessor = RobinsIAssessor()
     assessment = await assessor.assess(_record("observational educational intervention with clear outcomes"))
     assert assessment.overall_judgment == RobinsIJudgment.MODERATE
+    assert assessment.fallback_used is True
 
 
 @pytest.mark.asyncio
@@ -28,3 +29,4 @@ async def test_robins_i_serious_when_confounding_or_missing_signals_present() ->
     assert assessment.domain_1_confounding == RobinsIJudgment.SERIOUS
     assert assessment.domain_5_missing_data == RobinsIJudgment.SERIOUS
     assert assessment.overall_judgment == RobinsIJudgment.SERIOUS
+    assert assessment.fallback_used is True

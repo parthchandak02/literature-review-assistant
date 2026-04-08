@@ -60,6 +60,7 @@ class MmatAssessment(BaseModel):
     overall_score: int  # count of True criteria (0-5 type-specific)
     overall_summary: str
     assessment_source: Literal["llm", "heuristic"] = "llm"
+    fallback_used: bool = False
 
 
 class _MmatLLMResponse(BaseModel):
@@ -184,6 +185,7 @@ def _heuristic_mmat(record: ExtractionRecord, study_type: MmatStudyType) -> Mmat
         overall_score=0,
         overall_summary="MMAT heuristic fallback: LLM assessment unavailable. Manual review required.",
         assessment_source="heuristic",
+        fallback_used=True,
     )
 
 
@@ -267,6 +269,7 @@ class MmatAssessor:
                 overall_score=score,
                 overall_summary=parsed.overall_summary or f"MMAT score: {score}/5.",
                 assessment_source="llm",
+                fallback_used=False,
             )
         except Exception as exc:
             logger.warning("MMAT LLM assessment failed for %s (%s); using heuristic.", record.paper_id, exc)

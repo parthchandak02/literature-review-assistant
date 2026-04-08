@@ -47,3 +47,13 @@ async def test_retrieve_batch_timeout_reason_code():
         results, summary = await retriever.retrieve_batch([_paper()], per_paper_timeout=1, concurrency=1)
     assert summary.failed == 1
     assert results["p-1"].reason_code == "timeout"
+
+
+@pytest.mark.asyncio
+async def test_retrieve_batch_normalizes_unexpected_exception():
+    retriever = PDFRetriever()
+    with patch.object(retriever, "retrieve", new=AsyncMock(side_effect=RuntimeError("boom"))):
+        results, summary = await retriever.retrieve_batch([_paper()], per_paper_timeout=1, concurrency=1)
+    assert summary.failed == 1
+    assert results["p-1"].reason_code == "unexpected_error"
+    assert "boom" in (results["p-1"].error or "")

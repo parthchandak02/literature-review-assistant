@@ -175,6 +175,7 @@ class RobinsIAssessor:
             overall_judgment=overall,
             overall_rationale="Heuristic fallback: worst-domain logic applied to signal-based estimates.",
             assessment_source="heuristic",
+            fallback_used=True,
         )
 
     async def assess(self, record: ExtractionRecord, full_text: str = "") -> RobinsIAssessment:
@@ -250,6 +251,8 @@ class RobinsIAssessor:
                     domain_7_rationale=parsed.domain_7_rationale or "LLM assessment.",
                     overall_judgment=overall,
                     overall_rationale=parsed.overall_rationale or "LLM overall judgment.",
+                    assessment_source="llm",
+                    fallback_used=False,
                 )
             except Exception as exc:
                 # Log full error message so quota/auth errors are diagnosable.
