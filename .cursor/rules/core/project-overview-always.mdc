@@ -26,8 +26,10 @@ alwaysApply: true
 - Typed contracts: `src/models/`
 - DB schema and repositories: `src/db/schema.sql`, `src/db/repositories.py`
 - Stats and API count precedence: `src/db/source_of_truth.py`
+- Control-plane persistence: tables `workflow_steps`, `recovery_policies`, `writing_manifests`; typed records `WorkflowStepRecord`, `RecoveryPolicyRecord`, `WritingManifestRecord` in `src/models/workflow.py`; enums `StepStatus`, `FailureCategory`, `RecoveryAction` in `src/models/enums.py`
 - LLM provider/rate limiting/fallback: `src/llm/`
 - Writing and citation grounding: `src/writing/`
+- Deterministic Results evidence: `src/writing/evidence_assembler.py`
 - Manuscript contracts: `src/manuscript/contracts.py`
 - Manuscript readiness scorecard: `src/manuscript/readiness.py`
 - Manuscript violation policy: `src/manuscript/violation_policy.py`
@@ -37,6 +39,7 @@ alwaysApply: true
 - Manuscript audit orchestration: `src/manuscript/reviewer.py`
 - Export pipeline: `src/export/`
 - Web API: `src/web/app.py`
+- Run diagnostics API: `GET /api/run/{run_id}/diagnostics` (step journal, failures, fallbacks, writing manifests)
 - Frontend typed API/events: `frontend/src/lib/api.ts`
 - Operational edge cases: `.cursor/rules/core/gotchas-agent.mdc`
 

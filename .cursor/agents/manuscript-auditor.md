@@ -69,20 +69,31 @@ Known contract codes the pipeline already checks (non-exhaustive; source of trut
 - `PROTOCOL_REGISTRATION_CONTRADICTION` / `PROTOCOL_REGISTRATION_FUTURE_TENSE` -- registration inconsistency
 - `MODEL_ID_LEAKAGE` -- raw model identifiers leaked into manuscript
 - `META_FEASIBILITY_CONTRADICTION` -- feasibility narrative conflicts
+- `ABSTRACT_STRUCTURE_MISSING_FIELDS` -- structured abstract fields incomplete
+- `UNUSED_BIB_ENTRY` -- bib entries cited nowhere in body
+- `ARTIFACT_PLACEHOLDER_LEAK` -- placeholder tokens in artifact files
+- `SECTION_DETERMINISTIC_FALLBACK` -- section used deterministic fallback text
+- `PROTOCOL_REGISTRATION_FUTURE_TENSE` -- registration statement uses future tense
+
+When in doubt, grep `code=` in `src/manuscript/contracts.py` for the canonical list.
 
 Record which violations are already flagged. Do NOT re-report them as new findings. Instead, note them in a "Pipeline Contracts Status" section, treat failed contracts as readiness risk, and focus additional findings on gaps that contracts do NOT cover.
 
 When available, also cross-check runtime audit persistence:
-- `manuscript_audit_runs`
+- `manuscript_audit_runs` (includes contract snapshot columns: `contract_mode`, `contract_passed`, `contract_violation_count`, `contract_violations_json`, `gate_blocked`, `gate_failure_reasons_json`)
 - `manuscript_audit_findings`
 
 You may read these directly from `runtime.db` or via API:
 - `GET /api/workflow/{workflow_id}/manuscript-audit/summary`
 - `GET /api/workflow/{workflow_id}/manuscript-audit/findings`
 - `GET /api/run/{run_id}/manuscript-audit`
+- `GET /api/run/{run_id}/diagnostics` (step journal, failures, fallback events, writing manifests)
+- `GET /api/run/{run_id}/readiness` (readiness scorecard: finalize, PRISMA, contracts, fallback events)
 
 Use this as supplemental evidence alignment with `phase_7_audit`; keep
 artifact-based contract reading (`run_summary.json`) as primary.
+
+`writing_manifests` records per-section provenance (grounding hash, evidence source IDs, contract status, retry count, word count). Query via the diagnostics API or directly from `runtime.db` to assess writing quality and fallback usage per section.
 
 ---
 

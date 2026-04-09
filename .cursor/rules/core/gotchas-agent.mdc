@@ -650,6 +650,13 @@ Contract codes (checked by pipeline automatically):
 - `SNAKE_CASE_LEAKAGE` -- raw snake_case leaked into prose
 - `MODEL_ID_LEAKAGE` -- raw model IDs leaked into prose
 - `META_FEASIBILITY_CONTRADICTION` -- conflicting feasibility narrative
+- `ABSTRACT_STRUCTURE_MISSING_FIELDS` -- structured abstract fields incomplete
+- `UNUSED_BIB_ENTRY` -- bib entries cited nowhere in body
+- `ARTIFACT_PLACEHOLDER_LEAK` -- placeholder tokens in artifact files
+- `SECTION_DETERMINISTIC_FALLBACK` -- section used deterministic fallback text
+- `PROTOCOL_REGISTRATION_FUTURE_TENSE` -- registration statement uses future tense
+
+When in doubt, grep `code=` in `src/manuscript/contracts.py` for the canonical list.
 
 If you are adding a new deterministic check, add it to `contracts.py` (pipeline level),
 not to the auditor agent spec (which is for subjective/methodology-level assessment).
@@ -677,6 +684,15 @@ endpoint reports `ready: false` with `finalize_checkpoint: missing` even when al
 artifacts are present. This was the root cause of `ready: false` on otherwise-complete
 runs (wf-0051, wf-0053) before the fix was applied.
 
+## Control-Plane Step Journal and Recovery Policies
+`workflow_steps`, `recovery_policies`, and `writing_manifests` tables hold step-level
+execution history, retry/rewind accounting, and per-section writing provenance. The
+`GET /api/run/{run_id}/diagnostics` endpoint aggregates step summary, failure counts,
+fallback events, and writing manifests for UI diagnostics. When debugging stalled
+writing, retries, or unexpected fallbacks, query these tables or hit the diagnostics
+endpoint. Repository methods: `save_workflow_step`, `get_step_summary`,
+`get_or_create_recovery_policy`, `save_writing_manifest`, `get_writing_manifests`.
+
 ## `complete_validated` Is the Standard LLM Structured Output Pattern
 `PydanticAIClient.complete_validated()` in `src/llm/pydantic_client.py` wraps LLM
 completion with Pydantic schema validation and automatic retries. All LLM-consuming
@@ -685,13 +701,15 @@ text completion. The method returns a validated Pydantic model instance or raise
 exhausting retries. When adding new LLM calls, use `complete_validated` -- do NOT parse
 raw text into dicts.
 
-## Readiness Scorecard Checks Three Gates
-`compute_readiness_scorecard()` in `src/manuscript/readiness.py` checks:
-1. `finalize` checkpoint exists and is `completed`
-2. PRISMA arithmetic is valid (`PRISMACounts.validate_arithmetic()`)
-3. Manuscript contracts pass in the given mode
-All three must pass for `ready: true`. The API endpoint is
-`GET /api/run/{workflow_id}/readiness`.
+## Readiness Scorecard Checks Multiple Deterministic Gates
+`compute_readiness_scorecard()` in `src/manuscript/readiness.py` appends checks for:
+1. `finalize` checkpoint is `completed`
+2. PRISMA arithmetic valid (via `build_prisma_counts` / `PRISMACounts`)
+3. Manuscript contracts pass for the given mode
+4. `fallback_events` count is zero (non-zero blocks `ready`)
+5. `submission_pdf_present` is reported but is NOT part of the `ready` boolean
+`ready: true` requires items 1-4 (finalize + PRISMA + contracts + zero fallback events).
+API endpoint: `GET /api/run/{run_id}/readiness` (note: `run_id`, not `workflow_id`).
 
 ## Contract Matrix Makes TeX Checks Phase-Aware
 `src/manuscript/contract_matrix.py` defines `PHASES_TEX_OPTIONAL` (phases where
@@ -703,7 +721,9 @@ checking `tex_optional_for_phase()` first.
 
 ## Violation Policy Separates Soft-Block From Hard-Fail
 `src/manuscript/violation_policy.py` categorizes contract violation codes into
-`SOFT_BLOCK_CODES` (report but do not block) and phase-7-only availability codes.
-`hard_failure(code, phase)` returns True only for violations that should block the
-pipeline. Remaining violations are surfaced in audit findings without halting the run.
-This prevents cosmetic issues from blocking manuscript generation.
+`SOFT_BLOCK_CODES` and `PHASE_7_AVAILABILITY_ONLY_CODES`. In `soft` mode, codes in
+`SOFT_BLOCK_CODES` still cause `hard_failure()` to return True (fail-closed for
+integrity); other non-listed violations may not block. In `phase_7_audit`,
+availability-only codes (figures, heading parity, unused bib) are downgraded.
+`hard_failure(code, phase)` is the canonical gate check. Remaining violations are
+surfaced in audit findings without halting the run.

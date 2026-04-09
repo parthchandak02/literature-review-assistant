@@ -216,6 +216,34 @@ ORDER BY p.title;
 sqlite3 -header -csv "<runtime.db>" "<SQL_QUERY>" > "<run_dir>/manual_review/<file>.csv"
 ```
 
+## Control-Plane and Writing Diagnostics
+
+When debugging step failures, stalled writing, retries, or fallback spikes, query these tables:
+
+- `workflow_steps` -- per-phase step execution (status, duration, failure category, recovery action)
+- `recovery_policies` -- retry/rewind accounting per phase+step
+- `writing_manifests` -- per-section writing provenance (grounding hash, evidence IDs, contract status, retry count, fallback flag)
+
+Quick SQL examples:
+
+```sql
+-- Step journal overview
+SELECT phase, step_name, status, duration_ms, failure_category, recovery_action
+FROM workflow_steps WHERE workflow_id = 'wf-XXXX' ORDER BY started_at;
+
+-- Writing manifest per section
+SELECT section_key, attempt_number, contract_status, word_count, fallback_used
+FROM writing_manifests WHERE workflow_id = 'wf-XXXX' ORDER BY section_key;
+
+-- Recovery policy exhaustion
+SELECT phase, step_name, current_retries, max_retries, current_rewinds, max_rewinds, policy_status
+FROM recovery_policies WHERE workflow_id = 'wf-XXXX';
+```
+
+API shortcut: `GET /api/run/{run_id}/diagnostics` returns aggregated step summary, failure counts, fallback events, and writing manifests.
+
+Readiness check: `GET /api/run/{run_id}/readiness` returns the export readiness scorecard (finalize checkpoint, PRISMA arithmetic, contracts, fallback events, PDF presence).
+
 ## Live-Run Handling
 
 - Running workflows: query the same DB repeatedly to confirm progress.
