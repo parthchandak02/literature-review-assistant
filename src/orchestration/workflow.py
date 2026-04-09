@@ -9,12 +9,9 @@ import logging
 import os
 import re
 import signal
-
-_log = logging.getLogger(__name__)
 from datetime import UTC, datetime
 from pathlib import Path
-
-logger = logging.getLogger(__name__)
+from uuid import uuid4
 
 from pydantic_graph import BaseNode, End, Graph, GraphRunContext
 from rich.table import Table
@@ -51,16 +48,25 @@ from src.models import (
     CohortMembershipRecord,
     DecisionLogEntry,
     ExtractionRecord,
+    FailureCategory,
     FallbackEventRecord,
     GateStatus,
     ManuscriptAssembly,
     ManuscriptAsset,
     ManuscriptAuditResult,
+    PreWritingGateCheck,
+    PreWritingGateReport,
     PrimaryStudyStatus,
     RagRetrievalDiagnostic,
+    RecoveryAction,
     ReviewConfig,
     SectionDraft,
+    StepStatus,
     StudyDesign,
+    ValidationCheckRecord,
+    ValidationRunRecord,
+    WorkflowStepRecord,
+    WritingManifestRecord,
 )
 from src.models.diagrams import (
     FlowchartDiagramInput,
@@ -125,7 +131,11 @@ from src.visualization import (
 from src.visualization.concept_diagrams import render_concept_diagrams
 from src.visualization.forest_plot import render_forest_plot
 from src.visualization.funnel_plot import render_funnel_plot
-from src.writing.citation_grounding import extract_numeric_citation_refs, extract_used_citekeys, verify_citation_grounding
+from src.writing.citation_grounding import (
+    extract_numeric_citation_refs,
+    extract_used_citekeys,
+    verify_citation_grounding,
+)
 from src.writing.context_builder import build_writing_grounding
 from src.writing.contradiction_resolver import (
     build_conflicting_evidence_section,
@@ -147,6 +157,9 @@ from src.writing.prompts.sections import (
     get_section_context,
     get_section_word_limit,
 )
+
+_log = logging.getLogger(__name__)
+logger = logging.getLogger(__name__)
 
 
 def _now_utc() -> str:
@@ -253,6 +266,58 @@ def _rc_print(rc: RunContext | None, message: object) -> None:
             pass
 
 
+async def _journal_step_start(
+    repo: WorkflowRepository,
+    workflow_id: str,
+    phase: str,
+    step_name: str,
+    *,
+    paper_id: str | None = None,
+    parent_step_id: str | None = None,
+    max_attempts: int = 1,
+) -> WorkflowStepRecord:
+    """Record a step execution start in the workflow journal."""
+    record = WorkflowStepRecord(
+        step_id=str(uuid4()),
+        workflow_id=workflow_id,
+        phase=phase,
+        step_name=step_name,
+        status=StepStatus.RUNNING,
+        max_attempts=max_attempts,
+        paper_id=paper_id,
+        parent_step_id=parent_step_id,
+    )
+    try:
+        await repo.save_workflow_step(record)
+    except Exception:
+        _log.debug("step journal write failed for %s/%s", phase, step_name, exc_info=True)
+    return record
+
+
+async def _journal_step_complete(
+    repo: WorkflowRepository,
+    record: WorkflowStepRecord,
+    *,
+    status: StepStatus = StepStatus.SUCCEEDED,
+    error_message: str | None = None,
+    failure_category: FailureCategory | None = None,
+    recovery_action: RecoveryAction | None = None,
+) -> None:
+    """Update a step record with completion status."""
+    now = datetime.now(UTC)
+    record.status = status
+    record.error_message = error_message
+    record.failure_category = failure_category
+    record.recovery_action = recovery_action
+    record.completed_at = now
+    if record.started_at:
+        record.duration_ms = int((now - record.started_at).total_seconds() * 1000)
+    try:
+        await repo.save_workflow_step(record)
+    except Exception:
+        _log.debug("step journal complete failed for %s", record.step_id, exc_info=True)
+
+
 class ResumeStartNode(BaseNode[ReviewState]):
     """Entry node for resume: loads state, configures logging, routes to next phase."""
 
@@ -300,6 +365,8 @@ class ResumeStartNode(BaseNode[ReviewState]):
             return SynthesisNode()
         if phase == "phase_5b_knowledge_graph":
             return KnowledgeGraphNode()
+        if phase == "phase_5c_pre_writing_gate":
+            return PreWritingGateNode()
         if phase == "phase_6_writing":
             return WritingNode()
         if phase == "phase_7_audit":
@@ -388,6 +455,17 @@ class SearchNode(BaseNode[ReviewState]):
         rc = _rc(state)
         assert state.review is not None
         assert state.settings is not None
+
+        _phase_step: WorkflowStepRecord | None = None
+        if state.db_path:
+            try:
+                async with get_db(state.db_path) as _jdb:
+                    _jrepo = WorkflowRepository(_jdb)
+                    _phase_step = await _journal_step_start(
+                        _jrepo, state.workflow_id, "phase_2_search", "search_phase",
+                    )
+            except Exception:
+                pass
 
         # --- CSV master list bypass ---
         # When masterlist_csv_path is set the user has pre-assembled papers
@@ -715,6 +793,15 @@ class SearchNode(BaseNode[ReviewState]):
                         "connector_failures": len(state.connector_init_failures),
                     },
                 )
+
+        if _phase_step and state.db_path:
+            try:
+                async with get_db(state.db_path) as _jdb:
+                    _jrepo = WorkflowRepository(_jdb)
+                    await _journal_step_complete(_jrepo, _phase_step)
+            except Exception:
+                pass
+
         return ScreeningNode()
 
 
@@ -733,8 +820,13 @@ class ScreeningNode(BaseNode[ReviewState]):
         assert state.review is not None
         assert state.settings is not None
 
+        _screening_step: WorkflowStepRecord | None = None
+
         async with get_db(state.db_path) as db:
             repository = WorkflowRepository(db)
+            _screening_step = await _journal_step_start(
+                repository, state.workflow_id, "phase_3_screening", "screening_phase",
+            )
             gate_runner = GateRunner(repository, state.settings)
             on_waiting = None
             on_resolved = None
@@ -1822,6 +1914,14 @@ class ScreeningNode(BaseNode[ReviewState]):
                     "phase_3_screening",
                     {"included_papers": len(state.included_papers), "screened": len(state.deduped_papers)},
                 )
+
+        if _screening_step:
+            try:
+                async with get_db(state.db_path) as _jdb:
+                    await _journal_step_complete(WorkflowRepository(_jdb), _screening_step)
+            except Exception:
+                pass
+
         return HumanReviewCheckpointNode()
 
 
@@ -1899,11 +1999,13 @@ class ExtractionQualityNode(BaseNode[ReviewState]):
         if rc and hasattr(rc, "log_status"):
             rc.log_status(f"Loading extraction records for {len(state.included_papers)} included papers...")
 
+        _extraction_step: WorkflowStepRecord | None = None
         rob2_rows: list = []
         async with get_db(state.db_path) as db:
             repository = WorkflowRepository(db)
-            # Always load from DB so records is complete even when resuming mid-phase
-            # (state.extraction_records is empty if the phase checkpoint was never saved).
+            _extraction_step = await _journal_step_start(
+                repository, state.workflow_id, "phase_4_extraction_quality", "extraction_quality_phase",
+            )
             records: list[ExtractionRecord] = await repository.load_extraction_records(state.workflow_id)
             already_extracted = {r.paper_id for r in records}
             already_assessed = await repository.get_rob_assessment_ids(state.workflow_id)
@@ -2706,6 +2808,14 @@ class ExtractionQualityNode(BaseNode[ReviewState]):
                     "phase_4_extraction_quality",
                     {"extraction_records": len(records)},
                 )
+
+        if _extraction_step:
+            try:
+                async with get_db(state.db_path) as _jdb:
+                    await _journal_step_complete(WorkflowRepository(_jdb), _extraction_step)
+            except Exception:
+                pass
+
         return EmbeddingNode()
 
 
@@ -3204,6 +3314,365 @@ def _validate_writing_persistence_invariant(
     return violated, missing_sections
 
 
+_PRE_WRITING_PHASE_ORDER = (
+    "phase_4_extraction_quality",
+    "phase_4b_embedding",
+    "phase_5_synthesis",
+    "phase_5b_knowledge_graph",
+    "phase_5c_pre_writing_gate",
+    "phase_6_writing",
+    "phase_7_audit",
+    "finalize",
+)
+
+
+def _pre_writing_phases_from(start_phase: str) -> list[str]:
+    try:
+        idx = _PRE_WRITING_PHASE_ORDER.index(start_phase)
+    except ValueError:
+        return []
+    return list(_PRE_WRITING_PHASE_ORDER[idx:])
+
+
+def _select_pre_writing_rewind_phase(phases: list[str]) -> str | None:
+    phase_set = set(phases)
+    for phase in _PRE_WRITING_PHASE_ORDER:
+        if phase in phase_set:
+            return phase
+    return None
+
+
+async def _count_prior_pre_writing_failures(db, workflow_id: str) -> int:
+    cursor = await db.execute(
+        """
+        SELECT COUNT(*)
+        FROM validation_runs
+        WHERE workflow_id = ?
+          AND profile = 'pre_writing_gate'
+          AND status = 'failed'
+        """,
+        (workflow_id,),
+    )
+    row = await cursor.fetchone()
+    return int(row[0]) if row and row[0] is not None else 0
+
+
+async def _compute_pre_writing_gate_report(
+    *,
+    state: ReviewState,
+    repository: WorkflowRepository,
+    db,
+    attempt_number: int,
+) -> PreWritingGateReport:
+    included_ids = await repository.get_synthesis_included_paper_ids(state.workflow_id)
+    if not included_ids:
+        included_ids = await repository.get_included_paper_ids(state.workflow_id)
+
+    included_papers = state.included_papers
+    if not included_papers and included_ids:
+        included_papers = await repository.get_papers_by_ids(included_ids)
+
+    records = state.extraction_records or await repository.load_extraction_records(state.workflow_id)
+    extraction_records = [record for record in records if not is_extraction_failed(record)]
+    extraction_ids = {str(record.paper_id) for record in extraction_records if record.paper_id}
+
+    rob2_rows, robins_i_rows = await repository.load_rob_assessments(state.workflow_id)
+    casp_rows = await repository.load_casp_assessments(state.workflow_id)
+    mmat_rows = await repository.load_mmat_assessments(state.workflow_id)
+    quality_ids = {
+        str(assessment.paper_id)
+        for assessment in [*rob2_rows, *robins_i_rows, *casp_rows, *mmat_rows]
+        if getattr(assessment, "paper_id", None)
+    }
+
+    chunk_cursor = await db.execute(
+        """
+        SELECT DISTINCT paper_id
+        FROM paper_chunks_meta
+        WHERE workflow_id = ?
+        """,
+        (state.workflow_id,),
+    )
+    chunk_rows = await chunk_cursor.fetchall()
+    chunk_ids = {str(row[0]) for row in chunk_rows if row and row[0]}
+
+    dedup_count = state.dedup_count
+    if dedup_count <= 0:
+        dedup_count = int(await repository.get_dedup_count(state.workflow_id) or 0)
+    prisma = await build_prisma_counts(
+        repository,
+        state.workflow_id,
+        dedup_count,
+        included_qualitative=0,
+        included_quantitative=len(included_ids),
+    )
+
+    citation_entries = _citation_entries_from_papers(included_papers)
+    citekeys = [citekey for citekey, _paper in citation_entries]
+    placeholder_citekeys = [citekey for citekey in citekeys if citekey.startswith("Ref")]
+
+    missing_extraction = sorted(included_ids - extraction_ids)
+    missing_quality = sorted(extraction_ids - quality_ids)
+    missing_chunks = sorted(extraction_ids - chunk_ids)
+    citation_catalog_ok = len(citekeys) == len(included_papers) and len(set(citekeys)) == len(citekeys)
+
+    checks: list[PreWritingGateCheck] = []
+    blocking_reasons: list[str] = []
+    rewind_candidates: list[str] = []
+
+    checks.append(
+        PreWritingGateCheck(
+            name="prisma_arithmetic_valid",
+            ok=bool(prisma.arithmetic_valid),
+            detail="valid" if prisma.arithmetic_valid else "invalid",
+            rewind_phase=None if prisma.arithmetic_valid else "phase_4_extraction_quality",
+        )
+    )
+    if not prisma.arithmetic_valid:
+        blocking_reasons.append("PRISMA arithmetic is inconsistent before writing")
+        rewind_candidates.append("phase_4_extraction_quality")
+
+    checks.append(
+        PreWritingGateCheck(
+            name="extraction_coverage",
+            ok=not missing_extraction,
+            detail=f"missing={len(missing_extraction)}",
+            rewind_phase=None if not missing_extraction else "phase_4_extraction_quality",
+        )
+    )
+    if missing_extraction:
+        blocking_reasons.append(f"missing extraction records for {len(missing_extraction)} included papers")
+        rewind_candidates.append("phase_4_extraction_quality")
+
+    checks.append(
+        PreWritingGateCheck(
+            name="quality_coverage",
+            ok=not missing_quality,
+            detail=f"missing={len(missing_quality)}",
+            rewind_phase=None if not missing_quality else "phase_4_extraction_quality",
+        )
+    )
+    if missing_quality:
+        blocking_reasons.append(f"missing quality assessments for {len(missing_quality)} extracted papers")
+        rewind_candidates.append("phase_4_extraction_quality")
+
+    checks.append(
+        PreWritingGateCheck(
+            name="rag_chunk_coverage",
+            ok=not missing_chunks,
+            detail=f"missing={len(missing_chunks)}",
+            rewind_phase=None if not missing_chunks else "phase_4b_embedding",
+        )
+    )
+    if missing_chunks:
+        blocking_reasons.append(f"missing RAG chunks for {len(missing_chunks)} extracted papers")
+        rewind_candidates.append("phase_4b_embedding")
+
+    checks.append(
+        PreWritingGateCheck(
+            name="citation_catalog_integrity",
+            ok=citation_catalog_ok,
+            detail=f"generated={len(citekeys)} placeholder_keys={len(placeholder_citekeys)}",
+            rewind_phase=None if citation_catalog_ok else "phase_4_extraction_quality",
+        )
+    )
+    if not citation_catalog_ok:
+        blocking_reasons.append("citation catalog generation is not one-to-one with included papers")
+        rewind_candidates.append("phase_4_extraction_quality")
+
+    return PreWritingGateReport(
+        workflow_id=state.workflow_id,
+        ready=not blocking_reasons,
+        checks=checks,
+        blocking_reasons=blocking_reasons,
+        rewind_phase=_select_pre_writing_rewind_phase(rewind_candidates),
+        attempt_number=attempt_number,
+    )
+
+
+async def _persist_pre_writing_gate_validation(
+    *,
+    repository: WorkflowRepository,
+    report: PreWritingGateReport,
+) -> None:
+    now = datetime.now(UTC)
+    validation_run_id = f"prewrite-{uuid4().hex}"
+    await repository.save_validation_run(
+        ValidationRunRecord(
+            validation_run_id=validation_run_id,
+            workflow_id=report.workflow_id,
+            profile="pre_writing_gate",
+            status="passed" if report.ready else "failed",
+            tool_version="pre_writing_gate_v1",
+            summary_json=json.dumps(
+                {
+                    "ready": report.ready,
+                    "rewind_phase": report.rewind_phase,
+                    "blocking_reasons": report.blocking_reasons,
+                    "attempt_number": report.attempt_number,
+                },
+                sort_keys=True,
+            ),
+            started_at=now,
+            completed_at=now,
+        )
+    )
+    for check in report.checks:
+        await repository.save_validation_check(
+            ValidationCheckRecord(
+                validation_run_id=validation_run_id,
+                workflow_id=report.workflow_id,
+                phase="phase_5c_pre_writing_gate",
+                check_name=check.name,
+                status="pass" if check.ok else "fail",
+                severity="error" if check.blocking else "warn",
+                metric_value=None,
+                details_json=json.dumps(
+                    {"detail": check.detail, "rewind_phase": check.rewind_phase},
+                    sort_keys=True,
+                ),
+                source_module="orchestration.workflow",
+                paper_id=None,
+            )
+        )
+
+
+async def _rewind_pre_writing_phase(
+    *,
+    repository: WorkflowRepository,
+    workflow_id: str,
+    rewind_phase: str,
+) -> None:
+    phases_to_clear = _pre_writing_phases_from(rewind_phase)
+    if phases_to_clear:
+        await repository.delete_checkpoints_for_phases(workflow_id, phases_to_clear)
+    await repository.rollback_phase_data(workflow_id, rewind_phase)
+
+
+class PreWritingGateNode(BaseNode[ReviewState]):
+    """Validate canonical prerequisites before writing and rewind automatically when safe."""
+
+    async def run(
+        self, ctx: GraphRunContext[ReviewState]
+    ) -> WritingNode | ExtractionQualityNode | EmbeddingNode | SynthesisNode | KnowledgeGraphNode:
+        state = ctx.state
+        rc = _rc(state)
+        if rc:
+            rc.emit_phase_start(
+                "phase_5c_pre_writing_gate",
+                f"Validating writing prerequisites ({len(state.included_papers)} papers)...",
+                total=5,
+            )
+
+        async with get_db(state.db_path) as db:
+            repository = WorkflowRepository(db)
+
+            policy = await repository.get_or_create_recovery_policy(
+                state.workflow_id,
+                "phase_5c_pre_writing_gate",
+                "pre_writing_validation",
+                max_retries=0,
+                max_rewinds=1,
+            )
+
+            gate_step = await _journal_step_start(
+                repository, state.workflow_id,
+                "phase_5c_pre_writing_gate", "pre_writing_validation",
+                max_attempts=policy.max_rewinds + 1,
+            )
+            gate_step.attempt_number = policy.current_rewinds + 1
+
+            prior_failures = await _count_prior_pre_writing_failures(db, state.workflow_id)
+            report = await _compute_pre_writing_gate_report(
+                state=state,
+                repository=repository,
+                db=db,
+                attempt_number=prior_failures + 1,
+            )
+            await _persist_pre_writing_gate_validation(repository=repository, report=report)
+
+            if report.ready:
+                await _journal_step_complete(repository, gate_step)
+                await repository.save_checkpoint(
+                    state.workflow_id,
+                    "phase_5c_pre_writing_gate",
+                    papers_processed=len(state.included_papers),
+                    status="completed",
+                )
+                if rc:
+                    rc.emit_phase_done(
+                        "phase_5c_pre_writing_gate",
+                        {"ready": True, "attempt": report.attempt_number},
+                    )
+                return WritingNode()
+
+            await repository.save_checkpoint(
+                state.workflow_id,
+                "phase_5c_pre_writing_gate",
+                papers_processed=len(state.included_papers),
+                status="blocked",
+            )
+
+            if report.rewind_phase and not policy.rewinds_exhausted:
+                await repository.increment_rewind_count(
+                    state.workflow_id, "phase_5c_pre_writing_gate", "pre_writing_validation",
+                )
+                await _journal_step_complete(
+                    repository, gate_step,
+                    status=StepStatus.FAILED,
+                    error_message="; ".join(report.blocking_reasons),
+                    failure_category=FailureCategory.REWINDABLE,
+                    recovery_action=RecoveryAction.REWIND,
+                )
+                await _rewind_pre_writing_phase(
+                    repository=repository,
+                    workflow_id=state.workflow_id,
+                    rewind_phase=report.rewind_phase,
+                )
+                if report.rewind_phase == "phase_4_extraction_quality":
+                    state.extraction_records = []
+                if rc:
+                    rc.log_status(
+                        f"Pre-writing gate rewinding to {report.rewind_phase} "
+                        f"({policy.status_label()}): {'; '.join(report.blocking_reasons)}"
+                    )
+                    rc.emit_phase_done(
+                        "phase_5c_pre_writing_gate",
+                        {
+                            "ready": False,
+                            "rewind_phase": report.rewind_phase,
+                            "attempt": report.attempt_number,
+                        },
+                    )
+                if report.rewind_phase == "phase_4_extraction_quality":
+                    return ExtractionQualityNode()
+                if report.rewind_phase == "phase_4b_embedding":
+                    return EmbeddingNode()
+                if report.rewind_phase == "phase_5_synthesis":
+                    return SynthesisNode()
+                return KnowledgeGraphNode()
+
+            await _journal_step_complete(
+                repository, gate_step,
+                status=StepStatus.FAILED,
+                error_message="; ".join(report.blocking_reasons),
+                failure_category=FailureCategory.TERMINAL,
+                recovery_action=RecoveryAction.ABORT,
+            )
+
+        if rc:
+            rc.emit_phase_done(
+                "phase_5c_pre_writing_gate",
+                {
+                    "ready": False,
+                    "rewind_phase": report.rewind_phase,
+                    "attempt": report.attempt_number,
+                    "blocked": True,
+                },
+            )
+        raise RuntimeError("pre-writing gate blocked manuscript generation: " + "; ".join(report.blocking_reasons))
+
+
 class WritingNode(BaseNode[ReviewState]):
     """Write manuscript sections, validate citations, save drafts."""
 
@@ -3218,6 +3687,17 @@ class WritingNode(BaseNode[ReviewState]):
             )
         assert state.review is not None
         assert state.settings is not None
+
+        _writing_step: WorkflowStepRecord | None = None
+        try:
+            async with get_db(state.db_path) as _jdb:
+                _jrepo = WorkflowRepository(_jdb)
+                _writing_step = await _journal_step_start(
+                    _jrepo, state.workflow_id, "phase_6_writing", "writing_phase",
+                    max_attempts=2,
+                )
+        except Exception:
+            pass
         from src.writing.prompts.sections import set_abstract_word_limit
 
         set_abstract_word_limit(getattr(state.settings.ieee_export, "max_abstract_words", 250))
@@ -4856,6 +5336,43 @@ class WritingNode(BaseNode[ReviewState]):
         except Exception as _patch_exc:  # noqa: BLE001
             logger.warning("WritingNode: concept diagram manuscript patch failed (non-fatal): %s", _patch_exc)
 
+        if _writing_step:
+            try:
+                async with get_db(state.db_path) as _jdb:
+                    _jrepo = WorkflowRepository(_jdb)
+                    _w_status = StepStatus.SUCCEEDED if not _failed_sections else StepStatus.FAILED
+                    _w_err = f"failed sections: {', '.join(_failed_sections)}" if _failed_sections else None
+                    _w_fc = FailureCategory.REPAIRABLE if _failed_sections else None
+                    await _journal_step_complete(
+                        _jrepo, _writing_step,
+                        status=_w_status, error_message=_w_err, failure_category=_w_fc,
+                    )
+            except Exception:
+                pass
+
+        # Persist per-section writing manifests for evidence provenance.
+        try:
+            async with get_db(state.db_path) as _mdb:
+                _mrepo = WorkflowRepository(_mdb)
+                _grounding_hash = hashlib.sha256(
+                    citation_catalog.encode("utf-8")
+                ).hexdigest()[:16] if citation_catalog else None
+                for _mi, _msec in enumerate(SECTIONS):
+                    _mcontent = sections_written[_mi] if _mi < len(sections_written) else ""
+                    _mfallback = _msec in (_failed_sections or [])
+                    manifest = WritingManifestRecord(
+                        workflow_id=state.workflow_id,
+                        section_key=_msec,
+                        attempt_number=1,
+                        grounding_hash=_grounding_hash,
+                        contract_status="failed" if _mfallback else "passed",
+                        fallback_used=_mfallback,
+                        word_count=len(_mcontent.split()) if _mcontent else 0,
+                    )
+                    await _mrepo.save_writing_manifest(manifest)
+        except Exception:
+            _log.debug("writing manifest persistence failed (non-fatal)", exc_info=True)
+
         return ManuscriptAuditNode()
 
 
@@ -5037,6 +5554,16 @@ class FinalizeNode(BaseNode[ReviewState]):
         rc = _rc(state)
         if rc:
             rc.emit_phase_start("finalize", "Writing run summary...")
+
+        _finalize_step: WorkflowStepRecord | None = None
+        try:
+            async with get_db(state.db_path) as _jdb:
+                _finalize_step = await _journal_step_start(
+                    WorkflowRepository(_jdb), state.workflow_id, "finalize", "finalize_phase",
+                )
+        except Exception:
+            pass
+
         _contract_mode = str(getattr(getattr(state.settings, "gates", None), "manuscript_contract_mode", "observe"))
         _strict_finalize = _contract_mode == "strict"
         _finalize_errors: list[str] = []
@@ -5426,6 +5953,19 @@ class FinalizeNode(BaseNode[ReviewState]):
         if _finalize_errors:
             summary["status"] = "failed"
             summary["error"] = "; ".join(_finalize_errors)
+
+        if _finalize_step:
+            try:
+                async with get_db(state.db_path) as _jdb:
+                    _f_status = StepStatus.FAILED if _finalize_errors else StepStatus.SUCCEEDED
+                    _f_err = "; ".join(_finalize_errors) if _finalize_errors else None
+                    await _journal_step_complete(
+                        WorkflowRepository(_jdb), _finalize_step,
+                        status=_f_status, error_message=_f_err,
+                    )
+            except Exception:
+                pass
+
         return End(summary)
 
 
@@ -5440,6 +5980,7 @@ RUN_GRAPH = Graph(
         EmbeddingNode,
         SynthesisNode,
         KnowledgeGraphNode,
+        PreWritingGateNode,
         WritingNode,
         ManuscriptAuditNode,
         FinalizeNode,

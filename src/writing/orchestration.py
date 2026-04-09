@@ -16,12 +16,17 @@ from src.models import (
     ClaimRecord,
     EvidenceLinkRecord,
     ReviewConfig,
-    SectionWriteResult,
     SectionBlock,
+    SectionWriteResult,
     SettingsConfig,
     StructuredSectionDraft,
 )
 from src.writing.citation_grounding import extract_and_strip_inline_citekeys
+from src.writing.evidence_assembler import (
+    build_results_evidence_pack,
+    build_results_section_fallback,
+    render_results_evidence_context,
+)
 from src.writing.humanizer_guardrails import apply_deterministic_guardrails
 from src.writing.renderers import collect_section_citations, render_section_markdown
 from src.writing.section_writer import SectionWriter
@@ -880,39 +885,10 @@ def _build_deterministic_section_fallback(
             ],
         )
     if section == "results":
-        included = getattr(grounding, "total_included", 0) if grounding is not None else 0
-        screened = getattr(grounding, "total_screened", 0) if grounding is not None else 0
-        return StructuredSectionDraft(
-            section_key="results",
-            cited_keys=fallback_citations,
+        return build_results_section_fallback(
+            build_results_evidence_pack(grounding),
             required_subsections=list(_SECTION_REQUIRED_SUBHEADINGS.get("results", ())),
-            blocks=[
-                SectionBlock(block_type="subheading", text="Study Selection", level=3),
-                SectionBlock(
-                    block_type="paragraph",
-                    text=(
-                        f"Screening progressed from {screened} records to {included} included studies after full-text "
-                        "eligibility decisions and documented exclusion reasons."
-                    ),
-                ),
-                SectionBlock(block_type="subheading", text="Study Characteristics", level=3),
-                SectionBlock(
-                    block_type="paragraph",
-                    text=(
-                        "Included studies varied by design, setting, and sample size, and are summarized in the in-body "
-                        "characteristics table and appendix with extraction provenance."
-                    ),
-                    citations=fallback_citations,
-                ),
-                SectionBlock(block_type="subheading", text="Synthesis of Findings", level=3),
-                SectionBlock(
-                    block_type="paragraph",
-                    text=(
-                        "Findings were synthesized narratively by outcome domain, with effect direction and certainty "
-                        "reported conservatively where studies were heterogeneous."
-                    ),
-                ),
-            ],
+            fallback_citations=fallback_citations,
         )
     if section == "discussion":
         topic_scope = ""
@@ -1303,6 +1279,11 @@ async def write_section_with_validation(
             + "When a retrieved chunk conflicts with the FACTUAL DATA BLOCK, the FACTUAL DATA BLOCK takes precedence.\n"
             + "\n## Relevant Evidence Chunks (retrieved by semantic search)\n"
             + rag_context
+        )
+
+    if section == "results" and grounding is not None:
+        effective_context = effective_context + "\n\n" + render_results_evidence_context(
+            build_results_evidence_pack(grounding)
         )
 
     writer = SectionWriter(

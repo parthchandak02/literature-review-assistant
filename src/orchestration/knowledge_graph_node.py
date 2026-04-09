@@ -1,6 +1,6 @@
 """KnowledgeGraphNode: Phase 5b -- build evidence knowledge graph.
 
-Runs after SynthesisNode, before WritingNode.
+Runs after SynthesisNode, before the pre-writing validation gate.
 Builds a paper relationship graph, runs Louvain community detection,
 and detects research gaps. Results are persisted to SQLite for the
 /api/run/{run_id}/knowledge-graph endpoint to serve.
@@ -27,8 +27,8 @@ logger = logging.getLogger(__name__)
 class KnowledgeGraphNode(BaseNode[ReviewState]):
     """Build and persist the paper evidence knowledge graph."""
 
-    async def run(self, ctx: GraphRunContext[ReviewState]) -> WritingNode:  # type: ignore[name-defined]  # noqa: F821
-        from src.orchestration.workflow import WritingNode  # local import to avoid circular
+    async def run(self, ctx: GraphRunContext[ReviewState]) -> PreWritingGateNode:  # type: ignore[name-defined]  # noqa: F821
+        from src.orchestration.workflow import PreWritingGateNode  # local import to avoid circular
 
         state = ctx.state
         rc = state.run_context
@@ -187,4 +187,4 @@ class KnowledgeGraphNode(BaseNode[ReviewState]):
         if rc:
             rc.emit_phase_done("phase_5b_knowledge_graph", {"graphs_built": 1})
 
-        return WritingNode()
+        return PreWritingGateNode()

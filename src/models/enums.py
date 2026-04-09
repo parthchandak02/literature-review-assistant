@@ -104,3 +104,27 @@ class PrimaryStudyStatus(str, Enum):
 class SourceCategory(str, Enum):
     DATABASE = "database"
     OTHER_SOURCE = "other_source"
+
+
+class StepStatus(str, Enum):
+    PENDING = "pending"
+    RUNNING = "running"
+    SUCCEEDED = "succeeded"
+    FAILED = "failed"
+    SKIPPED = "skipped"
+
+
+class FailureCategory(str, Enum):
+    TRANSIENT = "transient"
+    REPAIRABLE = "repairable"
+    REWINDABLE = "rewindable"
+    USER_ACTION_REQUIRED = "user_action_required"
+    TERMINAL = "terminal"
+
+
+class RecoveryAction(str, Enum):
+    RETRY = "retry"
+    REWIND = "rewind"
+    SKIP = "skip"
+    USER_ACTION = "user_action"
+    ABORT = "abort"

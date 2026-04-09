@@ -1938,6 +1938,7 @@ _RESUME_PHASE_ORDER = [
     "phase_4b_embedding",
     "phase_5_synthesis",
     "phase_5b_knowledge_graph",
+    "phase_5c_pre_writing_gate",
     "phase_6_writing",
     "phase_7_audit",
     "finalize",
@@ -4115,6 +4116,47 @@ async def get_run_readiness(run_id: str, run_root: str = "runs") -> dict[str, An
         abstract_word_limit=cfg.ieee_export.max_abstract_words,
     )
     return scorecard.model_dump()
+
+
+@app.get("/api/run/{run_id}/diagnostics")
+async def get_run_diagnostics(run_id: str, run_root: str = "runs") -> dict[str, Any]:
+    """Return step-journal diagnostics for a workflow run.
+
+    Aggregates readiness, step attempts, failures, recovery policies,
+    writing manifests, and fallback events into one diagnostics payload.
+    """
+    from src.db.database import get_db as _get_db
+    from src.db.repositories import WorkflowRepository as _WorkflowRepository
+
+    db_path = await _resolve_db_path_from_run_or_workflow(run_id, run_root)
+    summary_path = pathlib.Path(db_path).parent / "run_summary.json"
+    workflow_id: str | None = None
+    if summary_path.exists():
+        summary = _json.loads(summary_path.read_text(encoding="utf-8"))
+        workflow_id = summary.get("workflow_id")
+    if not workflow_id:
+        async with _get_db(db_path) as db:
+            cur = await db.execute("SELECT workflow_id FROM workflows LIMIT 1")
+            row = await cur.fetchone()
+            if row:
+                workflow_id = str(row[0])
+    if not workflow_id:
+        raise HTTPException(status_code=404, detail="workflow_id not found")
+    async with _get_db(db_path) as db:
+        repo = _WorkflowRepository(db)
+        step_summary = await repo.get_step_summary(workflow_id)
+        step_failures = await repo.count_step_failures(workflow_id)
+        fallback_count = await repo.count_fallback_events(workflow_id)
+        fallback_summary = await repo.get_fallback_event_summary(workflow_id)
+        writing_manifests = await repo.get_writing_manifests(workflow_id)
+    return {
+        "workflow_id": workflow_id,
+        "step_summary": step_summary,
+        "step_failures": step_failures,
+        "fallback_count": fallback_count,
+        "fallback_summary": fallback_summary,
+        "writing_manifests": [m.model_dump(mode="json") for m in writing_manifests],
+    }
 
 
 @app.get("/api/run/{run_id}/submission.zip")

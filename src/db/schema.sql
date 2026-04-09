@@ -409,6 +409,77 @@ CREATE INDEX IF NOT EXISTS idx_manuscript_audit_runs_workflow ON manuscript_audi
 CREATE INDEX IF NOT EXISTS idx_manuscript_audit_findings_run ON manuscript_audit_findings(audit_run_id, id);
 
 -- ============================================================
+-- Control-plane: step-level execution journal
+-- ============================================================
+CREATE TABLE IF NOT EXISTS workflow_steps (
+    step_id         TEXT PRIMARY KEY,
+    workflow_id     TEXT NOT NULL,
+    phase           TEXT NOT NULL,
+    step_name       TEXT NOT NULL,
+    status          TEXT NOT NULL DEFAULT 'pending',
+    attempt_number  INTEGER NOT NULL DEFAULT 1,
+    max_attempts    INTEGER NOT NULL DEFAULT 1,
+    paper_id        TEXT,
+    input_hash      TEXT,
+    output_hash     TEXT,
+    error_message   TEXT,
+    failure_category TEXT,
+    recovery_action TEXT,
+    parent_step_id  TEXT,
+    duration_ms     INTEGER,
+    meta_json       TEXT NOT NULL DEFAULT '{}',
+    started_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    completed_at    TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_workflow_steps_workflow_phase
+    ON workflow_steps(workflow_id, phase, started_at);
+CREATE INDEX IF NOT EXISTS idx_workflow_steps_status
+    ON workflow_steps(workflow_id, status);
+CREATE INDEX IF NOT EXISTS idx_workflow_steps_parent
+    ON workflow_steps(parent_step_id) WHERE parent_step_id IS NOT NULL;
+
+-- ============================================================
+-- Control-plane: bounded recovery policies
+-- ============================================================
+CREATE TABLE IF NOT EXISTS recovery_policies (
+    workflow_id         TEXT NOT NULL,
+    phase               TEXT NOT NULL,
+    step_name           TEXT NOT NULL,
+    max_retries         INTEGER NOT NULL DEFAULT 3,
+    max_rewinds         INTEGER NOT NULL DEFAULT 1,
+    current_retries     INTEGER NOT NULL DEFAULT 0,
+    current_rewinds     INTEGER NOT NULL DEFAULT 0,
+    rewind_target_phase TEXT,
+    policy_status       TEXT NOT NULL DEFAULT 'active',
+    meta_json           TEXT NOT NULL DEFAULT '{}',
+    created_at          TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at          TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (workflow_id, phase, step_name)
+);
+
+-- ============================================================
+-- Control-plane: per-section writing manifests
+-- ============================================================
+CREATE TABLE IF NOT EXISTS writing_manifests (
+    workflow_id          TEXT NOT NULL,
+    section_key          TEXT NOT NULL,
+    attempt_number       INTEGER NOT NULL DEFAULT 1,
+    grounding_hash       TEXT,
+    evidence_source_ids  TEXT NOT NULL DEFAULT '[]',
+    citation_catalog_hash TEXT,
+    contract_status      TEXT NOT NULL DEFAULT 'pending',
+    contract_issues      TEXT NOT NULL DEFAULT '[]',
+    fallback_used        INTEGER NOT NULL DEFAULT 0,
+    retry_count          INTEGER NOT NULL DEFAULT 0,
+    word_count           INTEGER,
+    meta_json            TEXT NOT NULL DEFAULT '{}',
+    created_at           TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (workflow_id, section_key, attempt_number)
+);
+CREATE INDEX IF NOT EXISTS idx_writing_manifests_workflow
+    ON writing_manifests(workflow_id, section_key);
+
+-- ============================================================
 -- Idea 1: RAG - paper chunk storage (vector search via Python)
 -- ============================================================
 CREATE TABLE IF NOT EXISTS paper_chunks_meta (

@@ -32,6 +32,7 @@ from src.models import (
     ManuscriptBlock,
     ManuscriptSection,
     RagRetrievalDiagnostic,
+    RecoveryPolicyRecord,
     RoB2Assessment,
     RobinsIAssessment,
     ScreeningDecision,
@@ -41,6 +42,8 @@ from src.models import (
     ValidationArtifactRecord,
     ValidationCheckRecord,
     ValidationRunRecord,
+    WorkflowStepRecord,
+    WritingManifestRecord,
 )
 from src.models.enums import SourceCategory
 from src.models.papers import compute_display_label
@@ -1816,6 +1819,363 @@ class WorkflowRepository:
             )
         return checks
 
+    # ------------------------------------------------------------------
+    # Control-plane: step-level execution journal
+    # ------------------------------------------------------------------
+
+    async def save_workflow_step(self, record: WorkflowStepRecord) -> None:
+        """Upsert a step execution record into the workflow journal."""
+        await self.db.execute(
+            """
+            INSERT INTO workflow_steps (
+                step_id, workflow_id, phase, step_name, status,
+                attempt_number, max_attempts, paper_id, input_hash,
+                output_hash, error_message, failure_category,
+                recovery_action, parent_step_id, duration_ms,
+                meta_json, started_at, completed_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(step_id) DO UPDATE SET
+                status = excluded.status,
+                attempt_number = excluded.attempt_number,
+                output_hash = excluded.output_hash,
+                error_message = excluded.error_message,
+                failure_category = excluded.failure_category,
+                recovery_action = excluded.recovery_action,
+                duration_ms = excluded.duration_ms,
+                meta_json = excluded.meta_json,
+                completed_at = excluded.completed_at
+            """,
+            (
+                record.step_id,
+                record.workflow_id,
+                record.phase,
+                record.step_name,
+                record.status.value,
+                record.attempt_number,
+                record.max_attempts,
+                record.paper_id,
+                record.input_hash,
+                record.output_hash,
+                record.error_message,
+                record.failure_category.value if record.failure_category else None,
+                record.recovery_action.value if record.recovery_action else None,
+                record.parent_step_id,
+                record.duration_ms,
+                record.meta_json,
+                record.started_at.isoformat(),
+                record.completed_at.isoformat() if record.completed_at else None,
+            ),
+        )
+        await self.db.commit()
+
+    async def get_step_history(
+        self, workflow_id: str, phase: str | None = None, *, limit: int = 200
+    ) -> list[WorkflowStepRecord]:
+        """Return step records for a workflow, optionally filtered by phase."""
+        if phase:
+            cursor = await self.db.execute(
+                """
+                SELECT step_id, workflow_id, phase, step_name, status,
+                       attempt_number, max_attempts, paper_id, input_hash,
+                       output_hash, error_message, failure_category,
+                       recovery_action, parent_step_id, duration_ms,
+                       meta_json, started_at, completed_at
+                FROM workflow_steps
+                WHERE workflow_id = ? AND phase = ?
+                ORDER BY started_at DESC
+                LIMIT ?
+                """,
+                (workflow_id, phase, limit),
+            )
+        else:
+            cursor = await self.db.execute(
+                """
+                SELECT step_id, workflow_id, phase, step_name, status,
+                       attempt_number, max_attempts, paper_id, input_hash,
+                       output_hash, error_message, failure_category,
+                       recovery_action, parent_step_id, duration_ms,
+                       meta_json, started_at, completed_at
+                FROM workflow_steps
+                WHERE workflow_id = ?
+                ORDER BY started_at DESC
+                LIMIT ?
+                """,
+                (workflow_id, limit),
+            )
+        rows = await cursor.fetchall()
+        return [self._row_to_step_record(r) for r in rows]
+
+    async def count_step_failures(self, workflow_id: str, phase: str | None = None) -> int:
+        if phase:
+            cursor = await self.db.execute(
+                "SELECT COUNT(*) FROM workflow_steps WHERE workflow_id = ? AND phase = ? AND status = 'failed'",
+                (workflow_id, phase),
+            )
+        else:
+            cursor = await self.db.execute(
+                "SELECT COUNT(*) FROM workflow_steps WHERE workflow_id = ? AND status = 'failed'",
+                (workflow_id,),
+            )
+        row = await cursor.fetchone()
+        return int(row[0]) if row and row[0] is not None else 0
+
+    async def get_step_summary(self, workflow_id: str) -> dict[str, dict[str, int]]:
+        """Return {phase: {status: count}} aggregation for diagnostics."""
+        cursor = await self.db.execute(
+            """
+            SELECT phase, status, COUNT(*) AS cnt
+            FROM workflow_steps
+            WHERE workflow_id = ?
+            GROUP BY phase, status
+            ORDER BY phase, status
+            """,
+            (workflow_id,),
+        )
+        rows = await cursor.fetchall()
+        summary: dict[str, dict[str, int]] = {}
+        for row in rows:
+            phase_key = str(row[0])
+            status_key = str(row[1])
+            if phase_key not in summary:
+                summary[phase_key] = {}
+            summary[phase_key][status_key] = int(row[2])
+        return summary
+
+    @staticmethod
+    def _row_to_step_record(row: tuple[Any, ...]) -> WorkflowStepRecord:
+        from src.models.enums import FailureCategory as FC
+        from src.models.enums import RecoveryAction as RA
+        from src.models.enums import StepStatus as SS
+
+        started = datetime.fromisoformat(str(row[16])) if row[16] else datetime.now(UTC)
+        completed = datetime.fromisoformat(str(row[17])) if row[17] else None
+        fc_val = FC(str(row[11])) if row[11] else None
+        ra_val = RA(str(row[12])) if row[12] else None
+        return WorkflowStepRecord(
+            step_id=str(row[0]),
+            workflow_id=str(row[1]),
+            phase=str(row[2]),
+            step_name=str(row[3]),
+            status=SS(str(row[4])),
+            attempt_number=int(row[5]),
+            max_attempts=int(row[6]),
+            paper_id=str(row[7]) if row[7] else None,
+            input_hash=str(row[8]) if row[8] else None,
+            output_hash=str(row[9]) if row[9] else None,
+            error_message=str(row[10]) if row[10] else None,
+            failure_category=fc_val,
+            recovery_action=ra_val,
+            parent_step_id=str(row[13]) if row[13] else None,
+            duration_ms=int(row[14]) if row[14] is not None else None,
+            meta_json=str(row[15] or "{}"),
+            started_at=started,
+            completed_at=completed,
+        )
+
+    # ------------------------------------------------------------------
+    # Control-plane: bounded recovery policies
+    # ------------------------------------------------------------------
+
+    async def get_or_create_recovery_policy(
+        self,
+        workflow_id: str,
+        phase: str,
+        step_name: str,
+        *,
+        max_retries: int = 3,
+        max_rewinds: int = 1,
+        rewind_target_phase: str | None = None,
+    ) -> RecoveryPolicyRecord:
+        """Load existing policy or create with defaults. Never overwrites counts."""
+        cursor = await self.db.execute(
+            """
+            SELECT workflow_id, phase, step_name, max_retries, max_rewinds,
+                   current_retries, current_rewinds, rewind_target_phase,
+                   policy_status, meta_json, created_at, updated_at
+            FROM recovery_policies
+            WHERE workflow_id = ? AND phase = ? AND step_name = ?
+            """,
+            (workflow_id, phase, step_name),
+        )
+        row = await cursor.fetchone()
+        if row:
+            return RecoveryPolicyRecord(
+                workflow_id=str(row[0]),
+                phase=str(row[1]),
+                step_name=str(row[2]),
+                max_retries=int(row[3]),
+                max_rewinds=int(row[4]),
+                current_retries=int(row[5]),
+                current_rewinds=int(row[6]),
+                rewind_target_phase=str(row[7]) if row[7] else None,
+                policy_status=str(row[8]),
+                meta_json=str(row[9] or "{}"),
+                created_at=datetime.fromisoformat(str(row[10])) if row[10] else datetime.now(UTC),
+                updated_at=datetime.fromisoformat(str(row[11])) if row[11] else datetime.now(UTC),
+            )
+        record = RecoveryPolicyRecord(
+            workflow_id=workflow_id,
+            phase=phase,
+            step_name=step_name,
+            max_retries=max_retries,
+            max_rewinds=max_rewinds,
+            rewind_target_phase=rewind_target_phase,
+        )
+        await self.db.execute(
+            """
+            INSERT INTO recovery_policies (
+                workflow_id, phase, step_name, max_retries, max_rewinds,
+                current_retries, current_rewinds, rewind_target_phase,
+                policy_status, meta_json, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                record.workflow_id,
+                record.phase,
+                record.step_name,
+                record.max_retries,
+                record.max_rewinds,
+                record.current_retries,
+                record.current_rewinds,
+                record.rewind_target_phase,
+                record.policy_status,
+                record.meta_json,
+                record.created_at.isoformat(),
+                record.updated_at.isoformat(),
+            ),
+        )
+        await self.db.commit()
+        return record
+
+    async def increment_retry_count(self, workflow_id: str, phase: str, step_name: str) -> int:
+        """Atomically increment current_retries; return new count."""
+        await self.db.execute(
+            """
+            UPDATE recovery_policies
+            SET current_retries = current_retries + 1,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE workflow_id = ? AND phase = ? AND step_name = ?
+            """,
+            (workflow_id, phase, step_name),
+        )
+        await self.db.commit()
+        cursor = await self.db.execute(
+            "SELECT current_retries FROM recovery_policies WHERE workflow_id = ? AND phase = ? AND step_name = ?",
+            (workflow_id, phase, step_name),
+        )
+        row = await cursor.fetchone()
+        return int(row[0]) if row else 0
+
+    async def increment_rewind_count(self, workflow_id: str, phase: str, step_name: str) -> int:
+        """Atomically increment current_rewinds; return new count."""
+        await self.db.execute(
+            """
+            UPDATE recovery_policies
+            SET current_rewinds = current_rewinds + 1,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE workflow_id = ? AND phase = ? AND step_name = ?
+            """,
+            (workflow_id, phase, step_name),
+        )
+        await self.db.commit()
+        cursor = await self.db.execute(
+            "SELECT current_rewinds FROM recovery_policies WHERE workflow_id = ? AND phase = ? AND step_name = ?",
+            (workflow_id, phase, step_name),
+        )
+        row = await cursor.fetchone()
+        return int(row[0]) if row else 0
+
+    # ------------------------------------------------------------------
+    # Control-plane: per-section writing manifests
+    # ------------------------------------------------------------------
+
+    async def save_writing_manifest(self, record: WritingManifestRecord) -> None:
+        """Persist a per-section writing manifest row."""
+        await self.db.execute(
+            """
+            INSERT INTO writing_manifests (
+                workflow_id, section_key, attempt_number, grounding_hash,
+                evidence_source_ids, citation_catalog_hash, contract_status,
+                contract_issues, fallback_used, retry_count, word_count,
+                meta_json, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(workflow_id, section_key, attempt_number) DO UPDATE SET
+                grounding_hash = excluded.grounding_hash,
+                evidence_source_ids = excluded.evidence_source_ids,
+                citation_catalog_hash = excluded.citation_catalog_hash,
+                contract_status = excluded.contract_status,
+                contract_issues = excluded.contract_issues,
+                fallback_used = excluded.fallback_used,
+                retry_count = excluded.retry_count,
+                word_count = excluded.word_count,
+                meta_json = excluded.meta_json
+            """,
+            (
+                record.workflow_id,
+                record.section_key,
+                record.attempt_number,
+                record.grounding_hash,
+                record.evidence_source_ids,
+                record.citation_catalog_hash,
+                record.contract_status,
+                record.contract_issues,
+                1 if record.fallback_used else 0,
+                record.retry_count,
+                record.word_count,
+                record.meta_json,
+                record.created_at.isoformat(),
+            ),
+        )
+        await self.db.commit()
+
+    async def get_writing_manifests(self, workflow_id: str, section_key: str | None = None) -> list[WritingManifestRecord]:
+        """Return writing manifests for a workflow, optionally filtered by section."""
+        if section_key:
+            cursor = await self.db.execute(
+                """
+                SELECT workflow_id, section_key, attempt_number, grounding_hash,
+                       evidence_source_ids, citation_catalog_hash, contract_status,
+                       contract_issues, fallback_used, retry_count, word_count,
+                       meta_json, created_at
+                FROM writing_manifests
+                WHERE workflow_id = ? AND section_key = ?
+                ORDER BY attempt_number DESC
+                """,
+                (workflow_id, section_key),
+            )
+        else:
+            cursor = await self.db.execute(
+                """
+                SELECT workflow_id, section_key, attempt_number, grounding_hash,
+                       evidence_source_ids, citation_catalog_hash, contract_status,
+                       contract_issues, fallback_used, retry_count, word_count,
+                       meta_json, created_at
+                FROM writing_manifests
+                WHERE workflow_id = ?
+                ORDER BY section_key, attempt_number DESC
+                """,
+                (workflow_id,),
+            )
+        rows = await cursor.fetchall()
+        return [
+            WritingManifestRecord(
+                workflow_id=str(r[0]),
+                section_key=str(r[1]),
+                attempt_number=int(r[2]),
+                grounding_hash=str(r[3]) if r[3] else None,
+                evidence_source_ids=str(r[4] or "[]"),
+                citation_catalog_hash=str(r[5]) if r[5] else None,
+                contract_status=str(r[6]),
+                contract_issues=str(r[7] or "[]"),
+                fallback_used=bool(r[8]),
+                retry_count=int(r[9]),
+                word_count=int(r[10]) if r[10] is not None else None,
+                meta_json=str(r[11] or "{}"),
+                created_at=datetime.fromisoformat(str(r[12])) if r[12] else datetime.now(UTC),
+            )
+            for r in rows
+        ]
+
     async def save_cost_record(self, record: CostRecord) -> None:
         await self.db.execute(
             """
@@ -2239,6 +2599,7 @@ class WorkflowRepository:
             "phase_4b_embedding",
             "phase_5_synthesis",
             "phase_5b_knowledge_graph",
+            "phase_5c_pre_writing_gate",
             "phase_6_writing",
             "phase_7_audit",
             "finalize",
@@ -2254,8 +2615,21 @@ class WorkflowRepository:
             else:
                 await self.db.execute(f"DELETE FROM {table}")
 
+        # Control-plane: clear step journal and recovery policies for rewound phases
+        phases_to_clear = phase_order[start_idx:]
+        for p in phases_to_clear:
+            await self.db.execute(
+                "DELETE FROM workflow_steps WHERE workflow_id = ? AND phase = ?",
+                (workflow_id, p),
+            )
+            await self.db.execute(
+                "DELETE FROM recovery_policies WHERE workflow_id = ? AND phase = ?",
+                (workflow_id, p),
+            )
+
         # Writing/finalize artifacts and citation ledger
         if start_idx <= phase_order.index("phase_6_writing"):
+            await _delete("writing_manifests")
             for table in (
                 "manuscript_assemblies",
                 "manuscript_assets",
