@@ -244,6 +244,7 @@ async def test_load_resume_state_clears_section_drafts_when_rerunning_writing(tm
         await repo.save_checkpoint("wf-clear-sections", "phase_4b_embedding", papers_processed=1)
         await repo.save_checkpoint("wf-clear-sections", "phase_5_synthesis", papers_processed=1)
         await repo.save_checkpoint("wf-clear-sections", "phase_5b_knowledge_graph", papers_processed=1)
+        await repo.save_checkpoint("wf-clear-sections", "phase_5c_pre_writing_gate", papers_processed=1)
         await repo.save_checkpoint("wf-clear-sections", "phase_6_writing", papers_processed=1)
         await repo.save_checkpoint("wf-clear-sections", "phase_6a_hyde", papers_processed=1)
         await repo.save_checkpoint("wf-clear-sections", "phase_6b_phase_a", papers_processed=1)
@@ -377,3 +378,9 @@ async def test_run_workflow_web_context_without_console_uses_non_console_resume_
 def test_phase_order_includes_phase_7_audit_before_finalize() -> None:
     assert "phase_7_audit" in PHASE_ORDER
     assert PHASE_ORDER.index("phase_7_audit") < PHASE_ORDER.index("finalize")
+
+
+def test_phase_order_includes_pre_writing_gate_before_writing() -> None:
+    assert "phase_5c_pre_writing_gate" in PHASE_ORDER
+    assert PHASE_ORDER.index("phase_5b_knowledge_graph") < PHASE_ORDER.index("phase_5c_pre_writing_gate")
+    assert PHASE_ORDER.index("phase_5c_pre_writing_gate") < PHASE_ORDER.index("phase_6_writing")

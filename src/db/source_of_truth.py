@@ -26,6 +26,9 @@ TABLE_OWNERSHIP: dict[str, str] = {
     "gate_results": "quality_gate_evaluations",
     "manuscript_audit_runs": "phase_7_audit_summary",
     "manuscript_audit_findings": "phase_7_audit_findings",
+    "workflow_steps": "step_level_execution_journal",
+    "recovery_policies": "bounded_retry_rewind_accounting",
+    "writing_manifests": "per_section_writing_provenance",
 }
 
 

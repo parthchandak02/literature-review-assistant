@@ -24,6 +24,7 @@ PHASE_ORDER = [
     "phase_4b_embedding",
     "phase_5_synthesis",
     "phase_5b_knowledge_graph",
+    "phase_5c_pre_writing_gate",
     "phase_6_writing",
     "phase_7_audit",
     "finalize",
