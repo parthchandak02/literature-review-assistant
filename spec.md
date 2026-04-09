@@ -139,7 +139,7 @@ The table below is the high-level contract from node entry to persisted outputs.
 | Embedding | Chunking and embedding persistence | `paper_chunks_meta`, `cost_records`, `checkpoints(phase_4b_embedding)` |
 | Synthesis | Feasibility, narrative synthesis, optional meta-analysis and sensitivity | `synthesis_results`, figure artifacts, `checkpoints(phase_5_synthesis)` |
 | Knowledge graph | Relationship graph, communities, gap detection | `paper_relationships`, `graph_communities`, `research_gaps`, `checkpoints(phase_5b_knowledge_graph)` |
-| Writing | Grounding build, HyDE + RAG retrieval, section writing/humanizer, citation repair, persistence invariants | `section_drafts`, `citations`, `claims`, `evidence_links`, `manuscript_*`, `rag_retrieval_diagnostics`, `checkpoints(phase_6_*)` |
+| Writing | Grounding build, HyDE + RAG retrieval, section writing/humanizer, citation repair, persistence invariants | `section_drafts`, `citations`, `claims`, `evidence_links`, `manuscript_*`, `rag_retrieval_diagnostics`, `writing_manifests`, `workflow_steps`, `checkpoints(phase_6_*)` |
 | Manuscript audit | Profile routing, bounded LLM audit checks, findings merge, strict/soft/observe gate pass-through | `manuscript_audit_runs`, `manuscript_audit_findings`, `checkpoints(phase_7_audit)` |
 | Finalize | Manuscript export artifacts, package pre-population, summary finalization | `doc_manuscript.tex`, `references.bib`, `submission/*`, `run_summary.json`, final workflow status |
 
@@ -472,10 +472,10 @@ All phase boundaries use Pydantic models from `src/models/`. The contract layer 
 | `quality.py` | `RoB2Assessment` (5 domains), `RobinsIAssessment` (7 domains), `GRADEOutcomeAssessment` (8 factors) |
 | `claims.py` | `ClaimRecord`, `EvidenceLinkRecord`, `CitationEntryRecord` -- 3-tier citation lineage chain |
 | `writing.py` | `StructuredSectionDraft`, `StructuredManuscriptDraft`, `SectionBlock` -- structured IR for deterministic render |
-| `workflow.py` | `GateResult`, `DecisionLogEntry` |
+| `workflow.py` | `GateResult`, `DecisionLogEntry`, `WorkflowStepRecord`, `RecoveryPolicyRecord`, `WritingManifestRecord`, `PreWritingGateReport` |
 | `additional.py` | `InterRaterReliability`, `MetaAnalysisResult`, `PRISMACounts`, `ProtocolDocument`, `SummaryOfFindingsRow`, `CostRecord` |
 | `config.py` | `ReviewConfig`, `SettingsConfig`, and all sub-configs |
-| `enums.py` | All shared enums: `ReviewType`, `ScreeningDecisionType`, `ReviewerType`, `RiskOfBiasJudgment`, `RobinsIJudgment`, `GateStatus`, `ExclusionReason`, `GRADECertainty`, `StudyDesign`, `SourceCategory` |
+| `enums.py` | All shared enums: `ReviewType`, `ScreeningDecisionType`, `ReviewerType`, `RiskOfBiasJudgment`, `RobinsIJudgment`, `GateStatus`, `ExclusionReason`, `GRADECertainty`, `StudyDesign`, `SourceCategory`, `StepStatus`, `FailureCategory`, `RecoveryAction` |
 
 ### 5.3 Phase-Internal Models
 
@@ -807,6 +807,9 @@ Each run creates its own `runtime.db`. Schema defined in `src/db/schema.sql`.
 | `paper_relationships` | Knowledge graph edges between papers |
 | `graph_communities` | Knowledge graph communities |
 | `research_gaps` | Gap detector outputs persisted per workflow |
+| `workflow_steps` | Step-level execution journal (status, duration, failure category, recovery action) |
+| `recovery_policies` | Retry/rewind accounting per phase+step for pre-writing gate recovery |
+| `writing_manifests` | Per-section writing provenance (grounding hash, evidence IDs, contract status, retries) |
 
 SQLite connection settings: WAL journal mode (concurrent reads + single writer), NORMAL synchronous (~2-3x faster writes), foreign keys ON (SQLite does NOT enforce FKs by default), 40MB cache, temp tables in memory. On open, `repair_foreign_key_integrity()` inserts stub papers for orphaned paper_id refs (e.g. from migration) to avoid FOREIGN KEY constraint failures.
 
@@ -1099,6 +1102,8 @@ Run card status border (2px left): emerald = completed, violet = running/connect
 | GET | /api/run/{run_id}/prospero-form.docx | Download generated PROSPERO registration form (DOCX) |
 | GET | /api/run/{run_id}/prospero-form.md | Download generated PROSPERO registration form (Markdown) |
 | GET | /api/run/{run_id}/manuscript-audit | Consolidated manuscript-audit payload resolved from run/workflow identifier |
+| GET | /api/run/{run_id}/readiness | Readiness scorecard for export and operational review (finalize, PRISMA, contracts, fallbacks, PDF) |
+| GET | /api/run/{run_id}/diagnostics | Step journal summary, recovery/fallback counts, writing manifests for run diagnostics |
 | GET | /api/logs/stream | SSE tail of per-run PM2 log file; filtered by run_id query param |
 
 ### 10.1.1 Endpoint Parity Checklist
@@ -1109,7 +1114,7 @@ Endpoint parity is enforced in CI via `scripts/check_spec_endpoint_parity.py`, w
 - `Config`: `/api/config/review`, `/api/config/env-keys`, `/api/config/generate`, `/api/config/generate/stream` -> handlers `@app.get("/api/config/review")`, `@app.get("/api/config/env-keys")`, `@app.post("/api/config/generate")`, `@app.post("/api/config/generate/stream")`.
 - `History and notes`: `/api/history`, `/api/history/active-run`, `/api/history/costs/aggregates`, `/api/history/costs/export`, `/api/history/{workflow_id}/config`, `/api/history/resume`, `/api/history/attach`, `/api/history/{workflow_id}/archive`, `/api/history/{workflow_id}/restore`, `/api/history/{workflow_id}` (DELETE), `/api/notes/{workflow_id}`, `/api/notes/stream` -> matching `@app.get/@app.post/@app.patch/@app.delete` decorators in `src/web/app.py`.
 - `DB explorer`: `/api/db/{run_id}/papers`, `/papers-all`, `/papers-facets`, `/papers-suggest`, `/screening`, `/costs`, `/costs/aggregates`, `/costs/export`, `/tables`, `/rag-diagnostics` -> matching `@app.get("/api/db/...")` handlers.
-- `Artifacts and export`: `/api/run/{run_id}/artifacts`, `/manuscript`, `/events`, `/workflow/{workflow_id}/events`, `/export`, `/submission.zip`, `/studies-files.zip`, `/manuscript.docx`, `/prospero-form.docx`, `/prospero-form.md`, `/logs/stream` -> matching `@app.get/@app.post` handlers.
+- `Artifacts and export`: `/api/run/{run_id}/artifacts`, `/manuscript`, `/events`, `/workflow/{workflow_id}/events`, `/export`, `/submission.zip`, `/studies-files.zip`, `/manuscript.docx`, `/prospero-form.docx`, `/prospero-form.md`, `/readiness`, `/diagnostics`, `/logs/stream` -> matching `@app.get/@app.post` handlers.
 - `Manuscript audit`: `/api/workflow/{workflow_id}/manuscript-audit/summary`, `/api/workflow/{workflow_id}/manuscript-audit/findings`, `/api/run/{run_id}/manuscript-audit` -> matching `@app.get` handlers.
 - `References and review controls`: `/api/run/{run_id}/papers-reference`, `/papers/{paper_id}/file`, `/fetch-pdfs`, `/screening-summary`, `/approve-screening`, `/knowledge-graph`, `/prisma-checklist`, `/grade-sof`, `/living-refresh` -> matching `@app.get/@app.post` handlers.
 
@@ -1386,6 +1391,7 @@ Status taxonomy:
 | Human-in-the-Loop | Implemented | HumanReviewCheckpointNode pauses run at awaiting_review status; approve-screening API resumes; frontend shows Review Screening tab with AI decisions + confidence |
 | Living Review | Implemented | living_review + last_search_date in review.yaml; SearchNode skips previously-screened DOIs; POST /api/run/{run_id}/living-refresh creates incremental re-run |
 | Resume | Implemented | Central registry, topic auto-resume, mid-phase resume, resume-from-phase (backend API supports from_phase param; UI phase-picker modal removed -- resume via CLI --from-phase flag or direct API call), fallback scan of run_summary.json |
+| Control plane + run diagnostics | Implemented | `workflow_steps`, `recovery_policies`, `writing_manifests` tables; `_journal_step_start`/`_journal_step_complete` in workflow.py; `GET /api/run/{run_id}/diagnostics`; `GET /api/run/{run_id}/readiness`; pre-writing gate DB-backed recovery policies; per-section writing manifest provenance; deterministic Results evidence via `src/writing/evidence_assembler.py` |
 | Post-build improvements | Historical | display_label (single source of truth in papers table), synthesis_results table, dedup_count column, SearchConfig per-connector limits, BM25 cap with LOW_RELEVANCE_SCORE exclusions |
 | Post-build: Hybrid RAG + PRISMA fixes | Historical | Hybrid BM25+dense RAG (RRF) in WritingNode, PydanticAI Embedder replacing google-generativeai SDK, PRISMA endpoint registry fallback, duplicate Discussion heading dedup, PRISMACounts field name fixes |
 | Post-build: HyDE + Gemini listwise reranker | Historical | HyDE (hypothetical doc embeddings, Gao et al. 2022) for rich dense query vectors; Gemini Flash listwise reranker (single LLM call ranks 20 candidates to top 8); removed sentence-transformers/torch (382 MB) in favour of zero-new-dep PydanticAI calls |
