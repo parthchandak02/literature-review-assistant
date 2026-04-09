@@ -22,19 +22,29 @@ import { ResultsPanel } from "@/components/ResultsPanel"
 import { EvidenceNetworkViz } from "@/components/EvidenceNetworkViz"
 import {
   APIResponseError,
+  fetchGradeSof,
   fetchManuscriptAudit,
   fetchWorkflowManuscriptAuditFindings,
   fetchWorkflowManuscriptAuditSummary,
+  fetchRunReadiness,
   triggerExport,
   fetchPrismaChecklist,
   downloadUrl,
+  prosperoFormDocxUrl,
+  prosperoFormMarkdownUrl,
   submissionZipUrl,
 } from "@/lib/api"
 import { Skeleton } from "@/components/ui/skeleton"
 import { FetchError, EmptyState } from "@/components/ui/feedback"
 import { CollapsibleSection } from "@/components/ui/section"
 import { cn } from "@/lib/utils"
-import type { ManuscriptAuditFinding, ManuscriptAuditPayload, PrismaChecklist } from "@/lib/api"
+import type {
+  GradeSofResponse,
+  ManuscriptAuditFinding,
+  ManuscriptAuditPayload,
+  PrismaChecklist,
+  ReadinessScorecard,
+} from "@/lib/api"
 import {
   describeManuscriptContract,
   describeManuscriptGate,
@@ -135,6 +145,12 @@ function formatExportError(error: unknown): string {
   }
   if (error instanceof Error) return error.message
   return "Export failed"
+}
+
+function formatLabel(value: string): string {
+  return value
+    .replace(/_/g, " ")
+    .replace(/\b\w/g, (m) => m.toUpperCase())
 }
 
 // ---------------------------------------------------------------------------
@@ -649,6 +665,186 @@ function EvidenceNetworkSection({ runId }: { runId: string }) {
   )
 }
 
+function ReadinessCard({ runId, onReadyChange }: { runId: string; onReadyChange?: (ready: boolean) => void }) {
+  const [data, setData] = useState<ReadinessScorecard | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+
+  const load = useCallback(async () => {
+    setLoading(true)
+    setError(null)
+    try {
+      const next = await fetchRunReadiness(runId)
+      setData(next)
+      onReadyChange?.(next.ready)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e))
+      onReadyChange?.(false)
+    } finally {
+      setLoading(false)
+    }
+  }, [runId, onReadyChange])
+
+  useEffect(() => {
+    void load()
+  }, [load])
+
+  return (
+    <CollapsibleSection
+      icon={CheckCircle}
+      title="Readiness"
+      description={data ? (data.ready ? "Run is export-ready" : "Export is blocked until checks pass") : undefined}
+      defaultOpen={true}
+    >
+      <div className="p-4">
+        {loading ? (
+          <div className="space-y-2">
+            <Skeleton className="h-4 w-40" />
+            <Skeleton className="h-16 w-full" />
+          </div>
+        ) : error ? (
+          <FetchError message={error} onRetry={() => void load()} />
+        ) : data ? (
+          <div className="space-y-3">
+            <div className={`rounded-xl border px-3 py-3 text-sm ${data.ready ? "border-emerald-500/30 bg-emerald-500/8 text-emerald-200" : "border-amber-500/30 bg-amber-500/8 text-amber-200"}`}>
+              <div className="font-medium">{data.ready ? "Ready for manuscript export." : "Export blocked by readiness checks."}</div>
+              <div className="mt-1 text-xs opacity-80">
+                {data.fallback_event_count > 0
+                  ? `${data.fallback_event_count} deterministic fallback event(s) recorded.`
+                  : "No fallback events recorded."}
+              </div>
+            </div>
+            <div className="grid gap-2">
+              {data.checks.map((check) => (
+                <div key={check.name} className="rounded-lg border border-zinc-800 bg-zinc-950/60 px-3 py-2">
+                  <div className="flex items-start gap-2">
+                    {check.ok ? (
+                      <CheckCircle className="mt-0.5 h-4 w-4 text-emerald-400 shrink-0" />
+                    ) : (
+                      <AlertTriangle className="mt-0.5 h-4 w-4 text-amber-400 shrink-0" />
+                    )}
+                    <div className="min-w-0">
+                      <div className="text-sm text-zinc-200">{formatLabel(check.name)}</div>
+                      {check.detail && <div className="mt-0.5 text-xs text-zinc-500">{check.detail}</div>}
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+            {!data.ready && data.blocking_reasons.length > 0 && (
+              <div className="rounded-xl border border-red-500/20 bg-red-500/5 px-3 py-3">
+                <div className="text-xs font-semibold text-red-300">Blocking reasons</div>
+                <div className="mt-1 space-y-1">
+                  {data.blocking_reasons.map((reason, idx) => (
+                    <div key={`${idx}-${reason}`} className="text-xs text-red-200/80">{reason}</div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        ) : null}
+      </div>
+    </CollapsibleSection>
+  )
+}
+
+function GradeSofCard({ runId }: { runId: string }) {
+  const [data, setData] = useState<GradeSofResponse | null>(null)
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  const load = useCallback(async () => {
+    setLoading(true)
+    setError(null)
+    try {
+      setData(await fetchGradeSof(runId))
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setLoading(false)
+    }
+  }, [runId])
+
+  useEffect(() => {
+    void load()
+  }, [load])
+
+  return (
+    <CollapsibleSection icon={BookOpen} title="GRADE Summary Of Findings" defaultOpen={false}>
+      <div className="p-4">
+        {loading ? (
+          <Skeleton className="h-24 w-full" />
+        ) : error ? (
+          <FetchError message={error} onRetry={() => void load()} />
+        ) : !data || data.rows.length === 0 ? (
+          <EmptyState icon={BookOpen} heading="No GRADE outcomes available." className="py-10" />
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs">
+              <thead>
+                <tr className="border-b border-zinc-800 text-zinc-500">
+                  <th className="py-2 pr-3 text-left font-medium">Outcome</th>
+                  <th className="py-2 pr-3 text-left font-medium">Studies</th>
+                  <th className="py-2 pr-3 text-left font-medium">Participants</th>
+                  <th className="py-2 pr-3 text-left font-medium">Effect</th>
+                  <th className="py-2 pr-3 text-left font-medium">Certainty</th>
+                </tr>
+              </thead>
+              <tbody>
+                {data.rows.map((row) => (
+                  <tr key={row.outcome} className="border-b border-zinc-900 align-top">
+                    <td className="py-2 pr-3 text-zinc-200">{row.outcome}</td>
+                    <td className="py-2 pr-3 text-zinc-400">{row.studies ?? "-"}</td>
+                    <td className="py-2 pr-3 text-zinc-400">{row.participants ?? "-"}</td>
+                    <td className="py-2 pr-3 text-zinc-400">{row.effect || "-"}</td>
+                    <td className="py-2 pr-3">
+                      <div className="text-zinc-200">{row.certainty || "-"}</div>
+                      {row.reasons && row.reasons.length > 0 && <div className="mt-0.5 text-zinc-500">{row.reasons.join(", ")}</div>}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+    </CollapsibleSection>
+  )
+}
+
+function ProsperoDownloadsCard({ runId }: { runId: string }) {
+  return (
+    <CollapsibleSection icon={Download} title="PROSPERO Draft" defaultOpen={false}>
+      <div className="p-4 flex flex-wrap gap-2">
+        <Button size="sm" variant="outline" asChild className="h-8 gap-1 text-xs border-zinc-700 text-zinc-300">
+          <a href={prosperoFormDocxUrl(runId)}>
+            <FileType className="h-3 w-3 text-blue-400" />
+            PROSPERO DOCX
+          </a>
+        </Button>
+        <Button size="sm" variant="outline" asChild className="h-8 gap-1 text-xs border-zinc-700 text-zinc-300">
+          <a href={prosperoFormMarkdownUrl(runId)}>
+            <FileCode className="h-3 w-3 text-emerald-400" />
+            PROSPERO Markdown
+          </a>
+        </Button>
+      </div>
+    </CollapsibleSection>
+  )
+}
+
+function PrismaDiagramCard({ filePath }: { filePath: string }) {
+  return (
+    <CollapsibleSection icon={FileText} title="PRISMA Diagram" defaultOpen={false}>
+      <div className="p-4">
+        <div className="rounded-xl border border-zinc-800 bg-white p-2">
+          <img src={downloadUrl(filePath)} alt="PRISMA flow diagram" className="w-full h-auto rounded-lg" />
+        </div>
+      </div>
+    </CollapsibleSection>
+  )
+}
+
 // ---------------------------------------------------------------------------
 // Manuscript section header actions
 // ---------------------------------------------------------------------------
@@ -838,6 +1034,7 @@ export function ResultsView({
   const canExport = exportRunId != null && hasResults
   const [artifactsOpen, setArtifactsOpen] = useState(false)
   const [submissionReady, setSubmissionReady] = useState(false)
+  const [readinessReady, setReadinessReady] = useState(false)
 
   const hasSubmissionArtifacts = useCallback((obj: unknown): boolean => {
     if (typeof obj === "string" && isFilePath(obj)) {
@@ -860,6 +1057,11 @@ export function ResultsView({
     () => findFileByName(effectiveOutputs, ".docx"),
     [effectiveOutputs],
   )
+
+  const prismaDiagramPath = useMemo(() => {
+    const imagePaths = findAllFilesByExt(effectiveOutputs, [".png", ".svg", ".jpg", ".jpeg", ".webp"])
+    return imagePaths.find((path) => /prisma|flow/i.test(path)) ?? null
+  }, [effectiveOutputs])
 
   // Paths to exclude from Artifacts panel (they live in the left panel header actions)
   const manuscriptExcludePaths = useMemo<Set<string>>(() => {
@@ -913,7 +1115,7 @@ export function ResultsView({
           actions={
             <ManuscriptActions
               docxPath={docxPath}
-              canExport={canExport}
+              canExport={canExport && readinessReady}
               exportRunId={exportRunId}
               allOutputs={effectiveOutputs}
               onExportReadyChange={setSubmissionReady}
@@ -924,6 +1126,10 @@ export function ResultsView({
         </CollapsibleSection>
       )}
 
+      {exportRunId ? <ReadinessCard runId={exportRunId} onReadyChange={setReadinessReady} /> : null}
+
+      {prismaDiagramPath ? <PrismaDiagramCard filePath={prismaDiagramPath} /> : null}
+
       {exportRunId ? (
         <PrismaCard runId={exportRunId} />
       ) : (
@@ -931,6 +1137,10 @@ export function ResultsView({
           PRISMA compliance available after run completes.
         </div>
       )}
+
+      {exportRunId ? <GradeSofCard runId={exportRunId} /> : null}
+
+      {exportRunId ? <ProsperoDownloadsCard runId={exportRunId} /> : null}
 
       {exportRunId ? <ManuscriptAuditCard runId={exportRunId} /> : null}
 

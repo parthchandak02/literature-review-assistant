@@ -10,12 +10,19 @@ import {
 } from "recharts"
 import { DollarSign, Zap, ArrowUpDown, Activity } from "lucide-react"
 import { cn } from "@/lib/utils"
-import { fetchDbCostAggregates, fetchDbCosts, fetchWorkflowValidationSummary, getDbCostExportUrl } from "@/lib/api"
+import {
+  fetchDbCostAggregates,
+  fetchDbCosts,
+  fetchWorkflowValidationChecks,
+  fetchWorkflowValidationSummary,
+  getDbCostExportUrl,
+} from "@/lib/api"
 import type {
   DbCostAggregatesResponse,
   DbCostExportGranularity,
   DbCostRow,
   ScreeningDiagnostics,
+  ValidationCheck,
   ValidationSummary,
 } from "@/lib/api"
 import type { CostStats, ModelStat, PhaseStat } from "@/hooks/useCostStats"
@@ -82,6 +89,7 @@ export function CostView({ costStats, dbRunId, workflowId, isLive }: CostViewPro
   const [dbTotalCost, setDbTotalCost] = useState(0)
   const [screeningDiagnostics, setScreeningDiagnostics] = useState<ScreeningDiagnostics | null>(null)
   const [validationSummary, setValidationSummary] = useState<ValidationSummary["latest_run"] | null>(null)
+  const [validationChecks, setValidationChecks] = useState<ValidationCheck[]>([])
   const [loadingDb, setLoadingDb] = useState(false)
   const [dbError, setDbError] = useState<string | null>(null)
   const [opsAggregates, setOpsAggregates] = useState<DbCostAggregatesResponse | null>(null)
@@ -125,6 +133,16 @@ export function CostView({ costStats, dbRunId, workflowId, isLive }: CostViewPro
       .then((res) => setValidationSummary(res.latest_run))
       .catch(() => setValidationSummary(null))
   }, [workflowId])
+
+  useEffect(() => {
+    if (!workflowId || !validationSummary?.validation_run_id) {
+      setValidationChecks([])
+      return
+    }
+    fetchWorkflowValidationChecks(workflowId, validationSummary.validation_run_id)
+      .then((res) => setValidationChecks(res.checks))
+      .catch(() => setValidationChecks([]))
+  }, [workflowId, validationSummary?.validation_run_id])
 
   // Always load from DB on mount, and poll every 5 s while the run is active
   // so costs from all phases (screening, extraction, writing, etc.) stay accurate.
@@ -542,6 +560,33 @@ export function CostView({ costStats, dbRunId, workflowId, isLive }: CostViewPro
                 <div>Profile: <span className="font-semibold">{validationSummary.profile}</span></div>
                 <div>Error checks: <span className="font-semibold">{validationSummary.error_count}</span></div>
                 <div>Warn checks: <span className="font-semibold">{validationSummary.warn_count}</span></div>
+              </div>
+            )}
+            {validationChecks.length > 0 && (
+              <div className="rounded-xl border border-zinc-800 bg-zinc-950/70 overflow-hidden">
+                <div className="px-3 py-2 border-b border-zinc-800 text-xs font-semibold text-zinc-400">
+                  Latest validation checks
+                </div>
+                <div className="divide-y divide-zinc-900">
+                  {validationChecks.slice(0, 8).map((check, idx) => (
+                    <div key={`${check.phase}-${check.check_name}-${idx}`} className="px-3 py-2 text-xs">
+                      <div className="flex items-center justify-between gap-3">
+                        <div className="text-zinc-200">{check.check_name}</div>
+                        <div className={cn(
+                          "font-medium",
+                          check.status === "error" ? "text-red-400" : check.status === "warn" ? "text-amber-400" : "text-emerald-400",
+                        )}>
+                          {check.status}
+                        </div>
+                      </div>
+                      <div className="mt-0.5 text-zinc-500">
+                        {check.phase}
+                        {check.metric_value != null ? ` | metric ${check.metric_value}` : ""}
+                        {check.source_module ? ` | ${check.source_module}` : ""}
+                      </div>
+                    </div>
+                  ))}
+                </div>
               </div>
             )}
             {screeningDiagnostics && (
