@@ -41,10 +41,12 @@ interface SetupViewProps {
   defaultReviewYaml: string
   onSubmit: (req: RunRequest) => Promise<void>
   onSubmitWithSupplementaryCsv?: (csvFile: File, req: RunRequest) => Promise<void>
+  onSubmitWithMasterlistCsv?: (csvFile: File, req: RunRequest) => Promise<void>
   disabled: boolean
 }
 
 type Stage = "question" | "review"
+type CsvMode = "supplementary" | "masterlist"
 
 // ---------------------------------------------------------------------------
 // Generation steps (driven by real SSE events from the backend)
@@ -262,7 +264,7 @@ function ApiKeysSection({ keys, onChange, embedded }: ApiKeysProps) {
 // ---------------------------------------------------------------------------
 
 interface Stage1Props {
-  onGenerated: (yaml: string, question: string, csvFile?: File) => void
+  onGenerated: (yaml: string, question: string, csvFile?: File, csvMode?: CsvMode) => void
   onPasteYaml: () => void
   history: HistoryEntry[]
   onLoadFromHistory: (entry: HistoryEntry) => void
@@ -370,9 +372,11 @@ async function analyzeCsvFile(file: File): Promise<CsvAnalysis> {
 interface CsvDropZoneProps {
   file: File | null
   onFile: (f: File | null) => void
+  mode: CsvMode
+  onModeChange: (mode: CsvMode) => void
 }
 
-function CsvDropZone({ file, onFile }: CsvDropZoneProps) {
+function CsvDropZone({ file, onFile, mode, onModeChange }: CsvDropZoneProps) {
   const [dragging, setDragging] = useState(false)
   const [analysis, setAnalysis] = useState<CsvAnalysis | null>(null)
   const [analysing, setAnalysing] = useState(false)
@@ -402,8 +406,32 @@ function CsvDropZone({ file, onFile }: CsvDropZoneProps) {
   return (
     <div>
       <label className="block text-xs font-semibold text-zinc-400 mb-2 uppercase tracking-wide">
-        Supplementary CSV <span className="text-zinc-600">(optional)</span>
+        CSV Import <span className="text-zinc-600">(optional)</span>
       </label>
+      <div className="flex items-center gap-2 mb-2">
+        <button
+          type="button"
+          onClick={() => onModeChange("supplementary")}
+          className={`px-2.5 py-1 rounded-lg text-xs border transition-colors ${
+            mode === "supplementary"
+              ? "border-violet-500/50 bg-violet-500/10 text-violet-200"
+              : "border-zinc-700 bg-zinc-900/50 text-zinc-500 hover:text-zinc-300"
+          }`}
+        >
+          Merge with search
+        </button>
+        <button
+          type="button"
+          onClick={() => onModeChange("masterlist")}
+          className={`px-2.5 py-1 rounded-lg text-xs border transition-colors ${
+            mode === "masterlist"
+              ? "border-violet-500/50 bg-violet-500/10 text-violet-200"
+              : "border-zinc-700 bg-zinc-900/50 text-zinc-500 hover:text-zinc-300"
+          }`}
+        >
+          Use as master list
+        </button>
+      </div>
 
       {/* Drop zone / file picker */}
       {!file ? (
@@ -423,7 +451,11 @@ function CsvDropZone({ file, onFile }: CsvDropZoneProps) {
             Drop a CSV file here, or{" "}
             <span className="text-emerald-400 font-medium">click to browse</span>
           </p>
-          <p className="text-xs text-zinc-600">Scopus export format (Title, Authors, Year, DOI, Abstract...)</p>
+          <p className="text-xs text-zinc-600">
+            {mode === "masterlist"
+              ? "Use your curated study list as the primary input."
+              : "Scopus export format (Title, Authors, Year, DOI, Abstract...)."}
+          </p>
         </div>
       ) : (
         /* File info row */
@@ -491,7 +523,9 @@ function CsvDropZone({ file, onFile }: CsvDropZoneProps) {
                   )}
                   {analysis.valid && (
                     <p className="text-xs text-emerald-500/70 mt-0.5">
-                      Connector search will run, then this CSV will be merged before screening.
+                      {mode === "masterlist"
+                        ? "This CSV will be used as the review master list instead of connector search."
+                        : "Connector search will run, then this CSV will be merged before screening."}
                     </p>
                   )}
                 </div>
@@ -571,6 +605,7 @@ function QuestionStage({
   const [error, setError] = useState<string | null>(null)
   const [showHistory, setShowHistory] = useState(false)
   const [csvFile, setCsvFile] = useState<File | null>(null)
+  const [csvMode, setCsvMode] = useState<CsvMode>("supplementary")
   const dropdownRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -598,7 +633,7 @@ function QuestionStage({
           setActiveStepMetadata(metadata ?? {})
         },
       )
-      onGenerated(yaml, question.trim(), csvFile ?? undefined)
+      onGenerated(yaml, question.trim(), csvFile ?? undefined, csvMode)
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
       setGenerating(false)
@@ -629,11 +664,11 @@ function QuestionStage({
       <div className="flex items-start gap-2.5 px-3 py-2.5 bg-blue-500/8 border border-blue-500/20 rounded-xl text-xs text-blue-400/80 leading-relaxed">
         <Upload className="h-3.5 w-3.5 text-blue-400 shrink-0 mt-0.5" />
         <span>
-          Optional: attach a supplementary CSV and it will be merged with connector search results before screening.
+          Optional: attach a CSV to either merge with connector search results or use as a master list.
         </span>
       </div>
 
-      <CsvDropZone file={csvFile} onFile={setCsvFile} />
+      <CsvDropZone file={csvFile} onFile={setCsvFile} mode={csvMode} onModeChange={setCsvMode} />
 
       {/* Research question */}
       <div>
@@ -767,7 +802,9 @@ interface Stage2Props {
   onBack: () => void
   onSubmit: (req: RunRequest) => Promise<void>
   onSubmitWithSupplementaryCsv?: (csvFile: File, req: RunRequest) => Promise<void>
+  onSubmitWithMasterlistCsv?: (csvFile: File, req: RunRequest) => Promise<void>
   csvFile?: File | null
+  csvMode?: CsvMode
   disabled: boolean
   defaultYaml: string
 }
@@ -779,7 +816,9 @@ function ConfigReviewStage({
   onBack,
   onSubmit,
   onSubmitWithSupplementaryCsv,
+  onSubmitWithMasterlistCsv,
   csvFile,
+  csvMode = "supplementary",
   disabled,
   defaultYaml,
 }: Stage2Props) {
@@ -845,7 +884,9 @@ function ConfigReviewStage({
         wos_api_key: keys.wos || undefined,
         scopus_api_key: keys.scopus || undefined,
       }
-      if (csvFile && onSubmitWithSupplementaryCsv) {
+      if (csvFile && csvMode === "masterlist" && onSubmitWithMasterlistCsv) {
+        await onSubmitWithMasterlistCsv(csvFile, req)
+      } else if (csvFile && onSubmitWithSupplementaryCsv) {
         await onSubmitWithSupplementaryCsv(csvFile, req)
       } else {
         await onSubmit(req)
@@ -892,7 +933,11 @@ function ConfigReviewStage({
         <div className="flex items-start gap-2.5 px-3 py-2.5 bg-blue-500/10 border border-blue-500/20 rounded-xl text-xs text-blue-300">
           <Upload className="h-3.5 w-3.5 flex-shrink-0 mt-0.5" />
           <span className="leading-relaxed">
-            Supplementary CSV: <span className="font-medium text-blue-200">{csvFile.name}</span> will be merged with connector search results before screening.
+            {csvMode === "masterlist" ? "Master list CSV" : "Supplementary CSV"}:{" "}
+            <span className="font-medium text-blue-200">{csvFile.name}</span>{" "}
+            {csvMode === "masterlist"
+              ? "will be used as the primary study list for this run."
+              : "will be merged with connector search results before screening."}
           </span>
         </div>
       )}
@@ -967,12 +1012,14 @@ export function SetupView({
   defaultReviewYaml,
   onSubmit,
   onSubmitWithSupplementaryCsv,
+  onSubmitWithMasterlistCsv,
   disabled,
 }: SetupViewProps) {
   const [stage, setStage] = useState<Stage>("question")
   const [generatedYaml, setGeneratedYaml] = useState("")
   const [researchQuestion, setResearchQuestion] = useState<string | null>(null)
   const [pendingCsvFile, setPendingCsvFile] = useState<File | null>(null)
+  const [pendingCsvMode, setPendingCsvMode] = useState<CsvMode>("supplementary")
   const [history, setHistory] = useState<HistoryEntry[]>([])
   const [loadingHistoryId, setLoadingHistoryId] = useState<string | null>(null)
   const [loadError, setLoadError] = useState<string | null>(null)
@@ -981,10 +1028,11 @@ export function SetupView({
     fetchHistory().then(setHistory).catch(() => setHistory([]))
   }, [])
 
-  function handleGenerated(yaml: string, question: string, csvFile?: File) {
+  function handleGenerated(yaml: string, question: string, csvFile?: File, csvMode: CsvMode = "supplementary") {
     setGeneratedYaml(yaml)
     setResearchQuestion(question)
     setPendingCsvFile(csvFile ?? null)
+    setPendingCsvMode(csvMode)
     setStage("review")
   }
 
@@ -992,6 +1040,7 @@ export function SetupView({
     setGeneratedYaml(defaultReviewYaml)
     setResearchQuestion(null)
     setPendingCsvFile(null)
+    setPendingCsvMode("supplementary")
     setStage("review")
   }
 
@@ -1009,6 +1058,7 @@ export function SetupView({
       setGeneratedYaml(yaml)
       setResearchQuestion(entry.topic)
       setPendingCsvFile(null)
+      setPendingCsvMode("supplementary")
       setStage("review")
     } catch {
       setLoadError("Failed to load config for that run.")
@@ -1040,7 +1090,9 @@ export function SetupView({
           }}
           onSubmit={onSubmit}
           onSubmitWithSupplementaryCsv={onSubmitWithSupplementaryCsv}
+          onSubmitWithMasterlistCsv={onSubmitWithMasterlistCsv}
           csvFile={pendingCsvFile}
+          csvMode={pendingCsvMode}
           disabled={disabled}
           defaultYaml={defaultReviewYaml}
         />

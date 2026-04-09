@@ -27,6 +27,7 @@ import {
   loadLiveRun,
   clearLiveRun,
   startRun,
+  startRunWithMasterlist,
   startRunWithSupplementaryCsv,
 } from "@/lib/api"
 import { Spinner } from "@/components/ui/feedback"
@@ -623,6 +624,43 @@ export default function App() {
     setActiveRunTab("activity")
   }
 
+  async function handleStartWithMasterlistCsv(csvFile: File, req: RunRequest) {
+    setResumeLauncherWorkflowId(null)
+    reset()
+    wasStreamingRef.current = false
+    liveRunNavigatedRef.current = null
+    const now = new Date()
+    const keys: StoredApiKeys = {
+      gemini: req.gemini_api_key,
+      openalex: req.openalex_api_key ?? "",
+      ieee: req.ieee_api_key ?? "",
+      pubmedEmail: req.pubmed_email ?? "",
+      pubmedApiKey: req.pubmed_api_key ?? "",
+      perplexity: req.perplexity_api_key ?? "",
+      semanticScholar: req.semantic_scholar_api_key ?? "",
+      crossrefEmail: req.crossref_email ?? "",
+      wos: req.wos_api_key ?? "",
+      scopus: req.scopus_api_key ?? "",
+    }
+    const res = await startRunWithMasterlist(csvFile, req.review_yaml, keys, req.run_root)
+    setLiveRunId(res.run_id)
+    setLiveTopic(res.topic)
+    setLiveStartedAt(now)
+    setLiveWorkflowId(null)
+    saveLiveRun({ runId: res.run_id, topic: res.topic, startedAt: now.toISOString() })
+    const run: SelectedRun = {
+      runId: res.run_id,
+      workflowId: null,
+      topic: res.topic,
+      dbPath: null,
+      isDone: false,
+      startedAt: now,
+      createdAt: now.toISOString(),
+    }
+    setSelectedRun(run)
+    setActiveRunTab("activity")
+  }
+
   async function handleCancel() {
     if (liveRunId) await cancelRun(liveRunId)
     abort()
@@ -902,6 +940,7 @@ export default function App() {
             defaultReviewYaml={defaultYaml}
             onSubmit={handleStart}
             onSubmitWithSupplementaryCsv={handleStartWithSupplementaryCsv}
+            onSubmitWithMasterlistCsv={handleStartWithMasterlistCsv}
             disabled={isRunning}
           />
         </Suspense>

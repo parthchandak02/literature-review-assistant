@@ -728,6 +728,7 @@ export interface ReadinessScorecard {
   ready: boolean
   checks: ReadinessCheckRow[]
   contract_passed: boolean
+  fallback_event_count: number
   blocking_reasons: string[]
 }
 
@@ -736,6 +737,64 @@ export async function fetchRunReadiness(runId: string, runRoot = "runs"): Promis
   const res = await fetch(`${BASE}/run/${encodeURIComponent(runId)}/readiness?${q.toString()}`)
   if (!res.ok) throw await _apiError(res, "Readiness fetch failed")
   return (await res.json()) as ReadinessScorecard
+}
+
+export interface GradeSofRow {
+  outcome: string
+  studies: number | null
+  participants: number | null
+  effect: string
+  certainty: string
+  reasons: string[]
+}
+
+export interface GradeSofResponse {
+  run_id: string
+  topic: string
+  rows: GradeSofRow[]
+}
+
+export async function fetchGradeSof(runId: string): Promise<GradeSofResponse> {
+  const res = await fetch(`${BASE}/run/${encodeURIComponent(runId)}/grade-sof`)
+  if (!res.ok) throw await _apiError(res, "GRADE SoF fetch failed")
+  return (await res.json()) as GradeSofResponse
+}
+
+export interface ExtractedOutcomeRow {
+  name?: string
+  effect_size?: number | null
+  ci_lower?: number | null
+  ci_upper?: number | null
+  p_value?: number | null
+  n?: number | null
+  [key: string]: unknown
+}
+
+export interface ExtractedOutcomePaper {
+  paper_id: string
+  title: string
+  doi: string | null
+  extraction_source: string
+  outcomes: ExtractedOutcomeRow[]
+}
+
+export interface ExtractedTablesResponse {
+  total_rows: number
+  papers: ExtractedOutcomePaper[]
+}
+
+export async function fetchDbTables(runId: string): Promise<ExtractedTablesResponse> {
+  const res = await fetch(`${BASE}/db/${encodeURIComponent(runId)}/tables`)
+  if (!res.ok) throw await _apiError(res, "Outcome tables fetch failed")
+  return (await res.json()) as ExtractedTablesResponse
+}
+
+export function prosperoFormDocxUrl(runId: string): string {
+  return `${BASE}/run/${encodeURIComponent(runId)}/prospero-form.docx`
+}
+
+export function prosperoFormMarkdownUrl(runId: string): string {
+  return `${BASE}/run/${encodeURIComponent(runId)}/prospero-form.md`
 }
 
 // ---------------------------------------------------------------------------

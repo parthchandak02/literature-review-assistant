@@ -13,8 +13,8 @@ import { Th, Td, TableSkeleton, Pagination } from "@/components/ui/table"
 import { cn } from "@/lib/utils"
 import { AlertTriangle, Database, ExternalLink, Filter, Loader2, X } from "lucide-react"
 // Loader2 is still used in FilterComboboxPopover
-import { fetchPapersAll, fetchPapersFacets, fetchPapersSuggest } from "@/lib/api"
-import type { PaperAllRow } from "@/lib/api"
+import { fetchDbTables, fetchPapersAll, fetchPapersFacets, fetchPapersSuggest } from "@/lib/api"
+import type { ExtractedOutcomePaper, PaperAllRow } from "@/lib/api"
 
 const LIVE_REFRESH_MS = 10_000
 
@@ -65,6 +65,8 @@ export function DatabaseView({ runId, isDone, dbAvailable, isLive }: DatabaseVie
   const [total, setTotal] = useState(0)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [outcomePapers, setOutcomePapers] = useState<ExtractedOutcomePaper[]>([])
+  const [outcomeError, setOutcomeError] = useState<string | null>(null)
 
   // Facet data (loaded once on mount / dbAvailable)
   const [years, setYears] = useState<number[]>([])
@@ -127,6 +129,23 @@ export function DatabaseView({ runId, isDone, dbAvailable, isLive }: DatabaseVie
       })
       .catch(() => {})
   }, [runId, dbAvailable])
+
+  const loadOutcomes = useCallback(() => {
+    if (!dbAvailable) return
+    fetchDbTables(runId)
+      .then((data) => {
+        setOutcomePapers(data.papers)
+        setOutcomeError(null)
+      })
+      .catch((e: unknown) => {
+        setOutcomePapers([])
+        setOutcomeError(e instanceof Error ? e.message : String(e))
+      })
+  }, [runId, dbAvailable])
+
+  useEffect(() => {
+    loadOutcomes()
+  }, [loadOutcomes])
 
   const fetchTitleSuggestions = useCallback(
     (q: string) => {
@@ -285,6 +304,21 @@ export function DatabaseView({ runId, isDone, dbAvailable, isLive }: DatabaseVie
 
   // Hide the Confidence column when no paper on the current page has a value.
   const hasConfidenceData = papers.some((p) => p.extraction_confidence != null)
+  const flattenedOutcomes = outcomePapers.flatMap((paper) =>
+    paper.outcomes.map((outcome, idx) => ({
+      key: `${paper.paper_id}-${idx}-${String(outcome.name ?? "outcome")}`,
+      paperTitle: paper.title,
+      source: paper.extraction_source,
+      name: typeof outcome.name === "string" ? outcome.name : "Outcome",
+      effect: outcome.effect_size,
+      ci:
+        outcome.ci_lower != null && outcome.ci_upper != null
+          ? `${outcome.ci_lower} to ${outcome.ci_upper}`
+          : null,
+      pValue: outcome.p_value,
+      n: outcome.n,
+    })),
+  )
 
   return (
     <div className="flex flex-col gap-4">
@@ -482,6 +516,59 @@ export function DatabaseView({ runId, isDone, dbAvailable, isLive }: DatabaseVie
                 ))}
               </tbody>
             </table>
+          </div>
+        )}
+      </div>
+
+      <div className="card-surface overflow-hidden">
+        <div className="px-4 py-3 border-b border-zinc-800/70 flex items-center justify-between gap-3">
+          <div>
+            <div className="text-sm font-semibold text-zinc-200">Extracted Outcomes</div>
+            <div className="text-xs text-zinc-500">Deterministic table extraction results from included studies.</div>
+          </div>
+          <div className="text-xs text-zinc-500">{flattenedOutcomes.length.toLocaleString()} outcome rows</div>
+        </div>
+        {outcomeError ? (
+          <div className="p-4">
+            <FetchError message={outcomeError} onRetry={loadOutcomes} />
+          </div>
+        ) : flattenedOutcomes.length === 0 ? (
+          <EmptyState icon={Database} heading="No extracted outcomes yet." className="py-10" />
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs">
+              <thead>
+                <tr className="glass-table-head border-b border-zinc-800/70">
+                  <Th>Paper</Th>
+                  <Th>Outcome</Th>
+                  <Th>Effect Size</Th>
+                  <Th>CI</Th>
+                  <Th>P Value</Th>
+                  <Th>N</Th>
+                  <Th>Source</Th>
+                </tr>
+              </thead>
+              <tbody>
+                {flattenedOutcomes.slice(0, 200).map((row) => (
+                  <tr key={row.key} className="border-b border-zinc-900/80">
+                    <Td className="max-w-[28rem] truncate">
+                      <span title={row.paperTitle}>{row.paperTitle}</span>
+                    </Td>
+                    <Td>{row.name}</Td>
+                    <Td>{row.effect ?? "-"}</Td>
+                    <Td>{row.ci ?? "-"}</Td>
+                    <Td>{row.pValue ?? "-"}</Td>
+                    <Td>{row.n ?? "-"}</Td>
+                    <Td>{row.source}</Td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            {flattenedOutcomes.length > 200 && (
+              <div className="px-4 py-3 text-xs text-zinc-500 border-t border-zinc-800/70">
+                Showing the first 200 outcome rows.
+              </div>
+            )}
           </div>
         )}
       </div>
