@@ -1350,6 +1350,23 @@ def test_markdown_to_latex_splits_lowercase_run_on_heading_body() -> None:
     assert "for this systematic review were predefined." in out
 
 
+def test_markdown_to_latex_preserves_compound_heading_after_connector() -> None:
+    md = (
+        "# Title\n\n"
+        "**Background:** Background.\n"
+        "**Objectives:** Objective.\n"
+        "**Methods:** Methods.\n"
+        "**Results:** Results.\n"
+        "**Conclusion:** Conclusion.\n"
+        "**Keywords:** a, b\n\n"
+        "## Methods\n\n"
+        "### Risk of Bias and Critical Appraisal\n"
+    )
+    out = markdown_to_latex(md, citekeys=set())
+    assert "\\subsection{Risk of Bias and Critical Appraisal}" in out
+    assert "\\subsection{Risk of Bias}" not in out
+
+
 def test_manuscript_contract_soft_mode_blocks_critical_zero_slip_codes() -> None:
     critical_codes = {
         "REQUIRED_SECTION_MISSING",

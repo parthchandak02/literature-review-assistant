@@ -136,7 +136,7 @@ from src.writing.citation_grounding import (
     extract_used_citekeys,
     verify_citation_grounding,
 )
-from src.writing.context_builder import build_writing_grounding
+from src.writing.context_builder import build_writing_grounding, sanitize_summary_text_for_writing
 from src.writing.contradiction_resolver import (
     build_conflicting_evidence_section,
     generate_contradiction_paragraph,
@@ -316,6 +316,23 @@ async def _journal_step_complete(
         await repo.save_workflow_step(record)
     except Exception:
         _log.debug("step journal complete failed for %s", record.step_id, exc_info=True)
+
+
+def _should_exclude_low_quality_record(
+    record: ExtractionRecord,
+    *,
+    mmat_score: int,
+    mmat_minimum_score: int,
+) -> bool:
+    """Return True when MMAT is below threshold and findings sanitize to NR."""
+    if mmat_minimum_score <= 0 or mmat_score >= mmat_minimum_score:
+        return False
+    summary_text = ""
+    try:
+        summary_text = (record.results_summary or {}).get("summary", "")
+    except Exception:
+        summary_text = ""
+    return sanitize_summary_text_for_writing(summary_text) == "NR"
 
 
 class ResumeStartNode(BaseNode[ReviewState]):
@@ -1316,9 +1333,14 @@ class ScreeningNode(BaseNode[ReviewState]):
                             model=_batch_agent.model,
                             temperature=_batch_agent.temperature,
                             research_question=state.review.research_question,
+                            topic_focus=state.review.expert_topic(),
+                            domain=state.review.domain,
                             population=state.review.pico.population,
                             intervention=state.review.pico.intervention,
                             outcome=state.review.pico.outcome,
+                            keywords=state.review.keywords,
+                            expert_terms=state.review.domain_signal_terms(limit=12),
+                            excluded_terms=state.review.discouraged_terminology(),
                             client=PydanticAIBatchRankerClient(),
                             on_status=_on_status,
                         )
@@ -2069,6 +2091,7 @@ class ExtractionQualityNode(BaseNode[ReviewState]):
                 PrimaryStudyStatus.NON_EMPIRICAL,
             }
             non_primary_paper_ids: set[str] = set()
+            low_quality_paper_ids: set[str] = set()
             non_primary_status_counts: dict[str, int] = {}
             not_applicable_paper_ids: list[str] = []
             # Accumulates (ExtractionRecord, rob_assessment_obj_or_None, outcome_name) tuples
@@ -2079,6 +2102,8 @@ class ExtractionQualityNode(BaseNode[ReviewState]):
             # Papers are independent -- run up to extraction_concurrency concurrently.
             _paper_lookup = {p.paper_id: p for p in state.included_papers}
             extraction_cfg = getattr(state.settings, "extraction", None)
+            gate_cfg = getattr(state.settings, "gates", None)
+            _mmat_minimum_score = max(0, int(getattr(gate_cfg, "mmat_minimum_score", 0) or 0))
             _quality_concurrency = getattr(extraction_cfg, "extraction_concurrency", 4) if extraction_cfg else 4
             _quality_sem = asyncio.Semaphore(_quality_concurrency)
 
@@ -2229,6 +2254,35 @@ class ExtractionQualityNode(BaseNode[ReviewState]):
                                     phase="phase_4_extraction_quality",
                                 )
                             )
+                            if _should_exclude_low_quality_record(
+                                qr,
+                                mmat_score=int(getattr(mmat_result, "overall_score", 0) or 0),
+                                mmat_minimum_score=_mmat_minimum_score,
+                            ):
+                                low_quality_paper_ids.add(qr.paper_id)
+                                await cohort_resolver.persist_extraction_outcome(
+                                    qr.paper_id,
+                                    primary_study_status=getattr(
+                                        qr, "primary_study_status", PrimaryStudyStatus.UNKNOWN
+                                    ).value,
+                                    extraction_failed=False,
+                                    low_quality=True,
+                                    exclusion_reason_code="low_quality_mmat",
+                                )
+                                await repository.append_decision_log(
+                                    DecisionLogEntry(
+                                        decision_type="quality_exclusion",
+                                        paper_id=qr.paper_id,
+                                        decision="exclude_low_quality",
+                                        rationale=(
+                                            "Excluded from synthesis/writing due to "
+                                            f"MMAT score {mmat_result.overall_score}/5 with no reportable findings."
+                                        ),
+                                        actor="quality_assessment",
+                                        phase="phase_4_extraction_quality",
+                                    )
+                                )
+                                return
                         else:
                             not_applicable_paper_ids.append(qr.paper_id)
                         _qr_outcomes = [
@@ -2599,6 +2653,42 @@ class ExtractionQualityNode(BaseNode[ReviewState]):
                                     phase="phase_4_extraction_quality",
                                 )
                             )
+                            if _should_exclude_low_quality_record(
+                                record,
+                                mmat_score=int(getattr(mmat_result, "overall_score", 0) or 0),
+                                mmat_minimum_score=_mmat_minimum_score,
+                            ):
+                                low_quality_paper_ids.add(record.paper_id)
+                                records[:] = [r for r in records if r.paper_id != record.paper_id]
+                                await cohort_resolver.persist_extraction_outcome(
+                                    record.paper_id,
+                                    primary_study_status=record.primary_study_status.value,
+                                    extraction_failed=False,
+                                    low_quality=True,
+                                    exclusion_reason_code="low_quality_mmat",
+                                )
+                                await repository.append_decision_log(
+                                    DecisionLogEntry(
+                                        decision_type="quality_exclusion",
+                                        paper_id=record.paper_id,
+                                        decision="exclude_low_quality",
+                                        rationale=(
+                                            "Excluded from synthesis/writing due to "
+                                            f"MMAT score {mmat_result.overall_score}/5 with no reportable findings."
+                                        ),
+                                        actor="quality_assessment",
+                                        phase="phase_4_extraction_quality",
+                                    )
+                                )
+                                if rc:
+                                    extraction_summary = (record.results_summary.get("summary") or "")[:300]
+                                    rc.log_extraction_paper(
+                                        paper_id=paper.paper_id,
+                                        design=design.value,
+                                        extraction_summary=extraction_summary,
+                                        rob_judgment=f"excluded_low_quality_{mmat_result.overall_score}/5",
+                                    )
+                                return
                         else:
                             # not_applicable: systematic reviews, technical reports, narrative papers.
                             # ROBINS-I and RoB2 do not apply; record for figure disclosure.
@@ -2695,23 +2785,25 @@ class ExtractionQualityNode(BaseNode[ReviewState]):
             # Apply a hard gate so downstream synthesis and writing include only
             # empirically primary studies.
             state.excluded_non_primary_count = len(non_primary_paper_ids)
-            if non_primary_paper_ids:
+            if non_primary_paper_ids or low_quality_paper_ids:
                 _before = len(state.included_papers)
                 _primary_ids = {r.paper_id for r in records}
                 state.included_papers = [p for p in state.included_papers if p.paper_id in _primary_ids]
                 _after = len(state.included_papers)
                 logger.info(
-                    "ExtractionQualityNode: filtered %d non-primary papers before synthesis/writing "
-                    "(before=%d, after=%d, breakdown=%s)",
-                    len(non_primary_paper_ids),
+                    "ExtractionQualityNode: filtered %d papers before synthesis/writing "
+                    "(before=%d, after=%d, breakdown=%s, low_quality=%d)",
+                    len(non_primary_paper_ids) + len(low_quality_paper_ids),
                     _before,
                     _after,
                     non_primary_status_counts,
+                    len(low_quality_paper_ids),
                 )
                 if rc:
                     rc.log_status(
                         "Primary-data filter removed "
-                        f"{len(non_primary_paper_ids)} papers before synthesis: {non_primary_status_counts}"
+                        f"{len(non_primary_paper_ids)} non-primary and {len(low_quality_paper_ids)} "
+                        f"low-quality papers before synthesis: {non_primary_status_counts}"
                     )
 
             # -- Aggregate GRADE per unique outcome across all studies --
@@ -2959,6 +3051,8 @@ class SynthesisNode(BaseNode[ReviewState]):
             state.extraction_records,
             llm_client=_synth_llm,
             settings=state.settings,
+            review_question=state.review.research_question if state.review else "",
+            pico=state.review.pico if state.review else None,
         )
 
         # Attempt quantitative meta-analysis for each feasible outcome group
@@ -3734,6 +3828,7 @@ class WritingNode(BaseNode[ReviewState]):
 
         sections_written: list[str] = []
         _failed_sections: list[str] = []
+        _section_results_by_key: dict[str, object] = {}
 
         async def _save_writing_checkpoint(
             *,
@@ -3791,7 +3886,23 @@ class WritingNode(BaseNode[ReviewState]):
 
             citation_repo = CitationRepository(db)
             await citation_repo.ensure_schema()
+            _rewound_before_writing = state.next_phase in {
+                "phase_2_search",
+                "phase_3_screening",
+                "phase_4_extraction_quality",
+                "phase_4b_embedding",
+                "phase_5_synthesis",
+                "phase_5b_knowledge_graph",
+                "phase_5c_pre_writing_gate",
+            }
             completed = await repository.get_completed_sections(state.workflow_id)
+            if _rewound_before_writing and completed:
+                logger.info(
+                    "WritingNode: ignoring %d persisted completed sections after rewind from %s",
+                    len(completed),
+                    state.next_phase,
+                )
+                completed = set()
             wr_on_waiting = None
             wr_on_resolved = None
             if rc:
@@ -3870,8 +3981,7 @@ class WritingNode(BaseNode[ReviewState]):
                         citations_used=[],
                         word_count=len(content.split()),
                     )
-                    await repository.save_section_draft(draft)
-                    await repository.save_manuscript_section_from_draft(draft, section_order=i)
+                    await repository.save_section_artifacts_from_draft(draft, section_order=i)
                     sections_written.append(content)
                     if rc:
                         rc.advance_screening("phase_6_writing", i + 1, len(SECTIONS))
@@ -4130,10 +4240,15 @@ class WritingNode(BaseNode[ReviewState]):
                             _cursor = await db.execute(
                                 """
                                 SELECT content FROM section_drafts
-                                WHERE workflow_id = ? AND section = ?
+                                WHERE workflow_id = ?
+                                  AND section = ?
+                                  AND generation = COALESCE(
+                                      (SELECT writing_generation FROM workflows WHERE workflow_id = ?),
+                                      1
+                                  )
                                 ORDER BY version DESC LIMIT 1
                                 """,
-                                (state.workflow_id, section),
+                                (state.workflow_id, section, state.workflow_id),
                             )
                             _row = await _cursor.fetchone()
                             _content = _row[0] if _row else ""
@@ -4372,6 +4487,7 @@ class WritingNode(BaseNode[ReviewState]):
                                 timeout=_section_write_timeout,
                             )
                             _content = _section_result.content_markdown
+                            _section_results_by_key[section] = _section_result
                         except TimeoutError:
                             logger.error(
                                 "write_section_with_validation timed out for '%s' after %.0fs",
@@ -4379,20 +4495,6 @@ class WritingNode(BaseNode[ReviewState]):
                                 _section_write_timeout,
                             )
                             raise
-                        if _section_result is not None and _section_result.fallback_used:
-                            await repository.save_fallback_event(
-                                FallbackEventRecord(
-                                    workflow_id=state.workflow_id,
-                                    phase="phase_6_writing",
-                                    module="writing.section_writer",
-                                    fallback_type="deterministic_section_fallback",
-                                    reason=(
-                                        f"section={section}; validation_retries="
-                                        f"{_section_result.validation_retries}"
-                                    ),
-                                )
-                            )
-
                         # Humanization pass: apply configured number of iterations
                         _humanizer_timeout = max(_llm_timeout_writing, _request_timeout)
                         if do_humanize and use_llm_write:
@@ -4465,8 +4567,7 @@ class WritingNode(BaseNode[ReviewState]):
                             citations_used=[],
                             word_count=word_count,
                         )
-                        await repository.save_section_draft(draft)
-                        await repository.save_manuscript_section_from_draft(draft, section_order=i)
+                        await repository.save_section_artifacts_from_draft(draft, section_order=i)
                         _sections_done[0] += 1
                         await _save_writing_checkpoint(
                             papers_processed=_sections_done[0],
@@ -4621,7 +4722,7 @@ class WritingNode(BaseNode[ReviewState]):
                     sections_written[_abs_idx] = (
                         "**Background:** This review synthesizes the available evidence for the topic. "
                         f"**Objectives:** This review evaluated {state.review.research_question}. "
-                        f"**Methods:** {state.review.search_query}. "
+                        "**Methods:** Bibliographic databases were searched using the configured protocol and settings. "
                         f"**Results:** {_prisma_sentence} "
                         "**Conclusion:** Evidence synthesis was generated from included studies. "
                         "**Keywords:** systematic review, evidence synthesis, outcomes, implementation, methodology."
@@ -4759,7 +4860,7 @@ class WritingNode(BaseNode[ReviewState]):
         body = "\n\n".join(titled_sections)
         try:
             db_sections = await repository.load_latest_manuscript_sections(state.workflow_id)
-            if db_sections:
+            if db_sections and not _rewound_before_writing:
                 _heading_by_section = {
                     "abstract": "## Abstract",
                     "introduction": "## Introduction",
@@ -4945,8 +5046,19 @@ class WritingNode(BaseNode[ReviewState]):
                     try:
                         async with get_db(state.db_path) as _patch_db:
                             _results_content_cur = await _patch_db.execute(
-                                "SELECT content FROM section_drafts WHERE workflow_id=? AND section='results' ORDER BY version DESC LIMIT 1",
-                                (state.workflow_id,),
+                                """
+                                SELECT content
+                                FROM section_drafts
+                                WHERE workflow_id = ?
+                                  AND section = 'results'
+                                  AND generation = COALESCE(
+                                      (SELECT writing_generation FROM workflows WHERE workflow_id = ?),
+                                      1
+                                  )
+                                ORDER BY version DESC
+                                LIMIT 1
+                                """,
+                                (state.workflow_id, state.workflow_id),
                             )
                             _results_row = await _results_content_cur.fetchone()
                             if _results_row:
@@ -4958,8 +5070,17 @@ class WritingNode(BaseNode[ReviewState]):
                                 else:
                                     _patched_results = _patched_results.rstrip() + "\n\n" + _cov_patch
                                 await _patch_db.execute(
-                                    "UPDATE section_drafts SET content=? WHERE workflow_id=? AND section='results'",
-                                    (_patched_results, state.workflow_id),
+                                    """
+                                    UPDATE section_drafts
+                                    SET content = ?
+                                    WHERE workflow_id = ?
+                                      AND section = 'results'
+                                      AND generation = COALESCE(
+                                          (SELECT writing_generation FROM workflows WHERE workflow_id = ?),
+                                          1
+                                      )
+                                    """,
+                                    (_patched_results, state.workflow_id, state.workflow_id),
                                 )
                                 await _patch_db.commit()
                                 logger.info(
@@ -5359,17 +5480,35 @@ class WritingNode(BaseNode[ReviewState]):
                 ).hexdigest()[:16] if citation_catalog else None
                 for _mi, _msec in enumerate(SECTIONS):
                     _mcontent = sections_written[_mi] if _mi < len(sections_written) else ""
-                    _mfallback = _msec in (_failed_sections or [])
+                    _mresult = _section_results_by_key.get(_msec)
+                    _missues = list(getattr(_mresult, "validation_issues", []) or [])
+                    _mfallback = bool(getattr(_mresult, "fallback_used", False)) or _msec in (_failed_sections or [])
                     manifest = WritingManifestRecord(
                         workflow_id=state.workflow_id,
                         section_key=_msec,
                         attempt_number=1,
                         grounding_hash=_grounding_hash,
-                        contract_status="failed" if _mfallback else "passed",
+                        contract_status="failed" if _mfallback else ("warning" if _missues else "passed"),
+                        contract_issues=json.dumps(_missues),
                         fallback_used=_mfallback,
+                        retry_count=int(getattr(_mresult, "validation_retries", 0) or 0),
                         word_count=len(_mcontent.split()) if _mcontent else 0,
                     )
                     await _mrepo.save_writing_manifest(manifest)
+                    if _mfallback:
+                        await _mrepo.save_fallback_event(
+                            FallbackEventRecord(
+                                workflow_id=state.workflow_id,
+                                phase="phase_6_writing",
+                                module="writing.section_writer",
+                                fallback_type="deterministic_section_fallback",
+                                reason=(
+                                    f"section={_msec}; validation_retries="
+                                    f"{int(getattr(_mresult, 'validation_retries', 0) or 0)}"
+                                ),
+                                details_json=json.dumps({"validation_issues": _missues}),
+                            )
+                        )
         except Exception:
             _log.debug("writing manifest persistence failed (non-fatal)", exc_info=True)
 
@@ -5441,6 +5580,7 @@ class ManuscriptAuditNode(BaseNode[ReviewState]):
                     mode=contract_mode,
                     contract_phase="phase_7_audit",
                     abstract_word_limit=state.settings.ieee_export.max_abstract_words,
+                    review_config=state.review,
                 )
                 contract_summary = {
                     "mode": contract_result.mode,
@@ -5890,6 +6030,7 @@ class FinalizeNode(BaseNode[ReviewState]):
                         ],
                         mode=_contract_mode,
                         abstract_word_limit=state.settings.ieee_export.max_abstract_words,
+                        review_config=state.review,
                     )
                     _contract_summary = {
                         "mode": _contract_result.mode,

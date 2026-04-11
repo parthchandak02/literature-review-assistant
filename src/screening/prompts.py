@@ -7,26 +7,34 @@ from src.models import CandidatePaper, ReviewConfig, ScreeningDecision
 
 def _topic_header(review: ReviewConfig, role: str, goal: str, backstory: str) -> str:
     keyword_block = ", ".join(review.keywords)
+    domain_brief = review.domain_brief_lines()
+    signal_terms = review.domain_signal_terms(limit=12)
     inclusion_block = "\n".join(f"  - {c}" for c in review.inclusion_criteria)
     exclusion_block = "\n".join(f"  - {c}" for c in review.exclusion_criteria)
-    return "\n".join(
-        [
-            f"Role: {role}",
-            f"Goal: {goal}",
-            f"Backstory: {backstory}",
-            f"Topic: {review.scope}",
-            f"Research Question: {review.research_question}",
-            f"Domain: {review.domain}",
-            f"Keywords: {keyword_block}",
-            "",
-            "INCLUSION CRITERIA (paper must meet at least one):",
-            inclusion_block,
-            "",
-            "EXCLUSION CRITERIA (paper must meet NONE of these -- if any applies, exclude):",
-            exclusion_block,
-            "",
-        ]
-    )
+    lines = [
+        f"Role: {role}",
+        f"Goal: {goal}",
+        f"Backstory: {backstory}",
+        f"Topic: {review.expert_topic()}",
+        f"Research Question: {review.research_question}",
+        f"Domain: {review.domain}",
+        f"Keywords: {keyword_block}",
+    ]
+    if signal_terms:
+        lines.append(f"Topic anchor terms: {', '.join(signal_terms)}")
+    if domain_brief:
+        lines.append("Domain brief:")
+        lines.extend(f"  - {item}" for item in domain_brief)
+    lines += [
+        "",
+        "INCLUSION CRITERIA (paper must meet at least one):",
+        inclusion_block,
+        "",
+        "EXCLUSION CRITERIA (paper must meet NONE of these -- if any applies, exclude):",
+        exclusion_block,
+        "",
+    ]
+    return "\n".join(lines)
 
 
 def _quality_criteria_block() -> str:

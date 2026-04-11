@@ -9,7 +9,10 @@ from typing import TYPE_CHECKING
 
 from pylatexenc.latexencode import UnicodeToLatexEncoder
 
-from src.export.markdown_refs import _normalize_subsection_heading_layout as _normalize_headings_shared
+from src.writing.headings import (
+    normalize_subsection_heading_layout as _normalize_headings_shared,
+    sanitize_heading_title,
+)
 
 if TYPE_CHECKING:
     from src.models.quality import GradeSoFTable
@@ -554,56 +557,6 @@ def _md_section_to_latex(
                 return level, " ".join(left_words), right
         return None
 
-    def _sanitize_heading_title(raw_title: str) -> str:
-        """Normalize heading titles for robust LaTeX section rendering."""
-        title = re.sub(r"\s{2,}", " ", raw_title.strip())
-        # Drop trailing numeric citation tails in headings, e.g. "[6] [8]" or "[6, 8]".
-        title = re.sub(r"\s*(?:\[(?:\d+(?:\s*,\s*\d+)*)\]\s*)+$", "", title).strip()
-
-        # Remove run-on body clauses that leak into heading lines.
-        lower = title.lower()
-        spill_markers = (
-            " due to ",
-            " because ",
-            " although ",
-            " while ",
-            " since ",
-            " where ",
-            " when ",
-            " after ",
-            " before ",
-            " during ",
-        )
-        for marker in spill_markers:
-            idx = lower.find(marker)
-            if idx > 0:
-                title = title[:idx].strip()
-                break
-
-        # Handle headings where the shared normalizer split "Due to ..." across
-        # lines and left a trailing single spill token on the title.
-        title = re.sub(
-            r"\s+(Due|Because|Although|While|Since|Where|When|After|Before|During)$",
-            "",
-            title,
-            flags=re.IGNORECASE,
-        ).strip()
-
-        # If heading still contains a long lower-case prose tail, trim at the
-        # first non-connector lower-case token.
-        connectors = {"and", "or", "of", "for", "to", "with", "in", "on", "by"}
-        words = title.split()
-        if len(words) > 6:
-            keep: list[str] = []
-            for idx, word in enumerate(words):
-                clean = word.strip(".,;:!?")
-                if idx > 0 and clean[:1].islower() and clean.lower() not in connectors:
-                    break
-                keep.append(clean)
-            title = " ".join(keep).strip()
-
-        return title
-
     while i < len(lines):
         line = lines[i]
         stripped = line.strip()
@@ -614,7 +567,7 @@ def _md_section_to_latex(
         if inline_heading and inline_heading[0] == "####":
             flush_list()
             _, title, body_text = inline_heading
-            title = _sanitize_heading_title(title)
+            title = sanitize_heading_title(title)
             parts.append(f"\\subsubsection{{{_escape_latex(title)}}}")
             parts.append("")
             conv = _convert_inline_formatting(
@@ -627,7 +580,7 @@ def _md_section_to_latex(
         elif inline_heading and inline_heading[0] == "###":
             flush_list()
             _, title, body_text = inline_heading
-            title = _sanitize_heading_title(title)
+            title = sanitize_heading_title(title)
             parts.append(f"\\subsection{{{_escape_latex(title)}}}")
             parts.append("")
             conv = _convert_inline_formatting(
@@ -639,12 +592,12 @@ def _md_section_to_latex(
             parts.append("")
         elif stripped.startswith("#### "):
             flush_list()
-            title = _sanitize_heading_title(stripped[5:].strip())
+            title = sanitize_heading_title(stripped[5:].strip())
             parts.append(f"\\subsubsection{{{_escape_latex(title)}}}")
             parts.append("")
         elif stripped.startswith("### "):
             flush_list()
-            title = _sanitize_heading_title(stripped[4:].strip())
+            title = sanitize_heading_title(stripped[4:].strip())
             # Recover heading fragments that were split by normalizer when the
             # heading ends with a connector and the next line starts with title tokens.
             nxt_idx = i + 1
@@ -667,14 +620,14 @@ def _md_section_to_latex(
                             continue
                         break
                     if consumed > 0:
-                        title = _sanitize_heading_title(f"{title} {' '.join(nxt_words[:consumed])}")
+                        title = sanitize_heading_title(f"{title} {' '.join(nxt_words[:consumed])}")
                         remainder = " ".join(nxt_words[consumed:]).strip()
                         lines[nxt_idx] = remainder if remainder else ""
             parts.append(f"\\subsection{{{_escape_latex(title)}}}")
             parts.append("")
         elif stripped.startswith("## "):
             flush_list()
-            title = _sanitize_heading_title(stripped[3:].strip())
+            title = sanitize_heading_title(stripped[3:].strip())
             parts.append(f"\\section{{{_escape_latex(title)}}}")
             parts.append("")
         elif stripped.startswith("# "):

@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from src.quality.grade import build_sof_table, cluster_grade_assessments_by_theme, sof_table_to_markdown
+from src.writing.headings import normalize_subsection_heading_layout as _normalize_subsection_heading_layout_shared
 
 logger = logging.getLogger(__name__)
 
@@ -335,197 +336,8 @@ def _strip_section_block_markers(text: str) -> str:
 
 
 def _normalize_subsection_heading_layout(text: str) -> str:
-    """Split inline heading+body into canonical multiline markdown.
-
-    wf-0009 showed patterns like:
-      "### Information Sources The systematic search was conducted ..."
-    which should be:
-      "### Information Sources"
-      ""
-      "The systematic search was conducted ..."
-
-    This transform is deterministic and idempotent.
-    """
-    # Some legacy runs collapse multiple markdown headings into a single line.
-    # Insert hard line breaks before each heading marker first.
-    text = re.sub(r"\s+(#{2,6}\s+)", r"\n\n\1", text)
-
-    _heading_re = re.compile(r"^(#{2,6})\s+(.+)$")
-    _sentence_start_re = re.compile(
-        r"^(The|This|These|We|Our|In|Across|To|A|An|Studies|Study|Data|Evidence|Findings|Overall|One|Demographic|Meta-analysis|Also)\b"
-    )
-    _title_token_re = re.compile(r"^[A-Z][A-Za-z0-9()/:,\-']*$")
-    _connector_tail = {"and", "or", "of", "for", "to", "with"}
-    _citation_tail_re = re.compile(r"\s*(?:\[[^\]]+\]\s*)+$")
-
-    def _looks_title_fragment(s: str) -> bool:
-        words = s.strip().split()
-        if not words or len(words) > 5:
-            return False
-        return all(_title_token_re.match(w) or w.lower() in _connector_tail for w in words)
-
-    out_lines: list[str] = []
-    lines = text.splitlines()
-    i = 0
-    while i < len(lines):
-        line = lines[i]
-        m = _heading_re.match(line.strip())
-        if m:
-            level = m.group(1)
-            tail = m.group(2).strip()
-            tail = _citation_tail_re.sub("", tail).strip()
-            _known_prefix_map = {
-                "data items": "Data Items",
-                "comparison with prior work": "Comparison with Prior Work",
-                "search strategy": "Search Strategy",
-                "risk of bias and critical appraisal": "Risk of Bias and Critical Appraisal",
-            }
-            _tail_low = tail.lower()
-            _matched_known = False
-            for _raw_prefix, _canonical in _known_prefix_map.items():
-                _needle = _raw_prefix + " "
-                if _tail_low.startswith(_needle):
-                    _body = tail[len(_raw_prefix) :].strip()
-                    out_lines.extend([f"{level} {_canonical}", ""])
-                    if _body:
-                        out_lines.append(_body)
-                    _matched_known = True
-                    break
-            if _matched_known:
-                i += 1
-                continue
-            if len(level) >= 4:
-                _spill = re.search(
-                    r"\b(The|This|These|We|Our|In|Across|To|A|An|Evidence|Findings|Overall|One|Demographic|Meta-analysis|Also)\b",
-                    tail,
-                )
-                if _spill and _spill.start() > 10:
-                    _left = tail[: _spill.start()].strip(" -:")
-                    _right = tail[_spill.start() :].strip()
-                    if _left and _right:
-                        out_lines.extend([f"{level} {_left}", "", _right])
-                        i += 1
-                        continue
-            # Handle run-on headings like "#### Other Outcomes such as ...".
-            if " such as " in tail.lower():
-                _idx = tail.lower().find(" such as ")
-                _left = tail[:_idx].strip()
-                _right = tail[_idx + 1 :].strip()
-                if _left and _right:
-                    out_lines.extend([f"{level} {_left}", "", _right])
-                    i += 1
-                    continue
-            nxt_idx = i + 1
-            while nxt_idx < len(lines) and not lines[nxt_idx].strip():
-                nxt_idx += 1
-            nxt = lines[nxt_idx].strip() if nxt_idx < len(lines) else ""
-            tail_words = tail.split()
-            if nxt and not nxt.startswith("#"):
-                if tail_words and tail_words[-1].lower() in _connector_tail:
-                    # Case: heading line ends with connector and next line starts with
-                    # title token + sentence punctuation, e.g. "and" + "Performance. ...".
-                    _nxt_words = nxt.split()
-                    if _nxt_words:
-                        _first = _nxt_words[0]
-                        _first_clean = _first.rstrip(".,;:!?")
-                        if _first_clean and _first_clean[:1].isupper():
-                            if _first != _first_clean:
-                                _new_heading = f"{level} {tail} {_first_clean}".strip()
-                                _new_body = " ".join(_nxt_words[1:]).strip()
-                                if _new_body:
-                                    out_lines.extend([_new_heading, "", _new_body])
-                                    i = nxt_idx + 1
-                                    continue
-                    nxt_words = nxt.split()
-                    consumed = 0
-                    for j, w in enumerate(nxt_words):
-                        if (
-                            j > 0
-                            and w.lower() in {"the", "this", "these", "we", "our", "in", "across", "to", "a", "an"}
-                            and j + 1 < len(nxt_words)
-                            and nxt_words[j + 1][:1].islower()
-                        ):
-                            break
-                        if _title_token_re.match(w):
-                            consumed = j + 1
-                            if consumed >= 4:
-                                break
-                            continue
-                        break
-                    if consumed > 0:
-                        title_join = " ".join(nxt_words[:consumed]).strip()
-                        body_rest = " ".join(nxt_words[consumed:]).strip()
-                        line = f"{level} {tail} {title_join}".strip()
-                        if body_rest:
-                            out_lines.extend([line, "", body_rest])
-                            i = nxt_idx + 1
-                            continue
-                        out_lines.append(line)
-                        i = nxt_idx + 1
-                        continue
-                # Case: heading absorbed one title token that actually begins body prose,
-                # e.g. "Risk of Bias Assessment Risk" + "of bias was assessed...".
-                if (
-                    nxt[:1].islower()
-                    and len(tail_words) >= 3
-                    and tail_words[-1][:1].isupper()
-                    and tail_words[-1].isalpha()
-                ):
-                    spill = tail_words[-1]
-                    heading_tail = " ".join(tail_words[:-1]).strip()
-                    if heading_tail:
-                        out_lines.extend([f"{level} {heading_tail}", "", f"{spill} {nxt}".strip()])
-                        i = nxt_idx + 1
-                        continue
-                if (tail_words and tail_words[-1].lower() in _connector_tail and _looks_title_fragment(nxt)) or (
-                    len(tail_words) <= 3 and _looks_title_fragment(nxt) and not _sentence_start_re.match(nxt)
-                ):
-                    line = f"{level} {tail} {nxt}".strip()
-                    i = nxt_idx + 1
-
-            words = line.strip().split()
-            split_applied = False
-            if len(words) >= 4 and words[0].startswith("#"):
-                for idx in range(3, min(len(words), 12)):
-                    left_words = words[1:idx]
-                    right = " ".join(words[idx:]).strip()
-                    left_ok = all(_title_token_re.match(w) or w.lower() in _connector_tail for w in left_words)
-                    if not left_ok:
-                        continue
-                    right_lower = right.lower()
-                    if (
-                        _sentence_start_re.match(right)
-                        or (
-                            right_lower.startswith(
-                                (
-                                    "for ",
-                                    "in ",
-                                    "across ",
-                                    "to ",
-                                    "from ",
-                                    "with ",
-                                    "is ",
-                                    "are ",
-                                    "was ",
-                                    "were ",
-                                    "followed ",
-                                    "defined ",
-                                    "developed ",
-                                )
-                            )
-                        )
-                        or (right and right[0].isupper() and any(c in right for c in ".,"))
-                    ) and not _looks_title_fragment(right):
-                        out_lines.extend([f"{words[0]} {' '.join(left_words)}", "", right])
-                        split_applied = True
-                        break
-            if not split_applied:
-                out_lines.append(line)
-        else:
-            out_lines.append(line)
-        i += 1
-
-    return "\n".join(out_lines)
+    """Shared wrapper for canonical markdown heading normalization."""
+    return _normalize_subsection_heading_layout_shared(text)
 
 
 def _dedup_citation_rows_by_doi(rows: list[tuple]) -> list[tuple]:
@@ -824,7 +636,9 @@ def build_markdown_declarations_section(
 ) -> str:
     """Build a Declarations section with funding, COI, data availability, registration, and CRediT."""
     funding_text = funding or "No funding was received for this review."
-    coi_text = coi or "The authors declare no conflicts of interest."
+    if "no role" not in funding_text.lower():
+        funding_text = f"{funding_text.rstrip()} The funders had no role in study design, analysis, interpretation, or reporting."
+    coi_text = coi or "The authors declare no competing interest and no conflict of interest. This disclosure applies to all authors."
     if protocol_registered and registration_id:
         reg_text = f"The protocol was prospectively registered (ID: {registration_id})."
     elif protocol_registered:
@@ -835,8 +649,8 @@ def build_markdown_declarations_section(
             "Because the review was conducted retrospectively, PROSPERO registration was not possible. "
             "The completed protocol has been submitted for post-hoc registration via the "
             "Open Science Framework (OSF; https://osf.io), declared transparently "
-            "per PRISMA 2020 item 24. The authors confirm that no outcomes were added, "
-            "removed, or re-specified after data collection began."
+            "per PRISMA 2020 item 24. No protocol amendment or protocol deviation was made after "
+            "data collection began, and the authors confirm that no outcomes were added, removed, or re-specified."
         )
     credit = build_credit_section(author_name)
     return (

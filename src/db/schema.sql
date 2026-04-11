@@ -148,12 +148,13 @@ CREATE TABLE IF NOT EXISTS section_drafts (
     workflow_id TEXT NOT NULL,
     section TEXT NOT NULL,
     version INTEGER NOT NULL,
+    generation INTEGER NOT NULL DEFAULT 1,
     content TEXT NOT NULL,
     claims_used TEXT,
     citations_used TEXT,
     word_count INTEGER NOT NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    UNIQUE(workflow_id, section, version)
+    UNIQUE(workflow_id, section, version, generation)
 );
 
 CREATE TABLE IF NOT EXISTS manuscript_sections (
@@ -161,6 +162,7 @@ CREATE TABLE IF NOT EXISTS manuscript_sections (
     section_key TEXT NOT NULL,
     section_order INTEGER NOT NULL,
     version INTEGER NOT NULL,
+    generation INTEGER NOT NULL DEFAULT 1,
     title TEXT NOT NULL,
     status TEXT NOT NULL DEFAULT 'draft',
     source TEXT NOT NULL,
@@ -169,19 +171,20 @@ CREATE TABLE IF NOT EXISTS manuscript_sections (
     content TEXT NOT NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    PRIMARY KEY (workflow_id, section_key, version)
+    PRIMARY KEY (workflow_id, section_key, version, generation)
 );
 
 CREATE TABLE IF NOT EXISTS manuscript_blocks (
     workflow_id TEXT NOT NULL,
     section_key TEXT NOT NULL,
     section_version INTEGER NOT NULL,
+    generation INTEGER NOT NULL DEFAULT 1,
     block_order INTEGER NOT NULL,
     block_type TEXT NOT NULL,
     text TEXT NOT NULL,
     meta_json TEXT NOT NULL DEFAULT '{}',
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    PRIMARY KEY (workflow_id, section_key, section_version, block_order)
+    PRIMARY KEY (workflow_id, section_key, section_version, generation, block_order)
 );
 
 CREATE TABLE IF NOT EXISTS manuscript_assets (
@@ -200,10 +203,11 @@ CREATE TABLE IF NOT EXISTS manuscript_assemblies (
     workflow_id TEXT NOT NULL,
     assembly_id TEXT NOT NULL,
     target_format TEXT NOT NULL CHECK(target_format IN ('md', 'tex')),
+    generation INTEGER NOT NULL DEFAULT 1,
     content TEXT NOT NULL,
     manifest_json TEXT NOT NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    PRIMARY KEY (workflow_id, assembly_id, target_format)
+    PRIMARY KEY (workflow_id, assembly_id, target_format, generation)
 );
 
 CREATE TABLE IF NOT EXISTS gate_results (
@@ -238,6 +242,7 @@ CREATE TABLE IF NOT EXISTS fallback_events (
     fallback_type TEXT NOT NULL,
     reason TEXT NOT NULL,
     paper_id TEXT,
+    generation INTEGER NOT NULL DEFAULT 1,
     details_json TEXT NOT NULL DEFAULT '{}',
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
@@ -300,6 +305,7 @@ CREATE TABLE IF NOT EXISTS workflows (
     topic TEXT NOT NULL,
     config_hash TEXT NOT NULL,
     status TEXT NOT NULL DEFAULT 'running',
+    writing_generation INTEGER NOT NULL DEFAULT 1,
     dedup_count INTEGER,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
@@ -400,9 +406,9 @@ CREATE INDEX IF NOT EXISTS idx_validation_artifacts_run_key ON validation_artifa
 CREATE INDEX IF NOT EXISTS idx_section_drafts_workflow ON section_drafts(workflow_id);
 CREATE INDEX IF NOT EXISTS idx_manuscript_sections_workflow_order ON manuscript_sections(workflow_id, section_order);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_manuscript_sections_workflow_order_version
-    ON manuscript_sections(workflow_id, section_order, version);
+    ON manuscript_sections(workflow_id, section_order, version, generation);
 CREATE INDEX IF NOT EXISTS idx_manuscript_blocks_workflow_section_order
-    ON manuscript_blocks(workflow_id, section_key, section_version, block_order);
+    ON manuscript_blocks(workflow_id, section_key, section_version, generation, block_order);
 CREATE INDEX IF NOT EXISTS idx_manuscript_assets_workflow_type_key ON manuscript_assets(workflow_id, asset_type, asset_key);
 CREATE INDEX IF NOT EXISTS idx_cost_records_phase_model ON cost_records(phase, model);
 CREATE INDEX IF NOT EXISTS idx_manuscript_audit_runs_workflow ON manuscript_audit_runs(workflow_id, created_at DESC);
@@ -464,6 +470,7 @@ CREATE TABLE IF NOT EXISTS writing_manifests (
     workflow_id          TEXT NOT NULL,
     section_key          TEXT NOT NULL,
     attempt_number       INTEGER NOT NULL DEFAULT 1,
+    generation           INTEGER NOT NULL DEFAULT 1,
     grounding_hash       TEXT,
     evidence_source_ids  TEXT NOT NULL DEFAULT '[]',
     citation_catalog_hash TEXT,
@@ -474,7 +481,7 @@ CREATE TABLE IF NOT EXISTS writing_manifests (
     word_count           INTEGER,
     meta_json            TEXT NOT NULL DEFAULT '{}',
     created_at           TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    PRIMARY KEY (workflow_id, section_key, attempt_number)
+    PRIMARY KEY (workflow_id, section_key, attempt_number, generation)
 );
 CREATE INDEX IF NOT EXISTS idx_writing_manifests_workflow
     ON writing_manifests(workflow_id, section_key);

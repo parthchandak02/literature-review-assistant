@@ -4,6 +4,7 @@ from src.models.writing import SectionBlock, StructuredSectionDraft
 from src.writing.orchestration import (
     _build_deterministic_section_fallback,
     _extract_valid_citekeys,
+    _patch_abstract_grounding,
     _post_render_completeness_issues,
     _section_completeness_issues,
     _validate_structured_section_draft,
@@ -43,9 +44,10 @@ def test_validate_structured_section_filters_citations_and_sets_required_subsect
         ],
     )
 
-    out = _validate_structured_section_draft("methods", draft, valid)
+    out, issues = _validate_structured_section_draft("methods", draft, valid)
     paras = [b.text for b in out.blocks if b.block_type == "paragraph"]
 
+    assert issues == ["invalid_structured_citations:1"]
     assert "Eligibility Criteria" in out.required_subsections
     assert "Information Sources" in out.required_subsections
     assert "prisma guideline" in paras[0]
@@ -100,6 +102,55 @@ def test_deterministic_discussion_fallback_uses_topic_scope() -> None:
     text = render_section_markdown(draft)
     assert "simulation training on clinical skill acquisition" in text
     assert "generative conversational AI tutoring" not in text
+
+
+def test_deterministic_abstract_fallback_contains_structured_fields() -> None:
+    class _Grounding:
+        research_question = "the impact of simulation training on clinical skill acquisition"
+        review_topic = ""
+        databases_searched = ["OpenAlex", "PubMed"]
+        total_screened = 120
+        fulltext_assessed = 14
+        fulltext_not_retrieved = 2
+        total_included = 6
+        synthesis_direction = "mixed"
+        search_eligibility_window = "2015-2026"
+
+    draft = _build_deterministic_section_fallback("abstract", _Grounding(), {"Page2021"})
+    text = render_section_markdown(draft)
+    assert "**Background:**" in text
+    assert "**Objectives:**" in text
+    assert "**Methods:**" in text
+    assert "**Results:**" in text
+    assert "**Conclusions:**" in text
+    assert "**Keywords:**" in text
+    assert len(text.split()) >= 150
+
+
+def test_patch_abstract_grounding_appends_keywords_terminal_punctuation() -> None:
+    class _Grounding:
+        databases_searched = ["OpenAlex", "PubMed"]
+        search_date = "2026-04-08"
+        search_eligibility_window = "2015-2026"
+        total_screened = 120
+        total_included = 6
+        fulltext_assessed = 14
+        synthesis_direction = "mixed"
+
+    class _Review:
+        research_question = "What is the effect?"
+        keywords = ["digital vaccine records", "qr codes"]
+
+    content = (
+        "**Background:** Background.\n"
+        "**Objectives:** Objective.\n"
+        "**Methods:** Placeholder.\n"
+        "**Results:** Placeholder.\n"
+        "**Conclusions:** Conclusion.\n"
+        "**Keywords:** digital vaccine records, qr codes"
+    )
+    patched = _patch_abstract_grounding(content, _Grounding(), _Review())
+    assert "**Keywords:** digital vaccine records, qr codes." in patched
 
 
 def test_section_completeness_detects_missing_discussion_required_subheadings() -> None:

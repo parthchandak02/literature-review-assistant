@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import csv
 import json
+import logging
 import re
 import shutil
 import subprocess
@@ -24,6 +25,8 @@ from src.export.prisma_checklist import (
     validate_prisma,
 )
 from src.writing.citation_grounding import extract_numeric_citation_refs, extract_used_citekeys
+
+logger = logging.getLogger(__name__)
 
 
 async def _get_run_info(run_root: str, workflow_id: str) -> tuple[str, str, str] | None:

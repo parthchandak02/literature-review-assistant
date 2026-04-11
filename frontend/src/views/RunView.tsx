@@ -1,5 +1,5 @@
 import { Suspense, lazy, useEffect, useMemo, useState } from "react"
-import { Activity, BarChart3, BookOpen, Database, FileText, FileCode2, ClipboardCheck } from "lucide-react"
+import { Activity, BarChart3, BookOpen, Database, FileText, FileCode2, ClipboardCheck, ShieldCheck } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { formatRunDate, formatWorkflowId } from "@/lib/format"
 import { Spinner } from "@/components/ui/feedback"
@@ -21,6 +21,9 @@ const ResultsView = lazy(() =>
 const ConfigView = lazy(() =>
   import("@/views/ConfigView").then((m) => ({ default: m.ConfigView })),
 )
+const QualityView = lazy(() =>
+  import("@/views/QualityView").then((m) => ({ default: m.QualityView })),
+)
 const ScreeningReviewView = lazy(() =>
   import("@/views/ScreeningReviewView").then((m) => ({ default: m.ScreeningReviewView })),
 )
@@ -32,7 +35,7 @@ const ReferencesView = lazy(() =>
 // Types
 // ---------------------------------------------------------------------------
 
-export type RunTab = "activity" | "results" | "database" | "cost" | "config" | "review-screening" | "references"
+export type RunTab = "activity" | "results" | "database" | "cost" | "config" | "review-screening" | "references" | "quality"
 
 /** A run that is currently being viewed (live or historical). */
 export interface SelectedRun {
@@ -53,7 +56,7 @@ export interface SelectedRun {
   historicalStatus?: string | null
 }
 
-/** Tab order follows the review workflow: Config (YAML) -> Activity -> Data -> Cost -> Results -> References */
+/** Tab order follows the review workflow: Config (YAML) -> Activity -> Data -> Cost -> Results -> References -> Quality */
 const TAB_ITEMS: { id: RunTab; label: string; icon: React.ElementType }[] = [
   { id: "config", label: "Config", icon: FileCode2 },
   { id: "activity", label: "Activity", icon: Activity },
@@ -61,6 +64,7 @@ const TAB_ITEMS: { id: RunTab; label: string; icon: React.ElementType }[] = [
   { id: "cost", label: "Cost", icon: BarChart3 },
   { id: "results", label: "Results", icon: FileText },
   { id: "references", label: "References", icon: BookOpen },
+  { id: "quality", label: "Quality", icon: ShieldCheck },
 ]
 
 function ViewLoader() {
@@ -412,6 +416,13 @@ export function RunView({
               exportRunId={isDone ? run.runId : null}
               submissionFocusTarget={submissionFocusTarget}
               submissionFocusToken={submissionFocusToken}
+            />
+          )}
+
+          {activeTab === "quality" && (
+            <QualityView
+              exportRunId={isDone ? run.runId : null}
+              workflowId={run.workflowId}
             />
           )}
 

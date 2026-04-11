@@ -60,10 +60,15 @@ HARD NEGATIVE SIGNALS (score <= 0.35 unless strong contradictory evidence exists
 """
 
 _USER_TEMPLATE = """Research question: {research_question}
+Topic focus: {topic_focus}
+Domain: {domain}
 
 Target population: {population}
 Target intervention: {intervention}
 Target outcome: {outcome}
+Keywords: {keywords}
+Topic anchor terms: {expert_terms}
+Out-of-scope signals: {excluded_terms}
 
 Rate each paper below on relevance to this research question.
 Return a JSON array with one entry per paper (same count as input papers).
@@ -150,9 +155,14 @@ class BatchLLMRanker:
         model: str,
         temperature: float,
         research_question: str,
-        population: str,
-        intervention: str,
-        outcome: str,
+        topic_focus: str = "",
+        domain: str = "",
+        population: str = "",
+        intervention: str = "",
+        outcome: str = "",
+        keywords: list[str] | None = None,
+        expert_terms: list[str] | None = None,
+        excluded_terms: list[str] | None = None,
         client: BatchRankerClient | None = None,
         on_status: Callable[[str], None] | None = None,
     ) -> None:
@@ -160,9 +170,14 @@ class BatchLLMRanker:
         self._model = model
         self._temperature = temperature
         self._research_question = research_question
+        self._topic_focus = topic_focus
+        self._domain = domain
         self._population = population
         self._intervention = intervention
         self._outcome = outcome
+        self._keywords = list(keywords or [])
+        self._expert_terms = list(expert_terms or [])
+        self._excluded_terms = list(excluded_terms or [])
         self._client: BatchRankerClient = client or PydanticAIBatchRankerClient()
         self.on_status = on_status
         # Validation state: populated by rank_and_split() after cross-checking a sample
@@ -184,9 +199,14 @@ class BatchLLMRanker:
             + "\n\n"
             + _USER_TEMPLATE.format(
                 research_question=self._research_question,
+                topic_focus=self._topic_focus,
+                domain=self._domain,
                 population=self._population,
                 intervention=self._intervention,
                 outcome=self._outcome,
+                keywords=", ".join(self._keywords),
+                expert_terms=", ".join(self._expert_terms),
+                excluded_terms=", ".join(self._excluded_terms) or "none",
                 paper_list=paper_list,
             )
         )

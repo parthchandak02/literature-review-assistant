@@ -101,6 +101,7 @@ def test_non_biomedical_topic_excludes_biomedical_connectors() -> None:
     }
 
     out = _build_yaml(cfg, defaults)
+    assert "domain_expert:" in out
     assert "  - pubmed" not in out
     assert "  - clinicaltrials_gov" not in out
     assert "\n  pubmed:" not in out

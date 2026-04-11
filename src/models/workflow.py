@@ -46,6 +46,7 @@ class FallbackEventRecord(BaseModel):
     fallback_type: str
     reason: str
     paper_id: str | None = None
+    generation: int | None = None
     details_json: str = "{}"
     timestamp: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
@@ -187,6 +188,7 @@ class WritingManifestRecord(BaseModel):
     workflow_id: str
     section_key: str
     attempt_number: int = 1
+    generation: int | None = None
     grounding_hash: str | None = None
     evidence_source_ids: str = "[]"
     citation_catalog_hash: str | None = None

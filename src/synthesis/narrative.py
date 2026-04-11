@@ -7,6 +7,7 @@ is provided. A keyword-based heuristic is used as a fallback.
 from __future__ import annotations
 
 import logging
+import re
 from collections.abc import Sequence
 from typing import Literal
 
@@ -15,6 +16,60 @@ from pydantic import BaseModel
 from src.models import ExtractionRecord
 
 logger = logging.getLogger(__name__)
+
+_THEME_STOPWORDS = {
+    "the",
+    "and",
+    "for",
+    "with",
+    "from",
+    "that",
+    "this",
+    "these",
+    "those",
+    "into",
+    "across",
+    "using",
+    "use",
+    "impact",
+    "effects",
+    "effect",
+    "study",
+    "studies",
+    "outcome",
+    "outcomes",
+}
+_GENERIC_THEME_TERMS = {
+    "acceptability",
+    "accuracy",
+    "adherence",
+    "adoption",
+    "barriers",
+    "completion",
+    "completeness",
+    "coverage",
+    "data",
+    "efficiency",
+    "engagement",
+    "facilitators",
+    "feasibility",
+    "health",
+    "implementation",
+    "integration",
+    "quality",
+    "record",
+    "records",
+    "registry",
+    "reporting",
+    "retention",
+    "safety",
+    "satisfaction",
+    "timeliness",
+    "tracking",
+    "uptake",
+    "usability",
+    "workflow",
+}
 
 
 class NarrativeSynthesis(BaseModel):
@@ -120,6 +175,8 @@ async def build_narrative_synthesis(
     records: Sequence[ExtractionRecord],
     llm_client: object | None = None,
     settings: object | None = None,
+    review_question: str = "",
+    pico: object | None = None,
 ) -> NarrativeSynthesis:
     """Build a narrative synthesis from extraction records.
 
@@ -131,6 +188,14 @@ async def build_narrative_synthesis(
     direction_counts: dict[str, int] = {"positive": 0, "negative": 0, "mixed": 0, "null": 0}
     themes: list[str] = []
     use_llm = llm_client is not None and settings is not None
+    topic_tokens = {
+        tok
+        for tok in _tokenize_theme_terms(review_question)
+        if tok not in _THEME_STOPWORDS
+    }
+    if pico is not None:
+        for attr in ("population", "intervention", "comparison", "outcome"):
+            topic_tokens.update(tok for tok in _tokenize_theme_terms(getattr(pico, attr, "")) if tok not in _THEME_STOPWORDS)
 
     for record in records:
         summary = (record.results_summary.get("summary") or "").strip()
@@ -152,7 +217,10 @@ async def build_narrative_synthesis(
         for outcome in record.outcomes:
             name = outcome.name.strip().lower().replace(" ", "_")
             if name and name not in {"not_reported", "primary_outcome", "secondary_outcome"}:
-                themes.append(name)
+                if _theme_is_topic_aligned(name, topic_tokens):
+                    themes.append(name)
+                else:
+                    logger.info("Narrative synthesis dropped off-topic theme '%s'", name)
 
     positive = direction_counts.get("positive", 0)
     negative = direction_counts.get("negative", 0)
@@ -170,13 +238,7 @@ async def build_narrative_synthesis(
 
     unique_themes = sorted(set(themes))
     total = len(records)
-    assessment_method = "LLM-based" if use_llm else "keyword-heuristic"
-    narrative = (
-        f"Across {total} studies, the evidence direction is {direction_summary} "
-        f"({assessment_method} assessment). "
-        f"Direction counts: positive={positive}, negative={negative}, "
-        f"mixed={mixed}, null/unclear={null}."
-    )
+    narrative = f"Across {total} studies, the overall direction of evidence was {direction_summary}."
     if unique_themes:
         narrative += f" Key outcome themes: {', '.join(unique_themes[:10])}."
 
@@ -188,3 +250,16 @@ async def build_narrative_synthesis(
         synthesis_table=rows,
         narrative_text=narrative,
     )
+
+
+def _tokenize_theme_terms(text: str) -> set[str]:
+    return set(re.findall(r"[A-Za-z][A-Za-z0-9\-]{2,}", str(text or "").lower()))
+
+
+def _theme_is_topic_aligned(theme: str, topic_tokens: set[str]) -> bool:
+    theme_tokens = {tok for tok in _tokenize_theme_terms(theme) if tok not in _THEME_STOPWORDS}
+    if not theme_tokens:
+        return False
+    if not topic_tokens:
+        return True
+    return bool(theme_tokens & topic_tokens) or bool(theme_tokens & _GENERIC_THEME_TERMS)

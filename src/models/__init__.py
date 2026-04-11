@@ -15,6 +15,7 @@ from src.models.cohort import CohortMembershipRecord
 from src.models.config import (
     AgentConfig,
     CitationLineageConfig,
+    DomainExpertConfig,
     DualReviewConfig,
     FundingInfo,
     GatesConfig,
@@ -112,6 +113,7 @@ __all__ = [
     "ClaimRecord",
     "CostRecord",
     "DecisionLogEntry",
+    "DomainExpertConfig",
     "FallbackEventRecord",
     "PreWritingGateCheck",
     "PreWritingGateReport",

@@ -9,6 +9,7 @@ from src.models import (
     CandidatePaper,
     CitationEntryRecord,
     DecisionLogEntry,
+    FallbackEventRecord,
     GRADECertainty,
     GRADEOutcomeAssessment,
     ManuscriptAssembly,
@@ -20,6 +21,7 @@ from src.models import (
     SourceCategory,
     ValidationCheckRecord,
     ValidationRunRecord,
+    WritingManifestRecord,
 )
 
 
@@ -221,6 +223,51 @@ async def test_get_citekeys_by_source_types(tmp_path) -> None:
 
 
 @pytest.mark.asyncio
+async def test_register_citation_is_idempotent_for_existing_citekey(tmp_path) -> None:
+    db_path = tmp_path / "citekey_idempotent.db"
+    async with get_db(str(db_path)) as db:
+        repo = CitationRepository(db)
+        await repo.register_citation(
+            CitationEntryRecord(
+                citation_id="cit-1",
+                citekey="Page2021",
+                doi=None,
+                title="Original title",
+                authors=["Page, M. J."],
+                year=2021,
+                journal=None,
+                bibtex=None,
+                resolved=True,
+                source_type="methodology",
+            )
+        )
+        await repo.register_citation(
+            CitationEntryRecord(
+                citation_id="cit-2",
+                citekey="Page2021",
+                doi=None,
+                title="Updated title",
+                authors=["Page, M. J."],
+                year=2021,
+                journal="BMJ",
+                bibtex=None,
+                resolved=True,
+                source_type="methodology",
+            )
+        )
+        row = await (
+            await db.execute(
+                "SELECT COUNT(*), title, journal FROM citations WHERE citekey = ?",
+                ("Page2021",),
+            )
+        ).fetchone()
+        assert row is not None
+        assert int(row[0]) == 1
+        assert row[1] == "Updated title"
+        assert row[2] == "BMJ"
+
+
+@pytest.mark.asyncio
 async def test_validation_run_and_checks_persistence(tmp_path) -> None:
     db_path = tmp_path / "validation_tables.db"
     async with get_db(str(db_path)) as db:
@@ -250,6 +297,33 @@ async def test_validation_run_and_checks_persistence(tmp_path) -> None:
         checks = await repo.get_validation_checks("val-1")
         assert len(checks) == 1
         assert checks[0].check_name == "batch_contract"
+
+
+@pytest.mark.asyncio
+async def test_save_fallback_event_is_idempotent_within_generation(tmp_path) -> None:
+    db_path = tmp_path / "fallback_event_idempotent.db"
+    async with get_db(str(db_path)) as db:
+        repo = WorkflowRepository(db)
+        await repo.create_workflow("wf-fallback", "topic", "hash")
+        record = FallbackEventRecord(
+            workflow_id="wf-fallback",
+            phase="phase_6_writing",
+            module="writing.section_writer",
+            fallback_type="deterministic_section_fallback",
+            reason="section=abstract; validation_retries=1",
+            paper_id=None,
+            details_json='{"validation_issues":["trailing_fragment_punctuation"]}',
+        )
+        await repo.save_fallback_event(record)
+        await repo.save_fallback_event(record)
+        row = await (
+            await db.execute(
+                "SELECT COUNT(*) FROM fallback_events WHERE workflow_id = ?",
+                ("wf-fallback",),
+            )
+        ).fetchone()
+        assert row is not None
+        assert int(row[0]) == 1
 
 
 @pytest.mark.asyncio
@@ -509,6 +583,35 @@ async def test_save_section_draft_dual_writes_manuscript_tables(tmp_path) -> Non
 
 
 @pytest.mark.asyncio
+async def test_save_manuscript_section_from_draft_is_idempotent_for_retries(tmp_path) -> None:
+    db_path = tmp_path / "manuscript_retry.db"
+    async with get_db(str(db_path)) as db:
+        repo = WorkflowRepository(db)
+        draft = SectionDraft(
+            workflow_id="wf-retry",
+            section="abstract",
+            version=1,
+            content="**Background:** Text. **Objectives:** Text. **Methods:** Text. **Results:** Text. **Conclusion:** Text.",
+            claims_used=[],
+            citations_used=[],
+            word_count=10,
+        )
+        await repo.save_section_draft(draft)
+        await repo.save_manuscript_section_from_draft(draft, section_order=0)
+        await repo.save_manuscript_section_from_draft(draft, section_order=0)
+
+        section_count = await (
+            await db.execute("SELECT COUNT(*) FROM manuscript_sections WHERE workflow_id = ?", ("wf-retry",))
+        ).fetchone()
+        block_count = await (
+            await db.execute("SELECT COUNT(*) FROM manuscript_blocks WHERE workflow_id = ?", ("wf-retry",))
+        ).fetchone()
+
+    assert int(section_count[0]) == 1
+    assert int(block_count[0]) >= 1
+
+
+@pytest.mark.asyncio
 async def test_save_manuscript_assembly_validates_manifest_refs(tmp_path) -> None:
     db_path = tmp_path / "assembly_manifest.db"
     async with get_db(str(db_path)) as db:
@@ -567,3 +670,69 @@ async def test_validate_manuscript_md_parity(tmp_path) -> None:
         parity = await repo.validate_manuscript_md_parity("wf-parity", md)
         assert parity["has_assembly"] is True
         assert parity["citation_set_match"] is True
+
+
+@pytest.mark.asyncio
+async def test_generation_aware_writing_reads_use_active_generation(tmp_path) -> None:
+    db_path = tmp_path / "writing_generation_reads.db"
+    async with get_db(str(db_path)) as db:
+        repo = WorkflowRepository(db)
+        await repo.create_workflow("wf-gen", "topic", "hash")
+        await repo.save_section_draft(
+            SectionDraft(
+                workflow_id="wf-gen",
+                section="results",
+                version=1,
+                content="old results",
+                claims_used=[],
+                citations_used=[],
+                word_count=2,
+            )
+        )
+        await repo.save_writing_manifest(
+            WritingManifestRecord(
+                workflow_id="wf-gen",
+                section_key="results",
+                attempt_number=1,
+                contract_status="warning",
+            )
+        )
+        await repo.save_fallback_event(
+            FallbackEventRecord(
+                workflow_id="wf-gen",
+                phase="phase_6_writing",
+                module="writing.section_writer",
+                fallback_type="deterministic_section_fallback",
+                reason="section=results",
+            )
+        )
+        await repo.bump_writing_generation("wf-gen")
+        await db.execute(
+            """
+            INSERT INTO section_drafts (workflow_id, section, version, generation, content, claims_used, citations_used, word_count)
+            VALUES (?, ?, ?, ?, ?, '[]', '[]', ?)
+            """,
+            ("wf-gen", "discussion", 1, 2, "new discussion", 2),
+        )
+        await db.execute(
+            """
+            INSERT INTO writing_manifests (
+                workflow_id, section_key, attempt_number, generation, contract_status, contract_issues, fallback_used, retry_count, meta_json
+            ) VALUES (?, ?, ?, ?, ?, '[]', 0, 0, '{}')
+            """,
+            ("wf-gen", "discussion", 1, 2, "passed"),
+        )
+        await db.execute(
+            """
+            INSERT INTO fallback_events (
+                workflow_id, phase, module, fallback_type, reason, generation, details_json
+            ) VALUES (?, ?, ?, ?, ?, ?, '{}')
+            """,
+            ("wf-gen", "phase_6_writing", "rag.retrieval", "empty_context", "section=discussion", 2),
+        )
+        await db.commit()
+
+        assert await repo.get_completed_sections("wf-gen") == {"discussion"}
+        manifests = await repo.get_writing_manifests("wf-gen")
+        assert [m.section_key for m in manifests] == ["discussion"]
+        assert await repo.count_fallback_events("wf-gen") == 1

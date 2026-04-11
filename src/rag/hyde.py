@@ -35,8 +35,10 @@ appear in the {section} section of a systematic review on this topic:
 {pico_block}
 Requirements:
 - Be specific to the topic above
+- Use only concepts, settings, and outcome domains that are explicit in the research question or PICO
 - Use academic language matching published systematic reviews
 - Do NOT fabricate specific study names, statistics, or citations
+- Do NOT introduce unrelated diseases, technical benchmark metrics, or implementation domains unless they appear above
 - Length: 100-200 words maximum
 """
 

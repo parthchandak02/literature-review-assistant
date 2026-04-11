@@ -39,6 +39,7 @@ class SectionDraft(BaseModel):
     workflow_id: str
     section: str
     version: int
+    generation: int | None = None
     content: str
     claims_used: list[str] = Field(default_factory=list)
     citations_used: list[str] = Field(default_factory=list)
@@ -51,6 +52,7 @@ class ManuscriptSection(BaseModel):
     section_key: str
     section_order: int
     version: int
+    generation: int | None = None
     title: str
     status: str = "draft"
     source: str = "parser"
@@ -64,6 +66,7 @@ class ManuscriptBlock(BaseModel):
     workflow_id: str
     section_key: str
     section_version: int
+    generation: int | None = None
     block_order: int
     block_type: str
     text: str
@@ -86,6 +89,7 @@ class ManuscriptAssembly(BaseModel):
     workflow_id: str
     assembly_id: str
     target_format: str
+    generation: int | None = None
     content: str
     manifest_json: str
     timestamp: datetime = Field(default_factory=lambda: datetime.now(UTC))
@@ -120,6 +124,7 @@ class SectionWriteResult(BaseModel):
     cited_keys: list[str] = Field(default_factory=list)
     word_count: int = 0
     validation_retries: int = 0
+    validation_issues: list[str] = Field(default_factory=list)
     fallback_used: bool = False
     used_deterministic_fallback: bool = False
     timestamp: datetime = Field(default_factory=lambda: datetime.now(UTC))
