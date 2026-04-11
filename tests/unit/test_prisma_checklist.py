@@ -68,3 +68,31 @@ def test_prisma_html_renderer_includes_color_badges() -> None:
     assert "<!doctype html>" in html.lower()
     assert "badge reported" in html or "badge partial" in html or "badge missing" in html
     assert "PRISMA 2020 Checklist Validation" in html
+
+
+def test_validate_prisma_recognizes_exact_generation_phrases() -> None:
+    md = (
+        "# A systematic review of digital vaccine records\n\n"
+        "## Introduction\n\n"
+        "The rationale for this review is to address an evidence gap in the context of rural deployment.\n\n"
+        "## Methods\n\n"
+        "Primary and secondary outcomes were defined a priori and sought across all reported time points.\n"
+        "Meta-analysis was not feasible for the heterogeneous evidence base.\n"
+        "The primary effect measure was the reported direction of effect; odds ratio, risk ratio, and mean difference were extracted descriptively.\n"
+        "No formal reporting bias or publication bias assessment was feasible because funnel plot review was not interpretable.\n\n"
+        "## Results\n\n"
+        "Heterogeneity results did not identify a consistent interaction or effect modifier across subgroup comparisons.\n"
+        "No reporting bias or publication bias result was available because funnel-based assessment was not interpretable.\n\n"
+        "## Other Information\n\n"
+        "No protocol amendment or protocol deviation was made after data collection began.\n"
+        "The authors declare no competing interest and no conflict of interest. This disclosure applies to all authors.\n"
+    )
+    result = validate_prisma(tex_content=None, md_content=md)
+    statuses = {item.item_id: item.status for item in result.items}
+    assert statuses["3"] == "REPORTED"
+    assert statuses["10a"] == "REPORTED"
+    assert statuses["12"] == "REPORTED"
+    assert statuses["20c"] == "REPORTED"
+    assert statuses["21"] == "REPORTED"
+    assert statuses["24c"] == "REPORTED"
+    assert statuses["26"] == "REPORTED"

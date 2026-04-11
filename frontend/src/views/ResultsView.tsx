@@ -8,8 +8,6 @@ import {
   FileText,
   Lock,
   Loader2,
-  CheckCircle,
-  XCircle,
   AlertTriangle,
   BookOpen,
   FileType,
@@ -23,33 +21,18 @@ import { EvidenceNetworkViz } from "@/components/EvidenceNetworkViz"
 import {
   APIResponseError,
   fetchGradeSof,
-  fetchManuscriptAudit,
-  fetchWorkflowManuscriptAuditFindings,
-  fetchWorkflowManuscriptAuditSummary,
   fetchRunReadiness,
-  triggerExport,
-  fetchPrismaChecklist,
-  downloadUrl,
   prosperoFormDocxUrl,
   prosperoFormMarkdownUrl,
+  triggerExport,
+  downloadUrl,
   submissionZipUrl,
 } from "@/lib/api"
 import { Skeleton } from "@/components/ui/skeleton"
 import { FetchError, EmptyState } from "@/components/ui/feedback"
 import { CollapsibleSection } from "@/components/ui/section"
 import { cn } from "@/lib/utils"
-import type {
-  GradeSofResponse,
-  ManuscriptAuditFinding,
-  ManuscriptAuditPayload,
-  PrismaChecklist,
-  ReadinessScorecard,
-} from "@/lib/api"
-import {
-  describeManuscriptContract,
-  describeManuscriptGate,
-  selectManuscriptAuditRun,
-} from "@/lib/manuscriptAudit"
+import type { GradeSofResponse } from "@/lib/api"
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -145,12 +128,6 @@ function formatExportError(error: unknown): string {
   }
   if (error instanceof Error) return error.message
   return "Export failed"
-}
-
-function formatLabel(value: string): string {
-  return value
-    .replace(/_/g, " ")
-    .replace(/\b\w/g, (m) => m.toUpperCase())
 }
 
 // ---------------------------------------------------------------------------
@@ -302,351 +279,6 @@ function ManuscriptViewer({ filePath }: { filePath: string }) {
 }
 
 // ---------------------------------------------------------------------------
-// PRISMA inline collapsible card
-// ---------------------------------------------------------------------------
-
-function PrismaStatusIcon({ status }: { status: string }) {
-  if (status === "REPORTED") return <CheckCircle className="h-3.5 w-3.5 text-emerald-400 shrink-0" />
-  if (status === "PARTIAL") return <AlertTriangle className="h-3.5 w-3.5 text-amber-400 shrink-0" />
-  if (status === "NOT_APPLICABLE") return <BookOpen className="h-3.5 w-3.5 text-zinc-500 shrink-0" />
-  return <XCircle className="h-3.5 w-3.5 text-red-400 shrink-0" />
-}
-
-function PrismaCard({ runId }: { runId: string }) {
-  const [open, setOpen] = useState(false)
-  const [data, setData] = useState<PrismaChecklist | null>(null)
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  const [sectionFilter, setSectionFilter] = useState<string>("All")
-  const hasFetched = useRef(false)
-  const fetchChecklist = useCallback(async () => {
-    setLoading(true)
-    setError(null)
-    try {
-      setData(await fetchPrismaChecklist(runId))
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e))
-    } finally {
-      setLoading(false)
-    }
-  }, [runId])
-
-  useEffect(() => {
-    // Reset sticky fetch state when user switches runs.
-    hasFetched.current = false
-    setData(null)
-    setError(null)
-    setSectionFilter("All")
-  }, [runId])
-
-  function handleToggle() {
-    setOpen((v) => !v)
-    if (!hasFetched.current) {
-      hasFetched.current = true
-      void fetchChecklist()
-    }
-  }
-
-  const sections = data
-    ? ["All", ...Array.from(new Set(data.items.map((i) => i.section)))]
-    : ["All"]
-
-  const filtered = data
-    ? sectionFilter === "All"
-      ? data.items
-      : data.items.filter((i) => i.section === sectionFilter)
-    : []
-
-  const scoreChip = data && data.total > 0 ? (
-    <span className={cn(
-      "text-[10px] font-mono px-1.5 py-0.5 rounded border shrink-0",
-      data.passed
-        ? "text-emerald-400 border-emerald-800 bg-emerald-900/20"
-        : "text-amber-400 border-amber-800 bg-amber-900/20",
-    )}>
-      {data.reported_count}/{data.total} {data.passed ? "PASS" : "review"}
-    </span>
-  ) : null
-
-  return (
-    <CollapsibleSection
-      icon={CheckCircle}
-      title="PRISMA 2020 Compliance"
-      badge={scoreChip}
-      open={open}
-      onToggle={handleToggle}
-    >
-      <div className="p-4 space-y-4">
-          {loading && (
-            <div className="space-y-3">
-              <Skeleton className="h-4 w-full" />
-              <Skeleton className="h-4 w-5/6" />
-              <Skeleton className="h-4 w-full" />
-            </div>
-          )}
-          {error && <FetchError message={`Failed to load: ${error}`} onRetry={() => void fetchChecklist()} />}
-          {data && data.source_state === "artifact_missing" && (
-            <EmptyState
-              icon={AlertTriangle}
-              heading="PRISMA source manuscript artifact is missing."
-              sub="Run may not have reached writing/finalize yet, or manuscript artifacts are unavailable for this run."
-              className="py-10"
-            />
-          )}
-          {data && data.source_state !== "artifact_missing" && (
-            <>
-              {/* Summary bar */}
-            <div className="flex items-center gap-4 text-xs flex-wrap p-3 rounded-lg glass-panel">
-                <span className="text-emerald-400 font-semibold">{data.reported_count} Reported</span>
-                <span className="text-amber-400 font-semibold">{data.partial_count} Partial</span>
-                <span className="text-red-400 font-semibold">{data.missing_count} Missing</span>
-                <span className="text-zinc-400 font-semibold">{data.not_applicable_count} N/A</span>
-              </div>
-
-              {/* Section filter chips */}
-              <div className="flex items-center gap-1 flex-wrap">
-                {sections.map((s) => (
-                  <button
-                    key={s}
-                    onClick={() => setSectionFilter(s)}
-                    className={cn(
-                      "px-2.5 py-1 rounded-full text-xs border transition-colors",
-                      sectionFilter === s
-                        ? "border-violet-600 bg-violet-900/40 text-violet-300"
-                        : "border-zinc-700 text-zinc-500 hover:text-zinc-300",
-                    )}
-                  >
-                    {s}
-                  </button>
-                ))}
-              </div>
-
-              {/* Items */}
-              <div className="space-y-1">
-                {filtered.map((item) => (
-                  <div
-                    key={item.item_id}
-                    className={cn(
-                      "flex items-start gap-2.5 px-3 py-2 rounded-lg text-xs",
-                      item.status === "REPORTED"
-                        ? "bg-emerald-900/10"
-                        : item.status === "PARTIAL"
-                        ? "bg-amber-900/10"
-                        : item.status === "NOT_APPLICABLE"
-                        ? "bg-zinc-900/40"
-                        : "bg-red-900/10",
-                    )}
-                  >
-                    <PrismaStatusIcon status={item.status} />
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <span className="font-mono text-zinc-500 shrink-0">{item.item_id}</span>
-                        <span className="text-zinc-400 font-medium leading-snug">{item.description}</span>
-                        <span className="text-zinc-600 ml-auto shrink-0">{item.section}</span>
-                      </div>
-                      {item.rationale && (
-                        <p className="text-zinc-600 mt-0.5 leading-relaxed">{item.rationale}</p>
-                      )}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </>
-          )}
-        </div>
-    </CollapsibleSection>
-  )
-}
-
-function ManuscriptAuditCard({ runId }: { runId: string }) {
-  const [open, setOpen] = useState(false)
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  const [data, setData] = useState<ManuscriptAuditPayload | null>(null)
-  const [findings, setFindings] = useState<ManuscriptAuditFinding[]>([])
-  const [selectedAuditRunId, setSelectedAuditRunId] = useState<string | null>(null)
-  const hasFetched = useRef(false)
-
-  const load = useCallback(async () => {
-    setLoading(true)
-    setError(null)
-    try {
-      const payload = await fetchManuscriptAudit(runId)
-      let nextPayload = payload
-      let nextFindings = payload.findings
-      let nextSelectedAuditRunId = payload.latest_run?.audit_run_id ?? null
-      if (payload.workflow_id) {
-        const summary = await fetchWorkflowManuscriptAuditSummary(payload.workflow_id)
-        nextPayload = {
-          ...payload,
-          latest_run: summary.latest_run,
-          history: summary.history,
-        }
-        nextSelectedAuditRunId = summary.latest_run?.audit_run_id ?? nextSelectedAuditRunId
-        const findingsPayload = await fetchWorkflowManuscriptAuditFindings(
-          payload.workflow_id,
-          nextSelectedAuditRunId,
-        )
-        nextFindings = findingsPayload.findings
-      }
-      setSelectedAuditRunId(nextSelectedAuditRunId)
-      setFindings(nextFindings)
-      setData(nextPayload)
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e))
-    } finally {
-      setLoading(false)
-    }
-  }, [runId])
-
-  const loadSelectedFindings = useCallback(async (workflowId: string, auditRunId: string | null) => {
-    setLoading(true)
-    setError(null)
-    try {
-      const payload = await fetchWorkflowManuscriptAuditFindings(workflowId, auditRunId)
-      setFindings(payload.findings)
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e))
-    } finally {
-      setLoading(false)
-    }
-  }, [])
-
-  useEffect(() => {
-    hasFetched.current = false
-    setData(null)
-    setFindings([])
-    setSelectedAuditRunId(null)
-    setError(null)
-  }, [runId])
-
-  function handleToggle() {
-    setOpen((v) => !v)
-    if (!hasFetched.current) {
-      hasFetched.current = true
-      void load()
-    }
-  }
-
-  const latest = data?.latest_run ?? null
-  const history = data?.history ?? []
-  const selectedRun = selectManuscriptAuditRun(latest, history, selectedAuditRunId)
-
-  useEffect(() => {
-    if (!open || !hasFetched.current || !data?.workflow_id || !selectedAuditRunId) return
-    if (selectedAuditRunId === latest?.audit_run_id) return
-    void loadSelectedFindings(data.workflow_id, selectedAuditRunId)
-  }, [data?.workflow_id, latest?.audit_run_id, loadSelectedFindings, open, selectedAuditRunId])
-
-  return (
-    <CollapsibleSection
-      icon={AlertTriangle}
-      title="Final Guardian Audit"
-      open={open}
-      onToggle={handleToggle}
-      badge={
-        selectedRun ? (
-          <span className={cn(
-            "text-[10px] font-mono px-1.5 py-0.5 rounded border shrink-0",
-            selectedRun.passed && !selectedRun.gate_blocked
-              ? "text-emerald-400 border-emerald-800 bg-emerald-900/20"
-              : "text-amber-400 border-amber-800 bg-amber-900/20",
-          )}>
-            {selectedRun.verdict}
-          </span>
-        ) : null
-      }
-    >
-      <div className="p-4 space-y-3">
-        {loading && (
-          <div className="space-y-2">
-            <Skeleton className="h-4 w-full" />
-            <Skeleton className="h-4 w-5/6" />
-          </div>
-        )}
-        {error && <FetchError message={`Failed to load audit: ${error}`} onRetry={() => void load()} />}
-        {!loading && !error && !latest && (
-          <EmptyState
-            icon={AlertTriangle}
-            heading="No manuscript audit data yet."
-            sub="Run must complete phase_7_audit before findings appear."
-            className="py-6"
-          />
-        )}
-        {selectedRun && (
-          <>
-            <div className="flex items-center gap-2 flex-wrap">
-              {history.map((run) => (
-                <button
-                  key={run.audit_run_id}
-                  type="button"
-                  className={cn(
-                    "text-[10px] font-mono px-2 py-1 rounded border",
-                    selectedAuditRunId === run.audit_run_id
-                      ? "border-violet-700 bg-violet-900/30 text-violet-200"
-                      : "border-zinc-800 bg-zinc-900/40 text-zinc-400 hover:text-zinc-200",
-                  )}
-                  onClick={() => {
-                    setSelectedAuditRunId(run.audit_run_id)
-                    if (data?.workflow_id) void loadSelectedFindings(data.workflow_id, run.audit_run_id)
-                  }}
-                >
-                  {run.audit_run_id}
-                </button>
-              ))}
-            </div>
-            <div className="text-xs text-zinc-400">
-              <span className="text-zinc-300 font-medium">Summary:</span> {selectedRun.summary || "No summary."}
-            </div>
-            <div className="flex items-center gap-3 text-xs flex-wrap p-3 rounded-lg glass-panel">
-              <span className="text-zinc-300">Findings: {selectedRun.total_findings}</span>
-              <span className="text-red-400">Major: {selectedRun.major_count}</span>
-              <span className="text-amber-400">Minor: {selectedRun.minor_count}</span>
-              <span className="text-zinc-400">Notes: {selectedRun.note_count}</span>
-              <span className="text-violet-400">Blocking: {selectedRun.blocking_count}</span>
-            </div>
-            <div className="text-xs rounded-lg px-3 py-2 bg-zinc-900/50 border border-zinc-800 space-y-1">
-              <div className="text-zinc-200">{describeManuscriptGate(selectedRun)}</div>
-              <div className="text-zinc-400">{describeManuscriptContract(selectedRun)}</div>
-              {selectedRun.gate_failure_reasons.length > 0 && (
-                <div className="space-y-1 pt-1">
-                  {selectedRun.gate_failure_reasons.map((reason) => (
-                    <div key={reason} className="text-amber-300">{reason}</div>
-                  ))}
-                </div>
-              )}
-              {selectedRun.contract_violations.slice(0, 5).map((violation) => (
-                <div key={`${violation.code}-${violation.message}`} className="text-zinc-500">
-                  {violation.code}: {violation.message}
-                </div>
-              ))}
-            </div>
-            <div className="space-y-1">
-              {findings.slice(0, 20).map((f) => (
-                <div key={f.finding_id} className="text-xs rounded-lg px-3 py-2 bg-zinc-900/50 border border-zinc-800">
-                  <div className="flex items-center gap-2">
-                    <span className="font-mono text-zinc-500">{f.profile}</span>
-                    <span className={cn(
-                      "uppercase text-[10px] font-semibold",
-                      f.severity === "major" ? "text-red-400" : f.severity === "minor" ? "text-amber-400" : "text-zinc-400",
-                    )}>
-                      {f.severity}
-                    </span>
-                    {f.section ? <span className="text-zinc-500">[{f.section}]</span> : null}
-                  </div>
-                  <div className="text-zinc-300 mt-1">{f.evidence}</div>
-                  <div className="text-zinc-500 mt-1">Fix: {f.recommendation}</div>
-                </div>
-              ))}
-            </div>
-          </>
-        )}
-      </div>
-    </CollapsibleSection>
-  )
-}
-
-// ---------------------------------------------------------------------------
 // Evidence Network collapsible section
 // ---------------------------------------------------------------------------
 
@@ -660,89 +292,6 @@ function EvidenceNetworkSection({ runId }: { runId: string }) {
     >
       <div className="p-4">
         {open && <EvidenceNetworkViz runId={runId} />}
-      </div>
-    </CollapsibleSection>
-  )
-}
-
-function ReadinessCard({ runId, onReadyChange }: { runId: string; onReadyChange?: (ready: boolean) => void }) {
-  const [data, setData] = useState<ReadinessScorecard | null>(null)
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
-
-  const load = useCallback(async () => {
-    setLoading(true)
-    setError(null)
-    try {
-      const next = await fetchRunReadiness(runId)
-      setData(next)
-      onReadyChange?.(next.ready)
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e))
-      onReadyChange?.(false)
-    } finally {
-      setLoading(false)
-    }
-  }, [runId, onReadyChange])
-
-  useEffect(() => {
-    void load()
-  }, [load])
-
-  return (
-    <CollapsibleSection
-      icon={CheckCircle}
-      title="Readiness"
-      description={data ? (data.ready ? "Run is export-ready" : "Export is blocked until checks pass") : undefined}
-      defaultOpen={true}
-    >
-      <div className="p-4">
-        {loading ? (
-          <div className="space-y-2">
-            <Skeleton className="h-4 w-40" />
-            <Skeleton className="h-16 w-full" />
-          </div>
-        ) : error ? (
-          <FetchError message={error} onRetry={() => void load()} />
-        ) : data ? (
-          <div className="space-y-3">
-            <div className={`rounded-xl border px-3 py-3 text-sm ${data.ready ? "border-emerald-500/30 bg-emerald-500/8 text-emerald-200" : "border-amber-500/30 bg-amber-500/8 text-amber-200"}`}>
-              <div className="font-medium">{data.ready ? "Ready for manuscript export." : "Export blocked by readiness checks."}</div>
-              <div className="mt-1 text-xs opacity-80">
-                {data.fallback_event_count > 0
-                  ? `${data.fallback_event_count} deterministic fallback event(s) recorded.`
-                  : "No fallback events recorded."}
-              </div>
-            </div>
-            <div className="grid gap-2">
-              {data.checks.map((check) => (
-                <div key={check.name} className="rounded-lg border border-zinc-800 bg-zinc-950/60 px-3 py-2">
-                  <div className="flex items-start gap-2">
-                    {check.ok ? (
-                      <CheckCircle className="mt-0.5 h-4 w-4 text-emerald-400 shrink-0" />
-                    ) : (
-                      <AlertTriangle className="mt-0.5 h-4 w-4 text-amber-400 shrink-0" />
-                    )}
-                    <div className="min-w-0">
-                      <div className="text-sm text-zinc-200">{formatLabel(check.name)}</div>
-                      {check.detail && <div className="mt-0.5 text-xs text-zinc-500">{check.detail}</div>}
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-            {!data.ready && data.blocking_reasons.length > 0 && (
-              <div className="rounded-xl border border-red-500/20 bg-red-500/5 px-3 py-3">
-                <div className="text-xs font-semibold text-red-300">Blocking reasons</div>
-                <div className="mt-1 space-y-1">
-                  {data.blocking_reasons.map((reason, idx) => (
-                    <div key={`${idx}-${reason}`} className="text-xs text-red-200/80">{reason}</div>
-                  ))}
-                </div>
-              </div>
-            )}
-          </div>
-        ) : null}
       </div>
     </CollapsibleSection>
   )
@@ -828,7 +377,7 @@ function ProsperoDownloadsCard({ runId }: { runId: string }) {
             PROSPERO Markdown
           </a>
         </Button>
-      </div>
+        </div>
     </CollapsibleSection>
   )
 }
@@ -1078,6 +627,25 @@ export function ResultsView({
   }, [effectiveOutputs, hasSubmissionArtifacts])
 
   useEffect(() => {
+    if (!exportRunId) {
+      setReadinessReady(false)
+      return
+    }
+    let cancelled = false
+    void (async () => {
+      try {
+        const readiness = await fetchRunReadiness(exportRunId)
+        if (!cancelled) setReadinessReady(readiness.ready)
+      } catch {
+        if (!cancelled) setReadinessReady(false)
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [exportRunId])
+
+  useEffect(() => {
     if (submissionFocusTarget && !artifactsOpen) {
       // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional one-way sync from navigation focus token
       setArtifactsOpen(true)
@@ -1126,23 +694,11 @@ export function ResultsView({
         </CollapsibleSection>
       )}
 
-      {exportRunId ? <ReadinessCard runId={exportRunId} onReadyChange={setReadinessReady} /> : null}
-
       {prismaDiagramPath ? <PrismaDiagramCard filePath={prismaDiagramPath} /> : null}
-
-      {exportRunId ? (
-        <PrismaCard runId={exportRunId} />
-      ) : (
-        <div className="card-surface px-4 py-3 text-xs text-zinc-500">
-          PRISMA compliance available after run completes.
-        </div>
-      )}
 
       {exportRunId ? <GradeSofCard runId={exportRunId} /> : null}
 
       {exportRunId ? <ProsperoDownloadsCard runId={exportRunId} /> : null}
-
-      {exportRunId ? <ManuscriptAuditCard runId={exportRunId} /> : null}
 
       {exportRunId ? <EvidenceNetworkSection runId={exportRunId} /> : null}
 

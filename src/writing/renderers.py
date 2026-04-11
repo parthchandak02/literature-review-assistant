@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from src.models.writing import SectionBlock, StructuredManuscriptDraft, StructuredSectionDraft
+from src.writing.headings import normalize_heading_for_parity, sanitize_heading_title
 
 
 def _dedupe_citations(citations: list[str]) -> list[str]:
@@ -51,7 +52,8 @@ def _append_citations(text: str, citations: list[str], *, bullet_list: bool = Fa
 def _render_block_markdown(block: SectionBlock) -> str:
     if block.block_type == "subheading":
         level = min(max(int(block.level or 3), 3), 4)
-        return f"{'#' * level} {block.text.strip()}".strip()
+        title = sanitize_heading_title(block.text)
+        return f"{'#' * level} {title}".strip()
     if block.block_type == "bullet_list":
         items = [item.strip(" -") for item in block.text.split("\n") if item.strip()]
         rendered = "\n".join(f"- {item}" for item in items)
@@ -78,10 +80,11 @@ def render_section_latex(section: StructuredSectionDraft) -> str:
             continue
         if block.block_type == "subheading":
             level = min(max(int(block.level or 3), 3), 4)
+            title = sanitize_heading_title(text)
             if level == 3:
-                lines.append(f"\\subsection{{{text}}}")
+                lines.append(f"\\subsection{{{title}}}")
             else:
-                lines.append(f"\\subsubsection{{{text}}}")
+                lines.append(f"\\subsubsection{{{title}}}")
             continue
         if block.block_type == "bullet_list":
             items = [item.strip(" -") for item in text.split("\n") if item.strip()]
@@ -107,4 +110,20 @@ def render_manuscript_markdown(manuscript: StructuredManuscriptDraft) -> dict[st
 def render_manuscript_latex(manuscript: StructuredManuscriptDraft) -> dict[str, str]:
     """Render all section drafts to LaTeX body content by section key."""
     return {section.section_key: render_section_latex(section) for section in manuscript.sections}
+
+
+def collect_section_heading_inventory(section: StructuredSectionDraft) -> list[tuple[int, str]]:
+    """Return canonical heading inventory for one structured section."""
+    headings: list[tuple[int, str]] = []
+    for block in section.blocks:
+        if block.block_type != "subheading":
+            continue
+        level = min(max(int(block.level or 3), 3), 4)
+        headings.append((level, normalize_heading_for_parity(sanitize_heading_title(block.text))))
+    return headings
+
+
+def collect_manuscript_heading_inventory(manuscript: StructuredManuscriptDraft) -> dict[str, list[tuple[int, str]]]:
+    """Return canonical heading inventory for each structured manuscript section."""
+    return {section.section_key: collect_section_heading_inventory(section) for section in manuscript.sections}
 

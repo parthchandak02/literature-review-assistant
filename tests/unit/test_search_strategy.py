@@ -4,7 +4,7 @@ import asyncio
 
 import pytest
 
-from src.models import ReviewConfig, ReviewType
+from src.models import DomainExpertConfig, ReviewConfig, ReviewType
 from src.models.enums import SourceCategory
 from src.models.papers import SearchResult
 from src.screening.prompts import _quality_criteria_block
@@ -65,6 +65,21 @@ def test_build_database_query_embase_primary_only_exclusion() -> None:
     query = build_database_query(_review(), "embase")
     assert "TITLE-ABS-KEY" in query
     assert "AND NOT DOCTYPE(re)" in query
+
+
+def test_build_database_query_uses_domain_expert_terms() -> None:
+    review = _review().model_copy(
+        update={
+            "domain_expert": DomainExpertConfig(
+                canonical_terms=["telemedicine", "remote patient monitoring"],
+                related_terms=["RPM"],
+                outcome_focus=["hospital readmission"],
+            )
+        }
+    )
+    query = build_database_query(review, "semantic_scholar")
+    assert "remote patient monitoring" in query
+    assert "RPM" in query
 
 
 def test_primary_filter_mode_detection() -> None:

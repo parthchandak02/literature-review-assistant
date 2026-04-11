@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 import uuid
 from typing import Literal
 
@@ -30,6 +31,50 @@ class FundingInfo(BaseModel):
     funder: str = ""
 
 
+def _dedupe_terms(values: list[str]) -> list[str]:
+    seen: set[str] = set()
+    out: list[str] = []
+    for raw in values:
+        value = str(raw or "").strip()
+        if len(value) < 2:
+            continue
+        key = value.casefold()
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(value)
+    return out
+
+
+def _compact_phrase(value: str) -> str:
+    return re.sub(r"\s+", " ", str(value or "").strip())
+
+
+class DomainExpertConfig(BaseModel):
+    """Structured domain brief that makes each run topic-specific."""
+
+    expert_role: str = ""
+    domain_summary: str = ""
+    canonical_terms: list[str] = Field(default_factory=list)
+    related_terms: list[str] = Field(default_factory=list)
+    excluded_terms: list[str] = Field(default_factory=list)
+    methodological_focus: list[str] = Field(default_factory=list)
+    outcome_focus: list[str] = Field(default_factory=list)
+
+    def populated(self) -> bool:
+        return any(
+            [
+                self.expert_role.strip(),
+                self.domain_summary.strip(),
+                self.canonical_terms,
+                self.related_terms,
+                self.excluded_terms,
+                self.methodological_focus,
+                self.outcome_focus,
+            ]
+        )
+
+
 class ReviewConfig(BaseModel):
     project_id: str = Field(default_factory=lambda: str(uuid.uuid4())[:8])
     research_question: str
@@ -38,6 +83,13 @@ class ReviewConfig(BaseModel):
     keywords: list[str] = Field(min_length=1)
     domain: str
     scope: str
+    domain_expert: DomainExpertConfig = Field(
+        default_factory=DomainExpertConfig,
+        description=(
+            "Structured expertization brief that captures preferred terminology, related terms, "
+            "topic exclusions, and methodology expectations for this review domain."
+        ),
+    )
     inclusion_criteria: list[str] = Field(min_length=1)
     exclusion_criteria: list[str] = Field(min_length=1)
     date_range_start: int
@@ -110,6 +162,70 @@ class ReviewConfig(BaseModel):
             "when present."
         ),
     )
+
+    def expert_topic(self) -> str:
+        return (
+            _compact_phrase(self.domain_expert.domain_summary)
+            or _compact_phrase(self.scope)
+            or _compact_phrase(self.research_question)
+        )
+
+    def expert_role_label(self) -> str:
+        return _compact_phrase(self.domain_expert.expert_role) or f"Systematic review expert for {self.domain}"
+
+    def domain_signal_terms(self, limit: int = 18) -> list[str]:
+        candidates = [
+            *self.domain_expert.canonical_terms,
+            *self.domain_expert.related_terms,
+            *self.domain_expert.outcome_focus,
+            *self.keywords,
+            self.domain,
+            self.scope,
+            self.pico.population,
+            self.pico.intervention,
+            self.pico.outcome,
+        ]
+        normalized = _dedupe_terms([_compact_phrase(item) for item in candidates if _compact_phrase(item)])
+        return normalized[:limit]
+
+    def preferred_terminology(self, limit: int = 12) -> list[str]:
+        candidates = [
+            *self.domain_expert.canonical_terms,
+            *self.domain_expert.outcome_focus,
+            self.pico.intervention,
+            self.pico.outcome,
+            *self.keywords,
+        ]
+        return _dedupe_terms([_compact_phrase(item) for item in candidates if _compact_phrase(item)])[:limit]
+
+    def discouraged_terminology(self, limit: int = 8) -> list[str]:
+        return _dedupe_terms([_compact_phrase(item) for item in self.domain_expert.excluded_terms])[:limit]
+
+    def methodology_expectations(self, limit: int = 8) -> list[str]:
+        derived = [
+            *self.domain_expert.methodological_focus,
+            *self.inclusion_criteria[:3],
+        ]
+        return _dedupe_terms([_compact_phrase(item) for item in derived if _compact_phrase(item)])[:limit]
+
+    def domain_brief_lines(self) -> list[str]:
+        lines = [
+            f"Expert role: {self.expert_role_label()}",
+            f"Domain focus: {self.expert_topic()}",
+        ]
+        preferred = self.preferred_terminology()
+        if preferred:
+            lines.append(f"Preferred terminology: {', '.join(preferred)}")
+        related = _dedupe_terms([_compact_phrase(item) for item in self.domain_expert.related_terms])[:10]
+        if related:
+            lines.append(f"Related terminology and synonyms: {', '.join(related)}")
+        methods = self.methodology_expectations()
+        if methods:
+            lines.append(f"Methodological focus: {'; '.join(methods)}")
+        discouraged = self.discouraged_terminology()
+        if discouraged:
+            lines.append(f"Avoid out-of-scope terminology: {', '.join(discouraged)}")
+        return lines
 
 
 class AgentConfig(BaseModel):
@@ -440,6 +556,15 @@ class GatesConfig(BaseModel):
     )
     extraction_completeness_threshold: float = 0.80
     extraction_max_empty_rate: float = 0.35
+    mmat_minimum_score: int = Field(
+        default=1,
+        ge=0,
+        le=5,
+        description=(
+            "Minimum MMAT score required to keep a study in the synthesis cohort "
+            "when its extracted findings sanitize to 'NR'. Set to 0 to disable the filter."
+        ),
+    )
     cost_budget_max: float = 20.0
     manuscript_contract_mode: str = Field(
         default="observe",

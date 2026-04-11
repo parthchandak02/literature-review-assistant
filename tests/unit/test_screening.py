@@ -9,6 +9,7 @@ from src.db.repositories import WorkflowRepository
 from src.llm.provider import LLMProvider
 from src.models import (
     CandidatePaper,
+    DomainExpertConfig,
     ExclusionReason,
     ReviewConfig,
     ReviewerType,
@@ -18,6 +19,7 @@ from src.models import (
 )
 from src.models.config import ScreeningConfig
 from src.screening.dual_screener import DualReviewerScreener, ReviewerSpec, ScreeningLLMClient
+from src.screening.prompts import reviewer_a_prompt
 
 
 class _ScriptedClient(ScreeningLLMClient):
@@ -98,12 +100,26 @@ def _review() -> ReviewConfig:
         keywords=["ai tutor"],
         domain="education",
         scope="health education",
+        domain_expert=DomainExpertConfig(
+            expert_role="Education evidence reviewer",
+            canonical_terms=["AI tutor", "learning gain"],
+            related_terms=["intelligent tutoring system"],
+            excluded_terms=["clinical endpoint"],
+        ),
         inclusion_criteria=["include if related"],
         exclusion_criteria=["exclude if unrelated"],
         date_range_start=2015,
         date_range_end=2026,
         target_databases=["openalex"],
     )
+
+
+def test_screening_prompt_includes_domain_brief_and_terms() -> None:
+    paper = CandidatePaper(title="Tutor study", authors=["A"], source_database="openalex", abstract="Test abstract")
+    prompt = reviewer_a_prompt(_review(), paper, "title_abstract")
+    assert "Domain brief:" in prompt
+    assert "AI tutor" in prompt
+    assert "clinical endpoint" in prompt
 
 
 def _settings() -> SettingsConfig:

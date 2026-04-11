@@ -3462,9 +3462,9 @@ async def get_db_tables(run_id: str) -> dict[str, Any]:
 
 
 @app.get("/api/db/{run_id}/rag-diagnostics")
-async def get_db_rag_diagnostics(run_id: str) -> dict[str, Any]:
+async def get_db_rag_diagnostics(run_id: str, run_root: str = "runs") -> dict[str, Any]:
     """Return per-section RAG retrieval diagnostics for a run."""
-    db_path = _get_db_path(run_id)
+    db_path = await _resolve_db_path_from_run_or_workflow(run_id, run_root)
     try:
         async with aiosqlite.connect(db_path) as db:
             db.row_factory = aiosqlite.Row

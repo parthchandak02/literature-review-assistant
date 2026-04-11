@@ -32,6 +32,43 @@ _SOURCE_DISPLAY_NAMES: dict[str, str] = {
     "perplexity": "Perplexity",
 }
 
+_SUMMARY_HTML_BOILERPLATE_MARKERS = (
+    "html boilerplate",
+    "metadata",
+    "text excerpt",
+    "javascript",
+    "<!doctype",
+    "<html",
+)
+_SUMMARY_PDF_METADATA_PREFIXES = (
+    "pmc ",
+    "doi ",
+    "doi:",
+    "p g y",
+    "p g\n",
+    "serial ",
+    "## research",
+    "# research",
+    "### ",
+    "## reviews",
+    "open access",
+)
+_SUMMARY_LLM_EXPLANATION_PHRASES = (
+    "the provided text is",
+    "the text provided is",
+    "this text does not",
+    "does not contain the",
+    "is an editorial header",
+    "no specific methodology",
+    "cannot be determined from",
+    "the abstract does not",
+    "no outcomes were reported",
+    "insufficient information",
+    "consists primarily of css and html code",
+    "llm-based assessment",
+    "direction counts:",
+)
+
 
 def _display_source_name(name: str) -> str:
     raw = str(name or "").strip()
@@ -118,6 +155,22 @@ def _normalize_label(raw: str) -> str:
     return raw.replace("_", " ").strip() if raw else raw
 
 
+def sanitize_summary_text_for_writing(raw_text: str) -> str:
+    """Return cleaned summary text or 'NR' when content is artifact-like."""
+    summary = (raw_text or "").strip()
+    if not summary:
+        return "NR"
+    summary_lower = summary.lower().lstrip()
+    is_boilerplate = any(marker in summary_lower for marker in _SUMMARY_HTML_BOILERPLATE_MARKERS)
+    is_pdf_metadata = any(summary_lower.startswith(pfx) for pfx in _SUMMARY_PDF_METADATA_PREFIXES)
+    is_llm_explanation = any(phrase in summary_lower for phrase in _SUMMARY_LLM_EXPLANATION_PHRASES)
+    if "doi.org/" in summary_lower or re.search(r"\bdoi:\s*10\.\S+", summary_lower):
+        return "NR"
+    if is_boilerplate or is_pdf_metadata or is_llm_explanation:
+        return "NR"
+    return summary
+
+
 def _normalize_criterion_date_windows(criteria: list[str], canonical_window: str) -> list[str]:
     """Normalize date-range phrases in criteria to one canonical window."""
     if not canonical_window:
@@ -154,6 +207,9 @@ class WritingGroundingData(BaseModel):
     review_topic: str = ""
     research_question: str = ""
     topic_anchor_terms: list[str] = []
+    domain_brief_lines: list[str] = []
+    preferred_terminology: list[str] = []
+    discouraged_terminology: list[str] = []
     databases_searched: list[str]
     # Databases that were searched but returned 0 records. Must be disclosed per
     # PRISMA 2020 item 7 ("For each database or register searched, the date, scope,
@@ -552,6 +608,63 @@ def build_writing_grounding(
                 break
         return ranked
 
+    def _filter_topic_aligned_themes(raw_themes: list[str], topic_terms: list[str]) -> list[str]:
+        if not raw_themes:
+            return []
+        topic_set = {str(term).strip().lower() for term in topic_terms if str(term).strip()}
+        generic_measure_terms = {
+            "acceptability",
+            "accuracy",
+            "adherence",
+            "adoption",
+            "barriers",
+            "completion",
+            "completeness",
+            "coverage",
+            "data",
+            "efficiency",
+            "engagement",
+            "facilitators",
+            "feasibility",
+            "health",
+            "implementation",
+            "integration",
+            "quality",
+            "record",
+            "records",
+            "registry",
+            "reporting",
+            "retention",
+            "safety",
+            "satisfaction",
+            "timeliness",
+            "tracking",
+            "uptake",
+            "usability",
+            "workflow",
+        }
+        filtered: list[str] = []
+        seen: set[str] = set()
+        for raw_theme in raw_themes:
+            theme = _normalize_label(str(raw_theme or "")).strip()
+            if not theme:
+                continue
+            tokens = {
+                tok
+                for tok in re.findall(r"[A-Za-z][A-Za-z0-9\-]{2,}", theme.lower())
+                if tok not in {"primary", "secondary", "outcome", "outcomes", "study", "studies"}
+            }
+            if not tokens:
+                continue
+            if topic_set and not (tokens & topic_set) and not (tokens & generic_measure_terms):
+                continue
+            dedupe_key = " ".join(sorted(tokens))
+            if dedupe_key in seen:
+                continue
+            seen.add(dedupe_key)
+            filtered.append(theme)
+        return filtered
+
     # All bibliographic databases searched (including those with 0 records, for multi-database narrative)
     _OTHER_METHOD_NAMES = frozenset({"perplexity_web", "perplexity_search", "perplexity"})
     active_dbs_raw = sorted(db for db in prisma_counts.databases_records if db not in _OTHER_METHOD_NAMES)
@@ -619,8 +732,8 @@ def build_writing_grounding(
         narr_obj = narrative.get("narrative", {})
         direction = _normalize_label(narr_obj.get("effect_direction_summary", direction))
         n_synth = narr_obj.get("n_studies", n_synth)
-        narr_text = narr_obj.get("narrative_text", narr_text)
-        themes = narr_obj.get("key_themes", [])
+        narr_text = sanitize_summary_text_for_writing(narr_obj.get("narrative_text", narr_text))
+        themes = [_normalize_label(str(theme or "")) for theme in narr_obj.get("key_themes", [])]
         heterogeneity_warning = feasibility.get("heterogeneity_warning", "")
 
     # Per-study summaries
@@ -630,9 +743,11 @@ def build_writing_grounding(
         paper = paper_map.get(rec.paper_id)
         title = paper.title or rec.paper_id if paper else rec.paper_id
         year = paper.year if paper else None
-        key_finding = (rec.results_summary.get("summary") or "").strip()
-        if not key_finding:
-            key_finding = rec.intervention_description[:200]
+        key_finding = sanitize_summary_text_for_writing(rec.results_summary.get("summary") or "")
+        if key_finding == "NR":
+            key_finding = sanitize_summary_text_for_writing(rec.intervention_description[:200])
+        if key_finding == "NR":
+            key_finding = "Not reported"
         study_summaries.append(
             StudySummary(
                 paper_id=rec.paper_id,
@@ -724,9 +839,32 @@ def build_writing_grounding(
     # Author name from review config
     _author_name = str(getattr(review_config, "author_name", "") or "") if review_config else ""
     _research_question = str(getattr(review_config, "research_question", "") or "") if review_config else ""
-    _review_topic = str(getattr(review_config, "topic", "") or "") if review_config else ""
-    _topic_text = _research_question or _review_topic
-    _topic_terms = _topic_anchor_terms(_topic_text)
+    _review_topic = (
+        str(review_config.expert_topic()) if review_config and hasattr(review_config, "expert_topic") else ""
+    )
+    _domain_signal_terms = (
+        list(review_config.domain_signal_terms(limit=14))
+        if review_config and hasattr(review_config, "domain_signal_terms")
+        else []
+    )
+    _topic_text = " ".join([_research_question, _review_topic] + _domain_signal_terms).strip()
+    _topic_terms = _domain_signal_terms or _topic_anchor_terms(_topic_text)
+    themes = _filter_topic_aligned_themes(themes, _topic_terms)
+    _domain_brief_lines = (
+        list(review_config.domain_brief_lines())
+        if review_config and hasattr(review_config, "domain_brief_lines")
+        else []
+    )
+    _preferred_terminology = (
+        list(review_config.preferred_terminology())
+        if review_config and hasattr(review_config, "preferred_terminology")
+        else []
+    )
+    _discouraged_terminology = (
+        list(review_config.discouraged_terminology())
+        if review_config and hasattr(review_config, "discouraged_terminology")
+        else []
+    )
 
     # Risk-of-bias and GRADE summaries for grounding injection
     _rob_summary = _build_rob_summary(
@@ -775,6 +913,9 @@ def build_writing_grounding(
         review_topic=_review_topic,
         research_question=_research_question,
         topic_anchor_terms=_topic_terms,
+        domain_brief_lines=_domain_brief_lines,
+        preferred_terminology=_preferred_terminology,
+        discouraged_terminology=_discouraged_terminology,
         databases_searched=active_dbs,
         zero_yield_databases=zero_yield_dbs,
         failed_databases=_failed_dbs,
@@ -869,6 +1010,18 @@ def format_grounding_block(data: WritingGroundingData) -> str:
         lines.append(f"Research question: {data.research_question}")
     elif data.review_topic:
         lines.append(f"Review topic: {data.review_topic}")
+    if data.domain_brief_lines:
+        lines.append("DOMAIN EXPERT BRIEF:")
+        for item in data.domain_brief_lines:
+            lines.append(f"  - {item}")
+    if data.preferred_terminology:
+        lines.append(f"PREFERRED TERMINOLOGY: {', '.join(data.preferred_terminology)}")
+        lines.append(
+            "CRITICAL -- TERMINOLOGY FIDELITY RULE: Prefer the domain terminology listed above "
+            "when naming interventions, settings, outcomes, and mechanisms."
+        )
+    if data.discouraged_terminology:
+        lines.append(f"OUT-OF-SCOPE TERMINOLOGY TO AVOID: {', '.join(data.discouraged_terminology)}")
     if data.topic_anchor_terms:
         lines.append(f"TOPIC ANCHOR TERMS: {', '.join(data.topic_anchor_terms)}")
         lines.append(
@@ -1256,10 +1409,11 @@ def format_grounding_block(data: WritingGroundingData) -> str:
     )
     lines.append(f"Synthesis direction: {data.synthesis_direction}")
     lines.append(f"Studies synthesized: {data.n_studies_synthesized}")
-    lines.append(f"Narrative summary: {data.narrative_text}")
+    if data.narrative_text and data.narrative_text != "NR":
+        lines.append(f"Narrative summary: {data.narrative_text}")
 
     _GENERIC_THEME_IDS = frozenset({"primary_outcome", "secondary_outcome"})
-    readable_themes = [t.replace("_", " ") for t in data.key_themes if t not in _GENERIC_THEME_IDS and t.strip()]
+    readable_themes = [_normalize_label(t) for t in data.key_themes if t not in _GENERIC_THEME_IDS and t.strip()]
     if readable_themes:
         lines.append(f"Key outcome themes: {', '.join(readable_themes)}")
 

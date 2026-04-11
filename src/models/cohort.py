@@ -15,6 +15,7 @@ SynthesisEligibility = Literal[
     "excluded_screening",
     "excluded_non_primary",
     "excluded_failed_extraction",
+    "excluded_low_quality",
 ]
 
 

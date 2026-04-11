@@ -58,6 +58,21 @@ def test_grounding_block_includes_topic_anchor_rule() -> None:
     assert "TOPIC CONSISTENCY RULE" in out
 
 
+def test_grounding_block_includes_domain_brief_terminology_rules() -> None:
+    data = _make_grounding(
+        domain_brief_lines=[
+            "Expert role: Education evidence reviewer",
+            "Preferred terminology: intelligent tutoring system, learning gain",
+        ],
+        preferred_terminology=["intelligent tutoring system", "learning gain"],
+        discouraged_terminology=["clinical endpoint"],
+    )
+    out = format_grounding_block(data)
+    assert "DOMAIN EXPERT BRIEF" in out
+    assert "PREFERRED TERMINOLOGY" in out
+    assert "clinical endpoint" in out
+
+
 def test_grounding_block_includes_kappa_subset_qualifier() -> None:
     data = _make_grounding(
         cohens_kappa=0.613,

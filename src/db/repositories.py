@@ -774,24 +774,55 @@ class WorkflowRepository:
                 )
         return records
 
+    async def get_writing_generation(self, workflow_id: str) -> int:
+        cursor = await self.db.execute(
+            "SELECT writing_generation FROM workflows WHERE workflow_id = ?",
+            (workflow_id,),
+        )
+        row = await cursor.fetchone()
+        if row and row[0] is not None:
+            return max(1, int(row[0]))
+        return 1
+
+    async def bump_writing_generation(self, workflow_id: str) -> int:
+        current = await self.get_writing_generation(workflow_id)
+        next_generation = current + 1
+        await self.db.execute(
+            "UPDATE workflows SET writing_generation = ?, updated_at = CURRENT_TIMESTAMP WHERE workflow_id = ?",
+            (next_generation, workflow_id),
+        )
+        await self.db.commit()
+        return next_generation
+
+    async def _resolve_writing_generation(self, workflow_id: str, generation: int | None) -> int:
+        if generation is not None and generation > 0:
+            return int(generation)
+        return await self.get_writing_generation(workflow_id)
+
     async def get_completed_sections(self, workflow_id: str) -> set[str]:
         """Section names that have at least one draft (for writing phase resume)."""
+        generation = await self.get_writing_generation(workflow_id)
         cursor = await self.db.execute(
             """
-            SELECT DISTINCT section FROM section_drafts WHERE workflow_id = ?
+            SELECT DISTINCT section
+            FROM section_drafts
+            WHERE workflow_id = ? AND generation = ?
             """,
-            (workflow_id,),
+            (workflow_id, generation),
         )
         rows = await cursor.fetchall()
         return {str(row[0]) for row in rows}
 
     async def save_section_draft(self, draft: SectionDraft) -> None:
         """Persist a section draft for checkpoint/resume."""
+        generation = await self._resolve_writing_generation(draft.workflow_id, draft.generation)
         await self.db.execute(
             """
-            INSERT INTO section_drafts (workflow_id, section, version, content, claims_used, citations_used, word_count)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-            ON CONFLICT(workflow_id, section, version) DO UPDATE SET
+            INSERT INTO section_drafts (
+                workflow_id, section, version, generation, content, claims_used, citations_used, word_count
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(workflow_id, section, version, generation) DO UPDATE SET
                 content = excluded.content,
                 claims_used = excluded.claims_used,
                 citations_used = excluded.citations_used,
@@ -801,6 +832,7 @@ class WorkflowRepository:
                 draft.workflow_id,
                 draft.section,
                 draft.version,
+                generation,
                 draft.content,
                 json.dumps(draft.claims_used),
                 json.dumps(draft.citations_used),
@@ -814,6 +846,7 @@ class WorkflowRepository:
         workflow_id: str,
         section_key: str,
         section_version: int,
+        generation: int,
         content: str,
     ) -> list[ManuscriptBlock]:
         """Parse section text into generic ordered blocks.
@@ -839,6 +872,7 @@ class WorkflowRepository:
                     workflow_id=workflow_id,
                     section_key=section_key,
                     section_version=section_version,
+                    generation=generation,
                     block_order=order,
                     block_type="paragraph",
                     text=text,
@@ -855,6 +889,7 @@ class WorkflowRepository:
                         workflow_id=workflow_id,
                         section_key=section_key,
                         section_version=section_version,
+                        generation=generation,
                         block_order=order,
                         block_type="marker",
                         text=line.strip(),
@@ -870,6 +905,7 @@ class WorkflowRepository:
                         workflow_id=workflow_id,
                         section_key=section_key,
                         section_version=section_version,
+                        generation=generation,
                         block_order=order,
                         block_type="heading",
                         text=line.strip(),
@@ -889,6 +925,7 @@ class WorkflowRepository:
                     workflow_id=workflow_id,
                     section_key=section_key,
                     section_version=section_version,
+                    generation=generation,
                     block_order=0,
                     block_type="paragraph",
                     text=content.strip(),
@@ -898,11 +935,13 @@ class WorkflowRepository:
 
     async def save_manuscript_section_from_draft(self, draft: SectionDraft, section_order: int) -> None:
         """Dual-write section draft into DB-first manuscript section/block tables."""
+        generation = await self._resolve_writing_generation(draft.workflow_id, draft.generation)
         section = ManuscriptSection(
             workflow_id=draft.workflow_id,
             section_key=draft.section,
             section_order=section_order,
             version=draft.version,
+            generation=generation,
             title=draft.section.replace("_", " ").title(),
             source="parser",
             boundary_confidence=1.0,
@@ -913,15 +952,26 @@ class WorkflowRepository:
             workflow_id=draft.workflow_id,
             section_key=draft.section,
             section_version=draft.version,
+            generation=generation,
             content=draft.content,
         )
         await self.db.execute(
             """
+            DELETE FROM manuscript_sections
+            WHERE workflow_id = ?
+              AND version = ?
+              AND generation = ?
+              AND (section_key = ? OR section_order = ?)
+            """,
+            (draft.workflow_id, draft.version, generation, draft.section, section_order),
+        )
+        await self.db.execute(
+            """
             INSERT INTO manuscript_sections
-                (workflow_id, section_key, section_order, version, title, status, source,
+                (workflow_id, section_key, section_order, version, generation, title, status, source,
                  boundary_confidence, content_hash, content)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            ON CONFLICT(workflow_id, section_key, version) DO UPDATE SET
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(workflow_id, section_key, version, generation) DO UPDATE SET
                 section_order = excluded.section_order,
                 title = excluded.title,
                 status = excluded.status,
@@ -936,6 +986,7 @@ class WorkflowRepository:
                 section.section_key,
                 section.section_order,
                 section.version,
+                generation,
                 section.title,
                 section.status,
                 section.source,
@@ -947,21 +998,22 @@ class WorkflowRepository:
         await self.db.execute(
             """
             DELETE FROM manuscript_blocks
-            WHERE workflow_id = ? AND section_key = ? AND section_version = ?
+            WHERE workflow_id = ? AND section_key = ? AND section_version = ? AND generation = ?
             """,
-            (draft.workflow_id, draft.section, draft.version),
+            (draft.workflow_id, draft.section, draft.version, generation),
         )
         await self.db.executemany(
             """
             INSERT INTO manuscript_blocks
-                (workflow_id, section_key, section_version, block_order, block_type, text, meta_json)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+                (workflow_id, section_key, section_version, generation, block_order, block_type, text, meta_json)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """,
             [
                 (
                     b.workflow_id,
                     b.section_key,
                     b.section_version,
+                    generation,
                     b.block_order,
                     b.block_type,
                     b.text,
@@ -972,25 +1024,33 @@ class WorkflowRepository:
         )
         await self.db.commit()
 
+    async def save_section_artifacts_from_draft(self, draft: SectionDraft, section_order: int) -> None:
+        """Persist one section through the canonical idempotent save path."""
+        generation = await self._resolve_writing_generation(draft.workflow_id, draft.generation)
+        resolved_draft = draft.model_copy(update={"generation": generation})
+        await self.save_section_draft(resolved_draft)
+        await self.save_manuscript_section_from_draft(resolved_draft, section_order=section_order)
+
     async def load_latest_manuscript_sections(self, workflow_id: str) -> list[ManuscriptSection]:
+        generation = await self.get_writing_generation(workflow_id)
         cursor = await self.db.execute(
             """
-            SELECT s.workflow_id, s.section_key, s.section_order, s.version, s.title, s.status,
+            SELECT s.workflow_id, s.section_key, s.section_order, s.version, s.generation, s.title, s.status,
                    s.source, s.boundary_confidence, s.content_hash, s.content
             FROM manuscript_sections s
             JOIN (
                 SELECT workflow_id, section_key, MAX(version) AS max_version
                 FROM manuscript_sections
-                WHERE workflow_id = ?
+                WHERE workflow_id = ? AND generation = ?
                 GROUP BY workflow_id, section_key
             ) lv
               ON s.workflow_id = lv.workflow_id
              AND s.section_key = lv.section_key
              AND s.version = lv.max_version
-            WHERE s.workflow_id = ?
+            WHERE s.workflow_id = ? AND s.generation = ?
             ORDER BY s.section_order ASC
             """,
-            (workflow_id, workflow_id),
+            (workflow_id, generation, workflow_id, generation),
         )
         rows = await cursor.fetchall()
         out: list[ManuscriptSection] = []
@@ -1001,26 +1061,28 @@ class WorkflowRepository:
                     section_key=str(row[1]),
                     section_order=int(row[2]),
                     version=int(row[3]),
-                    title=str(row[4]),
-                    status=str(row[5]),
-                    source=str(row[6]),
-                    boundary_confidence=float(row[7]),
-                    content_hash=str(row[8]),
-                    content=str(row[9]),
+                    generation=int(row[4]),
+                    title=str(row[5]),
+                    status=str(row[6]),
+                    source=str(row[7]),
+                    boundary_confidence=float(row[8]),
+                    content_hash=str(row[9]),
+                    content=str(row[10]),
                 )
             )
         return out
 
     async def load_latest_manuscript_assembly(self, workflow_id: str, target_format: str) -> ManuscriptAssembly | None:
+        generation = await self.get_writing_generation(workflow_id)
         cursor = await self.db.execute(
             """
-            SELECT workflow_id, assembly_id, target_format, content, manifest_json
+            SELECT workflow_id, assembly_id, target_format, generation, content, manifest_json
             FROM manuscript_assemblies
-            WHERE workflow_id = ? AND target_format = ?
+            WHERE workflow_id = ? AND target_format = ? AND generation = ?
             ORDER BY created_at DESC
             LIMIT 1
             """,
-            (workflow_id, target_format),
+            (workflow_id, target_format, generation),
         )
         row = await cursor.fetchone()
         if not row:
@@ -1029,8 +1091,9 @@ class WorkflowRepository:
             workflow_id=str(row[0]),
             assembly_id=str(row[1]),
             target_format=str(row[2]),
-            content=str(row[3]),
-            manifest_json=str(row[4]),
+            generation=int(row[3]),
+            content=str(row[4]),
+            manifest_json=str(row[5]),
         )
 
     async def save_manuscript_asset(self, asset: ManuscriptAsset) -> None:
@@ -1086,6 +1149,7 @@ class WorkflowRepository:
             manifest = json.loads(manifest_json or "{}")
         except Exception as exc:
             raise RuntimeError("Invalid manuscript assembly manifest JSON") from exc
+        generation = await self.get_writing_generation(workflow_id)
         sections = manifest.get("sections", [])
         if sections:
             declared_orders = [int(s.get("order", i)) for i, s in enumerate(sections)]
@@ -1101,10 +1165,10 @@ class WorkflowRepository:
                 cur = await self.db.execute(
                     """
                     SELECT 1 FROM manuscript_sections
-                    WHERE workflow_id = ? AND section_key = ? AND version = ?
+                    WHERE workflow_id = ? AND section_key = ? AND version = ? AND generation = ?
                     LIMIT 1
                     """,
-                    (workflow_id, key, ver),
+                    (workflow_id, key, ver, generation),
                 )
                 row = await cur.fetchone()
                 if row is None:
@@ -1131,12 +1195,13 @@ class WorkflowRepository:
         if assembly.target_format not in {"md", "tex"}:
             raise RuntimeError(f"Unsupported manuscript assembly format: {assembly.target_format}")
         await self._validate_assembly_manifest(assembly.workflow_id, assembly.manifest_json)
+        generation = await self._resolve_writing_generation(assembly.workflow_id, assembly.generation)
         await self.db.execute(
             """
             INSERT INTO manuscript_assemblies
-                (workflow_id, assembly_id, target_format, content, manifest_json)
-            VALUES (?, ?, ?, ?, ?)
-            ON CONFLICT(workflow_id, assembly_id, target_format) DO UPDATE SET
+                (workflow_id, assembly_id, target_format, generation, content, manifest_json)
+            VALUES (?, ?, ?, ?, ?, ?)
+            ON CONFLICT(workflow_id, assembly_id, target_format, generation) DO UPDATE SET
                 content = excluded.content,
                 manifest_json = excluded.manifest_json
             """,
@@ -1144,6 +1209,7 @@ class WorkflowRepository:
                 assembly.workflow_id,
                 assembly.assembly_id,
                 assembly.target_format,
+                generation,
                 assembly.content,
                 assembly.manifest_json,
             ),
@@ -1152,23 +1218,24 @@ class WorkflowRepository:
 
     async def backfill_manuscript_sections_from_drafts(self, workflow_id: str) -> int:
         """Backfill DB-first section tables from latest section_drafts rows."""
+        generation = await self.get_writing_generation(workflow_id)
         cursor = await self.db.execute(
             """
-            SELECT sd.workflow_id, sd.section, sd.version, sd.content, sd.word_count
+            SELECT sd.workflow_id, sd.section, sd.version, sd.generation, sd.content, sd.word_count
             FROM section_drafts sd
             JOIN (
                 SELECT workflow_id, section, MAX(version) AS max_version
                 FROM section_drafts
-                WHERE workflow_id = ?
+                WHERE workflow_id = ? AND generation = ?
                 GROUP BY workflow_id, section
             ) latest
               ON sd.workflow_id = latest.workflow_id
              AND sd.section = latest.section
              AND sd.version = latest.max_version
-            WHERE sd.workflow_id = ?
+            WHERE sd.workflow_id = ? AND sd.generation = ?
             ORDER BY sd.section
             """,
-            (workflow_id, workflow_id),
+            (workflow_id, generation, workflow_id, generation),
         )
         rows = await cursor.fetchall()
         if not rows:
@@ -1179,12 +1246,13 @@ class WorkflowRepository:
                 workflow_id=str(row[0]),
                 section=str(row[1]),
                 version=int(row[2]),
-                content=str(row[3]),
+                generation=int(row[3]),
+                content=str(row[4]),
                 claims_used=[],
                 citations_used=[],
-                word_count=int(row[4]) if row[4] is not None else len(str(row[3]).split()),
+                word_count=int(row[5]) if row[5] is not None else len(str(row[4]).split()),
             )
-            await self.save_manuscript_section_from_draft(draft, section_order=order)
+            await self.save_section_artifacts_from_draft(draft, section_order=order)
             count += 1
         return count
 
@@ -1614,11 +1682,44 @@ class WorkflowRepository:
         await self.db.commit()
 
     async def save_fallback_event(self, record: FallbackEventRecord) -> None:
+        generation = await self._resolve_writing_generation(record.workflow_id, record.generation)
+        existing = await (
+            await self.db.execute(
+                """
+                SELECT id
+                FROM fallback_events
+                WHERE workflow_id = ?
+                  AND phase = ?
+                  AND module = ?
+                  AND fallback_type = ?
+                  AND reason = ?
+                  AND COALESCE(paper_id, '') = COALESCE(?, '')
+                  AND generation = ?
+                LIMIT 1
+                """,
+                (
+                    record.workflow_id,
+                    record.phase,
+                    record.module,
+                    record.fallback_type,
+                    record.reason,
+                    record.paper_id,
+                    generation,
+                ),
+            )
+        ).fetchone()
+        if existing:
+            await self.db.execute(
+                "UPDATE fallback_events SET details_json = ? WHERE id = ?",
+                (record.details_json, int(existing[0])),
+            )
+            await self.db.commit()
+            return
         await self.db.execute(
             """
             INSERT INTO fallback_events (
-                workflow_id, phase, module, fallback_type, reason, paper_id, details_json
-            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                workflow_id, phase, module, fallback_type, reason, paper_id, generation, details_json
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 record.workflow_id,
@@ -1627,29 +1728,32 @@ class WorkflowRepository:
                 record.fallback_type,
                 record.reason,
                 record.paper_id,
+                generation,
                 record.details_json,
             ),
         )
         await self.db.commit()
 
     async def count_fallback_events(self, workflow_id: str) -> int:
+        generation = await self.get_writing_generation(workflow_id)
         cursor = await self.db.execute(
-            "SELECT COUNT(*) FROM fallback_events WHERE workflow_id = ?",
-            (workflow_id,),
+            "SELECT COUNT(*) FROM fallback_events WHERE workflow_id = ? AND generation = ?",
+            (workflow_id, generation),
         )
         row = await cursor.fetchone()
         return int(row[0]) if row and row[0] is not None else 0
 
     async def get_fallback_event_summary(self, workflow_id: str) -> list[dict[str, object]]:
+        generation = await self.get_writing_generation(workflow_id)
         cursor = await self.db.execute(
             """
             SELECT phase, module, fallback_type, COUNT(*) AS event_count
             FROM fallback_events
-            WHERE workflow_id = ?
+            WHERE workflow_id = ? AND generation = ?
             GROUP BY phase, module, fallback_type
             ORDER BY event_count DESC, phase ASC, module ASC
             """,
-            (workflow_id,),
+            (workflow_id, generation),
         )
         rows = await cursor.fetchall()
         return [
@@ -2091,15 +2195,16 @@ class WorkflowRepository:
 
     async def save_writing_manifest(self, record: WritingManifestRecord) -> None:
         """Persist a per-section writing manifest row."""
+        generation = await self._resolve_writing_generation(record.workflow_id, record.generation)
         await self.db.execute(
             """
             INSERT INTO writing_manifests (
-                workflow_id, section_key, attempt_number, grounding_hash,
+                workflow_id, section_key, attempt_number, generation, grounding_hash,
                 evidence_source_ids, citation_catalog_hash, contract_status,
                 contract_issues, fallback_used, retry_count, word_count,
                 meta_json, created_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            ON CONFLICT(workflow_id, section_key, attempt_number) DO UPDATE SET
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(workflow_id, section_key, attempt_number, generation) DO UPDATE SET
                 grounding_hash = excluded.grounding_hash,
                 evidence_source_ids = excluded.evidence_source_ids,
                 citation_catalog_hash = excluded.citation_catalog_hash,
@@ -2114,6 +2219,7 @@ class WorkflowRepository:
                 record.workflow_id,
                 record.section_key,
                 record.attempt_number,
+                generation,
                 record.grounding_hash,
                 record.evidence_source_ids,
                 record.citation_catalog_hash,
@@ -2130,31 +2236,32 @@ class WorkflowRepository:
 
     async def get_writing_manifests(self, workflow_id: str, section_key: str | None = None) -> list[WritingManifestRecord]:
         """Return writing manifests for a workflow, optionally filtered by section."""
+        generation = await self.get_writing_generation(workflow_id)
         if section_key:
             cursor = await self.db.execute(
                 """
-                SELECT workflow_id, section_key, attempt_number, grounding_hash,
+                SELECT workflow_id, section_key, attempt_number, generation, grounding_hash,
                        evidence_source_ids, citation_catalog_hash, contract_status,
                        contract_issues, fallback_used, retry_count, word_count,
                        meta_json, created_at
                 FROM writing_manifests
-                WHERE workflow_id = ? AND section_key = ?
+                WHERE workflow_id = ? AND section_key = ? AND generation = ?
                 ORDER BY attempt_number DESC
                 """,
-                (workflow_id, section_key),
+                (workflow_id, section_key, generation),
             )
         else:
             cursor = await self.db.execute(
                 """
-                SELECT workflow_id, section_key, attempt_number, grounding_hash,
+                SELECT workflow_id, section_key, attempt_number, generation, grounding_hash,
                        evidence_source_ids, citation_catalog_hash, contract_status,
                        contract_issues, fallback_used, retry_count, word_count,
                        meta_json, created_at
                 FROM writing_manifests
-                WHERE workflow_id = ?
+                WHERE workflow_id = ? AND generation = ?
                 ORDER BY section_key, attempt_number DESC
                 """,
-                (workflow_id,),
+                (workflow_id, generation),
             )
         rows = await cursor.fetchall()
         return [
@@ -2162,16 +2269,17 @@ class WorkflowRepository:
                 workflow_id=str(r[0]),
                 section_key=str(r[1]),
                 attempt_number=int(r[2]),
-                grounding_hash=str(r[3]) if r[3] else None,
-                evidence_source_ids=str(r[4] or "[]"),
-                citation_catalog_hash=str(r[5]) if r[5] else None,
-                contract_status=str(r[6]),
-                contract_issues=str(r[7] or "[]"),
-                fallback_used=bool(r[8]),
-                retry_count=int(r[9]),
-                word_count=int(r[10]) if r[10] is not None else None,
-                meta_json=str(r[11] or "{}"),
-                created_at=datetime.fromisoformat(str(r[12])) if r[12] else datetime.now(UTC),
+                generation=int(r[3]),
+                grounding_hash=str(r[4]) if r[4] else None,
+                evidence_source_ids=str(r[5] or "[]"),
+                citation_catalog_hash=str(r[6]) if r[6] else None,
+                contract_status=str(r[7]),
+                contract_issues=str(r[8] or "[]"),
+                fallback_used=bool(r[9]),
+                retry_count=int(r[10]),
+                word_count=int(r[11]) if r[11] is not None else None,
+                meta_json=str(r[12] or "{}"),
+                created_at=datetime.fromisoformat(str(r[13])) if r[13] else datetime.now(UTC),
             )
             for r in rows
         ]
@@ -2608,6 +2716,8 @@ class WorkflowRepository:
             return
 
         start_idx = phase_order.index(from_phase)
+        if start_idx <= phase_order.index("phase_6_writing"):
+            await self.bump_writing_generation(workflow_id)
 
         async def _delete(table: str, has_workflow_id: bool = True) -> None:
             if has_workflow_id:
@@ -2631,6 +2741,7 @@ class WorkflowRepository:
         if start_idx <= phase_order.index("phase_6_writing"):
             await _delete("writing_manifests")
             for table in (
+                "fallback_events",
                 "manuscript_assemblies",
                 "manuscript_assets",
                 "manuscript_blocks",
@@ -2876,6 +2987,38 @@ class CitationRepository:
         await self.db.commit()
 
     async def register_citation(self, citation: CitationEntryRecord) -> None:
+        _citekey_cur = await self.db.execute("SELECT citation_id FROM citations WHERE citekey = ? LIMIT 1", (citation.citekey,))
+        _citekey_row = await _citekey_cur.fetchone()
+        if _citekey_row:
+            await self.db.execute(
+                """
+                UPDATE citations
+                SET doi = ?,
+                    url = ?,
+                    title = ?,
+                    authors = ?,
+                    year = ?,
+                    journal = ?,
+                    bibtex = ?,
+                    resolved = ?,
+                    source_type = ?
+                WHERE citekey = ?
+                """,
+                (
+                    citation.doi,
+                    citation.url,
+                    citation.title,
+                    json.dumps(citation.authors),
+                    citation.year,
+                    citation.journal,
+                    citation.bibtex,
+                    1 if citation.resolved else 0,
+                    citation.source_type,
+                    citation.citekey,
+                ),
+            )
+            await self.db.commit()
+            return
         # Guard: if a non-empty DOI already exists in the table (under any citekey),
         # skip registration.  This prevents the same paper from appearing twice in
         # the reference list when it is registered first as an included-study
@@ -2888,21 +3031,10 @@ class CitationRepository:
             if await _doi_cur.fetchone():
                 return
 
-        await self.db.execute(
+        cursor = await self.db.execute(
             """
-            INSERT INTO citations (citation_id, citekey, doi, url, title, authors, year, journal, bibtex, resolved, source_type)
+            INSERT OR IGNORE INTO citations (citation_id, citekey, doi, url, title, authors, year, journal, bibtex, resolved, source_type)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            ON CONFLICT(citation_id) DO UPDATE SET
-                citekey=excluded.citekey,
-                doi=excluded.doi,
-                url=excluded.url,
-                title=excluded.title,
-                authors=excluded.authors,
-                year=excluded.year,
-                journal=excluded.journal,
-                bibtex=excluded.bibtex,
-                resolved=excluded.resolved,
-                source_type=excluded.source_type
             """,
             (
                 citation.citation_id,
@@ -2918,6 +3050,35 @@ class CitationRepository:
                 citation.source_type,
             ),
         )
+        if cursor.rowcount == 0:
+            await self.db.execute(
+                """
+                UPDATE citations
+                SET doi = ?,
+                    url = ?,
+                    title = ?,
+                    authors = ?,
+                    year = ?,
+                    journal = ?,
+                    bibtex = ?,
+                    resolved = ?,
+                    source_type = ?
+                WHERE citekey = ? OR citation_id = ?
+                """,
+                (
+                    citation.doi,
+                    citation.url,
+                    citation.title,
+                    json.dumps(citation.authors),
+                    citation.year,
+                    citation.journal,
+                    citation.bibtex,
+                    1 if citation.resolved else 0,
+                    citation.source_type,
+                    citation.citekey,
+                    citation.citation_id,
+                ),
+            )
         await self.db.commit()
 
     async def link_evidence(self, link: EvidenceLinkRecord) -> None:

@@ -732,11 +732,106 @@ export interface ReadinessScorecard {
   blocking_reasons: string[]
 }
 
-export async function fetchRunReadiness(runId: string, runRoot = "runs"): Promise<ReadinessScorecard> {
+export async function fetchRunReadiness(
+  runId: string,
+  runRoot = "runs",
+  workflowIdFallback?: string | null,
+): Promise<ReadinessScorecard> {
   const q = new URLSearchParams({ run_root: runRoot })
-  const res = await fetch(`${BASE}/run/${encodeURIComponent(runId)}/readiness?${q.toString()}`)
+  let res = await fetch(`${BASE}/run/${encodeURIComponent(runId)}/readiness?${q.toString()}`)
+  if (res.status === 404 && workflowIdFallback && workflowIdFallback !== runId) {
+    res = await fetch(`${BASE}/run/${encodeURIComponent(workflowIdFallback)}/readiness?${q.toString()}`)
+  }
   if (!res.ok) throw await _apiError(res, "Readiness fetch failed")
   return (await res.json()) as ReadinessScorecard
+}
+
+export interface RunDiagnosticsSummaryRow {
+  phase: string
+  module: string
+  fallback_type: string
+  event_count: number
+}
+
+export interface WritingManifestDiagnosticsRow {
+  workflow_id: string
+  section_key: string
+  attempt_number: number
+  generation: number
+  grounding_hash: string | null
+  evidence_source_ids: string
+  citation_catalog_hash: string | null
+  contract_status: string
+  contract_issues: string
+  fallback_used: boolean
+  retry_count: number
+  word_count: number | null
+  meta_json: string
+  created_at: string | null
+}
+
+export interface RunDiagnosticsPayload {
+  workflow_id: string
+  step_summary: Record<string, Record<string, number>>
+  step_failures: number
+  fallback_count: number
+  fallback_summary: RunDiagnosticsSummaryRow[]
+  writing_manifests: WritingManifestDiagnosticsRow[]
+}
+
+export async function fetchRunDiagnostics(
+  runId: string,
+  runRoot = "runs",
+  workflowIdFallback?: string | null,
+): Promise<RunDiagnosticsPayload> {
+  const q = new URLSearchParams({ run_root: runRoot })
+  let res = await fetch(`${BASE}/run/${encodeURIComponent(runId)}/diagnostics?${q.toString()}`)
+  if (res.status === 404 && workflowIdFallback && workflowIdFallback !== runId) {
+    res = await fetch(`${BASE}/run/${encodeURIComponent(workflowIdFallback)}/diagnostics?${q.toString()}`)
+  }
+  if (!res.ok) throw await _apiError(res, "Run diagnostics fetch failed")
+  return (await res.json()) as RunDiagnosticsPayload
+}
+
+export interface RagSelectedChunkRow {
+  chunk_id?: string
+  paper_id?: string
+  citekey?: string
+  score?: number
+  [key: string]: unknown
+}
+
+export interface RagDiagnosticsRow {
+  section: string
+  query_type: string
+  status: string
+  error_message: string | null
+  created_at: string
+  rerank_enabled: boolean
+  candidate_k: number
+  final_k: number
+  retrieved_count: number
+  latency_ms: number
+  selected_chunks: RagSelectedChunkRow[]
+}
+
+export interface RagDiagnosticsPayload {
+  total: number
+  records: RagDiagnosticsRow[]
+}
+
+export async function fetchDbRagDiagnostics(
+  runId: string,
+  workflowIdFallback?: string | null,
+  runRoot = "runs",
+): Promise<RagDiagnosticsPayload> {
+  const q = new URLSearchParams({ run_root: runRoot })
+  let res = await fetch(`${BASE}/db/${encodeURIComponent(runId)}/rag-diagnostics?${q.toString()}`)
+  if (res.status === 404 && workflowIdFallback && workflowIdFallback !== runId) {
+    res = await fetch(`${BASE}/db/${encodeURIComponent(workflowIdFallback)}/rag-diagnostics?${q.toString()}`)
+  }
+  if (!res.ok) throw await _apiError(res, "RAG diagnostics fetch failed")
+  return (await res.json()) as RagDiagnosticsPayload
 }
 
 export interface GradeSofRow {

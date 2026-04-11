@@ -18,11 +18,16 @@ from pathlib import Path
 from pydantic import BaseModel, Field
 
 from src.db.repositories import CitationRepository, WorkflowRepository
-from src.export.markdown_refs import _normalize_subsection_heading_layout
 from src.manuscript.prisma_disclosure import prisma_disclosure_gaps, should_use_db_prisma_flow_checks
 from src.manuscript.violation_policy import hard_failure, violation_category
+from src.models import ReviewConfig
 from src.models.manuscript_ir import ManuscriptCanonicalDisclosures
 from src.prisma.diagram import build_prisma_counts
+from src.writing.headings import (
+    extract_markdown_heading_inventory,
+    normalize_heading_for_parity,
+    strip_terminal_citations,
+)
 
 
 class ContractViolation(BaseModel):
@@ -150,15 +155,35 @@ def _find_failed_db_disclosure_issues(md_text: str, failed_connectors: list[str]
     return issues
 
 
+def _body_before_references(md_text: str) -> str:
+    return md_text.split("## References", 1)[0]
+
+
+def _phrase_present(text: str, phrase: str) -> bool:
+    raw = str(phrase or "").strip()
+    if not raw:
+        return False
+    if re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9 \-/()]+", raw):
+        pattern = re.compile(rf"(?<!\w){re.escape(raw.lower())}(?!\w)")
+        return bool(pattern.search(text))
+    return raw.lower() in text
+
+
+def _domain_term_coverage(review_config: ReviewConfig, md_text: str) -> tuple[list[str], list[str]]:
+    body = _body_before_references(md_text).lower()
+    required_terms = review_config.preferred_terminology(limit=8) or review_config.domain_signal_terms(limit=8)
+    present = [term for term in required_terms if _phrase_present(body, term)]
+    missing = [term for term in required_terms if term not in present]
+    return present, missing
+
+
+def _discouraged_term_hits(review_config: ReviewConfig, md_text: str) -> list[str]:
+    body = _body_before_references(md_text).lower()
+    return [term for term in review_config.discouraged_terminology(limit=8) if _phrase_present(body, term)]
+
+
 def _extract_headings_md(md_text: str) -> list[tuple[int, str]]:
-    out: list[tuple[int, str]] = []
-    normalized_md = _normalize_subsection_heading_layout(md_text)
-    for line in normalized_md.splitlines():
-        m = re.match(r"^(#{2,4})\s+(.+)$", line.strip())
-        if not m:
-            continue
-        out.append((len(m.group(1)), _normalize_heading_for_parity(m.group(2))))
-    return out
+    return extract_markdown_heading_inventory(md_text, min_level=2, max_level=4)
 
 
 def _extract_headings_tex(tex_text: str) -> list[tuple[int, str]]:
@@ -167,25 +192,17 @@ def _extract_headings_tex(tex_text: str) -> list[tuple[int, str]]:
         s = line.strip()
         m1 = re.match(r"^\\section\{(.+)\}$", s)
         if m1:
-            out.append((2, _normalize_heading_for_parity(m1.group(1))))
+            out.append((2, normalize_heading_for_parity(m1.group(1))))
             continue
         m2 = re.match(r"^\\subsection\{(.+)\}$", s)
         if m2:
-            out.append((3, _normalize_heading_for_parity(m2.group(1))))
+            out.append((3, normalize_heading_for_parity(m2.group(1))))
             continue
         m3 = re.match(r"^\\subsubsection\{(.+)\}$", s)
         if m3:
-            out.append((4, _normalize_heading_for_parity(m3.group(1))))
+            out.append((4, normalize_heading_for_parity(m3.group(1))))
             continue
     return out
-
-
-def _normalize_heading_for_parity(raw: str) -> str:
-    title = str(raw or "").strip()
-    title = re.sub(r"\s*(?:\[[^\]]+\]\s*)+$", "", title)
-    title = re.sub(r"\\[A-Za-z]+\{([^}]*)\}", r"\1", title)
-    title = re.sub(r"[^A-Za-z0-9 ]+", " ", title)
-    return re.sub(r"\s{2,}", " ", title).strip().lower()
 
 
 def _find_malformed_heading_lines(md_text: str) -> list[str]:
@@ -468,9 +485,10 @@ def _find_section_content_incomplete(md_text: str, included_study_count: int) ->
             issues.append(f"{name}:degenerate_repetition:{repeated_short[0]}")
         tail = substantive[-1] if substantive else (paragraphs[-1] if paragraphs else "")
         if tail:
+            tail = strip_terminal_citations(tail)
             if trailing_re.search(tail):
                 issues.append(f"{name}:trailing_fragment_word")
-            elif tail[-1] not in ".!?":
+            elif tail and tail[-1] not in ".!?":
                 issues.append(f"{name}:trailing_fragment_punctuation")
     return issues
 
@@ -615,6 +633,7 @@ async def run_manuscript_contracts(
     mode: str = "observe",
     contract_phase: str = "finalize",
     abstract_word_limit: int = 250,
+    review_config: ReviewConfig | None = None,
 ) -> ManuscriptContractResult:
     """Validate manuscript integrity invariants across DB and artifacts."""
     violations: list[ContractViolation] = []
@@ -967,6 +986,30 @@ async def run_manuscript_contracts(
             )
         )
 
+    if review_config is not None:
+        present_terms, missing_terms = _domain_term_coverage(review_config, md_text)
+        expected_term_floor = min(3, len(review_config.preferred_terminology(limit=8) or review_config.domain_signal_terms(limit=8)))
+        if expected_term_floor > 0 and len(present_terms) < expected_term_floor:
+            violations.append(
+                ContractViolation(
+                    code="DOMAIN_TERM_FIDELITY_WEAK",
+                    severity="warning",
+                    message="Manuscript does not consistently use the configured domain terminology.",
+                    expected=f">= {expected_term_floor} preferred terms present",
+                    actual=str({"present": present_terms, "missing": missing_terms[:6]}),
+                )
+            )
+        discouraged_hits = _discouraged_term_hits(review_config, md_text)
+        if discouraged_hits:
+            violations.append(
+                ContractViolation(
+                    code="DOMAIN_SCOPE_DRIFT",
+                    severity="warning",
+                    message="Manuscript uses terminology that the domain brief marked as out-of-scope.",
+                    actual=str(discouraged_hits[:6]),
+                )
+            )
+
     if _find_meta_feasibility_contradiction(md_text):
         violations.append(
             ContractViolation(
@@ -1077,15 +1120,17 @@ async def run_manuscript_contracts(
             )
         )
 
+    current_generation = await repository.get_writing_generation(workflow_id)
     fallback_cursor = await repository.db.execute(
         """
         SELECT COUNT(*)
         FROM fallback_events
         WHERE workflow_id = ?
+          AND generation = ?
           AND module = 'writing.section_writer'
           AND fallback_type = 'deterministic_section_fallback'
         """,
-        (workflow_id,),
+        (workflow_id, current_generation),
     )
     fallback_row = await fallback_cursor.fetchone()
     deterministic_fallback_count = int(fallback_row[0]) if fallback_row else 0

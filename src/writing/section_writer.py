@@ -48,6 +48,30 @@ class SectionWriter:
             getattr(getattr(settings, "llm", None), "request_timeout_seconds", 180)
         )
 
+    def _domain_guidance_lines(self) -> list[str]:
+        lines = self.review.domain_brief_lines()
+        signal_terms = self.review.domain_signal_terms(limit=12)
+        preferred_terms = self.review.preferred_terminology()
+        discouraged_terms = self.review.discouraged_terminology()
+        out = [
+            f"Topic focus: {self.review.expert_topic()}",
+            f"Domain: {self.review.domain}",
+        ]
+        if signal_terms:
+            out.append(f"Topic anchor terms: {', '.join(signal_terms)}")
+        if preferred_terms:
+            out.append(f"Preferred terminology: {', '.join(preferred_terms)}")
+        if discouraged_terms:
+            out.append(f"Avoid out-of-scope terminology: {', '.join(discouraged_terms)}")
+        if lines:
+            out.append("Domain brief:")
+            out.extend(f"  - {item}" for item in lines)
+        out.append(
+            "Write like a field-native reviewer for this exact topic. Do not drift into generic academic prose "
+            "or a neighboring domain unless the evidence explicitly supports that framing."
+        )
+        return out
+
     def _build_section_prompt(
         self,
         section: str,
@@ -59,6 +83,8 @@ class SectionWriter:
             "Role: Academic writer for a systematic review.",
             f"Topic: {self.review.research_question}",
             f"Section: {section}",
+            "",
+            *self._domain_guidance_lines(),
             "",
             "Context:",
             context,
@@ -82,6 +108,8 @@ class SectionWriter:
             "Role: Academic writer for a systematic review.",
             f"Topic: {self.review.research_question}",
             f"Section: {section}",
+            "",
+            *self._domain_guidance_lines(),
             "",
             "You must output structured section content as JSON matching the schema.",
             "Return only JSON. Do not return markdown outside JSON fields.",

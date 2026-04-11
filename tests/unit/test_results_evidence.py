@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+from src.models import SectionBlock, StructuredSectionDraft
 from src.writing.context_builder import StudySummary, WritingGroundingData
 from src.writing.evidence_assembler import (
     build_results_evidence_pack,
     build_results_section_fallback,
+    normalize_results_section_draft,
     render_results_evidence_context,
 )
 
@@ -91,3 +93,53 @@ def test_results_section_fallback_uses_structured_study_citations() -> None:
     assert draft.section_key == "results"
     assert draft.cited_keys == ["Jones2023", "Lee2022", "Smith2024"]
     assert any(block.citations for block in draft.blocks if block.block_type == "paragraph")
+
+
+def test_results_section_fallback_rewrites_not_reported_findings() -> None:
+    grounding = _grounding()
+    grounding.key_themes = ["implementation_barriers", "student_engagement"]
+    grounding.study_summaries[0].key_finding = "Not reported"
+    pack = build_results_evidence_pack(grounding)
+    assert "Theme 1: implementation barriers." in pack.theme_sentences
+    draft = build_results_section_fallback(
+        pack,
+        required_subsections=["Study Selection", "Study Characteristics", "Synthesis of Findings"],
+        fallback_citations=[],
+    )
+    paragraph_text = "\n".join(block.text for block in draft.blocks if block.block_type == "paragraph")
+    assert "reported the following key finding: Not reported" not in paragraph_text
+    assert "No quantitative outcomes were reported." in paragraph_text
+
+
+def test_results_section_fallback_avoids_truncated_study_findings() -> None:
+    grounding = _grounding()
+    grounding.study_summaries[0].key_finding = "The intervention improved reporting timeliness but left administrat"
+    pack = build_results_evidence_pack(grounding)
+    draft = build_results_section_fallback(
+        pack,
+        required_subsections=["Study Selection", "Study Characteristics", "Synthesis of Findings"],
+        fallback_citations=[],
+    )
+    paragraph_text = "\n".join(block.text for block in draft.blocks if block.block_type == "paragraph")
+    assert "left administrat" not in paragraph_text
+    assert "contributed evidence to this review." in paragraph_text
+
+
+def test_normalize_results_section_draft_materializes_required_subsections() -> None:
+    grounding = _grounding()
+    pack = build_results_evidence_pack(grounding)
+    draft = normalize_results_section_draft(
+        draft=StructuredSectionDraft(
+            section_key="results",
+            blocks=[
+                SectionBlock(block_type="subheading", text="Study Selection", level=3),
+                SectionBlock(block_type="paragraph", text=pack.study_selection_sentence),
+            ],
+        ),
+        pack=pack,
+        fallback_citations=[],
+    )
+    headings = [block.text for block in draft.blocks if block.block_type == "subheading"]
+    assert headings == ["Study Selection", "Study Characteristics", "Synthesis of Findings"]
+    paragraph_text = "\n".join(block.text for block in draft.blocks if block.block_type == "paragraph")
+    assert "Most studies reported improved learning outcomes." in paragraph_text

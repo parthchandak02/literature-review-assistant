@@ -226,13 +226,19 @@ def _build_extraction_prompt(
     text: str,
     review: ReviewConfig,
 ) -> str:
+    domain_brief = review.domain_brief_lines()
     return "\n".join(
         [
             "You are a systematic review data extractor.",
             f"Research question: {review.research_question}",
+            f"Topic focus: {review.expert_topic()}",
+            f"Domain: {review.domain}",
             f"Intervention of interest: {review.pico.intervention}",
             f"Population of interest: {review.pico.population}",
             f"Outcome of interest: {review.pico.outcome}",
+            f"Preferred terminology: {', '.join(review.preferred_terminology())}",
+            f"Topic anchor terms: {', '.join(review.domain_signal_terms(limit=12))}",
+            *(["Domain brief:"] + [f"  - {item}" for item in domain_brief] if domain_brief else []),
             "",
             f"Title: {paper.title}",
             "",

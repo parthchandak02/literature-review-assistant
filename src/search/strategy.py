@@ -64,7 +64,7 @@ def build_boolean_query(config: ReviewConfig) -> str:
     # PICO descriptions (intervention/outcome) are multi-sentence text that never
     # appears verbatim in papers and produces zero-result queries on ClinicalTrials.gov
     # and nonsensical queries on all other databases. Keywords are the correct input.
-    keyword_terms = list(config.keywords)
+    keyword_terms = config.domain_signal_terms(limit=20) or list(config.keywords)
     # De-duplicate while preserving order.
     seen: set[str] = set()
     deduped_terms: list[str] = []
@@ -113,7 +113,7 @@ def build_database_query(config: ReviewConfig, database_name: str) -> str:
     # short_query: first 8 keywords space-separated for relevance-ranked APIs (S2, OpenAlex).
     # Use natural keyword terms, NOT full PICO description strings which never appear
     # verbatim in papers and produce near-zero recall on semantic search APIs.
-    kws = config.keywords or []
+    kws = config.domain_signal_terms(limit=16) or list(config.keywords)
     short_query = " ".join(kws[:8]) if kws else (config.pico.intervention[:80])
     if name == "pubmed":
         _primary_clause = f" AND {_PUBMED_PRIMARY_ONLY_EXCLUSION}" if primary_only else ""
@@ -125,7 +125,7 @@ def build_database_query(config: ReviewConfig, database_name: str) -> str:
     if name == "arxiv":
         return f'all:("{config.research_question}") OR all:("{config.pico.intervention}")'
     if name == "ieee_xplore":
-        kws = config.keywords or []
+        kws = config.domain_signal_terms(limit=16) or list(config.keywords)
         kw_part1 = " OR ".join(f'"{k}"' for k in kws[:8]) if kws else f'"{config.pico.intervention[:60]}"'
         kw_part2 = " OR ".join(f'"{k}"' for k in kws[8:16]) if len(kws) > 8 else kw_part1
         return f"({kw_part1}) AND ({kw_part2})"
@@ -140,7 +140,7 @@ def build_database_query(config: ReviewConfig, database_name: str) -> str:
         # ClinicalTrials.gov plain-text search: OR-joined quoted keywords work best.
         # PICO descriptions never appear verbatim in trial records and always return 0.
         # Use up to 12 keywords; quote each one so the registry treats them as phrases.
-        ct_kws = config.keywords or []
+        ct_kws = config.domain_signal_terms(limit=12) or list(config.keywords)
         return " OR ".join(f'"{k}"' for k in ct_kws[:12]) if ct_kws else short_query
     if name == "crossref":
         return f'"{config.research_question}" OR ({base})'
@@ -150,7 +150,7 @@ def build_database_query(config: ReviewConfig, database_name: str) -> str:
         # WoS Starter API: each term needs own TS= prefix inside parenthesized OR groups.
         # WRONG: TS=("term1" OR "term2") -- causes 512 server error
         # CORRECT: (TS="term1" OR TS="term2") AND (TS="term3" OR TS="term4")
-        kws = config.keywords or []
+        kws = config.domain_signal_terms(limit=16) or list(config.keywords)
         wos_part1 = " OR ".join(f'TS="{k}"' for k in kws[:8]) if kws else f'TS="{config.pico.intervention[:60]}"'
         wos_part2 = " OR ".join(f'TS="{k}"' for k in kws[8:16]) if len(kws) > 8 else wos_part1
         date_s = config.date_range_start or 2010
@@ -162,7 +162,7 @@ def build_database_query(config: ReviewConfig, database_name: str) -> str:
         # Split keywords into two groups to build two AND-joined TITLE-ABS-KEY clauses.
         # Using full PICO strings as phrases produces 0 results because Scopus phrase
         # matching is strict and long PICO sentences never appear verbatim in papers.
-        kws = config.keywords or []
+        kws = config.domain_signal_terms(limit=16) or list(config.keywords)
         kw_part1 = " OR ".join(f'"{k}"' for k in kws[:8]) if kws else f'"{config.pico.intervention[:60]}"'
         # Second clause: use keywords[8:16] for broader coverage; fall back to first group.
         kw_part2 = " OR ".join(f'"{k}"' for k in kws[8:16]) if len(kws) > 8 else kw_part1
@@ -176,7 +176,7 @@ def build_database_query(config: ReviewConfig, database_name: str) -> str:
             f"{_primary_clause}"
         )
     if name == "embase":
-        kws = config.keywords or []
+        kws = config.domain_signal_terms(limit=16) or list(config.keywords)
         kw_part1 = " OR ".join(f'"{k}"' for k in kws[:8]) if kws else f'"{config.pico.intervention[:60]}"'
         kw_part2 = " OR ".join(f'"{k}"' for k in kws[8:16]) if len(kws) > 8 else kw_part1
         date_s = config.date_range_start or 2009

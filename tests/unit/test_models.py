@@ -1,5 +1,6 @@
 from src.models import (
     CandidatePaper,
+    DomainExpertConfig,
     ReviewConfig,
     ReviewerType,
     ReviewType,
@@ -29,6 +30,40 @@ def test_review_config_validation() -> None:
         target_databases=["openalex"],
     )
     assert config.review_type == ReviewType.SYSTEMATIC
+    assert config.expert_topic() == "s"
+
+
+def test_review_config_domain_brief_helpers() -> None:
+    config = ReviewConfig(
+        research_question="How do digital twins improve manufacturing quality?",
+        review_type=ReviewType.SYSTEMATIC,
+        pico={
+            "population": "factory operators",
+            "intervention": "digital twin systems",
+            "comparison": "legacy monitoring",
+            "outcome": "defect detection and downtime",
+        },
+        keywords=["digital twin", "manufacturing analytics"],
+        domain="industrial engineering",
+        scope="Industrial monitoring and production quality outcomes.",
+        domain_expert=DomainExpertConfig(
+            expert_role="Industrial engineering evidence reviewer",
+            canonical_terms=["digital twin", "condition monitoring"],
+            related_terms=["predictive maintenance"],
+            excluded_terms=["clinical trial"],
+            methodological_focus=["controlled industrial evaluations"],
+            outcome_focus=["defect detection"],
+        ),
+        inclusion_criteria=["Empirical primary studies."],
+        exclusion_criteria=["Opinion pieces."],
+        date_range_start=2015,
+        date_range_end=2026,
+        target_databases=["openalex"],
+    )
+    assert "digital twin" in config.preferred_terminology()
+    assert "predictive maintenance" in config.domain_signal_terms()
+    assert "clinical trial" in config.discouraged_terminology()
+    assert any("Industrial engineering evidence reviewer" in line for line in config.domain_brief_lines())
 
 
 def test_paper_and_screening_models() -> None:

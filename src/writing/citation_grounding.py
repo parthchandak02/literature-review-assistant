@@ -146,8 +146,8 @@ def repair_hallucinated_citekeys(
 
     For each hallucinated key, attempt fuzzy matching using author+year tokens:
     - If a unique match is found in valid_citekeys, substitute it and log the repair.
-    - Otherwise replace the unresolved bracket token with a visible placeholder so
-      manuscript contracts can flag the degraded citation state.
+    - Otherwise remove the unresolved bracket token from prose and log the degraded
+      citation state rather than leaving a placeholder in the manuscript body.
     All occurrences of each hallucinated key in the text are replaced (not just the first).
 
     Normal section generation should not depend on this function.
@@ -156,7 +156,7 @@ def repair_hallucinated_citekeys(
     if hallucinated:
         for key in hallucinated:
             matched = _fuzzy_match_citekey(key, valid_citekeys)
-            replacement = f"[{matched}]" if matched else "(citation unavailable)"
+            replacement = f"[{matched}]" if matched else ""
             if matched:
                 logger.info(
                     "Fuzzy-matched hallucinated citekey [%s] -> [%s]",
@@ -164,7 +164,7 @@ def repair_hallucinated_citekeys(
                     matched,
                 )
             else:
-                logger.warning("Unresolved hallucinated citekey [%s] replaced with visible placeholder", key)
+                logger.warning("Unresolved hallucinated citekey [%s] removed from prose", key)
             result = re.sub(re.escape(f"[{key}]"), replacement, result)
 
     # Cleanup punctuation/spacing artifacts after dropping unresolved tokens

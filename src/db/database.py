@@ -387,6 +387,126 @@ async def run_migrations(db: aiosqlite.Connection) -> None:
             ON writing_manifests(workflow_id, section_key);
         """,
     )
+    # 19. Generation-aware writing state to prevent stale replay artifacts.
+    await _apply(
+        19,
+        """
+        ALTER TABLE workflows ADD COLUMN writing_generation INTEGER NOT NULL DEFAULT 1;
+        ALTER TABLE section_drafts ADD COLUMN generation INTEGER NOT NULL DEFAULT 1;
+        ALTER TABLE manuscript_sections ADD COLUMN generation INTEGER NOT NULL DEFAULT 1;
+        ALTER TABLE manuscript_blocks ADD COLUMN generation INTEGER NOT NULL DEFAULT 1;
+        ALTER TABLE manuscript_assemblies ADD COLUMN generation INTEGER NOT NULL DEFAULT 1;
+        ALTER TABLE fallback_events ADD COLUMN generation INTEGER NOT NULL DEFAULT 1;
+        ALTER TABLE writing_manifests ADD COLUMN generation INTEGER NOT NULL DEFAULT 1;
+        """,
+    )
+    # 20. Rebuild writing-state tables so generation participates in durable keys.
+    await _apply(
+        20,
+        """
+        CREATE TABLE IF NOT EXISTS section_drafts_v20 (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            workflow_id TEXT NOT NULL,
+            section TEXT NOT NULL,
+            version INTEGER NOT NULL,
+            generation INTEGER NOT NULL DEFAULT 1,
+            content TEXT NOT NULL,
+            claims_used TEXT,
+            citations_used TEXT,
+            word_count INTEGER NOT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(workflow_id, section, version, generation)
+        );
+        INSERT INTO section_drafts_v20 (id, workflow_id, section, version, generation, content, claims_used, citations_used, word_count, created_at)
+            SELECT id, workflow_id, section, version, COALESCE(generation, 1), content, claims_used, citations_used, word_count, created_at
+            FROM section_drafts;
+        DROP TABLE section_drafts;
+        ALTER TABLE section_drafts_v20 RENAME TO section_drafts;
+        CREATE INDEX IF NOT EXISTS idx_section_drafts_workflow ON section_drafts(workflow_id);
+        CREATE TABLE IF NOT EXISTS manuscript_sections_v20 (
+            workflow_id TEXT NOT NULL,
+            section_key TEXT NOT NULL,
+            section_order INTEGER NOT NULL,
+            version INTEGER NOT NULL,
+            generation INTEGER NOT NULL DEFAULT 1,
+            title TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'draft',
+            source TEXT NOT NULL,
+            boundary_confidence REAL NOT NULL DEFAULT 1.0,
+            content_hash TEXT NOT NULL,
+            content TEXT NOT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (workflow_id, section_key, version, generation)
+        );
+        INSERT INTO manuscript_sections_v20 (workflow_id, section_key, section_order, version, generation, title, status, source, boundary_confidence, content_hash, content, created_at, updated_at)
+            SELECT workflow_id, section_key, section_order, version, COALESCE(generation, 1), title, status, source, boundary_confidence, content_hash, content, created_at, updated_at
+            FROM manuscript_sections;
+        DROP TABLE manuscript_sections;
+        ALTER TABLE manuscript_sections_v20 RENAME TO manuscript_sections;
+        CREATE INDEX IF NOT EXISTS idx_manuscript_sections_workflow_order ON manuscript_sections(workflow_id, section_order);
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_manuscript_sections_workflow_order_version
+            ON manuscript_sections(workflow_id, section_order, version, generation);
+        CREATE TABLE IF NOT EXISTS manuscript_blocks_v20 (
+            workflow_id TEXT NOT NULL,
+            section_key TEXT NOT NULL,
+            section_version INTEGER NOT NULL,
+            generation INTEGER NOT NULL DEFAULT 1,
+            block_order INTEGER NOT NULL,
+            block_type TEXT NOT NULL,
+            text TEXT NOT NULL,
+            meta_json TEXT NOT NULL DEFAULT '{}',
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (workflow_id, section_key, section_version, generation, block_order)
+        );
+        INSERT INTO manuscript_blocks_v20 (workflow_id, section_key, section_version, generation, block_order, block_type, text, meta_json, created_at)
+            SELECT workflow_id, section_key, section_version, COALESCE(generation, 1), block_order, block_type, text, meta_json, created_at
+            FROM manuscript_blocks;
+        DROP TABLE manuscript_blocks;
+        ALTER TABLE manuscript_blocks_v20 RENAME TO manuscript_blocks;
+        CREATE INDEX IF NOT EXISTS idx_manuscript_blocks_workflow_section_order
+            ON manuscript_blocks(workflow_id, section_key, section_version, generation, block_order);
+        CREATE TABLE IF NOT EXISTS manuscript_assemblies_v20 (
+            workflow_id TEXT NOT NULL,
+            assembly_id TEXT NOT NULL,
+            target_format TEXT NOT NULL,
+            generation INTEGER NOT NULL DEFAULT 1,
+            content TEXT NOT NULL,
+            manifest_json TEXT NOT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (workflow_id, assembly_id, target_format, generation)
+        );
+        INSERT INTO manuscript_assemblies_v20 (workflow_id, assembly_id, target_format, generation, content, manifest_json, created_at)
+            SELECT workflow_id, assembly_id, target_format, COALESCE(generation, 1), content, manifest_json, created_at
+            FROM manuscript_assemblies;
+        DROP TABLE manuscript_assemblies;
+        ALTER TABLE manuscript_assemblies_v20 RENAME TO manuscript_assemblies;
+        CREATE TABLE IF NOT EXISTS writing_manifests_v20 (
+            workflow_id          TEXT NOT NULL,
+            section_key          TEXT NOT NULL,
+            attempt_number       INTEGER NOT NULL DEFAULT 1,
+            generation           INTEGER NOT NULL DEFAULT 1,
+            grounding_hash       TEXT,
+            evidence_source_ids  TEXT NOT NULL DEFAULT '[]',
+            citation_catalog_hash TEXT,
+            contract_status      TEXT NOT NULL DEFAULT 'pending',
+            contract_issues      TEXT NOT NULL DEFAULT '[]',
+            fallback_used        INTEGER NOT NULL DEFAULT 0,
+            retry_count          INTEGER NOT NULL DEFAULT 0,
+            word_count           INTEGER,
+            meta_json            TEXT NOT NULL DEFAULT '{}',
+            created_at           TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (workflow_id, section_key, attempt_number, generation)
+        );
+        INSERT INTO writing_manifests_v20 (workflow_id, section_key, attempt_number, generation, grounding_hash, evidence_source_ids, citation_catalog_hash, contract_status, contract_issues, fallback_used, retry_count, word_count, meta_json, created_at)
+            SELECT workflow_id, section_key, attempt_number, COALESCE(generation, 1), grounding_hash, evidence_source_ids, citation_catalog_hash, contract_status, contract_issues, fallback_used, retry_count, word_count, meta_json, created_at
+            FROM writing_manifests;
+        DROP TABLE writing_manifests;
+        ALTER TABLE writing_manifests_v20 RENAME TO writing_manifests;
+        CREATE INDEX IF NOT EXISTS idx_writing_manifests_workflow
+            ON writing_manifests(workflow_id, section_key);
+        """,
+    )
     await _validate_schema_contract(db)
     await db.commit()
 
@@ -403,7 +523,7 @@ async def _validate_schema_contract(db: aiosqlite.Connection) -> None:
         "event_log": {"workflow_id", "event_type", "payload", "ts"},
         "cost_records": {"workflow_id", "model", "phase", "tokens_in", "tokens_out", "cost_usd", "latency_ms"},
         "decision_log": {"workflow_id", "decision_type", "phase", "actor"},
-        "fallback_events": {"workflow_id", "phase", "module", "fallback_type", "reason", "details_json"},
+        "fallback_events": {"workflow_id", "phase", "module", "fallback_type", "reason", "generation", "details_json"},
         "dual_screening_results": {"workflow_id", "paper_id", "stage", "final_decision"},
         "screening_decisions": {"workflow_id", "paper_id", "stage", "decision"},
         "extraction_records": {
@@ -422,10 +542,10 @@ async def _validate_schema_contract(db: aiosqlite.Connection) -> None:
             "synthesis_eligibility",
             "source_phase",
         },
-        "section_drafts": {"workflow_id", "section", "version", "content"},
-        "manuscript_sections": {"workflow_id", "section_key", "section_order", "version", "content"},
-        "manuscript_blocks": {"workflow_id", "section_key", "section_version", "block_order", "block_type", "text"},
-        "manuscript_assemblies": {"workflow_id", "assembly_id", "target_format", "content", "manifest_json"},
+        "section_drafts": {"workflow_id", "section", "version", "generation", "content"},
+        "manuscript_sections": {"workflow_id", "section_key", "section_order", "version", "generation", "content"},
+        "manuscript_blocks": {"workflow_id", "section_key", "section_version", "generation", "block_order", "block_type", "text"},
+        "manuscript_assemblies": {"workflow_id", "assembly_id", "target_format", "generation", "content", "manifest_json"},
         "manuscript_audit_runs": {
             "audit_run_id",
             "workflow_id",
@@ -446,9 +566,10 @@ async def _validate_schema_contract(db: aiosqlite.Connection) -> None:
             "current_retries", "current_rewinds", "policy_status",
         },
         "writing_manifests": {
-            "workflow_id", "section_key", "attempt_number",
+            "workflow_id", "section_key", "attempt_number", "generation",
             "contract_status", "fallback_used",
         },
+        "workflows": {"workflow_id", "topic", "config_hash", "status", "writing_generation"},
     }
     for table, required_cols in required.items():
         cols = await _table_columns(db, table)

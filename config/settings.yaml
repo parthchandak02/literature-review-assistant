@@ -177,6 +177,7 @@ gates:
   sparse_topic_continuation: true
   extraction_completeness_threshold: 0.8
   extraction_max_empty_rate: 0.35
+  mmat_minimum_score: 1
   cost_budget_max: 30.0
 
 manuscript_audit:

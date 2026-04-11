@@ -10,7 +10,7 @@ import pytest
 from src.db.database import get_db
 from src.db.repositories import WorkflowRepository
 from src.db.workflow_registry import RegistryEntry
-from src.models import CandidatePaper, SectionDraft
+from src.models import CandidatePaper, FallbackEventRecord, SectionDraft
 from src.models.enums import ScreeningDecisionType, SourceCategory
 from src.orchestration import workflow as workflow_module
 from src.orchestration.resume import PHASE_ORDER, load_resume_state
@@ -284,6 +284,73 @@ async def test_load_resume_state_clears_section_drafts_when_rerunning_writing(tm
 
 
 @pytest.mark.asyncio
+async def test_load_resume_state_from_phase4_clears_persisted_writing_state(tmp_path) -> None:
+    run_dir = tmp_path / "2026-02-16" / "topic" / "run_01-00-00PM"
+    run_dir.mkdir(parents=True, exist_ok=True)
+    db_path = run_dir / "runtime.db"
+    async with get_db(str(db_path)) as db:
+        await db.executescript(Path("src/db/schema.sql").read_text())
+        await db.commit()
+        repo = WorkflowRepository(db)
+        await repo.create_workflow("wf-phase4-reset", "Test topic", "abc123")
+        for phase in (
+            "phase_2_search",
+            "phase_3_screening",
+            "phase_4_extraction_quality",
+            "phase_4b_embedding",
+            "phase_5_synthesis",
+            "phase_5b_knowledge_graph",
+            "phase_5c_pre_writing_gate",
+            "phase_6_writing",
+        ):
+            await repo.save_checkpoint("wf-phase4-reset", phase, papers_processed=1)
+        draft = SectionDraft(
+            workflow_id="wf-phase4-reset",
+            section="discussion",
+            version=1,
+            content="stale discussion",
+            claims_used=[],
+            citations_used=[],
+            word_count=2,
+        )
+        await repo.save_section_draft(draft)
+        await repo.save_manuscript_section_from_draft(draft, section_order=5)
+        await repo.save_fallback_event(
+            FallbackEventRecord(
+                workflow_id="wf-phase4-reset",
+                phase="phase_6_writing",
+                module="writing.section_writer",
+                fallback_type="deterministic_section_fallback",
+                reason="section=discussion",
+            )
+        )
+
+    _, next_phase = await load_resume_state(
+        db_path=str(db_path),
+        workflow_id="wf-phase4-reset",
+        review_path="config/review.yaml",
+        settings_path="config/settings.yaml",
+        run_root=str(tmp_path),
+        from_phase="phase_4_extraction_quality",
+    )
+    assert next_phase == "phase_4_extraction_quality"
+
+    async with get_db(str(db_path)) as db:
+        draft_count = await (
+            await db.execute("SELECT COUNT(*) FROM section_drafts WHERE workflow_id = ?", ("wf-phase4-reset",))
+        ).fetchone()
+        section_count = await (
+            await db.execute("SELECT COUNT(*) FROM manuscript_sections WHERE workflow_id = ?", ("wf-phase4-reset",))
+        ).fetchone()
+        fallback_count = await (
+            await db.execute("SELECT COUNT(*) FROM fallback_events WHERE workflow_id = ?", ("wf-phase4-reset",))
+        ).fetchone()
+    assert int(draft_count[0]) == 0
+    assert int(section_count[0]) == 0
+    assert int(fallback_count[0]) == 0
+
+
+@pytest.mark.asyncio
 async def test_load_resume_state_treats_partial_checkpoint_as_incomplete(tmp_path) -> None:
     run_dir = tmp_path / "2026-02-16" / "topic" / "run_01-00-00PM"
     run_dir.mkdir(parents=True, exist_ok=True)
@@ -305,6 +372,50 @@ async def test_load_resume_state_treats_partial_checkpoint_as_incomplete(tmp_pat
     )
     assert isinstance(state, ReviewState)
     assert next_phase == "phase_3_screening"
+
+
+@pytest.mark.asyncio
+async def test_load_resume_state_from_phase_before_writing_bumps_generation(tmp_path) -> None:
+    run_dir = tmp_path / "2026-02-16" / "topic" / "run_01-00-00PM"
+    run_dir.mkdir(parents=True, exist_ok=True)
+    db_path = run_dir / "runtime.db"
+    async with get_db(str(db_path)) as db:
+        await db.executescript(Path("src/db/schema.sql").read_text())
+        await db.commit()
+        repo = WorkflowRepository(db)
+        await repo.create_workflow("wf-generation", "Test topic", "abc123")
+        await repo.save_checkpoint("wf-generation", "phase_2_search", papers_processed=1)
+        await repo.save_checkpoint("wf-generation", "phase_3_screening", papers_processed=1)
+        await repo.save_checkpoint("wf-generation", "phase_4_extraction_quality", papers_processed=1)
+        await repo.save_checkpoint("wf-generation", "phase_5_synthesis", papers_processed=1)
+        await repo.save_section_draft(
+            SectionDraft(
+                workflow_id="wf-generation",
+                section="results",
+                version=1,
+                content="old content",
+                claims_used=[],
+                citations_used=[],
+                word_count=2,
+            )
+        )
+
+    _, next_phase = await load_resume_state(
+        db_path=str(db_path),
+        workflow_id="wf-generation",
+        review_path="config/review.yaml",
+        settings_path="config/settings.yaml",
+        run_root=str(tmp_path),
+        from_phase="phase_4_extraction_quality",
+    )
+    assert next_phase == "phase_4_extraction_quality"
+
+    async with get_db(str(db_path)) as db:
+        generation_row = await (
+            await db.execute("SELECT writing_generation FROM workflows WHERE workflow_id = ?", ("wf-generation",))
+        ).fetchone()
+    assert generation_row is not None
+    assert int(generation_row[0]) == 2
 
 
 def test_rc_print_web_context_without_console_does_not_raise() -> None:

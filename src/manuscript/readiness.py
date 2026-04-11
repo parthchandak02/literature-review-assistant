@@ -8,6 +8,7 @@ from pydantic import BaseModel, Field
 
 from src.db.database import get_db
 from src.db.repositories import CitationRepository, WorkflowRepository
+from src.export.prisma_checklist import validate_prisma
 from src.manuscript.contracts import run_manuscript_contracts
 from src.prisma.diagram import build_prisma_counts
 
@@ -114,11 +115,32 @@ async def compute_readiness_scorecard(
                 detail=str(fallback_event_count),
             )
         )
-        if fallback_event_count > 0:
-            blocking.append(f"fallback events present: {fallback_event_count}")
 
     pdf_ok = False
     pdf_detail = "missing"
+    md_text = ""
+    tex_text = ""
+    if manuscript_md_path and Path(manuscript_md_path).exists():
+        md_text = Path(manuscript_md_path).read_text(encoding="utf-8")
+    if manuscript_tex_path and Path(manuscript_tex_path).exists():
+        tex_text = Path(manuscript_tex_path).read_text(encoding="utf-8")
+    prisma_check = validate_prisma(tex_text or None, md_text or None)
+    prisma_check_ok = prisma_check.passed
+    checks.append(
+        ReadinessCheck(
+            name="prisma_checklist",
+            ok=prisma_check_ok,
+            detail=(
+                f"{prisma_check.reported_count}/{prisma_check.primary_total} reported"
+                if prisma_check.items
+                else "artifact_missing"
+            ),
+        )
+    )
+    if not prisma_check_ok:
+        blocking.append(
+            f"PRISMA checklist below threshold: {prisma_check.reported_count}/{prisma_check.primary_total} reported"
+        )
     if manuscript_tex_path:
         pdf_path = str(Path(manuscript_tex_path).with_suffix(".pdf"))
         pdf_ok = Path(pdf_path).exists()
@@ -131,7 +153,7 @@ async def compute_readiness_scorecard(
         )
     )
 
-    ready = fin_ok and prisma_ok and contract_passed and fallback_event_count == 0
+    ready = fin_ok and prisma_ok and contract_passed and prisma_check_ok
     return ReadinessScorecard(
         workflow_id=workflow_id,
         ready=ready,

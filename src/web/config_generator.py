@@ -37,7 +37,7 @@ import yaml
 from pydantic import BaseModel, Field
 from pydantic_ai import Agent, NativeOutput, StructuredDict, WebFetchTool, WebSearchTool
 
-from src.models import ReviewConfig
+from src.models import DomainExpertConfig, ReviewConfig
 
 logger = logging.getLogger(__name__)
 
@@ -162,6 +162,7 @@ def _extract_defaults_from_review(review: ReviewConfig) -> _DefaultConfigDict:
         },
         "conflicts_of_interest": review.conflicts_of_interest,
         "search_overrides": dict(review.search_overrides) if review.search_overrides else None,
+        "domain_expert": review.domain_expert.model_dump(mode="python"),
     }
 
 
@@ -216,6 +217,7 @@ def _extract_defaults_from_raw(raw: dict[str, Any]) -> _DefaultConfigDict:
             raw.get("conflicts_of_interest"), "The authors declare no conflicts of interest."
         ),
         "search_overrides": _dict(raw.get("search_overrides")),
+        "domain_expert": raw.get("domain_expert") if isinstance(raw.get("domain_expert"), dict) else None,
     }
 
 
@@ -348,6 +350,16 @@ class _SearchOverrides(BaseModel):
     )
 
 
+class _GeneratedDomainExpert(BaseModel):
+    expert_role: str = ""
+    domain_summary: str = ""
+    canonical_terms: list[str] = Field(default_factory=list)
+    related_terms: list[str] = Field(default_factory=list)
+    excluded_terms: list[str] = Field(default_factory=list)
+    methodological_focus: list[str] = Field(default_factory=list)
+    outcome_focus: list[str] = Field(default_factory=list)
+
+
 class _GeneratedConfig(BaseModel):
     research_question: str = Field(description="Refined, precise systematic review research question")
     review_type: str = Field(description="Always 'systematic'")
@@ -360,6 +372,13 @@ class _GeneratedConfig(BaseModel):
     domain: str = Field(description="One-line domain description (topic area and setting)")
     scope: str = Field(
         description="2-4 sentence scope statement: what is covered, what populations and settings, what specific systems or technologies, what outcomes"
+    )
+    domain_expert: _GeneratedDomainExpert = Field(
+        default_factory=_GeneratedDomainExpert,
+        description=(
+            "Structured domain brief with preferred terminology, adjacent synonyms, "
+            "outcome focus, and methodology expectations for expertized downstream prompts."
+        ),
     )
     inclusion_criteria: list[str] = Field(
         description="6-8 specific inclusion criteria as full sentences",
@@ -602,6 +621,43 @@ def _build_yaml(
     lines.append("")
     lines.append(f"domain: {_yaml_str(cfg.domain)}")
     lines.append(f"scope: {_yaml_str(cfg.scope)}")
+    lines.append("")
+    if defaults is not None and isinstance(defaults.get("domain_expert"), dict):
+        merged_domain_expert = DomainExpertConfig.model_validate(
+            {
+                **defaults.get("domain_expert", {}),
+                **cfg.domain_expert.model_dump(mode="python"),
+            }
+        )
+    else:
+        merged_domain_expert = DomainExpertConfig.model_validate(cfg.domain_expert.model_dump(mode="python"))
+    if not merged_domain_expert.domain_summary:
+        merged_domain_expert.domain_summary = cfg.scope or cfg.domain
+    if not merged_domain_expert.expert_role:
+        merged_domain_expert.expert_role = f"Systematic review expert for {cfg.domain}"
+    if not merged_domain_expert.canonical_terms:
+        merged_domain_expert.canonical_terms = list(cfg.keywords[:8])
+    if not merged_domain_expert.related_terms:
+        merged_domain_expert.related_terms = list(cfg.keywords[8:14])
+    if not merged_domain_expert.outcome_focus:
+        merged_domain_expert.outcome_focus = [cfg.pico.outcome]
+    lines.append("domain_expert:")
+    lines.append(f"  expert_role: {_yaml_str(merged_domain_expert.expert_role)}")
+    lines.append(f"  domain_summary: {_yaml_str(merged_domain_expert.domain_summary)}")
+    for field_name in (
+        "canonical_terms",
+        "related_terms",
+        "excluded_terms",
+        "methodological_focus",
+        "outcome_focus",
+    ):
+        values = list(getattr(merged_domain_expert, field_name))
+        if values:
+            lines.append(f"  {field_name}:")
+            for item in values:
+                lines.append(f"    - {_yaml_str(item)}")
+        else:
+            lines.append(f"  {field_name}: []")
     lines.append("")
     lines.append("inclusion_criteria:")
     for c in cfg.inclusion_criteria:
