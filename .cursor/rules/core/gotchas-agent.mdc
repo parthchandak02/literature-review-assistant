@@ -35,6 +35,20 @@ Use `POST /api/history/attach` to re-register a completed run before calling any
 The PRISMA checklist endpoint falls back to `workflows_registry.db` automatically when the run_id
 is not in `_active_runs` -- supports both short run_ids and workflow_ids (wf-XXXXXXXX format).
 
+## `/api/run/{run_id}/...` Accepts Active run_id Or `wf-*` Workflow IDs
+Run-oriented endpoints such as readiness and diagnostics use `run_id` in the path, but the
+backend resolves either:
+- a live in-memory run/session id from `_active_runs`
+- or a durable `wf-XXXX` workflow id through `runs/workflows_registry.db`
+Do not document these endpoints as workflow-only or assume any arbitrary short historical id
+will resolve after restart.
+
+## Readiness And Diagnostics Are Separate Surfaces
+`GET /api/run/{run_id}/readiness` returns the export/readiness scorecard.
+`GET /api/run/{run_id}/diagnostics` returns step-journal summaries, failures, fallback counts,
+recovery policy data, and writing manifests.
+Do not assume diagnostics embeds the readiness scorecard.
+
 ## History Sidebar Uses Archive-First Workflow
 Sidebar default removal is now archive, not hard delete. Backend endpoints are:
 - `POST /api/history/{workflow_id}/archive`
@@ -51,6 +65,11 @@ The bottom-right floating Costs button opens `GlobalCostOpsDialog` in `App.tsx` 
 The production URL (`https://litreview.parthchandak.info`) serves `frontend/dist/` -- NOT the Vite dev server.
 Frontend code changes are invisible in production until you run `cd frontend && pnpm build`.
 The Vite dev server on localhost:5173 picks up changes automatically.
+
+## PM2 Config Uses An Absolute PROJECT_DIR
+`ecosystem.config.js` currently hardcodes `PROJECT_DIR` to this machine's checkout path.
+If PM2 commands fail on another machine or after moving the repo, update `PROJECT_DIR` before
+running `pm2 start ecosystem.config.js`.
 
 ## Backend Module Reload
 Python loads all modules at startup. Any change to `src/` is invisible until `pm2 restart litreview-api`.
@@ -241,6 +260,12 @@ you explicitly configured them. Always use the full process names:
   pm2 logs litreview-api
   pm2 restart litreview-api
   pm2 restart litreview-ui
+
+## RunView Has Seven Base Tabs
+The primary run dashboard tabs are:
+`Config -> Activity -> Data -> Cost -> Results -> References -> Quality`
+`Review Screening` is conditional and appears only while a run is `awaiting_review`.
+If docs or tests still mention "6 base tabs", they are stale.
 
 ## SSE Replay Dedup Must Use Content-Stable Keys (No Index In Fingerprint)
 `useSSEStream.ts` merges prefetch history (`fetchRunEvents`) and live SSE events. Dedup keys

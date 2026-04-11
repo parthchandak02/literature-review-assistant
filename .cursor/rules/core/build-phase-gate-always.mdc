@@ -10,7 +10,7 @@ alwaysApply: false
 Current top-level runtime checkpoint order in `src/orchestration/resume.py`:
 `phase_2_search` -> `phase_3_screening` -> `phase_4_extraction_quality` ->
 `phase_4b_embedding` -> `phase_5_synthesis` -> `phase_5b_knowledge_graph` ->
-`phase_6_writing` -> `phase_7_audit` -> `finalize`
+`phase_5c_pre_writing_gate` -> `phase_6_writing` -> `phase_7_audit` -> `finalize`
 
 All phases implemented and verified. See `spec.md` Implementation Status and Definition of Done sections for detailed acceptance criteria.
 
@@ -31,3 +31,5 @@ cd frontend && pnpm typecheck  # TypeScript type check
 When adding a new phase, update all phase-order surfaces together:
 `src/orchestration/workflow.py`, `src/orchestration/resume.py`,
 `src/web/app.py`, and `frontend/src/lib/constants.ts`.
+In `frontend/src/lib/constants.ts`, update both the display `PHASE_ORDER`
+and the resume-only `RESUME_PHASE_ORDER` when backend `PHASE_ORDER` changes.

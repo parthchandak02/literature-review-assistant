@@ -18,7 +18,8 @@ alwaysApply: false
 - `test_<module>.py` for unit tests targeting a specific module (e.g., `test_workflow_registry.py`)
 - `test_<feature>.py` for feature-based tests (e.g., `test_grade_sof.py`, `test_living_refresh.py`)
 - `test_<pipeline>_pipeline.py` for integration tests
-- `test_checkpoint_resume.py` for resume/resume-flow integration
+- Resume and replay coverage usually lives in files such as `test_resume_state.py`
+  and `test_workflow_replay_*.py`, not a single `test_checkpoint_resume.py` file.
 
 ## Running
 ```bash

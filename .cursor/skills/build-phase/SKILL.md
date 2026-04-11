@@ -29,14 +29,21 @@ When the user asks to implement a build phase, follow these steps:
 | 3: Screening | Dual-reviewer, Prompts, Kappa | test_screening, test_reliability, test_dual_screening |
 | 4: Extraction | Extractor, RoB2, ROBINS-I, CASP, GRADE | test_rob2, test_robins_i, test_quality_pipeline |
 | 5: Synthesis | Effect sizes, Meta-analysis, Forest/Funnel | test_effect_size, test_meta_analysis, test_synthesis_pipeline |
-| 6: Writing | Section writer, prompts, SoF, humanizer guardrails, citation grounding, prior-section context chaining; abstract limit follows `settings.ieee_export.max_abstract_words` with deterministic trim headroom/floor | test_writing_pipeline |
+| 6: Writing | Section writer, prompts, SoF, humanizer guardrails, citation grounding, prior-section context chaining; abstract limit follows `settings.ieee_export.max_abstract_words` with deterministic trim headroom/floor | test_writing_pipeline, test_structured_writing, test_writing_pipeline_fixes |
 | 7: PRISMA/Viz | PRISMA diagram, Timeline, Geographic | test_prisma_diagram |
 | 8: Export | Graph wiring, IEEE LaTeX, submission packaging, CLI, resume, workflow_registry | test_export, test_workflow_registry, test_resume_state, integration export/api tests |
 
 Naming note: build-phase numbering (1-8) is not the same as runtime checkpoint
-key names. The orchestration graph includes a post-writing checkpoint key
+key names. The orchestration graph includes `phase_5c_pre_writing_gate`
+between knowledge-graph and writing, plus the post-writing checkpoint
 `phase_7_audit` before `finalize` in `src/orchestration/resume.py`. Keep
-discussion of build "Phase 7: PRISMA/Viz" separate from runtime `phase_7_audit`.
+discussion of build "Phase 7: PRISMA/Viz" separate from runtime
+`phase_7_audit`.
+
+When validating runtime phase coverage after synthesis/writing changes, include
+`tests/unit/test_pre_writing_gate.py` and confirm
+`frontend/src/lib/constants.ts` `RESUME_PHASE_ORDER` still matches backend
+`PHASE_ORDER`.
 
 ## Phase 6 Acceptance Criteria (updated)
 - Per-section persistence: interrupted runs can resume writing without losing completed sections
