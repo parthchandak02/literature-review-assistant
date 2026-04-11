@@ -54,9 +54,19 @@ class CitationLedger:
         )
 
     async def validate_section(self, section: str, text: str) -> ManuscriptValidationResult:
-        """Validate a single section. Same logic as validate_manuscript, section-scoped."""
-        _ = section
-        return await self.validate_manuscript(text)
+        """Validate a single section while scoping unresolved claims to that section."""
+        known_citekeys = set(await self.repository.get_citekeys())
+        alpha_keys = set(extract_used_citekeys(text))
+        numeric_keys = set(extract_numeric_citation_refs(text))
+        known_count = len(known_citekeys)
+        unresolved_numeric = {k for k in numeric_keys if int(k) < 1 or int(k) > known_count}
+        unresolved_alpha = alpha_keys - known_citekeys
+        unresolved_citations = sorted(unresolved_alpha | unresolved_numeric)
+        unresolved_claims = await self.repository.get_unlinked_claim_ids(section=section)
+        return ManuscriptValidationResult(
+            unresolved_claims=sorted(unresolved_claims),
+            unresolved_citations=unresolved_citations,
+        )
 
     async def block_export_if_invalid(
         self,

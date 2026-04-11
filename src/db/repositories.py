@@ -1972,6 +1972,40 @@ class WorkflowRepository:
         )
         await self.db.commit()
 
+    async def reconcile_stale_running_steps(
+        self,
+        workflow_id: str,
+        phase: str,
+        step_name: str,
+        *,
+        replacement_step_id: str | None = None,
+        completion_note: str = "superseded by a newer attempt",
+    ) -> int:
+        """Mark orphaned running rows as skipped before a replacement attempt starts."""
+        conditions = [
+            "workflow_id = ?",
+            "phase = ?",
+            "step_name = ?",
+            "status = 'running'",
+        ]
+        params: list[object] = [workflow_id, phase, step_name]
+        if replacement_step_id:
+            conditions.append("step_id != ?")
+            params.append(replacement_step_id)
+        now = datetime.now(UTC).isoformat()
+        cursor = await self.db.execute(
+            f"""
+            UPDATE workflow_steps
+            SET status = 'skipped',
+                error_message = ?,
+                completed_at = COALESCE(completed_at, ?)
+            WHERE {" AND ".join(conditions)}
+            """,
+            (completion_note, now, *params),
+        )
+        await self.db.commit()
+        return int(cursor.rowcount or 0)
+
     async def get_step_history(
         self, workflow_id: str, phase: str | None = None, *, limit: int = 200
     ) -> list[WorkflowStepRecord]:
@@ -2044,6 +2078,20 @@ class WorkflowRepository:
                 summary[phase_key] = {}
             summary[phase_key][status_key] = int(row[2])
         return summary
+
+    async def count_running_steps(self, workflow_id: str, phase: str | None = None) -> int:
+        if phase:
+            cursor = await self.db.execute(
+                "SELECT COUNT(*) FROM workflow_steps WHERE workflow_id = ? AND phase = ? AND status = 'running'",
+                (workflow_id, phase),
+            )
+        else:
+            cursor = await self.db.execute(
+                "SELECT COUNT(*) FROM workflow_steps WHERE workflow_id = ? AND status = 'running'",
+                (workflow_id,),
+            )
+        row = await cursor.fetchone()
+        return int(row[0]) if row and row[0] is not None else 0
 
     @staticmethod
     def _row_to_step_record(row: tuple[Any, ...]) -> WorkflowStepRecord:
@@ -3091,15 +3139,27 @@ class CitationRepository:
         )
         await self.db.commit()
 
-    async def get_unlinked_claim_ids(self) -> list[str]:
-        cursor = await self.db.execute(
-            """
-            SELECT c.claim_id
-            FROM claims c
-            LEFT JOIN evidence_links e ON c.claim_id = e.claim_id
-            WHERE e.claim_id IS NULL
-            """
-        )
+    async def get_unlinked_claim_ids(self, section: str | None = None) -> list[str]:
+        if section:
+            cursor = await self.db.execute(
+                """
+                SELECT c.claim_id
+                FROM claims c
+                LEFT JOIN evidence_links e ON c.claim_id = e.claim_id
+                WHERE e.claim_id IS NULL
+                  AND lower(COALESCE(c.section, '')) = lower(?)
+                """,
+                (section,),
+            )
+        else:
+            cursor = await self.db.execute(
+                """
+                SELECT c.claim_id
+                FROM claims c
+                LEFT JOIN evidence_links e ON c.claim_id = e.claim_id
+                WHERE e.claim_id IS NULL
+                """
+            )
         rows = await cursor.fetchall()
         return [str(row[0]) for row in rows]
 

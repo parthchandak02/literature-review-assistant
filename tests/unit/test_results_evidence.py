@@ -111,6 +111,27 @@ def test_results_section_fallback_rewrites_not_reported_findings() -> None:
     assert "No quantitative outcomes were reported." in paragraph_text
 
 
+def test_build_results_evidence_pack_filters_noisy_synthesis_lists() -> None:
+    grounding = _grounding()
+    grounding.narrative_text = (
+        "Across 3 studies, the overall direction of evidence was mixed. "
+        "Key outcome themes: commune health center, create a stock receipt from a vaccine distributor, "
+        "create a vaccination plan for children by vaccinesb, create a vaccine use voucher."
+    )
+    grounding.key_themes = [
+        "vaccination coverage",
+        "tracking efficiency",
+        "create a vaccine use voucher",
+        "dose 1 improvement",
+    ]
+    pack = build_results_evidence_pack(grounding)
+    assert "Key outcome themes:" not in pack.synthesis_summary
+    assert pack.theme_sentences == [
+        "Theme 1: vaccination coverage.",
+        "Theme 2: tracking efficiency.",
+    ]
+
+
 def test_results_section_fallback_avoids_truncated_study_findings() -> None:
     grounding = _grounding()
     grounding.study_summaries[0].key_finding = "The intervention improved reporting timeliness but left administrat"

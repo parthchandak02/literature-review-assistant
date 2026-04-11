@@ -22,7 +22,7 @@ from src.models import (
     SettingsConfig,
     StructuredSectionDraft,
 )
-from src.writing.citation_grounding import extract_and_strip_inline_citekeys
+from src.writing.citation_grounding import extract_and_strip_inline_citekeys, extract_used_citekeys
 from src.writing.evidence_assembler import (
     build_results_evidence_pack,
     build_results_section_fallback,
@@ -499,6 +499,8 @@ _CITEKEY_RE = re.compile(r"\[([A-Za-z0-9_:-]+)\]")
 _SNAKE_CASE_RE = re.compile(r"\b[a-z][a-z0-9]+_[a-z0-9_]+\b")
 _EXCESSIVE_LIST_RE = re.compile(r"(?:,\s*[^,]{1,80}){20,}")
 _TRAILING_FRAGMENT_RE = re.compile(r"\b(and|or|with|to|for|in|of|by|vs)\s*$", flags=re.IGNORECASE)
+_INTERNAL_ID_RE = re.compile(r"\b(?:Paper_[A-Za-z0-9_-]+|p\d+|[a-f0-9]{8,}-[a-f0-9-]{3,})\b", flags=re.IGNORECASE)
+_ANY_BRACKET_CITATION_RE = re.compile(r"\[[^\[\]\n]{1,120}\]")
 
 _LOW_VOLUME_REVIEW_MAX_INCLUDED = 15
 _SECTION_REQUIRED_SUBHEADINGS = SECTION_REQUIRED_SUBHEADINGS
@@ -636,11 +638,15 @@ def _validate_structured_section_draft(
     for block in draft.blocks:
         text = _sanitize_ir_block_text(block.text)
         text, inline_citekeys = extract_and_strip_inline_citekeys(text)
+        if section == "abstract":
+            text = _strip_abstract_citation_markup(text)
         block.text = text
-        explicit_citations_present = any(str(raw_key or "").strip() for raw_key in list(block.citations or []))
+        explicit_citations_present = (
+            False if section == "abstract" else any(str(raw_key or "").strip() for raw_key in list(block.citations or []))
+        )
         merged_citations: list[str] = []
         merged_seen: set[str] = set()
-        for raw_key in list(block.citations or []):
+        for raw_key in ([] if section == "abstract" else list(block.citations or [])):
             key = str(raw_key or "").strip()
             if not key:
                 continue
@@ -655,8 +661,7 @@ def _validate_structured_section_draft(
             key = str(raw_key or "").strip()
             if not key:
                 continue
-            if explicit_citations_present:
-                invalid_inline_keys.add(key)
+            if section == "abstract":
                 continue
             if key not in valid_citekeys:
                 invalid_inline_keys.add(key)
@@ -698,6 +703,65 @@ def _is_low_volume_review(included_study_count: int) -> bool:
 
 def _is_best_effort_issue(issue: str) -> bool:
     return any(issue.startswith(prefix) for prefix in _BEST_EFFORT_ISSUE_PREFIXES)
+
+
+def _rendered_citation_integrity_issues(content: str, valid_citekeys: set[str]) -> list[str]:
+    invalid = sorted({key for key in extract_used_citekeys(content) if key not in valid_citekeys})
+    if not invalid:
+        return []
+    return [f"invalid_rendered_citations:{len(invalid)}"]
+
+
+def _extract_count(pattern: str, content: str) -> int | None:
+    match = re.search(pattern, content, flags=re.IGNORECASE)
+    if not match:
+        return None
+    try:
+        return int(match.group(1))
+    except Exception:
+        return None
+
+
+def _grounding_integrity_issues(
+    section: str,
+    content: str,
+    grounding: WritingGroundingData | None,
+) -> list[str]:
+    if grounding is None:
+        return []
+    issues: list[str] = []
+    if _INTERNAL_ID_RE.search(content):
+        issues.append("internal_identifier_leakage")
+
+    expected_screened = int(getattr(grounding, "total_screened", 0) or 0)
+    expected_included = int(getattr(grounding, "total_included", 0) or 0)
+    expected_assessed = int(getattr(grounding, "fulltext_assessed", 0) or 0)
+    expected_not_retrieved = int(getattr(grounding, "fulltext_not_retrieved", 0) or 0)
+    expected_retrieved = int(getattr(grounding, "fulltext_retrieved_count", 0) or 0)
+    expected_fulltext_total = int(getattr(grounding, "fulltext_total_count", expected_included) or expected_included)
+
+    observed_screened = _extract_count(r"\bscreened\s+(\d+)\s+records\b", content)
+    if observed_screened is not None and observed_screened != expected_screened:
+        issues.append("grounding_count_mismatch:screened")
+
+    observed_included = _extract_count(r"\bincluded\s+(\d+)\s+stud(?:y|ies)\b", content)
+    if observed_included is None:
+        observed_included = _extract_count(r"\b(\d+)\s+stud(?:y|ies)\s+were included\b", content)
+    if observed_included is not None and observed_included != expected_included:
+        issues.append("grounding_count_mismatch:included")
+
+    observed_assessed = _extract_count(r"\b(\d+)\s+reports\s+were assessed\b", content)
+    if observed_assessed is not None and observed_assessed != expected_assessed:
+        issues.append("grounding_count_mismatch:assessed")
+
+    observed_not_retrieved = _extract_count(r"\b(\d+)\s+(?:full-text\s+)?reports\s+were not retrieved\b", content)
+    if observed_not_retrieved is not None and observed_not_retrieved != expected_not_retrieved:
+        issues.append("grounding_count_mismatch:not_retrieved")
+
+    if section == "methods" and expected_fulltext_total > expected_retrieved:
+        if re.search(r"\ball\s+\d+\s+included studies had (?:their )?full text retrieved\b", content, flags=re.IGNORECASE):
+            issues.append("grounding_fulltext_retrieval_contradiction")
+    return sorted(set(issues))
 
 
 def _is_substantive_paragraph(text: str, included_study_count: int = 0) -> bool:
@@ -773,7 +837,7 @@ def _section_completeness_issues(
         tail = _strip_terminal_citations(tail)
         if _TRAILING_FRAGMENT_RE.search(tail):
             issues.append("trailing_fragment_word")
-        elif tail and tail[-1] not in ".!?":
+        elif section != "abstract" and tail and tail[-1] not in ".!?":
             issues.append("trailing_fragment_punctuation")
     return issues
 
@@ -874,6 +938,27 @@ def _append_or_inject_subsection(content: str, heading: str, sentence: str) -> s
     return f"{content.rstrip()}{suffix}### {heading}\n\n{sentence}".strip()
 
 
+def _replace_or_append_subsection(
+    content: str,
+    heading: str,
+    body: str,
+    *,
+    aliases: tuple[str, ...] = (),
+) -> str:
+    content = re.sub(r"(?<!\n)(###\s+)", r"\n\n\1", content)
+    headings = (heading, *aliases)
+    escaped = "|".join(re.escape(item) for item in headings)
+    pattern = re.compile(
+        rf"(?ms)^###\s+(?:{escaped})\s*$.*?(?=^###\s+|\Z)",
+        flags=re.IGNORECASE,
+    )
+    replacement = f"### {heading}\n\n{body.strip()}"
+    if pattern.search(content):
+        return pattern.sub(replacement, content, count=1).strip()
+    suffix = "" if not content.strip() else "\n\n"
+    return f"{content.rstrip()}{suffix}{replacement}".strip()
+
+
 def _patch_introduction_grounding(content: str, review: ReviewConfig) -> str:
     patched = content.strip()
     lower = patched.lower()
@@ -893,6 +978,7 @@ def _patch_methods_grounding(content: str, grounding: WritingGroundingData | Non
     if grounding is None:
         return content
     patched = content.strip()
+    abstract_only_count = max(0, int(grounding.fulltext_total_count) - int(grounding.fulltext_retrieved_count))
     db_sentence = (
         f"The review searched {', '.join(grounding.databases_searched)} on {grounding.search_date}"
         + (
@@ -905,7 +991,38 @@ def _patch_methods_grounding(content: str, grounding: WritingGroundingData | Non
         f"Eligible studies addressed {review.pico.population}, evaluated {review.pico.intervention}, "
         f"compared against {review.pico.comparison}, and reported outcomes related to {review.pico.outcome}."
     )
-    selection_sentence = grounding.screening_method_description.strip()
+    selection_parts = [grounding.screening_method_description.strip()]
+    selection_parts.append(
+        f"Following title and abstract screening, {grounding.fulltext_sought} reports were sought for full-text retrieval, "
+        f"{grounding.fulltext_not_retrieved} were not retrieved, {grounding.fulltext_assessed} were assessed for eligibility, "
+        f"and {grounding.total_included} studies were included."
+    )
+    if abstract_only_count > 0:
+        selection_parts.append(
+            f"Eligibility assessment used the retrieved reports for all {grounding.fulltext_assessed} candidates, but "
+            f"retrievable full-text PDFs were available for only {grounding.fulltext_retrieved_count} of the "
+            f"{grounding.fulltext_total_count} included studies; the remaining {abstract_only_count} included studies "
+            "were extracted from abstracts and metadata only."
+        )
+    if grounding.excluded_non_primary_count > 0:
+        selection_parts.append(
+            f"An additional {grounding.excluded_non_primary_count} papers were excluded after full-text assessment during "
+            "extraction because they did not meet the primary study design criteria."
+        )
+    selection_sentence = " ".join(part.strip() for part in selection_parts if part.strip())
+    if abstract_only_count > 0:
+        data_collection_sentence = (
+            "Data extraction used a standardized form to capture study characteristics, intervention details, comparators, "
+            "outcomes, and risk-of-bias inputs. "
+            f"Full texts were retrieved for {grounding.fulltext_retrieved_count} of {grounding.fulltext_total_count} included "
+            f"studies, and {abstract_only_count} studies were extracted from abstracts and metadata only."
+        )
+    else:
+        data_collection_sentence = (
+            "Data extraction used a standardized form to capture study characteristics, intervention details, comparators, "
+            "outcomes, and risk-of-bias inputs. "
+            f"Full texts were retrieved for all {grounding.fulltext_total_count} included studies."
+        )
     tool_names: list[str] = []
     if "RoB 2" in grounding.rob_summary:
         tool_names.append("RoB 2")
@@ -951,8 +1068,13 @@ def _patch_methods_grounding(content: str, grounding: WritingGroundingData | Non
         patched = _append_or_inject_subsection(patched, "Information Sources", db_sentence)
     if review.pico.population.lower() not in lower or review.pico.intervention.lower() not in lower:
         patched = _append_or_inject_subsection(patched, "Eligibility Criteria", eligibility_sentence)
-    if "two independent reviewers" not in lower and "ai-assisted dual-reviewer pipeline" not in lower:
-        patched = _append_or_inject_subsection(patched, "Selection Process", selection_sentence)
+    patched = _replace_or_append_subsection(patched, "Selection Process", selection_sentence)
+    patched = _replace_or_append_subsection(
+        patched,
+        "Data Collection",
+        data_collection_sentence,
+        aliases=("Data Collection Process",),
+    )
     if "boolean" not in lower or "filter" not in lower or "limit" not in lower:
         patched = _append_or_inject_subsection(patched, "Search Strategy", search_strategy_sentence)
     if tool_names and not any(tool.lower() in lower for tool in tool_names):
@@ -972,9 +1094,42 @@ def _patch_methods_grounding(content: str, grounding: WritingGroundingData | Non
     return patched
 
 
-def _patch_results_grounding(content: str) -> str:
+def _patch_results_grounding(content: str, grounding: WritingGroundingData | None = None) -> str:
     patched = content.strip()
     lower = patched.lower()
+    if grounding is not None:
+        selection_parts = [
+            (
+                f"The review screened {grounding.total_screened} records, sought {grounding.fulltext_sought} full-text reports, "
+                f"did not retrieve {grounding.fulltext_not_retrieved}, assessed {grounding.fulltext_assessed} reports for "
+                f"eligibility, and included {grounding.total_included} studies."
+            )
+        ]
+        if grounding.excluded_fulltext_reasons:
+            reasons = "; ".join(
+                f"{str(reason).replace('_', ' ')} ({count})"
+                for reason, count in grounding.excluded_fulltext_reasons.items()
+            )
+            selection_parts.append(
+                "Primary reasons for full-text exclusion were "
+                + reasons
+                + "; reason categories may overlap, and one report can contribute to multiple exclusion counts."
+            )
+        if grounding.excluded_non_primary_count > 0:
+            selection_parts.append(
+                f"An additional {grounding.excluded_non_primary_count} papers were excluded during extraction because they "
+                "were classified as non-primary study types."
+            )
+        abstract_only_count = max(0, int(grounding.fulltext_total_count) - int(grounding.fulltext_retrieved_count))
+        if abstract_only_count > 0:
+            selection_parts.append(
+                f"All {grounding.fulltext_assessed} reports were retrieved for eligibility assessment, but retrievable "
+                f"full-text PDFs were available for only {grounding.fulltext_retrieved_count} of the "
+                f"{grounding.fulltext_total_count} included studies; {abstract_only_count} studies were extracted from "
+                "abstracts and metadata only."
+            )
+        patched = _replace_or_append_subsection(patched, "Study Selection", " ".join(selection_parts))
+        lower = patched.lower()
     heterogeneity_results_sentence = (
         "Heterogeneity results did not identify a consistent interaction or effect modifier across subgroup comparisons by "
         "study design, setting, or outcome domain."
@@ -1044,6 +1199,41 @@ def _patch_abstract_grounding(content: str, grounding: WritingGroundingData | No
     return patched
 
 
+def _strip_abstract_citation_markup(content: str) -> str:
+    """Abstract output must remain citation-free after all deterministic passes."""
+    cleaned = _ANY_BRACKET_CITATION_RE.sub("", str(content or ""))
+    cleaned = re.sub(r"[ \t]{2,}", " ", cleaned)
+    cleaned = re.sub(r"\s+([,.;:])", r"\1", cleaned)
+    return cleaned.strip()
+
+
+def _normalize_structured_abstract_fields(content: str) -> str:
+    """Normalize spacing and terminal punctuation for structured abstract fields."""
+
+    def _rewrite(field: str, text: str, *, always_period: bool = False) -> str:
+        pattern = re.compile(
+            rf"(\*\*{re.escape(field)}:\*\*\s*)(.*?)(?=(?:\n\*\*[A-Za-z][A-Za-z ]*:\*\*|$))",
+            flags=re.IGNORECASE | re.DOTALL,
+        )
+
+        def _repl(match: re.Match[str]) -> str:
+            value = re.sub(r"\s+", " ", match.group(2).strip())
+            if value:
+                if always_period:
+                    value = value.rstrip(" ,;:.") + "."
+                elif value[-1] not in ".!?":
+                    value = f"{value}."
+            return f"{match.group(1)}{value}"
+
+        return pattern.sub(_repl, text, count=1)
+
+    normalized = str(content or "").strip()
+    for field in ("Background", "Objectives", "Methods", "Results", "Conclusions"):
+        normalized = _rewrite(field, normalized)
+    normalized = _rewrite("Keywords", normalized, always_period=True)
+    return normalized
+
+
 def _build_deterministic_section_fallback(
     section: str,
     grounding: WritingGroundingData | None,
@@ -1073,9 +1263,9 @@ def _build_deterministic_section_fallback(
                 SectionBlock(
                     block_type="paragraph",
                     text=(
-                        "**Background:** QR-code-enabled digital vaccine record systems are intended to improve vaccination "
-                        "coverage monitoring, record portability, and health system integration in rural settings where "
-                        "paper workflows can be delayed, fragmented, and difficult to reconcile."
+                        f"**Background:** This systematic review evaluated the available evidence addressing {review_topic}, "
+                        "with emphasis on study selection transparency, synthesis consistency, and the strength of the "
+                        "reported evidence base."
                     ),
                 ),
                 SectionBlock(
@@ -1109,7 +1299,7 @@ def _build_deterministic_section_fallback(
                 ),
                 SectionBlock(
                     block_type="paragraph",
-                    text="**Keywords:** digital vaccine records, QR code systems, rural health, immunization informatics, systematic review.",
+                    text="**Keywords:** systematic review, evidence synthesis, included studies, manuscript quality, research question.",
                 ),
             ],
         )
@@ -1678,12 +1868,14 @@ async def write_section_with_validation(
     if section == "abstract":
         content = _ensure_structured_abstract(content, review.research_question)
         content = _patch_abstract_grounding(content, grounding, review)
+        content = _strip_abstract_citation_markup(content)
+        content = _normalize_structured_abstract_fields(content)
     if section == "introduction":
         content = _patch_introduction_grounding(content, review)
     if section == "methods":
         content = _patch_methods_grounding(content, grounding, review)
     if section == "results":
-        content = _patch_results_grounding(content)
+        content = _patch_results_grounding(content, grounding)
     if section == "discussion":
         content = _patch_discussion_grounding(content)
 
@@ -1691,6 +1883,46 @@ async def write_section_with_validation(
     # preserving citations and numeric tokens.
     content = apply_deterministic_guardrails(content)
 
+    rendered_citation_issues = _rendered_citation_integrity_issues(content, valid_citekeys)
+    if rendered_citation_issues:
+        validation_issues = sorted(set(validation_issues + rendered_citation_issues))
+    grounding_issues = _grounding_integrity_issues(section, content, grounding)
+    if grounding_issues:
+        validation_issues = sorted(set(validation_issues + grounding_issues))
+    hard_render_issues = rendered_citation_issues + grounding_issues
+    if hard_render_issues and section in {"abstract", "methods", "results", "discussion", "conclusion"}:
+        fallback_structured = _build_deterministic_section_fallback(section, grounding, valid_citekeys)
+        if _best_effort_accept(section, structured, fallback_structured, validation_issues, included_study_count):
+            logger.warning(
+                "Section '%s' hit rendered-content integrity issues (%s); keeping best-effort content.",
+                section,
+                ", ".join(sorted(set(hard_render_issues))),
+            )
+        else:
+            logger.warning(
+                "Section '%s' hit rendered-content integrity issues (%s); forcing deterministic fallback.",
+                section,
+                ", ".join(sorted(set(hard_render_issues))),
+            )
+            structured = fallback_structured
+            used_deterministic_fallback = True
+            content = render_section_markdown(structured)
+            content = _sanitize_prose(content)
+            content = _sanitize_section_headings(section, content)
+            if section == "abstract":
+                content = _ensure_structured_abstract(content, review.research_question)
+                content = _patch_abstract_grounding(content, grounding, review)
+                content = _strip_abstract_citation_markup(content)
+                content = _normalize_structured_abstract_fields(content)
+            if section == "introduction":
+                content = _patch_introduction_grounding(content, review)
+            if section == "methods":
+                content = _patch_methods_grounding(content, grounding, review)
+            if section == "results":
+                content = _patch_results_grounding(content, grounding)
+            if section == "discussion":
+                content = _patch_discussion_grounding(content)
+            content = apply_deterministic_guardrails(content)
     post_issues = _post_render_completeness_issues(section, content, included_study_count)
     topic_issues = _topic_anchor_issues(section, content, grounding)
     if topic_issues:
@@ -1723,12 +1955,14 @@ async def write_section_with_validation(
             if section == "abstract":
                 content = _ensure_structured_abstract(content, review.research_question)
                 content = _patch_abstract_grounding(content, grounding, review)
+                content = _strip_abstract_citation_markup(content)
+                content = _normalize_structured_abstract_fields(content)
             if section == "introduction":
                 content = _patch_introduction_grounding(content, review)
             if section == "methods":
                 content = _patch_methods_grounding(content, grounding, review)
             if section == "results":
-                content = _patch_results_grounding(content)
+                content = _patch_results_grounding(content, grounding)
             if section == "discussion":
                 content = _patch_discussion_grounding(content)
             content = apply_deterministic_guardrails(content)

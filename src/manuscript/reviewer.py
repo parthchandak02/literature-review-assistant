@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import date
 import json
 import logging
 import time
@@ -134,6 +135,7 @@ async def run_manuscript_audit(
             break
         runtime = await provider.reserve_call_slot(agent_name)
         domain_brief = _audit_domain_brief(review)
+        audit_date = date.today().isoformat()
         prompt = (
             "You are a manuscript peer reviewer.\n"
             f"Profile: {profile}\n"
@@ -145,6 +147,18 @@ async def run_manuscript_audit(
             + "Return strict JSON only.\n"
             + "Use these severity levels: major, minor, note.\n"
             + "Set blocking=true only for critical defects that should block strict gate.\n\n"
+            + f"Audit context date: {audit_date}.\n"
+            + "Treat searches run on or before the audit context date as current, not future-dated. "
+            + "Treat publication years less than or equal to the audit context year as allowable unless the manuscript "
+            + "explicitly claims those studies were unavailable at the time of search.\n"
+            + "A transparently disclosed failed or unavailable database is a search limitation, not an automatic "
+            + "blocking defect, when multiple major databases were searched and the limitation is described clearly.\n"
+            + "Single-reviewer data collection is a methodological limitation that should be reported accurately, but it "
+            + "is not automatically blocking unless the manuscript misstates the process or the review claims duplicate "
+            + "independent extraction that did not occur.\n\n"
+            + "Absence of a formal inter-rater reliability statistic (for example, Cohen's kappa) is a reporting "
+            + "limitation, not an automatic blocking defect, when the manuscript already discloses dual screening with "
+            + "adjudication and does not falsely claim a computed reliability estimate.\n\n"
             f"Deterministic contract summary JSON:\n{contract_summary_json}\n\n"
             "Manuscript:\n"
             f"{manuscript_text[:32000]}"
@@ -214,13 +228,13 @@ async def run_manuscript_audit(
     minor_count = len([f for f in findings if f.severity == "minor"])
     note_count = len([f for f in findings if f.severity == "note"])
     blocking_count = len([f for f in findings if f.blocking])
-    mode = str(getattr(settings.gates, "manuscript_audit_mode", "observe"))
-    if successful_profiles == 0 and mode == "strict":
+    mode = str(getattr(settings.gates, "manuscript_audit_mode", "strict"))
+    if successful_profiles == 0:
         merged_verdict = "reject"
-        blocking_count += 1
+        blocking_count = max(blocking_count, 1)
     passed = True
     if mode == "soft":
-        passed = merged_verdict != "reject"
+        passed = blocking_count == 0 and merged_verdict != "reject"
     elif mode == "strict":
         passed = blocking_count == 0 and merged_verdict in ("accept", "minor_revisions")
 

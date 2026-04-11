@@ -246,3 +246,36 @@ async def test_rollback_clears_control_plane_tables(tmp_path):
 
         manifests_after = await repo.get_writing_manifests("wf-rb")
         assert len(manifests_after) == 0
+
+
+@pytest.mark.asyncio
+async def test_reconcile_stale_running_steps_marks_superseded_attempts(repo):
+    stale = WorkflowStepRecord(
+        step_id="step-old",
+        workflow_id="wf-test",
+        phase="phase_6_writing",
+        step_name="writing_phase",
+        status=StepStatus.RUNNING,
+    )
+    current = WorkflowStepRecord(
+        step_id="step-new",
+        workflow_id="wf-test",
+        phase="phase_6_writing",
+        step_name="writing_phase",
+        status=StepStatus.RUNNING,
+    )
+    await repo.save_workflow_step(stale)
+    await repo.save_workflow_step(current)
+
+    updated = await repo.reconcile_stale_running_steps(
+        "wf-test",
+        "phase_6_writing",
+        "writing_phase",
+        replacement_step_id="step-new",
+    )
+    history = await repo.get_step_history("wf-test", "phase_6_writing")
+    by_id = {item.step_id: item for item in history}
+
+    assert updated == 1
+    assert by_id["step-old"].status == StepStatus.SKIPPED
+    assert by_id["step-new"].status == StepStatus.RUNNING

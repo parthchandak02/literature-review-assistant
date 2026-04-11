@@ -13,6 +13,8 @@ from src.writing.context_builder import StudySummary, WritingGroundingData
 _NON_ALNUM_RE = re.compile(r"[^a-z0-9]+")
 _TERMINAL_PUNCTUATION = ".!?"
 _RESULTS_REQUIRED_SUBHEADINGS = ("Study Selection", "Study Characteristics", "Synthesis of Findings")
+_INTERNAL_ID_RE = re.compile(r"\b(?:Paper_[A-Za-z0-9_-]+|p\d+|[a-f0-9]{8,}-[a-f0-9-]{3,})\b", flags=re.IGNORECASE)
+_EXCESSIVE_LIST_RE = re.compile(r"(?:,\s*[^,]{1,80}){8,}")
 
 
 def _normalize_title(text: str) -> str:
@@ -91,7 +93,9 @@ def _append_unique_paragraph(
 
 
 def _study_result_sentence(study: ResultsEvidenceStudy) -> str:
-    title = str(study.title or "Included study").strip().rstrip(".")
+    title = str(study.title or "").strip().rstrip(".")
+    if not title or _INTERNAL_ID_RE.search(title):
+        title = "Included study"
     design = _naturalize_label(study.study_design or "included study").lower()
     key_finding = str(study.key_finding or "").strip()
     if key_finding and key_finding != "Not reported" and key_finding[-1] in _TERMINAL_PUNCTUATION:
@@ -102,6 +106,34 @@ def _study_result_sentence(study: ResultsEvidenceStudy) -> str:
         return f"{title} was a {design} study with {study.participant_count} participants and contributed evidence to this review."
     article = "an" if design[:1] in "aeiou" else "a"
     return f"{title} was {article} {design} that contributed evidence to this review."
+
+
+def _is_reportable_synthesis_text(text: str) -> bool:
+    value = str(text or "").strip()
+    if not value:
+        return False
+    low = value.lower()
+    if _INTERNAL_ID_RE.search(value):
+        return False
+    if _EXCESSIVE_LIST_RE.search(value):
+        return False
+    if "key outcome themes:" in low:
+        return False
+    return True
+
+
+def _is_reportable_theme(theme: str) -> bool:
+    value = _naturalize_label(theme)
+    if not value:
+        return False
+    if _INTERNAL_ID_RE.search(value):
+        return False
+    if _EXCESSIVE_LIST_RE.search(value):
+        return False
+    if any(ch.isdigit() for ch in value):
+        return False
+    words = value.split()
+    return 1 <= len(words) <= 5
 
 
 class ResultsEvidenceStudy(BaseModel):
@@ -172,14 +204,14 @@ def build_results_evidence_pack(grounding: WritingGroundingData | None) -> Resul
         f"Narrative synthesis covered {grounding.n_studies_synthesized} studies and the overall direction of evidence "
         f"was {_naturalize_label(grounding.synthesis_direction)}."
     ]
-    if grounding.narrative_text:
+    if _is_reportable_synthesis_text(grounding.narrative_text):
         synthesis_parts.append(str(grounding.narrative_text).strip())
     synthesis_summary = " ".join(part for part in synthesis_parts if part).strip()
 
     theme_sentences = [
         f"Theme {idx + 1}: {_naturalize_label(theme)}."
         for idx, theme in enumerate((grounding.key_themes or [])[:3])
-        if str(theme).strip()
+        if _is_reportable_theme(str(theme))
     ]
 
     studies: list[ResultsEvidenceStudy] = []

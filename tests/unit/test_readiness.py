@@ -9,7 +9,7 @@ from src.db.repositories import CitationRepository, WorkflowRepository
 from src.manuscript.contracts import run_manuscript_contracts
 from src.manuscript.readiness import compute_readiness_scorecard
 from src.manuscript.reviewer import select_audit_profiles
-from src.models import DomainExpertConfig, FallbackEventRecord, ReviewConfig, ReviewType, SettingsConfig
+from src.models import CitationEntryRecord, DomainExpertConfig, FallbackEventRecord, ReviewConfig, ReviewType, SettingsConfig
 
 
 def _write_minimal_manuscript(md_path: Path, tex_path: Path) -> None:
@@ -43,6 +43,18 @@ def _write_minimal_manuscript(md_path: Path, tex_path: Path) -> None:
         "\\section{Discussion}\n\\section{Conclusion}\n\\section{References}\n",
         encoding="utf-8",
     )
+
+
+async def _seed_citation(db_path: Path) -> None:
+    async with get_db(str(db_path)) as db:
+        await CitationRepository(db).register_citation(
+            CitationEntryRecord(
+                citekey="Smith2024",
+                title="Reference study",
+                authors=["Smith"],
+                resolved=True,
+            )
+        )
 
 
 @pytest.mark.asyncio
@@ -97,6 +109,7 @@ async def test_readiness_reports_fallback_event_count(tmp_path: Path) -> None:
                 reason="section=discussion",
             )
         )
+    await _seed_citation(db_path)
 
     scorecard = await compute_readiness_scorecard(
         db_path=str(db_path),
@@ -107,6 +120,7 @@ async def test_readiness_reports_fallback_event_count(tmp_path: Path) -> None:
     )
     assert scorecard.fallback_event_count == 1
     assert scorecard.ready is False
+    assert scorecard.citation_lineage_valid is True
     assert any(check.name == "fallback_events" for check in scorecard.checks)
 
 
@@ -121,6 +135,7 @@ async def test_readiness_handles_tex_heading_parity_without_name_error(tmp_path:
         repo = WorkflowRepository(db)
         await repo.create_workflow("wf-ready-tex", "topic", "hash")
         await repo.save_checkpoint("wf-ready-tex", "finalize", 1)
+    await _seed_citation(db_path)
 
     scorecard = await compute_readiness_scorecard(
         db_path=str(db_path),
@@ -131,7 +146,37 @@ async def test_readiness_handles_tex_heading_parity_without_name_error(tmp_path:
     )
 
     assert scorecard.workflow_id == "wf-ready-tex"
+    assert scorecard.citation_lineage_valid is True
     assert any(check.name == "manuscript_contracts" for check in scorecard.checks)
+
+
+@pytest.mark.asyncio
+async def test_readiness_blocks_invalid_citation_lineage(tmp_path: Path) -> None:
+    db_path = tmp_path / "runtime_readiness_lineage.db"
+    manuscript_md = tmp_path / "doc_manuscript.md"
+    manuscript_tex = tmp_path / "doc_manuscript.tex"
+    _write_minimal_manuscript(manuscript_md, manuscript_tex)
+    await _seed_citation(db_path)
+
+    async with get_db(str(db_path)) as db:
+        repo = WorkflowRepository(db)
+        await repo.create_workflow("wf-ready-lineage", "topic", "hash")
+        await repo.save_checkpoint("wf-ready-lineage", "finalize", 1)
+
+    manuscript_md.write_text(
+        manuscript_md.read_text(encoding="utf-8").replace("[1] Ref", "[2] Ref"),
+        encoding="utf-8",
+    )
+    scorecard = await compute_readiness_scorecard(
+        db_path=str(db_path),
+        workflow_id="wf-ready-lineage",
+        manuscript_md_path=str(manuscript_md),
+        manuscript_tex_path=str(manuscript_tex),
+        contract_mode="strict",
+    )
+    assert scorecard.citation_lineage_valid is False
+    assert scorecard.ready is False
+    assert any(check.name == "citation_lineage" and not check.ok for check in scorecard.checks)
 
 
 @pytest.mark.asyncio

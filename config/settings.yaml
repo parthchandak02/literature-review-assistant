@@ -169,8 +169,8 @@ dual_review:
 
 gates:
   profile: "strict"
-  manuscript_contract_mode: "observe"
-  manuscript_audit_mode: "observe"
+  manuscript_contract_mode: "strict"
+  manuscript_audit_mode: "strict"
   search_volume_minimum: 50
   screening_minimum: 5
   sparse_topic_min: 2
