@@ -6,6 +6,7 @@ from pathlib import Path
 
 from pydantic import BaseModel, Field
 
+from src.citation.ledger import CitationLedger
 from src.db.database import get_db
 from src.db.repositories import CitationRepository, WorkflowRepository
 from src.export.prisma_checklist import validate_prisma
@@ -28,6 +29,7 @@ class ReadinessScorecard(BaseModel):
     ready: bool
     checks: list[ReadinessCheck] = Field(default_factory=list)
     contract_passed: bool = False
+    citation_lineage_valid: bool = False
     fallback_event_count: int = 0
     blocking_reasons: list[str] = Field(default_factory=list)
 
@@ -48,6 +50,7 @@ async def compute_readiness_scorecard(
     fin_ok = False
     prisma_ok = False
     contract_passed = False
+    citation_lineage_valid = False
     fallback_event_count = 0
 
     async with get_db(db_path) as db:
@@ -115,6 +118,8 @@ async def compute_readiness_scorecard(
                 detail=str(fallback_event_count),
             )
         )
+        if fallback_event_count > 0:
+            blocking.append(f"fallback events present for current writing generation: {fallback_event_count}")
 
     pdf_ok = False
     pdf_detail = "missing"
@@ -124,6 +129,32 @@ async def compute_readiness_scorecard(
         md_text = Path(manuscript_md_path).read_text(encoding="utf-8")
     if manuscript_tex_path and Path(manuscript_tex_path).exists():
         tex_text = Path(manuscript_tex_path).read_text(encoding="utf-8")
+    if md_text:
+        async with get_db(db_path) as db:
+            cite_repo = CitationRepository(db)
+            ledger = CitationLedger(cite_repo)
+            lineage = await ledger.validate_manuscript(md_text)
+        citation_lineage_valid = not (lineage.unresolved_claims or lineage.unresolved_citations)
+        checks.append(
+            ReadinessCheck(
+                name="citation_lineage",
+                ok=citation_lineage_valid,
+                detail=(
+                    "valid"
+                    if citation_lineage_valid
+                    else (
+                        f"claims={len(lineage.unresolved_claims)}, "
+                        f"citations={len(lineage.unresolved_citations)}"
+                    )
+                ),
+            )
+        )
+        if not citation_lineage_valid:
+            blocking.append(
+                "citation lineage invalid: "
+                f"{len(lineage.unresolved_claims)} claim(s) and "
+                f"{len(lineage.unresolved_citations)} citation(s) unresolved"
+            )
     prisma_check = validate_prisma(tex_text or None, md_text or None)
     prisma_check_ok = prisma_check.passed
     checks.append(
@@ -153,12 +184,20 @@ async def compute_readiness_scorecard(
         )
     )
 
-    ready = fin_ok and prisma_ok and contract_passed and prisma_check_ok
+    ready = (
+        fin_ok
+        and prisma_ok
+        and contract_passed
+        and citation_lineage_valid
+        and fallback_event_count == 0
+        and prisma_check_ok
+    )
     return ReadinessScorecard(
         workflow_id=workflow_id,
         ready=ready,
         checks=checks,
         contract_passed=contract_passed,
+        citation_lineage_valid=citation_lineage_valid,
         fallback_event_count=fallback_event_count,
         blocking_reasons=blocking,
     )

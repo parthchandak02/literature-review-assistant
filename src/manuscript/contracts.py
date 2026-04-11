@@ -630,7 +630,7 @@ async def run_manuscript_contracts(
     manuscript_md_path: str,
     manuscript_tex_path: str | None,
     extra_artifact_paths: list[str] | None = None,
-    mode: str = "observe",
+    mode: str = "strict",
     contract_phase: str = "finalize",
     abstract_word_limit: int = 250,
     review_config: ReviewConfig | None = None,

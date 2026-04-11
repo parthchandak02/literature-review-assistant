@@ -49,12 +49,16 @@ class IncludedSetResolver:
         primary_study_status: str,
         extraction_failed: bool,
         low_quality: bool = False,
+        scope_mismatch: bool = False,
         exclusion_reason_code: str | None = None,
         source_phase: str = "phase_4_extraction_quality",
     ) -> None:
         if primary_study_status in _NON_PRIMARY_DESIGNS:
             eligibility = "excluded_non_primary"
             reason = primary_study_status
+        elif scope_mismatch:
+            eligibility = "excluded_scope_mismatch"
+            reason = exclusion_reason_code or "wrong_intervention"
         elif low_quality:
             eligibility = "excluded_low_quality"
             reason = exclusion_reason_code or "low_quality"

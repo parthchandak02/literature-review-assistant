@@ -54,6 +54,48 @@ def test_validate_structured_section_filters_citations_and_sets_required_subsect
     assert out.cited_keys == ["Page2021"]
 
 
+def test_validate_structured_abstract_strips_inline_and_structured_citations() -> None:
+    draft = StructuredSectionDraft(
+        section_key="abstract",
+        blocks=[
+            SectionBlock(
+                block_type="paragraph",
+                text="**Methods:** Searches were completed [Page2021].",
+                citations=["Page2021"],
+            ),
+            SectionBlock(
+                block_type="paragraph",
+                text="**Results:** Effects were mixed [Smith2024].",
+            ),
+        ],
+    )
+    normalized, issues = _validate_structured_section_draft("abstract", draft, {"Page2021", "Smith2024"})
+    assert issues == []
+    assert normalized.blocks[0].citations == []
+    assert normalized.blocks[1].citations == []
+    assert "[Page2021]" not in normalized.blocks[0].text
+    assert "[Smith2024]" not in normalized.blocks[1].text
+    assert normalized.cited_keys == []
+
+
+def test_validate_structured_section_merges_inline_citekeys_with_structured_citations() -> None:
+    valid = {"Page2021", "Smith2024"}
+    draft = StructuredSectionDraft(
+        section_key="discussion",
+        blocks=[
+            SectionBlock(
+                block_type="paragraph",
+                text="Interpretation remained cautious [Smith2024].",
+                citations=["Page2021"],
+            )
+        ],
+    )
+    normalized, issues = _validate_structured_section_draft("discussion", draft, valid)
+    assert issues == []
+    assert normalized.blocks[0].citations == ["Page2021", "Smith2024"]
+    assert "[Smith2024]" not in normalized.blocks[0].text
+
+
 def test_section_writer_fallback_parses_markdown_like_text_into_blocks() -> None:
     raw = "### Study Selection\n\nThe search identified records.\n\n### Synthesis\nNarrative synthesis was used."
     out = SectionWriter._fallback_structured_from_text("results", raw)
@@ -77,6 +119,20 @@ def test_section_completeness_detects_trailing_fragment() -> None:
     )
     issues = _section_completeness_issues("discussion", draft)
     assert any("trailing_fragment" in issue for issue in issues)
+
+
+def test_section_completeness_allows_abstract_field_lines_without_terminal_punctuation() -> None:
+    draft = StructuredSectionDraft(
+        section_key="abstract",
+        blocks=[
+            SectionBlock(
+                block_type="paragraph",
+                text="**Keywords:** qr code vaccine record, digital vaccine passport, dvp",
+            )
+        ],
+    )
+    issues = _section_completeness_issues("abstract", draft)
+    assert "trailing_fragment_punctuation" not in issues
 
 
 def test_deterministic_methods_fallback_includes_prisma_sought_and_not_retrieved() -> None:
@@ -125,6 +181,7 @@ def test_deterministic_abstract_fallback_contains_structured_fields() -> None:
     assert "**Conclusions:**" in text
     assert "**Keywords:**" in text
     assert len(text.split()) >= 150
+    assert "digital vaccine records" not in text.lower()
 
 
 def test_patch_abstract_grounding_appends_keywords_terminal_punctuation() -> None:

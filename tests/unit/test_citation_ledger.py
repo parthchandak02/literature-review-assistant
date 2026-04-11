@@ -63,3 +63,23 @@ async def test_numeric_citation_within_catalog_range_is_valid(tmp_path) -> None:
 
         result = await ledger.validate_manuscript("Evidence [1] and [2] supports this.")
         assert result.unresolved_citations == []
+
+
+@pytest.mark.asyncio
+async def test_validate_section_scopes_unlinked_claims_to_requested_section(tmp_path) -> None:
+    db_path = tmp_path / "ledger_section_scope.db"
+    async with get_db(str(db_path)) as db:
+        repo = CitationRepository(db)
+        ledger = CitationLedger(repo)
+        await ledger.register_citation(
+            CitationEntryRecord(citekey="Smith2024", title="Study", authors=["Smith"], resolved=True)
+        )
+        await ledger.register_claim(
+            ClaimRecord(claim_text="Unlinked claim", section="results", confidence=0.9)
+        )
+
+        discussion_result = await ledger.validate_section("discussion", "Narrative discussion [Smith2024].")
+        results_result = await ledger.validate_section("results", "Results statement [Smith2024].")
+
+        assert discussion_result.unresolved_claims == []
+        assert len(results_result.unresolved_claims) == 1

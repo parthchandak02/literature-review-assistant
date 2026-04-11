@@ -233,6 +233,9 @@ class AgentConfig(BaseModel):
     temperature: float = Field(ge=0.0, le=1.0, default=0.2)
 
 
+GateMode = Literal["observe", "soft", "strict"]
+
+
 class ScreeningConfig(BaseModel):
     stage1_include_threshold: float = Field(ge=0.0, le=1.0, default=0.85)
     stage1_exclude_threshold: float = Field(ge=0.0, le=1.0, default=0.80)
@@ -566,15 +569,15 @@ class GatesConfig(BaseModel):
         ),
     )
     cost_budget_max: float = 20.0
-    manuscript_contract_mode: str = Field(
-        default="observe",
+    manuscript_contract_mode: GateMode = Field(
+        default="strict",
         description=(
             "Cross-artifact manuscript contract enforcement mode: "
             "observe (log only), soft (block hard defects), strict (block all violations)."
         ),
     )
-    manuscript_audit_mode: str = Field(
-        default="observe",
+    manuscript_audit_mode: GateMode = Field(
+        default="strict",
         description=(
             "Phase-7 manuscript audit gate mode: "
             "observe (never blocks), soft (blocks reject), strict (blocks any fail)."

@@ -6,6 +6,7 @@ import pytest
 
 from src.db.database import get_db
 from src.db.repositories import WorkflowRepository
+from src.extraction.extractor import detect_scope_mismatch
 from src.manuscript.cohort import IncludedSetResolver
 from src.models import CandidatePaper, ExtractionRecord, SectionBlock, SourceCategory, StructuredSectionDraft, StudyDesign
 from src.models.additional import PRISMACounts
@@ -13,6 +14,8 @@ from src.writing.context_builder import build_writing_grounding, sanitize_summar
 from src.writing.headings import extract_markdown_heading_inventory
 from src.writing.orchestration import (
     _best_effort_accept,
+    _patch_methods_grounding,
+    _patch_results_grounding,
     _post_render_completeness_issues,
     _sanitize_prose,
     _validate_structured_section_draft,
@@ -96,6 +99,31 @@ def test_key_finding_sanitization_becomes_not_reported() -> None:
     assert grounding.study_summaries[0].key_finding == "Not reported"
 
 
+def test_build_writing_grounding_replaces_internal_study_ids_in_titles() -> None:
+    record = ExtractionRecord(
+        paper_id="p1",
+        study_design=StudyDesign.CROSS_SECTIONAL,
+        intervention_description="",
+        outcomes=[],
+        results_summary={"summary": "Outcome improved."},
+    )
+    paper = CandidatePaper(
+        paper_id="p1",
+        title="Paper_abcdef",
+        authors=["Smith"],
+        year=2024,
+        source_database="openalex",
+        source_category=SourceCategory.DATABASE,
+    )
+    grounding = build_writing_grounding(
+        prisma_counts=_prisma_counts(),
+        extraction_records=[record],
+        included_papers=[paper],
+        narrative=None,
+    )
+    assert grounding.study_summaries[0].title == "Included study"
+
+
 def test_build_writing_grounding_filters_off_topic_themes() -> None:
     record = ExtractionRecord(
         paper_id="p1",
@@ -128,6 +156,31 @@ def test_build_writing_grounding_filters_off_topic_themes() -> None:
         review_config=review,
     )
     assert grounding.key_themes == ["vaccine coverage", "reporting completeness"]
+
+
+def test_build_writing_grounding_uses_only_canonical_included_records() -> None:
+    included_record = ExtractionRecord(
+        paper_id="p1",
+        study_design=StudyDesign.CROSS_SECTIONAL,
+        intervention_description="QR registry in rural clinics.",
+        outcomes=[],
+        results_summary={"summary": "Coverage improved."},
+    )
+    excluded_record = ExtractionRecord(
+        paper_id="p2",
+        study_design=StudyDesign.NARRATIVE_REVIEW,
+        intervention_description="Narrative overview.",
+        outcomes=[],
+        results_summary={"summary": "Not primary evidence."},
+    )
+    grounding = build_writing_grounding(
+        prisma_counts=_prisma_counts(),
+        extraction_records=[included_record, excluded_record],
+        included_papers=[_paper()],
+        narrative=None,
+    )
+    assert grounding.study_design_counts == {"cross sectional": 1}
+    assert [summary.paper_id for summary in grounding.study_summaries] == ["p1"]
 
 
 def test_snake_case_post_render_is_sanitized() -> None:
@@ -189,6 +242,50 @@ def test_shared_heading_inventory_matches_rendered_markdown() -> None:
     assert collect_section_heading_inventory(draft) == extract_markdown_heading_inventory(rendered, min_level=3, max_level=4)
 
 
+def test_grounding_patches_replace_conflicting_selection_and_fulltext_sentences() -> None:
+    grounding = SimpleNamespace(
+        databases_searched=["IEEE Xplore", "PubMed"],
+        search_date="2026-04-11",
+        search_eligibility_window="2000-2026",
+        screening_method_description="Two independent reviewers screened records with adjudication for disagreements.",
+        rob_summary="ROBINS-I; CASP; MMAT",
+        fulltext_sought=45,
+        fulltext_not_retrieved=0,
+        fulltext_assessed=45,
+        total_screened=1358,
+        total_included=19,
+        fulltext_retrieved_count=13,
+        fulltext_total_count=19,
+        excluded_non_primary_count=7,
+        excluded_fulltext_reasons={"wrong_intervention": 17, "insufficient_data": 1},
+    )
+    review = SimpleNamespace(
+        pico=SimpleNamespace(
+            population="rural communities",
+            intervention="QR-code-enabled digital vaccine record systems",
+            comparison="paper-based records",
+            outcome="vaccination coverage and tracking efficiency",
+        )
+    )
+    methods_input = (
+        "### Selection Process\n\nLegacy wording with inconsistent counts.### Data Collection Process\n\n"
+        "All 19 included studies had their full text retrieved."
+    )
+    methods_output = _patch_methods_grounding(methods_input, grounding, review)
+    assert "Following title and abstract screening, 45 reports were sought for full-text retrieval" in methods_output
+    assert "retrievable full-text PDFs were available for only 13 of the 19 included studies" in methods_output
+    assert "All 19 included studies had their full text retrieved" not in methods_output
+    assert "### Data Collection" in methods_output
+    assert "### Data Collection Process" not in methods_output
+
+    results_input = "### Study Selection\n\nThe review screened 1300 records and assessed 39 reports."
+    results_output = _patch_results_grounding(results_input, grounding)
+    assert "The review screened 1358 records" in results_output
+    assert "sought 45 full-text reports" in results_output
+    assert "All 45 reports were retrieved for eligibility assessment" in results_output
+    assert "reason categories may overlap" in results_output
+
+
 @pytest.mark.asyncio
 async def test_mmat_quality_gate_marks_low_quality_membership(tmp_path) -> None:
     db_path = str(tmp_path / "quality_gate.db")
@@ -216,3 +313,52 @@ async def test_mmat_quality_gate_marks_low_quality_membership(tmp_path) -> None:
     assert row is not None
     assert row[0] == "excluded_low_quality"
     assert row[1] == "low_quality_mmat"
+
+
+def test_detect_scope_mismatch_requires_explicit_contradiction() -> None:
+    record = ExtractionRecord(
+        paper_id="p1",
+        study_design=StudyDesign.CROSS_SECTIONAL,
+        intervention_description="This study does not describe a QR-code-enabled digital vaccine record system.",
+        outcomes=[],
+        results_summary={"summary": "The intervention was outside the QR-enabled registry scope."},
+        source_spans={"title": "Childhood immunization rates in rural clinics"},
+    )
+    review = SimpleNamespace(
+        pico=SimpleNamespace(intervention="QR-code-enabled digital vaccine record system"),
+        preferred_terminology=lambda limit=12: ["digital vaccine record", "QR code"],
+        domain_signal_terms=lambda limit=18: ["digital vaccine record", "QR code vaccination"],
+    )
+    mismatch, evidence = detect_scope_mismatch(record, review)
+    assert mismatch is True
+    assert evidence is not None
+    assert "digital vaccine record" in evidence or "code" in evidence
+
+
+@pytest.mark.asyncio
+async def test_scope_mismatch_marks_cohort_membership(tmp_path) -> None:
+    db_path = str(tmp_path / "scope_gate.db")
+    async with get_db(db_path) as db:
+        repo = WorkflowRepository(db)
+        await repo.create_workflow("wf-scope", "topic", "hash")
+        await repo.save_paper(_paper())
+        resolver = IncludedSetResolver(repo, "wf-scope")
+        await resolver.persist_extraction_outcome(
+            "p1",
+            primary_study_status="primary",
+            extraction_failed=False,
+            scope_mismatch=True,
+            exclusion_reason_code="wrong_intervention",
+        )
+        cursor = await db.execute(
+            """
+            SELECT synthesis_eligibility, exclusion_reason_code
+            FROM study_cohort_membership
+            WHERE workflow_id = ? AND paper_id = ?
+            """,
+            ("wf-scope", "p1"),
+        )
+        row = await cursor.fetchone()
+    assert row is not None
+    assert row[0] == "excluded_scope_mismatch"
+    assert row[1] == "wrong_intervention"

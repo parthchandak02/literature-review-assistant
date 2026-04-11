@@ -38,6 +38,7 @@ from src.export.markdown_refs import (
     is_extraction_failed,
 )
 from src.extraction import ExtractionService, StudyClassifier
+from src.extraction.extractor import detect_scope_mismatch
 from src.llm.provider import LLMProvider
 from src.llm.pydantic_client import PydanticAIClient
 from src.manuscript.cohort import IncludedSetResolver
@@ -288,6 +289,12 @@ async def _journal_step_start(
         parent_step_id=parent_step_id,
     )
     try:
+        await repo.reconcile_stale_running_steps(
+            workflow_id,
+            phase,
+            step_name,
+            replacement_step_id=record.step_id,
+        )
         await repo.save_workflow_step(record)
     except Exception:
         _log.debug("step journal write failed for %s/%s", phase, step_name, exc_info=True)
@@ -2092,6 +2099,7 @@ class ExtractionQualityNode(BaseNode[ReviewState]):
             }
             non_primary_paper_ids: set[str] = set()
             low_quality_paper_ids: set[str] = set()
+            scope_mismatch_paper_ids: set[str] = set()
             non_primary_status_counts: dict[str, int] = {}
             not_applicable_paper_ids: list[str] = []
             # Accumulates (ExtractionRecord, rob_assessment_obj_or_None, outcome_name) tuples
@@ -2176,6 +2184,30 @@ class ExtractionQualityNode(BaseNode[ReviewState]):
                         primary_study_status=getattr(qr, "primary_study_status", PrimaryStudyStatus.UNKNOWN).value,
                         extraction_failed=is_extraction_failed(qr),
                     )
+                    _scope_mismatch, _scope_evidence = detect_scope_mismatch(qr, state.review)
+                    if _scope_mismatch:
+                        scope_mismatch_paper_ids.add(qr.paper_id)
+                        await cohort_resolver.persist_extraction_outcome(
+                            qr.paper_id,
+                            primary_study_status=getattr(qr, "primary_study_status", PrimaryStudyStatus.UNKNOWN).value,
+                            extraction_failed=False,
+                            scope_mismatch=True,
+                            exclusion_reason_code="wrong_intervention",
+                        )
+                        await repository.append_decision_log(
+                            DecisionLogEntry(
+                                decision_type="scope_filter",
+                                paper_id=qr.paper_id,
+                                decision="exclude_scope_mismatch",
+                                rationale=(
+                                    "Excluded from synthesis/writing because the extracted intervention text "
+                                    f"explicitly contradicted the review intervention scope ({_scope_evidence or 'explicit mismatch'})."
+                                ),
+                                actor="quality_assessment",
+                                phase="phase_4_extraction_quality",
+                            )
+                        )
+                        return
                     try:
                         tool = router.route_tool(qr)
                         if tool == "rob2":
@@ -2550,6 +2582,43 @@ class ExtractionQualityNode(BaseNode[ReviewState]):
                                 )
                             return
 
+                        _scope_mismatch, _scope_evidence = detect_scope_mismatch(record, state.review)
+                        if _scope_mismatch:
+                            scope_mismatch_paper_ids.add(record.paper_id)
+                            await cohort_resolver.persist_extraction_outcome(
+                                record.paper_id,
+                                primary_study_status=record.primary_study_status.value,
+                                extraction_failed=False,
+                                scope_mismatch=True,
+                                exclusion_reason_code="wrong_intervention",
+                            )
+                            await repository.append_decision_log(
+                                DecisionLogEntry(
+                                    decision_type="scope_filter",
+                                    paper_id=record.paper_id,
+                                    decision="exclude_scope_mismatch",
+                                    rationale=(
+                                        "Excluded from synthesis/writing because the extracted intervention text "
+                                        f"explicitly contradicted the review intervention scope ({_scope_evidence or 'explicit mismatch'})."
+                                    ),
+                                    actor="quality_assessment",
+                                    phase="phase_4_extraction_quality",
+                                )
+                            )
+                            _extract_done_count[0] += 1
+                            if rc:
+                                rc.advance_screening(
+                                    "phase_4_extraction_quality", _extract_done_count[0], len(to_process)
+                                )
+                                extraction_summary = (record.results_summary.get("summary") or "")[:300]
+                                rc.log_extraction_paper(
+                                    paper_id=paper.paper_id,
+                                    design=design.value,
+                                    extraction_summary=extraction_summary,
+                                    rob_judgment="filtered_scope_mismatch",
+                                )
+                            return
+
                         records.append(record)
                         await cohort_resolver.persist_extraction_outcome(
                             record.paper_id,
@@ -2785,25 +2854,27 @@ class ExtractionQualityNode(BaseNode[ReviewState]):
             # Apply a hard gate so downstream synthesis and writing include only
             # empirically primary studies.
             state.excluded_non_primary_count = len(non_primary_paper_ids)
-            if non_primary_paper_ids or low_quality_paper_ids:
+            if non_primary_paper_ids or low_quality_paper_ids or scope_mismatch_paper_ids:
                 _before = len(state.included_papers)
                 _primary_ids = {r.paper_id for r in records}
                 state.included_papers = [p for p in state.included_papers if p.paper_id in _primary_ids]
                 _after = len(state.included_papers)
                 logger.info(
                     "ExtractionQualityNode: filtered %d papers before synthesis/writing "
-                    "(before=%d, after=%d, breakdown=%s, low_quality=%d)",
-                    len(non_primary_paper_ids) + len(low_quality_paper_ids),
+                    "(before=%d, after=%d, breakdown=%s, low_quality=%d, scope_mismatch=%d)",
+                    len(non_primary_paper_ids) + len(low_quality_paper_ids) + len(scope_mismatch_paper_ids),
                     _before,
                     _after,
                     non_primary_status_counts,
                     len(low_quality_paper_ids),
+                    len(scope_mismatch_paper_ids),
                 )
                 if rc:
                     rc.log_status(
                         "Primary-data filter removed "
                         f"{len(non_primary_paper_ids)} non-primary and {len(low_quality_paper_ids)} "
-                        f"low-quality papers before synthesis: {non_primary_status_counts}"
+                        f"low-quality papers and {len(scope_mismatch_paper_ids)} scope-mismatch papers before synthesis: "
+                        f"{non_primary_status_counts}"
                     )
 
             # -- Aggregate GRADE per unique outcome across all studies --
@@ -5533,6 +5604,127 @@ def _collect_manuscript_gate_failure_reasons(
     return reasons
 
 
+async def _refresh_manuscript_export_artifacts(
+    state: ReviewState,
+    *,
+    strict_export: bool,
+    persist_assembly: bool = False,
+) -> str | None:
+    """Render current markdown manuscript into fresh TeX/Bib artifacts."""
+    manuscript_md_path = state.artifacts.get("manuscript_md", "")
+    if not manuscript_md_path or not os.path.isfile(manuscript_md_path):
+        return None
+
+    from src.export.bibtex_builder import _sanitize_citekey as _sanitize_bib_citekey
+    from src.export.bibtex_builder import build_bibtex as _build_bibtex
+    from src.export.ieee_latex import markdown_to_latex as _md_to_latex
+    from src.export.markdown_refs import get_latex_figure_paths
+    from src.export.submission_packager import (
+        _build_number_to_citekey,
+        llm_resolve_unmatched_citations,
+    )
+
+    manuscript_path = Path(manuscript_md_path)
+    tex_path = manuscript_path.parent / "doc_manuscript.tex"
+    bib_path = manuscript_path.parent / "references.bib"
+
+    async with get_db(state.db_path) as db:
+        citations = await CitationRepository(db).get_all_citations_for_export()
+
+    used_keys: set[str] = set()
+    key_map: dict[str, str] = {}
+    normalized_citations: list[tuple] = []
+    for idx, row in enumerate(citations):
+        cid, citekey, doi, title, authors_json, year, journal, bibtex = row[:8]
+        url = row[8] if len(row) > 8 else None
+        safe_key = _sanitize_bib_citekey(citekey, title, authors_json, year, idx)
+        unique_key = safe_key
+        suffix = 2
+        while unique_key in used_keys:
+            unique_key = f"{safe_key}_{suffix}"
+            suffix += 1
+        used_keys.add(unique_key)
+        key_map[str(citekey)] = unique_key
+        normalized_citations.append((cid, unique_key, doi, title, authors_json, year, journal, bibtex, url))
+
+    md_text = manuscript_path.read_text(encoding="utf-8")
+    citekeys = {c[1] for c in normalized_citations}
+    num_map = _build_number_to_citekey(md_text, normalized_citations)
+    if not strict_export:
+        num_map = await llm_resolve_unmatched_citations(
+            md_text,
+            normalized_citations,
+            num_map,
+            db_path=state.db_path,
+            workflow_id=state.workflow_id,
+        )
+    cited_citekeys = set(num_map.values())
+    for old_key, new_key in key_map.items():
+        num_map.setdefault(old_key, new_key)
+
+    author_name = str(getattr(getattr(state, "review", None), "author_name", "") or "")
+    figure_paths = get_latex_figure_paths(manuscript_path, state.artifacts)
+    tex_content = _md_to_latex(
+        md_text,
+        citekeys=citekeys,
+        figure_paths=figure_paths,
+        num_to_citekey=num_map,
+        author_name=author_name,
+    )
+    has_md_figures = bool(re.search(r"!\[[^\]]*\]\([^)]+\)", md_text))
+    has_tex_figures = "\\includegraphics" in tex_content
+    if has_md_figures and not has_tex_figures:
+        raise RuntimeError(
+            "LaTeX conversion emitted zero figures despite markdown figure references. "
+            "Check figure artifact paths and markdown_to_latex figure_paths handling."
+        )
+    if strict_export:
+        unresolved_alpha = extract_used_citekeys(tex_content)
+        unresolved_numeric = extract_numeric_citation_refs(tex_content)
+        if unresolved_alpha or unresolved_numeric:
+            unresolved_tokens = unresolved_alpha[:10] + unresolved_numeric[:10]
+            raise RuntimeError(
+                "strict export blocked: unresolved citations remain after deterministic conversion: "
+                + ", ".join(unresolved_tokens[:10])
+            )
+
+    tex_path.write_text(tex_content, encoding="utf-8")
+    bib_path.write_text(
+        _build_bibtex(normalized_citations, cited_citekeys=cited_citekeys),
+        encoding="utf-8",
+    )
+    state.artifacts["manuscript_tex"] = str(tex_path)
+    state.artifacts["references_bib"] = str(bib_path)
+
+    if persist_assembly:
+        try:
+            async with get_db(state.db_path) as asm_db:
+                asm_repo = WorkflowRepository(asm_db)
+                latest_sections = await asm_repo.load_latest_manuscript_sections(state.workflow_id)
+                manifest = {
+                    "sections": [
+                        {
+                            "section_key": s.section_key,
+                            "version": s.version,
+                            "order": s.section_order,
+                        }
+                        for s in latest_sections
+                    ]
+                }
+                await asm_repo.save_manuscript_assembly(
+                    ManuscriptAssembly(
+                        workflow_id=state.workflow_id,
+                        assembly_id="latest",
+                        target_format="tex",
+                        content=tex_content,
+                        manifest_json=json.dumps(manifest, ensure_ascii=True),
+                    )
+                )
+        except Exception as asm_err:
+            logger.debug("Failed to persist tex assembly (non-fatal): %s", asm_err)
+    return str(tex_path)
+
+
 class ManuscriptAuditNode(BaseNode[ReviewState]):
     """Run bounded profile-based manuscript audit before finalize."""
 
@@ -5556,17 +5748,24 @@ class ManuscriptAuditNode(BaseNode[ReviewState]):
                 )
             return FinalizeNode()
 
-        mode = str(getattr(state.settings.gates, "manuscript_audit_mode", "observe"))
-        contract_mode = str(getattr(state.settings.gates, "manuscript_contract_mode", "observe"))
+        mode = str(getattr(state.settings.gates, "manuscript_audit_mode", "strict"))
+        contract_mode = str(getattr(state.settings.gates, "manuscript_contract_mode", "strict"))
         blocked_checkpoint_status = "partial"
         blocked_papers_processed = 0
         try:
             manuscript_text = Path(manuscript_path).read_text(encoding="utf-8")
+            phase7_tex_path: str | None = None
+            try:
+                phase7_tex_path = await _refresh_manuscript_export_artifacts(
+                    state,
+                    strict_export=contract_mode == "strict",
+                )
+            except Exception as tex_err:
+                logger.warning("ManuscriptAuditNode: fresh LaTeX export unavailable; continuing without tex: %s", tex_err)
             async with get_db(state.db_path) as db:
                 repository = WorkflowRepository(db)
                 citation_repo = CitationRepository(db)
                 provider = LLMProvider(state.settings, repository)
-                phase7_tex_path = state.artifacts.get("manuscript_tex")
                 contract_result = await run_manuscript_contracts(
                     repository=repository,
                     citation_repository=citation_repo,
@@ -5704,7 +5903,7 @@ class FinalizeNode(BaseNode[ReviewState]):
         except Exception:
             pass
 
-        _contract_mode = str(getattr(getattr(state.settings, "gates", None), "manuscript_contract_mode", "observe"))
+        _contract_mode = str(getattr(getattr(state.settings, "gates", None), "manuscript_contract_mode", "strict"))
         _strict_finalize = _contract_mode == "strict"
         _finalize_errors: list[str] = []
 
@@ -5715,118 +5914,11 @@ class FinalizeNode(BaseNode[ReviewState]):
         _mmd_path = state.artifacts.get("manuscript_md", "")
         if _mmd_path and os.path.isfile(_mmd_path):
             try:
-                from src.export.bibtex_builder import build_bibtex as _build_bibtex
-                from src.export.ieee_latex import markdown_to_latex as _md_to_latex
-                from src.export.markdown_refs import get_latex_figure_paths
-                from src.export.submission_packager import (
-                    _build_number_to_citekey,
-                    llm_resolve_unmatched_citations,
+                await _refresh_manuscript_export_artifacts(
+                    state,
+                    strict_export=_strict_finalize,
+                    persist_assembly=True,
                 )
-
-                _tex_path = Path(_mmd_path).parent / "doc_manuscript.tex"
-                _bib_path = Path(_mmd_path).parent / "references.bib"
-                async with get_db(state.db_path) as _tex_db:
-                    _citations = await CitationRepository(_tex_db).get_all_citations_for_export()
-
-                # Normalize citekeys for export so manuscript citation conversion
-                # and references.bib keys stay aligned even when legacy runs
-                # contain malformed keys (spaces, Paper_* fallbacks).
-                from src.export.bibtex_builder import _sanitize_citekey as _sanitize_bib_citekey
-
-                _used_keys: set[str] = set()
-                _key_map: dict[str, str] = {}
-                _normalized_citations: list[tuple] = []
-                for _idx, _row in enumerate(_citations):
-                    _cid, _citekey, _doi, _title, _authors_json, _year, _journal, _bibtex = _row[:8]
-                    _url = _row[8] if len(_row) > 8 else None
-                    _safe_key = _sanitize_bib_citekey(_citekey, _title, _authors_json, _year, _idx)
-                    _unique_key = _safe_key
-                    _suffix = 2
-                    while _unique_key in _used_keys:
-                        _unique_key = f"{_safe_key}_{_suffix}"
-                        _suffix += 1
-                    _used_keys.add(_unique_key)
-                    _key_map[str(_citekey)] = _unique_key
-                    _normalized_citations.append(
-                        (_cid, _unique_key, _doi, _title, _authors_json, _year, _journal, _bibtex, _url)
-                    )
-
-                _md_text = Path(_mmd_path).read_text(encoding="utf-8")
-                _citekeys = {c[1] for c in _normalized_citations}
-                # Three-layer mechanical matching (DOI -> URL -> title)
-                _num_map = _build_number_to_citekey(_md_text, _normalized_citations)
-                # Layer 4: LLM batch fallback for any still-unresolved [N] entries
-                if not _strict_finalize:
-                    _num_map = await llm_resolve_unmatched_citations(
-                        _md_text,
-                        _normalized_citations,
-                        _num_map,
-                        db_path=state.db_path,
-                        workflow_id=state.workflow_id,
-                    )
-                _cited_citekeys = set(_num_map.values())
-                # Also provide direct old->new key mapping so bracketed legacy keys
-                # (e.g. [Paper_xxx], [Engineering Inclusiv]) resolve to the sanitized
-                # keys used in references.bib.
-                for _old, _new in _key_map.items():
-                    _num_map.setdefault(_old, _new)
-                _author = str(getattr(getattr(state, "review", None), "author_name", "") or "")
-                _figure_paths = get_latex_figure_paths(Path(_mmd_path), state.artifacts)
-                _tex_content = _md_to_latex(
-                    _md_text,
-                    citekeys=_citekeys,
-                    figure_paths=_figure_paths,
-                    num_to_citekey=_num_map,
-                    author_name=_author,
-                )
-                _has_md_figures = bool(re.search(r"!\[[^\]]*\]\([^)]+\)", _md_text))
-                _has_tex_figures = "\\includegraphics" in _tex_content
-                if _has_md_figures and not _has_tex_figures:
-                    raise RuntimeError(
-                        "LaTeX conversion emitted zero figures despite markdown figure references. "
-                        "Check figure artifact paths and markdown_to_latex figure_paths handling."
-                    )
-                if _strict_finalize:
-                    _unresolved_alpha = extract_used_citekeys(_tex_content)
-                    _unresolved_numeric = extract_numeric_citation_refs(_tex_content)
-                    if _unresolved_alpha or _unresolved_numeric:
-                        _unresolved_tokens = _unresolved_alpha[:10] + _unresolved_numeric[:10]
-                        raise RuntimeError(
-                            "strict finalize blocked: unresolved citations remain after deterministic conversion: "
-                            + ", ".join(_unresolved_tokens[:10])
-                        )
-                _tex_path.write_text(_tex_content, encoding="utf-8")
-                _bib_path.write_text(
-                    _build_bibtex(_normalized_citations, cited_citekeys=_cited_citekeys),
-                    encoding="utf-8",
-                )
-                state.artifacts["manuscript_tex"] = str(_tex_path)
-                state.artifacts["references_bib"] = str(_bib_path)
-                try:
-                    async with get_db(state.db_path) as _asm_db:
-                        _asm_repo = WorkflowRepository(_asm_db)
-                        _latest_sections = await _asm_repo.load_latest_manuscript_sections(state.workflow_id)
-                        _manifest = {
-                            "sections": [
-                                {
-                                    "section_key": s.section_key,
-                                    "version": s.version,
-                                    "order": s.section_order,
-                                }
-                                for s in _latest_sections
-                            ]
-                        }
-                        await _asm_repo.save_manuscript_assembly(
-                            ManuscriptAssembly(
-                                workflow_id=state.workflow_id,
-                                assembly_id="latest",
-                                target_format="tex",
-                                content=_tex_content,
-                                manifest_json=json.dumps(_manifest, ensure_ascii=True),
-                            )
-                        )
-                except Exception as _asm_tex_err:
-                    logger.debug("FinalizeNode: failed to persist tex assembly (non-fatal): %s", _asm_tex_err)
                 logger.info("FinalizeNode: wrote doc_manuscript.tex and references.bib")
             except Exception as _tex_err:  # noqa: BLE001
                 if _strict_finalize:
@@ -5977,35 +6069,34 @@ class FinalizeNode(BaseNode[ReviewState]):
             "rag_threshold_breached": state.rag_threshold_breached,
         }
         # --- Citation lineage validation gate ---
-        # Check the final manuscript for unresolved citekeys. Respects the
-        # citation_lineage.block_export_on_unresolved setting: when True, a warning
-        # is logged and the summary records the issue so the export endpoint can
-        # surface it. The run itself always completes -- the gate is advisory here.
+        # Strict finalize always blocks on unresolved claim->evidence->citation
+        # lineage. Non-strict modes may still downgrade to advisory behavior via
+        # citation_lineage.block_export_on_unresolved.
         _manuscript_path = state.artifacts.get("manuscript_md", "")
         if _manuscript_path and os.path.isfile(_manuscript_path):
             try:
                 _manuscript_text = Path(_manuscript_path).read_text(encoding="utf-8")
                 async with get_db(state.db_path) as _cit_db:
                     _ledger = CitationLedger(CitationRepository(_cit_db))
-                    _block_on_unresolved = (
+                    _validation = await _ledger.validate_manuscript(_manuscript_text)
+                    _lineage_invalid = bool(_validation.unresolved_claims or _validation.unresolved_citations)
+                    _block_on_unresolved = True if _strict_finalize else (
                         state.settings.citation_lineage.block_export_on_unresolved if state.settings else True
                     )
-                    _should_block = await _ledger.block_export_if_invalid(
-                        _manuscript_text,
-                        block_on_unresolved=_block_on_unresolved,
-                    )
-                    if _should_block:
+                    summary["citation_lineage"] = {
+                        "valid": not _lineage_invalid,
+                        "unresolved_claim_count": len(_validation.unresolved_claims),
+                        "unresolved_citation_count": len(_validation.unresolved_citations),
+                    }
+                    if _lineage_invalid and _block_on_unresolved:
                         _log.warning(
                             "Citation lineage gate: unresolved citations or claims detected "
-                            "in final manuscript. Export may be blocked. "
-                            "Check citation_lineage.block_export_on_unresolved in settings.yaml "
-                            "to suppress this warning."
+                            "in final manuscript."
                         )
                         summary["citation_lineage_valid"] = False
-                        if _strict_finalize:
-                            _finalize_errors.append("citation_lineage_invalid")
+                        _finalize_errors.append("citation_lineage_invalid")
                     else:
-                        summary["citation_lineage_valid"] = True
+                        summary["citation_lineage_valid"] = not _lineage_invalid
             except Exception as _cit_err:
                 _log.warning("Citation lineage check skipped: %s", _cit_err)
                 if _strict_finalize:

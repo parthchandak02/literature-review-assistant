@@ -68,6 +68,10 @@ _SUMMARY_LLM_EXPLANATION_PHRASES = (
     "llm-based assessment",
     "direction counts:",
 )
+_INTERNAL_PAPER_ID_RE = re.compile(
+    r"\b(?:Paper_[A-Za-z0-9_-]+|p\d+|[a-f0-9]{8,}-[a-f0-9-]{3,})\b",
+    flags=re.IGNORECASE,
+)
 
 
 def _display_source_name(name: str) -> str:
@@ -169,6 +173,16 @@ def sanitize_summary_text_for_writing(raw_text: str) -> str:
     if is_boilerplate or is_pdf_metadata or is_llm_explanation:
         return "NR"
     return summary
+
+
+def _sanitize_study_title_for_writing(title: str | None, fallback_paper_id: str) -> str:
+    value = str(title or "").strip()
+    if value and not _INTERNAL_PAPER_ID_RE.search(value):
+        return value
+    fallback = str(fallback_paper_id or "").strip()
+    if fallback and not _INTERNAL_PAPER_ID_RE.search(fallback):
+        return fallback
+    return "Included study"
 
 
 def _normalize_criterion_date_windows(criteria: list[str], canonical_window: str) -> list[str]:
@@ -559,6 +573,10 @@ def build_writing_grounding(
 ) -> WritingGroundingData:
     """Aggregate real pipeline outputs into a WritingGroundingData instance."""
 
+    included_paper_ids = {str(p.paper_id) for p in included_papers if str(getattr(p, "paper_id", "")).strip()}
+    if included_paper_ids:
+        extraction_records = [rec for rec in extraction_records if str(rec.paper_id) in included_paper_ids]
+
     def _topic_anchor_terms(review_text: str) -> list[str]:
         stop = {
             "the",
@@ -741,7 +759,7 @@ def build_writing_grounding(
     study_summaries: list[StudySummary] = []
     for rec in extraction_records:
         paper = paper_map.get(rec.paper_id)
-        title = paper.title or rec.paper_id if paper else rec.paper_id
+        title = _sanitize_study_title_for_writing(paper.title if paper else None, rec.paper_id)
         year = paper.year if paper else None
         key_finding = sanitize_summary_text_for_writing(rec.results_summary.get("summary") or "")
         if key_finding == "NR":

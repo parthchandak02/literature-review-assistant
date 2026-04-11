@@ -70,6 +70,42 @@ _PDF_HEADER_PHRASES = (
     "Issue ",
 )
 
+_SCOPE_NEGATION_PATTERNS = (
+    re.compile(r"\bdoes\s+not\s+describe\b", flags=re.IGNORECASE),
+    re.compile(r"\bnot\s+aligned\s+with\b", flags=re.IGNORECASE),
+    re.compile(r"\boutside\s+the\s+scope\b", flags=re.IGNORECASE),
+    re.compile(r"\bwrong\s+intervention\b", flags=re.IGNORECASE),
+    re.compile(r"\bnot\s+an?\s+(?:example|evaluation|assessment|study)\s+of\b", flags=re.IGNORECASE),
+)
+_SCOPE_GENERIC_TOKENS = frozenset(
+    {
+        "study",
+        "studies",
+        "review",
+        "reviews",
+        "system",
+        "systems",
+        "intervention",
+        "interventions",
+        "program",
+        "programme",
+        "approach",
+        "service",
+        "services",
+        "implementation",
+        "outcome",
+        "outcomes",
+        "health",
+        "clinical",
+        "public",
+        "effect",
+        "effects",
+        "impact",
+        "using",
+        "based",
+    }
+)
+
 
 def _clean_results_summary_text(text: str) -> str:
     """Remove DOI/boilerplate fragments from extracted free-text summaries."""
@@ -85,6 +121,55 @@ def _clean_results_summary_text(text: str) -> str:
     cleaned = re.sub(r"\s+\.", ".", cleaned)
     cleaned = re.sub(r"\n{3,}", "\n\n", cleaned)
     return cleaned.strip()
+
+
+def _scope_anchor_terms(review: ReviewConfig | None) -> tuple[list[str], list[str]]:
+    if review is None:
+        return [], []
+    phrases: list[str] = []
+    seen_phrases: set[str] = set()
+    seen_tokens: set[str] = set()
+    tokens: list[str] = []
+    candidates = [
+        review.pico.intervention,
+        *review.preferred_terminology(limit=16),
+        *review.domain_signal_terms(limit=20),
+    ]
+    for raw in candidates:
+        phrase = re.sub(r"[^a-z0-9+/ -]+", " ", str(raw or "").lower())
+        phrase = re.sub(r"\s+", " ", phrase).strip(" -")
+        if len(phrase) >= 4 and phrase not in seen_phrases:
+            seen_phrases.add(phrase)
+            phrases.append(phrase)
+        for token in re.findall(r"[a-z0-9][a-z0-9+/.-]{2,}", phrase):
+            if len(token) < 4 or token in _SCOPE_GENERIC_TOKENS or token in seen_tokens:
+                continue
+            seen_tokens.add(token)
+            tokens.append(token)
+    return phrases, tokens
+
+
+def detect_scope_mismatch(record: ExtractionRecord, review: ReviewConfig | None) -> tuple[bool, str | None]:
+    """Return True only for explicit intervention-scope contradictions."""
+    text_parts = [
+        record.intervention_description or "",
+        str(record.results_summary.get("summary") or ""),
+        str(record.source_spans.get("title") or ""),
+    ]
+    evidence_text = re.sub(r"\s+", " ", " ".join(part for part in text_parts if part).strip()).lower()
+    if not evidence_text:
+        return False, None
+    if not any(pattern.search(evidence_text) for pattern in _SCOPE_NEGATION_PATTERNS):
+        return False, None
+    anchor_phrases, anchor_tokens = _scope_anchor_terms(review)
+    matched_phrases = [phrase for phrase in anchor_phrases if phrase in evidence_text]
+    matched_tokens = [
+        token for token in anchor_tokens if re.search(rf"\b{re.escape(token)}\b", evidence_text, flags=re.IGNORECASE)
+    ]
+    if not matched_phrases and len(matched_tokens) < 2:
+        return False, None
+    matched = matched_phrases[:2] or matched_tokens[:3]
+    return True, ", ".join(matched)
 
 
 def _is_low_quality_extraction(text: str) -> bool:
