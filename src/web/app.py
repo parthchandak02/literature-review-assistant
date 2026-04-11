@@ -45,6 +45,8 @@ from src.config.loader import load_configs as _load_configs
 from src.db.source_of_truth import RUN_STATS_PRECEDENCE
 from src.db.workflow_registry import _open_registry as _open_registry_db
 from src.db.workflow_registry import archive_workflow as _archive_registry_workflow
+from src.db.workflow_registry import hide_completed_workflow as _hide_completed_registry_workflow
+from src.db.workflow_registry import restore_completed_workflow as _restore_completed_registry_workflow
 from src.db.workflow_registry import restore_workflow as _restore_registry_workflow
 from src.db.workflow_registry import update_heartbeat as _update_registry_heartbeat
 from src.db.workflow_registry import update_notes as _update_registry_notes
@@ -280,6 +282,9 @@ class HistoryEntry(BaseModel):
     # Sidebar archive state. Archive does not affect lifecycle status.
     is_archived: bool = False
     archived_at: str | None = None
+    # Sidebar completed-lane state. This is a manual bucket independent of status.
+    is_completed_hidden: bool = False
+    completed_hidden_at: str | None = None
 
 
 class AttachRequest(BaseModel):
@@ -1535,6 +1540,16 @@ async def list_history(response: Response, run_root: str = "runs") -> list[Histo
                 await db.execute("ALTER TABLE workflows_registry ADD COLUMN archived_at TEXT")
             except Exception:
                 pass
+            try:
+                await db.execute(
+                    "ALTER TABLE workflows_registry ADD COLUMN is_completed_hidden INTEGER NOT NULL DEFAULT 0"
+                )
+            except Exception:
+                pass
+            try:
+                await db.execute("ALTER TABLE workflows_registry ADD COLUMN completed_hidden_at TEXT")
+            except Exception:
+                pass
             await db.commit()
             async with db.execute(
                 """SELECT workflow_id, topic, status, db_path,
@@ -1543,7 +1558,9 @@ async def list_history(response: Response, run_root: str = "runs") -> list[Histo
                           heartbeat_at,
                           notes,
                           COALESCE(is_archived, 0) AS is_archived,
-                          archived_at
+                          archived_at,
+                          COALESCE(is_completed_hidden, 0) AS is_completed_hidden,
+                          completed_hidden_at
                    FROM workflows_registry
                    ORDER BY created_at DESC"""
             ) as cur:
@@ -1599,6 +1616,10 @@ async def list_history(response: Response, run_root: str = "runs") -> list[Histo
                 notes=row["notes"] if row["notes"] is not None else None,
                 is_archived=bool(row["is_archived"]),
                 archived_at=row["archived_at"] if row["archived_at"] is not None else None,
+                is_completed_hidden=bool(row["is_completed_hidden"]),
+                completed_hidden_at=(
+                    row["completed_hidden_at"] if row["completed_hidden_at"] is not None else None
+                ),
             )
         )
     return enriched
@@ -2093,6 +2114,38 @@ async def restore_history_run(workflow_id: str, run_root: str = "runs") -> dict[
     if not db_path:
         raise HTTPException(status_code=404, detail="Workflow not found in registry")
     await _restore_registry_workflow(run_root, workflow_id)
+    return {"ok": True}
+
+
+@app.post("/api/history/{workflow_id}/complete-hide")
+async def hide_completed_history_run(workflow_id: str, run_root: str = "runs") -> dict[str, bool]:
+    """Move a workflow into the dedicated completed sidebar lane."""
+    for record in _active_runs.values():
+        if record.workflow_id == workflow_id and not record.done:
+            raise HTTPException(
+                status_code=409,
+                detail="Cannot move a run to completed while it is currently in progress",
+            )
+    db_path = await _resolve_db_path(run_root, workflow_id)
+    if not db_path:
+        raise HTTPException(status_code=404, detail="Workflow not found in registry")
+    await _hide_completed_registry_workflow(run_root, workflow_id)
+    return {"ok": True}
+
+
+@app.post("/api/history/{workflow_id}/complete-restore")
+async def restore_completed_history_run(workflow_id: str, run_root: str = "runs") -> dict[str, bool]:
+    """Return a workflow from the completed lane to the main sidebar list."""
+    for record in _active_runs.values():
+        if record.workflow_id == workflow_id and not record.done:
+            raise HTTPException(
+                status_code=409,
+                detail="Cannot restore a run that is currently in progress",
+            )
+    db_path = await _resolve_db_path(run_root, workflow_id)
+    if not db_path:
+        raise HTTPException(status_code=404, detail="Workflow not found in registry")
+    await _restore_completed_registry_workflow(run_root, workflow_id)
     return {"ok": True}
 
 
@@ -3350,6 +3403,13 @@ async def get_run_manuscript_audit(run_id: str, history_limit: int = 20) -> dict
     """Return manuscript audit payload for a run/workflow identifier."""
     db_path = await _resolve_db_path_from_run_or_workflow(run_id)
     workflow_id = run_id
+    summary_payload: dict[str, Any] = {}
+    summary_path = pathlib.Path(db_path).parent / "run_summary.json"
+    if summary_path.exists():
+        try:
+            summary_payload = _json.loads(summary_path.read_text(encoding="utf-8"))
+        except Exception:
+            summary_payload = {}
     try:
         from src.db.repositories import WorkflowRepository as _WorkflowRepository
 
@@ -3370,6 +3430,9 @@ async def get_run_manuscript_audit(run_id: str, history_limit: int = 20) -> dict
             return {
                 "run_id": run_id,
                 "workflow_id": workflow_id,
+                "run_summary_contract": summary_payload.get("manuscript_contract"),
+                "citation_lineage_valid": summary_payload.get("citation_lineage_valid"),
+                "citation_lineage": summary_payload.get("citation_lineage"),
                 "latest_run": latest,
                 "history": history,
                 "findings": findings,
@@ -3381,6 +3444,9 @@ async def get_run_manuscript_audit(run_id: str, history_limit: int = 20) -> dict
             return {
                 "run_id": run_id,
                 "workflow_id": workflow_id,
+                "run_summary_contract": summary_payload.get("manuscript_contract"),
+                "citation_lineage_valid": summary_payload.get("citation_lineage_valid"),
+                "citation_lineage": summary_payload.get("citation_lineage"),
                 "latest_run": None,
                 "history": [],
                 "findings": [],
@@ -4032,7 +4098,7 @@ async def trigger_export(run_id: str, run_root: str = "runs", force: bool = Fals
     manuscript_tex = summary.get("artifacts", {}).get("manuscript_tex")
     if manuscript_md and pathlib.Path(str(manuscript_md)).exists():
         cfg = _load_configs()[1]
-        mode = getattr(getattr(cfg, "gates", None), "manuscript_contract_mode", "observe")
+        mode = getattr(getattr(cfg, "gates", None), "manuscript_contract_mode", "strict")
         _extra_paths: list[str] = []
         for _k in ("protocol", "prospero_form_md"):
             _p = summary.get("artifacts", {}).get(_k)
@@ -4099,7 +4165,7 @@ async def get_run_readiness(run_id: str, run_root: str = "runs") -> dict[str, An
         raise HTTPException(status_code=404, detail="manuscript_md not found")
     manuscript_tex = summary.get("artifacts", {}).get("manuscript_tex")
     cfg = _load_configs()[1]
-    mode = getattr(getattr(cfg, "gates", None), "manuscript_contract_mode", "observe")
+    mode = getattr(getattr(cfg, "gates", None), "manuscript_contract_mode", "strict")
     extra_paths: list[str] = []
     for _k in ("protocol", "prospero_form_md"):
         _p = summary.get("artifacts", {}).get(_k)
@@ -4146,6 +4212,7 @@ async def get_run_diagnostics(run_id: str, run_root: str = "runs") -> dict[str, 
         repo = _WorkflowRepository(db)
         step_summary = await repo.get_step_summary(workflow_id)
         step_failures = await repo.count_step_failures(workflow_id)
+        running_steps = await repo.count_running_steps(workflow_id)
         fallback_count = await repo.count_fallback_events(workflow_id)
         fallback_summary = await repo.get_fallback_event_summary(workflow_id)
         writing_manifests = await repo.get_writing_manifests(workflow_id)
@@ -4153,6 +4220,7 @@ async def get_run_diagnostics(run_id: str, run_root: str = "runs") -> dict[str, 
         "workflow_id": workflow_id,
         "step_summary": step_summary,
         "step_failures": step_failures,
+        "running_steps": running_steps,
         "fallback_count": fallback_count,
         "fallback_summary": fallback_summary,
         "writing_manifests": [m.model_dump(mode="json") for m in writing_manifests],

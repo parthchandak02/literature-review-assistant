@@ -16,12 +16,14 @@ import {
   archiveRun,
   attachHistory,
   cancelRun,
+  hideCompletedRun,
   deleteRun,
   fetchActiveRun,
   fetchArtifacts,
   fetchHistory,
   getDefaultReviewConfig,
   resumeRun,
+  restoreCompletedRun,
   restoreRun,
   saveLiveRun,
   loadLiveRun,
@@ -898,6 +900,18 @@ export default function App() {
     await restoreRun(workflowId)
   }
 
+  async function handleSidebarHideCompleted(workflowId: string) {
+    await hideCompletedRun(workflowId)
+    if (selectedRun?.workflowId === workflowId) {
+      setSelectedRun(null)
+      navigate("/", { replace: true })
+    }
+  }
+
+  async function handleSidebarRestoreCompleted(workflowId: string) {
+    await restoreCompletedRun(workflowId)
+  }
+
   function handleSidebarWidthChange(w: number) {
     setSidebarWidth(w)
     localStorage.setItem("sidebar-width", String(w))
@@ -1019,6 +1033,8 @@ export default function App() {
         onResume={handleSidebarResumeLauncher}
         onArchive={handleSidebarArchive}
         onRestore={handleSidebarRestore}
+        onHideCompleted={handleSidebarHideCompleted}
+        onRestoreCompleted={handleSidebarRestoreCompleted}
         onDelete={handleSidebarDelete}
         onCancel={handleCancel}
         isRunning={isRunning}

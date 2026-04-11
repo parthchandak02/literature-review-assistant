@@ -239,6 +239,9 @@ export interface HistoryEntry {
   /** Soft archive metadata for sidebar grouping. */
   is_archived?: boolean
   archived_at?: string | null
+  /** Soft completed-lane metadata for sidebar grouping of completed runs. */
+  is_completed_hidden?: boolean
+  completed_hidden_at?: string | null
 }
 
 const BASE = "/api"
@@ -1483,6 +1486,28 @@ export async function restoreRun(workflowId: string, runRoot = "runs"): Promise<
   if (!res.ok) {
     const text = await res.text()
     throw new Error(`Failed to restore run: ${text}`)
+  }
+}
+
+export async function hideCompletedRun(workflowId: string, runRoot = "runs"): Promise<void> {
+  const params = new URLSearchParams({ run_root: runRoot })
+  const res = await fetch(`${BASE}/history/${workflowId}/complete-hide?${params}`, {
+    method: "POST",
+  })
+  if (!res.ok) {
+    const text = await res.text()
+    throw new Error(`Failed to move completed run: ${text}`)
+  }
+}
+
+export async function restoreCompletedRun(workflowId: string, runRoot = "runs"): Promise<void> {
+  const params = new URLSearchParams({ run_root: runRoot })
+  const res = await fetch(`${BASE}/history/${workflowId}/complete-restore?${params}`, {
+    method: "POST",
+  })
+  if (!res.ok) {
+    const text = await res.text()
+    throw new Error(`Failed to restore completed run: ${text}`)
   }
 }
 
