@@ -85,9 +85,9 @@ The setup page uses one question-first flow:
 
 A secondary "Paste YAML directly" link is also available for pasting a raw config from a previous run or external source.
 
-Your Gemini API key is required and is pre-filled from localStorage on return visits. All keys are saved locally in your browser and never sent anywhere except your local backend.
+Your Gemini API key is required and is pre-filled from localStorage on return visits. The setup form also backfills any blank key fields from `GET /api/config/env-keys`, so keys already present in the local backend `.env` do not need to be retyped.
 
-The sidebar shows all your runs (live and historical) with status colors (emerald = completed, violet = running, red = error, amber = cancelled) and a stats strip (papers found, papers included, artifacts, cost). Selecting a run opens its dashboard with 7 base tabs in workflow order: Config (research question + review.yaml), Activity (phase timeline + event log), Data, Cost, Results, References (included papers list with PDF/TXT download), and Quality (readiness, diagnostics, compliance checks). A conditional Review Screening tab appears only when the run pauses for human-in-the-loop screening approval (`awaiting_review`). The floating Costs button (bottom-right) opens global LLM spend history and CSV export across registry-linked runs (`GET /api/history/costs/aggregates` and `GET /api/history/costs/export`), separate from the per-run Cost tab. To resume from a specific phase, use the Activity phase timeline (tap once to arm, tap again to confirm) or use the sidebar Resume button for default auto-resume. Runs can be archived from the active list, restored from the Archived section, and permanently deleted from archived-item overflow actions.
+The sidebar shows all your runs (live and historical) with status colors (emerald = completed, violet = running, red = error, amber = cancelled) and a stats strip (papers found, papers included, artifacts, cost). Selecting a run opens its dashboard with 7 base tabs in workflow order: Config (research question + review.yaml), Activity (phase timeline + event log), Data, Cost, Results, References (included papers list with PDF/TXT download), and Quality (readiness, diagnostics, compliance checks). A conditional Review Screening tab appears only when the run pauses for human-in-the-loop screening approval (`awaiting_review`). The floating Costs button (bottom-right) opens global LLM spend history and CSV export across registry-linked runs (`GET /api/history/costs/aggregates` and `GET /api/history/costs/export`), separate from the per-run Cost tab. To resume from a specific phase, use the Activity phase timeline (tap once to arm, tap again to confirm) or use the sidebar Resume button for default auto-resume. Non-running runs can be moved manually between `IN PROGRESS`, `COMPLETED`, and `ARCHIVED`; restore returns them to `IN PROGRESS`, and permanent delete remains an archived-item overflow action.
 
 **Tip -- reuse a past config:** Click "+" to open the form, then use the "Load from past run" dropdown to pre-populate the form from any previous run's config. Useful for iterating on the same research question with different parameters.
 
@@ -210,9 +210,9 @@ Remove the line (or set it to `null`) to send all candidate papers through LLM s
 # Start a new review
 uv run python -m src.main run --config config/review.yaml
 
-# Run with verbose output (shows each LLM call)
-uv run python -m src.main run --config config/review.yaml --verbose
+# Default run output is already verbose; use --silent to reduce chatter
 uv run python -m src.main run --config config/review.yaml --debug
+uv run python -m src.main run --config config/review.yaml --silent
 uv run python -m src.main run --config config/review.yaml --offline
 uv run python -m src.main run --config config/review.yaml --fresh
 uv run python -m src.main run --config config/review.yaml --run-root runs/
@@ -256,7 +256,7 @@ Two config files control behavior:
 
 **`config/settings.yaml`** -- change this rarely:
 - LLM model assignments (which Gemini tier handles screening vs. writing)
-- `agents.screening_reviewer_b.model` -- second reviewer model for cross-model validation
+- `agents.screening_reviewer_b.model` -- second reviewer model; defaults can match reviewer A, or you can set a different model for cross-model validation
 - Screening thresholds (include/exclude confidence cutoffs)
 - `max_llm_screen` -- hard cap on LLM screening volume (cost control)
 - `human_in_the_loop.enabled` -- pause after screening for manual review of AI decisions
@@ -282,6 +282,7 @@ Phase 4: Extraction + quality assessment (RoB/CASP/MMAT/GRADE routing)
 Phase 4b: Embedding sub-phase (RAG chunking + vector persistence)
 Phase 5: Synthesis (meta-analysis or narrative + sensitivity)
 Phase 5b: Knowledge-graph sub-phase (communities + gap signals)
+Phase 5c: Pre-writing gate (cohort/readiness checks before section generation)
 Phase 6: Writing via structured section IR (schema-constrained output -> completeness gates -> deterministic render) + manuscript assembly (`doc_manuscript.md`) + PRISMA/timeline/geographic figures
 Phase 7: Manuscript audit (profile-routed final guardian checks with bounded cost, persisted findings, gate-mode aware pass/fail)
 Finalize: final artifacts (`doc_manuscript.tex`, `references.bib`, `run_summary.json`)
@@ -299,7 +300,7 @@ Grouped endpoints most users use:
 - Setup (browser): `GET /api/config/review`, `GET /api/config/env-keys`, `POST /api/config/generate`, `POST /api/config/generate/stream`
 - Health: `GET /api/health`
 - Run lifecycle: `POST /api/run`, `POST /api/run-with-masterlist`, `POST /api/run-with-supplementary-csv`, `GET /api/stream/{run_id}`, `POST /api/cancel/{run_id}`
-- History/resume: `GET /api/history`, `GET /api/history/active-run`, `GET /api/history/{workflow_id}/config`, `GET /api/history/costs/aggregates`, `GET /api/history/costs/export`, `POST /api/history/attach`, `POST /api/history/resume`, `POST /api/history/{workflow_id}/archive`, `POST /api/history/{workflow_id}/restore`, `DELETE /api/history/{workflow_id}`
+- History/resume: `GET /api/history`, `GET /api/history/active-run`, `GET /api/history/{workflow_id}/config`, `GET /api/history/costs/aggregates`, `GET /api/history/costs/export`, `POST /api/history/attach`, `POST /api/history/resume`, `POST /api/history/{workflow_id}/archive`, `POST /api/history/{workflow_id}/restore`, `POST /api/history/{workflow_id}/complete-hide`, `POST /api/history/{workflow_id}/complete-restore`, `DELETE /api/history/{workflow_id}`
 - Results/export: `GET /api/run/{run_id}/artifacts`, `GET /api/run/{run_id}/manuscript`, `POST /api/run/{run_id}/export`, `GET /api/run/{run_id}/submission.zip`, `GET /api/run/{run_id}/manuscript.docx`, `GET /api/run/{run_id}/prospero-form.docx`, `GET /api/run/{run_id}/prospero-form.md`, `GET /api/run/{run_id}/studies-files.zip`
 - References/full text: `GET /api/run/{run_id}/papers-reference`, `GET /api/run/{run_id}/papers/{paper_id}/file`, `POST /api/run/{run_id}/fetch-pdfs`
 - Human review/living review: `GET /api/run/{run_id}/screening-summary`, `POST /api/run/{run_id}/approve-screening`, `POST /api/run/{run_id}/living-refresh`

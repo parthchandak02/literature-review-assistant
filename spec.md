@@ -404,7 +404,7 @@ PORT=8001                       # Optional; backend port (default 8001)
 UI_PORT=5173                    # Optional; Vite dev server port (dev only)
 ```
 
-The web UI never stores API keys server-side. The user pastes keys into the Setup form; they are posted in the request body to the local FastAPI process. The browser caches them in `localStorage` under `litreview_api_keys` for convenience between sessions.
+The web UI does not persist browser-entered API keys server-side, but the setup form can pre-fill blank fields from keys already present in the local backend `.env` via `GET /api/config/env-keys`. Browser-entered values are posted to the local FastAPI process and cached in `localStorage` under `litreview_api_keys` for convenience between sessions.
 
 ### 4.2 `config/review.yaml` -- Per-Review Config
 
@@ -514,6 +514,7 @@ Phase 4: Extraction+Quality -> checkpoint key: "phase_4_extraction_quality"
 Phase 4b: Embedding        -> checkpoint key: "phase_4b_embedding"
 Phase 5: Synthesis         -> checkpoint key: "phase_5_synthesis"
 Phase 5b: Knowledge Graph  -> checkpoint key: "phase_5b_knowledge_graph"
+Phase 5c: Pre-writing gate -> checkpoint key: "phase_5c_pre_writing_gate"
 Phase 6: Writing           -> checkpoint key: "phase_6_writing"
 Phase 7: Manuscript audit  -> checkpoint key: "phase_7_audit"
 Finalize                   -> writes run_summary.json + registry status = "completed"
@@ -575,7 +576,7 @@ Stage 0 (pre-filter): The keyword filter auto-excludes papers with zero interven
 
 Stage 0b (batch LLM pre-ranker, optional): When `batch_screen_enabled` is true in settings.yaml, `BatchLLMRanker` (`src/screening/batch_ranker.py`) scores BM25-passing papers in batches of `batch_screen_size` using the `batch_screener` agent. Papers scoring below `batch_screen_threshold` (default 0.30) are auto-excluded as `batch_screened_low` without reaching the dual-reviewer. The `batch_screen_done` SSE event records the funnel counts. This stage fires after BM25 cap and before Stage 1.
 
-Stage 1 (title/abstract): Two independent AI reviewers evaluate records using batch-capable screening (`reviewer_batch_size` in settings). Default behavior sends groups of papers per dual-reviewer call; setting `reviewer_batch_size: 0` enables legacy per-paper mode. Reviewer A uses an inclusion-emphasis prompt (temperature 0.1, gemini-2.5-flash-lite). Reviewer B uses an exclusion-emphasis prompt (temperature 0.1, gemini-2.5-flash -- different model for genuine cross-model validation). Agreement yields the final decision. Disagreement triggers the adjudicator agent (model from `settings.yaml`).
+Stage 1 (title/abstract): Two independent AI reviewers evaluate records using batch-capable screening (`reviewer_batch_size` in settings). Default behavior sends groups of papers per dual-reviewer call; setting `reviewer_batch_size: 0` enables legacy per-paper mode. Reviewer A uses an inclusion-emphasis prompt (temperature 0.1, gemini-2.5-flash-lite). Reviewer B uses an exclusion-emphasis prompt; by default it also uses gemini-2.5-flash-lite, but `agents.screening_reviewer_b.model` can be changed in `settings.yaml` for cross-model validation. Agreement yields the final decision. Disagreement triggers the adjudicator agent (model from `settings.yaml`).
 
 Stage 2 (full-text): Papers passing Stage 1 get full text via a unified tiered resolver: Tier 0 publisher-direct PDF URL, Tier 0.5 `citation_pdf_url` meta extraction, Tier 1 Unpaywall, Tier 1b arXiv, Tier 2 group (Semantic Scholar, CORE, Europe PMC, OpenAlex, bioRxiv/medRxiv), then ScienceDirect/PMC/Crossref links, and Tier 6 landing-page scraping. Papers without retrievable full text are excluded with `NO_FULL_TEXT` when `skip_fulltext_if_no_pdf` is true. Full-text screening follows the same dual-reviewer pattern.
 
@@ -732,7 +733,7 @@ Registry status updated to "completed". `run_summary.json` written to log dir wi
 | Fast | Config-driven (`settings.yaml`) | Provider-dependent | Moderate-volume reviewers and adjudication paths |
 | Quality | Config-driven (`settings.yaml`) | Provider-dependent | High-quality extraction/writing/assessment paths |
 
-Reviewer A (gemini-2.5-flash-lite) and Reviewer B (gemini-2.5-flash) use different models intentionally -- this provides genuine cross-model validation rather than intra-model temperature variation. Flash-Lite is optimal for bulk classification at scale; Flash provides a different model perspective for Reviewer B without the cost of Pro. HyDE generation and listwise reranking also use Flash-Lite for speed and cost efficiency.
+Reviewer A and Reviewer B are independently configurable in `settings.yaml`. Current defaults use gemini-2.5-flash-lite for both reviewers for cost-efficient bulk classification, but Reviewer B can be pointed at a different model when true cross-model validation is desired. HyDE generation and listwise reranking also use Flash-Lite for speed and cost efficiency.
 
 Model assignments per agent are in `settings.yaml` under `agents.*`. Changing a model requires only a YAML edit -- no code changes. Runtime Python code in `src/` must not embed concrete model IDs.
 
@@ -1073,6 +1074,8 @@ Run card status border (2px left): emerald = completed, violet = running/connect
 | POST | /api/history/resume | Resume a historical run; body includes workflow_id, optionally from_phase |
 | POST | /api/history/{workflow_id}/archive | Soft-archive a workflow row; preserves run data and artifacts |
 | POST | /api/history/{workflow_id}/restore | Restore an archived workflow row to the active list |
+| POST | /api/history/{workflow_id}/complete-hide | Move a non-running workflow into the manual Completed bucket |
+| POST | /api/history/{workflow_id}/complete-restore | Restore a workflow from the Completed bucket to In Progress |
 | DELETE | /api/history/{workflow_id} | Delete run directory + registry entry from disk |
 | GET | /api/db/{run_id}/papers | Paginated + searchable papers from runtime.db |
 | GET | /api/db/{run_id}/papers-all | All papers with doi + url fields for clickable links |
@@ -1120,7 +1123,7 @@ Endpoint parity is enforced in CI via `scripts/check_spec_endpoint_parity.py`, w
 
 - `Run lifecycle`: `/api/run`, `/api/run-with-masterlist`, `/api/run-with-supplementary-csv`, `/api/stream/{run_id}`, `/api/cancel/{run_id}` -> handlers `@app.post("/api/run")`, `@app.post("/api/run-with-masterlist")`, `@app.post("/api/run-with-supplementary-csv")`, `@app.get("/api/stream/{run_id}")`, `@app.post("/api/cancel/{run_id}")` in `src/web/app.py`.
 - `Config`: `/api/config/review`, `/api/config/env-keys`, `/api/config/generate`, `/api/config/generate/stream` -> handlers `@app.get("/api/config/review")`, `@app.get("/api/config/env-keys")`, `@app.post("/api/config/generate")`, `@app.post("/api/config/generate/stream")`.
-- `History and notes`: `/api/history`, `/api/history/active-run`, `/api/history/costs/aggregates`, `/api/history/costs/export`, `/api/history/{workflow_id}/config`, `/api/history/resume`, `/api/history/attach`, `/api/history/{workflow_id}/archive`, `/api/history/{workflow_id}/restore`, `/api/history/{workflow_id}` (DELETE), `/api/notes/{workflow_id}`, `/api/notes/stream` -> matching `@app.get/@app.post/@app.patch/@app.delete` decorators in `src/web/app.py`.
+- `History and notes`: `/api/history`, `/api/history/active-run`, `/api/history/costs/aggregates`, `/api/history/costs/export`, `/api/history/{workflow_id}/config`, `/api/history/resume`, `/api/history/attach`, `/api/history/{workflow_id}/archive`, `/api/history/{workflow_id}/restore`, `/api/history/{workflow_id}/complete-hide`, `/api/history/{workflow_id}/complete-restore`, `/api/history/{workflow_id}` (DELETE), `/api/notes/{workflow_id}`, `/api/notes/stream` -> matching `@app.get/@app.post/@app.patch/@app.delete` decorators in `src/web/app.py`.
 - `DB explorer`: `/api/db/{run_id}/papers`, `/papers-all`, `/papers-facets`, `/papers-suggest`, `/screening`, `/costs`, `/costs/aggregates`, `/costs/export`, `/tables`, `/rag-diagnostics` -> matching `@app.get("/api/db/...")` handlers.
 - `Artifacts and export`: `/api/run/{run_id}/artifacts`, `/manuscript`, `/events`, `/workflow/{workflow_id}/events`, `/export`, `/submission.zip`, `/studies-files.zip`, `/manuscript.docx`, `/prospero-form.docx`, `/prospero-form.md`, `/readiness`, `/diagnostics`, `/logs/stream` -> matching `@app.get/@app.post` handlers.
 - `Manuscript audit`: `/api/workflow/{workflow_id}/manuscript-audit/summary`, `/api/workflow/{workflow_id}/manuscript-audit/findings`, `/api/run/{run_id}/manuscript-audit` -> matching `@app.get` handlers.

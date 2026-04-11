@@ -49,12 +49,15 @@ will resolve after restart.
 recovery policy data, and writing manifests.
 Do not assume diagnostics embeds the readiness scorecard.
 
-## History Sidebar Uses Archive-First Workflow
-Sidebar default removal is now archive, not hard delete. Backend endpoints are:
+## History Sidebar Uses Manual Buckets
+The sidebar uses manual buckets for non-running workflows rather than hard delete. Backend endpoints are:
 - `POST /api/history/{workflow_id}/archive`
 - `POST /api/history/{workflow_id}/restore`
+- `POST /api/history/{workflow_id}/complete-hide`
+- `POST /api/history/{workflow_id}/complete-restore`
 Hard delete remains at `DELETE /api/history/{workflow_id}` and is intended as a secondary action.
-If UI behavior looks like "delete removed data immediately", verify frontend is calling archive first.
+`archive` and `complete-hide` are mutually exclusive manual lanes; moving a run into one clears the other.
+If UI behavior looks like "delete removed data immediately", verify frontend is calling archive/complete-hide first.
 
 ## Global cost ops vs per-run Cost tab
 Per-run `CostView` uses `GET /api/db/{run_id}/costs` and related `/api/db/{run_id}/costs/*` endpoints for one workflow database.
@@ -350,7 +353,7 @@ returned empty patterns and was never injected into prompts.
 `src/screening/batch_ranker.py` implements a batch scoring step that fires after BM25
 ranking and before the full dual-reviewer LLM pass. It scores papers in batches using
 the `batch_screener` agent (settings.yaml). Papers scoring below `batch_screen_threshold`
-(0.20, from the `screening:` section of settings.yaml) are auto-excluded as `batch_screened_low` and emitted via the
+(0.30, from the `screening:` section of settings.yaml) are auto-excluded as `batch_screened_low` and emitted via the
 `batch_screen_done` SSE event (visible in the FUNNEL log line). Only papers above the
 threshold proceed to the dual-reviewer. The funnel display shows "N to dual-reviewer"
 and "M auto-excluded (score < X%)" for this stage. If batch_ranker raises an exception,
@@ -609,6 +612,7 @@ Do not document markdown manuscript assembly as a finalize responsibility.
 Top-level resume order in `src/orchestration/resume.py` is:
 `phase_2_search`, `phase_3_screening`, `phase_4_extraction_quality`,
 `phase_4b_embedding`, `phase_5_synthesis`, `phase_5b_knowledge_graph`,
+`phase_5c_pre_writing_gate`,
 `phase_6_writing`, `phase_7_audit`, `finalize`.
 
 ## Cost Aggregates Filter On `created_at` (Not `CostRecord.timestamp`)
@@ -731,9 +735,11 @@ raw text into dicts.
 1. `finalize` checkpoint is `completed`
 2. PRISMA arithmetic valid (via `build_prisma_counts` / `PRISMACounts`)
 3. Manuscript contracts pass for the given mode
-4. `fallback_events` count is zero (non-zero blocks `ready`)
-5. `submission_pdf_present` is reported but is NOT part of the `ready` boolean
-`ready: true` requires items 1-4 (finalize + PRISMA + contracts + zero fallback events).
+4. Citation lineage is valid
+5. PRISMA checklist validation passes
+6. `fallback_events` count is zero (non-zero blocks `ready`)
+7. `submission_pdf_present` is reported but is NOT part of the `ready` boolean
+`ready: true` requires items 1-6 (finalize + PRISMA + contracts + citation lineage + PRISMA checklist + zero fallback events).
 API endpoint: `GET /api/run/{run_id}/readiness` (note: `run_id`, not `workflow_id`).
 
 ## Contract Matrix Makes TeX Checks Phase-Aware
