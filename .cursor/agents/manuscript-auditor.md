@@ -76,6 +76,12 @@ Known contract codes the pipeline already checks (non-exhaustive; source of trut
 
 When in doubt, grep `code=` in `src/manuscript/contracts.py` for the canonical list.
 
+Also read and record:
+- `citation_lineage_valid`
+- `citation_lineage` summary object when present
+- `manuscript_audit.gate_blocked`
+- `manuscript_audit.gate_failure_reasons`
+
 Record which violations are already flagged. Do NOT re-report them as new findings. Instead, note them in a "Pipeline Contracts Status" section, treat failed contracts as readiness risk, and focus additional findings on gaps that contracts do NOT cover.
 
 When available, also cross-check runtime audit persistence:
@@ -86,11 +92,13 @@ You may read these directly from `runtime.db` or via API:
 - `GET /api/workflow/{workflow_id}/manuscript-audit/summary`
 - `GET /api/workflow/{workflow_id}/manuscript-audit/findings`
 - `GET /api/run/{run_id}/manuscript-audit`
-- `GET /api/run/{run_id}/diagnostics` (step journal, failures, fallback events, writing manifests)
-- `GET /api/run/{run_id}/readiness` (readiness scorecard: finalize, PRISMA, contracts, fallback events)
+- `GET /api/run/{run_id}/diagnostics` (step journal, failures, running steps, fallback events, writing manifests)
+- `GET /api/run/{run_id}/readiness` (readiness scorecard: finalize, PRISMA, contracts, citation lineage, fallback events)
 
 Use this as supplemental evidence alignment with `phase_7_audit`; keep
-artifact-based contract reading (`run_summary.json`) as primary.
+artifact-based contract reading (`run_summary.json`) as primary. Treat
+`run_summary.json`, the readiness endpoint, and the diagnostics endpoint as the
+runtime source of truth for gate status, citation validity, and control-plane health.
 
 `writing_manifests` records per-section provenance (grounding hash, evidence source IDs, contract status, retry count, word count). Query via the diagnostics API or directly from `runtime.db` to assess writing quality and fallback usage per section.
 
@@ -304,6 +312,11 @@ List each contract violation from `run_summary.json` with its code and status (p
 
 ### Executive Summary
 One paragraph: quality level, top 3 issues, readiness scale (NOT READY / NEEDS MAJOR REVISION / NEEDS MINOR REVISION / SUBMISSION READY).
+
+### Coverage Classification
+- `Already covered by pipeline contracts`: list contract codes already raised by runtime.
+- `Novel manuscript misses`: findings not covered by runtime contracts.
+- `Workflow or control-plane defects`: stale running steps, missing artifacts, status disagreement, resume/finalize defects.
 
 ### Critical Issues
 Numbered list: Stream | Location | Issue | Fix.
