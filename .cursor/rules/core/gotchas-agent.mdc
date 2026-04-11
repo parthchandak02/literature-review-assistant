@@ -410,6 +410,14 @@ affect manuscript content, add the same restore pattern to `resume.py`.
 4) `extraction_records` count (legacy fallback)
 This avoids abstract-stage over-counting and keeps stats aligned with synthesis-eligible primary studies.
 
+## Writing Grounding Must Use The Canonical Included Cohort
+`build_writing_grounding()` in `src/writing/context_builder.py` must only summarize
+`ExtractionRecord` rows whose `paper_id` appears in the `included_papers` list passed by
+the workflow. If writing receives all extraction records instead of the canonical
+`included_primary` cohort, non-primary or later-excluded studies can leak into
+`study_design_counts`, `study_summaries`, and narrative Results text even though they are
+not actually part of the synthesis set.
+
 ## doc_manuscript.tex and references.bib Are First-Class Run Artifacts
 `FinalizeNode` in `src/orchestration/workflow.py` now generates `doc_manuscript.tex` and
 `references.bib` directly into the run directory (alongside `doc_manuscript.md`) as

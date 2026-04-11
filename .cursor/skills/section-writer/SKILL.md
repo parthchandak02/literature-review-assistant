@@ -25,7 +25,7 @@ Must cover all 12 PRISMA 2020 abstract items:
 12. Funding sources
 
 ### Methods (PRISMA Items 3-16)
-Must cover: eligibility criteria, information sources, search strategy (reference appendix), selection process (dual reviewer + kappa), data collection, data items, RoB tools, effect measures, synthesis methods, GRADE.
+Must cover: eligibility criteria, information sources, search strategy (reference appendix), selection process (dual reviewer; report kappa when available, otherwise disclose that it was not computed/calculable), data collection, data items, RoB tools, effect measures, synthesis methods, GRADE.
 
 ### Results
 Must reference: PRISMA diagram, study characteristics table, RoB traffic-light figure, forest plot, GRADE SoF table.

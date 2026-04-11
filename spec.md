@@ -582,7 +582,7 @@ Stage 2 (full-text): Papers passing Stage 1 get full text via a unified tiered r
 
 **Ctrl+C behavior:** First Ctrl+C sets proceed-with-partial flag; the screening loop exits after the current paper and saves a checkpoint with `status='partial'`. Second Ctrl+C raises `KeyboardInterrupt` (hard abort). The SIGINT handler is registered via `asyncio.add_signal_handler` (skipped on Windows where it is not supported).
 
-**Inter-rater reliability:** Cohen's kappa computed via `sklearn.metrics.cohen_kappa_score`. A kappa below `kappa_warning_threshold` (0.4) triggers a warning. The target kappa for Definition of Done is >= 0.6.
+**Inter-rater reliability:** When dual-review overlap is sufficient, Cohen's kappa is computed via `sklearn.metrics.cohen_kappa_score`. A kappa below `kappa_warning_threshold` (0.4) triggers a warning. When kappa is unavailable or not calculable for the dual-reviewed subset, the manuscript must disclose that state explicitly rather than inventing a value. The target kappa for Definition of Done is >= 0.6 when calculable.
 
 **Confidence fast-path:** If both reviewers agree with confidence above the auto-include or auto-exclude threshold, adjudication is skipped. Papers with confidence between thresholds always go to adjudication.
 
@@ -647,7 +647,7 @@ Synthesis results (`SynthesisFeasibility` + `NarrativeSynthesis`) are persisted 
 
 **RAG retrieval (runs before each section):** A three-stage pipeline surfaces the most relevant evidence chunks from embedded paper content. (1) HyDE (`src/rag/hyde.py`) generates a 100-200 word hypothetical excerpt of the section using Gemini Flash -- producing a richer dense query vector than the bare section name. (2) The hypothetical text is embedded for cosine retrieval; BM25 uses the original research question + section name without the hypothetical, to avoid hallucinated keyword drift. Reciprocal Rank Fusion combines both signals into a top-20 candidate set. (3) A Gemini Flash listwise reranker (`src/rag/reranker.py`) scores all 20 candidates in a single LLM call and returns the top-8 chunks, which are injected as `rag_context` into the writing prompt. The abstract skips HyDE (already synthesis-grounded). Any retrieval failure falls back silently -- the section is written without RAG context. RAG is controlled by `settings.yaml rag.*` (`use_hyde`, `rerank`, and their model keys).
 
-A `WritingGroundingData` object is built from PRISMA counts, extraction records, and synthesis results. This block of factual data -- search metadata, PRISMA counts, study characteristics, synthesis direction, per-study summaries, and valid citekeys -- is injected verbatim into every writing prompt. The LLM is instructed to use these numbers exactly and never invent statistics.
+A `WritingGroundingData` object is built from PRISMA counts, the canonical included-study cohort (`included_papers` plus matching extraction records), and synthesis results. This block of factual data -- search metadata, PRISMA counts, study characteristics, synthesis direction, per-study summaries, and valid citekeys -- is injected verbatim into every writing prompt. The LLM is instructed to use these numbers exactly and never invent statistics.
 
 WritingNode uses a two-phase approach to enable cross-section synthesis:
 - **Phase A** (abstract, intro, methods, results) -- run concurrently.
@@ -1479,7 +1479,7 @@ All of the following must be true before the first submission:
 
 - Protocol auto-generated with all PICO elements
 - Search strategies documented for every database with dates and Boolean strings
-- Dual-reviewer screening produces Cohen's kappa >= 0.6
+- Dual-reviewer screening produces Cohen's kappa >= 0.6 when calculable, or the manuscript explicitly discloses that kappa was not computed/not calculable for the dual-reviewed subset
 - Full-text exclusion reasons categorized using ExclusionReason enum
 - RoB 2 completed for all RCTs (5 domains, domain-based judgments)
 - ROBINS-I completed for all non-randomized studies (7 domains)
@@ -1488,7 +1488,7 @@ All of the following must be true before the first submission:
 - PRISMA 2020 two-column diagram with correct arithmetic at every stage
 - Forest plot generated for each poolable outcome
 - Funnel plot generated when >= 10 studies
-- Methods section references all tools used + Cohen's kappa value
+- Methods section references all tools used + the Cohen's kappa value when available, otherwise an explicit not-computed/not-calculable disclosure
 - All claims traceable via citation ledger (ClaimRecord -> EvidenceLinkRecord -> CitationEntryRecord)
 - Zero unresolved citations at export
 - IEEE LaTeX compiles with IEEEtran.cls without errors
