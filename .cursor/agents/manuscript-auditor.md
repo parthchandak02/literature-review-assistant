@@ -73,7 +73,6 @@ Known contract codes the pipeline already checks (non-exhaustive; source of trut
 - `UNUSED_BIB_ENTRY` -- bib entries cited nowhere in body
 - `ARTIFACT_PLACEHOLDER_LEAK` -- placeholder tokens in artifact files
 - `SECTION_DETERMINISTIC_FALLBACK` -- section used deterministic fallback text
-- `PROTOCOL_REGISTRATION_FUTURE_TENSE` -- registration statement uses future tense
 
 When in doubt, grep `code=` in `src/manuscript/contracts.py` for the canonical list.
 

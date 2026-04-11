@@ -4122,8 +4122,8 @@ async def get_run_readiness(run_id: str, run_root: str = "runs") -> dict[str, An
 async def get_run_diagnostics(run_id: str, run_root: str = "runs") -> dict[str, Any]:
     """Return step-journal diagnostics for a workflow run.
 
-    Aggregates readiness, step attempts, failures, recovery policies,
-    writing manifests, and fallback events into one diagnostics payload.
+    Aggregates step attempts, failures, recovery policies, writing manifests,
+    and fallback events into one diagnostics payload.
     """
     from src.db.database import get_db as _get_db
     from src.db.repositories import WorkflowRepository as _WorkflowRepository

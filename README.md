@@ -87,7 +87,7 @@ A secondary "Paste YAML directly" link is also available for pasting a raw confi
 
 Your Gemini API key is required and is pre-filled from localStorage on return visits. All keys are saved locally in your browser and never sent anywhere except your local backend.
 
-The sidebar shows all your runs (live and historical) with status colors (emerald = completed, violet = running, red = error, amber = cancelled) and a stats strip (papers found, papers included, artifacts, cost). Selecting a run opens its dashboard with 6 base tabs in workflow order: Config (research question + review.yaml), Activity (phase timeline + event log), Data, Cost, Results, and References (included papers list with PDF/TXT download). A conditional Review Screening tab appears only when the run pauses for human-in-the-loop screening approval (`awaiting_review`). The floating Costs button (bottom-right) opens global LLM spend history and CSV export across registry-linked runs (`GET /api/history/costs/aggregates` and `GET /api/history/costs/export`), separate from the per-run Cost tab. To resume from a specific phase, use the Activity phase timeline (tap once to arm, tap again to confirm) or use the sidebar Resume button for default auto-resume. Runs can be archived from the active list, restored from the Archived section, and permanently deleted from archived-item overflow actions.
+The sidebar shows all your runs (live and historical) with status colors (emerald = completed, violet = running, red = error, amber = cancelled) and a stats strip (papers found, papers included, artifacts, cost). Selecting a run opens its dashboard with 7 base tabs in workflow order: Config (research question + review.yaml), Activity (phase timeline + event log), Data, Cost, Results, References (included papers list with PDF/TXT download), and Quality (readiness, diagnostics, compliance checks). A conditional Review Screening tab appears only when the run pauses for human-in-the-loop screening approval (`awaiting_review`). The floating Costs button (bottom-right) opens global LLM spend history and CSV export across registry-linked runs (`GET /api/history/costs/aggregates` and `GET /api/history/costs/export`), separate from the per-run Cost tab. To resume from a specific phase, use the Activity phase timeline (tap once to arm, tap again to confirm) or use the sidebar Resume button for default auto-resume. Runs can be archived from the active list, restored from the Archived section, and permanently deleted from archived-item overflow actions.
 
 **Tip -- reuse a past config:** Click "+" to open the form, then use the "Load from past run" dropdown to pre-populate the form from any previous run's config. Useful for iterating on the same research question with different parameters.
 
@@ -306,11 +306,13 @@ Grouped endpoints most users use:
 - Extra run views (Results when done): `GET /api/run/{run_id}/knowledge-graph`, `GET /api/run/{run_id}/prisma-checklist`, `GET /api/run/{run_id}/grade-sof`
 - Data explorer: `GET /api/db/{run_id}/papers`, `/papers-all`, `/papers-facets`, `/papers-suggest`, `/screening`, `/costs`, `/costs/aggregates`, `/costs/export`, `/tables`, `/rag-diagnostics`
 - Manuscript audit: `GET /api/workflow/{workflow_id}/manuscript-audit/summary`, `GET /api/workflow/{workflow_id}/manuscript-audit/findings`, `GET /api/run/{run_id}/manuscript-audit`
-- Readiness: `GET /api/run/{workflow_id}/readiness`
+- Run diagnostics: `GET /api/run/{run_id}/diagnostics`
+- Readiness: `GET /api/run/{run_id}/readiness`
 - Validation: `GET /api/workflow/{workflow_id}/validation/summary`, `GET /api/workflow/{workflow_id}/validation/checks`
 - Notes and logs: `PATCH /api/notes/{workflow_id}`, `GET /api/notes/stream`, `GET /api/logs/stream`
 
 Global Cost Ops (floating control, `GlobalCostOpsDialog`) uses `GET /api/history/costs/aggregates` and `GET /api/history/costs/export`. Totals only include runs whose `runtime.db` paths are registered in `workflows_registry.db`.
+For `/api/run/{run_id}/...` endpoints, `run_id` can be the live session id or a durable `wf-XXXX` workflow id resolved through the registry.
 
 ---
 
@@ -331,6 +333,7 @@ pm2 start ecosystem.config.js
 ```
 
 Open `http://localhost:5173` (Vite dev UI, HMR) or `http://localhost:8001` (API direct). The `litreview-ui` PM2 process runs Vite on port 5173 and proxies `/api` to the backend on port 8001 automatically.
+If you clone the repo to a different path or machine, update `PROJECT_DIR` in `ecosystem.config.js` before starting PM2 because it is currently absolute.
 
 Useful PM2 commands:
 
@@ -406,6 +409,7 @@ cd frontend && pnpm fix && pnpm typecheck
 | `src/extraction/` | Study design classifier, data extractor |
 | `src/quality/` | RoB 2, ROBINS-I, CASP, MMAT, GRADE |
 | `src/synthesis/` | Feasibility checker, meta-analysis, narrative synthesis |
+| `src/manuscript/` | Readiness scorecards, manuscript contracts, PRISMA disclosure checks, audit reviewer |
 | `src/rag/` | RAG pipeline: chunker, embedder (PydanticAI), hybrid BM25+dense retriever (RRF), HyDE query expansion, Gemini listwise reranker |
 | `src/knowledge_graph/` | Builder, community (Louvain), gap detector |
 | `src/writing/` | Section writer, humanizer, deterministic guardrails, grounding, evidence_assembler |
