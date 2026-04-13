@@ -105,7 +105,7 @@ screening:
   # papers screened on abstract alone are incorrectly included in synthesis.
   # Note: this may exclude paywalled papers with no open-access PDF; those papers
   # should appear in the PRISMA flow as "not retrieved" rather than as included studies.
-  skip_fulltext_if_no_pdf: false
+  skip_fulltext_if_no_pdf: true
   screening_concurrency: 5
   # Number of PDFs fetched concurrently during full-text retrieval (phase 3).
   # Each fetch hits a different upstream host (Unpaywall, CORE, Semantic Scholar,
@@ -203,7 +203,7 @@ writing:
   abstract_trim_headroom_words: 20
   abstract_trim_floor_words: 210
   fulltext_nonretrieval_caution_threshold: 0.40
-  abstract_only_caution_threshold: 0.40
+  abstract_only_caution_threshold: 0.25
   citation_cluster_chunk_size: 8
 
 rag:

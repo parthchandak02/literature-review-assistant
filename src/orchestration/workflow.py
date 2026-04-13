@@ -342,6 +342,83 @@ def _should_exclude_low_quality_record(
     return sanitize_summary_text_for_writing(summary_text) == "NR"
 
 
+_ABSTRACT_ONLY_EXTRACTION_SOURCES = frozenset({"text", "heuristic", "", None})
+
+
+def _compute_extraction_quality_metrics(
+    records: list[ExtractionRecord],
+    included_papers: list[CandidatePaper],
+    fulltext_paper_ids: set[str] | None = None,
+) -> tuple[float, float, str]:
+    """Return composite extraction quality, weak-evidence rate, and metric details."""
+    if not records:
+        return 1.0, 0.0, "included_records=0"
+
+    included_ids = {paper.paper_id for paper in included_papers if paper.paper_id}
+    relevant_records = [record for record in records if record.paper_id in included_ids] if included_ids else records
+    if not relevant_records:
+        relevant_records = records
+
+    total = len(relevant_records)
+    summary_present = 0
+    participant_present = 0
+    fulltext_backed = 0
+    weak_evidence_records = 0
+
+    for record in relevant_records:
+        summary_text = sanitize_summary_text_for_writing((record.results_summary or {}).get("summary", ""))
+        has_summary = summary_text != "NR"
+        has_participants = bool(record.participant_count and record.participant_count > 0)
+        if fulltext_paper_ids is not None:
+            has_fulltext = record.paper_id in fulltext_paper_ids
+        else:
+            has_fulltext = (record.extraction_source or "text") not in _ABSTRACT_ONLY_EXTRACTION_SOURCES
+        summary_present += int(has_summary)
+        participant_present += int(has_participants)
+        fulltext_backed += int(has_fulltext)
+        if not (has_summary and has_participants and has_fulltext):
+            weak_evidence_records += 1
+
+    summary_ratio = summary_present / total
+    participant_ratio = participant_present / total
+    fulltext_ratio = fulltext_backed / total
+    completeness_ratio = (summary_ratio + participant_ratio + fulltext_ratio) / 3.0
+    weak_evidence_rate = weak_evidence_records / total
+    details = (
+        f"included_records={total}, summary_ratio={summary_ratio:.2f}, "
+        f"participant_ratio={participant_ratio:.2f}, fulltext_ratio={fulltext_ratio:.2f}"
+    )
+    return completeness_ratio, weak_evidence_rate, details
+
+
+def _load_fulltext_artifact_paper_ids(run_artifacts: dict[str, str], db_path: str) -> set[str]:
+    """Return paper IDs with saved PDF/TXT artifacts for the current run."""
+    fulltext_paper_ids: set[str] = set()
+    manifest_path = Path(run_artifacts.get("papers_manifest", ""))
+    if manifest_path.exists():
+        try:
+            manifest_data = json.loads(manifest_path.read_text(encoding="utf-8"))
+            if isinstance(manifest_data, dict):
+                for paper_id, entry in manifest_data.items():
+                    if isinstance(entry, dict) and entry.get("file_path"):
+                        fulltext_paper_ids.add(str(paper_id))
+            elif isinstance(manifest_data, list):
+                for entry in manifest_data:
+                    if isinstance(entry, dict) and entry.get("paper_id") and entry.get("file_path"):
+                        fulltext_paper_ids.add(str(entry["paper_id"]))
+        except Exception as exc:
+            logger.warning("Could not read papers manifest for extraction metrics: %s", exc)
+    if fulltext_paper_ids:
+        return fulltext_paper_ids
+
+    papers_dir = Path(run_artifacts.get("papers_dir", "")) if run_artifacts.get("papers_dir") else Path(db_path).parent / "papers"
+    if papers_dir.exists():
+        for paper_file in papers_dir.iterdir():
+            if paper_file.is_file() and paper_file.suffix.lower() in {".pdf", ".txt"}:
+                fulltext_paper_ids.add(paper_file.stem)
+    return fulltext_paper_ids
+
+
 class ResumeStartNode(BaseNode[ReviewState]):
     """Entry node for resume: loads state, configures logging, routes to next phase."""
 
@@ -2038,10 +2115,13 @@ class ExtractionQualityNode(BaseNode[ReviewState]):
             records: list[ExtractionRecord] = await repository.load_extraction_records(state.workflow_id)
             already_extracted = {r.paper_id for r in records}
             already_assessed = await repository.get_rob_assessment_ids(state.workflow_id)
+            current_included_ids = {p.paper_id for p in state.included_papers}
             to_process = [p for p in state.included_papers if p.paper_id not in already_extracted]
             # Papers that were extracted before a mid-phase crash but whose RoB
             # assessment was never saved.  Re-run quality assessment only (skip extraction).
-            quality_only = [r for r in records if r.paper_id not in already_assessed]
+            quality_only = [
+                r for r in records if r.paper_id in current_included_ids and r.paper_id not in already_assessed
+            ]
             if rc:
                 rc.emit_phase_start(
                     "phase_4_extraction_quality",
@@ -2933,19 +3013,48 @@ class ExtractionQualityNode(BaseNode[ReviewState]):
                     "ExtractionQualityNode: %d quality assessment(s) used heuristic fallback",
                     _heuristic_count,
                 )
-            completeness_ratio = (
-                1.0
-                if not records
-                else (
-                    sum(1 for record in records if (record.results_summary.get("summary") or "").strip() != "")
-                    / len(records)
-                )
+            fulltext_paper_ids = _load_fulltext_artifact_paper_ids(state.artifacts, state.db_path)
+            completeness_ratio, weak_evidence_rate, extraction_metric_details = _compute_extraction_quality_metrics(
+                records,
+                state.included_papers,
+                fulltext_paper_ids=fulltext_paper_ids,
             )
-            await gate_runner.run_extraction_completeness_gate(
+            gr = await gate_runner.run_extraction_completeness_gate(
                 workflow_id=state.workflow_id,
                 phase="phase_4_extraction_quality",
                 completeness_ratio=completeness_ratio,
+                weak_evidence_rate=weak_evidence_rate,
+                metric_details=extraction_metric_details,
             )
+            if state.settings.gates.profile == "strict" and gr and gr.status == GateStatus.FAILED:
+                err_msg = (
+                    "Extraction completeness gate failed: "
+                    f"{gr.actual_value or 'unknown'} "
+                    f"(required {gr.threshold or '?'}). Cannot proceed."
+                )
+                summary = {
+                    "workflow_id": state.workflow_id,
+                    "status": "failed",
+                    "error": err_msg,
+                    "gate": "extraction_completeness",
+                    "phase": "phase_4_extraction_quality",
+                }
+                Path(state.artifacts["run_summary"]).write_text(json.dumps(summary, indent=2), encoding="utf-8")
+                await repository.update_workflow_status(state.workflow_id, "failed")
+                await update_registry_status(state.run_root, state.workflow_id, "failed")
+                if rc:
+                    if hasattr(rc, "log_status"):
+                        rc.log_status(f"[red]ERROR:[/] {err_msg}")
+                if _extraction_step:
+                    await _journal_step_complete(
+                        repository,
+                        _extraction_step,
+                        status=StepStatus.FAILED,
+                        error_message=err_msg,
+                        failure_category=FailureCategory.GATE_FAILURE,
+                        recovery_action=RecoveryAction.STOP,
+                    )
+                return End(summary)
             # Citation lineage gate is deferred to FinalizeNode, which validates the
             # assembled manuscript against the ledger. No manuscript exists at phase-4,
             # so there is nothing to validate here.
@@ -5628,6 +5737,7 @@ async def _refresh_manuscript_export_artifacts(
         return None
 
     from src.export.bibtex_builder import _sanitize_citekey as _sanitize_bib_citekey
+    from src.export.bibtex_builder import build_citekey_alias_map as _build_citekey_alias_map
     from src.export.bibtex_builder import build_bibtex as _build_bibtex
     from src.export.ieee_latex import markdown_to_latex as _md_to_latex
     from src.export.markdown_refs import get_latex_figure_paths
@@ -5661,6 +5771,7 @@ async def _refresh_manuscript_export_artifacts(
 
     md_text = manuscript_path.read_text(encoding="utf-8")
     citekeys = {c[1] for c in normalized_citations}
+    citekey_aliases = _build_citekey_alias_map(normalized_citations)
     num_map = _build_number_to_citekey(md_text, normalized_citations)
     if not strict_export:
         num_map = await llm_resolve_unmatched_citations(
@@ -5681,6 +5792,7 @@ async def _refresh_manuscript_export_artifacts(
         citekeys=citekeys,
         figure_paths=figure_paths,
         num_to_citekey=num_map,
+        citekey_aliases=citekey_aliases,
         author_name=author_name,
     )
     has_md_figures = bool(re.search(r"!\[[^\]]*\]\([^)]+\)", md_text))

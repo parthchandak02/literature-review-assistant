@@ -52,6 +52,30 @@ def _phases_from(from_phase: str) -> list[str]:
         return []
 
 
+def _extract_screening_kappa_from_phase_done_payloads(
+    payloads: list[dict[str, object]],
+) -> tuple[float | None, str | None, int]:
+    """Return the first usable screening kappa from provided phase_done payloads."""
+    for payload in payloads:
+        summary = payload.get("summary", {})
+        if not isinstance(summary, dict):
+            continue
+        raw_kappa = summary.get("kappa")
+        if raw_kappa is None:
+            continue
+        try:
+            kappa_value = float(raw_kappa)
+        except (TypeError, ValueError):
+            continue
+        raw_n = summary.get("sample_size", 0) or summary.get("kappa_n", 0) or 0
+        try:
+            kappa_n = int(raw_n)
+        except (TypeError, ValueError):
+            kappa_n = 0
+        return kappa_value, "title_abstract", kappa_n
+    return None, None, 0
+
+
 async def load_resume_state(
     db_path: str,
     workflow_id: str,
@@ -113,33 +137,38 @@ async def load_resume_state(
         if "phase_4_extraction_quality" in checkpoints:
             extraction_records_list = await repo.load_extraction_records(workflow_id)
 
-        # Restore Cohen's kappa from the screening_calibration phase_done event.
-        # kappa is computed during screening but not persisted to the workflows
-        # table, so on resume state.cohens_kappa is None and the grounding block
-        # incorrectly says kappa was not computed.
-        _calib_event = await repo.get_last_event_of_type(workflow_id, "phase_done")
-        # get_last_event_of_type returns the most recent phase_done; we need
-        # specifically the screening_calibration one, so query directly.
+        # Restore Cohen's kappa from phase_done events.
+        # Kappa is computed during screening but not persisted to the workflows
+        # table, so resume must recover it from event_log. Prefer the dedicated
+        # screening_calibration event when present, then fall back to the normal
+        # phase_3_screening summary used by non-calibrated runs.
         try:
             import json as _json
 
-            _calib_cur = await db.execute(
-                """
-                SELECT payload FROM event_log
-                WHERE workflow_id = ? AND event_type = 'phase_done'
-                  AND json_extract(payload, '$.phase') = 'screening_calibration'
-                ORDER BY ts DESC LIMIT 1
-                """,
-                (workflow_id,),
-            )
-            _calib_row = await _calib_cur.fetchone()
-            if _calib_row:
-                _calib_payload = _json.loads(_calib_row[0]) if isinstance(_calib_row[0], str) else _calib_row[0]
-                _summary = (_calib_payload or {}).get("summary", {}) or {}
-                if _summary.get("kappa") is not None:
-                    cohens_kappa_restored = float(_summary["kappa"])
-                    kappa_stage_restored = "title_abstract"
-                    kappa_n_restored = int(_summary.get("sample_size", 0))
+            _phase_payloads: list[dict[str, object]] = []
+            for _phase_name in ("screening_calibration", "phase_3_screening"):
+                _phase_cur = await db.execute(
+                    """
+                    SELECT payload FROM event_log
+                    WHERE workflow_id = ? AND event_type = 'phase_done'
+                      AND json_extract(payload, '$.phase') = ?
+                    ORDER BY ts DESC LIMIT 1
+                    """,
+                    (workflow_id, _phase_name),
+                )
+                _phase_row = await _phase_cur.fetchone()
+                if not _phase_row:
+                    continue
+                _phase_payload = (
+                    _json.loads(_phase_row[0]) if isinstance(_phase_row[0], str) else _phase_row[0]
+                )
+                if isinstance(_phase_payload, dict):
+                    _phase_payloads.append(_phase_payload)
+            (
+                cohens_kappa_restored,
+                kappa_stage_restored,
+                kappa_n_restored,
+            ) = _extract_screening_kappa_from_phase_done_payloads(_phase_payloads)
         except Exception as _kappa_exc:
             logger.warning("Could not restore kappa from event_log on resume: %s", _kappa_exc)
 
