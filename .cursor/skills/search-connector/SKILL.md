@@ -28,9 +28,10 @@ class SearchConnector(Protocol):
 ```
 
 ## Reference Implementations
-- `src/search/openalex.py`, `pubmed.py`, `arxiv.py`, `ieee_xplore.py`, `scopus.py`, `web_of_science.py`
-- `src/search/semantic_scholar.py`, `crossref.py`, `perplexity_search.py` (auxiliary)
-- `src/orchestration/workflow.py` -- connector construction/factory-style wiring in single-path run
+- Core databases: `src/search/openalex.py`, `pubmed.py`, `arxiv.py`, `ieee_xplore.py`, `scopus.py`, `web_of_science.py`, `embase.py`
+- Auxiliary / other-source discovery: `src/search/semantic_scholar.py`, `crossref.py`, `perplexity_search.py`, `clinicaltrials.py`
+- Import and expansion helpers: `src/search/csv_import.py`, `citation_chasing.py`
+- Workflow wiring: `src/orchestration/workflow.py`
 
 ## Testing
 - Mock API responses for unit tests

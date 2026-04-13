@@ -56,6 +56,8 @@ Known contract codes the pipeline already checks (non-exhaustive; source of trut
 - `HEADING_PARITY_MISMATCH` -- md/tex heading divergence
 - `DUPLICATE_H2_SECTION` -- repeated H2 headings (e.g., two Declarations blocks)
 - `AI_LEAKAGE` -- AI/chat/code artifacts in manuscript body
+- `DOMAIN_TERM_FIDELITY_WEAK` -- manuscript drifts to broader or adjacent terminology
+- `DOMAIN_SCOPE_DRIFT` -- manuscript scope drifts beyond the configured review question
 - `ABSTRACT_OVER_LIMIT` -- abstract exceeds 250 words
 - `GRADE_UNGROUNDED` -- GRADE mentioned but no DB rows
 - `SECTION_CONTENT_INCOMPLETE` -- required Results/Discussion section content is hollow or truncated
@@ -85,15 +87,15 @@ Also read and record:
 Record which violations are already flagged. Do NOT re-report them as new findings. Instead, note them in a "Pipeline Contracts Status" section, treat failed contracts as readiness risk, and focus additional findings on gaps that contracts do NOT cover.
 
 When available, also cross-check runtime audit persistence:
-- `manuscript_audit_runs` (includes contract snapshot columns: `contract_mode`, `contract_passed`, `contract_violation_count`, `contract_violations_json`, `gate_blocked`, `gate_failure_reasons_json`)
+- `manuscript_audit_runs` (includes contract snapshot columns: `contract_mode`, `contract_passed`, `contract_violation_count`, `contract_violations_json`, `gate_blocked`, `gate_mode`, `gate_action`, `gate_failure_reasons_json`, `top_recommendations_json`)
 - `manuscript_audit_findings`
 
 You may read these directly from `runtime.db` or via API:
 - `GET /api/workflow/{workflow_id}/manuscript-audit/summary`
 - `GET /api/workflow/{workflow_id}/manuscript-audit/findings`
 - `GET /api/run/{run_id}/manuscript-audit`
-- `GET /api/run/{run_id}/diagnostics` (step journal, failures, running steps, fallback events, writing manifests)
-- `GET /api/run/{run_id}/readiness` (readiness scorecard: finalize, PRISMA, contracts, citation lineage, fallback events)
+- `GET /api/run/{run_id}/diagnostics` (step journal, failures, running steps, fallback events, writing manifests, `audit_summary`)
+- `GET /api/run/{run_id}/readiness` (readiness scorecard: finalize, PRISMA, contracts, citation lineage, fallback events, `audit_summary`)
 
 Use this as supplemental evidence alignment with `phase_7_audit`; keep
 artifact-based contract reading (`run_summary.json`) as primary. Treat

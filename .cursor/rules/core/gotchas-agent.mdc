@@ -49,6 +49,13 @@ will resolve after restart.
 recovery policy data, and writing manifests.
 Do not assume diagnostics embeds the readiness scorecard.
 
+## Readiness And Diagnostics Both Expose `audit_summary`
+The readiness scorecard and diagnostics payload are still separate surfaces, but both now
+include a top-level `audit_summary` helper object from `_format_manuscript_audit_summary()`
+in `src/web/app.py`. This summary is what the streamlined Results and Quality audit cards use.
+Do not duplicate summary-shaping logic in the frontend -- treat the backend helper payload as
+the source of truth for verdict, gate mode, gate action, counts, and top recommendations.
+
 ## History Sidebar Uses Manual Buckets
 The sidebar uses manual buckets for non-running workflows rather than hard delete. Backend endpoints are:
 - `POST /api/history/{workflow_id}/archive`
@@ -642,6 +649,20 @@ Older runtime DBs may not include `manuscript_audit_runs` /
 `manuscript_audit_findings`. In `src/web/app.py`, manuscript-audit endpoints now
 return empty payloads instead of HTTP 500 when those tables are missing.
 If audit cards are empty on historical runs, validate schema vintage first.
+
+## Audit Verdict Mode And Workflow Outcome Mode Are Separate
+`gates.manuscript_audit_mode` controls how the audit run itself is scored (`observe`, `soft`,
+`strict`). `gates.audit_gate_mode` separately controls whether blocking audit findings are
+advisory (`advisory`) or terminal (`strict`) for the workflow status. In the default advisory
+mode, a run can finish `completed` while the persisted audit summary still reports blocking
+findings and remediation recommendations. Do not collapse these two settings into one concept
+in docs, UI text, or workflow logic.
+
+## Readiness Endpoint Degrades Instead Of Returning Raw 500 On Compute Failure
+`GET /api/run/{run_id}/readiness` catches failures from `compute_readiness_scorecard()` and
+returns a degraded but structured payload instead of propagating a raw HTTP 500. The payload
+still includes `audit_summary` when available. If the readiness card shows a degraded state,
+debug the underlying readiness computation rather than treating the endpoint contract as broken.
 
 ## Current Default LLM RPMs
 Current `config/settings.yaml` defaults are:
