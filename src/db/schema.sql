@@ -279,7 +279,10 @@ CREATE TABLE IF NOT EXISTS manuscript_audit_runs (
     contract_violation_count INTEGER NOT NULL DEFAULT 0,
     contract_violations_json TEXT NOT NULL DEFAULT '[]',
     gate_blocked INTEGER NOT NULL DEFAULT 0,
+    gate_mode TEXT NOT NULL DEFAULT 'strict',
+    gate_action TEXT NOT NULL DEFAULT 'strict_block',
     gate_failure_reasons_json TEXT NOT NULL DEFAULT '[]',
+    top_recommendations_json TEXT NOT NULL DEFAULT '[]',
     total_cost_usd REAL NOT NULL DEFAULT 0,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );

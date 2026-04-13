@@ -21,6 +21,7 @@ import io
 import json
 import zipfile
 from pathlib import Path
+from unittest.mock import AsyncMock
 
 import aiosqlite
 import httpx
@@ -2067,8 +2068,9 @@ async def test_workflow_manuscript_audit_endpoints_return_expected_shapes(
                 audit_run_id, workflow_id, mode, verdict, passed, selected_profiles_json, summary,
                 total_findings, major_count, minor_count, note_count, blocking_count,
                 contract_mode, contract_passed, contract_violation_count, contract_violations_json,
-                gate_blocked, gate_failure_reasons_json, total_cost_usd
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                gate_blocked, gate_mode, gate_action, gate_failure_reasons_json,
+                top_recommendations_json, total_cost_usd
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 "audit-001",
@@ -2105,7 +2107,10 @@ async def test_workflow_manuscript_audit_endpoints_return_expected_shapes(
                     ]
                 ),
                 1,
+                "advisory",
+                "advisory_only",
                 json.dumps(["contract gate failed in mode=strict with 1 violation(s)"]),
+                json.dumps(["Align counts across markdown and LaTeX outputs"]),
                 0.031,
             ),
         )
@@ -2146,6 +2151,12 @@ async def test_workflow_manuscript_audit_endpoints_return_expected_shapes(
     assert summary_payload["history"][0]["selected_profiles"] == ["general_systematic_review"]
     assert summary_payload["history"][0]["contract_passed"] is False
     assert summary_payload["history"][0]["gate_blocked"] is True
+    assert summary_payload["history"][0]["gate_mode"] == "advisory"
+    assert summary_payload["history"][0]["gate_action"] == "advisory_only"
+    assert summary_payload["audit_summary"]["status_label"] == "completed_with_findings"
+    assert summary_payload["audit_summary"]["top_recommendations"] == [
+        "Align counts across markdown and LaTeX outputs"
+    ]
 
     findings_resp = await client.get(f"/api/workflow/{workflow_id}/manuscript-audit/findings")
     assert findings_resp.status_code == 200
@@ -2262,8 +2273,9 @@ async def test_run_manuscript_audit_endpoint_exposes_gate_metadata(
                 audit_run_id, workflow_id, mode, verdict, passed, selected_profiles_json, summary,
                 total_findings, major_count, minor_count, note_count, blocking_count,
                 contract_mode, contract_passed, contract_violation_count, contract_violations_json,
-                gate_blocked, gate_failure_reasons_json, total_cost_usd
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                gate_blocked, gate_mode, gate_action, gate_failure_reasons_json,
+                top_recommendations_json, total_cost_usd
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 "audit-gated-001",
@@ -2293,12 +2305,15 @@ async def test_run_manuscript_audit_endpoint_exposes_gate_metadata(
                     ]
                 ),
                 1,
+                "strict",
+                "strict_block",
                 json.dumps(
                     [
                         "contract gate failed in mode=strict with 2 violation(s)",
                         "audit gate failed in mode=strict (verdict=reject, blocking=1)",
                     ]
                 ),
+                json.dumps(["Remove placeholder and regenerate methods section"]),
                 0.07,
             ),
         )
@@ -2339,6 +2354,8 @@ async def test_run_manuscript_audit_endpoint_exposes_gate_metadata(
         assert payload["latest_run"]["contract_violation_count"] == 2
         assert payload["latest_run"]["gate_blocked"] is True
         assert len(payload["latest_run"]["gate_failure_reasons"]) == 2
+        assert payload["latest_run"]["gate_action"] == "strict_block"
+        assert payload["audit_summary"]["status_label"] == "blocked"
         assert payload["findings"][0]["blocking"] is True
     finally:
         _active_runs.pop(run_id, None)
@@ -2366,8 +2383,9 @@ async def test_run_manuscript_audit_endpoint_exposes_passed_gate_metadata(
                 audit_run_id, workflow_id, mode, verdict, passed, selected_profiles_json, summary,
                 total_findings, major_count, minor_count, note_count, blocking_count,
                 contract_mode, contract_passed, contract_violation_count, contract_violations_json,
-                gate_blocked, gate_failure_reasons_json, total_cost_usd
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                gate_blocked, gate_mode, gate_action, gate_failure_reasons_json,
+                top_recommendations_json, total_cost_usd
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 "audit-pass-001",
@@ -2387,6 +2405,9 @@ async def test_run_manuscript_audit_endpoint_exposes_passed_gate_metadata(
                 0,
                 "[]",
                 0,
+                "advisory",
+                "pass",
+                "[]",
                 "[]",
                 0.03,
             ),
@@ -2407,6 +2428,95 @@ async def test_run_manuscript_audit_endpoint_exposes_passed_gate_metadata(
         assert payload["latest_run"]["contract_violation_count"] == 0
         assert payload["latest_run"]["gate_blocked"] is False
         assert payload["latest_run"]["gate_failure_reasons"] == []
+        assert payload["audit_summary"]["status_label"] == "passed"
+    finally:
+        _active_runs.pop(run_id, None)
+
+
+@pytest.mark.asyncio
+async def test_run_readiness_returns_degraded_payload_with_audit_summary_on_compute_failure(
+    client: httpx.AsyncClient,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    run_id = "run-readiness-degraded"
+    workflow_id = "wf-readiness-degraded"
+    run_dir = tmp_path / "2026-03-17" / "wf-readiness-degraded-topic" / "run_01-00-00PM"
+    db_path = run_dir / "runtime.db"
+    manuscript_md = run_dir / "doc_manuscript.md"
+    run_dir.mkdir(parents=True, exist_ok=True)
+    manuscript_md.write_text("## Abstract\nText\n", encoding="utf-8")
+    (run_dir / "run_summary.json").write_text(
+        json.dumps(
+            {
+                "workflow_id": workflow_id,
+                "artifacts": {"manuscript_md": str(manuscript_md)},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    async with get_db(str(db_path)) as db:
+        await db.execute(
+            "INSERT INTO workflows (workflow_id, topic, config_hash, status) VALUES (?, ?, ?, ?)",
+            (workflow_id, "Topic", "hash", "completed"),
+        )
+        await db.execute(
+            """
+            INSERT INTO manuscript_audit_runs (
+                audit_run_id, workflow_id, mode, verdict, passed, selected_profiles_json, summary,
+                total_findings, major_count, minor_count, note_count, blocking_count,
+                contract_mode, contract_passed, contract_violation_count, contract_violations_json,
+                gate_blocked, gate_mode, gate_action, gate_failure_reasons_json,
+                top_recommendations_json, total_cost_usd
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "audit-ready-001",
+                workflow_id,
+                "strict",
+                "major_revisions",
+                0,
+                json.dumps(["general_systematic_review"]),
+                "Counts drift across outputs",
+                3,
+                1,
+                2,
+                0,
+                1,
+                "strict",
+                0,
+                1,
+                "[]",
+                1,
+                "advisory",
+                "advisory_only",
+                json.dumps(["manuscript contracts failed"]),
+                json.dumps(["Unify PRISMA counts across outputs"]),
+                0.05,
+            ),
+        )
+        await db.commit()
+
+    record = _RunRecord(run_id, "Topic")
+    record.db_path = str(db_path)
+    record.workflow_id = workflow_id
+    record.done = True
+    _active_runs[run_id] = record
+    monkeypatch.setattr(
+        "src.web.app.compute_readiness_scorecard",
+        AsyncMock(side_effect=RuntimeError("boom")),
+    )
+    try:
+        response = await client.get(f"/api/run/{run_id}/readiness")
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["ready"] is False
+        assert payload["checks"][0]["name"] == "readiness_runtime"
+        assert payload["audit_summary"]["status_label"] == "completed_with_findings"
+        assert payload["audit_summary"]["top_recommendations"] == [
+            "Unify PRISMA counts across outputs"
+        ]
     finally:
         _active_runs.pop(run_id, None)
 

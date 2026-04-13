@@ -234,6 +234,7 @@ class AgentConfig(BaseModel):
 
 
 GateMode = Literal["observe", "soft", "strict"]
+AuditGateMode = Literal["advisory", "strict"]
 
 
 class ScreeningConfig(BaseModel):
@@ -581,6 +582,14 @@ class GatesConfig(BaseModel):
         description=(
             "Phase-7 manuscript audit gate mode: "
             "observe (never blocks), soft (blocks reject), strict (blocks any fail)."
+        ),
+    )
+    audit_gate_mode: AuditGateMode = Field(
+        default="advisory",
+        description=(
+            "Workflow outcome behavior when the manuscript audit reports blocking findings: "
+            "advisory completes the workflow and preserves the audit report, "
+            "strict fails the workflow at phase_7_audit."
         ),
     )
 

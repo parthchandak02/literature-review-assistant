@@ -5604,6 +5604,18 @@ def _collect_manuscript_gate_failure_reasons(
     return reasons
 
 
+def _resolve_manuscript_gate_action(audit_gate_mode: str, gate_blocked: bool) -> str:
+    if not gate_blocked:
+        return "pass"
+    if audit_gate_mode == "advisory":
+        return "advisory_only"
+    return "strict_block"
+
+
+def _manuscript_gate_blocks_workflow(audit_gate_mode: str, gate_blocked: bool) -> bool:
+    return gate_blocked and audit_gate_mode == "strict"
+
+
 async def _refresh_manuscript_export_artifacts(
     state: ReviewState,
     *,
@@ -5749,6 +5761,7 @@ class ManuscriptAuditNode(BaseNode[ReviewState]):
             return FinalizeNode()
 
         mode = str(getattr(state.settings.gates, "manuscript_audit_mode", "strict"))
+        audit_gate_mode = str(getattr(state.settings.gates, "audit_gate_mode", "advisory"))
         contract_mode = str(getattr(state.settings.gates, "manuscript_contract_mode", "strict"))
         blocked_checkpoint_status = "partial"
         blocked_papers_processed = 0
@@ -5796,15 +5809,18 @@ class ManuscriptAuditNode(BaseNode[ReviewState]):
                 )
                 gate_failure_reasons = _collect_manuscript_gate_failure_reasons(contract_result, audit_result)
                 gate_blocked = len(gate_failure_reasons) > 0
+                gate_action = _resolve_manuscript_gate_action(audit_gate_mode, gate_blocked)
                 await repository.save_manuscript_audit(
                     audit_result,
                     findings,
                     contract_result=contract_result,
                     gate_blocked=gate_blocked,
+                    gate_mode=audit_gate_mode,
+                    gate_action=gate_action,
                     gate_failure_reasons=gate_failure_reasons,
                 )
 
-                if gate_blocked:
+                if _manuscript_gate_blocks_workflow(audit_gate_mode, gate_blocked):
                     blocked_checkpoint_status = "blocked"
                     blocked_papers_processed = len(findings)
                     filtered_artifacts = {
@@ -5823,6 +5839,8 @@ class ManuscriptAuditNode(BaseNode[ReviewState]):
                         "manuscript_audit": {
                             **audit_result.model_dump(mode="json"),
                             "gate_blocked": True,
+                            "gate_mode": audit_gate_mode,
+                            "gate_action": gate_action,
                             "gate_failure_reasons": gate_failure_reasons,
                         },
                     }
@@ -5846,9 +5864,11 @@ class ManuscriptAuditNode(BaseNode[ReviewState]):
                                 "profiles": list(audit_result.selected_profiles),
                                 "cost_usd": audit_result.total_cost_usd,
                                 "mode": mode,
+                                "gate_mode": audit_gate_mode,
                                 "contract_mode": contract_mode,
                                 "contract_passed": contract_result.passed,
                                 "gate_blocked": True,
+                                "gate_action": gate_action,
                                 "gate_failure_reasons": gate_failure_reasons,
                             },
                         )
@@ -5871,6 +5891,10 @@ class ManuscriptAuditNode(BaseNode[ReviewState]):
                             "profiles": list(audit_result.selected_profiles),
                             "cost_usd": audit_result.total_cost_usd,
                             "mode": mode,
+                            "gate_mode": audit_gate_mode,
+                            "gate_blocked": gate_blocked,
+                            "gate_action": gate_action,
+                            "gate_failure_reasons": gate_failure_reasons,
                         },
                     )
             return FinalizeNode()

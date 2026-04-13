@@ -731,8 +731,10 @@ export interface ReadinessScorecard {
   ready: boolean
   checks: ReadinessCheckRow[]
   contract_passed: boolean
+  citation_lineage_valid?: boolean
   fallback_event_count: number
   blocking_reasons: string[]
+  audit_summary?: AuditSummary | null
 }
 
 export async function fetchRunReadiness(
@@ -777,9 +779,11 @@ export interface RunDiagnosticsPayload {
   workflow_id: string
   step_summary: Record<string, Record<string, number>>
   step_failures: number
+  running_steps?: number
   fallback_count: number
   fallback_summary: RunDiagnosticsSummaryRow[]
   writing_manifests: WritingManifestDiagnosticsRow[]
+  audit_summary?: AuditSummary | null
 }
 
 export async function fetchRunDiagnostics(
@@ -1351,9 +1355,29 @@ export interface ManuscriptAuditRun {
   contract_violation_count: number
   contract_violations: ManuscriptContractViolation[]
   gate_blocked: boolean
+  gate_mode?: string
+  gate_action?: string
   gate_failure_reasons: string[]
+  top_recommendations?: string[]
   total_cost_usd: number
   created_at: string
+  last_audited_at?: string
+}
+
+export interface AuditSummary {
+  audit_run_id: string | null
+  verdict: "accept" | "minor_revisions" | "major_revisions" | "reject" | string
+  passed: boolean
+  gate_blocked: boolean
+  gate_mode: string
+  gate_action: string
+  status_label: string
+  blocking_count: number
+  total_findings: number
+  summary: string
+  top_recommendations: string[]
+  gate_failure_reasons: string[]
+  last_audited_at: string | null
 }
 
 export interface ManuscriptAuditPayload {
@@ -1362,6 +1386,7 @@ export interface ManuscriptAuditPayload {
   latest_run: ManuscriptAuditRun | null
   history: ManuscriptAuditRun[]
   findings: ManuscriptAuditFinding[]
+  audit_summary?: AuditSummary | null
 }
 
 export async function fetchManuscriptAudit(runId: string): Promise<ManuscriptAuditPayload> {
@@ -1374,6 +1399,7 @@ export interface WorkflowManuscriptAuditSummary {
   workflow_id: string
   latest_run: ManuscriptAuditRun | null
   history: ManuscriptAuditRun[]
+  audit_summary?: AuditSummary | null
 }
 
 export interface WorkflowManuscriptAuditFindings {

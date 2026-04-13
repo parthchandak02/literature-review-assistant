@@ -1,6 +1,29 @@
+from __future__ import annotations
+
 from src.manuscript.contracts import ContractViolation, ManuscriptContractResult
+from src.models.config import GatesConfig
 from src.models.manuscript_review import ManuscriptAuditResult
-from src.orchestration.workflow import _collect_manuscript_gate_failure_reasons
+from src.orchestration.workflow import (
+    _collect_manuscript_gate_failure_reasons,
+    _manuscript_gate_blocks_workflow,
+    _resolve_manuscript_gate_action,
+)
+
+
+def test_gates_config_defaults_to_advisory_audit_gate_mode() -> None:
+    config = GatesConfig()
+    assert config.audit_gate_mode == "advisory"
+
+
+def test_advisory_audit_gate_preserves_workflow_completion() -> None:
+    assert _resolve_manuscript_gate_action("advisory", gate_blocked=True) == "advisory_only"
+    assert _manuscript_gate_blocks_workflow("advisory", gate_blocked=True) is False
+
+
+def test_strict_audit_gate_blocks_workflow() -> None:
+    assert _resolve_manuscript_gate_action("strict", gate_blocked=True) == "strict_block"
+    assert _manuscript_gate_blocks_workflow("strict", gate_blocked=True) is True
+    assert _resolve_manuscript_gate_action("strict", gate_blocked=False) == "pass"
 
 
 def test_collect_manuscript_gate_failure_reasons_includes_contract_and_audit_failures() -> None:
