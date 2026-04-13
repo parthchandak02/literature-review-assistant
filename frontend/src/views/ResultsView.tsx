@@ -21,6 +21,7 @@ import { EvidenceNetworkViz } from "@/components/EvidenceNetworkViz"
 import {
   APIResponseError,
   fetchGradeSof,
+  fetchManuscriptAudit,
   fetchRunReadiness,
   prosperoFormDocxUrl,
   prosperoFormMarkdownUrl,
@@ -32,7 +33,7 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { FetchError, EmptyState } from "@/components/ui/feedback"
 import { CollapsibleSection } from "@/components/ui/section"
 import { cn } from "@/lib/utils"
-import type { GradeSofResponse } from "@/lib/api"
+import type { AuditSummary, GradeSofResponse } from "@/lib/api"
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -47,6 +48,18 @@ function isFilePath(val: unknown): val is string {
     t.startsWith("./") ||
     t.startsWith("/")
   )
+}
+
+function hasSubmissionArtifacts(obj: unknown): boolean {
+  if (typeof obj === "string" && isFilePath(obj)) {
+    return /\/submission\//.test(obj)
+  }
+  if (obj && typeof obj === "object" && !Array.isArray(obj)) {
+    for (const value of Object.values(obj as Record<string, unknown>)) {
+      if (hasSubmissionArtifacts(value)) return true
+    }
+  }
+  return false
 }
 
 function findFileByName(outputs: Record<string, unknown>, namePart: string): string | null {
@@ -128,6 +141,66 @@ function formatExportError(error: unknown): string {
   }
   if (error instanceof Error) return error.message
   return "Export failed"
+}
+
+function ResultsAuditSummary({ runId }: { runId: string }) {
+  const [summary, setSummary] = useState<AuditSummary | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    void (async () => {
+      try {
+        const payload = await fetchManuscriptAudit(runId)
+        if (!cancelled) setSummary(payload.audit_summary ?? null)
+      } catch {
+        if (!cancelled) setSummary(null)
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [runId])
+
+  if (!summary) return null
+
+  const advisory = summary.status_label === "completed_with_findings"
+  const toneClass = summary.status_label === "passed"
+    ? "border-emerald-500/30 bg-emerald-500/8 text-emerald-100"
+    : summary.status_label === "blocked"
+      ? "border-red-500/30 bg-red-500/8 text-red-100"
+      : "border-amber-500/30 bg-amber-500/8 text-amber-100"
+
+  return (
+    <div className={cn("rounded-xl border px-4 py-4", toneClass)}>
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <div className="text-sm font-semibold">
+            {advisory
+              ? "Final audit completed with advisory findings"
+              : summary.status_label === "passed"
+                ? "Final audit passed"
+                : "Final audit needs review"}
+          </div>
+          <div className="mt-1 text-xs opacity-80">
+            Verdict={summary.verdict} | findings={summary.total_findings} | blocking={summary.blocking_count}
+          </div>
+        </div>
+        <span className="rounded border border-current/20 px-2 py-1 text-[10px] font-mono uppercase tracking-wide">
+          {summary.status_label}
+        </span>
+      </div>
+      {summary.summary ? <div className="mt-3 text-sm text-zinc-200">{summary.summary}</div> : null}
+      {summary.top_recommendations.length > 0 && (
+        <div className="mt-3 grid gap-2">
+          {summary.top_recommendations.slice(0, 3).map((recommendation) => (
+            <div key={recommendation} className="text-xs text-zinc-300/90">
+              {recommendation}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
 }
 
 // ---------------------------------------------------------------------------
@@ -585,18 +658,6 @@ export function ResultsView({
   const [submissionReady, setSubmissionReady] = useState(false)
   const [readinessReady, setReadinessReady] = useState(false)
 
-  const hasSubmissionArtifacts = useCallback((obj: unknown): boolean => {
-    if (typeof obj === "string" && isFilePath(obj)) {
-      return /\/submission\//.test(obj)
-    }
-    if (obj && typeof obj === "object" && !Array.isArray(obj)) {
-      for (const value of Object.values(obj as Record<string, unknown>)) {
-        if (hasSubmissionArtifacts(value)) return true
-      }
-    }
-    return false
-  }, [])
-
   const manuscriptPath = useMemo(
     () => findFileByName(effectiveOutputs, "doc_manuscript"),
     [effectiveOutputs],
@@ -624,7 +685,7 @@ export function ResultsView({
 
   useEffect(() => {
     setSubmissionReady(hasSubmissionArtifacts(effectiveOutputs))
-  }, [effectiveOutputs, hasSubmissionArtifacts])
+  }, [effectiveOutputs])
 
   useEffect(() => {
     if (!exportRunId) {
@@ -647,7 +708,6 @@ export function ResultsView({
 
   useEffect(() => {
     if (submissionFocusTarget && !artifactsOpen) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional one-way sync from navigation focus token
       setArtifactsOpen(true)
     }
   }, [submissionFocusTarget, submissionFocusToken, artifactsOpen])
@@ -675,6 +735,7 @@ export function ResultsView({
 
   return (
     <div className="flex flex-col gap-3 min-h-[520px]">
+      {exportRunId ? <ResultsAuditSummary runId={exportRunId} /> : null}
       {manuscriptPath && (
         <CollapsibleSection
           icon={FileText}

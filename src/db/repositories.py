@@ -1362,11 +1362,15 @@ class WorkflowRepository:
         findings: list[ManuscriptAuditFinding],
         contract_result: ManuscriptContractResult | None = None,
         gate_blocked: bool = False,
+        gate_mode: str = "strict",
+        gate_action: str = "strict_block",
         gate_failure_reasons: list[str] | None = None,
     ) -> None:
         contract_payload = contract_result
         failure_reasons = gate_failure_reasons or []
+        await self._ensure_manuscript_audit_columns()
         run_columns = await self._table_columns("manuscript_audit_runs")
+        top_recommendations = self._select_top_audit_recommendations(findings)
         insert_columns = [
             "audit_run_id",
             "workflow_id",
@@ -1415,9 +1419,18 @@ class WorkflowRepository:
         if "gate_blocked" in run_columns:
             insert_columns.append("gate_blocked")
             insert_values.append(1 if gate_blocked else 0)
+        if "gate_mode" in run_columns:
+            insert_columns.append("gate_mode")
+            insert_values.append(gate_mode)
+        if "gate_action" in run_columns:
+            insert_columns.append("gate_action")
+            insert_values.append(gate_action)
         if "gate_failure_reasons_json" in run_columns:
             insert_columns.append("gate_failure_reasons_json")
             insert_values.append(json.dumps(failure_reasons, ensure_ascii=True))
+        if "top_recommendations_json" in run_columns:
+            insert_columns.append("top_recommendations_json")
+            insert_values.append(json.dumps(top_recommendations, ensure_ascii=True))
         insert_columns.append("total_cost_usd")
         insert_values.append(result.total_cost_usd)
         placeholders = ", ".join("?" for _ in insert_columns)
@@ -1460,6 +1473,54 @@ class WorkflowRepository:
         except Exception:
             return set()
         return {str(row[1]) for row in rows}
+
+    async def _ensure_manuscript_audit_columns(self) -> None:
+        columns = await self._table_columns("manuscript_audit_runs")
+        alter_statements = [
+            (
+                "gate_mode",
+                "ALTER TABLE manuscript_audit_runs "
+                "ADD COLUMN gate_mode TEXT NOT NULL DEFAULT 'strict'",
+            ),
+            (
+                "gate_action",
+                "ALTER TABLE manuscript_audit_runs "
+                "ADD COLUMN gate_action TEXT NOT NULL DEFAULT 'strict_block'",
+            ),
+            (
+                "top_recommendations_json",
+                "ALTER TABLE manuscript_audit_runs "
+                "ADD COLUMN top_recommendations_json TEXT NOT NULL DEFAULT '[]'",
+            ),
+        ]
+        changed = False
+        for column_name, statement in alter_statements:
+            if column_name in columns:
+                continue
+            try:
+                await self.db.execute(statement)
+                changed = True
+            except Exception:
+                continue
+        if changed:
+            await self.db.commit()
+
+    @staticmethod
+    def _select_top_audit_recommendations(
+        findings: list[ManuscriptAuditFinding],
+        limit: int = 3,
+    ) -> list[str]:
+        recommendations: list[str] = []
+        seen: set[str] = set()
+        for finding in findings:
+            recommendation = str(finding.recommendation or "").strip()
+            if not recommendation or recommendation in seen:
+                continue
+            seen.add(recommendation)
+            recommendations.append(recommendation)
+            if len(recommendations) >= limit:
+                break
+        return recommendations
 
     @staticmethod
     def _decode_json_list(raw: object) -> list[object]:
@@ -1533,7 +1594,13 @@ class WorkflowRepository:
             idx += 1
             payload["gate_blocked"] = bool(row[idx])
             idx += 1
+            payload["gate_mode"] = str(row[idx] or "strict")
+            idx += 1
+            payload["gate_action"] = str(row[idx] or "strict_block")
+            idx += 1
             payload["gate_failure_reasons"] = self._decode_json_list(row[idx])
+            idx += 1
+            payload["top_recommendations"] = self._decode_json_list(row[idx])
             idx += 1
         else:
             payload["contract_mode"] = "observe"
@@ -1541,7 +1608,11 @@ class WorkflowRepository:
             payload["contract_violation_count"] = 0
             payload["contract_violations"] = []
             payload["gate_blocked"] = False
+            payload["gate_mode"] = "strict"
+            payload["gate_action"] = "strict_block"
             payload["gate_failure_reasons"] = []
+            payload["top_recommendations"] = []
+        payload["last_audited_at"] = payload["created_at"]
         return payload
 
     async def _manuscript_audit_optional_select_columns(self) -> str:
@@ -1552,7 +1623,10 @@ class WorkflowRepository:
             "contract_violation_count",
             "contract_violations_json",
             "gate_blocked",
+            "gate_mode",
+            "gate_action",
             "gate_failure_reasons_json",
+            "top_recommendations_json",
         ]
         available = [name for name in wanted if name in cols]
         if not available:

@@ -3346,6 +3346,37 @@ async def get_workflow_validation_checks(workflow_id: str, validation_run_id: st
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
+def _format_manuscript_audit_summary(latest_run: dict[str, Any] | None) -> dict[str, Any] | None:
+    if latest_run is None:
+        return None
+    gate_action = str(latest_run.get("gate_action") or "strict_block")
+    gate_blocked = bool(latest_run.get("gate_blocked"))
+    passed = bool(latest_run.get("passed"))
+    if gate_blocked and gate_action == "advisory_only":
+        status_label = "completed_with_findings"
+    elif gate_blocked:
+        status_label = "blocked"
+    elif passed:
+        status_label = "passed"
+    else:
+        status_label = "completed_with_findings"
+    return {
+        "audit_run_id": latest_run.get("audit_run_id"),
+        "verdict": latest_run.get("verdict"),
+        "passed": passed,
+        "gate_blocked": gate_blocked,
+        "gate_mode": latest_run.get("gate_mode", "strict"),
+        "gate_action": gate_action,
+        "status_label": status_label,
+        "blocking_count": int(latest_run.get("blocking_count") or 0),
+        "total_findings": int(latest_run.get("total_findings") or 0),
+        "summary": str(latest_run.get("summary") or ""),
+        "top_recommendations": list(latest_run.get("top_recommendations") or []),
+        "gate_failure_reasons": list(latest_run.get("gate_failure_reasons") or []),
+        "last_audited_at": latest_run.get("last_audited_at") or latest_run.get("created_at"),
+    }
+
+
 @app.get("/api/workflow/{workflow_id}/manuscript-audit/summary")
 async def get_workflow_manuscript_audit_summary(workflow_id: str, limit: int = 20) -> dict[str, Any]:
     """Return latest and historical phase_7_audit summaries for a workflow."""
@@ -3357,7 +3388,12 @@ async def get_workflow_manuscript_audit_summary(workflow_id: str, limit: int = 2
             repo = _WorkflowRepository(db)
             latest = await repo.get_latest_manuscript_audit(workflow_id)
             history = await repo.get_manuscript_audit_history(workflow_id, limit=max(1, min(limit, 100)))
-            return {"workflow_id": workflow_id, "latest_run": latest, "history": history}
+            return {
+                "workflow_id": workflow_id,
+                "latest_run": latest,
+                "history": history,
+                "audit_summary": _format_manuscript_audit_summary(latest),
+            }
     except HTTPException:
         raise
     except Exception as exc:
@@ -3436,6 +3472,7 @@ async def get_run_manuscript_audit(run_id: str, history_limit: int = 20) -> dict
                 "latest_run": latest,
                 "history": history,
                 "findings": findings,
+                "audit_summary": _format_manuscript_audit_summary(latest),
             }
     except HTTPException:
         raise
@@ -3450,6 +3487,7 @@ async def get_run_manuscript_audit(run_id: str, history_limit: int = 20) -> dict
                 "latest_run": None,
                 "history": [],
                 "findings": [],
+                "audit_summary": None,
             }
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
@@ -4166,22 +4204,50 @@ async def get_run_readiness(run_id: str, run_root: str = "runs") -> dict[str, An
     manuscript_tex = summary.get("artifacts", {}).get("manuscript_tex")
     cfg = _load_configs()[1]
     mode = getattr(getattr(cfg, "gates", None), "manuscript_contract_mode", "strict")
+    latest_audit: dict[str, Any] | None = None
+    try:
+        from src.db.database import get_db as _get_db
+        from src.db.repositories import WorkflowRepository as _WorkflowRepository
+
+        async with _get_db(db_path) as db:
+            latest_audit = await _WorkflowRepository(db).get_latest_manuscript_audit(str(workflow_id))
+    except Exception:
+        latest_audit = None
     extra_paths: list[str] = []
     for _k in ("protocol", "prospero_form_md"):
         _p = summary.get("artifacts", {}).get(_k)
         if _p and pathlib.Path(str(_p)).is_file():
             extra_paths.append(str(_p))
     tex_resolved = str(manuscript_tex) if manuscript_tex and pathlib.Path(str(manuscript_tex)).is_file() else None
-    scorecard = await compute_readiness_scorecard(
-        db_path=db_path,
-        workflow_id=str(workflow_id),
-        manuscript_md_path=str(manuscript_md),
-        manuscript_tex_path=tex_resolved,
-        extra_artifact_paths=extra_paths,
-        contract_mode=mode,
-        abstract_word_limit=cfg.ieee_export.max_abstract_words,
-    )
-    return scorecard.model_dump()
+    try:
+        scorecard = await compute_readiness_scorecard(
+            db_path=db_path,
+            workflow_id=str(workflow_id),
+            manuscript_md_path=str(manuscript_md),
+            manuscript_tex_path=tex_resolved,
+            extra_artifact_paths=extra_paths,
+            contract_mode=mode,
+            abstract_word_limit=cfg.ieee_export.max_abstract_words,
+        )
+        payload = scorecard.model_dump()
+    except Exception as exc:
+        payload = {
+            "workflow_id": str(workflow_id),
+            "ready": False,
+            "checks": [
+                {
+                    "name": "readiness_runtime",
+                    "ok": False,
+                    "detail": str(exc),
+                }
+            ],
+            "contract_passed": False,
+            "citation_lineage_valid": False,
+            "fallback_event_count": 0,
+            "blocking_reasons": [f"readiness computation failed: {exc}"],
+        }
+    payload["audit_summary"] = _format_manuscript_audit_summary(latest_audit)
+    return payload
 
 
 @app.get("/api/run/{run_id}/diagnostics")
@@ -4216,6 +4282,7 @@ async def get_run_diagnostics(run_id: str, run_root: str = "runs") -> dict[str, 
         fallback_count = await repo.count_fallback_events(workflow_id)
         fallback_summary = await repo.get_fallback_event_summary(workflow_id)
         writing_manifests = await repo.get_writing_manifests(workflow_id)
+        latest_audit = await repo.get_latest_manuscript_audit(workflow_id)
     return {
         "workflow_id": workflow_id,
         "step_summary": step_summary,
@@ -4224,6 +4291,7 @@ async def get_run_diagnostics(run_id: str, run_root: str = "runs") -> dict[str, 
         "fallback_count": fallback_count,
         "fallback_summary": fallback_summary,
         "writing_manifests": [m.model_dump(mode="json") for m in writing_manifests],
+        "audit_summary": _format_manuscript_audit_summary(latest_audit),
     }
 
 

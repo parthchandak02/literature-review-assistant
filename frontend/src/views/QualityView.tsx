@@ -27,6 +27,7 @@ import type {
   RunDiagnosticsPayload,
 } from "@/lib/api"
 import {
+  describeAuditStatusChip,
   describeManuscriptContract,
   describeManuscriptGate,
   selectManuscriptAuditRun,
@@ -43,6 +44,13 @@ function PrismaStatusIcon({ status }: { status: string }) {
   if (status === "PARTIAL") return <AlertTriangle className="h-3.5 w-3.5 text-amber-400 shrink-0" />
   if (status === "NOT_APPLICABLE") return <BookOpen className="h-3.5 w-3.5 text-zinc-500 shrink-0" />
   return <XCircle className="h-3.5 w-3.5 text-red-400 shrink-0" />
+}
+
+function auditStatusBadgeClass(status: string): string {
+  if (status === "passed") return "text-emerald-400 border-emerald-800 bg-emerald-900/20"
+  if (status === "blocked") return "text-red-300 border-red-800 bg-red-900/20"
+  if (status === "completed_with_findings") return "text-amber-300 border-amber-800 bg-amber-900/20"
+  return "text-zinc-300 border-zinc-700 bg-zinc-900/40"
 }
 
 function ReadinessCard({ runId, workflowId }: { runId: string; workflowId?: string | null }) {
@@ -69,9 +77,9 @@ function ReadinessCard({ runId, workflowId }: { runId: string; workflowId?: stri
   return (
     <CollapsibleSection
       icon={CheckCircle}
-      title="Readiness"
+      title="Export Readiness"
       description={data ? (data.ready ? "Run is export-ready" : "Export is blocked until checks pass") : undefined}
-      defaultOpen={true}
+      defaultOpen={false}
     >
       <div className="p-4">
         {loading ? (
@@ -274,7 +282,7 @@ function PrismaCard({ runId }: { runId: string }) {
 }
 
 function ManuscriptAuditCard({ runId }: { runId: string }) {
-  const [open, setOpen] = useState(false)
+  const [open, setOpen] = useState(true)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [data, setData] = useState<ManuscriptAuditPayload | null>(null)
@@ -346,6 +354,7 @@ function ManuscriptAuditCard({ runId }: { runId: string }) {
   const latest = data?.latest_run ?? null
   const history = data?.history ?? []
   const selectedRun = selectManuscriptAuditRun(latest, history, selectedAuditRunId)
+  const auditStatus = describeAuditStatusChip(selectedRun)
 
   useEffect(() => {
     if (!open || !hasFetched.current || !data?.workflow_id || !selectedAuditRunId) return
@@ -356,7 +365,14 @@ function ManuscriptAuditCard({ runId }: { runId: string }) {
   return (
     <CollapsibleSection
       icon={AlertTriangle}
-      title="Final Guardian Audit"
+      title="Final Audit Summary"
+      description={
+        selectedRun?.gate_action === "advisory_only"
+          ? "Workflow completed, but the audit still captured blocking findings to fix next."
+          : selectedRun
+            ? "Final manuscript review and next-fix guidance."
+            : undefined
+      }
       open={open}
       onToggle={handleToggle}
       badge={
@@ -364,12 +380,10 @@ function ManuscriptAuditCard({ runId }: { runId: string }) {
           <span
             className={cn(
               "text-[10px] font-mono px-1.5 py-0.5 rounded border shrink-0",
-              selectedRun.passed && !selectedRun.gate_blocked
-                ? "text-emerald-400 border-emerald-800 bg-emerald-900/20"
-                : "text-amber-400 border-amber-800 bg-amber-900/20",
+              auditStatusBadgeClass(auditStatus),
             )}
           >
-            {selectedRun.verdict}
+            {auditStatus}
           </span>
         ) : null
       }
@@ -415,6 +429,29 @@ function ManuscriptAuditCard({ runId }: { runId: string }) {
             <div className="text-xs text-zinc-400">
               <span className="text-zinc-300 font-medium">Summary:</span> {selectedRun.summary || "No summary."}
             </div>
+            <div
+              className={cn(
+                "rounded-xl border px-3 py-3 text-sm",
+                auditStatus === "passed"
+                  ? "border-emerald-500/30 bg-emerald-500/8 text-emerald-200"
+                  : auditStatus === "blocked"
+                    ? "border-red-500/30 bg-red-500/8 text-red-100"
+                    : "border-amber-500/30 bg-amber-500/8 text-amber-100",
+              )}
+            >
+              <div className="font-medium">
+                {selectedRun.gate_action === "advisory_only"
+                  ? "Workflow completed with advisory audit findings."
+                  : selectedRun.gate_blocked
+                    ? "Audit blocked workflow completion."
+                    : selectedRun.passed
+                      ? "Audit passed."
+                      : "Audit completed with findings."}
+              </div>
+              <div className="mt-1 text-xs opacity-80">
+                Verdict={selectedRun.verdict} | gate={selectedRun.gate_mode ?? "strict"} | last audited={selectedRun.last_audited_at ?? selectedRun.created_at}
+              </div>
+            </div>
             <div className="flex items-center gap-3 text-xs flex-wrap p-3 rounded-lg glass-panel">
               <span className="text-zinc-300">Findings: {selectedRun.total_findings}</span>
               <span className="text-red-400">Major: {selectedRun.major_count}</span>
@@ -422,6 +459,18 @@ function ManuscriptAuditCard({ runId }: { runId: string }) {
               <span className="text-zinc-400">Notes: {selectedRun.note_count}</span>
               <span className="text-violet-400">Blocking: {selectedRun.blocking_count}</span>
             </div>
+            {selectedRun.top_recommendations && selectedRun.top_recommendations.length > 0 && (
+              <div className="rounded-lg border border-zinc-800 bg-zinc-950/60 px-3 py-3">
+                <div className="text-xs font-semibold text-zinc-200">Top next fixes</div>
+                <div className="mt-2 space-y-2">
+                  {selectedRun.top_recommendations.slice(0, 3).map((recommendation) => (
+                    <div key={recommendation} className="text-xs text-zinc-400">
+                      {recommendation}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
             <div className="text-xs rounded-lg px-3 py-2 bg-zinc-900/50 border border-zinc-800 space-y-1">
               <div className="text-zinc-200">{describeManuscriptGate(selectedRun)}</div>
               <div className="text-zinc-400">{describeManuscriptContract(selectedRun)}</div>
@@ -441,7 +490,7 @@ function ManuscriptAuditCard({ runId }: { runId: string }) {
               ))}
             </div>
             <div className="space-y-1">
-              {findings.slice(0, 20).map((finding) => (
+              {findings.slice(0, 12).map((finding) => (
                 <div
                   key={finding.finding_id}
                   className="text-xs rounded-lg px-3 py-2 bg-zinc-900/50 border border-zinc-800"
@@ -711,9 +760,9 @@ export function QualityView({ exportRunId, workflowId }: QualityViewProps) {
 
   return (
     <div className="flex flex-col gap-3 min-h-[520px]">
+      <ManuscriptAuditCard runId={exportRunId} />
       <ReadinessCard runId={exportRunId} workflowId={workflowId} />
       <PrismaCard runId={exportRunId} />
-      <ManuscriptAuditCard runId={exportRunId} />
       <RunDiagnosticsCard runId={exportRunId} workflowId={workflowId} />
       <RagDiagnosticsCard runId={exportRunId} workflowId={workflowId} />
     </div>
