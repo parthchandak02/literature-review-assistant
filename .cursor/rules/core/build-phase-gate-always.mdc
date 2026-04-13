@@ -33,3 +33,7 @@ When adding a new phase, update all phase-order surfaces together:
 `src/web/app.py`, and `frontend/src/lib/constants.ts`.
 In `frontend/src/lib/constants.ts`, update both the display `PHASE_ORDER`
 and the resume-only `RESUME_PHASE_ORDER` when backend `PHASE_ORDER` changes.
+The display `PHASE_ORDER` may include UI-only sub-phases such as
+`fulltext_pdf_retrieval` that are not part of backend resume order.
+Treat `RESUME_PHASE_ORDER` as the frontend surface that must stay aligned with
+`src/orchestration/resume.py`.

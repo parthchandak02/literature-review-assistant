@@ -46,9 +46,9 @@ Prepare and commit all pending changes safely. Scan for secrets, stage clean fil
 ## Safety Rules
 
 - NEVER stage environment files, runtime artifacts, database files, or anything in `.gitignore`
-- NEVER use `--no-verify` or skip pre-commit hooks
+- This repo does not currently check in a standard pre-commit hook config; treat hook-related steps as "if hooks exist locally" and still avoid `--no-verify`
 - NEVER force-push to main/master
 - If unsure whether a file is safe to commit, ask the user before staging it
-- If a pre-commit hook rejects the commit, fix the underlying issue and create a NEW commit -- never amend a rejected commit
+- If a local hook rejects the commit, fix the underlying issue and create a NEW commit -- never amend a rejected commit
 - If major deletions or structural changes are detected, pause and confirm with the user before proceeding
 - If a commit message is weak, rewrite it before committing -- message quality is part of the workflow

@@ -5,7 +5,9 @@ description: Implements PRISMA 2020 flow diagram and visualizations. Use when bu
 
 # PRISMA Diagram & Visualizations
 
-Guide for implementing Phase 7 PRISMA diagram and related visualizations.
+Guide for implementing build-phase 7 PRISMA diagram and related visualizations.
+This build-phase label is not the same as runtime checkpoint `phase_7_audit`.
+Do not conflate PRISMA/timeline/geographic generation with the final audit phase.
 
 ## PRISMA 2020 Two-Column Structure
 
