@@ -319,10 +319,11 @@ export function GlobalCostOpsDialog({ open, onOpenChange }: GlobalCostOpsDialogP
       if (controller.signal.aborted || requestId !== activeRequestRef.current) return
       setError(err instanceof Error ? err.message : "Failed to load cost data")
     } finally {
-      if (requestId !== activeRequestRef.current) return
-      clearStageInterval()
-      activeAbortRef.current = null
-      setLoading(false)
+      if (requestId === activeRequestRef.current) {
+        clearStageInterval()
+        activeAbortRef.current = null
+        setLoading(false)
+      }
     }
   }, [clearStageInterval, endDate, startDate])
 
