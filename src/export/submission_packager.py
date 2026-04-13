@@ -14,7 +14,7 @@ from pathlib import Path
 from src.db.database import get_db
 from src.db.repositories import CitationRepository, WorkflowRepository
 from src.db.workflow_registry import find_by_workflow_id, find_by_workflow_id_fallback
-from src.export.bibtex_builder import build_bibtex
+from src.export.bibtex_builder import build_bibtex, build_citekey_alias_map
 from src.export.docx_exporter import generate_docx
 from src.export.ieee_latex import markdown_to_latex
 from src.export.markdown_refs import get_existing_figure_entries, get_latex_figure_paths
@@ -291,8 +291,8 @@ def _build_number_to_citekey(
     in_refs = False
     num_to_citekey: dict[str, str] = {}
     ref_num_re = re.compile(r"^\[(\d+)\]\s+")
-    doi_re = re.compile(r"doi:\s*(https?://doi\.org/)?([^\s\)\]]+)")
-    url_re = re.compile(r"https?://[^\s\)\]]+")
+    doi_re = re.compile(r"doi:\s*(https?://doi\.org/)?([^\s\]]+)")
+    url_re = re.compile(r"https?://[^\s\]]+")
     # Capture quoted title: e.g. "Some title text,"
     title_re = re.compile(r'"([^"]{8,120})"')
 
@@ -314,7 +314,7 @@ def _build_number_to_citekey(
         # Layer 1: DOI match
         doi_match = doi_re.search(line)
         if doi_match:
-            norm_doi = doi_match.group(2).rstrip(".,")
+            norm_doi = doi_match.group(2).rstrip(".,)")
             if norm_doi in doi_to_citekey:
                 num_to_citekey[num] = doi_to_citekey[norm_doi]
                 continue
@@ -720,11 +720,13 @@ async def package_submission(
         )
     bib_content = build_bibtex(citations, cited_citekeys=set(num_to_citekey.values()))
     (submission_dir / "references.bib").write_text(bib_content, encoding="utf-8")
+    citekey_aliases = build_citekey_alias_map(citations)
     latex_content = markdown_to_latex(
         md_content,
         citekeys=citekeys,
         figure_paths=figure_paths,
         num_to_citekey=num_to_citekey,
+        citekey_aliases=citekey_aliases,
         author_name=_author_name,
     )
     if strict_export:

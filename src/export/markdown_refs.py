@@ -9,6 +9,7 @@ import unicodedata
 from pathlib import Path
 from typing import Any
 
+from src.export.bibtex_builder import build_citekey_alias_map
 from src.quality.grade import build_sof_table, cluster_grade_assessments_by_theme, sof_table_to_markdown
 from src.writing.headings import normalize_subsection_heading_layout as _normalize_subsection_heading_layout_shared
 
@@ -385,11 +386,14 @@ def convert_to_numbered_citations(
         return re.sub(r"[^A-Za-z0-9]", "", _ascii_citekey(raw)).lower()
 
     # Build catalog maps for robust lookup.
+    alias_map = build_citekey_alias_map(citation_rows)
     citekey_map: dict[str, tuple] = {_ascii_citekey(row[1]): row for row in citation_rows}
     canonical_map: dict[str, str] = {}
     for row in citation_rows:
         key = _ascii_citekey(row[1])
         canonical_map[_canonical_key(key)] = key
+    for alias, mapped_key in alias_map.items():
+        canonical_map.setdefault(_canonical_key(alias), _ascii_citekey(mapped_key))
     ordered_keys = extract_citekeys_in_order(body)  # already returns ASCII-normalized keys
     # Augment with legacy space-containing keys that extract_citekeys_in_order
     # intentionally skips (it expects citekey-like tokens).
@@ -397,6 +401,11 @@ def convert_to_numbered_citations(
     for m in re.finditer(r"\[([^\]\[]{1,120})\]", body):
         for part in [p.strip() for p in re.split(r"[,;]", m.group(1))]:
             if not part:
+                continue
+            alias_match = alias_map.get(_ascii_citekey(part))
+            if alias_match and alias_match not in seen_ordered:
+                ordered_keys.append(alias_match)
+                seen_ordered.add(alias_match)
                 continue
             canon = _canonical_key(part)
             mapped = canonical_map.get(canon)
@@ -428,6 +437,10 @@ def convert_to_numbered_citations(
             ascii_key = _ascii_citekey(p)
             if ascii_key in key_to_number:
                 nums.append(key_to_number[ascii_key])
+                continue
+            alias_match = alias_map.get(ascii_key)
+            if alias_match and alias_match in key_to_number:
+                nums.append(key_to_number[alias_match])
                 continue
             canon = _canonical_key(ascii_key)
             mapped = canonical_map.get(canon)

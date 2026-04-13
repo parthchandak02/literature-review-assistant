@@ -18,7 +18,7 @@ from src.models import (
 )
 from src.models.additional import PRISMACounts
 from src.writing.context_builder import build_writing_grounding, sanitize_summary_text_for_writing
-from src.writing.headings import extract_markdown_heading_inventory
+from src.writing.headings import extract_markdown_heading_inventory, normalize_subsection_heading_layout
 from src.writing.orchestration import (
     _best_effort_accept,
     _patch_methods_grounding,
@@ -216,6 +216,22 @@ def test_post_render_completeness_ignores_terminal_citations() -> None:
     issues = _post_render_completeness_issues("results", content, included_study_count=5)
     assert "post_trailing_fragment_punctuation" not in issues
     assert "post_missing_subheading:synthesis of findings" not in issues
+
+
+def test_normalize_subsection_heading_layout_splits_punctuation_joined_heading() -> None:
+    raw = (
+        "Full-text PDFs were retrieved for 13 studies.### Study Characteristics\n\n"
+        "Study details follow."
+    )
+    normalized = normalize_subsection_heading_layout(raw)
+    assert "Full-text PDFs were retrieved for 13 studies.\n\n### Study Characteristics" in normalized
+
+
+def test_normalize_subsection_heading_layout_merges_connector_split_heading() -> None:
+    raw = "### Risk of\n\nBias and Critical Appraisal\n\nStructured assessment text."
+    normalized = normalize_subsection_heading_layout(raw)
+    assert "### Risk of Bias and Critical Appraisal" in normalized
+    assert "\n\nStructured assessment text." in normalized
 
 
 def test_valid_inline_citekeys_are_promoted_to_structured_citations() -> None:

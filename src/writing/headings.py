@@ -100,6 +100,7 @@ def sanitize_heading_title(raw_title: str) -> str:
 def normalize_subsection_heading_layout(text: str) -> str:
     """Split inline heading+body patterns into canonical multiline markdown."""
     text = re.sub(r"\s+(#{2,6}\s+)", r"\n\n\1", text)
+    text = re.sub(r"([.!?])\s*(#{2,6}\s+)", r"\1\n\n\2", text)
     out_lines: list[str] = []
     lines = text.splitlines()
     i = 0
@@ -184,7 +185,7 @@ def normalize_subsection_heading_layout(text: str) -> str:
                             and nxt_words[j + 1][:1].islower()
                         ):
                             break
-                        if _TITLE_TOKEN_RE.match(word):
+                        if _TITLE_TOKEN_RE.match(word) or word.lower() in _CONNECTOR_TAIL:
                             consumed = j + 1
                             if consumed >= 4:
                                 break
@@ -243,7 +244,7 @@ def normalize_subsection_heading_layout(text: str) -> str:
                                 and right_words[pos + 1][:1].islower()
                             ):
                                 break
-                            if _TITLE_TOKEN_RE.match(word):
+                            if _TITLE_TOKEN_RE.match(word) or word.lower() in _CONNECTOR_TAIL:
                                 consumed += 1
                                 if consumed >= 3:
                                     break

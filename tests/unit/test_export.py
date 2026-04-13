@@ -12,7 +12,7 @@ from hypothesis import strategies as st
 
 from src.db.database import get_db
 from src.db.repositories import CitationRepository, WorkflowRepository
-from src.export.bibtex_builder import build_bibtex
+from src.export.bibtex_builder import build_bibtex, build_citekey_alias_map
 from src.export.ieee_latex import _convert_citations, _convert_md_table_to_latex, _escape_latex, markdown_to_latex
 from src.export.ieee_validator import validate_ieee
 from src.export.markdown_refs import (
@@ -21,12 +21,13 @@ from src.export.markdown_refs import (
     build_markdown_figures_section,
     build_picos_table,
     build_quality_assessment_coverage_table,
+    convert_to_numbered_citations,
     generate_mmat_table,
     get_existing_figure_entries,
     get_latex_figure_paths,
 )
 from src.export.prisma_checklist import validate_prisma
-from src.export.submission_packager import _copy_included_study_pdfs, _strict_export_unresolved_tokens
+from src.export.submission_packager import _build_number_to_citekey, _copy_included_study_pdfs, _strict_export_unresolved_tokens
 from src.manuscript.contracts import (
     _extract_disclosed_included_counts,
     _hard_failure,
@@ -87,6 +88,16 @@ def test_build_bibtex_prunes_uncited_entries() -> None:
     assert "KeyB2024" not in out
 
 
+def test_build_citekey_alias_map_recovers_author_year_variants() -> None:
+    citations = [
+        ("c1", "Olorunsogo2026", None, "Liberia registry study", '[{"last":"Adeoye","first":"Olorunsogo"}]', 2026, "J", None),
+        ("c2", "Anas2013", None, "Jeev mobile tracking", '[{"last":"Katib","first":"Anas"}]', 2013, "J", None),
+    ]
+    alias_map = build_citekey_alias_map(citations)
+    assert alias_map["Adeoye2026"] == "Olorunsogo2026"
+    assert alias_map["Katib2013"] == "Anas2013"
+
+
 def test_build_bibtex_includes_background_and_methodology_when_cited_set_contains_them() -> None:
     citations = [
         ("c1", "Inc2024", None, "Included", '["Author A"]', 2024, "J", None),
@@ -107,6 +118,51 @@ def test_markdown_to_latex_basic():
     assert "\\documentclass" in out
     assert "My Review" in out
     assert "Introduction" in out and ("\\section{" in out or "\\subsection{" in out)
+
+
+def test_convert_to_numbered_citations_resolves_author_year_aliases() -> None:
+    citations = [
+        ("c1", "Olorunsogo2026", None, "Liberia registry study", '[{"last":"Adeoye","first":"Olorunsogo"}]', 2026, "J", None),
+        ("c2", "Anas2013", None, "Jeev mobile tracking", '[{"last":"Katib","first":"Anas"}]', 2013, "J", None),
+    ]
+    numbered, ordered = convert_to_numbered_citations(
+        "Evidence improved [Adeoye2026, Katib2013].",
+        citations,
+    )
+    assert numbered == "Evidence improved [1], [2]."
+    assert [row[1] for row in ordered] == ["Olorunsogo2026", "Anas2013"]
+
+
+def test_convert_citations_resolves_author_year_aliases_for_latex() -> None:
+    out = _convert_citations(
+        "Evidence improved [Adeoye2026, Katib2013].",
+        {"Olorunsogo2026", "Anas2013"},
+        citekey_aliases={"Adeoye2026": "Olorunsogo2026", "Katib2013": "Anas2013"},
+    )
+    assert out == "Evidence improved \\cite{Olorunsogo2026,Anas2013}."
+
+
+def test_build_number_to_citekey_handles_parenthesized_doi() -> None:
+    md = (
+        "## References\n\n"
+        '[8] Yevgenii Grechukha et al., "Can vaccination data in electronic systems be trusted? A comparative analysis of settlement type," 2025. '
+        "doi: https://doi.org/10.32345/usmyj.2(154).2025.198-208\n"
+    )
+    citations = [
+        (
+            "c8",
+            "Grechukha2025",
+            "10.32345/usmyj.2(154).2025.198-208",
+            "Can vaccination data in electronic systems be trusted?",
+            '[{"last":"Grechukha","first":"Yevgenii"}]',
+            2025,
+            "J",
+            None,
+            None,
+        )
+    ]
+    mapping = _build_number_to_citekey(md, citations)
+    assert mapping["8"] == "Grechukha2025"
 
 
 def test_get_figure_entries_and_latex_paths_share_manifest(tmp_path) -> None:

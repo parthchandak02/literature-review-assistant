@@ -140,6 +140,7 @@ def _convert_citations(
     text: str,
     citekeys: set[str],
     num_to_citekey: dict[str, str] | None = None,
+    citekey_aliases: dict[str, str] | None = None,
 ) -> str:
     """Convert [citekey] or [N] to \\cite{citekey} when valid.
 
@@ -152,7 +153,11 @@ def _convert_citations(
     per-key handler can then clean up any remaining single-key brackets.
     """
     num_to_citekey = num_to_citekey or {}
+    citekey_aliases = citekey_aliases or {}
     _num_key_map: dict[str, str] = {str(k).strip(): v for k, v in num_to_citekey.items()}
+    _alias_key_map: dict[str, str] = {
+        str(alias).strip(): target for alias, target in citekey_aliases.items() if str(target).strip() in citekeys
+    }
 
     def _norm_token(token: str) -> str:
         # Canonical key for forgiving lookup (spaces/punctuation-insensitive).
@@ -163,6 +168,8 @@ def _convert_citations(
     _norm_citekey_map: dict[str, str] = {}
     for ck in citekeys:
         _norm_citekey_map[_norm_token(ck)] = ck
+    for alias, target in _alias_key_map.items():
+        _norm_citekey_map.setdefault(_norm_token(alias), target)
     _norm_num_key_map: dict[str, str] = {}
     for key, val in _num_key_map.items():
         _norm_num_key_map[_norm_token(key)] = val
@@ -175,6 +182,8 @@ def _convert_citations(
             return stripped
         if stripped in _num_key_map:
             return _num_key_map[stripped]
+        if stripped in _alias_key_map:
+            return _alias_key_map[stripped]
         norm = _norm_token(stripped)
         if norm in _norm_citekey_map:
             return _norm_citekey_map[norm]
@@ -368,6 +377,7 @@ def _convert_md_table_to_latex(
     table_lines: list[str],
     citekeys: set[str],
     num_to_citekey: dict[str, str],
+    citekey_aliases: dict[str, str] | None = None,
 ) -> list[str]:
     """Convert a list of markdown table lines to a LaTeX tabular block.
 
@@ -411,7 +421,7 @@ def _convert_md_table_to_latex(
         # Strip raw URLs that would cause line-breaking issues in narrow columns.
         cell = re.sub(r"https?://\S+", "", cell)
         conv = _convert_inline_formatting(
-            _convert_citations(cell, citekeys, num_to_citekey),
+            _convert_citations(cell, citekeys, num_to_citekey, citekey_aliases),
             citekeys,
             num_to_citekey,
         )
@@ -462,6 +472,7 @@ def _md_section_to_latex(
     rest: str,
     citekeys: set[str],
     num_to_citekey: dict[str, str] | None = None,
+    citekey_aliases: dict[str, str] | None = None,
 ) -> str:
     """Convert markdown body to LaTeX sections."""
     num_to_citekey = num_to_citekey or {}
@@ -477,7 +488,7 @@ def _md_section_to_latex(
             parts.append("\\begin{itemize}")
             for item in list_items:
                 item_conv = _convert_inline_formatting(
-                    _convert_citations(item.strip(), citekeys, num_to_citekey),
+                    _convert_citations(item.strip(), citekeys, num_to_citekey, citekey_aliases),
                     citekeys,
                     num_to_citekey,
                 )
@@ -573,7 +584,7 @@ def _md_section_to_latex(
             parts.append(f"\\subsubsection{{{_escape_latex(title)}}}")
             parts.append("")
             conv = _convert_inline_formatting(
-                _convert_citations(body_text, citekeys, num_to_citekey),
+                _convert_citations(body_text, citekeys, num_to_citekey, citekey_aliases),
                 citekeys,
                 num_to_citekey,
             )
@@ -586,7 +597,7 @@ def _md_section_to_latex(
             parts.append(f"\\subsection{{{_escape_latex(title)}}}")
             parts.append("")
             conv = _convert_inline_formatting(
-                _convert_citations(body_text, citekeys, num_to_citekey),
+                _convert_citations(body_text, citekeys, num_to_citekey, citekey_aliases),
                 citekeys,
                 num_to_citekey,
             )
@@ -615,7 +626,7 @@ def _md_section_to_latex(
                     consumed = 0
                     for word in nxt_words:
                         clean = word.strip(".,;:!?")
-                        if re.match(r"^[A-Z][A-Za-z0-9()/:,\-']*$", clean):
+                        if re.match(r"^[A-Z][A-Za-z0-9()/:,\-']*$", clean) or clean.lower() in connector_tail:
                             consumed += 1
                             if consumed >= 3:
                                 break
@@ -646,7 +657,7 @@ def _md_section_to_latex(
             while i + 1 < len(lines) and lines[i + 1].strip().startswith("|") and lines[i + 1].strip().endswith("|"):
                 i += 1
                 table_lines.append(lines[i].strip())
-            table_latex = _convert_md_table_to_latex(table_lines, citekeys, num_to_citekey)
+            table_latex = _convert_md_table_to_latex(table_lines, citekeys, num_to_citekey, citekey_aliases)
             parts.extend(table_latex)
             parts.append("")
         elif stripped.startswith("*   ") or stripped.startswith("-   "):
@@ -666,7 +677,7 @@ def _md_section_to_latex(
                 parts.append(_escape_latex(stripped))
             else:
                 conv = _convert_inline_formatting(
-                    _convert_citations(stripped, citekeys, num_to_citekey),
+                    _convert_citations(stripped, citekeys, num_to_citekey, citekey_aliases),
                     citekeys,
                     num_to_citekey,
                 )
@@ -697,6 +708,7 @@ def markdown_to_latex(
     citekeys: set[str] | None = None,
     figure_paths: list[str] | None = None,
     num_to_citekey: dict[str, str] | None = None,
+    citekey_aliases: dict[str, str] | None = None,
     author_name: str = "",
 ) -> str:
     """Convert markdown manuscript to IEEE LaTeX.
@@ -749,7 +761,7 @@ def markdown_to_latex(
     preamble += "\\maketitle\n\n"
 
     if abstract:
-        abstract_conv = _convert_citations(abstract, citekeys, num_to_citekey)
+        abstract_conv = _convert_citations(abstract, citekeys, num_to_citekey, citekey_aliases)
         abstract_conv = _convert_inline_formatting(abstract_conv, citekeys, num_to_citekey)
         abstract_esc = _escape_latex(abstract_conv)
         preamble += "\\begin{abstract}\n"
@@ -758,7 +770,7 @@ def markdown_to_latex(
     else:
         logger.warning("markdown_to_latex: abstract block missing; LaTeX output will omit \\begin{abstract}.")
 
-    body = _md_section_to_latex(rest, citekeys, num_to_citekey)
+    body = _md_section_to_latex(rest, citekeys, num_to_citekey, citekey_aliases)
     body = _merge_consecutive_cites(body)
 
     from src.export.markdown_refs import FIGURE_DEFS
