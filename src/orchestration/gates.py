@@ -137,16 +137,31 @@ class GateRunner:
         workflow_id: str,
         phase: str,
         completeness_ratio: float,
+        weak_evidence_rate: float | None = None,
+        metric_details: str | None = None,
     ) -> GateResult:
         threshold = self.settings.gates.extraction_completeness_threshold
+        max_empty_rate = self.settings.gates.extraction_max_empty_rate
 
         async def check() -> tuple[bool, str, str, str]:
             passed = completeness_ratio >= threshold
+            details = f"completeness_ratio={completeness_ratio:.2f}, threshold={threshold:.2f}"
+            threshold_value = f"{threshold:.2f}"
+            actual_value = f"{completeness_ratio:.2f}"
+            if weak_evidence_rate is not None:
+                passed = passed and weak_evidence_rate <= max_empty_rate
+                details += f", weak_evidence_rate={weak_evidence_rate:.2f}, max_empty_rate={max_empty_rate:.2f}"
+                threshold_value = f"completeness>={threshold:.2f}, weak<={max_empty_rate:.2f}"
+                actual_value = (
+                    f"completeness={completeness_ratio:.2f}, weak={weak_evidence_rate:.2f}"
+                )
+            if metric_details:
+                details += f", {metric_details}"
             return (
                 passed,
-                f"completeness_ratio={completeness_ratio:.2f}, threshold={threshold:.2f}",
-                f"{threshold:.2f}",
-                f"{completeness_ratio:.2f}",
+                details,
+                threshold_value,
+                actual_value,
             )
 
         return await self.run_gate(workflow_id, phase, "extraction_completeness", check)

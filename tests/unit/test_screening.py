@@ -194,6 +194,42 @@ async def test_fulltext_exclusion_requires_reason(tmp_path) -> None:
         assert final.exclusion_reason == ExclusionReason.OTHER
 
 
+@pytest.mark.asyncio
+async def test_screen_batch_excludes_missing_fulltext_when_policy_enabled(tmp_path) -> None:
+    paper = CandidatePaper(title="No PDF study", authors=["Y"], source_database="openalex", abstract="short abstract")
+    settings = SettingsConfig(
+        agents={
+            "screening_reviewer_a": {"model": "google-gla:gemini-2.5-flash-lite", "temperature": 0.1},
+            "screening_reviewer_b": {"model": "google-gla:gemini-2.5-flash-lite", "temperature": 0.3},
+            "screening_adjudicator": {"model": "google-gla:gemini-2.5-pro", "temperature": 0.2},
+        },
+        screening=ScreeningConfig(
+            insufficient_content_min_words=0,
+            skip_fulltext_if_no_pdf=True,
+        ),
+    )
+    async with get_db(str(tmp_path / "screening_no_pdf.db")) as db:
+        repo = WorkflowRepository(db)
+        await repo.create_workflow("wf-no-pdf", "topic", "hash")
+        provider = LLMProvider(settings, repo)
+        screener = DualReviewerScreener(
+            repository=repo,
+            provider=provider,
+            review=_review(),
+            settings=settings,
+            llm_client=_ScriptedClient([]),
+        )
+        results = await screener.screen_batch(
+            workflow_id="wf-no-pdf",
+            stage="fulltext",
+            papers=[paper],
+            full_text_by_paper={},
+        )
+        assert len(results) == 1
+        assert results[0].decision == ScreeningDecisionType.EXCLUDE
+        assert results[0].exclusion_reason == ExclusionReason.NO_FULL_TEXT
+
+
 # ---------------------------------------------------------------------------
 # Helpers shared by batch-mode tests
 # ---------------------------------------------------------------------------

@@ -312,10 +312,10 @@ class ScreeningConfig(BaseModel):
         description="Minimum title keyword matches required for empty-abstract rescue forwarding.",
     )
     skip_fulltext_if_no_pdf: bool = Field(
-        default=False,
+        default=True,
         description=(
             "When True, papers without retrievable full text are excluded at stage 2. "
-            "When False (default), abstract text is used as fallback for fulltext screening "
+            "When False, abstract text is used as fallback for fulltext screening "
             "so no papers are lost to retrieval failure. PRISMA reports_not_retrieved is "
             "tracked from retrieval results regardless of this setting."
         ),
@@ -653,8 +653,11 @@ class WritingConfig(BaseModel):
     abstract_only_caution_threshold: float = Field(
         ge=0.0,
         le=1.0,
-        default=0.40,
-        description="Trigger threshold for cautionary wording when too many included studies are abstract-only.",
+        default=0.25,
+        description=(
+            "Trigger threshold for cautionary wording when too many included studies "
+            "are abstract-only."
+        ),
     )
     citation_cluster_chunk_size: int = Field(
         ge=1,

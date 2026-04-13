@@ -121,3 +121,21 @@ async def test_screening_safeguard_below_sparse_min_fails(tmp_path) -> None:
         runner = GateRunner(repo, settings)
         result = await runner.run_screening_safeguard_gate("wf", "phase_3_screening", passed_screening=1)
         assert result.status.value == "failed"
+
+
+@pytest.mark.asyncio
+async def test_extraction_gate_fails_when_weak_evidence_rate_too_high(tmp_path) -> None:
+    db_path = tmp_path / "weak_evidence_fail.db"
+    async with get_db(str(db_path)) as db:
+        repo = WorkflowRepository(db)
+        await repo.create_workflow("wf", "topic", "hash")
+        runner = GateRunner(repo, _settings("strict"))
+        result = await runner.run_extraction_completeness_gate(
+            "wf",
+            "phase_4_extraction_quality",
+            completeness_ratio=0.95,
+            weak_evidence_rate=0.60,
+            metric_details="included_records=10, summary_ratio=1.00, participant_ratio=0.50, fulltext_ratio=0.90",
+        )
+        assert result.status.value == "failed"
+        assert "weak_evidence_rate=0.60" in (result.details or "")
