@@ -23,7 +23,7 @@ Audit project-local `.cursor` assets against the current codebase and update sta
    - Are there references to files, classes, or tools that no longer exist?
    - Is there a new recurring pattern that has no rule coverage at all?
 
-4. **Update stale rules** -- Edit `.cursor/rules/*.mdc` files that need changes:
+4. **Update stale rules** -- Edit `.cursor/rules/**/*.mdc` files that need changes:
    - Update paths, class names, and examples to match current code
    - Add new content only for patterns that genuinely recur across the codebase
    - Do NOT add rules for one-off decisions or things obvious from reading the code

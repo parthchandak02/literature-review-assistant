@@ -70,7 +70,7 @@ cd ..
 **4. Start the server**
 
 ```bash
-uv run uvicorn src.web.app:app --port 8001
+uv run uvicorn src.web.app:app --reload --port 8001
 ```
 
 **5. Open your browser**
@@ -87,7 +87,7 @@ A secondary "Paste YAML directly" link is also available for pasting a raw confi
 
 Your Gemini API key is required and is pre-filled from localStorage on return visits. The setup form also backfills any blank key fields from `GET /api/config/env-keys`, so keys already present in the local backend `.env` do not need to be retyped.
 
-The sidebar shows all your runs (live and historical) with status colors (emerald = completed, violet = running, red = error, amber = cancelled) and a stats strip (papers found, papers included, artifacts, cost). Selecting a run opens its dashboard with 7 base tabs in workflow order: Config (research question + review.yaml), Activity (phase timeline + event log), Data, Cost, Results, References (included papers list with PDF/TXT download), and Quality (readiness, diagnostics, compliance checks). A conditional Review Screening tab appears only when the run pauses for human-in-the-loop screening approval (`awaiting_review`). The floating Costs button (bottom-right) opens global LLM spend history and CSV export across registry-linked runs (`GET /api/history/costs/aggregates` and `GET /api/history/costs/export`), separate from the per-run Cost tab. To resume from a specific phase, use the Activity phase timeline (tap once to arm, tap again to confirm) or use the sidebar Resume button for default auto-resume. Non-running runs can be moved manually between `IN PROGRESS`, `COMPLETED`, and `ARCHIVED`; restore returns them to `IN PROGRESS`, and permanent delete remains an archived-item overflow action.
+The sidebar shows all your runs (live and historical) with status colors (emerald = completed, violet = running, red = error, amber = cancelled) and a stats strip (papers found, papers included, artifacts, cost). Selecting a run opens its dashboard with 7 base tabs in workflow order: Config (research question + review.yaml), Activity (phase timeline + event log), Data, Cost, Results, References (included papers list with PDF/TXT download), and Quality (final audit summary, export readiness, diagnostics, compliance checks). Results and Quality now both surface one clear final-audit summary path before the lower-level details. A conditional Review Screening tab appears only when the run pauses for human-in-the-loop screening approval (`awaiting_review`). The floating Costs button (bottom-right) opens global LLM spend history and CSV export across registry-linked runs (`GET /api/history/costs/aggregates` and `GET /api/history/costs/export`), separate from the per-run Cost tab. To resume from a specific phase, use the Activity phase timeline (tap once to arm, tap again to confirm) or use the sidebar Resume button for default auto-resume. Non-running runs can be moved manually between `IN PROGRESS`, `COMPLETED`, and `ARCHIVED`; restore returns them to `IN PROGRESS`, and permanent delete remains an archived-item overflow action.
 
 **Tip -- reuse a past config:** Click "+" to open the form, then use the "Load from past run" dropdown to pre-populate the form from any previous run's config. Useful for iterating on the same research question with different parameters.
 
@@ -261,7 +261,8 @@ Two config files control behavior:
 - `max_llm_screen` -- hard cap on LLM screening volume (cost control)
 - `human_in_the_loop.enabled` -- pause after screening for manual review of AI decisions
 - `gates.manuscript_contract_mode` -- contract enforcement (`observe` / `soft` / `strict`, default is `strict`)
-- `gates.manuscript_audit_mode` -- manuscript audit gate mode (`observe` / `soft` / `strict`)
+- `gates.manuscript_audit_mode` -- audit verdict mode (`observe` / `soft` / `strict`) used to mark the audit run itself as passed or failed
+- `gates.audit_gate_mode` -- workflow behavior for blocking audit findings (`advisory` keeps the workflow completed and preserves the audit report; `strict` hard-fails at `phase_7_audit`)
 - `manuscript_audit.*` -- profile activation and `cost_cap_usd` for `phase_7_audit`
 - Quality gate thresholds
 - Search depth (records per database)
@@ -284,7 +285,7 @@ Phase 5: Synthesis (meta-analysis or narrative + sensitivity)
 Phase 5b: Knowledge-graph sub-phase (communities + gap signals)
 Phase 5c: Pre-writing gate (cohort/readiness checks before section generation)
 Phase 6: Writing via structured section IR (schema-constrained output -> completeness gates -> deterministic render) + manuscript assembly (`doc_manuscript.md`) + PRISMA/timeline/geographic figures
-Phase 7: Manuscript audit (profile-routed final guardian checks with bounded cost, persisted findings, gate-mode aware pass/fail)
+Phase 7: Manuscript audit (profile-routed final guardian checks with bounded cost, persisted findings, audit verdict from `manuscript_audit_mode`, and workflow completion behavior from `audit_gate_mode`)
 Finalize: final artifacts (`doc_manuscript.tex`, `references.bib`, `run_summary.json`)
 Export (on demand): submission packaging (`submission/`, zip, docx/pdf when dependencies are available)
 ```
@@ -307,8 +308,8 @@ Grouped endpoints most users use:
 - Extra run views (Results when done): `GET /api/run/{run_id}/knowledge-graph`, `GET /api/run/{run_id}/prisma-checklist`, `GET /api/run/{run_id}/grade-sof`
 - Data explorer: `GET /api/db/{run_id}/papers`, `/papers-all`, `/papers-facets`, `/papers-suggest`, `/screening`, `/costs`, `/costs/aggregates`, `/costs/export`, `/tables`, `/rag-diagnostics`
 - Manuscript audit: `GET /api/workflow/{workflow_id}/manuscript-audit/summary`, `GET /api/workflow/{workflow_id}/manuscript-audit/findings`, `GET /api/run/{run_id}/manuscript-audit`
-- Run diagnostics: `GET /api/run/{run_id}/diagnostics`
-- Readiness: `GET /api/run/{run_id}/readiness`
+- Run diagnostics: `GET /api/run/{run_id}/diagnostics` (includes top-level `audit_summary` helper data for the Quality UI)
+- Readiness: `GET /api/run/{run_id}/readiness` (returns the readiness scorecard plus `audit_summary`; degrades to a structured payload instead of raw HTTP 500 when readiness computation fails)
 - Validation: `GET /api/workflow/{workflow_id}/validation/summary`, `GET /api/workflow/{workflow_id}/validation/checks`
 - Notes and logs: `PATCH /api/notes/{workflow_id}`, `GET /api/notes/stream`, `GET /api/logs/stream`
 

@@ -33,13 +33,11 @@ Follow this order unless a hard blocker exists. If order changes, explain why.
 - Ask a focused clarification only if missing details would change conclusions.
 
 2. EXA pass (broad discovery)
-- Use `web_search_exa` for current landscape and source discovery.
-- Use `get_code_context_exa` when implementation examples are needed.
+- Discover the available Exa MCP tool schemas first, then use the repo's current Exa search and code-context tools for discovery.
 - Collect 3-6 strong sources with publication or update recency when available.
 
 3. REF pass (official docs)
-- Use `ref_search_documentation` to find authoritative docs.
-- Use `ref_read_url` on exact URLs returned by REF search.
+- Discover the available Ref MCP tool schemas first, then use the repo's current Ref documentation-search and URL-read tools.
 - Prefer API references, migration guides, and release notes tied to the request.
 
 4. Perplexity pass (cross-check and synthesis)
