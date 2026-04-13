@@ -11,6 +11,8 @@ from pylatexenc.latexencode import UnicodeToLatexEncoder
 
 from src.writing.headings import (
     normalize_subsection_heading_layout as _normalize_headings_shared,
+)
+from src.writing.headings import (
     sanitize_heading_title,
 )
 

@@ -28,8 +28,8 @@ import aiohttp
 from pydantic import BaseModel
 
 from src.db.repositories import WorkflowRepository
-from src.llm.pydantic_client import PydanticAIClient
 from src.llm.provider import LLMProvider
+from src.llm.pydantic_client import PydanticAIClient
 from src.models import CostRecord
 from src.models.extraction import OutcomeRecord
 from src.utils.ssl_context import tcp_connector_with_certifi

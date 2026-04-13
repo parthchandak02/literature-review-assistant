@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 import logging
 import re
 import unicodedata
@@ -29,12 +28,12 @@ from src.writing.evidence_assembler import (
     normalize_results_section_draft,
     render_results_evidence_context,
 )
-from src.writing.humanizer_guardrails import apply_deterministic_guardrails
 from src.writing.headings import (
     SECTION_REQUIRED_SUBHEADINGS,
     split_markdown_paragraphs,
     strip_terminal_citations,
 )
+from src.writing.humanizer_guardrails import apply_deterministic_guardrails
 from src.writing.renderers import collect_section_citations, render_section_markdown
 from src.writing.section_writer import SectionWriter
 
@@ -641,9 +640,6 @@ def _validate_structured_section_draft(
         if section == "abstract":
             text = _strip_abstract_citation_markup(text)
         block.text = text
-        explicit_citations_present = (
-            False if section == "abstract" else any(str(raw_key or "").strip() for raw_key in list(block.citations or []))
-        )
         merged_citations: list[str] = []
         merged_seen: set[str] = set()
         for raw_key in ([] if section == "abstract" else list(block.citations or [])):
