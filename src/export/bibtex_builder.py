@@ -299,6 +299,46 @@ def _normalize_ascii_token(text: str) -> str:
     return re.sub(r"[^A-Za-z0-9]+", "", ascii_text)
 
 
+def _normalize_citekey_alias(raw: str) -> str:
+    ascii_text = "".join(c for c in unicodedata.normalize("NFD", str(raw or "")) if unicodedata.category(c) != "Mn")
+    cleaned = re.sub(r"[^A-Za-z0-9_]+", "_", ascii_text)
+    cleaned = re.sub(r"_+", "_", cleaned).strip("_")
+    if cleaned and cleaned[0].isdigit():
+        cleaned = f"Ref_{cleaned}"
+    return cleaned
+
+
+def _extract_author_surname_aliases(authors_json: str) -> list[str]:
+    try:
+        authors = json.loads(authors_json) if authors_json else []
+    except (json.JSONDecodeError, TypeError):
+        authors = []
+
+    aliases: list[str] = []
+    seen: set[str] = set()
+    if not isinstance(authors, list):
+        return aliases
+
+    for author in authors:
+        surname = ""
+        if isinstance(author, dict):
+            surname = str(author.get("last") or author.get("family") or "")
+        else:
+            raw_author = str(author).strip()
+            if not raw_author:
+                continue
+            if "," in raw_author:
+                surname = raw_author.split(",")[0].strip()
+            else:
+                parts = raw_author.split()
+                surname = parts[-1] if parts else ""
+        token = _normalize_ascii_token(surname)
+        if token and token not in seen:
+            aliases.append(token)
+            seen.add(token)
+    return aliases
+
+
 def _fallback_citekey_from_metadata(
     title: str,
     authors_json: str,
@@ -347,6 +387,36 @@ def _fallback_citekey_from_metadata(
     if title_token:
         return f"{title_token[:18]}{year_part}"
     return f"Ref{index + 1}{year_part}"
+
+
+def build_citekey_alias_map(
+    citations: list[
+        tuple[str, str, str | None, str, str, int | None, str | None, str | None]
+        | tuple[str, str, str | None, str, str, int | None, str | None, str | None, str | None]
+    ],
+) -> dict[str, str]:
+    """Build deterministic alias -> citekey map from citation metadata.
+
+    This lets manuscript assembly/export recover common author-year variants
+    emitted by the writer even when the stored citation key uses a legacy token.
+    """
+    alias_to_key: dict[str, str] = {}
+    for idx, row in enumerate(citations):
+        _cid, citekey, _doi, title, authors_json, year, _journal, _bibtex = row[:8]
+        actual_key = _sanitize_citekey(str(citekey), str(title or ""), str(authors_json or ""), year, idx)
+        candidates = {
+            actual_key,
+            str(citekey or ""),
+            _fallback_citekey_from_metadata(str(title or ""), str(authors_json or ""), year, idx),
+        }
+        if year is not None:
+            for surname in _extract_author_surname_aliases(str(authors_json or "")):
+                candidates.add(f"{surname}{year}")
+        for candidate in candidates:
+            normalized = _normalize_citekey_alias(candidate)
+            if normalized and normalized not in alias_to_key:
+                alias_to_key[normalized] = actual_key
+    return alias_to_key
 
 
 def _sanitize_citekey(
