@@ -357,7 +357,7 @@ literature-review-assistant/
 | Author parsing | nameparser | 1.1+ | Surname extraction for display_label; handles "Last, First" and "First Last" formats |
 | Title filtering | wordfreq | 3.0+ | Zipf frequency lookup for domain-agnostic title word filtering in display_label |
 | Backend API | FastAPI + uvicorn | 0.129+ / 0.40+ | Async; Pydantic-native; SSE via sse-starlette |
-| Frontend | React + TypeScript | 19 / 5 | Strict typing; no `any` at API boundaries |
+| Frontend | React + TypeScript | 19 / 5.9.x | Strict typing; no `any` at API boundaries |
 | Build tool | Vite + pnpm | 7 / 10 | Fast HMR in dev; chunk splitting in prod |
 | UI components | shadcn/ui + Tailwind CSS | latest / 4 | Copy-owned Radix-based components; utility classes only; no CSS-in-JS |
 | Charts | Recharts | latest | Cost bar charts in CostView |
@@ -396,7 +396,7 @@ IEEE_API_KEY=...                # Optional; for IEEE Xplore connector
 WOS_API_KEY=...                 # Optional; for Web of Science connector (Clarivate Starter API, 300 req/day free)
 SCOPUS_API_KEY=...              # Optional; for Scopus connector (Elsevier Search API)
 EMBASE_API_KEY=...              # Optional; for Embase connector (Elsevier institutional)
-PUBMED_EMAIL=...                # Required for PubMed Entrez (Biopython)
+PUBMED_EMAIL=...                # Strongly recommended for PubMed Entrez identification/policy
 PUBMED_API_KEY=...              # Optional; raises PubMed rate limit from 3 to 10 req/sec
 PERPLEXITY_SEARCH_API_KEY=...   # Optional; for auxiliary discovery connector
 SEMANTIC_SCHOLAR_API_KEY=...    # Optional; improves rate limits for Semantic Scholar
@@ -562,7 +562,7 @@ Finalize                   -> checkpoint key: "finalize" + writes run_summary.js
 
 Perplexity and ClinicalTrials items tagged `SourceCategory.OTHER_SOURCE` count toward the PRISMA right-hand column (other sources). URL-based source inference (`_infer_source_from_url()`) attributes Perplexity-discovered papers to academic databases when they link to PubMed, arXiv, etc.
 
-**Query generation:** `src/search/strategy.py` `build_database_query()` applies database-specific query syntax. Scopus uses TITLE-ABS-KEY field codes; WoS uses TS= prefix groups; PubMed uses MeSH + [Title/Abstract] field codes; OpenAlex and Semantic Scholar use a short relevance-search phrase (5-10 keywords) because their APIs are relevance-ranked, not boolean-filter. A `search_overrides` key in `review.yaml` takes precedence for any database. The AI config generator (`src/web/config_generator.py`) generates database-specific overrides for all six primary databases (including openalex) in a single two-stage Gemini pipeline.
+**Query generation:** `src/search/strategy.py` `build_database_query()` applies database-specific query syntax. Scopus uses TITLE-ABS-KEY field codes; WoS uses TS= prefix groups; PubMed uses MeSH + [Title/Abstract] field codes; OpenAlex and Semantic Scholar use a short relevance-search phrase (5-10 keywords) because their APIs are relevance-ranked, not boolean-filter. A `search_overrides` key in `review.yaml` takes precedence for any database. The AI config generator (`src/web/config_generator.py`) can generate database-specific overrides in a single two-stage Gemini pipeline, but the populated override set is route-dependent and does not guarantee all six primary database keys for every topic/mode.
 
 **Gate:** `search_volume` -- fails if deduplicated records < 50.
 

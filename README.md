@@ -210,7 +210,7 @@ Remove the line (or set it to `null`) to send all candidate papers through LLM s
 # Start a new review
 uv run python -m src.main run --config config/review.yaml
 
-# Default run output is already verbose; use --silent to reduce chatter
+# Default run output is already verbose; `--debug` increases detail and `--silent` reduces chatter
 uv run python -m src.main run --config config/review.yaml --debug
 uv run python -m src.main run --config config/review.yaml --silent
 uv run python -m src.main run --config config/review.yaml --offline
@@ -300,7 +300,7 @@ Grouped endpoints most users use:
 
 - Setup (browser): `GET /api/config/review`, `GET /api/config/env-keys`, `POST /api/config/generate`, `POST /api/config/generate/stream`
 - Health: `GET /api/health`
-- Run lifecycle: `POST /api/run`, `POST /api/run-with-masterlist`, `POST /api/run-with-supplementary-csv`, `GET /api/stream/{run_id}`, `POST /api/cancel/{run_id}`
+- Run lifecycle: `GET /api/runs`, `POST /api/run`, `POST /api/run-with-masterlist`, `POST /api/run-with-supplementary-csv`, `GET /api/stream/{run_id}`, `POST /api/cancel/{run_id}`
 - History/resume: `GET /api/history`, `GET /api/history/active-run`, `GET /api/history/{workflow_id}/config`, `GET /api/history/costs/aggregates`, `GET /api/history/costs/export`, `POST /api/history/attach`, `POST /api/history/resume`, `POST /api/history/{workflow_id}/archive`, `POST /api/history/{workflow_id}/restore`, `POST /api/history/{workflow_id}/complete-hide`, `POST /api/history/{workflow_id}/complete-restore`, `DELETE /api/history/{workflow_id}`
 - Results/export: `GET /api/run/{run_id}/artifacts`, `GET /api/run/{run_id}/manuscript`, `POST /api/run/{run_id}/export`, `GET /api/run/{run_id}/submission.zip`, `GET /api/run/{run_id}/manuscript.docx`, `GET /api/run/{run_id}/prospero-form.docx`, `GET /api/run/{run_id}/prospero-form.md`, `GET /api/run/{run_id}/studies-files.zip`
 - References/full text: `GET /api/run/{run_id}/papers-reference`, `GET /api/run/{run_id}/papers/{paper_id}/file`, `POST /api/run/{run_id}/fetch-pdfs`
@@ -450,6 +450,8 @@ cd frontend && pnpm fix && pnpm typecheck
 | `scripts/analyze_past_run_logs.py` | Summarizes historical run logs to find recurrent failures or bottlenecks. |
 | `scripts/benchmark_config_generator.py` | Benchmarks AI config generation quality/consistency over prompt sets. |
 | `scripts/benchmark_model_routing_promptfoo.py` | Promptfoo-style benchmark for model-routing decisions and prompt behavior. |
+
+Additional maintenance and diagnostics helpers also live under `scripts/`; use `ls scripts` when you need a one-off workflow probe or parity check.
 
 ---
 
