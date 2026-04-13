@@ -653,7 +653,7 @@ export function Sidebar({
                   : Boolean(entry.live_run_id) || isReconnectingRow
                 const isCompletedLaneEligible =
                   !rowIsRunning &&
-                  !Boolean(entry.is_completed_hidden) &&
+                  !entry.is_completed_hidden &&
                   onHideCompleted !== undefined
                 // Metadata in run info strip order: Status, Time, Found, Included, Cost, WF ID (omit "out")
 
@@ -664,9 +664,9 @@ export function Sidebar({
                   !["streaming", "connecting"].includes(statusKey) &&
                   ["cancelled", "error", "stale"].includes(statusKey)
                 const actionPadClass = isResumable && (onArchive || isCompletedLaneEligible)
-                  ? "pr-20"
+                  ? "pr-24"
                   : (onArchive || isResumable || isCompletedLaneEligible)
-                    ? "pr-12"
+                    ? "pr-14"
                     : ""
                 const isResuming = resumingId === entry.workflow_id
 
@@ -763,7 +763,7 @@ export function Sidebar({
 
                         {/* Action buttons: archive + resume */}
                         {!collapsed && (
-                          <div className="absolute top-0 right-0 flex items-center">
+                          <div className="absolute top-1.5 right-1.5 flex items-center gap-0.5">
                             {isLiveRow && rowIsRunning && onCancel && (
                               <button
                                 onClick={(e) => {
@@ -773,8 +773,7 @@ export function Sidebar({
                                 aria-label="Stop run"
                                 title="Stop run"
                                 className={cn(
-                                  "flex items-center justify-center h-8 w-8 bg-red-600 hover:bg-red-500 text-white",
-                                  (onArchive || isResumable) ? "" : "rounded-bl-md",
+                                  "flex items-center justify-center h-7 w-7 rounded-md bg-red-600 hover:bg-red-500 text-white transition-colors",
                                 )}
                               >
                                 <Square className="h-2.5 w-2.5 fill-white" />
@@ -787,8 +786,7 @@ export function Sidebar({
                                 aria-label="Archive run"
                                 title="Archive run"
                                 className={cn(
-                                  "flex items-center justify-center h-8 w-8",
-                                  isResumable || isCompletedLaneEligible ? "" : "rounded-bl-md",
+                                  "flex items-center justify-center h-7 w-7 rounded-md",
                                   "text-zinc-500 hover:text-amber-300 hover:bg-amber-500/10 transition-colors",
                                   archivingId === entry.workflow_id && "opacity-50 cursor-wait",
                                 )}
@@ -807,8 +805,7 @@ export function Sidebar({
                                 aria-label="Move to completed"
                                 title="Move to completed"
                                 className={cn(
-                                  "flex items-center justify-center h-8 w-8",
-                                  isResumable ? "" : "rounded-bl-md",
+                                  "flex items-center justify-center h-7 w-7 rounded-md",
                                   "text-emerald-500 hover:text-emerald-300 hover:bg-emerald-500/10 transition-colors",
                                   completingId === entry.workflow_id && "opacity-50 cursor-wait",
                                 )}
@@ -829,14 +826,15 @@ export function Sidebar({
                                 aria-label="Resume from last checkpoint"
                                 title="Resume from last checkpoint"
                                 className={cn(
-                                  "flex items-center justify-center h-8 w-8 rounded-bl-md bg-violet-600 hover:bg-violet-500 text-white",
+                                  "flex items-center justify-center h-7 w-7 rounded-md border border-violet-500/40 bg-violet-500/10 text-violet-300",
+                                  "hover:border-violet-400/60 hover:bg-violet-500/15 hover:text-violet-200 transition-colors",
                                   isResuming && "opacity-80 cursor-wait",
                                 )}
                               >
                                 {isResuming ? (
-                                  <div className="h-2.5 w-2.5 border border-white/60 border-t-white rounded-full animate-spin" />
+                                  <div className="h-2.5 w-2.5 border border-violet-300/50 border-t-violet-200 rounded-full animate-spin" />
                                 ) : (
-                                  <Play className="h-2.5 w-2.5 fill-white" />
+                                  <Play className="h-2.5 w-2.5 fill-current" />
                                 )}
                               </button>
                             )}

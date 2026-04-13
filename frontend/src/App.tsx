@@ -136,7 +136,7 @@ export default function App() {
   const [submissionFocusTarget, setSubmissionFocusTarget] = useState<"reference-papers" | null>(null)
   const [submissionFocusToken, setSubmissionFocusToken] = useState(0)
   const [resumeLauncherWorkflowId, setResumeLauncherWorkflowId] = useState<string | null>(null)
-  const [resumeAutoArmToken, setResumeAutoArmToken] = useState(0)
+  const [resumeAutoArmToken] = useState(0)
   const [costOpsOpen, setCostOpsOpen] = useState(false)
 
   // Artifacts for historical ResultsView
@@ -869,11 +869,21 @@ export default function App() {
   }
 
   async function handleSidebarResumeLauncher(entry: HistoryEntry) {
-    await handleSelectHistory(entry)
-    setResumeLauncherWorkflowId(entry.workflow_id)
-    setResumeAutoArmToken((v) => v + 1)
-    setActiveRunTab("activity")
-    navigate(`/run/${entry.workflow_id}/activity`, { replace: true })
+    try {
+      const res = await resumeRun(entry)
+      handleResumeRun(res, entry.workflow_id)
+      toast.success("Resumed from last checkpoint")
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : String(error)
+      if (msg.includes("400")) {
+        toast.error("Invalid resume phase. Try a different phase.")
+      } else if (msg.includes("409")) {
+        toast.error("Workflow already running. Open live run or stop it before resuming.")
+      } else {
+        toast.error(msg || "Failed to resume run")
+      }
+      throw error
+    }
   }
 
   async function handleTimelineResumePhase(phase: string) {

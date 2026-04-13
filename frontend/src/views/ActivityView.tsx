@@ -158,7 +158,7 @@ function PhaseStep({
       : null
 
   const circleCls = cn(
-    "w-8 h-8 rounded-full flex items-center justify-center border shrink-0",
+    "w-7 h-7 sm:w-8 sm:h-8 rounded-full flex items-center justify-center border shrink-0",
     state.status === "done" && "bg-emerald-500/15 border-emerald-500/40 text-emerald-500",
     state.status === "running" && "bg-violet-500/15 border-violet-500/40 text-violet-400",
     state.status === "error" && "bg-red-500/15 border-red-500/40 text-red-400",
@@ -173,7 +173,7 @@ function PhaseStep({
   )
 
   const labelCls = cn(
-    "text-[11px] text-center leading-tight font-medium px-0.5 mt-1.5",
+    "text-[10px] sm:text-[11px] text-center leading-tight font-medium px-0 mt-1.5",
     state.status === "done" && "text-zinc-300",
     state.status === "running" && "text-white",
     state.status === "error" && "text-red-400",
@@ -181,16 +181,16 @@ function PhaseStep({
   )
 
   const subLabelCls = cn(
-    "text-[10px] font-mono mt-0.5 tabular-nums",
+    "text-[9px] sm:text-[10px] font-mono mt-0.5 tabular-nums text-center",
     state.status === "running" ? "text-violet-400/80" : "text-emerald-500/80",
   )
 
   return (
-    <div className="relative flex flex-1 items-start py-1 min-w-[6.5rem]">
+    <div className="relative flex flex-1 min-w-0 items-start py-1">
       {inResumeRange && (
         <div
           className={cn(
-            "absolute left-0 right-0 top-1 h-14 bg-amber-500/10",
+            "absolute left-0 right-0 top-1 h-14 sm:h-14 bg-amber-500/10",
             isRangeStart && "rounded-l-md",
             isRangeEnd && "rounded-r-md",
           )}
@@ -214,25 +214,25 @@ function PhaseStep({
           title={isResumeSelectable ? "Tap once to arm resume, tap again to confirm" : undefined}
         >
           {state.status === "done" ? (
-            <CheckCircle className="h-4 w-4" />
+            <CheckCircle className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
           ) : state.status === "running" ? (
-            <Loader className="h-4 w-4 animate-spin" />
+            <Loader className="h-3.5 w-3.5 sm:h-4 sm:w-4 animate-spin" />
           ) : state.status === "error" ? (
-            <XCircle className="h-4 w-4" />
+            <XCircle className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
           ) : (
-            <Circle className="h-3.5 w-3.5" />
+            <Circle className="h-3 w-3 sm:h-3.5 sm:w-3.5" />
           )}
         </button>
         <span className={labelCls}>{label}</span>
         {subLabel && <span className={subLabelCls}>{subLabel}</span>}
         {durationStr && (
-          <span className="text-[10px] font-mono tabular-nums text-zinc-600 mt-0.5">
+          <span className="text-[9px] sm:text-[10px] font-mono tabular-nums text-zinc-600 mt-0.5 text-center">
             {durationStr}
           </span>
         )}
       </div>
       {!isLast && (
-        <div className={cn("relative flex-1 mt-4", connectorCls)} style={{ minWidth: "1rem" }} />
+        <div className={cn("relative flex-1 mt-3.5 sm:mt-4", connectorCls)} style={{ minWidth: "0.35rem" }} />
       )}
     </div>
   )
@@ -257,22 +257,22 @@ function HorizontalStepperContent({
 }) {
   if (loading) {
     return (
-      <div className="flex items-start gap-2 px-5 py-5">
+      <div className="flex items-start gap-1 px-3 py-4 sm:px-4 sm:py-5">
         {PHASE_ORDER.map((p, i) => (
           <div key={p} className="flex items-start flex-1">
-            <div className="flex flex-col items-center gap-1.5 w-[4.5rem] shrink-0">
-              <Skeleton className="w-8 h-8 rounded-full" />
-              <Skeleton className="h-2.5 w-10" />
+            <div className="flex flex-col items-center gap-1.5 w-full shrink-0">
+              <Skeleton className="w-7 h-7 sm:w-8 sm:h-8 rounded-full" />
+              <Skeleton className="h-2.5 w-8 sm:w-10" />
             </div>
-            {i < PHASE_ORDER.length - 1 && <div className="flex-1 mt-4 h-px bg-zinc-800" />}
+            {i < PHASE_ORDER.length - 1 && <div className="flex-1 mt-3.5 sm:mt-4 h-px bg-zinc-800" />}
           </div>
         ))}
       </div>
     )
   }
   return (
-    <div className="px-5 py-5 overflow-x-auto">
-      <div className="flex items-start min-w-max w-full">
+    <div className="px-3 py-4 sm:px-4 sm:py-5 overflow-hidden">
+      <div className="flex items-start w-full gap-0.5 sm:gap-1">
         {PHASE_ORDER.map((phase, i) => {
           const inResumeRange = armedResumeStartIdx >= 0 && i >= armedResumeStartIdx
           const isRangeStart = inResumeRange && i === armedResumeStartIdx
