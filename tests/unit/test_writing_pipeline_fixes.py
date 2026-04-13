@@ -8,7 +8,14 @@ from src.db.database import get_db
 from src.db.repositories import WorkflowRepository
 from src.extraction.extractor import detect_scope_mismatch
 from src.manuscript.cohort import IncludedSetResolver
-from src.models import CandidatePaper, ExtractionRecord, SectionBlock, SourceCategory, StructuredSectionDraft, StudyDesign
+from src.models import (
+    CandidatePaper,
+    ExtractionRecord,
+    SectionBlock,
+    SourceCategory,
+    StructuredSectionDraft,
+    StudyDesign,
+)
 from src.models.additional import PRISMACounts
 from src.writing.context_builder import build_writing_grounding, sanitize_summary_text_for_writing
 from src.writing.headings import extract_markdown_heading_inventory

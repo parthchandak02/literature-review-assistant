@@ -9,7 +9,14 @@ from src.db.repositories import CitationRepository, WorkflowRepository
 from src.manuscript.contracts import run_manuscript_contracts
 from src.manuscript.readiness import compute_readiness_scorecard
 from src.manuscript.reviewer import select_audit_profiles
-from src.models import CitationEntryRecord, DomainExpertConfig, FallbackEventRecord, ReviewConfig, ReviewType, SettingsConfig
+from src.models import (
+    CitationEntryRecord,
+    DomainExpertConfig,
+    FallbackEventRecord,
+    ReviewConfig,
+    ReviewType,
+    SettingsConfig,
+)
 
 
 def _write_minimal_manuscript(md_path: Path, tex_path: Path) -> None:
