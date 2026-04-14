@@ -119,6 +119,8 @@ def test_screening_prompt_includes_domain_brief_and_terms() -> None:
     prompt = reviewer_a_prompt(_review(), paper, "title_abstract")
     assert "Domain brief:" in prompt
     assert "AI tutor" in prompt
+    assert "Intervention anchor terms:" in prompt
+    assert "Related context terms:" in prompt
     assert "clinical endpoint" in prompt
 
 
@@ -253,11 +255,50 @@ def _batch_settings(batch_size: int = 5) -> SettingsConfig:
 def _paper(pid: str, title: str = "", abstract: str = "test abstract") -> CandidatePaper:
     return CandidatePaper(
         paper_id=pid,
-        title=title or f"Study {pid}",
+        title=title or f"AI tutor study {pid}",
         authors=["Author, A."],
         source_database="openalex",
-        abstract=abstract,
+        abstract=abstract if abstract != "test abstract" else "This AI tutor intervention improved learning outcomes.",
     )
+
+
+@pytest.mark.asyncio
+async def test_high_confidence_include_without_anchor_requires_cross_review(tmp_path) -> None:
+    paper = CandidatePaper(
+        paper_id="p-anchor-miss",
+        title="Digital registry workflow study",
+        authors=["A Author"],
+        source_database="openalex",
+        abstract="This evaluates a generic registry workflow without the target intervention mechanism.",
+    )
+    responses = [
+        {"decision": "include", "confidence": 0.95, "reasoning": "A high confidence include"},
+        {"decision": "exclude", "confidence": 0.90, "reasoning": "No intervention anchor", "exclusion_reason": "wrong_intervention"},
+        {"decision": "exclude", "confidence": 0.92, "reasoning": "Adjudicator excludes", "exclusion_reason": "wrong_intervention"},
+    ]
+    async with get_db(str(tmp_path / "screening_anchor.db")) as db:
+        repo = WorkflowRepository(db)
+        await repo.create_workflow("wf-anchor", "topic", "hash")
+        provider = LLMProvider(_settings(), repo)
+        screener = DualReviewerScreener(
+            repository=repo,
+            provider=provider,
+            review=_review(),
+            settings=_settings(),
+            llm_client=_ScriptedClient(responses),
+        )
+        results = await screener.screen_batch(
+            workflow_id="wf-anchor",
+            stage="title_abstract",
+            papers=[paper],
+        )
+        assert len(results) == 1
+        assert results[0].decision == ScreeningDecisionType.EXCLUDE
+        cur = await db.execute(
+            "SELECT COUNT(*) FROM screening_decisions WHERE workflow_id = 'wf-anchor'"
+        )
+        row = await cur.fetchone()
+        assert int(row[0]) == 3
 
 
 def _batch_item(pid: str, decision: str, confidence: float, reason: str = "ok") -> dict:

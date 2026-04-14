@@ -198,6 +198,26 @@ class ReviewConfig(BaseModel):
         ]
         return _dedupe_terms([_compact_phrase(item) for item in candidates if _compact_phrase(item)])[:limit]
 
+    def intervention_anchor_terms(self, limit: int = 10) -> list[str]:
+        candidates = [
+            *self.domain_expert.canonical_terms,
+            self.pico.intervention,
+        ]
+        anchors = _dedupe_terms([_compact_phrase(item) for item in candidates if _compact_phrase(item)])
+        if anchors:
+            return anchors[:limit]
+        return self.preferred_terminology(limit=limit)
+
+    def related_context_terms(self, limit: int = 10) -> list[str]:
+        candidates = [
+            *self.domain_expert.related_terms,
+            *self.domain_expert.outcome_focus,
+            self.pico.population,
+            self.pico.outcome,
+        ]
+        related = _dedupe_terms([_compact_phrase(item) for item in candidates if _compact_phrase(item)])
+        return related[:limit]
+
     def discouraged_terminology(self, limit: int = 8) -> list[str]:
         return _dedupe_terms([_compact_phrase(item) for item in self.domain_expert.excluded_terms])[:limit]
 
@@ -244,6 +264,15 @@ class ScreeningConfig(BaseModel):
         ge=0,
         default=1,
         description="Minimum keyword hits required to send a paper to LLM screening; 0 disables pre-filter.",
+    )
+    keyword_prefilter_fallback_exclusion_ratio: float = Field(
+        default=0.80,
+        ge=0.0,
+        le=1.0,
+        description=(
+            "If keyword-only exclusions exceed this fraction of metadata-eligible papers, "
+            "drop keyword-only exclusions and fall back to BM25 ranking on the broader pool."
+        ),
     )
     auto_exclude_empty_abstract: bool = Field(
         default=True,
@@ -547,15 +576,16 @@ class GatesConfig(BaseModel):
         default=2,
         ge=0,
         description=(
-            "Absolute floor for included studies at screening. "
-            "Below this count, screening_safeguard always fails."
+            "Reference threshold for distinguishing sparse from ultra-sparse evidence. "
+            "When sparse_topic_continuation is enabled, counts below this threshold still continue "
+            "but are labeled separately in gate details."
         ),
     )
     sparse_topic_continuation: bool = Field(
         default=True,
         description=(
-            "When true, screening counts between sparse_topic_min and screening_minimum "
-            "continue in sparse-evidence mode (warning) instead of hard fail."
+            "When true, screening counts below screening_minimum continue in warning mode "
+            "instead of hard fail, including zero-included empty-evidence reviews."
         ),
     )
     extraction_completeness_threshold: float = 0.80

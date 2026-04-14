@@ -104,15 +104,15 @@ async def test_screening_safeguard_sparse_continuation_returns_warning(tmp_path)
 
 
 @pytest.mark.asyncio
-async def test_screening_safeguard_below_sparse_min_fails(tmp_path) -> None:
-    db_path = tmp_path / "sparse_fail.db"
+async def test_screening_safeguard_below_sparse_min_still_warns_with_continuation(tmp_path) -> None:
+    db_path = tmp_path / "sparse_below_min_warn.db"
     async with get_db(str(db_path)) as db:
         repo = WorkflowRepository(db)
         await repo.create_workflow("wf", "topic", "hash")
         settings = SettingsConfig(
             agents={"search": AgentConfig(model="google-gla:gemini-2.5-flash", temperature=0.1)},
             gates={
-                "profile": "warning",
+                "profile": "strict",
                 "screening_minimum": 5,
                 "sparse_topic_min": 2,
                 "sparse_topic_continuation": True,
@@ -120,7 +120,29 @@ async def test_screening_safeguard_below_sparse_min_fails(tmp_path) -> None:
         )
         runner = GateRunner(repo, settings)
         result = await runner.run_screening_safeguard_gate("wf", "phase_3_screening", passed_screening=1)
-        assert result.status.value == "failed"
+        assert result.status.value == "warning"
+        assert "below_sparse_topic_min_continuation" in (result.details or "")
+
+
+@pytest.mark.asyncio
+async def test_screening_safeguard_zero_evidence_warns_with_continuation(tmp_path) -> None:
+    db_path = tmp_path / "sparse_zero_warn.db"
+    async with get_db(str(db_path)) as db:
+        repo = WorkflowRepository(db)
+        await repo.create_workflow("wf", "topic", "hash")
+        settings = SettingsConfig(
+            agents={"search": AgentConfig(model="google-gla:gemini-2.5-flash", temperature=0.1)},
+            gates={
+                "profile": "strict",
+                "screening_minimum": 5,
+                "sparse_topic_min": 2,
+                "sparse_topic_continuation": True,
+            },
+        )
+        runner = GateRunner(repo, settings)
+        result = await runner.run_screening_safeguard_gate("wf", "phase_3_screening", passed_screening=0)
+        assert result.status.value == "warning"
+        assert "zero_evidence_continuation" in (result.details or "")
 
 
 @pytest.mark.asyncio

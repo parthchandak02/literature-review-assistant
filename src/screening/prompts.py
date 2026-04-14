@@ -9,6 +9,8 @@ def _topic_header(review: ReviewConfig, role: str, goal: str, backstory: str) ->
     keyword_block = ", ".join(review.keywords)
     domain_brief = review.domain_brief_lines()
     signal_terms = review.domain_signal_terms(limit=12)
+    anchor_terms = review.intervention_anchor_terms(limit=10)
+    related_terms = review.related_context_terms(limit=10)
     inclusion_block = "\n".join(f"  - {c}" for c in review.inclusion_criteria)
     exclusion_block = "\n".join(f"  - {c}" for c in review.exclusion_criteria)
     lines = [
@@ -22,6 +24,10 @@ def _topic_header(review: ReviewConfig, role: str, goal: str, backstory: str) ->
     ]
     if signal_terms:
         lines.append(f"Topic anchor terms: {', '.join(signal_terms)}")
+    if anchor_terms:
+        lines.append(f"Intervention anchor terms: {', '.join(anchor_terms)}")
+    if related_terms:
+        lines.append(f"Related context terms: {', '.join(related_terms)}")
     if domain_brief:
         lines.append("Domain brief:")
         lines.extend(f"  - {item}" for item in domain_brief)
@@ -108,8 +114,10 @@ def reviewer_a_prompt(review: ReviewConfig, paper: CandidatePaper, stage: str, f
             _paper_block(paper, stage, full_text),
             (
                 "Screening policy: Inclusion-emphasis reviewer. Apply mandatory data quality criteria above first. "
-                "At title/abstract stage, when intervention alignment is plausible but not explicit, use uncertain "
-                "instead of exclude so the paper can reach full-text review."
+                "Intervention anchor terms define the specific mechanism of interest; related context terms alone do not "
+                "prove intervention alignment. At title/abstract stage, use uncertain only when the abstract gives a "
+                "credible signal that an anchor-term synonym may be present in the full text. If the paper evaluates a "
+                "generic adjacent system without the intervention anchors or a clear synonym, exclude as wrong_intervention."
             ),
             _output_schema_block(),
         ]
@@ -129,8 +137,10 @@ def reviewer_b_prompt(review: ReviewConfig, paper: CandidatePaper, stage: str, f
             _paper_block(paper, stage, full_text),
             (
                 "Screening policy: Exclusion-emphasis reviewer. Apply mandatory data quality criteria above first. "
-                "When title/abstract evidence is ambiguous or intervention wording is incomplete, prefer uncertain "
-                "over exclude."
+                "Intervention anchor terms define the specific mechanism of interest; related context terms alone do not "
+                "satisfy intervention alignment. When a paper evaluates a generic adjacent system without the "
+                "intervention anchors or a clear synonym, exclude as wrong_intervention. Use uncertain only when the "
+                "abstract suggests the anchor mechanism is plausibly present but incompletely described."
             ),
             _output_schema_block(),
         ]
@@ -165,7 +175,9 @@ def adjudicator_prompt(
             (
                 "ADJUDICATION TIE-BREAK RULE: if evidence indicates secondary-review "
                 "study design, protocol-only status, or clear population mismatch, "
-                "return EXCLUDE even when topical relevance appears high."
+                "return EXCLUDE even when topical relevance appears high. Related context terms alone do not satisfy "
+                "a specific intervention requirement; if the paper evaluates only a broader adjacent system without "
+                "the intervention anchors or a clear synonym, return EXCLUDE with wrong_intervention."
             ),
             _output_schema_block(),
         ]

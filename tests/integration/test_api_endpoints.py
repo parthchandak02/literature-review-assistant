@@ -31,6 +31,7 @@ import pytest_asyncio
 from src.db.database import get_db
 from src.db.repositories import WorkflowRepository
 from src.db.workflow_registry import REGISTRY_SCHEMA
+from src.models import CandidatePaper, ExtractionRecord, PrimaryStudyStatus, ScreeningDecisionType, StudyDesign
 from src.search.pdf_retrieval import PDFRetrievalResult
 from src.web.app import _active_runs, _fetch_run_stats, _inject_csv_paths_into_yaml, _RunRecord, app
 
@@ -236,6 +237,67 @@ async def test_history_running_row_without_terminal_evidence_marked_stale(
 
 
 @pytest.mark.asyncio
+async def test_history_stale_live_run_with_terminal_evidence_repairs_terminal_status(
+    client: httpx.AsyncClient,
+    tmp_path: Path,
+) -> None:
+    run_root = tmp_path / "runs"
+    run_dir = run_root / "2026-03-10" / "wf-1002-topic" / "run_01-00-00PM"
+    db_path = run_dir / "runtime.db"
+    run_dir.mkdir(parents=True, exist_ok=True)
+    async with get_db(str(db_path)) as db:
+        await db.execute(
+            "INSERT INTO workflows (workflow_id, topic, config_hash, status) VALUES (?, ?, ?, ?)",
+            ("wf-1002", "Topic", "hash", "failed"),
+        )
+        await db.execute(
+            "INSERT INTO event_log (workflow_id, event_type, payload, ts) VALUES (?, ?, ?, ?)",
+            (
+                "wf-1002",
+                "error",
+                json.dumps({"type": "error", "msg": "gate failed", "ts": "2026-03-10T10:00:00.000Z"}),
+                "2026-03-10T10:00:00.000Z",
+            ),
+        )
+        await db.commit()
+
+    registry_path = run_root / "workflows_registry.db"
+    async with aiosqlite.connect(str(registry_path)) as reg_db:
+        await reg_db.executescript(REGISTRY_SCHEMA)
+        await reg_db.execute(
+            """
+            INSERT INTO workflows_registry
+                (workflow_id, topic, config_hash, db_path, status, created_at, updated_at, heartbeat_at)
+            VALUES (?, ?, ?, ?, ?, datetime('now','-20 minutes'), datetime('now','-20 minutes'), NULL)
+            """,
+            ("wf-1002", "Topic", "hash", str(db_path), "running"),
+        )
+        await reg_db.commit()
+
+    live = _RunRecord("run-live-stale", "Topic")
+    live.workflow_id = "wf-1002"
+    _active_runs[live.run_id] = live
+    try:
+        response = await client.get(f"/api/history?run_root={run_root}")
+        assert response.status_code == 200
+        rows = response.json()
+        row = next(r for r in rows if r["workflow_id"] == "wf-1002")
+        assert row["status"] == "failed"
+        assert row["live_run_id"] == "run-live-stale"
+    finally:
+        _active_runs.pop(live.run_id, None)
+
+    async with aiosqlite.connect(str(registry_path)) as reg_db:
+        async with reg_db.execute(
+            "SELECT status FROM workflows_registry WHERE workflow_id = ?",
+            ("wf-1002",),
+        ) as cur:
+            repaired = await cur.fetchone()
+    assert repaired is not None
+    assert repaired[0] == "failed"
+
+
+@pytest.mark.asyncio
 async def test_history_archive_restore_and_delete_flow(client: httpx.AsyncClient, tmp_path: Path) -> None:
     run_root = tmp_path / "runs"
     run_dir = run_root / "2026-03-10" / "wf-2000-topic" / "run_01-00-00PM"
@@ -352,6 +414,160 @@ async def test_db_rag_diagnostics_returns_records(client: httpx.AsyncClient, tmp
         assert rec["selected_chunks"][0]["chunk_id"] == "c1"
     finally:
         _active_runs.pop(run_id, None)
+
+
+@pytest.mark.asyncio
+async def test_run_diagnostics_includes_screening_and_extraction_breakdowns(
+    client: httpx.AsyncClient,
+    tmp_path: Path,
+) -> None:
+    run_root = tmp_path / "runs"
+    run_dir = run_root / "2026-04-13" / "wf-diag-topic" / "run_09-00-00AM"
+    db_path = run_dir / "runtime.db"
+    run_dir.mkdir(parents=True, exist_ok=True)
+
+    async with get_db(str(db_path)) as db:
+        repo = WorkflowRepository(db)
+        await repo.create_workflow("wf-diag", "Diagnostics Topic", "hash")
+        await repo.save_paper(
+            CandidatePaper(
+                paper_id="p1",
+                title="Primary paper 1",
+                authors=["A"],
+                year=2024,
+                source_database="openalex",
+            )
+        )
+        await repo.save_paper(
+            CandidatePaper(
+                paper_id="p2",
+                title="Primary paper 2",
+                authors=["B"],
+                year=2023,
+                source_database="pubmed",
+            )
+        )
+        await repo.save_dual_screening_result(
+            "wf-diag", "p1", "title_abstract", True, ScreeningDecisionType.INCLUDE, False
+        )
+        await repo.save_dual_screening_result(
+            "wf-diag", "p2", "title_abstract", False, ScreeningDecisionType.EXCLUDE, True
+        )
+        await repo.save_dual_screening_result("wf-diag", "p1", "fulltext", True, ScreeningDecisionType.INCLUDE, False)
+        await repo.save_dual_screening_result("wf-diag", "p2", "fulltext", True, ScreeningDecisionType.EXCLUDE, False)
+        await db.execute(
+            """
+            INSERT INTO screening_decisions
+                (workflow_id, paper_id, stage, decision, reviewer_type, confidence, reason, exclusion_reason)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            ("wf-diag", "p2", "fulltext", "exclude", "adjudicator", 1.0, "No full text", "no_full_text"),
+        )
+        await db.execute(
+            """
+            INSERT INTO event_log (workflow_id, event_type, payload, ts)
+            VALUES (?, ?, ?, ?)
+            """,
+            (
+                "wf-diag",
+                "screening_prefilter_done",
+                json.dumps(
+                    {
+                        "metadata_rejected": 1,
+                        "automation_excluded": 4,
+                        "to_llm": 6,
+                        "keyword_filter_excluded": 3,
+                        "keyword_fallback_applied": True,
+                        "keyword_fallback_threshold": 0.8,
+                        "empty_abstract_pool": 2,
+                        "empty_abstract_excluded": 1,
+                        "empty_abstract_rescued": 1,
+                        "reason_breakdown": {"keyword_filter": 3, "protocol_only": 1},
+                    }
+                ),
+                "2026-04-13T09:00:00.000Z",
+            ),
+        )
+        await db.execute(
+            """
+            INSERT INTO event_log (workflow_id, event_type, payload, ts)
+            VALUES (?, ?, ?, ?)
+            """,
+            (
+                "wf-diag",
+                "batch_screen_done",
+                json.dumps(
+                    {
+                        "scored": 6,
+                        "forwarded": 2,
+                        "excluded": 4,
+                        "borderline_forwarded": 1,
+                        "skipped_resume": 0,
+                        "threshold": 0.3,
+                    }
+                ),
+                "2026-04-13T09:01:00.000Z",
+            ),
+        )
+        await repo.save_screening_metric("wf-diag", "bm25_validation_forwarded", 2)
+        await repo.save_screening_metric("wf-diag", "batch_parse_degraded", 1)
+        await repo.save_screening_metric("wf-diag", "batch_id_mismatch", 1)
+        await repo.save_screening_metric("wf-diag", "batch_missing_fallback", 0)
+        await repo.save_screening_metric("wf-diag", "title_abstract_fast_path_include", 1)
+        await repo.save_screening_metric("wf-diag", "title_abstract_cross_reviewed", 1)
+        await repo.save_screening_metric("wf-diag", "fulltext_sought", 2)
+        await repo.save_screening_metric("wf-diag", "fulltext_not_retrieved", 1)
+        await repo.save_screening_metric("wf-diag", "fulltext_no_full_text_excluded", 1)
+        await repo.save_extraction_record(
+            "wf-diag",
+            ExtractionRecord(
+                paper_id="p1",
+                study_design=StudyDesign.MIXED_METHODS,
+                primary_study_status=PrimaryStudyStatus.PRIMARY,
+                participant_count=120,
+                intervention_description="Digital record rollout",
+                results_summary={"summary": "Coverage improved."},
+                extraction_source="openalex_content",
+            ),
+        )
+        await db.execute(
+            """
+            INSERT INTO gate_results (workflow_id, gate_name, phase, status, details, threshold, actual_value)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "wf-diag",
+                "extraction_completeness",
+                "phase_4_extraction_quality",
+                "failed",
+                "completeness_ratio=0.67, threshold=0.80",
+                "0.80",
+                "0.67",
+            ),
+        )
+        await db.commit()
+
+    registry_path = run_root / "workflows_registry.db"
+    async with aiosqlite.connect(str(registry_path)) as reg_db:
+        await reg_db.executescript(REGISTRY_SCHEMA)
+        await reg_db.execute(
+            """
+            INSERT INTO workflows_registry
+                (workflow_id, topic, config_hash, db_path, status, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, datetime('now'), datetime('now'))
+            """,
+            ("wf-diag", "Diagnostics Topic", "hash", str(db_path), "failed"),
+        )
+        await reg_db.commit()
+
+    response = await client.get("/api/run/wf-diag/diagnostics", params={"run_root": str(run_root)})
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["screening_diagnostics"]["prefilter"]["keyword_fallback_applied"] is True
+    assert payload["screening_diagnostics"]["dual_review"]["title_abstract"]["disagreements"] == 1
+    assert payload["screening_diagnostics"]["fulltext"]["no_full_text_excluded"] == 1
+    assert payload["extraction_diagnostics"]["included_records"] == 1
+    assert payload["extraction_diagnostics"]["gate_result"]["status"] == "failed"
 
 
 @pytest.mark.asyncio

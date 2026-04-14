@@ -78,6 +78,9 @@ screening:
   stage1_include_threshold: 0.85
   stage1_exclude_threshold: 0.8
   keyword_filter_min_matches: 0
+  # If keyword-only exclusions dominate the candidate pool, fall back to BM25-only
+  # ranking so narrow keyword lists do not silently choke recall.
+  keyword_prefilter_fallback_exclusion_ratio: 0.8
   # Deterministic pre-LLM guards.
   auto_exclude_empty_abstract: true
   secondary_review_patterns:
@@ -175,6 +178,9 @@ gates:
   search_volume_minimum: 50
   screening_minimum: 5
   sparse_topic_min: 2
+  # Allow the workflow to continue in sparse/empty-evidence mode instead of
+  # hard-failing at screening. Downstream nodes can already produce a minimal
+  # manuscript when 0 studies are ultimately eligible.
   sparse_topic_continuation: true
   extraction_completeness_threshold: 0.8
   extraction_max_empty_rate: 0.35

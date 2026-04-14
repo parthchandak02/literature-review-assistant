@@ -1467,9 +1467,12 @@ async def _resolve_effective_status(
         "live_run_id": live_run_id,
         "source": "registry",
     }
-    if live_run_id and registry_status in {"running", "awaiting_review"}:
+    live_run_active = bool(live_run_id and registry_status in {"running", "awaiting_review"})
+    if live_run_active and not _running_heartbeat_stale(row):
         diagnostics["source"] = "active_run"
         return registry_status, diagnostics
+    if live_run_active:
+        diagnostics["live_run_stale"] = True
     evidence = await _collect_terminal_evidence(str(row["db_path"]))
     diagnostics["evidence"] = evidence
     terminal = evidence.get("terminal_status")
@@ -1487,7 +1490,7 @@ async def _resolve_effective_status(
         if heartbeat_age is None or heartbeat_age > _STALE_THRESHOLD_SECONDS:
             if updated_age is None or updated_age > _STALE_THRESHOLD_SECONDS:
                 _bump_lifecycle_metric("missing_heartbeat_with_terminal_evidence")
-        if registry_status == "running":
+        if registry_status != terminal:
             try:
                 await _update_registry_status(run_root, str(row["workflow_id"]), terminal)
             except Exception:
@@ -1541,6 +1544,10 @@ async def list_history(response: Response, run_root: str = "runs") -> list[Histo
             except Exception:
                 pass
             try:
+                await db.execute("ALTER TABLE workflows_registry ADD COLUMN notes TEXT")
+            except Exception:
+                pass
+            try:
                 await db.execute(
                     "ALTER TABLE workflows_registry ADD COLUMN is_completed_hidden INTEGER NOT NULL DEFAULT 0"
                 )
@@ -1582,7 +1589,9 @@ async def list_history(response: Response, run_root: str = "runs") -> list[Histo
     # This replaces the old "exclude active runs" logic: we now include them but tag
     # them with live_run_id so the frontend can connect SSE instead of replaying DB events.
     active_run_id_by_workflow: dict[str, str] = {
-        r.workflow_id: r.run_id for r in _active_runs.values() if r.workflow_id and not r.done
+        r.workflow_id: r.run_id
+        for r in _active_runs.values()
+        if r.workflow_id and not r.done and (r.task is None or not r.task.done())
     }
 
     enriched: list[HistoryEntry] = []
@@ -4250,6 +4259,302 @@ async def get_run_readiness(run_id: str, run_root: str = "runs") -> dict[str, An
     return payload
 
 
+async def _load_phase_metric_map(
+    db: aiosqlite.Connection,
+    workflow_id: str,
+    *,
+    phase: str,
+) -> dict[str, float]:
+    metrics: dict[str, float] = {}
+    async with db.execute(
+        """
+        SELECT rationale
+        FROM decision_log
+        WHERE workflow_id = ?
+          AND decision_type = 'screening_metric'
+          AND phase = ?
+        ORDER BY id ASC
+        """,
+        (workflow_id, phase),
+    ) as cur:
+        rows = await cur.fetchall()
+    for row in rows:
+        try:
+            payload = _json.loads(str(row["rationale"] or "{}"))
+        except Exception:
+            continue
+        metric_name = payload.get("metric")
+        metric_value = payload.get("value")
+        if isinstance(metric_name, str) and isinstance(metric_value, (int, float)):
+            metrics[metric_name] = float(metric_value)
+    return metrics
+
+
+async def _load_latest_event_payload(
+    db: aiosqlite.Connection,
+    workflow_id: str,
+    event_type: str,
+) -> dict[str, Any]:
+    async with db.execute(
+        """
+        SELECT payload
+        FROM event_log
+        WHERE workflow_id = ? AND event_type = ?
+        ORDER BY id DESC
+        LIMIT 1
+        """,
+        (workflow_id, event_type),
+    ) as cur:
+        row = await cur.fetchone()
+    if not row or not row["payload"]:
+        return {}
+    try:
+        payload = _json.loads(str(row["payload"]))
+    except Exception:
+        return {}
+    return payload if isinstance(payload, dict) else {}
+
+
+async def _build_screening_diagnostics(
+    db: aiosqlite.Connection,
+    workflow_id: str,
+) -> dict[str, Any]:
+    metrics = await _load_phase_metric_map(db, workflow_id, phase="phase_3_screening")
+    prefilter_event = await _load_latest_event_payload(db, workflow_id, "screening_prefilter_done")
+    batch_event = await _load_latest_event_payload(db, workflow_id, "batch_screen_done")
+
+    stage_summary: dict[str, dict[str, int]] = {
+        "title_abstract": {"total": 0, "disagreements": 0, "adjudications": 0},
+        "fulltext": {"total": 0, "disagreements": 0, "adjudications": 0},
+    }
+    async with db.execute(
+        """
+        SELECT stage,
+               COUNT(*) AS total,
+               SUM(CASE WHEN agreement = 0 THEN 1 ELSE 0 END) AS disagreements,
+               SUM(CASE WHEN adjudication_needed = 1 THEN 1 ELSE 0 END) AS adjudications
+        FROM dual_screening_results
+        WHERE workflow_id = ?
+        GROUP BY stage
+        """,
+        (workflow_id,),
+    ) as cur:
+        rows = await cur.fetchall()
+    for row in rows:
+        stage_name = str(row["stage"] or "")
+        if stage_name not in stage_summary:
+            continue
+        stage_summary[stage_name] = {
+            "total": int(row["total"] or 0),
+            "disagreements": int(row["disagreements"] or 0),
+            "adjudications": int(row["adjudications"] or 0),
+        }
+
+    async with db.execute(
+        """
+        SELECT COUNT(*) AS count
+        FROM screening_decisions
+        WHERE workflow_id = ?
+          AND stage = 'fulltext'
+          AND exclusion_reason = ?
+        """,
+        (workflow_id, "no_full_text"),
+    ) as cur:
+        no_fulltext_row = await cur.fetchone()
+    no_fulltext_excluded = int(no_fulltext_row["count"] or 0) if no_fulltext_row else 0
+
+    fulltext_sought = int(metrics.get("fulltext_sought", stage_summary["fulltext"]["total"]))
+    fulltext_not_retrieved = int(metrics.get("fulltext_not_retrieved", no_fulltext_excluded))
+    fulltext_retrieved = max(fulltext_sought - fulltext_not_retrieved, 0)
+
+    reason_breakdown = prefilter_event.get("reason_breakdown", {})
+    if not isinstance(reason_breakdown, dict):
+        reason_breakdown = {}
+
+    return {
+        "prefilter": {
+            "metadata_rejected": int(prefilter_event.get("metadata_rejected", metrics.get("prefilter_metadata_rejected", 0))),
+            "automation_excluded": int(
+                prefilter_event.get("automation_excluded", metrics.get("prefilter_automation_excluded", 0))
+            ),
+            "to_llm": int(prefilter_event.get("to_llm", metrics.get("prefilter_to_llm", 0))),
+            "keyword_filter_excluded": int(
+                prefilter_event.get("keyword_filter_excluded", metrics.get("keyword_filter_excluded", 0))
+            ),
+            "keyword_fallback_applied": bool(
+                prefilter_event.get("keyword_fallback_applied", metrics.get("keyword_fallback_applied", 0))
+            ),
+            "keyword_fallback_threshold": float(prefilter_event.get("keyword_fallback_threshold", 0.0) or 0.0),
+            "empty_abstract_pool": int(prefilter_event.get("empty_abstract_pool", metrics.get("empty_abstract_pool", 0))),
+            "empty_abstract_excluded": int(
+                prefilter_event.get("empty_abstract_excluded", metrics.get("empty_abstract_excluded", 0))
+            ),
+            "empty_abstract_rescued": int(
+                prefilter_event.get("empty_abstract_rescued", metrics.get("empty_abstract_rescued", 0))
+            ),
+            "reason_breakdown": {str(k): int(v) for k, v in reason_breakdown.items() if isinstance(v, (int, float))},
+        },
+        "batch_ranker": {
+            "scored": int(batch_event.get("scored", 0)),
+            "forwarded": int(batch_event.get("forwarded", 0)),
+            "excluded": int(batch_event.get("excluded", 0)),
+            "borderline_forwarded": int(
+                batch_event.get("borderline_forwarded", metrics.get("batch_borderline_forwarded", 0))
+            ),
+            "skipped_resume": int(batch_event.get("skipped_resume", 0)),
+            "threshold": float(batch_event.get("threshold", 0.0) or 0.0),
+            "validation_forwarded": int(metrics.get("bm25_validation_forwarded", 0)),
+            "parse_degraded": int(metrics.get("batch_parse_degraded", 0)),
+            "id_mismatch": int(metrics.get("batch_id_mismatch", 0)),
+            "missing_fallback": int(metrics.get("batch_missing_fallback", 0)),
+            "contract_violation_count": int(metrics.get("contract_violation_count", 0)),
+        },
+        "dual_review": {
+            "fast_path_include": int(metrics.get("title_abstract_fast_path_include", 0)),
+            "fast_path_exclude": int(metrics.get("title_abstract_fast_path_exclude", 0)),
+            "cross_reviewed": int(metrics.get("title_abstract_cross_reviewed", 0)),
+            "title_abstract": stage_summary["title_abstract"],
+            "fulltext": stage_summary["fulltext"],
+        },
+        "fulltext": {
+            "sought": fulltext_sought,
+            "retrieved": fulltext_retrieved,
+            "not_retrieved": fulltext_not_retrieved,
+            "no_full_text_excluded": int(metrics.get("fulltext_no_full_text_excluded", no_fulltext_excluded)),
+        },
+    }
+
+
+async def _build_extraction_diagnostics(
+    repo: Any,
+    db: aiosqlite.Connection,
+    workflow_id: str,
+    db_path: str,
+) -> dict[str, Any]:
+    from src.orchestration.workflow import (
+        _ABSTRACT_ONLY_EXTRACTION_SOURCES,
+        _compute_extraction_quality_metrics,
+        _load_fulltext_artifact_paper_ids,
+    )
+    from src.writing.context_builder import sanitize_summary_text_for_writing
+
+    records = await repo.load_extraction_records(workflow_id)
+    included_ids = await repo.get_included_paper_ids(workflow_id)
+    included_papers = await repo.load_papers_by_ids(included_ids) if included_ids else []
+    fulltext_paper_ids = _load_fulltext_artifact_paper_ids(
+        {"papers_manifest": str(pathlib.Path(db_path).parent / "data_papers_manifest.json")},
+        db_path,
+    )
+    relevant_ids = {paper.paper_id for paper in included_papers if paper.paper_id}
+    relevant_records = [record for record in records if record.paper_id in relevant_ids] if relevant_ids else records
+    if not relevant_records:
+        return {
+            "included_records": 0,
+            "summary_backed_count": 0,
+            "participant_detail_count": 0,
+            "fulltext_backed_count": 0,
+            "abstract_only_count": 0,
+            "weak_evidence_count": 0,
+            "completeness_ratio": 0.0,
+            "weak_evidence_rate": 0.0,
+            "metric_details": "included_records=0",
+            "gate_result": None,
+        }
+
+    completeness_ratio, weak_evidence_rate, metric_details = _compute_extraction_quality_metrics(
+        records,
+        included_papers,
+        fulltext_paper_ids=fulltext_paper_ids,
+    )
+    summary_backed_count = 0
+    participant_detail_count = 0
+    fulltext_backed_count = 0
+    weak_evidence_count = 0
+    for record in relevant_records:
+        summary_text = sanitize_summary_text_for_writing((record.results_summary or {}).get("summary", ""))
+        has_summary = summary_text != "NR"
+        has_participants = bool(record.participant_count and record.participant_count > 0)
+        if fulltext_paper_ids:
+            has_fulltext = record.paper_id in fulltext_paper_ids
+        else:
+            has_fulltext = (record.extraction_source or "text") not in _ABSTRACT_ONLY_EXTRACTION_SOURCES
+        summary_backed_count += int(has_summary)
+        participant_detail_count += int(has_participants)
+        fulltext_backed_count += int(has_fulltext)
+        if not (has_summary and has_participants and has_fulltext):
+            weak_evidence_count += 1
+
+    async with db.execute(
+        """
+        SELECT status, details, threshold, actual_value
+        FROM gate_results
+        WHERE workflow_id = ?
+          AND phase = 'phase_4_extraction_quality'
+          AND gate_name = 'extraction_completeness'
+        ORDER BY id DESC
+        LIMIT 1
+        """,
+        (workflow_id,),
+    ) as cur:
+        gate_row = await cur.fetchone()
+
+    gate_result = None
+    if gate_row:
+        gate_result = {
+            "status": str(gate_row["status"] or ""),
+            "details": str(gate_row["details"] or ""),
+            "threshold": str(gate_row["threshold"] or ""),
+            "actual_value": str(gate_row["actual_value"] or ""),
+        }
+
+    if gate_result:
+        parsed: dict[str, float] = {}
+        for part in str(gate_result["details"]).split(","):
+            key, sep, value = part.strip().partition("=")
+            if not sep:
+                continue
+            try:
+                parsed[key.strip()] = float(value.strip())
+            except ValueError:
+                continue
+        actual_parts: dict[str, float] = {}
+        for part in str(gate_result["actual_value"]).split(","):
+            key, sep, value = part.strip().partition("=")
+            if not sep:
+                continue
+            try:
+                actual_parts[key.strip()] = float(value.strip())
+            except ValueError:
+                continue
+        included_from_gate = int(round(parsed.get("included_records", float(len(relevant_records)))))
+        summary_ratio = float(parsed.get("summary_ratio", 0.0))
+        participant_ratio = float(parsed.get("participant_ratio", 0.0))
+        fulltext_ratio = float(parsed.get("fulltext_ratio", 0.0))
+        completeness_ratio = float(actual_parts.get("completeness", completeness_ratio))
+        weak_evidence_rate = float(actual_parts.get("weak", weak_evidence_rate))
+        summary_backed_count = int(round(included_from_gate * summary_ratio))
+        participant_detail_count = int(round(included_from_gate * participant_ratio))
+        fulltext_backed_count = int(round(included_from_gate * fulltext_ratio))
+        weak_evidence_count = int(round(included_from_gate * weak_evidence_rate))
+        relevant_record_count = included_from_gate
+        metric_details = str(gate_result["details"])
+    else:
+        relevant_record_count = len(relevant_records)
+
+    return {
+        "included_records": relevant_record_count,
+        "summary_backed_count": summary_backed_count,
+        "participant_detail_count": participant_detail_count,
+        "fulltext_backed_count": fulltext_backed_count,
+        "abstract_only_count": max(relevant_record_count - fulltext_backed_count, 0),
+        "weak_evidence_count": weak_evidence_count,
+        "completeness_ratio": round(completeness_ratio, 4),
+        "weak_evidence_rate": round(weak_evidence_rate, 4),
+        "metric_details": metric_details,
+        "gate_result": gate_result,
+    }
+
+
 @app.get("/api/run/{run_id}/diagnostics")
 async def get_run_diagnostics(run_id: str, run_root: str = "runs") -> dict[str, Any]:
     """Return step-journal diagnostics for a workflow run.
@@ -4283,6 +4588,8 @@ async def get_run_diagnostics(run_id: str, run_root: str = "runs") -> dict[str, 
         fallback_summary = await repo.get_fallback_event_summary(workflow_id)
         writing_manifests = await repo.get_writing_manifests(workflow_id)
         latest_audit = await repo.get_latest_manuscript_audit(workflow_id)
+        screening_diagnostics = await _build_screening_diagnostics(db, workflow_id)
+        extraction_diagnostics = await _build_extraction_diagnostics(repo, db, workflow_id, db_path)
     return {
         "workflow_id": workflow_id,
         "step_summary": step_summary,
@@ -4290,6 +4597,8 @@ async def get_run_diagnostics(run_id: str, run_root: str = "runs") -> dict[str, 
         "running_steps": running_steps,
         "fallback_count": fallback_count,
         "fallback_summary": fallback_summary,
+        "screening_diagnostics": screening_diagnostics,
+        "extraction_diagnostics": extraction_diagnostics,
         "writing_manifests": [m.model_dump(mode="json") for m in writing_manifests],
         "audit_summary": _format_manuscript_audit_summary(latest_audit),
     }

@@ -121,6 +121,8 @@ class WorkflowStepRecord(BaseModel):
     so the DB becomes the control plane for resume, retry, and diagnostics.
     """
 
+    model_config = {"validate_assignment": True}
+
     step_id: str
     workflow_id: str
     phase: str

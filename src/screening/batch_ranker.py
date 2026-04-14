@@ -68,7 +68,14 @@ Target intervention: {intervention}
 Target outcome: {outcome}
 Keywords: {keywords}
 Topic anchor terms: {expert_terms}
+Intervention anchor terms: {anchor_terms}
+Related context terms: {related_terms}
 Out-of-scope signals: {excluded_terms}
+
+Scoring guidance:
+- Intervention anchor terms define the specific mechanism of interest.
+- Related context terms are supportive context only and do NOT by themselves establish intervention alignment.
+- Score <= 0.35 when a paper evaluates only a broader adjacent digital system, registry, workflow tool, or policy without the intervention anchors or a clear synonym.
 
 Rate each paper below on relevance to this research question.
 Return a JSON array with one entry per paper (same count as input papers).
@@ -162,6 +169,8 @@ class BatchLLMRanker:
         outcome: str = "",
         keywords: list[str] | None = None,
         expert_terms: list[str] | None = None,
+        anchor_terms: list[str] | None = None,
+        related_terms: list[str] | None = None,
         excluded_terms: list[str] | None = None,
         client: BatchRankerClient | None = None,
         on_status: Callable[[str], None] | None = None,
@@ -177,6 +186,8 @@ class BatchLLMRanker:
         self._outcome = outcome
         self._keywords = list(keywords or [])
         self._expert_terms = list(expert_terms or [])
+        self._anchor_terms = list(anchor_terms or [])
+        self._related_terms = list(related_terms or [])
         self._excluded_terms = list(excluded_terms or [])
         self._client: BatchRankerClient = client or PydanticAIBatchRankerClient()
         self.on_status = on_status
@@ -206,6 +217,8 @@ class BatchLLMRanker:
                 outcome=self._outcome,
                 keywords=", ".join(self._keywords),
                 expert_terms=", ".join(self._expert_terms),
+                anchor_terms=", ".join(self._anchor_terms),
+                related_terms=", ".join(self._related_terms),
                 excluded_terms=", ".join(self._excluded_terms) or "none",
                 paper_list=paper_list,
             )

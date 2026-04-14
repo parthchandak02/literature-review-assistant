@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+
 import pytest
 
 from src.db.database import get_db
@@ -14,6 +16,15 @@ from src.models import (
     StudyDesign,
 )
 from src.screening.dual_screener import DualReviewerScreener
+
+
+class _ScriptedExtractionClient:
+    def __init__(self, payload: dict[str, object]) -> None:
+        self._payload = payload
+
+    async def complete(self, prompt: str, *, model: str, temperature: float, json_schema: dict | None = None) -> str:
+        _ = (prompt, model, temperature, json_schema)
+        return json.dumps(self._payload)
 
 
 def _review() -> ReviewConfig:
@@ -43,6 +54,7 @@ def _settings() -> SettingsConfig:
             "screening_reviewer_a": {"model": "google-gla:gemini-2.5-flash-lite", "temperature": 0.1},
             "screening_reviewer_b": {"model": "google-gla:gemini-2.5-flash-lite", "temperature": 0.3},
             "screening_adjudicator": {"model": "google-gla:gemini-2.5-pro", "temperature": 0.2},
+            "extraction": {"model": "google-gla:gemini-2.5-flash", "temperature": 0.1},
             "quality_assessment": {"model": "google-gla:gemini-2.5-pro", "temperature": 0.1},
         }
     )
@@ -84,6 +96,97 @@ async def test_extraction_pipeline_persists_typed_record(tmp_path) -> None:
         assert str(row[0]) == StudyDesign.RCT.value
         assert str(row[1]) == "primary"
         assert '"source"' in str(row[2])
+
+
+@pytest.mark.asyncio
+async def test_llm_extraction_salvages_participant_count_from_demographics(tmp_path) -> None:
+    async with get_db(str(tmp_path / "extraction_salvage.db")) as db:
+        repo = WorkflowRepository(db)
+        await repo.create_workflow("wf-extract-salvage", "topic", "hash")
+        paper = CandidatePaper(
+            title="Kenya digital registry usability study",
+            authors=["A Author"],
+            source_database="pubmed",
+            abstract="The study interviewed 19 health care workers across 12 facilities.",
+        )
+        await repo.save_paper(paper)
+        extractor = ExtractionService(
+            repository=repo,
+            llm_client=_ScriptedExtractionClient(
+                {
+                    "study_duration": "6 months",
+                    "setting": "rural facilities",
+                    "participant_count": "not reported",
+                    "country": "Kenya",
+                    "participant_demographics": "19 health care workers across 12 facilities",
+                    "intervention_description": "tablet registry",
+                    "comparator_description": "paper workflow",
+                    "outcomes": [{"name": "usability", "description": "workflow usability"}],
+                    "results_summary": "The study involved 19 health care workers and reported improved usability.",
+                    "funding_source": "not reported",
+                    "conflicts_of_interest": "none declared",
+                }
+            ),
+            settings=_settings(),
+            review=_review(),
+        )
+
+        record = await extractor.extract(
+            workflow_id="wf-extract-salvage",
+            paper=paper,
+            study_design=StudyDesign.QUALITATIVE,
+            full_text="Methods: We interviewed 19 health care workers across 12 facilities.",
+        )
+
+        assert record.participant_count == 19
+        assert record.results_summary["source"] == "llm"
+
+
+@pytest.mark.asyncio
+async def test_llm_extraction_replaces_placeholder_summary_with_abstract(tmp_path) -> None:
+    async with get_db(str(tmp_path / "extraction_summary_fallback.db")) as db:
+        repo = WorkflowRepository(db)
+        await repo.create_workflow("wf-extract-summary", "topic", "hash")
+        paper = CandidatePaper(
+            title="Vietnam digital registry readiness study",
+            authors=["A Author"],
+            source_database="pubmed",
+            abstract=(
+                "This readiness assessment found that the digital immunization registry reduced planning time "
+                "and improved reporting accuracy across participating facilities."
+            ),
+        )
+        await repo.save_paper(paper)
+        extractor = ExtractionService(
+            repository=repo,
+            llm_client=_ScriptedExtractionClient(
+                {
+                    "study_duration": "12 months",
+                    "setting": "provincial immunization facilities",
+                    "participant_count": "not reported",
+                    "country": "Vietnam",
+                    "participant_demographics": "health facility staff",
+                    "intervention_description": "digital immunization registry",
+                    "comparator_description": "paper workflow",
+                    "outcomes": [{"name": "readiness", "description": "transition readiness"}],
+                    "results_summary": "not reported in the provided text",
+                    "funding_source": "not reported",
+                    "conflicts_of_interest": "none declared",
+                }
+            ),
+            settings=_settings(),
+            review=_review(),
+        )
+
+        record = await extractor.extract(
+            workflow_id="wf-extract-summary",
+            paper=paper,
+            study_design=StudyDesign.MIXED_METHODS,
+            full_text="Journal header text that does not contain a usable findings summary.",
+        )
+
+        assert "reduced planning time" in record.results_summary["summary"]
+        assert record.results_summary["source"] == "llm"
 
 
 @pytest.mark.asyncio
