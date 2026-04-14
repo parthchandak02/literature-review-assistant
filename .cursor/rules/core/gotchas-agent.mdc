@@ -750,6 +750,25 @@ endpoint reports `ready: false` with `finalize_checkpoint: missing` even when al
 artifacts are present. This was the root cause of `ready: false` on otherwise-complete
 runs (wf-0051, wf-0053) before the fix was applied.
 
+## Step Journal Enum Values Must Be Real Enum Members
+`_journal_step_complete()` in `src/orchestration/workflow.py` validates all enum parameters
+(`StepStatus`, `FailureCategory`, `RecoveryAction`) at call time and raises `ValueError`
+with a list of valid values if an invalid argument is passed. This was added after
+`FailureCategory.GATE_FAILURE` and `RecoveryAction.STOP` (non-existent members) caused
+a runtime crash in the extraction gate failure path -- a rare code path with no test coverage.
+Three layers now prevent recurrence:
+1. `WorkflowStepRecord` uses `model_config = {"validate_assignment": True}` so Pydantic
+   rejects invalid enum values at the point of assignment.
+2. `_journal_step_complete()` validates `isinstance` checks before writing to DB.
+3. `test_workflow_module_uses_only_valid_enum_members` in `tests/unit/test_control_plane.py`
+   AST-parses `workflow.py` and verifies every `FailureCategory.X`, `RecoveryAction.X`, and
+   `StepStatus.X` reference uses a real member name at test time.
+When adding new failure paths, use only members from `src/models/enums.py`:
+- `FailureCategory`: TRANSIENT, REPAIRABLE, REWINDABLE, USER_ACTION_REQUIRED, TERMINAL
+- `RecoveryAction`: RETRY, REWIND, SKIP, USER_ACTION, ABORT
+The silent `except Exception: pass` blocks around journal writes were replaced with
+`_log.warning(...)` so journaling failures are always visible in logs.
+
 ## Control-Plane Step Journal and Recovery Policies
 `workflow_steps`, `recovery_policies`, and `writing_manifests` tables hold step-level
 execution history, retry/rewind accounting, and per-section writing provenance. The
