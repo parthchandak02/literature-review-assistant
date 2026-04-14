@@ -10,7 +10,7 @@ import pytest
 from src.db.database import get_db
 from src.db.repositories import WorkflowRepository
 from src.db.workflow_registry import RegistryEntry
-from src.models import CandidatePaper, FallbackEventRecord, SectionDraft
+from src.models import CandidatePaper, ExtractionRecord, FallbackEventRecord, PrimaryStudyStatus, SectionDraft, StudyDesign
 from src.models.enums import ScreeningDecisionType, SourceCategory
 from src.orchestration import workflow as workflow_module
 from src.orchestration.resume import PHASE_ORDER, load_resume_state
@@ -226,6 +226,82 @@ async def test_load_resume_state_from_search_clears_downstream_phase_data(tmp_pa
     assert int(search_count[0]) == 0
     assert int(screening_count[0]) == 0
     assert int(paper_count[0]) == 0
+
+
+@pytest.mark.asyncio
+async def test_load_resume_state_from_screening_clears_screening_and_extraction_state(tmp_path) -> None:
+    run_dir = tmp_path / "2026-02-16" / "topic" / "run_01-00-00PM"
+    run_dir.mkdir(parents=True, exist_ok=True)
+    db_path = run_dir / "runtime.db"
+    async with get_db(str(db_path)) as db:
+        await db.executescript(Path("src/db/schema.sql").read_text())
+        await db.commit()
+        repo = WorkflowRepository(db)
+        await repo.create_workflow("wf-from-screening", "Test topic", "abc123")
+        await repo.save_checkpoint("wf-from-screening", "phase_2_search", papers_processed=2)
+        await repo.save_checkpoint("wf-from-screening", "phase_3_screening", papers_processed=1)
+        await repo.save_checkpoint("wf-from-screening", "phase_4_extraction_quality", papers_processed=1)
+        await repo.save_paper(
+            CandidatePaper(
+                paper_id="p1",
+                title="Paper 1",
+                authors=["A"],
+                source_database="openalex",
+                source_category=SourceCategory.DATABASE,
+            )
+        )
+        await db.execute(
+            """
+            INSERT INTO screening_decisions
+            (workflow_id, paper_id, stage, decision, reviewer_type, confidence)
+            VALUES ('wf-from-screening', 'p1', 'fulltext', 'include', 'reviewer_a', 0.9)
+            """
+        )
+        await repo.save_dual_screening_result(
+            "wf-from-screening",
+            "p1",
+            "fulltext",
+            True,
+            ScreeningDecisionType.INCLUDE,
+            False,
+        )
+        await repo.save_extraction_record(
+            "wf-from-screening",
+            ExtractionRecord(
+                paper_id="p1",
+                study_design=StudyDesign.MIXED_METHODS,
+                primary_study_status=PrimaryStudyStatus.PRIMARY,
+                participant_count=20,
+                intervention_description="Intervention",
+                results_summary={"summary": "Improved coverage."},
+                extraction_source="openalex_content",
+            ),
+        )
+        await db.commit()
+
+    _, next_phase = await load_resume_state(
+        db_path=str(db_path),
+        workflow_id="wf-from-screening",
+        review_path="config/review.yaml",
+        settings_path="config/settings.yaml",
+        run_root=str(tmp_path),
+        from_phase="phase_3_screening",
+    )
+    assert next_phase == "phase_3_screening"
+
+    async with get_db(str(db_path)) as db:
+        screening_count = await (
+            await db.execute("SELECT COUNT(*) FROM screening_decisions WHERE workflow_id = ?", ("wf-from-screening",))
+        ).fetchone()
+        dual_count = await (
+            await db.execute("SELECT COUNT(*) FROM dual_screening_results WHERE workflow_id = ?", ("wf-from-screening",))
+        ).fetchone()
+        extraction_count = await (
+            await db.execute("SELECT COUNT(*) FROM extraction_records WHERE workflow_id = ?", ("wf-from-screening",))
+        ).fetchone()
+    assert int(screening_count[0]) == 0
+    assert int(dual_count[0]) == 0
+    assert int(extraction_count[0]) == 0
 
 
 @pytest.mark.asyncio

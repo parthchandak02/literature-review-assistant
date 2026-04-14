@@ -106,6 +106,33 @@ _SCOPE_GENERIC_TOKENS = frozenset(
     }
 )
 
+_COUNT_CONTEXT_PATTERNS = (
+    re.compile(r"\bn\s*[:=]\s*(\d[\d,]{0,8})\b", flags=re.IGNORECASE),
+    re.compile(
+        r"\b(\d[\d,]{0,8})\s+"
+        r"(?:participants?|patients?|children|caregivers?|parents?|students?|workers?|"
+        r"health care workers|healthcare workers|vaccinators?|informants?|users?|"
+        r"subjects?|respondents?|records?|encounters?|procedures?|visits?|facilities|"
+        r"cent(?:er|re)s?|clinics?|sites?)\b",
+        flags=re.IGNORECASE,
+    ),
+    re.compile(
+        r"\((\d[\d,]{0,8})/(\d[\d,]{0,8})\)\s+of\s+"
+        r"(?:participants?|patients?|children|students?|workers?|vaccinators?|users?|"
+        r"records?|facilities|cent(?:er|re)s?|clinics?|sites?)\b",
+        flags=re.IGNORECASE,
+    ),
+)
+
+_PLACEHOLDER_SUMMARY_PATTERNS = (
+    re.compile(r"^\s*not reported(?:\s+in\s+the\s+provided\s+text)?\.?\s*$", flags=re.IGNORECASE),
+    re.compile(r"^\s*no summary available\.?\s*$", flags=re.IGNORECASE),
+    re.compile(
+        r"^\s*the provided text excerpt does not contain a summary of the study'?s results or findings\.?\s*$",
+        flags=re.IGNORECASE,
+    ),
+)
+
 
 def _clean_results_summary_text(text: str) -> str:
     """Remove DOI/boilerplate fragments from extracted free-text summaries."""
@@ -121,6 +148,13 @@ def _clean_results_summary_text(text: str) -> str:
     cleaned = re.sub(r"\s+\.", ".", cleaned)
     cleaned = re.sub(r"\n{3,}", "\n\n", cleaned)
     return cleaned.strip()
+
+
+def _is_placeholder_summary_text(text: str) -> bool:
+    cleaned = (text or "").strip()
+    if not cleaned:
+        return True
+    return any(pattern.match(cleaned) for pattern in _PLACEHOLDER_SUMMARY_PATTERNS)
 
 
 def _scope_anchor_terms(review: ReviewConfig | None) -> tuple[list[str], list[str]]:
@@ -170,6 +204,50 @@ def detect_scope_mismatch(record: ExtractionRecord, review: ReviewConfig | None)
         return False, None
     matched = matched_phrases[:2] or matched_tokens[:3]
     return True, ", ".join(matched)
+
+
+def _coerce_int_token(token: str) -> int | None:
+    cleaned = (token or "").strip().replace(",", "")
+    if not cleaned.isdigit():
+        return None
+    value = int(cleaned)
+    if value <= 0:
+        return None
+    return value
+
+
+def _infer_participant_count(
+    raw_count: str,
+    participant_demographics: str,
+    results_summary: str,
+    paper: CandidatePaper,
+    text: str,
+) -> int | None:
+    direct = _coerce_int_token(raw_count)
+    if direct is not None:
+        return direct
+
+    candidate_blocks = [
+        participant_demographics,
+        results_summary,
+        paper.abstract or "",
+        text,
+    ]
+    for block in candidate_blocks:
+        sample = re.sub(r"\s+", " ", str(block or "")).strip()
+        if not sample:
+            continue
+        for pattern in _COUNT_CONTEXT_PATTERNS:
+            match = pattern.search(sample)
+            if not match:
+                continue
+            if len(match.groups()) == 1:
+                value = _coerce_int_token(match.group(1))
+            else:
+                value = _coerce_int_token(match.group(2))
+            if value is not None:
+                return value
+    return None
 
 
 def _is_low_quality_extraction(text: str) -> bool:
@@ -388,12 +466,12 @@ class ExtractionService:
 
     @staticmethod
     def _heuristic_summary(paper: CandidatePaper, full_text: str) -> str:
-        text = full_text.strip()
-        if text:
-            return text[:1200]
         abstract = (paper.abstract or "").strip()
         if abstract:
             return abstract[:1200]
+        text = full_text.strip()
+        if text:
+            return text[:1200]
         return "No summary available."
 
     def _heuristic_outcomes(self) -> list[OutcomeRecord]:
@@ -507,21 +585,20 @@ class ExtractionService:
         if not outcomes:
             outcomes = self._heuristic_outcomes()
 
-        participant_count: int | None = None
-        raw_count = (parsed.participant_count or "").strip()
-        if raw_count:
-            m = re.search(r"\d+", raw_count)
-            if m:
-                participant_count = int(m.group())
-
         # Guard against OCR artifact text in key fields. If the extracted
         # results_summary looks like garbled OCR or a raw PDF header, fall back
         # to the heuristic summary derived from the abstract.
-        results_summary_text = parsed.results_summary or ""
-        if _is_low_quality_extraction(results_summary_text):
+        results_summary_text = _clean_results_summary_text(parsed.results_summary or "")
+        if _is_low_quality_extraction(results_summary_text) or _is_placeholder_summary_text(results_summary_text):
             results_summary_text = self._heuristic_summary(paper, text)
-        else:
-            results_summary_text = _clean_results_summary_text(results_summary_text)
+
+        participant_count = _infer_participant_count(
+            raw_count=(parsed.participant_count or "").strip(),
+            participant_demographics=parsed.participant_demographics or "",
+            results_summary=results_summary_text,
+            paper=paper,
+            text=text,
+        )
 
         # Country is a new field extracted by the improved prompt. Read it from
         # the parsed output if present; default to paper metadata if absent.

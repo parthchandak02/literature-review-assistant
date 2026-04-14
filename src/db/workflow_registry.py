@@ -8,12 +8,15 @@ from __future__ import annotations
 
 import json
 import os
+import logging
 from collections.abc import AsyncIterator, Sequence
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from pathlib import Path
 
 import aiosqlite
+
+_logger = logging.getLogger(__name__)
 
 REGISTRY_SCHEMA = """
 CREATE TABLE IF NOT EXISTS workflows_registry (
@@ -303,12 +306,22 @@ async def find_by_topic(
     return entries
 
 
-async def update_status(run_root: str, workflow_id: str, status: str) -> None:
-    """Update workflow status in registry."""
+async def update_status(run_root: str, workflow_id: str, status: str) -> bool:
+    """Update workflow status in registry.
+
+    Returns True when an existing registry row was updated.
+    """
     path = _registry_path(run_root)
     if not os.path.isfile(path):
-        return
+        _logger.warning(
+            "Workflow registry missing; cannot project status %s for %s under %s",
+            status,
+            workflow_id,
+            run_root,
+        )
+        return False
     async with _open_registry(path) as db:
+        before = db.total_changes
         await db.execute(
             """
             UPDATE workflows_registry SET status = ?, updated_at = datetime('now')
@@ -317,6 +330,16 @@ async def update_status(run_root: str, workflow_id: str, status: str) -> None:
             (status, workflow_id),
         )
         await db.commit()
+        updated = db.total_changes - before
+    if updated <= 0:
+        _logger.warning(
+            "Workflow registry row missing; cannot project status %s for %s under %s",
+            status,
+            workflow_id,
+            run_root,
+        )
+        return False
+    return True
 
 
 async def update_notes(run_root: str, workflow_id: str, notes: str) -> None:
@@ -334,7 +357,7 @@ async def update_notes(run_root: str, workflow_id: str, notes: str) -> None:
         await db.commit()
 
 
-async def update_heartbeat(run_root: str, workflow_id: str) -> None:
+async def update_heartbeat(run_root: str, workflow_id: str) -> bool:
     """Stamp heartbeat_at with the current UTC time for a running workflow.
 
     Called every 60 seconds by a background asyncio task so that the /api/history
@@ -342,13 +365,28 @@ async def update_heartbeat(run_root: str, workflow_id: str) -> None:
     """
     path = _registry_path(run_root)
     if not os.path.isfile(path):
-        return
+        _logger.warning(
+            "Workflow registry missing; cannot update heartbeat for %s under %s",
+            workflow_id,
+            run_root,
+        )
+        return False
     async with _open_registry(path) as db:
+        before = db.total_changes
         await db.execute(
             "UPDATE workflows_registry SET heartbeat_at = datetime('now') WHERE workflow_id = ?",
             (workflow_id,),
         )
         await db.commit()
+        updated = db.total_changes - before
+    if updated <= 0:
+        _logger.warning(
+            "Workflow registry row missing; cannot update heartbeat for %s under %s",
+            workflow_id,
+            run_root,
+        )
+        return False
+    return True
 
 
 async def archive_workflow(run_root: str, workflow_id: str) -> None:

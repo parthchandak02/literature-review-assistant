@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest"
 import {
+  isTerminalHistoricalStatus,
   isSameRunSelection,
   shouldFallbackToWorkflowEvents,
   shouldUsePrefetchedHistorical,
@@ -23,5 +24,12 @@ describe("runSelection guards", () => {
     expect(shouldUsePrefetchedHistorical(null)).toBe(false)
     expect(shouldUsePrefetchedHistorical([])).toBe(false)
     expect(shouldUsePrefetchedHistorical([{ type: "phase_start" }])).toBe(true)
+  })
+
+  it("treats failed historical rows as terminal", () => {
+    expect(isTerminalHistoricalStatus("failed")).toBe(true)
+    expect(isTerminalHistoricalStatus("error")).toBe(true)
+    expect(isTerminalHistoricalStatus("completed")).toBe(true)
+    expect(isTerminalHistoricalStatus("running")).toBe(false)
   })
 })

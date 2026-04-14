@@ -44,3 +44,27 @@ def test_compute_extraction_quality_metrics_flags_weak_evidence() -> None:
     assert "summary_ratio=0.50" in details
     assert "participant_ratio=0.50" in details
     assert "fulltext_ratio=0.50" in details
+
+
+def test_compute_extraction_quality_metrics_counts_participant_demographics() -> None:
+    records = [
+        ExtractionRecord(
+            paper_id="p1",
+            study_design=StudyDesign.QUALITATIVE,
+            primary_study_status=PrimaryStudyStatus.PRIMARY,
+            participant_count=None,
+            participant_demographics="Vaccinators and key informants across rural clinics",
+            intervention_description="Mobile tracking app",
+            results_summary={"summary": "Interviewees reported the app improved workflow visibility."},
+            extraction_source="openalex_content",
+        )
+    ]
+
+    completeness_ratio, weak_evidence_rate, details = _compute_extraction_quality_metrics(
+        records,
+        [_paper("p1")],
+    )
+
+    assert completeness_ratio == 1.0
+    assert weak_evidence_rate == 0.0
+    assert "participant_ratio=1.00" in details

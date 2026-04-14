@@ -156,6 +156,22 @@ class DualReviewerScreener:
         self.batch_missing_fallback_count: int = 0
         self.contract_violation_count: int = 0
 
+    def _has_intervention_anchor_match(self, paper: CandidatePaper, full_text: str | None = None) -> bool:
+        text_parts = [
+            paper.title or "",
+            paper.abstract or "",
+            full_text or "",
+        ]
+        haystack = " ".join(part for part in text_parts if part).lower()
+        if not haystack.strip():
+            return False
+        anchor_terms = self.review.intervention_anchor_terms(limit=10)
+        for raw in anchor_terms:
+            phrase = raw.strip().lower()
+            if phrase and phrase in haystack:
+                return True
+        return False
+
     async def screen_title_abstract(self, workflow_id: str, paper: CandidatePaper) -> ScreeningDecision:
         result = await self._screen_one(
             workflow_id=workflow_id,
@@ -682,7 +698,12 @@ class DualReviewerScreener:
         if stage == "fulltext":
             fast_path = False
         else:
-            include_fast_path = reviewer_a.confidence >= include_thresh and reviewer_a.decision == ScreeningDecisionType.INCLUDE
+            anchor_matched = self._has_intervention_anchor_match(paper, full_text)
+            include_fast_path = (
+                anchor_matched
+                and reviewer_a.confidence >= include_thresh
+                and reviewer_a.decision == ScreeningDecisionType.INCLUDE
+            )
             exclude_fast_path = reviewer_a.confidence >= exclude_thresh and reviewer_a.decision == ScreeningDecisionType.EXCLUDE
             require_dual_for_exclude = getattr(self.settings.screening, "exclude_fast_path_requires_dual", False)
             fast_path = include_fast_path or (exclude_fast_path and not require_dual_for_exclude)
@@ -1386,7 +1407,12 @@ class DualReviewerScreener:
             if stage == "fulltext":
                 is_fast = False
             else:
-                include_fast = a.confidence >= include_thresh and a.decision == ScreeningDecisionType.INCLUDE
+                anchor_matched = self._has_intervention_anchor_match(paper, ft.get(paper.paper_id))
+                include_fast = (
+                    anchor_matched
+                    and a.confidence >= include_thresh
+                    and a.decision == ScreeningDecisionType.INCLUDE
+                )
                 exclude_fast = a.confidence >= exclude_thresh and a.decision == ScreeningDecisionType.EXCLUDE
                 is_fast = include_fast or (exclude_fast and not require_dual_for_exclude)
             if is_fast:

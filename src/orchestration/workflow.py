@@ -310,7 +310,27 @@ async def _journal_step_complete(
     failure_category: FailureCategory | None = None,
     recovery_action: RecoveryAction | None = None,
 ) -> None:
-    """Update a step record with completion status."""
+    """Update a step record with completion status.
+
+    Validates all enum-typed arguments eagerly so typos like
+    ``FailureCategory.GATE_FAILURE`` are caught immediately with a clear
+    message instead of silently corrupting control-plane state.
+    """
+    if not isinstance(status, StepStatus):
+        raise ValueError(
+            f"Invalid StepStatus '{status}'. "
+            f"Valid values: {[m.value for m in StepStatus]}"
+        )
+    if failure_category is not None and not isinstance(failure_category, FailureCategory):
+        raise ValueError(
+            f"Invalid FailureCategory '{failure_category}'. "
+            f"Valid values: {[m.value for m in FailureCategory]}"
+        )
+    if recovery_action is not None and not isinstance(recovery_action, RecoveryAction):
+        raise ValueError(
+            f"Invalid RecoveryAction '{recovery_action}'. "
+            f"Valid values: {[m.value for m in RecoveryAction]}"
+        )
     now = datetime.now(UTC)
     record.status = status
     record.error_message = error_message
@@ -322,7 +342,7 @@ async def _journal_step_complete(
     try:
         await repo.save_workflow_step(record)
     except Exception:
-        _log.debug("step journal complete failed for %s", record.step_id, exc_info=True)
+        _log.warning("step journal complete failed for %s", record.step_id, exc_info=True)
 
 
 def _should_exclude_low_quality_record(
@@ -343,6 +363,13 @@ def _should_exclude_low_quality_record(
 
 
 _ABSTRACT_ONLY_EXTRACTION_SOURCES = frozenset({"text", "heuristic", "", None})
+
+
+def _has_participant_evidence(record: ExtractionRecord) -> bool:
+    if bool(record.participant_count and record.participant_count > 0):
+        return True
+    demographics_text = sanitize_summary_text_for_writing(record.participant_demographics or "")
+    return demographics_text != "NR"
 
 
 def _compute_extraction_quality_metrics(
@@ -368,7 +395,7 @@ def _compute_extraction_quality_metrics(
     for record in relevant_records:
         summary_text = sanitize_summary_text_for_writing((record.results_summary or {}).get("summary", ""))
         has_summary = summary_text != "NR"
-        has_participants = bool(record.participant_count and record.participant_count > 0)
+        has_participants = _has_participant_evidence(record)
         if fulltext_paper_ids is not None:
             has_fulltext = record.paper_id in fulltext_paper_ids
         else:
@@ -901,7 +928,7 @@ class SearchNode(BaseNode[ReviewState]):
                     _jrepo = WorkflowRepository(_jdb)
                     await _journal_step_complete(_jrepo, _phase_step)
             except Exception:
-                pass
+                _log.warning("SearchNode: step journal write failed", exc_info=True)
 
         return ScreeningNode()
 
@@ -1073,16 +1100,25 @@ class ScreeningNode(BaseNode[ReviewState]):
             bm25_validation_tail_ids: set[str] = set()
             bm25_overflow_candidates: list[CandidatePaper] = []
             paper_by_id = {p.paper_id: p for p in meta_acceptable}
+            keyword_prefilter_excluded = 0
+            keyword_prefilter_fallback_applied = False
+            empty_abstract_pool = 0
+            empty_abstract_excluded = 0
+            empty_abstract_rescued = 0
+            no_full_text_excluded = 0
 
             if cap is not None:
                 # Always run keyword_prefilter first because it now performs
                 # deterministic pre-LLM gates (empty abstract + secondary/protocol
                 # markers) regardless of keyword_filter_min_matches.
                 kw_min = state.settings.screening.keyword_filter_min_matches
+                kw_fallback_threshold = float(
+                    getattr(state.settings.screening, "keyword_prefilter_fallback_exclusion_ratio", 0.80)
+                )
                 kw_excluded, to_rank = keyword_prefilter(meta_acceptable, state.review, state.settings.screening)
                 if kw_min > 0:
                     # Adaptive fallback: if the keyword list is too narrow (e.g. from
-                    # a poor AI-generated config), it can exclude >80% of the pool and
+                    # a poor AI-generated config), it can exclude most of the pool and
                     # cause downstream gate failures. In that case, skip the keyword
                     # gate entirely and fall back to BM25 ranking on the full pool.
                     _kw_only_exclusions = sum(
@@ -1090,12 +1126,14 @@ class ScreeningNode(BaseNode[ReviewState]):
                         for d in kw_excluded
                         if getattr(getattr(d, "exclusion_reason", None), "value", "") == "keyword_filter"
                     )
+                    keyword_prefilter_excluded = _kw_only_exclusions
                     exclusion_ratio = _kw_only_exclusions / max(len(meta_acceptable), 1)
-                    if exclusion_ratio > 0.80:
+                    if exclusion_ratio > kw_fallback_threshold:
+                        keyword_prefilter_fallback_applied = True
                         if rc and hasattr(rc, "log_status"):
                             rc.log_status(
                                 f"WARNING: Keyword pre-filter excluded {exclusion_ratio:.0%} of papers "
-                                f"(threshold: 80%). Config keyword list is too narrow -- "
+                                f"(threshold: {kw_fallback_threshold:.0%}). Config keyword list is too narrow -- "
                                 f"falling back to BM25-only ranking for this run."
                             )
                         # Preserve deterministic pre-LLM exclusions while dropping
@@ -1196,6 +1234,9 @@ class ScreeningNode(BaseNode[ReviewState]):
                     )
                 )
                 _empty_abstract_rescued = max(_empty_abstract_pool - _empty_abstract_excluded, 0)
+                empty_abstract_pool = _empty_abstract_pool
+                empty_abstract_excluded = _empty_abstract_excluded
+                empty_abstract_rescued = _empty_abstract_rescued
                 rc._emit(
                     {
                         "type": "screening_prefilter_done",
@@ -1206,6 +1247,9 @@ class ScreeningNode(BaseNode[ReviewState]):
                         "to_llm": len(papers_for_llm),
                         "dual_review_cap": cap,
                         "bm25_validation_forwarded": bm25_validation_forwarded,
+                        "keyword_filter_excluded": keyword_prefilter_excluded,
+                        "keyword_fallback_applied": keyword_prefilter_fallback_applied,
+                        "keyword_fallback_threshold": kw_fallback_threshold,
                         "empty_abstract_pool": _empty_abstract_pool,
                         "empty_abstract_excluded": _empty_abstract_excluded,
                         "empty_abstract_rescued": _empty_abstract_rescued,
@@ -1424,6 +1468,8 @@ class ScreeningNode(BaseNode[ReviewState]):
                             outcome=state.review.pico.outcome,
                             keywords=state.review.keywords,
                             expert_terms=state.review.domain_signal_terms(limit=12),
+                            anchor_terms=state.review.intervention_anchor_terms(limit=10),
+                            related_terms=state.review.related_context_terms(limit=10),
                             excluded_terms=state.review.discouraged_terminology(),
                             client=PydanticAIBatchRankerClient(),
                             on_status=_on_status,
@@ -1671,6 +1717,9 @@ class ScreeningNode(BaseNode[ReviewState]):
                     state.fulltext_not_retrieved = sum(
                         1 for d in stage2 if getattr(d, "exclusion_reason", None) == _ExclusionReason.NO_FULL_TEXT
                     )
+                no_full_text_excluded = sum(
+                    1 for d in stage2 if getattr(d, "exclusion_reason", None) == _ExclusionReason.NO_FULL_TEXT
+                )
                 # Fallback guard: if stage 2 returned nothing for a non-empty input,
                 # either the interrupt flag was consumed OR all papers already had
                 # persisted fulltext decisions from a prior interrupted run.
@@ -1794,6 +1843,46 @@ class ScreeningNode(BaseNode[ReviewState]):
             )
             await repository.save_screening_metric(
                 state.workflow_id,
+                "prefilter_metadata_rejected",
+                len(meta_rejected),
+            )
+            await repository.save_screening_metric(
+                state.workflow_id,
+                "prefilter_automation_excluded",
+                len(pre_excluded),
+            )
+            await repository.save_screening_metric(
+                state.workflow_id,
+                "prefilter_to_llm",
+                len(papers_for_llm),
+            )
+            await repository.save_screening_metric(
+                state.workflow_id,
+                "keyword_filter_excluded",
+                keyword_prefilter_excluded,
+            )
+            await repository.save_screening_metric(
+                state.workflow_id,
+                "keyword_fallback_applied",
+                int(keyword_prefilter_fallback_applied),
+            )
+            await repository.save_screening_metric(
+                state.workflow_id,
+                "empty_abstract_pool",
+                empty_abstract_pool,
+            )
+            await repository.save_screening_metric(
+                state.workflow_id,
+                "empty_abstract_excluded",
+                empty_abstract_excluded,
+            )
+            await repository.save_screening_metric(
+                state.workflow_id,
+                "empty_abstract_rescued",
+                empty_abstract_rescued,
+            )
+            await repository.save_screening_metric(
+                state.workflow_id,
                 "batch_borderline_forwarded",
                 state.batch_screen_borderline_forwarded,
             )
@@ -1831,6 +1920,21 @@ class ScreeningNode(BaseNode[ReviewState]):
                 state.workflow_id,
                 "contract_violation_count",
                 getattr(screener, "contract_violation_count", 0),
+            )
+            await repository.save_screening_metric(
+                state.workflow_id,
+                "fulltext_sought",
+                getattr(state, "fulltext_sought", 0),
+            )
+            await repository.save_screening_metric(
+                state.workflow_id,
+                "fulltext_not_retrieved",
+                getattr(state, "fulltext_not_retrieved", 0),
+            )
+            await repository.save_screening_metric(
+                state.workflow_id,
+                "fulltext_no_full_text_excluded",
+                no_full_text_excluded,
             )
 
             # -- Forward citation chasing (PRISMA 2020 snowball supplement) --
@@ -1929,12 +2033,28 @@ class ScreeningNode(BaseNode[ReviewState]):
                     if rc:
                         rc.emit_phase_done("citation_chasing", {"new_papers": 0, "error": str(_cc_exc)})
 
-            gr = await gate_runner.run_screening_safeguard_gate(
-                workflow_id=state.workflow_id,
-                phase="phase_3_screening",
-                passed_screening=len(state.included_papers),
-            )
+            if rc and hasattr(rc, "log_status"):
+                rc.log_status(
+                    f"Running screening safeguard gate on {len(state.included_papers)} included papers..."
+                )
+            # Use a fresh SQLite connection for the post-screening gate write. The
+            # screening phase performs a very large number of writes on the main
+            # connection, and an isolated connection avoids phase-end stalls if that
+            # connection still has pending internal state from earlier screening work.
+            async with get_db(state.db_path) as _gate_db:
+                _gate_repository = WorkflowRepository(_gate_db)
+                _gate_runner = GateRunner(_gate_repository, state.settings)
+                gr = await _gate_runner.run_screening_safeguard_gate(
+                    workflow_id=state.workflow_id,
+                    phase="phase_3_screening",
+                    passed_screening=len(state.included_papers),
+                )
             state.sparse_evidence_mode = gr.status == GateStatus.WARNING
+            if rc and hasattr(rc, "log_status"):
+                rc.log_status(
+                    f"Screening safeguard gate recorded as {gr.status.value} "
+                    f"(actual={gr.actual_value}, threshold={gr.threshold})."
+                )
             if state.sparse_evidence_mode and rc:
                 rc.log_status(
                     "Screening safeguard: sparse-evidence continuation mode active "
@@ -2012,6 +2132,17 @@ class ScreeningNode(BaseNode[ReviewState]):
                     "batch_id_mismatch": getattr(screener, "batch_id_mismatch_count", 0),
                     "batch_missing_fallback": getattr(screener, "batch_missing_fallback_count", 0),
                     "contract_violation_count": getattr(screener, "contract_violation_count", 0),
+                    "keyword_filter_excluded": keyword_prefilter_excluded,
+                    "keyword_fallback_applied": keyword_prefilter_fallback_applied,
+                    "empty_abstract_excluded": empty_abstract_excluded,
+                    "empty_abstract_rescued": empty_abstract_rescued,
+                    "fulltext_sought": getattr(state, "fulltext_sought", 0),
+                    "fulltext_not_retrieved": getattr(state, "fulltext_not_retrieved", 0),
+                    "fulltext_retrieved": max(
+                        getattr(state, "fulltext_sought", 0) - getattr(state, "fulltext_not_retrieved", 0),
+                        0,
+                    ),
+                    "fulltext_no_full_text_excluded": no_full_text_excluded,
                     "sparse_evidence_mode": state.sparse_evidence_mode,
                 },
             )
@@ -2026,7 +2157,7 @@ class ScreeningNode(BaseNode[ReviewState]):
                 async with get_db(state.db_path) as _jdb:
                     await _journal_step_complete(WorkflowRepository(_jdb), _screening_step)
             except Exception:
-                pass
+                _log.warning("ScreeningNode: step journal write failed", exc_info=True)
 
         return HumanReviewCheckpointNode()
 
@@ -2910,7 +3041,10 @@ class ExtractionQualityNode(BaseNode[ReviewState]):
                 1 for r in records
                 if getattr(r, "extraction_source", "text") in _abstract_only_sources
             )
-            if records and _abstract_only_count / len(records) > 0.80:
+            _abstract_only_warning_threshold = float(
+                getattr(getattr(state.settings, "writing", None), "abstract_only_caution_threshold", 0.80)
+            )
+            if records and _abstract_only_count / len(records) > _abstract_only_warning_threshold:
                 _pct = int(100 * _abstract_only_count / len(records))
                 _msg = (
                     f"fulltext_retrieval_low: {_abstract_only_count}/{len(records)} "
@@ -3051,8 +3185,8 @@ class ExtractionQualityNode(BaseNode[ReviewState]):
                         _extraction_step,
                         status=StepStatus.FAILED,
                         error_message=err_msg,
-                        failure_category=FailureCategory.GATE_FAILURE,
-                        recovery_action=RecoveryAction.STOP,
+                        failure_category=FailureCategory.TERMINAL,
+                        recovery_action=RecoveryAction.ABORT,
                     )
                 return End(summary)
             # Citation lineage gate is deferred to FinalizeNode, which validates the
@@ -3086,7 +3220,7 @@ class ExtractionQualityNode(BaseNode[ReviewState]):
                 async with get_db(state.db_path) as _jdb:
                     await _journal_step_complete(WorkflowRepository(_jdb), _extraction_step)
             except Exception:
-                pass
+                _log.warning("ExtractionQualityNode: step journal write failed", exc_info=True)
 
         return EmbeddingNode()
 
@@ -5649,7 +5783,7 @@ class WritingNode(BaseNode[ReviewState]):
                         status=_w_status, error_message=_w_err, failure_category=_w_fc,
                     )
             except Exception:
-                pass
+                _log.warning("WritingNode: step journal write failed", exc_info=True)
 
         # Persist per-section writing manifests for evidence provenance.
         try:
@@ -6332,7 +6466,7 @@ class FinalizeNode(BaseNode[ReviewState]):
                         status=_f_status, error_message=_f_err,
                     )
             except Exception:
-                pass
+                _log.warning("FinalizeNode: step journal write failed", exc_info=True)
 
         return End(summary)
 

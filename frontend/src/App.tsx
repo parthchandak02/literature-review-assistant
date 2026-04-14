@@ -8,7 +8,7 @@ import type { LiveRun } from "@/components/Sidebar"
 import { GlobalCostOpsDialog } from "@/components/GlobalCostOpsDialog"
 import { computePhaseProgress } from "@/lib/phaseProgress"
 import { computeFunnelStages } from "@/lib/funnelStages"
-import { isSameRunSelection } from "@/lib/runSelection"
+import { isSameRunSelection, isTerminalHistoricalStatus } from "@/lib/runSelection"
 import { useSSEStream } from "@/hooks/useSSEStream"
 import { useCostStats } from "@/hooks/useCostStats"
 import { useBackendHealth } from "@/hooks/useBackendHealth"
@@ -230,6 +230,16 @@ export default function App() {
     [liveRunId, liveTopic, status, costStats.total_cost, liveWorkflowId, livePhaseProgress, liveStartedAt, livePapersFound, liveIncluded, liveFunnelStages],
   )
 
+  function clearLiveRunUi() {
+    clearLiveRun()
+    reset()
+    setLiveRunId(null)
+    setLiveWorkflowId(null)
+    setLiveTopic(null)
+    setLiveStartedAt(null)
+    wasStreamingRef.current = false
+  }
+
   // ---------------------------------------------------------------------------
   // Restore a historical run from the URL (direct navigation / refresh).
   // The `isAborted` callback lets the mount effect cancel stale calls when
@@ -269,9 +279,8 @@ export default function App() {
       }
       const res = await attachHistory(entry)
       if (isAborted?.()) return
-      const isCompleted = ["completed", "done", "stale", "interrupted", "cancelled", "failed", "error"].includes(
-        entry.status.toLowerCase(),
-      )
+      clearLiveRunUi()
+      const isCompleted = isTerminalHistoricalStatus(entry.status)
       setSelectedRun({
         runId: res.run_id,
         workflowId: entry.workflow_id,
@@ -469,11 +478,7 @@ export default function App() {
   // ---------------------------------------------------------------------------
   useEffect(() => {
     const wfId = selectedRun?.workflowId
-    const isTerminalHistory =
-      selectedRun?.historicalStatus != null &&
-      ["cancelled", "done", "completed", "interrupted", "stale"].includes(
-        selectedRun.historicalStatus.toLowerCase(),
-      )
+    const isTerminalHistory = isTerminalHistoricalStatus(selectedRun?.historicalStatus)
     if (!wfId || isViewingLiveRun || isTerminalHistory) return
     const workflowId = wfId
 
@@ -780,7 +785,8 @@ export default function App() {
     }
     // Historical run: replay events from DB.
     const res = await attachHistory(entry)
-    const isCompleted = ["completed", "done", "stale", "interrupted", "cancelled", "failed", "error"].includes(entry.status.toLowerCase())
+    clearLiveRunUi()
+    const isCompleted = isTerminalHistoricalStatus(entry.status)
     setSelectedRun({
       runId: res.run_id,
       workflowId: entry.workflow_id,

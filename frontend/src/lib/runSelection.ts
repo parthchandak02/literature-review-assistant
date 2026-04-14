@@ -25,3 +25,8 @@ export function shouldUsePrefetchedHistorical(
 ): boolean {
   return (prefetchedHistoricalEvents?.length ?? 0) > 0
 }
+
+export function isTerminalHistoricalStatus(status: string | null | undefined): boolean {
+  const normalized = (status ?? "").toLowerCase()
+  return ["cancelled", "done", "completed", "interrupted", "stale", "failed", "error"].includes(normalized)
+}

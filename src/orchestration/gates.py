@@ -99,16 +99,18 @@ class GateRunner:
         sparse_continuation = self.settings.gates.sparse_topic_continuation
 
         passed = passed_screening >= minimum
-        sparse_mode = (
-            (passed_screening < minimum)
-            and (passed_screening >= sparse_min)
-            and sparse_continuation
-        )
+        sparse_mode = (passed_screening < minimum) and sparse_continuation
         if sparse_mode:
             status = GateStatus.WARNING
+            continuation_mode = (
+                "zero_evidence_continuation"
+                if passed_screening == 0
+                else ("below_sparse_topic_min_continuation" if passed_screening < sparse_min else "sparse_topic_continuation")
+            )
             details = (
                 f"passed_screening={passed_screening}, minimum={minimum}, "
-                f"sparse_topic_min={sparse_min}, continuation=enabled"
+                f"sparse_topic_min={sparse_min}, continuation=enabled, "
+                f"mode={continuation_mode}"
             )
         elif passed:
             status = GateStatus.PASSED

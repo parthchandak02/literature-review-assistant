@@ -9,6 +9,7 @@ from src.db.workflow_registry import (
     find_by_workflow_id,
     find_by_workflow_id_fallback,
     register,
+    update_status,
 )
 
 
@@ -128,3 +129,29 @@ async def test_find_by_topic_config_hash_mismatch_returns_empty(tmp_path) -> Non
     )
     matches = await find_by_topic(run_root, "AI tutors", "hash_b")
     assert len(matches) == 0
+
+
+@pytest.mark.asyncio
+async def test_update_status_returns_true_for_existing_registry_row(tmp_path) -> None:
+    run_root = str(tmp_path)
+    db_path = tmp_path / "run" / "runtime.db"
+    db_path.parent.mkdir(parents=True, exist_ok=True)
+    db_path.write_text("")
+    await register(
+        run_root=run_root,
+        workflow_id="wf-status",
+        topic="Topic",
+        config_hash="hash",
+        db_path=str(db_path),
+    )
+    updated = await update_status(run_root, "wf-status", "failed")
+    assert updated is True
+    entry = await find_by_workflow_id(run_root, "wf-status")
+    assert entry is not None
+    assert entry.status == "failed"
+
+
+@pytest.mark.asyncio
+async def test_update_status_returns_false_when_registry_missing(tmp_path) -> None:
+    updated = await update_status(str(tmp_path), "wf-missing", "failed")
+    assert updated is False
