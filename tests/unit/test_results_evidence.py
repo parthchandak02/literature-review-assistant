@@ -146,6 +146,66 @@ def test_results_section_fallback_avoids_truncated_study_findings() -> None:
     assert "contributed evidence to this review." in paragraph_text
 
 
+def test_results_section_fallback_rewrites_non_extractable_result_details() -> None:
+    grounding = _grounding()
+    grounding.study_summaries[0].key_finding = "Result details were not extractable from the available text."
+    pack = build_results_evidence_pack(grounding)
+    draft = build_results_section_fallback(
+        pack,
+        required_subsections=["Study Selection", "Study Characteristics", "Synthesis of Findings"],
+        fallback_citations=[],
+    )
+    paragraph_text = "\n".join(block.text for block in draft.blocks if block.block_type == "paragraph")
+    assert "Detailed result data were not extractable from the available text." in paragraph_text
+
+
+def test_results_section_fallback_capitalizes_design_group_sentence() -> None:
+    grounding = _grounding()
+    grounding.study_summaries = [
+        StudySummary(
+            paper_id="p1",
+            title="Community registry uptake",
+            year=2024,
+            study_design="cross sectional",
+            participant_count=24,
+            key_finding="Registry use increased.",
+        )
+    ]
+    grounding.valid_citekeys = ["Smith2024"]
+    grounding.included_study_citekeys = ["Smith2024"]
+    grounding.citekey_title_map = {"Smith2024": "Community registry uptake"}
+    pack = build_results_evidence_pack(grounding)
+    draft = build_results_section_fallback(
+        pack,
+        required_subsections=["Study Selection", "Study Characteristics", "Synthesis of Findings"],
+        fallback_citations=[],
+    )
+    paragraph_text = "\n".join(block.text for block in draft.blocks if block.block_type == "paragraph")
+    assert "Cross-sectional studies contributed to the evidence base summarized in this review." in paragraph_text
+
+
+def test_results_section_fallback_adds_terminal_punctuation_to_findings() -> None:
+    grounding = _grounding()
+    grounding.study_summaries[0].study_design = "pre post"
+    grounding.study_summaries[0].key_finding = "Improved reporting timeliness after deployment"
+    pack = build_results_evidence_pack(grounding)
+    draft = build_results_section_fallback(
+        pack,
+        required_subsections=["Study Selection", "Study Characteristics", "Synthesis of Findings"],
+        fallback_citations=[],
+    )
+    paragraph_text = "\n".join(block.text for block in draft.blocks if block.block_type == "paragraph")
+    assert "reported the following key finding: Improved reporting timeliness after deployment." in paragraph_text
+    assert "was a pre-post study" not in paragraph_text
+
+
+def test_build_results_evidence_pack_skips_single_theme_label() -> None:
+    grounding = _grounding()
+    grounding.key_themes = ["implementation_barriers"]
+    pack = build_results_evidence_pack(grounding)
+    assert pack.theme_sentences == []
+
+
 def test_normalize_results_section_draft_materializes_required_subsections() -> None:
     grounding = _grounding()
     pack = build_results_evidence_pack(grounding)

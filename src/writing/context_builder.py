@@ -13,6 +13,7 @@ from datetime import datetime
 
 from pydantic import BaseModel
 
+from src.extraction.inference_utils import derive_concise_result_summary, infer_country_from_text, result_not_extractable_text
 from src.models import CandidatePaper, ExtractionRecord
 from src.models.additional import PRISMACounts
 
@@ -67,7 +68,13 @@ _SUMMARY_LLM_EXPLANATION_PHRASES = (
     "consists primarily of css and html code",
     "llm-based assessment",
     "direction counts:",
+    "findings are not presented in this excerpt",
+    "specific findings were not presented in the available excerpt",
+    "summary of findings cannot be extracted",
+    "findings cannot be extracted",
+    "available excerpt",
 )
+_ABSTRACT_ONLY_SOURCES = frozenset({"text", "heuristic", None, ""})
 _INTERNAL_PAPER_ID_RE = re.compile(
     r"\b(?:Paper_[A-Za-z0-9_-]+|p\d+|[a-f0-9]{8,}-[a-f0-9-]{3,})\b",
     flags=re.IGNORECASE,
@@ -190,12 +197,18 @@ def _normalize_criterion_date_windows(criteria: list[str], canonical_window: str
     if not canonical_window:
         return criteria
     date_range_re = re.compile(r"\b\d{4}\s*(?:to|-)\s*(?:\d{4}|present|the present)\b", flags=re.IGNORECASE)
+    standalone_year_re = re.compile(
+        r"\b(?P<prefix>published\s+(?:after|from|since)|from|since)\s+(?P<year>\d{4})\b",
+        flags=re.IGNORECASE,
+    )
     normalized: list[str] = []
     for item in criteria:
         txt = str(item or "").strip()
         if not txt:
             continue
-        normalized.append(date_range_re.sub(canonical_window, txt))
+        txt = date_range_re.sub(canonical_window, txt)
+        txt = standalone_year_re.sub(lambda m: f"{m.group('prefix')} {canonical_window}", txt)
+        normalized.append(txt)
     return normalized
 
 
@@ -206,6 +219,7 @@ class StudySummary(BaseModel):
     title: str
     year: int | None
     study_design: str
+    country: str | None = None
     participant_count: int | None
     key_finding: str
 
@@ -305,6 +319,10 @@ class WritingGroundingData(BaseModel):
     # Participant count provenance
     n_studies_reporting_count: int = 0
     n_total_studies: int = 0
+    missing_participant_count: int = 0
+    nonextractable_result_count: int = 0
+    abstract_only_result_gap_count: int = 0
+    reported_text_result_gap_count: int = 0
 
     # Sensitivity analysis (leave-one-out + subgroup) -- only present when meta-analysis ran
     sensitivity_results: list[str] = []
@@ -363,6 +381,7 @@ class WritingGroundingData(BaseModel):
     eligibility_inclusion_criteria: list[str] = []
     eligibility_exclusion_criteria: list[str] = []
     eligible_study_designs: list[str] = []
+    criteria_date_warning: str = ""
 
     # Full-text retrieval counts. For PRISMA 2020 item 10 disclosure.
     # fulltext_retrieved_count: papers where actual text was retrieved (not abstract-only).
@@ -761,21 +780,41 @@ def build_writing_grounding(
         paper = paper_map.get(rec.paper_id)
         title = _sanitize_study_title_for_writing(paper.title if paper else None, rec.paper_id)
         year = paper.year if paper else None
-        key_finding = sanitize_summary_text_for_writing(rec.results_summary.get("summary") or "")
-        if key_finding == "NR":
-            key_finding = sanitize_summary_text_for_writing(rec.intervention_description[:200])
-        if key_finding == "NR":
-            key_finding = "Not reported"
+        raw_summary = sanitize_summary_text_for_writing(rec.results_summary.get("summary") or "")
+        key_finding = derive_concise_result_summary("" if raw_summary == "NR" else raw_summary)
+        if not key_finding or key_finding == result_not_extractable_text():
+            key_finding = result_not_extractable_text()
         study_summaries.append(
             StudySummary(
                 paper_id=rec.paper_id,
                 title=title[:120],
                 year=year,
                 study_design=_normalize_label(rec.study_design.value),
+                country=(
+                    str(getattr(rec, "country", None) or getattr(paper, "country", None) or "").strip()
+                    or infer_country_from_text(
+                        paper.title if paper else "",
+                        paper.abstract if paper else "",
+                        rec.results_summary.get("summary") or "",
+                    )
+                    or None
+                ),
                 participant_count=rec.participant_count,
                 key_finding=key_finding[:300],
             )
         )
+
+    nonextractable_result_count = 0
+    abstract_only_result_gap_count = 0
+    reported_text_result_gap_count = 0
+    for rec, summary in zip(extraction_records, study_summaries, strict=False):
+        if summary.key_finding != result_not_extractable_text():
+            continue
+        nonextractable_result_count += 1
+        if getattr(rec, "extraction_source", "text") in _ABSTRACT_ONLY_SOURCES:
+            abstract_only_result_gap_count += 1
+        else:
+            reported_text_result_gap_count += 1
 
     # Extract valid citekeys from the citation catalog and build title snippet map.
     # The catalog has two sections separated by a "# Methodology references" header:
@@ -825,6 +864,20 @@ def build_writing_grounding(
         _exclusion_criteria = [str(x).strip() for x in (getattr(review_config, "exclusion_criteria", []) or []) if str(x).strip()]
     _inclusion_criteria = _normalize_criterion_date_windows(_inclusion_criteria, search_eligibility_window)
     _exclusion_criteria = _normalize_criterion_date_windows(_exclusion_criteria, search_eligibility_window)
+    criteria_date_warning = ""
+    if search_eligibility_window:
+        expected_years = {str(_date_start) if _date_start else "", str(_date_end) if _date_end else ""}
+        unexpected_years: set[str] = set()
+        for item in _inclusion_criteria + _exclusion_criteria:
+            for year_match in re.findall(r"\b\d{4}\b", item):
+                if year_match not in expected_years:
+                    unexpected_years.add(year_match)
+        if unexpected_years:
+            criteria_date_warning = (
+                "Eligibility criteria still mention year values outside the configured "
+                f"search window {search_eligibility_window}: {', '.join(sorted(unexpected_years))}. "
+                "Use the configured search window as the authoritative date range."
+            )
     _design_keywords = (
         "randomized",
         "non-randomized",
@@ -841,7 +894,6 @@ def build_writing_grounding(
 
     # Full-text retrieval counts: "text" = abstract-only baseline; anything else = full text retrieved.
     # See src/models/extraction.py for all extraction_source values.
-    _ABSTRACT_ONLY_SOURCES = frozenset({"text", "heuristic", None, ""})
     _fulltext_id_set = {str(pid) for pid in (fulltext_paper_ids or set())}
     fulltext_retrieved = sum(
         1
@@ -966,6 +1018,10 @@ def build_writing_grounding(
         kappa_n=kappa_n,
         n_studies_reporting_count=n_studies_reporting_count,
         n_total_studies=n_total_studies,
+        missing_participant_count=max(0, n_total_studies - n_studies_reporting_count),
+        nonextractable_result_count=nonextractable_result_count,
+        abstract_only_result_gap_count=abstract_only_result_gap_count,
+        reported_text_result_gap_count=reported_text_result_gap_count,
         sensitivity_results=sensitivity_results or [],
         protocol_registered=bool(
             review_config is not None and getattr(getattr(review_config, "protocol", None), "registered", False)
@@ -991,6 +1047,7 @@ def build_writing_grounding(
         eligibility_inclusion_criteria=_inclusion_criteria[:8],
         eligibility_exclusion_criteria=_exclusion_criteria[:8],
         eligible_study_designs=_eligible_study_designs[:6],
+        criteria_date_warning=criteria_date_warning,
         fulltext_retrieved_count=fulltext_retrieved,
         fulltext_total_count=fulltext_total,
         # Use prisma_counts as the authoritative source of full-text funnel counts.
@@ -1222,11 +1279,11 @@ def format_grounding_block(data: WritingGroundingData) -> str:
 
     if data.excluded_fulltext_reasons:
         reasons_str = "; ".join(f"{_normalize_label(k)} ({v})" for k, v in data.excluded_fulltext_reasons.items())
-        lines.append(f"Primary exclusion reasons (categories may overlap): {reasons_str}")
+        lines.append(f"Primary exclusion reasons (one primary reason per excluded report): {reasons_str}")
         lines.append(
             f"CRITICAL -- EXCLUSION WORDING: {data.fulltext_excluded} unique full-text reports were excluded. "
-            "Reason counts may overlap because one report can have multiple reasons; "
-            "do NOT present reason counts as separate article totals."
+            "Each excluded report must be counted once under a single primary reason category; "
+            "do NOT describe these counts as overlapping categories."
         )
 
     if data.study_design_counts:
@@ -1248,6 +1305,23 @@ def format_grounding_block(data: WritingGroundingData) -> str:
             )
     else:
         lines.append("Total participants: not consistently reported across studies")
+    if data.nonextractable_result_count > 0:
+        lines.append(
+            "Data completeness gaps: "
+            f"{data.missing_participant_count} of {data.n_total_studies} studies did not report participant counts; "
+            f"{data.nonextractable_result_count} studies lacked an extractable result summary."
+        )
+        if data.abstract_only_result_gap_count > 0 or data.reported_text_result_gap_count > 0:
+            lines.append(
+                "Result-gap breakdown: "
+                f"{data.abstract_only_result_gap_count} abstract-only records without retrievable full text; "
+                f"{data.reported_text_result_gap_count} studies where the available text did not report a usable result statement."
+            )
+        lines.append(
+            "CRITICAL -- DATA GAP DISCLOSURE: When discussing missing participant counts or missing result details, "
+            "state WHY the data are missing. Distinguish abstract-only extraction caused by unavailable full text from "
+            "studies whose available text never reported a usable participant count or result statement."
+        )
 
     if data.year_range:
         lines.append(f"Publication year range (included papers only): {data.year_range}")
@@ -1279,6 +1353,8 @@ def format_grounding_block(data: WritingGroundingData) -> str:
             "eligibility criteria listed above. Do NOT introduce narrower study-design restrictions "
             "that are not explicitly listed in the canonical criteria."
         )
+    if data.criteria_date_warning:
+        lines.append(f"CRITICAL -- DATE CONSISTENCY WARNING: {data.criteria_date_warning}")
 
     if data.fulltext_sought > 0:
         # PRISMA 2020 items 10-11: the three-number full-text flow.
@@ -1443,6 +1519,8 @@ def format_grounding_block(data: WritingGroundingData) -> str:
             if s.year:
                 parts[0] += f" ({s.year})"
             parts[0] += f" [{s.study_design}]"
+            if s.country:
+                parts[0] += f", country={s.country}"
             if s.participant_count:
                 parts[0] += f", n={s.participant_count}"
             if s.key_finding:

@@ -4160,6 +4160,7 @@ async def trigger_export(run_id: str, run_root: str = "runs", force: bool = Fals
             extra_artifact_paths=_extra_paths,
             contract_mode=mode,
             abstract_word_limit=cfg.ieee_export.max_abstract_words,
+            abstract_minimum_words=cfg.writing.abstract_trim_floor_words,
         )
         if not scorecard.ready:
             raise HTTPException(
@@ -4237,6 +4238,7 @@ async def get_run_readiness(run_id: str, run_root: str = "runs") -> dict[str, An
             extra_artifact_paths=extra_paths,
             contract_mode=mode,
             abstract_word_limit=cfg.ieee_export.max_abstract_words,
+            abstract_minimum_words=cfg.writing.abstract_trim_floor_words,
         )
         payload = scorecard.model_dump()
     except Exception as exc:

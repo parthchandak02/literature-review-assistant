@@ -51,6 +51,18 @@ class ManuscriptContractResult(BaseModel):
     violations: list[ContractViolation] = Field(default_factory=list)
 
 
+_REQUIRED_H2_SECTIONS = (
+    "abstract",
+    "introduction",
+    "methods",
+    "results",
+    "discussion",
+    "conclusion",
+    "acknowledgments",
+    "references",
+)
+
+
 def _hard_failure(mode: str, code: str, contract_phase: str = "finalize") -> bool:
     """Back-compat wrapper; prefer src.manuscript.violation_policy.hard_failure."""
     return hard_failure(mode, code, contract_phase)
@@ -382,40 +394,38 @@ def _extract_abstract_lines(md_text: str) -> list[str]:
 
 def _find_missing_required_h2_sections(md_text: str) -> list[str]:
     """Return required top-level sections missing from manuscript."""
-    required = ("abstract", "introduction", "methods", "results", "discussion", "conclusion", "references")
     present: set[str] = set()
     for line in md_text.splitlines():
         m = re.match(r"^##\s+(.+)$", line.strip())
         if not m:
             continue
         heading = _canonical_h2_name(m.group(1))
-        for name in required:
+        for name in _REQUIRED_H2_SECTIONS:
             if heading == name or heading.startswith(f"{name} "):
                 present.add(name)
                 break
-    return [name for name in required if name not in present]
+    return [name for name in _REQUIRED_H2_SECTIONS if name not in present]
 
 
 def _find_section_order_violation(md_text: str) -> str | None:
     """Return a brief message when required H2 section order is invalid."""
-    required = ["abstract", "introduction", "methods", "results", "discussion", "conclusion", "references"]
     order: dict[str, int] = {}
     for idx, line in enumerate(md_text.splitlines()):
         m = re.match(r"^##\s+(.+)$", line.strip())
         if not m:
             continue
         key = _canonical_h2_name(m.group(1))
-        for req in required:
+        for req in _REQUIRED_H2_SECTIONS:
             if key == req or key.startswith(f"{req} "):
                 key = req
                 break
-        if key in required and key not in order:
+        if key in _REQUIRED_H2_SECTIONS and key not in order:
             order[key] = idx
-    if len(order) < len(required):
+    if len(order) < len(_REQUIRED_H2_SECTIONS):
         return None
-    for i in range(1, len(required)):
-        if order[required[i]] < order[required[i - 1]]:
-            return f"{required[i]} appears before {required[i - 1]}"
+    for i in range(1, len(_REQUIRED_H2_SECTIONS)):
+        if order[_REQUIRED_H2_SECTIONS[i]] < order[_REQUIRED_H2_SECTIONS[i - 1]]:
+            return f"{_REQUIRED_H2_SECTIONS[i]} appears before {_REQUIRED_H2_SECTIONS[i - 1]}"
     return None
 
 
@@ -428,7 +438,7 @@ def _extract_h2_sections(md_text: str) -> dict[str, str]:
         m = re.match(r"^##\s+(.+)$", stripped)
         if m:
             key = _canonical_h2_name(m.group(1))
-            for req in ("abstract", "introduction", "methods", "results", "discussion", "conclusion", "references"):
+            for req in _REQUIRED_H2_SECTIONS:
                 if key == req or key.startswith(f"{req} "):
                     key = req
                     break
@@ -633,6 +643,7 @@ async def run_manuscript_contracts(
     mode: str = "strict",
     contract_phase: str = "finalize",
     abstract_word_limit: int = 250,
+    abstract_minimum_words: int = 0,
     review_config: ReviewConfig | None = None,
 ) -> ManuscriptContractResult:
     """Validate manuscript integrity invariants across DB and artifacts."""
@@ -1038,6 +1049,16 @@ async def run_manuscript_contracts(
         )
 
     abs_words = _abstract_word_count(md_text)
+    if abstract_minimum_words > 0 and abs_words is not None and abs_words < abstract_minimum_words:
+        violations.append(
+            ContractViolation(
+                code="ABSTRACT_UNDER_MINIMUM",
+                severity="error",
+                message="Abstract is below the configured minimum target.",
+                expected=f">= {abstract_minimum_words}",
+                actual=str(abs_words),
+            )
+        )
     if abs_words is not None and abs_words > abstract_word_limit:
         violations.append(
             ContractViolation(

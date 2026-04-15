@@ -166,13 +166,13 @@ def test_build_writing_grounding_zeros_automation_when_screened_gap_is_zero() ->
     assert grounding.total_screened == 17
 
 
-def test_grounding_block_mentions_overlapping_fulltext_reasons() -> None:
+def test_grounding_block_mentions_primary_fulltext_reasons() -> None:
     data = _make_grounding(
         excluded_fulltext_reasons={"wrong_intervention": 6, "wrong_language": 1},
     )
     out = format_grounding_block(data)
-    assert "categories may overlap" in out
-    assert "do NOT present reason counts as separate article totals" in out
+    assert "one primary reason per excluded report" in out
+    assert "do NOT describe these counts as overlapping categories" in out
 
 
 def test_build_writing_grounding_sets_conclusion_hedging_for_high_nonretrieval() -> None:
