@@ -130,6 +130,8 @@ EMBASE_API_KEY=your-key-here              # Optional -- Embase connector
 CORE_API_KEY=your-key-here                # Optional -- CORE full-text retrieval
 ```
 
+Note: the repo's default backend port in the web UI, PM2 config, and `Procfile.dev` is `8001`. If you copy `.env.example`, keep `PORT=8001` unless you intentionally want a different backend port.
+
 **3. Configure your review**
 
 Edit `config/review.yaml` with your research question:
@@ -302,8 +304,9 @@ Grouped endpoints most users use:
 - Setup (browser): `GET /api/config/review`, `GET /api/config/env-keys`, `POST /api/config/generate`, `POST /api/config/generate/stream`
 - Health: `GET /api/health`
 - Run lifecycle: `GET /api/runs`, `POST /api/run`, `POST /api/run-with-masterlist`, `POST /api/run-with-supplementary-csv`, `GET /api/stream/{run_id}`, `POST /api/cancel/{run_id}`
-- History/resume: `GET /api/history`, `GET /api/history/active-run`, `GET /api/history/{workflow_id}/config`, `GET /api/history/costs/aggregates`, `GET /api/history/costs/export`, `POST /api/history/attach`, `POST /api/history/resume`, `POST /api/history/{workflow_id}/archive`, `POST /api/history/{workflow_id}/restore`, `POST /api/history/{workflow_id}/complete-hide`, `POST /api/history/{workflow_id}/complete-restore`, `DELETE /api/history/{workflow_id}`
+- History/resume: `GET /api/history`, `GET /api/history/active-run?workflow_id=<wf-xxxx>`, `GET /api/history/{workflow_id}/config`, `GET /api/history/costs/aggregates`, `GET /api/history/costs/export`, `POST /api/history/attach`, `POST /api/history/resume`, `POST /api/history/{workflow_id}/archive`, `POST /api/history/{workflow_id}/restore`, `POST /api/history/{workflow_id}/complete-hide`, `POST /api/history/{workflow_id}/complete-restore`, `DELETE /api/history/{workflow_id}`
 - Results/export: `GET /api/run/{run_id}/artifacts`, `GET /api/run/{run_id}/manuscript`, `POST /api/run/{run_id}/export`, `GET /api/run/{run_id}/submission.zip`, `GET /api/run/{run_id}/manuscript.docx`, `GET /api/run/{run_id}/prospero-form.docx`, `GET /api/run/{run_id}/prospero-form.md`, `GET /api/run/{run_id}/studies-files.zip`
+- Event replay: `GET /api/run/{run_id}/events`, `GET /api/workflow/{workflow_id}/events`
 - References/full text: `GET /api/run/{run_id}/papers-reference`, `GET /api/run/{run_id}/papers/{paper_id}/file`, `POST /api/run/{run_id}/fetch-pdfs`
 - Human review/living review: `GET /api/run/{run_id}/screening-summary`, `POST /api/run/{run_id}/approve-screening`, `POST /api/run/{run_id}/living-refresh`
 - Extra run views (Results when done): `GET /api/run/{run_id}/knowledge-graph`, `GET /api/run/{run_id}/prisma-checklist`, `GET /api/run/{run_id}/grade-sof`
@@ -366,6 +369,8 @@ pm2 restart litreview-api
 brew install overmind   # macOS
 overmind start          # reads Procfile.dev
 ```
+
+This repo commits `.overmind.env`, which sets `OVERMIND_PROCFILE=Procfile.dev`. If that file is missing or overridden, Overmind falls back to `Procfile` instead, which only starts a single `web` process on `${PORT:-8000}`.
 
 **Alternative -- plain terminals:**
 

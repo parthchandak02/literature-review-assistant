@@ -1073,7 +1073,7 @@ Run card status border (2px left): emerald = completed, violet = running/connect
 | GET | /api/config/env-keys | API keys already set in server .env; used to pre-fill Setup form |
 | GET | /api/health | Health check; polled every 6s by useBackendHealth hook |
 | GET | /api/history | Past runs from workflows_registry.db |
-| GET | /api/history/active-run | Whether a run for the given workflow_id is currently active |
+| GET | /api/history/active-run | Whether a run for the given workflow_id is currently active (requires `workflow_id` query param) |
 | GET | /api/history/costs/aggregates | Global cost aggregates across registry-linked runtime.db files |
 | GET | /api/history/costs/export | Global cost CSV export across registry-linked runtime.db files |
 | GET | /api/history/{workflow_id}/config | Original review.yaml written at run completion |
@@ -1302,7 +1302,6 @@ pm2 start ecosystem.config.js                    # Start FastAPI + Vite together
 
 # Run CLI only (no frontend needed):
 uv run python -m src.main run --config config/review.yaml
-uv run python -m src.main run --config config/review.yaml --verbose
 uv run python -m src.main run --config config/review.yaml --debug
 uv run python -m src.main run --config config/review.yaml --offline     # heuristic screening only
 uv run python -m src.main run --config config/review.yaml --fresh       # ignore existing run for same config_hash
@@ -1311,14 +1310,16 @@ uv run python -m src.main run --config config/review.yaml --run-root runs/
 
 # Resume / manage runs:
 uv run python -m src.main resume --topic "my research question"
-uv run python -m src.main resume --workflow-id abc123
-uv run python -m src.main resume --workflow-id abc123 --no-api
+uv run python -m src.main resume --workflow-id wf-0007
+uv run python -m src.main resume --workflow-id wf-0007 --no-api
 uv run python -m src.main resume --topic "my research question" --config config/review.yaml --settings config/settings.yaml --run-root runs/
-uv run python -m src.main status --workflow-id abc123 --run-root runs/
-uv run python -m src.main validate --workflow-id abc123 --run-root runs/
-uv run python -m src.main export --workflow-id abc123 --run-root runs/
-uv run python -m src.main prospero --workflow-id abc123 --run-root runs/
+uv run python -m src.main status --workflow-id wf-0007 --run-root runs/
+uv run python -m src.main validate --workflow-id wf-0007 --run-root runs/
+uv run python -m src.main export --workflow-id wf-0007 --run-root runs/
+uv run python -m src.main prospero --workflow-id wf-0007 --run-root runs/
 ```
+
+Overmind note: this repo commits `.overmind.env`, which sets `OVERMIND_PROCFILE=Procfile.dev`. If that file is missing or overridden, `overmind start` falls back to `Procfile` and launches only the single `web` process on `${PORT:-8000}`.
 
 ### 12.4 Testing
 
@@ -1416,7 +1417,7 @@ Status taxonomy:
 | Validation benchmark | Implemented | scripts/benchmark.py measures screening recall, extraction field accuracy, RoB kappa vs. gold-standard corpus |
 | Enhancement #4: Semantic Chunking | Historical | Sentence-boundary chunker (nltk sent_tokenize) replaces fixed 512-word windows; chunks stay under ~400 words, 2-sentence overlap; fallback to regex split if nltk unavailable; settings: rag.chunk_max_words, rag.chunk_overlap_sentences in settings.yaml (chunker.py module constants are fallbacks when called standalone) |
 | Enhancement #5: PICO-Aware Retrieval | Historical | PICO terms from review.yaml injected into HyDE prompt and BM25 query string when review.pico is populated; no separate settings.yaml toggle (pico_query_boost does not exist) |
-| Enhancement #6: Living Review Auto-Refresh | Historical | Delta pipeline: search from last_search_date, screen/embed new papers only, merge into previous DB, re-run synthesis+writing only if new evidence added |
+| Enhancement #6: Living Review Auto-Refresh | Implemented | Delta pipeline: search from last_search_date, screen/embed new papers only, merge into previous DB, re-run synthesis+writing only if new evidence added |
 | Enhancement #7: Multi-Modal Evidence | Historical | Tiered full-text retrieval (Tier 0 publisher-direct, Tier 0.5 citation_pdf_url meta, Tier 1 Unpaywall, Tier 1b arXiv, Tier 2 group Semantic Scholar/CORE/OpenAlex/EuropePMC/bioRxiv, then ScienceDirect/PMC/Crossref, Tier 6 landing-page fallback); unified resolver used by extraction and screening; Gemini vision extracts quantitative outcome rows from PDFs; vision+text outcomes merged; table rows chunked as separate embeddings; GET /api/db/{run_id}/tables endpoint; Scopus abstract gap fixed via enrich_scopus_abstracts() |
 | Enhancement #8: Contradiction-Aware Synthesis | Historical | contradiction_detector.py surfaces conflict pairs; WritingNode injects "Conflicting Evidence" subsection into Discussion with citation keys and reconciliation hypothesis |
 | Enhancement #9: Adaptive Screening Threshold | Historical | Active-learning calibration loop: configurable sample size (`screening.calibration_sample_size`, current settings default 15), kappa computed, thresholds adjusted via bisection until kappa > 0.7 or max iterations; calibration emits phase_start/phase_done SSE events (phase="screening_calibration") for live UI progress |

@@ -45,7 +45,7 @@ Read `<run_root>/run_summary.json`. Look at the `manuscript_contract` key. It co
 - `mode`: "observe" | "soft" | "strict"
 - `violations`: list of `{code, severity, message, expected, actual}`
 
-Known contract codes the pipeline already checks (non-exhaustive; source of truth is `src/manuscript/contracts.py`):
+Known contract codes the pipeline already checks are only examples here; the canonical source of truth is always `src/manuscript/contracts.py` (`rg "code=" src/manuscript/contracts.py`). Do not treat the following list as exhaustive:
 - `INCLUDED_COUNT_MISMATCH` -- table rows vs canonical cohort
 - `NON_PRIMARY_IN_TABLE` -- non-primary studies in synthesis set
 - `PLACEHOLDER_LEAK` -- CITATION_NEEDED, TODO, TBD tokens
@@ -75,6 +75,7 @@ Known contract codes the pipeline already checks (non-exhaustive; source of trut
 - `UNUSED_BIB_ENTRY` -- bib entries cited nowhere in body
 - `ARTIFACT_PLACEHOLDER_LEAK` -- placeholder tokens in artifact files
 - `SECTION_DETERMINISTIC_FALLBACK` -- section used deterministic fallback text
+- `ABSTRACT_UNDER_MINIMUM` -- abstract fell below the configured floor during trimming/repair
 
 When in doubt, grep `code=` in `src/manuscript/contracts.py` for the canonical list.
 
