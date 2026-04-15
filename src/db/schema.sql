@@ -489,6 +489,19 @@ CREATE TABLE IF NOT EXISTS writing_manifests (
 CREATE INDEX IF NOT EXISTS idx_writing_manifests_workflow
     ON writing_manifests(workflow_id, section_key);
 
+CREATE TABLE IF NOT EXISTS section_outlines (
+    workflow_id TEXT NOT NULL,
+    section_key TEXT NOT NULL,
+    generation INTEGER NOT NULL DEFAULT 1,
+    outline_json TEXT NOT NULL,
+    grounding_hash TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    PRIMARY KEY (workflow_id, section_key, generation),
+    FOREIGN KEY (workflow_id) REFERENCES workflows(workflow_id)
+);
+CREATE INDEX IF NOT EXISTS idx_section_outlines_workflow
+    ON section_outlines(workflow_id, generation, section_key);
+
 -- ============================================================
 -- Idea 1: RAG - paper chunk storage (vector search via Python)
 -- ============================================================

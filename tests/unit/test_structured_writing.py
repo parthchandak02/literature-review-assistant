@@ -9,6 +9,7 @@ from src.writing.orchestration import (
     _needs_legacy_heading_fix,
     _patch_abstract_grounding,
     _patch_methods_grounding,
+    _patch_results_grounding,
     _post_render_completeness_issues,
     _section_completeness_issues,
     _validate_structured_section_draft,

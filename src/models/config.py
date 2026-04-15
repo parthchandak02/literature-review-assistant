@@ -629,6 +629,21 @@ class WritingConfig(BaseModel):
     humanization_iterations: int = Field(ge=1, le=5, default=2)
     checkpoint_per_section: bool = True
     llm_timeout: int = 120
+    ratchet_max_iterations: int = Field(
+        ge=1,
+        le=5,
+        default=2,
+        description="Maximum section rewrite attempts in the deterministic ratchet loop. Set to 1 to disable.",
+    )
+    ratchet_cost_cap_per_section: float = Field(
+        ge=0.0,
+        default=0.15,
+        description="Maximum extra USD budget allowed for a single section's ratchet rewrites.",
+    )
+    ratchet_outline_enabled: bool = Field(
+        default=True,
+        description="Generate pre-writing section outlines and use them in ratchet scoring.",
+    )
     writing_concurrency: int = Field(
         ge=1,
         le=10,

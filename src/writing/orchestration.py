@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import hashlib
+import json
 import logging
 import re
 import unicodedata
@@ -9,7 +11,7 @@ from collections.abc import Callable
 from typing import TYPE_CHECKING
 
 from src.citation.ledger import CitationLedger
-from src.db.repositories import CitationRepository
+from src.db.repositories import CitationRepository, WorkflowRepository
 from src.models import (
     CandidatePaper,
     CitationEntryRecord,
@@ -17,6 +19,8 @@ from src.models import (
     EvidenceLinkRecord,
     ReviewConfig,
     SectionBlock,
+    SectionOutline,
+    SectionQualityScore,
     SectionWriteResult,
     SettingsConfig,
     StructuredSectionDraft,
@@ -1753,6 +1757,162 @@ def _build_deterministic_section_fallback(
     )
 
 
+_OUTLINE_STOPWORDS = frozenset(
+    {
+        "about",
+        "across",
+        "after",
+        "alongside",
+        "analysis",
+        "and",
+        "from",
+        "into",
+        "must",
+        "only",
+        "section",
+        "should",
+        "that",
+        "the",
+        "their",
+        "this",
+        "using",
+        "with",
+    }
+)
+
+
+def _draft_fingerprint(draft: StructuredSectionDraft) -> str:
+    """Return a stable content hash for duplicate ratchet detection."""
+    payload = json.dumps(
+        [
+            {
+                "block_type": block.block_type,
+                "text": block.text,
+                "level": block.level,
+                "citations": list(block.citations or []),
+            }
+            for block in draft.blocks
+        ],
+        sort_keys=True,
+    )
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def _outline_terms(text: str) -> set[str]:
+    return {
+        token
+        for token in re.findall(r"[a-z0-9]+", str(text or "").lower())
+        if len(token) >= 4 and token not in _OUTLINE_STOPWORDS
+    }
+
+
+def _outline_coverage_issues(
+    draft: StructuredSectionDraft,
+    rendered: str,
+    outline: SectionOutline | None,
+) -> list[str]:
+    if outline is None:
+        return []
+    heading_inventory = {
+        re.sub(r"\s+", " ", str(block.text or "").strip().lower())
+        for block in draft.blocks
+        if block.block_type == "subheading" and str(block.text or "").strip()
+    }
+    rendered_text = str(rendered or "").lower()
+    issues: list[str] = []
+    for node in outline.nodes:
+        normalized_heading = re.sub(r"\s+", " ", str(node.heading or "").strip().lower())
+        if normalized_heading and normalized_heading in heading_inventory:
+            continue
+        keywords = _outline_terms(f"{node.heading} {node.intent}")
+        if not keywords:
+            continue
+        matched = sum(1 for term in keywords if term in rendered_text)
+        threshold = 1 if len(keywords) <= 2 else 2
+        if matched < threshold:
+            issues.append(f"outline_coverage:{node.node_id}")
+        missing_citekeys = [
+            citekey for citekey in node.required_citekeys if citekey and citekey not in set(draft.cited_keys or [])
+        ]
+        for citekey in missing_citekeys:
+            issues.append(f"outline_citekey_missing:{node.node_id}:{citekey}")
+    return issues
+
+
+def format_quality_feedback(issues: list[str], score: SectionQualityScore) -> str:
+    """Return a bounded feedback block for a ratchet rewrite."""
+    if not issues:
+        return ""
+    lines = [
+        "",
+        "RATCHET FEEDBACK: Improve the next draft without introducing any new defects.",
+        (
+            "Current score counts -> "
+            f"hard={score.hard_issue_count}, "
+            f"completeness={score.completeness_issue_count}, "
+            f"citation={score.citation_gap_count}, "
+            f"outline={score.outline_coverage_gaps}, "
+            f"abstract_floor_gap={score.abstract_floor_gap}, "
+            f"soft={score.soft_issue_count}"
+        ),
+        "Resolve these issues first:",
+    ]
+    lines.extend(f"- {issue}" for issue in issues[:20])
+    lines.append("Do not remove valid citations or grounded facts while fixing these issues.")
+    return "\n".join(lines)
+
+
+def compute_section_quality_score(
+    *,
+    section: str,
+    draft: StructuredSectionDraft,
+    rendered: str,
+    outline: SectionOutline | None,
+    grounding: WritingGroundingData | None,
+    valid_citekeys: set[str],
+    must_cite: set[str],
+    settings: SettingsConfig,
+    included_study_count: int,
+) -> tuple[SectionQualityScore, list[str]]:
+    """Compute the lexicographic ratchet score for one section draft."""
+    completeness_issues = _section_completeness_issues(section, draft, included_study_count)
+    cite_issues, _missing_keys = _citation_coverage_issues(section, draft, must_cite)
+    rendered_citation_issues = _rendered_citation_integrity_issues(rendered, valid_citekeys)
+    grounding_issues = _grounding_integrity_issues(section, rendered, grounding)
+    post_issues = _post_render_completeness_issues(section, rendered, included_study_count)
+    outline_issues = _outline_coverage_issues(draft, rendered, outline)
+    topic_issues = _topic_anchor_issues(section, rendered, grounding)
+    abstract_floor_gap = 0
+    if section == "abstract":
+        minimum_words = int(getattr(getattr(settings, "writing", None), "abstract_trim_floor_words", 210))
+        abstract_floor_gap = max(0, minimum_words - _abstract_body_word_count(rendered))
+    score = SectionQualityScore(
+        hard_issue_count=len(rendered_citation_issues) + len(grounding_issues),
+        completeness_issue_count=len(completeness_issues) + len(post_issues),
+        citation_gap_count=len(cite_issues),
+        outline_coverage_gaps=len(outline_issues),
+        abstract_floor_gap=abstract_floor_gap,
+        soft_issue_count=len(topic_issues),
+    )
+    ordered_issues = [
+        *rendered_citation_issues,
+        *grounding_issues,
+        *completeness_issues,
+        *post_issues,
+        *cite_issues,
+        *outline_issues,
+        *topic_issues,
+    ]
+    deduped_issues: list[str] = []
+    seen: set[str] = set()
+    for issue in ordered_issues:
+        if issue in seen:
+            continue
+        seen.add(issue)
+        deduped_issues.append(issue)
+    return score, deduped_issues
+
+
 async def extract_and_register_claims(
     section: str,
     content: str,
@@ -2040,6 +2200,7 @@ async def write_section_with_validation(
     grounding: WritingGroundingData | None = None,
     rag_context: str = "",
     prior_sections_context: str = "",
+    outline: SectionOutline | None = None,
 ) -> SectionWriteResult:
     """Write a section, validate with citation ledger, return content.
 
@@ -2119,180 +2280,274 @@ async def write_section_with_validation(
 
     must_cite = _compute_section_citation_budget(section, citation_catalog, valid_citekeys)
 
-    validation_retries = 0
-    used_deterministic_fallback = False
-    validation_issues: list[str] = []
-    structured, metadata, contract_issues = await _generate_structured_once(effective_context)
-    issues = _section_completeness_issues(section, structured, included_study_count)
-    issues.extend(contract_issues)
-    cite_issues, missing_keys = _citation_coverage_issues(section, structured, must_cite)
-    issues.extend(cite_issues)
-    if issues:
-        validation_retries += 1
-        retry_parts = [
-            "\n\nRETRY RULE: Your previous output failed completeness checks: "
-            + ", ".join(issues)
-            + ". Regenerate this section with complete subsection bodies and a fully closed final sentence.",
-        ]
-        if missing_keys:
-            sorted_missing = sorted(missing_keys)[:30]
-            retry_parts.append(
-                "\n\nCRITICAL CITATION COVERAGE: You MUST cite the following studies that were "
-                "omitted from your previous output. Add each study to the relevant block.citations "
-                "array and include it in cited_keys. Do NOT place [AuthorYear] tokens in block.text:\n"
-                + "\n".join(f"  - [{k}]" for k in sorted_missing)
-            )
-        retry_context = effective_context + "".join(retry_parts)
-        logger.warning("Section '%s' failed IR completeness checks (%s); retrying once.", section, ", ".join(issues))
-        structured, metadata, contract_issues = await _generate_structured_once(retry_context)
+    async def _materialize_candidate(
+        candidate_context: str,
+    ) -> tuple[StructuredSectionDraft, str, int, list[str], bool, object]:
+        validation_retries = 0
+        used_deterministic_fallback = False
+        validation_issues: list[str] = []
+        candidate_cost_usd = 0.0
+        structured, metadata, contract_issues = await _generate_structured_once(candidate_context)
+        candidate_cost_usd += float(getattr(metadata, "cost_usd", 0.0) or 0.0)
         issues = _section_completeness_issues(section, structured, included_study_count)
         issues.extend(contract_issues)
+        cite_issues, missing_keys = _citation_coverage_issues(section, structured, must_cite)
+        issues.extend(cite_issues)
         if issues:
-            validation_issues = sorted(set(issues))
+            validation_retries += 1
+            retry_parts = [
+                "\n\nRETRY RULE: Your previous output failed completeness checks: "
+                + ", ".join(issues)
+                + ". Regenerate this section with complete subsection bodies and a fully closed final sentence.",
+            ]
+            if missing_keys:
+                sorted_missing = sorted(missing_keys)[:30]
+                retry_parts.append(
+                    "\n\nCRITICAL CITATION COVERAGE: You MUST cite the following studies that were "
+                    "omitted from your previous output. Add each study to the relevant block.citations "
+                    "array and include it in cited_keys. Do NOT place [AuthorYear] tokens in block.text:\n"
+                    + "\n".join(f"  - [{k}]" for k in sorted_missing)
+                )
+            retry_context = candidate_context + "".join(retry_parts)
+            logger.warning(
+                "Section '%s' failed IR completeness checks (%s); retrying once.",
+                section,
+                ", ".join(issues),
+            )
+            structured, metadata, contract_issues = await _generate_structured_once(retry_context)
+            candidate_cost_usd += float(getattr(metadata, "cost_usd", 0.0) or 0.0)
+            issues = _section_completeness_issues(section, structured, included_study_count)
+            issues.extend(contract_issues)
+            if issues:
+                validation_issues = sorted(set(issues))
+                fallback_structured = _build_deterministic_section_fallback(section, grounding, valid_citekeys)
+                if _best_effort_accept(section, structured, fallback_structured, validation_issues, included_study_count):
+                    logger.warning(
+                        "Section '%s' still failed completeness checks after retry (%s); keeping best-effort content.",
+                        section,
+                        ", ".join(validation_issues),
+                    )
+                else:
+                    logger.warning(
+                        "Section '%s' still failed completeness checks after retry (%s); using deterministic fallback.",
+                        section,
+                        ", ".join(validation_issues),
+                    )
+                    structured = fallback_structured
+                    used_deterministic_fallback = True
+        structured = _apply_structured_grounding_patches(
+            section,
+            structured,
+            grounding=grounding,
+            review=review,
+            settings=settings,
+            valid_citekeys=valid_citekeys,
+        )
+        content = render_section_markdown(structured)
+        content = _sanitize_prose(content)
+        if section != "abstract" and _needs_legacy_heading_fix(content):
+            content = _sanitize_section_headings(section, content)
+        content = apply_deterministic_guardrails(content)
+        if section == "abstract" and grounding is not None:
+            minimum_words = int(getattr(getattr(settings, "writing", None), "abstract_trim_floor_words", 210))
+            if _abstract_body_word_count(content) < minimum_words:
+                logger.warning(
+                    "Section '%s' remained below the minimum abstract floor after guardrails; forcing deterministic compliant abstract.",
+                    section,
+                )
+                content = _build_minimum_compliant_abstract(review, grounding, minimum_words)
+                used_deterministic_fallback = True
+        if content.strip() != render_section_markdown(structured).strip():
+            structured = _structured_from_markdown(section, content, valid_citekeys, template=structured)
+
+        rendered_citation_issues = _rendered_citation_integrity_issues(content, valid_citekeys)
+        if rendered_citation_issues:
+            validation_issues = sorted(set(validation_issues + rendered_citation_issues))
+        grounding_issues = _grounding_integrity_issues(section, content, grounding)
+        if grounding_issues:
+            validation_issues = sorted(set(validation_issues + grounding_issues))
+        hard_render_issues = rendered_citation_issues + grounding_issues
+        if hard_render_issues and section in {"abstract", "methods", "results", "discussion", "conclusion"}:
             fallback_structured = _build_deterministic_section_fallback(section, grounding, valid_citekeys)
             if _best_effort_accept(section, structured, fallback_structured, validation_issues, included_study_count):
                 logger.warning(
-                    "Section '%s' still failed completeness checks after retry (%s); keeping best-effort content.",
+                    "Section '%s' hit rendered-content integrity issues (%s); keeping best-effort content.",
+                    section,
+                    ", ".join(sorted(set(hard_render_issues))),
+                )
+            else:
+                logger.warning(
+                    "Section '%s' hit rendered-content integrity issues (%s); forcing deterministic fallback.",
+                    section,
+                    ", ".join(sorted(set(hard_render_issues))),
+                )
+                structured = fallback_structured
+                used_deterministic_fallback = True
+                structured = _apply_structured_grounding_patches(
+                    section,
+                    structured,
+                    grounding=grounding,
+                    review=review,
+                    settings=settings,
+                    valid_citekeys=valid_citekeys,
+                )
+                content = render_section_markdown(structured)
+                content = _sanitize_prose(content)
+                if section != "abstract" and _needs_legacy_heading_fix(content):
+                    content = _sanitize_section_headings(section, content)
+                content = apply_deterministic_guardrails(content)
+                if content.strip() != render_section_markdown(structured).strip():
+                    structured = _structured_from_markdown(section, content, valid_citekeys, template=structured)
+        post_issues = _post_render_completeness_issues(section, content, included_study_count)
+        topic_issues = _topic_anchor_issues(section, content, grounding)
+        if topic_issues:
+            validation_issues = sorted(set(validation_issues + topic_issues))
+            logger.warning(
+                "Section '%s' hit soft topic-anchor issues (%s); keeping generated content.",
+                section,
+                ", ".join(topic_issues),
+            )
+        if post_issues and section in {"methods", "results", "discussion", "conclusion"}:
+            validation_issues = sorted(set(validation_issues + post_issues))
+            fallback_structured = _build_deterministic_section_fallback(section, grounding, valid_citekeys)
+            if _best_effort_accept(section, structured, fallback_structured, validation_issues, included_study_count):
+                logger.warning(
+                    "Section '%s' failed post-render completeness checks (%s); keeping best-effort content.",
                     section,
                     ", ".join(validation_issues),
                 )
             else:
                 logger.warning(
-                    "Section '%s' still failed completeness checks after retry (%s); using deterministic fallback.",
+                    "Section '%s' failed post-render completeness checks (%s); forcing deterministic fallback.",
                     section,
                     ", ".join(validation_issues),
                 )
                 structured = fallback_structured
                 used_deterministic_fallback = True
-    structured = _apply_structured_grounding_patches(
-        section,
-        structured,
-        grounding=grounding,
-        review=review,
-        settings=settings,
-        valid_citekeys=valid_citekeys,
-    )
-    content = render_section_markdown(structured)
-    if on_llm_call:
-        word_count = len(content.split())
-        on_llm_call(
-            source="writing",
-            status="success",
-            details=section,
-            records=None,
-            call_type="llm_writing",
-            raw_response=content,
-            latency_ms=metadata.latency_ms,
-            model=metadata.model,
-            paper_id=None,
-            phase="phase_6_writing",
-            tokens_in=metadata.tokens_in,
-            tokens_out=metadata.tokens_out,
-            cost_usd=metadata.cost_usd,
-            section_name=section,
-            word_count=word_count,
+                structured = _apply_structured_grounding_patches(
+                    section,
+                    structured,
+                    grounding=grounding,
+                    review=review,
+                    settings=settings,
+                    valid_citekeys=valid_citekeys,
+                )
+                content = render_section_markdown(structured)
+                content = _sanitize_prose(content)
+                if section != "abstract" and _needs_legacy_heading_fix(content):
+                    content = _sanitize_section_headings(section, content)
+                content = apply_deterministic_guardrails(content)
+                if content.strip() != render_section_markdown(structured).strip():
+                    structured = _structured_from_markdown(section, content, valid_citekeys, template=structured)
+        if hasattr(metadata, "cost_usd"):
+            metadata.cost_usd = candidate_cost_usd
+        return (
+            structured,
+            content,
+            validation_retries,
+            validation_issues,
+            used_deterministic_fallback,
+            metadata,
         )
-    # Safety-net: replace any leftover snake_case in prose before saving.
-    content = _sanitize_prose(content)
-    # Keep heading repair for malformed fallback text only; validated IR should
-    # render clean headings without regex surgery on the happy path.
-    if section != "abstract" and _needs_legacy_heading_fix(content):
-        content = _sanitize_section_headings(section, content)
 
-    # Deterministic pre-humanizer guardrails remove repetitive boilerplate while
-    # preserving citations and numeric tokens.
-    content = apply_deterministic_guardrails(content)
-    if section == "abstract" and grounding is not None:
-        minimum_words = int(getattr(getattr(settings, "writing", None), "abstract_trim_floor_words", 210))
-        if _abstract_body_word_count(content) < minimum_words:
-            logger.warning(
-                "Section '%s' remained below the minimum abstract floor after guardrails; forcing deterministic compliant abstract.",
-                section,
-            )
-            content = _build_minimum_compliant_abstract(review, grounding, minimum_words)
-            used_deterministic_fallback = True
-    if content.strip() != render_section_markdown(structured).strip():
-        structured = _structured_from_markdown(section, content, valid_citekeys, template=structured)
+    workflow_repo = WorkflowRepository(citation_repo.db)
+    ratchet_max = max(1, int(getattr(getattr(settings, "writing", None), "ratchet_max_iterations", 1)))
+    cost_cap = float(getattr(getattr(settings, "writing", None), "ratchet_cost_cap_per_section", 0.15))
+    best_candidate: tuple[StructuredSectionDraft, str, int, list[str], bool, object] | None = None
+    best_score = SectionQualityScore.worst()
+    best_issues: list[str] = []
+    best_iteration_index = 0
+    prev_fingerprint: str | None = None
+    cumulative_cost_usd = 0.0
+    ratchet_trace: list[dict[str, object]] = []
 
-    rendered_citation_issues = _rendered_citation_integrity_issues(content, valid_citekeys)
-    if rendered_citation_issues:
-        validation_issues = sorted(set(validation_issues + rendered_citation_issues))
-    grounding_issues = _grounding_integrity_issues(section, content, grounding)
-    if grounding_issues:
-        validation_issues = sorted(set(validation_issues + grounding_issues))
-    hard_render_issues = rendered_citation_issues + grounding_issues
-    if hard_render_issues and section in {"abstract", "methods", "results", "discussion", "conclusion"}:
-        fallback_structured = _build_deterministic_section_fallback(section, grounding, valid_citekeys)
-        if _best_effort_accept(section, structured, fallback_structured, validation_issues, included_study_count):
-            logger.warning(
-                "Section '%s' hit rendered-content integrity issues (%s); keeping best-effort content.",
-                section,
-                ", ".join(sorted(set(hard_render_issues))),
-            )
-        else:
-            logger.warning(
-                "Section '%s' hit rendered-content integrity issues (%s); forcing deterministic fallback.",
-                section,
-                ", ".join(sorted(set(hard_render_issues))),
-            )
-            structured = fallback_structured
-            used_deterministic_fallback = True
-            structured = _apply_structured_grounding_patches(
-                section,
-                structured,
-                grounding=grounding,
-                review=review,
-                settings=settings,
-                valid_citekeys=valid_citekeys,
-            )
-            content = render_section_markdown(structured)
-            content = _sanitize_prose(content)
-            if section != "abstract" and _needs_legacy_heading_fix(content):
-                content = _sanitize_section_headings(section, content)
-            content = apply_deterministic_guardrails(content)
-            if content.strip() != render_section_markdown(structured).strip():
-                structured = _structured_from_markdown(section, content, valid_citekeys, template=structured)
-    post_issues = _post_render_completeness_issues(section, content, included_study_count)
-    topic_issues = _topic_anchor_issues(section, content, grounding)
-    if topic_issues:
-        validation_issues = sorted(set(validation_issues + topic_issues))
-        logger.warning(
-            "Section '%s' hit soft topic-anchor issues (%s); keeping generated content.",
-            section,
-            ", ".join(topic_issues),
+    for iteration in range(ratchet_max):
+        if iteration > 0:
+            if provider is not None:
+                total_run_cost = await workflow_repo.get_total_cost(workflow_id)
+                if total_run_cost >= float(getattr(getattr(settings, "gates", None), "cost_budget_max", 0.0)):
+                    logger.warning(
+                        "Section '%s' ratchet stopped before iteration %d because run cost budget was exhausted.",
+                        section,
+                        iteration + 1,
+                    )
+                    break
+            if cumulative_cost_usd >= cost_cap:
+                logger.warning(
+                    "Section '%s' ratchet stopped before iteration %d because per-section cost cap %.2f USD was reached.",
+                    section,
+                    iteration + 1,
+                    cost_cap,
+                )
+                break
+
+        iter_context = effective_context
+        if iteration > 0 and best_issues:
+            iter_context = effective_context + format_quality_feedback(best_issues, best_score)
+
+        candidate = await _materialize_candidate(iter_context)
+        structured, content, validation_retries, validation_issues, used_deterministic_fallback, metadata = candidate
+        cumulative_cost_usd += float(getattr(metadata, "cost_usd", 0.0) or 0.0)
+        fingerprint = _draft_fingerprint(structured)
+
+        score, scored_issues = compute_section_quality_score(
+            section=section,
+            draft=structured,
+            rendered=content,
+            outline=outline,
+            grounding=grounding,
+            valid_citekeys=valid_citekeys,
+            must_cite=must_cite,
+            settings=settings,
+            included_study_count=included_study_count,
         )
-    if post_issues and section in {"methods", "results", "discussion", "conclusion"}:
-        validation_issues = sorted(set(validation_issues + post_issues))
-        fallback_structured = _build_deterministic_section_fallback(section, grounding, valid_citekeys)
-        if _best_effort_accept(section, structured, fallback_structured, validation_issues, included_study_count):
+        if validation_issues:
+            scored_issues = list(dict.fromkeys([*scored_issues, *validation_issues]))
+        ratchet_trace.append(
+            {
+                "iteration": iteration + 1,
+                "score": score.model_dump(),
+                "issue_count": len(scored_issues),
+                "issues": scored_issues[:20],
+                "cost_usd": float(getattr(metadata, "cost_usd", 0.0) or 0.0),
+                "fallback_used": bool(used_deterministic_fallback),
+                "validation_retries": int(validation_retries),
+            }
+        )
+
+        improved = best_candidate is None or score > best_score
+        if improved:
+            best_candidate = candidate
+            best_score = score
+            best_issues = scored_issues
+            best_iteration_index = iteration + 1
+
+        if iteration > 0 and fingerprint == prev_fingerprint:
             logger.warning(
-                "Section '%s' failed post-render completeness checks (%s); keeping best-effort content.",
+                "Section '%s' ratchet stopped at iteration %d because the draft fingerprint repeated.",
                 section,
-                ", ".join(validation_issues),
+                iteration + 1,
             )
-        else:
+            break
+        prev_fingerprint = fingerprint
+
+        if iteration > 0 and not improved:
             logger.warning(
-                "Section '%s' failed post-render completeness checks (%s); forcing deterministic fallback.",
+                "Section '%s' ratchet stopped at iteration %d because quality plateaued.",
                 section,
-                ", ".join(validation_issues),
+                iteration + 1,
             )
-            structured = fallback_structured
-            used_deterministic_fallback = True
-            structured = _apply_structured_grounding_patches(
+            break
+        if iteration == 0 and used_deterministic_fallback:
+            logger.warning(
+                "Section '%s' used deterministic fallback on the first iteration; skipping further ratchet rewrites.",
                 section,
-                structured,
-                grounding=grounding,
-                review=review,
-                settings=settings,
-                valid_citekeys=valid_citekeys,
             )
-            content = render_section_markdown(structured)
-            content = _sanitize_prose(content)
-            if section != "abstract" and _needs_legacy_heading_fix(content):
-                content = _sanitize_section_headings(section, content)
-            content = apply_deterministic_guardrails(content)
-            if content.strip() != render_section_markdown(structured).strip():
-                structured = _structured_from_markdown(section, content, valid_citekeys, template=structured)
+            break
+
+    assert best_candidate is not None
+    structured, content, validation_retries, validation_issues, used_deterministic_fallback, metadata = best_candidate
+    validation_issues = best_issues
 
     # Register each cited sentence as a claim and link it to evidence so the
     # citation lineage gate can verify full claim->evidence->citation coverage.
@@ -2318,6 +2573,35 @@ async def write_section_with_validation(
             section,
             len(result.unresolved_claims),
         )
+    ratchet_meta_json = json.dumps(
+        {
+            "ratchet_iterations": len(ratchet_trace),
+            "ratchet_scores": [entry["score"] for entry in ratchet_trace],
+            "ratchet_trace": ratchet_trace,
+            "ratchet_winner": best_iteration_index,
+            "ratchet_cost_usd": round(cumulative_cost_usd, 6),
+        },
+        sort_keys=True,
+    )
+    if on_llm_call:
+        word_count = len(content.split())
+        on_llm_call(
+            source="writing",
+            status="success",
+            details=section,
+            records=None,
+            call_type="llm_writing",
+            raw_response=content,
+            latency_ms=metadata.latency_ms,
+            model=metadata.model,
+            paper_id=None,
+            phase="phase_6_writing",
+            tokens_in=metadata.tokens_in,
+            tokens_out=metadata.tokens_out,
+            cost_usd=metadata.cost_usd,
+            section_name=section,
+            word_count=word_count,
+        )
     return SectionWriteResult(
         section_key=section,
         content_markdown=content,
@@ -2328,6 +2612,7 @@ async def write_section_with_validation(
         validation_issues=validation_issues,
         fallback_used=used_deterministic_fallback,
         used_deterministic_fallback=used_deterministic_fallback,
+        ratchet_meta_json=ratchet_meta_json,
     )
 
 

@@ -180,6 +180,51 @@ class RecoveryPolicyRecord(BaseModel):
         return f"retry {self.current_retries}/{self.max_retries}, rewind {self.current_rewinds}/{self.max_rewinds}"
 
 
+class SectionQualityScore(BaseModel):
+    """Lexicographic quality score used by the section ratchet loop."""
+
+    hard_issue_count: int = 10**6
+    completeness_issue_count: int = 10**6
+    citation_gap_count: int = 10**6
+    outline_coverage_gaps: int = 10**6
+    abstract_floor_gap: int = 10**6
+    soft_issue_count: int = 10**6
+
+    @classmethod
+    def worst(cls) -> "SectionQualityScore":
+        return cls()
+
+    def _comparison_key(self) -> tuple[int, int, int, int, int, int]:
+        return (
+            -self.hard_issue_count,
+            -self.completeness_issue_count,
+            -self.citation_gap_count,
+            -self.outline_coverage_gaps,
+            -self.abstract_floor_gap,
+            -self.soft_issue_count,
+        )
+
+    def __lt__(self, other: object) -> bool:
+        if not isinstance(other, SectionQualityScore):
+            return NotImplemented
+        return self._comparison_key() < other._comparison_key()
+
+    def __le__(self, other: object) -> bool:
+        if not isinstance(other, SectionQualityScore):
+            return NotImplemented
+        return self._comparison_key() <= other._comparison_key()
+
+    def __gt__(self, other: object) -> bool:
+        if not isinstance(other, SectionQualityScore):
+            return NotImplemented
+        return self._comparison_key() > other._comparison_key()
+
+    def __ge__(self, other: object) -> bool:
+        if not isinstance(other, SectionQualityScore):
+            return NotImplemented
+        return self._comparison_key() >= other._comparison_key()
+
+
 class WritingManifestRecord(BaseModel):
     """Per-section writing manifest tracking evidence provenance and retries.
 

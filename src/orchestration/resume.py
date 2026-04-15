@@ -178,6 +178,7 @@ async def load_resume_state(
             "phase_3_screening": ["phase_3b_fulltext"],
             "phase_6_writing": [
                 "phase_6a_hyde",
+                "phase_6a2_outline",
                 "phase_6b_phase_a",
                 "phase_6c_phase_b",
                 "phase_6d_assembly",
