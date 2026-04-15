@@ -44,4 +44,5 @@ class SearchCompleteNode(BaseNode[ReviewState]):
 
 ## Auto-Resume on `run`
 If `run` is called and workflow exists for same topic (by config_hash):
--> Prompt: "Found existing run for this topic (phase 4/8 complete). Resume? (Y/n)"
+-> Prompt with the real checkpoint context, not build-phase shorthand. Prefer wording like:
+   "Found existing run for this topic (last durable checkpoint: `phase_6_writing`). Resume? (Y/n)"

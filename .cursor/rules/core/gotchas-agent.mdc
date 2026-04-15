@@ -35,6 +35,12 @@ Use `POST /api/history/attach` to re-register a completed run before calling any
 The PRISMA checklist endpoint falls back to `workflows_registry.db` automatically when the run_id
 is not in `_active_runs` -- supports both short run_ids and workflow_ids (wf-XXXXXXXX format).
 
+## `/api/history/active-run` Requires `workflow_id` Query Param
+`GET /api/history/active-run` is not a bare status probe. The handler signature is
+`get_active_run(workflow_id: str)` in `src/web/app.py`, and the frontend calls it as
+`/api/history/active-run?workflow_id=<wf-XXXX>`.
+If docs or tooling omit the query param, the request is wrong.
+
 ## `/api/run/{run_id}/...` Accepts Active run_id Or `wf-*` Workflow IDs
 Run-oriented endpoints such as readiness and diagnostics use `run_id` in the path, but the
 backend resolves either:
@@ -84,10 +90,26 @@ The production URL (`https://litreview.parthchandak.info`) serves `frontend/dist
 Frontend code changes are invisible in production until you run `cd frontend && pnpm build`.
 The Vite dev server on localhost:5173 picks up changes automatically.
 
+## Overmind Uses `.overmind.env` To Select `Procfile.dev`
+This repo commits `.overmind.env` with `OVERMIND_PROCFILE=Procfile.dev`.
+`overmind start` therefore launches the split `api` + `ui` dev processes by default.
+If `.overmind.env` is missing or overridden, Overmind falls back to `Procfile`, which only
+starts the single `web` process on `${PORT:-8000}`.
+
+## `.env.example` Should Match The 8001 Backend Default
+Local docs, PM2, and `Procfile.dev` assume the backend listens on port `8001`.
+If `PORT` is changed to `8000` by copying an outdated env template or another shell config,
+the app can appear broken even though the server is running on the wrong port.
+
 ## PM2 Config Uses An Absolute PROJECT_DIR
 `ecosystem.config.js` currently hardcodes `PROJECT_DIR` to this machine's checkout path.
 If PM2 commands fail on another machine or after moving the repo, update `PROJECT_DIR` before
 running `pm2 start ecosystem.config.js`.
+
+## PM2 Tunnel Uses A Hardcoded `cloudflared` Path
+`ecosystem.config.js` points `litreview-tunnel` at `/opt/homebrew/bin/cloudflared`.
+On Linux or non-Homebrew macOS setups, PM2 tunnel startup can fail even when the rest of the
+stack is healthy. Update the path before debugging the application itself.
 
 ## Backend Module Reload
 Python loads all modules at startup. Any change to `src/` is invisible until `pm2 restart litreview-api`.
