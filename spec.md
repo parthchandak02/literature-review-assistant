@@ -143,7 +143,7 @@ The table below is the high-level contract from node entry to persisted outputs.
 | Synthesis | Feasibility, narrative synthesis, optional meta-analysis and sensitivity | `synthesis_results`, figure artifacts, `checkpoints(phase_5_synthesis)` |
 | Knowledge graph | Relationship graph, communities, gap detection | `paper_relationships`, `graph_communities`, `research_gaps`, `checkpoints(phase_5b_knowledge_graph)` |
 | Pre-writing gate | Cohort/readiness checks before section generation | `recovery_policies`, `gate_results(pre_writing_gate)`, `checkpoints(phase_5c_pre_writing_gate)` |
-| Writing | Grounding build, HyDE + RAG retrieval, section writing/humanizer, citation repair, persistence invariants | `section_drafts`, `citations`, `claims`, `evidence_links`, `manuscript_*`, `rag_retrieval_diagnostics`, `writing_manifests`, `workflow_steps`, `checkpoints(phase_6_*)` |
+| Writing | Grounding build, HyDE + RAG retrieval, section outline generation, outline-guided ratchet scoring/rewrite loop, section writing/humanizer, citation repair, persistence invariants | `section_outlines`, `section_drafts`, `citations`, `claims`, `evidence_links`, `manuscript_*`, `rag_retrieval_diagnostics`, `writing_manifests`, `workflow_steps`, `checkpoints(phase_6_*)` |
 | Manuscript audit | Profile routing, bounded LLM audit checks, findings merge, strict/soft/observe gate pass-through | `manuscript_audit_runs`, `manuscript_audit_findings`, `checkpoints(phase_7_audit)` |
 | Finalize | Manuscript export artifacts, package pre-population, summary finalization | `doc_manuscript.tex`, `references.bib`, `submission/*`, `run_summary.json`, final workflow status |
 
@@ -288,6 +288,8 @@ Status semantics:
 - `failed`: terminal error path (including strict gate failures and invariant failures).
 - `cancelled`: user-initiated stop.
 - `stale`: registry-level recovery state when heartbeat expires; can transition back to running on successful resume/reattach.
+
+History/status APIs resolve an effective status from three sources in order: active in-memory run state, registry row state, and durable runtime evidence (`event_log`, `checkpoints`, `run_summary.json`). When a stale `running` or `awaiting_review` registry row conflicts with durable terminal evidence, the API repairs the registry row to the terminal status on read.
 
 ### 2.12 Directory Layout
 
@@ -653,13 +655,17 @@ WritingNode uses a two-phase approach to enable cross-section synthesis:
 - **Phase A** (abstract, intro, methods, results) -- run concurrently.
 - **Phase B** (discussion, conclusion) -- run after Phase A; each receives a PRIOR SECTIONS CONTEXT block summarising the Results draft (and Discussion for Conclusion). This prevents mechanical repetition and allows Phase B sections to synthesise and extend rather than restate.
 
+Before section drafting, WritingNode optionally generates one persisted `SectionOutline` per section (`phase_6a2_outline`) using `src/writing/outline_generator.py`. The primary path uses schema-constrained LLM output; if that fails or times out, the node falls back to deterministic prompt-derived headings. Results outlines are always seeded with authoritative "Study Selection", "Study Characteristics", and "Synthesis of Findings" nodes built from grounded evidence. Completed outlines are stored in the `section_outlines` table and reused on resume for the current writing generation.
+
 Section word limits (`SECTION_WORD_LIMITS` in `src/writing/prompts/sections.py`): abstract uses config-driven limit (`settings.ieee_export.max_abstract_words`, default 250), intro 700, methods 900, results 1400, discussion 900, conclusion 350. The abstract is capped deterministically post-LLM by `_trim_abstract_to_limit()` using trim headroom/floor settings.
 
-A section writer (model from `settings.yaml` `agents.writing`) generates each of six manuscript sections as schema-constrained structured IR (`StructuredSectionDraft`). IR is validated for completeness (required subsection bodies, substantive paragraph count, tail-fragment checks), retried once deterministically on failure, then rendered with deterministic renderers. All section prompts enforce:
+A section writer (model from `settings.yaml` `agents.writing`) generates each of six manuscript sections as schema-constrained structured IR (`StructuredSectionDraft`). Each draft is scored with `SectionQualityScore`, a lexicographic quality score that prioritizes hard defects, completeness, citation gaps, outline coverage gaps, abstract floor gap, and then soft issues. When enabled, the section ratchet loop can perform bounded rewrites using outline-aware feedback until quality plateaus, the fingerprint repeats, a deterministic fallback wins, or the per-section / run cost budget is exhausted. All section prompts enforce:
 - Prohibited AI-tell phrases (e.g. "Of course", "As an expert", "Certainly")
 - MANDATORY CITATION COVERAGE RULE: the LLM must cite every included study at least once
 - Citation catalog split into "INCLUDED STUDIES -- CITATION COVERAGE REQUIRED" and "METHODOLOGY REFERENCES" blocks; LLM may only use citekeys from these blocks
 - Study-count-adapted language (singular vs plural)
+
+IR is validated for completeness (required subsection bodies, substantive paragraph count, tail-fragment checks), retried once deterministically on failure, then rendered with deterministic renderers. Ratchet traces and winning-iteration metadata are persisted on each `SectionWriteResult` so downstream diagnostics can explain why a draft was accepted.
 
 After each section, the humanizer (flash tier, up to `humanization_iterations` refinement passes) polishes the output for academic tone. A deterministic guardrail pass (`src/writing/humanizer_guardrails.py`) runs to remove repetitive filler while preserving bracketed citation blocks and numeric/statistical tokens. The naturalness scorer was removed -- it returned a constant 0.8 and never gated any output.
 
@@ -669,13 +675,13 @@ A programmatic citation coverage check runs after writing: uncited citekeys are 
 
 The citation ledger validates after each section: every in-text citekey must resolve to a `CitationEntryRecord`. Zero unresolved citations is required before export.
 
-Each completed section is saved to the `section_drafts` table immediately. On resume after a crash, the writing node loads completed sections from the DB and skips them.
+Each completed section is saved to the `section_drafts` table immediately. Outlines are saved separately to `section_outlines`, and writing manifests keep per-section provenance plus contract/retry metadata. On resume after a crash, the writing node reuses persisted outlines and completed section drafts for the active generation and skips only the work that has already landed.
 
 **Zero-papers guard:** When 0 papers are included (e.g. gates.profile=warning allows continuation past screening_safeguard), WritingNode produces a minimal manuscript without LLM calls via `_build_minimal_sections_for_zero_papers()`. No style extraction, HyDE, or section-writing LLM calls run.
 
 **Gate:** `citation_lineage` -- blocks export if `block_export_on_unresolved` is true and any claim has an unresolved citation.
 
-**Outputs:** `StructuredSectionDraft` per section (6 total, persisted after render), `doc_manuscript.md`. The `include_rq_block=False` default in `assemble_submission_manuscript()` omits the "Research Question:" prefix for clean IEEE output.
+**Outputs:** `SectionOutline` per section (persisted in `section_outlines`), `StructuredSectionDraft` per section (6 total, persisted after render), ratchet trace metadata on `SectionWriteResult`, and `doc_manuscript.md`. The `include_rq_block=False` default in `assemble_submission_manuscript()` omits the "Research Question:" prefix for clean IEEE output.
 
 ### 6.7 Phase 7: PRISMA and Visualizations (Rendered in WritingNode)
 
@@ -817,6 +823,7 @@ Each run creates its own `runtime.db`. Schema defined in `src/db/schema.sql`.
 | `research_gaps` | Gap detector outputs persisted per workflow |
 | `workflow_steps` | Step-level execution journal (status, duration, failure category, recovery action) |
 | `recovery_policies` | Retry/rewind accounting per phase+step for pre-writing gate recovery |
+| `section_outlines` | Persisted outline plan per section and writing generation |
 | `writing_manifests` | Per-section writing provenance (grounding hash, evidence IDs, contract status, retries) |
 
 SQLite connection settings: WAL journal mode (concurrent reads + single writer), NORMAL synchronous (~2-3x faster writes), foreign keys ON (SQLite does NOT enforce FKs by default), 40MB cache, temp tables in memory. On open, `repair_foreign_key_integrity()` inserts stub papers for orphaned paper_id refs (e.g. from migration) to avoid FOREIGN KEY constraint failures.
@@ -1394,7 +1401,7 @@ Status taxonomy:
 | Phase 3: Screening | Implemented | Dual reviewer with cross-model validation (Reviewer A=flash-lite tier, Reviewer B=flash-lite tier by default in config/settings.yaml; can be overridden), keyword filter, BM25 cap, batch LLM pre-ranker (batch_ranker.py; batch_screener agent; papers below batch_screen_threshold auto-excluded as batch_screened_low), kappa injected into writing, Ctrl+C proceed-with-partial, confidence fast-path, protocol-only auto-exclusion; forward citation chasing (Semantic Scholar + OpenAlex) runs at end of ScreeningNode -- chased papers are immediately dual-screened (title/abstract + fulltext) in the same run and contribute to dual_screening_results |
 | Phase 4: Extraction + Quality | Implemented | LLM extraction with PyMuPDF full-text parsing (32K char context, up from 8K), async RoB 2 / ROBINS-I / CASP with heuristic fallback tagged by assessment_source, GRADE auto-wired from RoB data (assess_from_rob), study router, RoB traffic-light figure |
 | Phase 5: Synthesis | Implemented | Hardened feasibility (requires effect_size+se in >= 2 studies), statsmodels pooling (DL), forest + funnel plots, LLM-based narrative direction classification, sensitivity analysis (leave-one-out + subgroup), synthesis_results table |
-| Phase 6: Writing | Implemented | Section writer, humanizer, deterministic guardrails (preserve citekeys and numerics), citation validation, per-section checkpoint, WritingGroundingData (includes kappa, sensitivity_results, n_studies_reporting_count, separated search sources, rob_summary, grade_summary, and topic-grounding anchors injected from actual run config/assessments), GRADE table + RoB summary injected into writing prompts; two-phase WritingNode (Phase A concurrent: abstract/intro/methods/results; Phase B with PRIOR SECTIONS CONTEXT: discussion/conclusion); SECTION_WORD_LIMITS (results 1400, methods 900, discussion 900, abstract config-driven via `max_abstract_words` and enforced by `_trim_abstract_to_limit`); MANDATORY CITATION COVERAGE RULE with design-grouped _build_citation_coverage_patch; build_compact_study_table injected at ### Study Characteristics; abstract-only rate caution gate (>40% triggers hedged-language requirement) |
+| Phase 6: Writing | Implemented | Section outline generation with deterministic fallback (`phase_6a2_outline`, `section_outlines` table), section ratchet loop with `SectionQualityScore` and bounded rewrite budgets, section writer, humanizer, deterministic guardrails (preserve citekeys and numerics), citation validation, per-section checkpoint, WritingGroundingData (includes kappa, sensitivity_results, n_studies_reporting_count, separated search sources, rob_summary, grade_summary, and topic-grounding anchors injected from actual run config/assessments), GRADE table + RoB summary injected into writing prompts; two-phase WritingNode (Phase A concurrent: abstract/intro/methods/results; Phase B with PRIOR SECTIONS CONTEXT: discussion/conclusion); SECTION_WORD_LIMITS (results 1400, methods 900, discussion 900, abstract config-driven via `max_abstract_words` and enforced by `_trim_abstract_to_limit`); MANDATORY CITATION COVERAGE RULE with design-grouped _build_citation_coverage_patch; build_compact_study_table injected at ### Study Characteristics; abstract-only rate caution gate (>40% triggers hedged-language requirement) |
 | Manuscript audit (phase_7_audit) | Implemented | ManuscriptAuditNode after writing; `manuscript_audit_runs` / `manuscript_audit_findings`; audit verdict mode from `manuscript_audit_mode` plus workflow outcome mode from `audit_gate_mode`; API: `/api/workflow/{workflow_id}/manuscript-audit/summary`, `/findings`, `/api/run/{run_id}/manuscript-audit`; ResultsView and QualityView both load the consolidated audit summary |
 | PRISMA + figures (WritingNode) | Implemented | PRISMA diagram (prisma-flow-diagram + fallback), timeline, geographic, ROBINS-I in RoB figure, uniform artifact naming (artifact generation during phase_6_writing; not the same checkpoint as phase_7_audit) |
 | Phase 8: Export + Orchestration | Implemented | Run/resume, IEEE LaTeX, BibTeX, validators, Word DOCX export (pypandoc + python-docx), submission packager, pdflatex, CLI subcommands |
@@ -1402,7 +1409,7 @@ Status taxonomy:
 | Human-in-the-Loop | Implemented | HumanReviewCheckpointNode pauses run at awaiting_review status; approve-screening API resumes; frontend shows Review Screening tab with AI decisions + confidence |
 | Living Review | Implemented | living_review + last_search_date in review.yaml; SearchNode skips previously-screened DOIs; POST /api/run/{run_id}/living-refresh creates incremental re-run |
 | Resume | Implemented | Central registry, topic auto-resume, mid-phase resume, resume-from-phase (backend API supports from_phase param; UI phase-picker modal removed -- resume via CLI --from-phase flag or direct API call), fallback scan of run_summary.json |
-| Control plane + run diagnostics | Implemented | `workflow_steps`, `recovery_policies`, `writing_manifests` tables; `_journal_step_start`/`_journal_step_complete` in workflow.py; `GET /api/run/{run_id}/diagnostics`; `GET /api/run/{run_id}/readiness`; both readiness and diagnostics expose top-level `audit_summary` helper data; pre-writing gate DB-backed recovery policies; per-section writing manifest provenance; deterministic Results evidence via `src/writing/evidence_assembler.py` |
+| Control plane + run diagnostics | Implemented | `workflow_steps`, `recovery_policies`, `section_outlines`, `writing_manifests` tables; `_journal_step_start`/`_journal_step_complete` in workflow.py; history/status APIs repair stale registry rows from durable runtime evidence when terminal facts exist; `GET /api/run/{run_id}/diagnostics`; `GET /api/run/{run_id}/readiness`; both readiness and diagnostics expose top-level `audit_summary` helper data; pre-writing gate DB-backed recovery policies; per-section writing manifest provenance; deterministic Results evidence via `src/writing/evidence_assembler.py` |
 | Post-build improvements | Historical | display_label (single source of truth in papers table), synthesis_results table, dedup_count column, SearchConfig per-connector limits, BM25 cap with LOW_RELEVANCE_SCORE exclusions |
 | Post-build: Hybrid RAG + PRISMA fixes | Historical | Hybrid BM25+dense RAG (RRF) in WritingNode, PydanticAI Embedder replacing google-generativeai SDK, PRISMA endpoint registry fallback, duplicate Discussion heading dedup, PRISMACounts field name fixes |
 | Post-build: HyDE + Gemini listwise reranker | Historical | HyDE (hypothetical doc embeddings, Gao et al. 2022) for rich dense query vectors; Gemini Flash listwise reranker (single LLM call ranks 20 candidates to top 8); removed sentence-transformers/torch (382 MB) in favour of zero-new-dep PydanticAI calls |

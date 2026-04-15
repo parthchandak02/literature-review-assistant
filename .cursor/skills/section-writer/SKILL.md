@@ -35,13 +35,15 @@ Key findings, comparison with prior work, strengths, limitations, implications.
 
 ## Structured Writing Workflow (current)
 
-1. `SectionWriter.write_section_structured_async()` requests schema-constrained JSON output
-2. Validate with `StructuredSectionDraft` and sanitize block text deterministically
-3. Run completeness checks (substantive paragraphs, non-empty required subsection bodies, no trailing fragments)
-4. If completeness fails, retry once with deterministic retry instructions
-5. If still malformed, use deterministic section fallback (grounding-backed where possible)
-6. Render with deterministic renderer (`render_section_markdown`) before persistence
-7. Apply deterministic post-trim with runtime settings:
+1. Generate or reuse a `SectionOutline` plan for the section; persist it in `section_outlines` when the writing node owns the flow
+2. `SectionWriter.write_section_structured_async()` requests schema-constrained JSON output
+3. Validate with `StructuredSectionDraft` and sanitize block text deterministically
+4. Run completeness checks (substantive paragraphs, non-empty required subsection bodies, no trailing fragments)
+5. If completeness fails, retry once with deterministic retry instructions
+6. Score the draft with `SectionQualityScore`; when enabled, allow the bounded ratchet rewrite loop to use outline-aware feedback until quality plateaus or budget is exhausted
+7. If still malformed, use deterministic section fallback (grounding-backed where possible)
+8. Render with deterministic renderer (`render_section_markdown`) before persistence
+9. Apply deterministic post-trim with runtime settings:
    - set abstract limit from `settings.ieee_export.max_abstract_words`
    - trim target: `max(limit - writing.abstract_trim_headroom_words, writing.abstract_trim_floor_words)`
    - enforce structured abstract fields before persistence

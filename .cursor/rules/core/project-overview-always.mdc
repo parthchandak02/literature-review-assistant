@@ -29,6 +29,7 @@ alwaysApply: true
 - Control-plane persistence: tables `workflow_steps`, `recovery_policies`, `writing_manifests`; typed records `WorkflowStepRecord`, `RecoveryPolicyRecord`, `WritingManifestRecord` in `src/models/workflow.py`; enums `StepStatus`, `FailureCategory`, `RecoveryAction` in `src/models/enums.py`
 - LLM provider/rate limiting/fallback: `src/llm/`
 - Writing and citation grounding: `src/writing/`
+- Writing outline + ratchet loop: `src/writing/outline_generator.py`, table `section_outlines`, models `SectionOutline` / `OutlineNode` in `src/models/writing.py`, `SectionQualityScore` in `src/models/workflow.py`
 - Deterministic Results evidence: `src/writing/evidence_assembler.py`
 - Manuscript contracts: `src/manuscript/contracts.py`
 - Manuscript readiness scorecard: `src/manuscript/readiness.py`

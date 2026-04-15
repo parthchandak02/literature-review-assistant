@@ -263,6 +263,7 @@ Two config files control behavior:
 - `gates.manuscript_contract_mode` -- contract enforcement (`observe` / `soft` / `strict`, default is `strict`)
 - `gates.manuscript_audit_mode` -- audit verdict mode (`observe` / `soft` / `strict`) used to mark the audit run itself as passed or failed
 - `gates.audit_gate_mode` -- workflow behavior for blocking audit findings (`advisory` keeps the workflow completed and preserves the audit report; `strict` hard-fails at `phase_7_audit`)
+- `writing.ratchet_*` -- optional section rewrite loop controls (`ratchet_max_iterations`, `ratchet_cost_cap_per_section`, `ratchet_outline_enabled`) for outline-guided writing quality refinement
 - `manuscript_audit.*` -- profile activation and `cost_cap_usd` for `phase_7_audit`
 - Quality gate thresholds
 - Search depth (records per database)
@@ -284,7 +285,7 @@ Phase 4b: Embedding sub-phase (RAG chunking + vector persistence)
 Phase 5: Synthesis (meta-analysis or narrative + sensitivity)
 Phase 5b: Knowledge-graph sub-phase (communities + gap signals)
 Phase 5c: Pre-writing gate (cohort/readiness checks before section generation)
-Phase 6: Writing via structured section IR (schema-constrained output -> completeness gates -> deterministic render) + manuscript assembly (`doc_manuscript.md`) + PRISMA/timeline/geographic figures
+Phase 6: Writing via structured section IR (outline generation -> schema-constrained output -> ratchet quality scoring/rewrite loop -> deterministic render) + manuscript assembly (`doc_manuscript.md`) + PRISMA/timeline/geographic figures
 Phase 7: Manuscript audit (profile-routed final guardian checks with bounded cost, persisted findings, audit verdict from `manuscript_audit_mode`, and workflow completion behavior from `audit_gate_mode`)
 Finalize: final artifacts (`doc_manuscript.tex`, `references.bib`, `run_summary.json`)
 Export (on demand): submission packaging (`submission/`, zip, docx/pdf when dependencies are available)
@@ -414,7 +415,7 @@ cd frontend && pnpm fix && pnpm typecheck
 | `src/manuscript/` | Readiness scorecards, manuscript contracts, PRISMA disclosure checks, audit reviewer |
 | `src/rag/` | RAG pipeline: chunker, embedder (PydanticAI), hybrid BM25+dense retriever (RRF), HyDE query expansion, Gemini listwise reranker |
 | `src/knowledge_graph/` | Builder, community (Louvain), gap detector |
-| `src/writing/` | Section writer, humanizer, deterministic guardrails, grounding, evidence_assembler |
+| `src/writing/` | Section writer, outline generator, humanizer, deterministic guardrails, grounding, evidence_assembler |
 | `src/citation/` | Citation ledger -- claim-to-evidence-to-BibTeX lineage |
 | `src/export/` | IEEE LaTeX exporter, Word DOCX exporter, BibTeX builder, PRISMA validator |
 | `src/visualization/` | Forest plot, funnel plot, RoB figure, timeline, geographic |
