@@ -43,6 +43,14 @@ backend resolves either:
 Do not document these endpoints as workflow-only or assume any arbitrary short historical id
 will resolve after restart.
 
+## History Status Repair Uses Durable Terminal Evidence
+`GET /api/history` and related history/status reads do not blindly trust a stale registry row or
+an orphaned `_active_runs` entry. `_resolve_effective_status()` in `src/web/app.py` checks
+durable runtime evidence (`event_log`, `finalize` checkpoint, `run_summary.json`) when the live
+heartbeat is stale or absent, and it repairs the registry row to `completed` / `failed` /
+`interrupted` on read when the durable evidence is stronger than the registry state.
+If a test or doc still assumes "presence in `_active_runs` always wins", that assumption is stale.
+
 ## Readiness And Diagnostics Are Separate Surfaces
 `GET /api/run/{run_id}/readiness` returns the export/readiness scorecard.
 `GET /api/run/{run_id}/diagnostics` returns step-journal summaries, failures, fallback counts,
@@ -749,6 +757,23 @@ The readiness scorecard (`src/manuscript/readiness.py`) checks for
 endpoint reports `ready: false` with `finalize_checkpoint: missing` even when all
 artifacts are present. This was the root cause of `ready: false` on otherwise-complete
 runs (wf-0051, wf-0053) before the fix was applied.
+
+## Writing Resume Now Includes Persisted Section Outlines
+Phase 6 writing has a dedicated outline subphase checkpoint: `phase_6a2_outline`.
+`WritingNode` stores one `SectionOutline` per section in the `section_outlines` table for the
+current writing generation, then reuses those outlines on resume when `phase_6a2_outline` is
+already completed. Rewinding from `phase_6_writing` must clear both the outline checkpoint and
+the persisted `section_outlines`; rewinding only `section_drafts` is incomplete and leaves the
+writing ratchet loop operating on stale outline plans.
+
+## Section Ratchet Loop Is Bounded By Quality And Cost
+Section writing no longer accepts the first valid draft unconditionally. `write_section_with_validation()`
+computes a `SectionQualityScore` and can run bounded rewrite attempts controlled by
+`writing.ratchet_max_iterations`, `writing.ratchet_cost_cap_per_section`, and
+`writing.ratchet_outline_enabled`. The loop stops when quality plateaus, the structured draft
+fingerprint repeats, deterministic fallback wins the first iteration, or the run/section cost
+budget is exhausted. Diagnostics that explain "why this section stopped rewriting" should read
+`SectionWriteResult.ratchet_meta_json` rather than inferring from raw logs alone.
 
 ## Step Journal Enum Values Must Be Real Enum Members
 `_journal_step_complete()` in `src/orchestration/workflow.py` validates all enum parameters
