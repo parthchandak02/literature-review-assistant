@@ -43,6 +43,7 @@ async def compute_readiness_scorecard(
     extra_artifact_paths: list[str] | None = None,
     contract_mode: str = "strict",
     abstract_word_limit: int = 250,
+    abstract_minimum_words: int = 0,
 ) -> ReadinessScorecard:
     """Compute readiness using finalize-phase contracts and DB invariants."""
     checks: list[ReadinessCheck] = []
@@ -97,6 +98,7 @@ async def compute_readiness_scorecard(
             mode=contract_mode,
             contract_phase="finalize",
             abstract_word_limit=abstract_word_limit,
+            abstract_minimum_words=abstract_minimum_words,
         )
         contract_passed = contract.passed
         checks.append(

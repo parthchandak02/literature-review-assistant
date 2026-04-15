@@ -36,6 +36,7 @@ class ExtractionRecord(BaseModel):
     primary_study_status: PrimaryStudyStatus = PrimaryStudyStatus.UNKNOWN
     study_duration: str | None = None
     setting: str | None = None
+    country: str | None = None
     participant_count: int | None = None
     participant_demographics: str | None = None
     intervention_description: str
@@ -65,6 +66,10 @@ class ExtractionRecord(BaseModel):
             "openalex_content",  # PDF from OpenAlex Content API (paid)
             "crossref_link",  # PDF from Crossref works API link array
             "pmc",  # full text from PubMed Central XML
+            "pmc_pdf",  # PDF from PubMed Central
+            "landing_page_pdf",  # PDF discovered from publisher landing pages
+            "landing_page_text",  # HTML/text discovered from publisher landing pages
+            "publisher_direct_pdf",  # direct PDF bytes from publisher landing pages
             "pdf_vision",  # table data extracted via Gemini vision from PDF
             "hybrid",  # merge of text-LLM and PDF-vision outcomes
             "heuristic",  # rule-based extraction fallback

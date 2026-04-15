@@ -47,7 +47,6 @@ def _make_extraction(paper_id: str, extraction_source: str = "text") -> Extracti
         intervention_description="Structured intervention program",
         results_summary={},
         extraction_source=extraction_source,
-        confidence_score=0.9,
     )
 
 
@@ -223,6 +222,47 @@ def test_assemble_manuscript_without_fulltext_ids_shows_no(tmp_path: Path) -> No
         fulltext_paper_ids=None,
     )
     assert "No" in result
+
+
+def test_study_table_prefers_extracted_country_over_metadata() -> None:
+    papers = [_make_paper("p1")]
+    records = [_make_extraction("p1").model_copy(update={"country": "Kenya"})]
+    table = build_study_characteristics_table(papers, records, fulltext_paper_ids=None)
+    assert "Kenya" in table
+    assert "| Author, 2023 | Non Randomized | 100 | Kenya |" in table
+
+
+def test_study_table_infers_country_from_paper_text_when_missing() -> None:
+    papers = [
+        _make_paper("p1").model_copy(
+            update={
+                "title": "Registry deployment outcomes",
+                "abstract": "This evaluation in Honduras compared registry completeness across rural clinics.",
+                "country": None,
+            }
+        )
+    ]
+    records = [_make_extraction("p1").model_copy(update={"country": None})]
+    table = build_study_characteristics_table(papers, records, fulltext_paper_ids=None)
+    assert "Honduras" in table
+
+
+def test_assemble_submission_manuscript_includes_acknowledgments_section(tmp_path: Path) -> None:
+    body = "## Conclusion\n\nEvidence remained mixed.\n"
+    result = assemble_submission_manuscript(
+        body=body,
+        manuscript_path=tmp_path / "ms.md",
+        artifacts={},
+        citation_rows=[],
+        papers=[],
+        extraction_records=[],
+        review_config=SimpleNamespace(
+            author_name="Parth Chandak",
+            protocol=SimpleNamespace(registered=False, registration_number=""),
+        ),
+    )
+    assert "## Acknowledgments" in result
+    assert result.index("## Acknowledgments") < result.index("## Declarations")
 
 
 def test_assemble_submission_manuscript_strips_existing_leading_h1_before_prepend(tmp_path: Path) -> None:

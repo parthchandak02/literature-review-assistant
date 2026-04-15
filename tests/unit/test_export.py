@@ -883,6 +883,8 @@ async def test_manuscript_contract_detects_section_order_invalid(tmp_path: Path)
                 "Discussion.",
                 "## Conclusion",
                 "Conclusion.",
+                "## Acknowledgments",
+                "The author acknowledges tool support.",
                 "## References",
                 "[1] Ref",
             ]
@@ -890,7 +892,7 @@ async def test_manuscript_contract_detects_section_order_invalid(tmp_path: Path)
         encoding="utf-8",
     )
     manuscript_tex.write_text(
-        "\\section{Abstract}\n\\section{Introduction}\n\\section{Results}\n\\section{Methods}\n\\section{Discussion}\n\\section{Conclusion}\n\\section{References}\n",
+        "\\section{Abstract}\n\\section{Introduction}\n\\section{Results}\n\\section{Methods}\n\\section{Discussion}\n\\section{Conclusion}\n\\section{Acknowledgments}\n\\section{References}\n",
         encoding="utf-8",
     )
     async with get_db(str(db_path)) as db:
@@ -906,6 +908,158 @@ async def test_manuscript_contract_detects_section_order_invalid(tmp_path: Path)
             mode="soft",
         )
     assert any(v.code == "SECTION_ORDER_INVALID" for v in result.violations)
+
+
+@pytest.mark.asyncio
+async def test_manuscript_contract_requires_acknowledgments_section(tmp_path: Path) -> None:
+    db_path = tmp_path / "runtime_contracts_ack_missing.db"
+    manuscript_md = tmp_path / "doc_manuscript.md"
+    manuscript_tex = tmp_path / "doc_manuscript.tex"
+    manuscript_md.write_text(
+        "\n".join(
+            [
+                "## Abstract",
+                "**Background:** text",
+                "**Objectives:** obj",
+                "**Methods:** meth",
+                "**Results:** res",
+                "**Conclusions:** conc",
+                "## Introduction",
+                "Intro.",
+                "## Methods",
+                "Method text.",
+                "## Results",
+                "Results text.",
+                "## Discussion",
+                "Discussion.",
+                "## Conclusion",
+                "Conclusion.",
+                "## References",
+                "[1] Ref",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    manuscript_tex.write_text(
+        "\\section{Abstract}\n\\section{Introduction}\n\\section{Methods}\n\\section{Results}\n\\section{Discussion}\n\\section{Conclusion}\n\\section{References}\n",
+        encoding="utf-8",
+    )
+    async with get_db(str(db_path)) as db:
+        repo = WorkflowRepository(db)
+        cite_repo = CitationRepository(db)
+        await db.commit()
+        result = await run_manuscript_contracts(
+            repository=repo,
+            citation_repository=cite_repo,
+            workflow_id="wf-test",
+            manuscript_md_path=str(manuscript_md),
+            manuscript_tex_path=str(manuscript_tex),
+            mode="soft",
+        )
+    assert any(v.code == "REQUIRED_SECTION_MISSING" and "acknowledgments" in (v.actual or "") for v in result.violations)
+
+
+@pytest.mark.asyncio
+async def test_manuscript_contract_flags_acknowledgments_after_references(tmp_path: Path) -> None:
+    db_path = tmp_path / "runtime_contracts_ack_order.db"
+    manuscript_md = tmp_path / "doc_manuscript.md"
+    manuscript_tex = tmp_path / "doc_manuscript.tex"
+    manuscript_md.write_text(
+        "\n".join(
+            [
+                "## Abstract",
+                "**Background:** text",
+                "**Objectives:** obj",
+                "**Methods:** meth",
+                "**Results:** res",
+                "**Conclusions:** conc",
+                "## Introduction",
+                "Intro.",
+                "## Methods",
+                "Method text.",
+                "## Results",
+                "Results text.",
+                "## Discussion",
+                "Discussion.",
+                "## Conclusion",
+                "Conclusion.",
+                "## References",
+                "[1] Ref",
+                "## Acknowledgments",
+                "The author acknowledges tool support.",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    manuscript_tex.write_text(
+        "\\section{Abstract}\n\\section{Introduction}\n\\section{Methods}\n\\section{Results}\n\\section{Discussion}\n\\section{Conclusion}\n\\section{References}\n\\section{Acknowledgments}\n",
+        encoding="utf-8",
+    )
+    async with get_db(str(db_path)) as db:
+        repo = WorkflowRepository(db)
+        cite_repo = CitationRepository(db)
+        await db.commit()
+        result = await run_manuscript_contracts(
+            repository=repo,
+            citation_repository=cite_repo,
+            workflow_id="wf-test",
+            manuscript_md_path=str(manuscript_md),
+            manuscript_tex_path=str(manuscript_tex),
+            mode="soft",
+        )
+    assert any(v.code == "SECTION_ORDER_INVALID" for v in result.violations)
+
+
+@pytest.mark.asyncio
+async def test_manuscript_contract_flags_abstract_below_minimum(tmp_path: Path) -> None:
+    db_path = tmp_path / "runtime_contracts_abstract_min.db"
+    manuscript_md = tmp_path / "doc_manuscript.md"
+    manuscript_tex = tmp_path / "doc_manuscript.tex"
+    manuscript_md.write_text(
+        "\n".join(
+            [
+                "## Abstract",
+                "**Background:** brief text",
+                "**Objectives:** brief text",
+                "**Methods:** brief text",
+                "**Results:** brief text",
+                "**Conclusions:** brief text",
+                "## Introduction",
+                "Intro.",
+                "## Methods",
+                "Method text.",
+                "## Results",
+                "Results text.",
+                "## Discussion",
+                "Discussion.",
+                "## Conclusion",
+                "Conclusion.",
+                "## Acknowledgments",
+                "The author acknowledges tool support.",
+                "## References",
+                "[1] Ref",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    manuscript_tex.write_text(
+        "\\section{Abstract}\n\\section{Introduction}\n\\section{Methods}\n\\section{Results}\n\\section{Discussion}\n\\section{Conclusion}\n\\section{Acknowledgments}\n\\section{References}\n",
+        encoding="utf-8",
+    )
+    async with get_db(str(db_path)) as db:
+        repo = WorkflowRepository(db)
+        cite_repo = CitationRepository(db)
+        await db.commit()
+        result = await run_manuscript_contracts(
+            repository=repo,
+            citation_repository=cite_repo,
+            workflow_id="wf-test",
+            manuscript_md_path=str(manuscript_md),
+            manuscript_tex_path=str(manuscript_tex),
+            mode="soft",
+            abstract_minimum_words=40,
+        )
+    assert any(v.code == "ABSTRACT_UNDER_MINIMUM" for v in result.violations)
 
 
 @pytest.mark.asyncio

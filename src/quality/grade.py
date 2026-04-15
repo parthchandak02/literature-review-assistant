@@ -35,6 +35,16 @@ def _score_to_certainty(score: int) -> GRADECertainty:
     return mapping[bounded]
 
 
+def _truncate_at_word_boundary(text: str, limit: int) -> str:
+    value = str(text or "").replace("|", "/").replace("\n", " ").strip()
+    if len(value) <= limit:
+        return value
+    cutoff = value.rfind(" ", 0, limit)
+    if cutoff <= limit // 2:
+        cutoff = limit
+    return value[:cutoff].rstrip() + "..."
+
+
 class GradeAssessor:
     """Build a GRADE assessment row from quality factor scores."""
 
@@ -151,7 +161,7 @@ class GradeAssessor:
         return assessment.model_copy(
             update={
                 "justification": justification,
-                "inconsistency_assessed": False,
+                "inconsistency_assessed": n_studies != 1,
                 "indirectness_assessed": False,
             }
         )
@@ -437,7 +447,9 @@ def build_sof_table(
                 study_design=a.study_designs,
                 risk_of_bias=_DOWNGRADE_LABEL.get(a.risk_of_bias_downgrade, "not serious"),
                 inconsistency=(
-                    "not assessed*"
+                    "none"
+                    if a.number_of_studies == 1
+                    else "not assessed*"
                     if not getattr(a, "inconsistency_assessed", True)
                     else _DOWNGRADE_LABEL.get(a.inconsistency_downgrade, "not serious")
                 ),
@@ -449,7 +461,7 @@ def build_sof_table(
                 imprecision=_DOWNGRADE_LABEL.get(a.imprecision_downgrade, "not serious"),
                 other_considerations="; ".join(other) if other else "none",
                 certainty=a.final_certainty,
-                effect_summary=a.justification[:120] if a.justification else "",
+                effect_summary=_truncate_at_word_boundary(a.justification, 120) if a.justification else "",
             )
         )
     return GradeSoFTable(topic=topic, rows=rows)
@@ -480,14 +492,7 @@ def sof_table_to_markdown(table: GradeSoFTable) -> str:
             r.certainty.value.upper().replace("_", " ") if hasattr(r.certainty, "value") else str(r.certainty).upper()
         )
         # Truncate effect summary at a word boundary to avoid mid-sentence cuts.
-        effect_raw = (r.effect_summary or "").replace("|", "/").replace("\n", " ").strip()
-        _effect_limit = 160
-        if len(effect_raw) > _effect_limit:
-            # Find last space before limit to avoid cutting mid-word
-            cutoff = effect_raw.rfind(" ", 0, _effect_limit)
-            effect = effect_raw[: cutoff if cutoff > _effect_limit // 2 else _effect_limit] + "..."
-        else:
-            effect = effect_raw
+        effect = _truncate_at_word_boundary(r.effect_summary, 160)
         rows.append(
             f"| {r.outcome_name} | {r.n_studies} | {r.study_design} "
             f"| {r.risk_of_bias} | {r.inconsistency} | {r.indirectness} "

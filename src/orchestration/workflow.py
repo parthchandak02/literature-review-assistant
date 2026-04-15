@@ -2719,7 +2719,12 @@ class ExtractionQualityNode(BaseNode[ReviewState]):
                             try:
                                 record.extraction_source = ft_result.source  # type: ignore[assignment]
                             except Exception:
-                                pass  # model validation will reject unknown literals gracefully
+                                _log.warning(
+                                    "ExtractionNode: failed to assign extraction_source=%s for paper %s",
+                                    ft_result.source,
+                                    paper.paper_id,
+                                    exc_info=True,
+                                )
 
                         if use_vision:
                             try:
@@ -2741,7 +2746,12 @@ class ExtractionQualityNode(BaseNode[ReviewState]):
                                     try:
                                         record.extraction_source = _merge_source  # type: ignore[assignment]
                                     except Exception:
-                                        pass
+                                        _log.warning(
+                                            "ExtractionNode: failed to assign merged extraction_source=%s for paper %s",
+                                            _merge_source,
+                                            paper.paper_id,
+                                            exc_info=True,
+                                        )
                                     logger.info(
                                         "ExtractionNode: vision extracted %d table rows for paper %s (source=%s)",
                                         len(vision_outcomes),
@@ -2754,6 +2764,7 @@ class ExtractionQualityNode(BaseNode[ReviewState]):
                                     paper.paper_id,
                                     _vis_err,
                                 )
+                        await repository.save_extraction_record(state.workflow_id, record)
 
                         if record.primary_study_status in _non_primary_statuses:
                             await cohort_resolver.persist_extraction_outcome(
@@ -5137,9 +5148,18 @@ class WritingNode(BaseNode[ReviewState]):
             "discussion": "## Discussion",
             "conclusion": "## Conclusion",
         }
-        _CANONICAL_H2_NAMES = ("Abstract", "Introduction", "Methods", "Results", "Discussion", "Conclusion", "References")
+        _CANONICAL_H2_NAMES = (
+            "Abstract",
+            "Introduction",
+            "Methods",
+            "Results",
+            "Discussion",
+            "Conclusion",
+            "Acknowledgments",
+            "References",
+        )
         _inline_h2_re = re.compile(
-            r"\s+(##\s+(?:Abstract|Introduction|Methods|Results|Discussion|Conclusion|References)\b)",
+            r"\s+(##\s+(?:Abstract|Introduction|Methods|Results|Discussion|Conclusion|Acknowledgments|References)\b)",
             flags=re.IGNORECASE,
         )
 
@@ -5156,7 +5176,7 @@ class WritingNode(BaseNode[ReviewState]):
             # Drop any leaked next top-level section to prevent run-on joins like
             # "## Abstract ... ## Introduction ..." inside one section payload.
             m = re.search(
-                r"(?m)^##\s+(?:Abstract|Introduction|Methods|Results|Discussion|Conclusion|References)\b",
+                r"(?m)^##\s+(?:Abstract|Introduction|Methods|Results|Discussion|Conclusion|Acknowledgments|References)\b",
                 text,
             )
             if m:
@@ -5482,6 +5502,7 @@ class WritingNode(BaseNode[ReviewState]):
             research_question=state.review.research_question if state.review else "",
             title=None,
             fulltext_paper_ids=_fulltext_paper_ids if _fulltext_paper_ids else None,
+            ir_validated=True,
         )
         manuscript_path.write_text(full_manuscript, encoding="utf-8")
         try:
@@ -5765,6 +5786,7 @@ class WritingNode(BaseNode[ReviewState]):
                 research_question=state.review.research_question if state.review else "",
                 title=None,
                 fulltext_paper_ids=_fulltext_paper_ids if _fulltext_paper_ids else None,
+                ir_validated=True,
             )
             manuscript_path.write_text(patched, encoding="utf-8")
             logger.info("WritingNode: manuscript patched with concept diagram figures")
@@ -6038,6 +6060,7 @@ class ManuscriptAuditNode(BaseNode[ReviewState]):
                     mode=contract_mode,
                     contract_phase="phase_7_audit",
                     abstract_word_limit=state.settings.ieee_export.max_abstract_words,
+                    abstract_minimum_words=state.settings.writing.abstract_trim_floor_words,
                     review_config=state.review,
                 )
                 contract_summary = {
@@ -6391,6 +6414,7 @@ class FinalizeNode(BaseNode[ReviewState]):
                         ],
                         mode=_contract_mode,
                         abstract_word_limit=state.settings.ieee_export.max_abstract_words,
+                        abstract_minimum_words=state.settings.writing.abstract_trim_floor_words,
                         review_config=state.review,
                     )
                     _contract_summary = {

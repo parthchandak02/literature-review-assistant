@@ -5,7 +5,7 @@ from __future__ import annotations
 from src.export.ieee_latex import render_grade_sof_latex
 from src.models.enums import GRADECertainty
 from src.models.quality import GRADEOutcomeAssessment, GradeSoFRow, GradeSoFTable
-from src.quality.grade import build_sof_table
+from src.quality.grade import build_sof_table, sof_table_to_markdown
 
 
 def _make_assessment(
@@ -75,6 +75,31 @@ def test_build_sof_table_empty_assessments():
     table = build_sof_table([])
     assert isinstance(table, GradeSoFTable)
     assert table.rows == []
+
+
+def test_build_sof_table_truncates_effect_summary_at_word_boundary() -> None:
+    assessment = _make_assessment()
+    assessment = assessment.model_copy(
+        update={
+            "justification": (
+                "ROBINS-I no_information judgments require cautious interpretation because "
+                "methodological detail remained incomplete across the available evidence base."
+            )
+        }
+    )
+    table = build_sof_table([assessment])
+    effect_summary = table.rows[0].effect_summary
+    assert effect_summary.endswith("...")
+    assert not effect_summary.endswith(" no_information...")
+    assert "incomplete..." in effect_summary
+
+
+def test_build_sof_table_single_study_inconsistency_is_none() -> None:
+    assessment = _make_assessment(n_studies=1).model_copy(update={"inconsistency_assessed": False})
+    table = build_sof_table([assessment])
+    markdown = sof_table_to_markdown(table)
+    assert table.rows[0].inconsistency == "none"
+    assert "| none |" in markdown
 
 
 def test_render_grade_sof_latex_structure():

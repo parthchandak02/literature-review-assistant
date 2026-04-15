@@ -9,6 +9,7 @@ import unicodedata
 from pathlib import Path
 from typing import Any
 
+from src.extraction.inference_utils import derive_concise_result_summary, infer_country_from_text, result_not_extractable_text
 from src.export.bibtex_builder import build_citekey_alias_map
 from src.quality.grade import build_sof_table, cluster_grade_assessments_by_theme, sof_table_to_markdown
 from src.writing.headings import normalize_subsection_heading_layout as _normalize_subsection_heading_layout_shared
@@ -48,7 +49,13 @@ _SUMMARY_LLM_EXPLANATION_PHRASES = (
     "no outcomes were reported",
     "insufficient information",
     "consists primarily of css and html code",
+    "findings are not presented in this excerpt",
+    "specific findings were not presented in the available excerpt",
+    "summary of findings cannot be extracted",
+    "findings cannot be extracted",
+    "available excerpt",
 )
+_ABSTRACT_ONLY_SOURCES = frozenset({"text", "heuristic", None, ""})
 
 
 def _sanitize_summary_text(raw_text: str) -> str:
@@ -77,6 +84,13 @@ def _clip_table_text(text: str, max_chars: int) -> str:
     if sentence_break > int(max_chars * 0.6):
         window = window[: sentence_break + 1].rstrip()
     return window + "..."
+
+
+def _missing_result_display(rec: Any) -> str:
+    source = getattr(rec, "extraction_source", None)
+    if source in _ABSTRACT_ONLY_SOURCES:
+        return "No extractable result reported (abstract/metadata only)."
+    return "No extractable result reported in available text."
 
 
 def _ascii_citekey(key: str) -> str:
@@ -640,6 +654,20 @@ def build_credit_section(author_name: str = "") -> str:
     )
 
 
+def build_acknowledgments_section(author_name: str = "") -> str:
+    """Build a deterministic acknowledgments section with authorship disclosure."""
+    author = author_name.strip() if author_name.strip() else "the named author"
+    author_subject = author[:1].upper() + author[1:]
+    return (
+        "## Acknowledgments\n\n"
+        "The author acknowledges the use of an automated systematic review pipeline "
+        "to support study identification, screening, extraction, synthesis, and "
+        "draft generation. "
+        f"{author_subject} reviewed, verified, and approved the final manuscript "
+        "and retains full responsibility for the interpretation and reporting of the results."
+    )
+
+
 def build_markdown_declarations_section(
     funding: str = "",
     coi: str = "",
@@ -687,6 +715,19 @@ _RAW_SETTING_NORMALIZE = {
     "na": "NR",
     "unknown": "NR",
 }
+
+
+def _country_for_display(rec: Any, paper: Any) -> str:
+    """Prefer extraction-derived country over sparse search-metadata country."""
+    extracted = str(getattr(rec, "country", None) or "").strip()
+    metadata = str(getattr(paper, "country", None) or "").strip()
+    inferred = infer_country_from_text(
+        getattr(paper, "title", "") or "",
+        getattr(paper, "abstract", "") or "",
+        ((getattr(rec, "results_summary", {}) or {}).get("summary", "") if isinstance(getattr(rec, "results_summary", {}), dict) else ""),
+    )
+    country = extracted or metadata or inferred
+    return country or "NR"
 
 
 def _is_primary_study_record(rec: Any) -> bool:
@@ -757,10 +798,7 @@ def build_compact_study_table(
         year_str = str(paper.year) if getattr(paper, "year", None) else "n.d."
         study_col = f"{author_str} ({year_str})"
 
-        # Country -- use paper.country only; the setting fallback is unreliable
-        # (it can yield institution names like "Clinical facility" or lab names).
-        country = str(getattr(paper, "country", None) or "").strip()
-        country = country[:30] if country else "NR"
+        country = _country_for_display(rec, paper)[:30]
 
         # Study design
         design_val = getattr(rec, "study_design", None)
@@ -795,6 +833,10 @@ def build_compact_study_table(
             or ""
         ).strip()
         finding = _sanitize_summary_text(finding)
+        if finding != "NR":
+            finding = derive_concise_result_summary(finding)
+        if finding == result_not_extractable_text():
+            finding = _missing_result_display(rec)
         finding = finding if finding else "NR"
         if finding != "NR":
             finding = _clip_table_text(finding, max_chars=180)
@@ -884,7 +926,7 @@ def build_study_characteristics_table(
         n_str = str(rec.participant_count) if rec.participant_count else "NR"
 
         # Country
-        country_str = paper.country or "NR"
+        country_str = _country_for_display(rec, paper)
 
         # Setting - normalize raw enum-like values to NR
         raw_setting = (rec.setting or "").strip()
@@ -922,7 +964,6 @@ def build_study_characteristics_table(
         # fell back to abstract text (extraction_source stays "text").
         # Uses the same _ABSTRACT_ONLY_SOURCES set as context_builder.py to ensure
         # consistent classification across the manuscript and Appendix B.
-        _ABSTRACT_ONLY_SOURCES = frozenset({"text", "heuristic", None, ""})
         extraction_source = getattr(rec, "extraction_source", None)
         has_fulltext_file = paper_id in (fulltext_paper_ids or set())
         full_text_retrieved = "Yes" if (extraction_source not in _ABSTRACT_ONLY_SOURCES or has_fulltext_file) else "No"
@@ -1644,6 +1685,7 @@ def assemble_submission_manuscript(
         _registration_id = str(getattr(_proto, "registration_number", "") or "")
     if review_config is not None:
         _author_name = str(getattr(review_config, "author_name", "") or "")
+    acknowledgments_section = build_acknowledgments_section(_author_name)
     declarations_section = build_markdown_declarations_section(
         funding=funding,
         coi=coi,
@@ -1763,6 +1805,8 @@ def assemble_submission_manuscript(
         search_appendix_section = raw
 
     parts = [numbered_body]
+    if acknowledgments_section:
+        parts.append(acknowledgments_section)
     if declarations_section:
         parts.append(declarations_section)
     if picos_section:
@@ -1794,6 +1838,8 @@ def assemble_submission_manuscript(
 def strip_appended_sections(text: str) -> str:
     """Remove previously appended sections (idempotent helper for re-runs)."""
     for marker in (
+        "\n\n---\n\n## Acknowledgments",
+        "\n\n## Acknowledgments",
         "\n\n---\n\n## Declarations",
         "\n\n## Declarations",
         "\n\n---\n\n## GRADE Evidence Profile",

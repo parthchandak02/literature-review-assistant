@@ -7,6 +7,7 @@ import pytest
 from src.db.database import get_db
 from src.db.repositories import WorkflowRepository
 from src.extraction.extractor import detect_scope_mismatch
+from src.extraction.inference_utils import result_not_extractable_text
 from src.manuscript.cohort import IncludedSetResolver
 from src.models import (
     CandidatePaper,
@@ -103,7 +104,28 @@ def test_key_finding_sanitization_becomes_not_reported() -> None:
         narrative=None,
     )
     assert sanitize_summary_text_for_writing(record.results_summary["summary"]) == "NR"
-    assert grounding.study_summaries[0].key_finding == "Not reported"
+    assert grounding.study_summaries[0].key_finding == result_not_extractable_text()
+
+
+def test_key_finding_sanitization_strips_excerpt_artifacts() -> None:
+    record = ExtractionRecord(
+        paper_id="p1",
+        study_design=StudyDesign.CROSS_SECTIONAL,
+        intervention_description="",
+        outcomes=[],
+        extraction_source="text",
+        results_summary={"summary": "Specific findings are not presented in the available excerpt."},
+    )
+    grounding = build_writing_grounding(
+        prisma_counts=_prisma_counts(),
+        extraction_records=[record],
+        included_papers=[_paper()],
+        narrative=None,
+    )
+    assert sanitize_summary_text_for_writing(record.results_summary["summary"]) == "NR"
+    assert grounding.study_summaries[0].key_finding == result_not_extractable_text()
+    assert grounding.nonextractable_result_count == 1
+    assert grounding.abstract_only_result_gap_count == 1
 
 
 def test_build_writing_grounding_replaces_internal_study_ids_in_titles() -> None:
@@ -163,6 +185,77 @@ def test_build_writing_grounding_filters_off_topic_themes() -> None:
         review_config=review,
     )
     assert grounding.key_themes == ["vaccine coverage", "reporting completeness"]
+
+
+def test_build_writing_grounding_prefers_extracted_country_for_study_summary() -> None:
+    record = ExtractionRecord(
+        paper_id="p1",
+        study_design=StudyDesign.CROSS_SECTIONAL,
+        intervention_description="Registry deployment",
+        outcomes=[],
+        results_summary={"summary": "Coverage improved."},
+        country="Kenya",
+    )
+    paper = _paper().model_copy(update={"country": None})
+    grounding = build_writing_grounding(
+        prisma_counts=_prisma_counts(),
+        extraction_records=[record],
+        included_papers=[paper],
+        narrative=None,
+    )
+    assert grounding.study_summaries[0].country == "Kenya"
+
+
+def test_build_writing_grounding_infers_country_from_abstract_when_missing() -> None:
+    record = ExtractionRecord(
+        paper_id="p1",
+        study_design=StudyDesign.CROSS_SECTIONAL,
+        intervention_description="Registry deployment",
+        outcomes=[],
+        results_summary={"summary": "Coverage improved in district facilities."},
+        country=None,
+    )
+    paper = _paper().model_copy(
+        update={
+            "country": None,
+            "title": "District registry performance study",
+            "abstract": "This cross-sectional study evaluated registry performance in Kenya across six clinics.",
+        }
+    )
+    grounding = build_writing_grounding(
+        prisma_counts=_prisma_counts(),
+        extraction_records=[record],
+        included_papers=[paper],
+        narrative=None,
+    )
+    assert grounding.study_summaries[0].country == "Kenya"
+
+
+def test_build_writing_grounding_normalizes_standalone_criterion_years() -> None:
+    record = ExtractionRecord(
+        paper_id="p1",
+        study_design=StudyDesign.CROSS_SECTIONAL,
+        intervention_description="Registry deployment",
+        outcomes=[],
+        results_summary={"summary": "Coverage improved."},
+    )
+    review = SimpleNamespace(
+        date_range_start=2000,
+        date_range_end=2026,
+        inclusion_criteria=["Studies published after 2010 were eligible."],
+        exclusion_criteria=["Exclude reports published since 2027."],
+        protocol=SimpleNamespace(registered=False, registration_number=""),
+        author_name="",
+    )
+    grounding = build_writing_grounding(
+        prisma_counts=_prisma_counts(),
+        extraction_records=[record],
+        included_papers=[_paper()],
+        narrative=None,
+        review_config=review,
+    )
+    assert grounding.eligibility_inclusion_criteria == ["Studies published after 2000-2026 were eligible."]
+    assert grounding.eligibility_exclusion_criteria == ["Exclude reports published since 2000-2026."]
 
 
 def test_build_writing_grounding_uses_only_canonical_included_records() -> None:
@@ -306,7 +399,7 @@ def test_grounding_patches_replace_conflicting_selection_and_fulltext_sentences(
     assert "The review screened 1358 records" in results_output
     assert "sought 45 full-text reports" in results_output
     assert "All 45 reports were retrieved for eligibility assessment" in results_output
-    assert "reason categories may overlap" in results_output
+    assert "each excluded report was assigned one primary reason category" in results_output
 
 
 @pytest.mark.asyncio

@@ -28,6 +28,8 @@ _DB_DISPLAY = {
     "web": "Web",
 }
 
+_NOT_REPORTED = {"", "nr", "not reported", "not_reported", "unknown"}
+
 
 def _render_bar(ax, labels, values, title: str, ylabel: str, color: str = "steelblue") -> None:
     bars = ax.bar(range(len(labels)), values, color=color, edgecolor="black", linewidth=0.6)
@@ -55,7 +57,11 @@ def render_geographic(papers: list[CandidatePaper], output_path: str) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
 
     total_papers = len(papers)
-    countries = [p.country for p in papers if p.country]
+    countries = [
+        p.country
+        for p in papers
+        if p.country and str(p.country).strip().lower() not in _NOT_REPORTED
+    ]
     n_missing = total_papers - len(countries)
 
     if countries:

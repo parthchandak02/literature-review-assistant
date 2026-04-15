@@ -9,6 +9,7 @@ from src.models import (
     CandidatePaper,
     CitationEntryRecord,
     DecisionLogEntry,
+    ExtractionRecord,
     FallbackEventRecord,
     GRADECertainty,
     GRADEOutcomeAssessment,
@@ -19,6 +20,7 @@ from src.models import (
     SearchResult,
     SectionDraft,
     SourceCategory,
+    StudyDesign,
     ValidationCheckRecord,
     ValidationRunRecord,
     WritingManifestRecord,
@@ -108,6 +110,36 @@ async def test_save_search_result_is_idempotent_for_same_query(tmp_path) -> None
             await db.execute("SELECT COUNT(*) FROM search_results WHERE workflow_id = ?", ("wf-search",))
         ).fetchone()
         assert int(row[0]) == 1
+
+
+@pytest.mark.asyncio
+async def test_save_extraction_record_round_trips_updated_source_and_country(tmp_path) -> None:
+    db_path = tmp_path / "extraction_roundtrip.db"
+    async with get_db(str(db_path)) as db:
+        repo = WorkflowRepository(db)
+        await repo.create_workflow("wf-extract", "topic", "hash")
+        await db.execute(
+            """
+            INSERT INTO papers (paper_id, title, authors, source_database, source_category)
+            VALUES ('p1', 'Paper 1', '["A"]', 'openalex', 'database')
+            """
+        )
+        await db.commit()
+        record = ExtractionRecord(
+            paper_id="p1",
+            study_design=StudyDesign.CROSS_SECTIONAL,
+            intervention_description="Registry deployment",
+            results_summary={"summary": "Coverage improved."},
+        )
+        await repo.save_extraction_record("wf-extract", record)
+        updated = record.model_copy(update={"country": "Kenya", "extraction_source": "landing_page_pdf"})
+        await repo.save_extraction_record("wf-extract", updated)
+
+        loaded = await repo.load_extraction_records("wf-extract")
+
+    assert len(loaded) == 1
+    assert loaded[0].country == "Kenya"
+    assert loaded[0].extraction_source == "landing_page_pdf"
 
 
 @pytest.mark.asyncio
@@ -453,6 +485,99 @@ async def test_prisma_counts_prefer_canonical_cohort_fulltext_status(tmp_path) -
         assert sought == 3
         assert not_retrieved == 1
         assert assessed == 2
+
+
+@pytest.mark.asyncio
+async def test_prisma_counts_use_one_primary_fulltext_exclusion_reason_per_paper(tmp_path) -> None:
+    db_path = tmp_path / "prisma_primary_reasons.db"
+    async with get_db(str(db_path)) as db:
+        repo = WorkflowRepository(db)
+        await repo.create_workflow("wf-prisma-primary", "topic", "hash")
+        await db.executemany(
+            "INSERT INTO papers (paper_id, title, authors, source_database) VALUES (?, ?, ?, ?)",
+            [
+                ("p1", "t1", "[]", "openalex"),
+                ("p2", "t2", "[]", "openalex"),
+            ],
+        )
+        await db.executemany(
+            "INSERT INTO dual_screening_results (workflow_id, paper_id, stage, agreement, final_decision, adjudication_needed) VALUES (?, ?, ?, ?, ?, ?)",
+            [
+                ("wf-prisma-primary", "p1", "title_abstract", 1, "include", 0),
+                ("wf-prisma-primary", "p2", "title_abstract", 1, "include", 0),
+                ("wf-prisma-primary", "p1", "fulltext", 0, "exclude", 1),
+                ("wf-prisma-primary", "p2", "fulltext", 0, "exclude", 1),
+            ],
+        )
+        await db.executemany(
+            """
+            INSERT INTO screening_decisions
+                (workflow_id, paper_id, stage, decision, reason, exclusion_reason, reviewer_type, confidence)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            [
+                (
+                    "wf-prisma-primary",
+                    "p1",
+                    "fulltext",
+                    "exclude",
+                    "wrong intervention",
+                    "wrong_intervention",
+                    "reviewer_a",
+                    0.7,
+                ),
+                (
+                    "wf-prisma-primary",
+                    "p1",
+                    "fulltext",
+                    "exclude",
+                    "wrong language",
+                    "wrong_language",
+                    "reviewer_b",
+                    0.6,
+                ),
+                (
+                    "wf-prisma-primary",
+                    "p1",
+                    "fulltext",
+                    "exclude",
+                    "final reason",
+                    "wrong_intervention",
+                    "adjudicator",
+                    0.9,
+                ),
+                (
+                    "wf-prisma-primary",
+                    "p2",
+                    "fulltext",
+                    "exclude",
+                    "wrong outcome",
+                    "wrong_outcome",
+                    "reviewer_a",
+                    0.7,
+                ),
+                (
+                    "wf-prisma-primary",
+                    "p2",
+                    "fulltext",
+                    "exclude",
+                    "human override",
+                    "wrong_population",
+                    "human_override",
+                    1.0,
+                ),
+            ],
+        )
+        await db.commit()
+
+        _screened, _excluded, sought, not_retrieved, assessed, reasons = await repo.get_prisma_screening_counts(
+            "wf-prisma-primary"
+        )
+
+        assert sought == 2
+        assert not_retrieved == 0
+        assert assessed == 2
+        assert reasons == {"wrong_intervention": 1, "wrong_population": 1}
 
 
 @pytest.mark.asyncio

@@ -7,6 +7,7 @@ from collections import defaultdict
 
 from pydantic import BaseModel, Field
 
+from src.extraction.inference_utils import result_not_extractable_text
 from src.models import SectionBlock, StructuredSectionDraft
 from src.writing.context_builder import StudySummary, WritingGroundingData
 
@@ -23,6 +24,16 @@ def _normalize_title(text: str) -> str:
 
 def _naturalize_label(text: str) -> str:
     return str(text or "").replace("_", " ").strip()
+
+
+def _study_design_phrase(text: str) -> str:
+    value = _naturalize_label(text).lower()
+    replacements = {
+        "pre post": "pre-post",
+        "cross sectional": "cross-sectional",
+        "case control": "case-control",
+    }
+    return replacements.get(value, value)
 
 
 def _normalize_heading_key(text: str) -> str:
@@ -96,10 +107,14 @@ def _study_result_sentence(study: ResultsEvidenceStudy) -> str:
     title = str(study.title or "").strip().rstrip(".")
     if not title or _INTERNAL_ID_RE.search(title):
         title = "Included study"
-    design = _naturalize_label(study.study_design or "included study").lower()
+    design = _study_design_phrase(study.study_design or "included study")
     key_finding = str(study.key_finding or "").strip()
+    if key_finding == result_not_extractable_text():
+        return f"{title}: Detailed result data were not extractable from the available text."
     if key_finding and key_finding != "Not reported" and key_finding[-1] in _TERMINAL_PUNCTUATION:
         return f"{title} reported the following key finding: {key_finding}"
+    if key_finding and key_finding != "Not reported" and len(key_finding.split()) <= 6:
+        return f"{title} reported the following key finding: {_ensure_terminal_punctuation(key_finding)}"
     if key_finding == "Not reported":
         return f"{title}: No quantitative outcomes were reported."
     if study.participant_count is not None and study.participant_count > 0:
@@ -126,9 +141,12 @@ def _is_reportable_theme(theme: str) -> bool:
     value = _naturalize_label(theme)
     if not value:
         return False
+    low = value.lower()
     if _INTERNAL_ID_RE.search(value):
         return False
     if _EXCESSIVE_LIST_RE.search(value):
+        return False
+    if low.startswith(("create ", "generate ", "list ", "write ")):
         return False
     if any(ch.isdigit() for ch in value):
         return False
@@ -208,11 +226,13 @@ def build_results_evidence_pack(grounding: WritingGroundingData | None) -> Resul
         synthesis_parts.append(str(grounding.narrative_text).strip())
     synthesis_summary = " ".join(part for part in synthesis_parts if part).strip()
 
-    theme_sentences = [
-        f"Theme {idx + 1}: {_naturalize_label(theme)}."
-        for idx, theme in enumerate((grounding.key_themes or [])[:3])
-        if _is_reportable_theme(str(theme))
-    ]
+    reportable_themes = [str(theme) for theme in (grounding.key_themes or [])[:3] if _is_reportable_theme(str(theme))]
+    theme_sentences = []
+    if len(reportable_themes) >= 2:
+        theme_sentences = [
+            f"Theme {idx + 1}: {_naturalize_label(theme)}."
+            for idx, theme in enumerate(reportable_themes)
+        ]
 
     studies: list[ResultsEvidenceStudy] = []
     for summary in grounding.study_summaries or []:
@@ -283,7 +303,7 @@ def build_results_section_fallback(
         blocks.append(
             SectionBlock(
                 block_type="paragraph",
-                text=f"{design} studies contributed to the evidence base summarized in this review.",
+                text=f"{_study_design_phrase(design).capitalize()} studies contributed to the evidence base summarized in this review.",
                 citations=citekeys,
             )
         )
@@ -365,7 +385,7 @@ def normalize_results_section_draft(
     for design, citekeys in sorted(grouped_citations.items()):
         _append_unique_paragraph(
             blocks,
-            f"{design} studies contributed to the evidence base summarized in this review.",
+            f"{_study_design_phrase(design).capitalize()} studies contributed to the evidence base summarized in this review.",
             seen_texts,
             citekeys,
         )

@@ -77,7 +77,7 @@ def sanitize_heading_title(raw_title: str) -> str:
             break
 
     title = re.sub(
-        r"\s+(Due|Because|Although|While|Since|Where|When|After|Before|During)$",
+        r"\s+(Due to|Due|Because|Although|While|Since|Where|When|After|Before|During)$",
         "",
         title,
         flags=re.IGNORECASE,

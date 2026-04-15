@@ -456,9 +456,38 @@ class WorkflowRepository:
         # fulltext exclusion reasons (including no_full_text).
         reason_cursor = await self.db.execute(
             """
-            SELECT COALESCE(exclusion_reason, 'other'), COUNT(DISTINCT paper_id)
-            FROM screening_decisions
-            WHERE workflow_id = ? AND stage = 'fulltext' AND decision = 'exclude'
+            WITH ranked_reasons AS (
+                SELECT
+                    paper_id,
+                    COALESCE(NULLIF(TRIM(exclusion_reason), ''), 'other') AS exclusion_reason,
+                    CASE reviewer_type
+                        WHEN 'human_override' THEN 0
+                        WHEN 'adjudicator' THEN 1
+                        WHEN 'reviewer_a' THEN 2
+                        WHEN 'reviewer_b' THEN 3
+                        ELSE 4
+                    END AS reviewer_priority,
+                    created_at,
+                    id
+                FROM screening_decisions
+                WHERE workflow_id = ? AND stage = 'fulltext' AND decision = 'exclude'
+            ),
+            primary_reasons AS (
+                SELECT paper_id, exclusion_reason
+                FROM (
+                    SELECT
+                        paper_id,
+                        exclusion_reason,
+                        ROW_NUMBER() OVER (
+                            PARTITION BY paper_id
+                            ORDER BY reviewer_priority ASC, datetime(created_at) DESC, id DESC
+                        ) AS rn
+                    FROM ranked_reasons
+                )
+                WHERE rn = 1
+            )
+            SELECT exclusion_reason, COUNT(*)
+            FROM primary_reasons
             GROUP BY exclusion_reason
             """,
             (workflow_id,),

@@ -9,6 +9,11 @@ import time
 from pydantic import BaseModel, Field
 
 from src.db.repositories import WorkflowRepository
+from src.extraction.inference_utils import (
+    derive_concise_result_summary,
+    infer_country_from_text,
+    should_promote_to_mixed_methods,
+)
 from src.extraction.primary_status import primary_status_from_study_design
 from src.llm.base_client import LLMBackend
 from src.llm.pydantic_client import PydanticAIClient
@@ -148,6 +153,16 @@ def _clean_results_summary_text(text: str) -> str:
     cleaned = re.sub(r"\s+\.", ".", cleaned)
     cleaned = re.sub(r"\n{3,}", "\n\n", cleaned)
     return cleaned.strip()
+
+
+def _finalize_results_summary_text(text: str) -> str:
+    cleaned = _clean_results_summary_text(text)
+    if _is_placeholder_summary_text(cleaned):
+        return ""
+    concise = derive_concise_result_summary(cleaned)
+    if concise.startswith("Result details were not extractable"):
+        return concise
+    return concise or cleaned
 
 
 def _is_placeholder_summary_text(text: str) -> bool:
@@ -490,13 +505,19 @@ class ExtractionService:
         full_text: str,
     ) -> ExtractionRecord:
         text = _select_extraction_text(full_text)
-        summary = self._heuristic_summary(paper, text)
+        summary = _finalize_results_summary_text(self._heuristic_summary(paper, text))
+        country = (
+            str(getattr(paper, "country", None) or "").strip()
+            or infer_country_from_text(paper.title, paper.abstract or "", text)
+            or None
+        )
         return ExtractionRecord(
             paper_id=paper.paper_id,
             study_design=study_design,
             primary_study_status=primary_status_from_study_design(study_design),
             study_duration="unknown",
             setting="not_reported",
+            country=country,
             participant_count=None,
             participant_demographics=None,
             intervention_description=paper.title[:500],
@@ -505,6 +526,7 @@ class ExtractionService:
             results_summary={
                 "summary": summary,
                 "source": "heuristic",
+                **({"country": country} if country else {}),
             },
             funding_source=None,
             conflicts_of_interest=None,
@@ -591,6 +613,7 @@ class ExtractionService:
         results_summary_text = _clean_results_summary_text(parsed.results_summary or "")
         if _is_low_quality_extraction(results_summary_text) or _is_placeholder_summary_text(results_summary_text):
             results_summary_text = self._heuristic_summary(paper, text)
+        results_summary_text = _finalize_results_summary_text(results_summary_text)
 
         participant_count = _infer_participant_count(
             raw_count=(parsed.participant_count or "").strip(),
@@ -605,6 +628,27 @@ class ExtractionService:
         country_extracted = getattr(parsed, "country", None)
         if country_extracted and _is_low_quality_extraction(country_extracted):
             country_extracted = None
+        country_extracted = (
+            str(country_extracted or "").strip()
+            or str(getattr(paper, "country", None) or "").strip()
+            or infer_country_from_text(
+                paper.title,
+                paper.abstract or "",
+                parsed.setting or "",
+                parsed.participant_demographics or "",
+                parsed.intervention_description or "",
+                results_summary_text,
+                text,
+            )
+            or None
+        )
+        if should_promote_to_mixed_methods(
+            study_design,
+            summary_text=results_summary_text,
+            raw_text=text,
+            outcome_names=[o.name for o in outcomes],
+        ):
+            study_design = StudyDesign.MIXED_METHODS
 
         return ExtractionRecord(
             paper_id=paper.paper_id,
@@ -612,6 +656,7 @@ class ExtractionService:
             primary_study_status=primary_status_from_study_design(study_design),
             study_duration=parsed.study_duration or "unknown",
             setting=parsed.setting or "not_reported",
+            country=country_extracted,
             participant_count=participant_count,
             participant_demographics=parsed.participant_demographics or None,
             intervention_description=parsed.intervention_description or paper.title[:500],
