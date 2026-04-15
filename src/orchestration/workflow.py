@@ -62,6 +62,7 @@ from src.models import (
     RecoveryAction,
     ReviewConfig,
     SectionDraft,
+    SectionOutline,
     StepStatus,
     StudyDesign,
     ValidationCheckRecord,
@@ -153,6 +154,7 @@ from src.writing.orchestration import (
     register_methodology_citations,
     write_section_with_validation,
 )
+from src.writing.outline_generator import build_fallback_section_outline, generate_section_outline
 from src.writing.prompts.sections import (
     SECTIONS,
     get_section_context,
@@ -4526,10 +4528,81 @@ class WritingNode(BaseNode[ReviewState]):
                         logger.warning("HyDE batch failed: %s -- falling back to bare embed_query", _hyde_err)
                 await _save_subphase_checkpoint("phase_6a_hyde", papers_processed=len(hyde_docs))
 
+                writing_cfg = getattr(state.settings, "writing", None)
+                section_outlines: dict[str, SectionOutline] = {}
+                outline_enabled = bool(getattr(writing_cfg, "ratchet_outline_enabled", True))
+                if outline_enabled:
+                    _outline_generation = await repository.get_writing_generation(state.workflow_id)
+                    _outline_checkpoints = await repository.get_checkpoints(state.workflow_id)
+                    _saved_outlines = await repository.load_section_outlines(
+                        state.workflow_id,
+                        generation=_outline_generation,
+                    )
+                    if (
+                        len(_saved_outlines) == len(SECTIONS)
+                        and _outline_checkpoints.get("phase_6a2_outline") == "completed"
+                    ):
+                        section_outlines = _saved_outlines
+                        logger.info(
+                            "WritingNode: reusing %d persisted section outlines for generation=%d",
+                            len(section_outlines),
+                            _outline_generation,
+                        )
+                    else:
+                        if rc:
+                            rc.log_status("Generating section outlines...")
+                        _outline_request_timeout = float(
+                            getattr(getattr(state.settings, "llm", None), "request_timeout_seconds", 180)
+                        )
+                        _outline_timeout = max(_outline_request_timeout * 1.5, 120.0)
+                        _outline_sem = asyncio.Semaphore(getattr(writing_cfg, "writing_concurrency", 3))
+
+                        async def _outline_one(section_name: str) -> SectionOutline:
+                            async with _outline_sem:
+                                return await generate_section_outline(
+                                    section=section_name,
+                                    settings=state.settings,
+                                    grounding=grounding,
+                                    citation_catalog=citation_catalog,
+                                    provider=provider,
+                                    on_llm_call=_on_write if rc else None,
+                                )
+
+                        try:
+                            _outline_results = await asyncio.wait_for(
+                                asyncio.gather(*[_outline_one(s) for s in SECTIONS]),
+                                timeout=_outline_timeout,
+                            )
+                            section_outlines = {
+                                outline.section_key: outline for outline in _outline_results
+                            }
+                        except TimeoutError:
+                            logger.warning(
+                                "Section outline generation timed out after %.0fs; using deterministic fallback outlines.",
+                                _outline_timeout,
+                            )
+                            section_outlines = {
+                                section_name: build_fallback_section_outline(
+                                    section_name,
+                                    grounding,
+                                    citation_catalog,
+                                )
+                                for section_name in SECTIONS
+                            }
+                        for outline in section_outlines.values():
+                            await repository.save_section_outline(
+                                state.workflow_id,
+                                outline,
+                                generation=_outline_generation,
+                            )
+                        await _save_subphase_checkpoint(
+                            "phase_6a2_outline",
+                            papers_processed=len(section_outlines),
+                        )
+
                 # Sections are independent; run up to writing_concurrency in parallel.
                 # Completed counter is an int-list so the closure can mutate it safely
                 # under asyncio's single-threaded cooperative model.
-                writing_cfg = getattr(state.settings, "writing", None)
                 do_humanize = getattr(writing_cfg, "humanization", False)
                 humanize_iters = getattr(writing_cfg, "humanization_iterations", 1)
                 use_llm_write = _llm_available(settings_cfg=state.settings) and (rc is None or not rc.offline)
@@ -4793,6 +4866,14 @@ class WritingNode(BaseNode[ReviewState]):
                         _section_write_timeout = max(_request_timeout * 2.5, 300.0)
                         _section_result = None
                         try:
+                            _ratchet_max = int(
+                                getattr(getattr(state.settings, "writing", None), "ratchet_max_iterations", 1)
+                            )
+                            _ratchet_factor = 1.0 + 0.5 * max(0, _ratchet_max - 1)
+                            _section_write_timeout = max(
+                                _request_timeout * 2.5 * _ratchet_factor,
+                                300.0 * _ratchet_factor,
+                            )
                             _section_result = await asyncio.wait_for(
                                 write_section_with_validation(
                                     section=section,
@@ -4808,6 +4889,7 @@ class WritingNode(BaseNode[ReviewState]):
                                     grounding=grounding,
                                     rag_context=rag_context,
                                     prior_sections_context=prior_sections_context,
+                                    outline=section_outlines.get(section),
                                 ),
                                 timeout=_section_write_timeout,
                             )
@@ -5814,6 +5896,9 @@ class WritingNode(BaseNode[ReviewState]):
                 _grounding_hash = hashlib.sha256(
                     citation_catalog.encode("utf-8")
                 ).hexdigest()[:16] if citation_catalog else None
+                _citation_catalog_hash = hashlib.sha256(
+                    citation_catalog.encode("utf-8")
+                ).hexdigest()[:16] if citation_catalog else None
                 for _mi, _msec in enumerate(SECTIONS):
                     _mcontent = sections_written[_mi] if _mi < len(sections_written) else ""
                     _mresult = _section_results_by_key.get(_msec)
@@ -5824,11 +5909,13 @@ class WritingNode(BaseNode[ReviewState]):
                         section_key=_msec,
                         attempt_number=1,
                         grounding_hash=_grounding_hash,
+                        citation_catalog_hash=_citation_catalog_hash,
                         contract_status="failed" if _mfallback else ("warning" if _missues else "passed"),
                         contract_issues=json.dumps(_missues),
                         fallback_used=_mfallback,
                         retry_count=int(getattr(_mresult, "validation_retries", 0) or 0),
                         word_count=len(_mcontent.split()) if _mcontent else 0,
+                        meta_json=str(getattr(_mresult, "ratchet_meta_json", "{}") or "{}"),
                     )
                     await _mrepo.save_writing_manifest(manifest)
                     if _mfallback:

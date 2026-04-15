@@ -35,6 +35,32 @@ class StructuredManuscriptDraft(BaseModel):
     timestamp: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
 
+class OutlineNode(BaseModel):
+    """One planned subsection node used to guide a section draft."""
+
+    node_id: str
+    heading: str
+    intent: str
+    required_citekeys: list[str] = Field(default_factory=list)
+    evidence_chunk_ids: list[str] = Field(default_factory=list)
+
+
+class SectionOutline(BaseModel):
+    """Deterministic or LLM-generated outline for one manuscript section."""
+
+    section_key: str
+    nodes: list[OutlineNode] = Field(default_factory=list)
+    grounding_hash: str | None = None
+
+
+class ManuscriptOutlinePlan(BaseModel):
+    """Workflow-scoped set of section outlines generated before writing."""
+
+    workflow_id: str
+    outlines: dict[str, SectionOutline] = Field(default_factory=dict)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+
+
 class SectionDraft(BaseModel):
     workflow_id: str
     section: str
@@ -127,6 +153,7 @@ class SectionWriteResult(BaseModel):
     validation_issues: list[str] = Field(default_factory=list)
     fallback_used: bool = False
     used_deterministic_fallback: bool = False
+    ratchet_meta_json: str = "{}"
     timestamp: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
 

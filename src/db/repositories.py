@@ -39,6 +39,7 @@ from src.models import (
     ScreeningDecisionType,
     SearchResult,
     SectionDraft,
+    SectionOutline,
     ValidationArtifactRecord,
     ValidationCheckRecord,
     ValidationRunRecord,
@@ -841,6 +842,66 @@ class WorkflowRepository:
         )
         rows = await cursor.fetchall()
         return {str(row[0]) for row in rows}
+
+    async def save_section_outline(
+        self,
+        workflow_id: str,
+        outline: SectionOutline,
+        generation: int | None = None,
+    ) -> None:
+        """Persist a section outline for the current writing generation."""
+        resolved_generation = await self._resolve_writing_generation(workflow_id, generation)
+        await self.db.execute(
+            """
+            INSERT INTO section_outlines (
+                workflow_id, section_key, generation, outline_json, grounding_hash
+            ) VALUES (?, ?, ?, ?, ?)
+            ON CONFLICT(workflow_id, section_key, generation) DO UPDATE SET
+                outline_json = excluded.outline_json,
+                grounding_hash = excluded.grounding_hash,
+                created_at = datetime('now')
+            """,
+            (
+                workflow_id,
+                outline.section_key,
+                resolved_generation,
+                outline.model_dump_json(),
+                outline.grounding_hash,
+            ),
+        )
+        await self.db.commit()
+
+    async def load_section_outlines(
+        self,
+        workflow_id: str,
+        generation: int | None = None,
+    ) -> dict[str, SectionOutline]:
+        """Load all persisted section outlines for a workflow generation."""
+        resolved_generation = await self._resolve_writing_generation(workflow_id, generation)
+        cursor = await self.db.execute(
+            """
+            SELECT section_key, outline_json
+            FROM section_outlines
+            WHERE workflow_id = ? AND generation = ?
+            ORDER BY section_key
+            """,
+            (workflow_id, resolved_generation),
+        )
+        rows = await cursor.fetchall()
+        outlines: dict[str, SectionOutline] = {}
+        for section_key, outline_json in rows:
+            try:
+                outline = SectionOutline.model_validate_json(str(outline_json))
+            except Exception as exc:
+                _logger.warning(
+                    "Skipping malformed section outline for workflow=%s section=%s: %s",
+                    workflow_id,
+                    section_key,
+                    exc,
+                )
+                continue
+            outlines[str(section_key)] = outline
+        return outlines
 
     async def save_section_draft(self, draft: SectionDraft) -> None:
         """Persist a section draft for checkpoint/resume."""
@@ -2516,8 +2577,14 @@ class WorkflowRepository:
             )
         return out
 
-    async def get_total_cost(self) -> float:
-        cursor = await self.db.execute("SELECT COALESCE(SUM(cost_usd), 0.0) FROM cost_records")
+    async def get_total_cost(self, workflow_id: str | None = None) -> float:
+        if workflow_id:
+            cursor = await self.db.execute(
+                "SELECT COALESCE(SUM(cost_usd), 0.0) FROM cost_records WHERE workflow_id = ?",
+                (workflow_id,),
+            )
+        else:
+            cursor = await self.db.execute("SELECT COALESCE(SUM(cost_usd), 0.0) FROM cost_records")
         row = await cursor.fetchone()
         return float(row[0]) if row is not None else 0.0
 
@@ -2890,6 +2957,7 @@ class WorkflowRepository:
 
         # Writing/finalize artifacts and citation ledger
         if start_idx <= phase_order.index("phase_6_writing"):
+            await _delete("section_outlines")
             await _delete("writing_manifests")
             for table in (
                 "fallback_events",

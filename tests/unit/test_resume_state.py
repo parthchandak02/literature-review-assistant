@@ -169,6 +169,47 @@ async def test_load_resume_state_from_phase(tmp_path) -> None:
 
 
 @pytest.mark.asyncio
+async def test_load_resume_state_from_writing_clears_outline_subphase_checkpoint(tmp_path) -> None:
+    run_dir = tmp_path / "2026-02-16" / "topic" / "run_01-00-00PM"
+    run_dir.mkdir(parents=True, exist_ok=True)
+    db_path = run_dir / "runtime.db"
+    async with get_db(str(db_path)) as db:
+        await db.executescript(Path("src/db/schema.sql").read_text())
+        await db.commit()
+        repo = WorkflowRepository(db)
+        await repo.create_workflow("wf-outline-resume", "Test topic", "abc123")
+        await repo.save_checkpoint("wf-outline-resume", "phase_2_search", papers_processed=1)
+        await repo.save_checkpoint("wf-outline-resume", "phase_3_screening", papers_processed=1)
+        await repo.save_checkpoint("wf-outline-resume", "phase_4_extraction_quality", papers_processed=1)
+        await repo.save_checkpoint("wf-outline-resume", "phase_4b_embedding", papers_processed=1)
+        await repo.save_checkpoint("wf-outline-resume", "phase_5_synthesis", papers_processed=1)
+        await repo.save_checkpoint("wf-outline-resume", "phase_5b_knowledge_graph", papers_processed=1)
+        await repo.save_checkpoint("wf-outline-resume", "phase_5c_pre_writing_gate", papers_processed=1)
+        await repo.save_checkpoint("wf-outline-resume", "phase_6_writing", papers_processed=1)
+        await repo.save_checkpoint("wf-outline-resume", "phase_6a_hyde", papers_processed=6)
+        await repo.save_checkpoint("wf-outline-resume", "phase_6a2_outline", papers_processed=6)
+        await repo.save_checkpoint("wf-outline-resume", "phase_6b_phase_a", papers_processed=4)
+
+    _, next_phase = await load_resume_state(
+        db_path=str(db_path),
+        workflow_id="wf-outline-resume",
+        review_path="config/review.yaml",
+        settings_path="config/settings.yaml",
+        run_root=str(tmp_path),
+        from_phase="phase_6_writing",
+    )
+    assert next_phase == "phase_6_writing"
+
+    async with get_db(str(db_path)) as db:
+        repo = WorkflowRepository(db)
+        checkpoints = await repo.get_checkpoints("wf-outline-resume")
+    assert "phase_6_writing" not in checkpoints
+    assert "phase_6a_hyde" not in checkpoints
+    assert "phase_6a2_outline" not in checkpoints
+    assert "phase_6b_phase_a" not in checkpoints
+
+
+@pytest.mark.asyncio
 async def test_load_resume_state_from_search_clears_downstream_phase_data(tmp_path) -> None:
     run_dir = tmp_path / "2026-02-16" / "topic" / "run_01-00-00PM"
     run_dir.mkdir(parents=True, exist_ok=True)
