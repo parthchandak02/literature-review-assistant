@@ -30,6 +30,7 @@ from src.models import (
     ManuscriptAuditFinding,
     ManuscriptAuditResult,
     ManuscriptBlock,
+    ManuscriptParityResult,
     ManuscriptSection,
     RagRetrievalDiagnostic,
     RecoveryPolicyRecord,
@@ -1346,16 +1347,11 @@ class WorkflowRepository:
             count += 1
         return count
 
-    async def validate_manuscript_md_parity(self, workflow_id: str, legacy_md: str) -> dict[str, Any]:
+    async def validate_manuscript_md_parity(self, workflow_id: str, legacy_md: str) -> ManuscriptParityResult:
         """Compare legacy markdown and latest DB markdown assembly for migration safety."""
         assembly = await self.load_latest_manuscript_assembly(workflow_id, "md")
         if assembly is None:
-            return {
-                "has_assembly": False,
-                "hash_match": False,
-                "citation_set_match": False,
-                "section_count_match": False,
-            }
+            return ManuscriptParityResult()
 
         legacy_hash = sha256(legacy_md.encode("utf-8")).hexdigest()
         assembly_hash = sha256(assembly.content.encode("utf-8")).hexdigest()
@@ -1363,14 +1359,14 @@ class WorkflowRepository:
         assembly_cites = sorted(set(_CITE_RE.findall(assembly.content)))
         legacy_sections = len(re.findall(r"^##\s+", legacy_md, flags=re.MULTILINE))
         assembly_sections = len(re.findall(r"^##\s+", assembly.content, flags=re.MULTILINE))
-        return {
-            "has_assembly": True,
-            "hash_match": legacy_hash == assembly_hash,
-            "citation_set_match": legacy_cites == assembly_cites,
-            "section_count_match": legacy_sections == assembly_sections,
-            "legacy_hash": legacy_hash,
-            "assembly_hash": assembly_hash,
-        }
+        return ManuscriptParityResult(
+            has_assembly=True,
+            hash_match=legacy_hash == assembly_hash,
+            citation_set_match=legacy_cites == assembly_cites,
+            section_count_match=legacy_sections == assembly_sections,
+            legacy_hash=legacy_hash,
+            assembly_hash=assembly_hash,
+        )
 
     async def delete_section_drafts(self, workflow_id: str, sections: set[str] | None = None) -> int:
         """Delete saved section drafts for a workflow.
@@ -3001,6 +2997,13 @@ class WorkflowRepository:
                 "grade_assessments",
             ):
                 await _delete(table)
+            await self.db.execute(
+                """
+                DELETE FROM study_cohort_membership
+                WHERE workflow_id = ? AND source_phase = 'phase_4_extraction_quality'
+                """,
+                (workflow_id,),
+            )
 
         # Screening stage
         if start_idx <= phase_order.index("phase_3_screening"):

@@ -32,6 +32,7 @@ from src.models.config import (
 )
 from src.models.diagrams import (
     ConceptDiagramInput,
+    DiagramStyleProfile,
     FlowchartDiagramInput,
     FlowchartPhase,
     FrameworkDiagramInput,
@@ -39,6 +40,7 @@ from src.models.diagrams import (
     FrameworkNode,
     TaxonomyCategory,
     TaxonomyDiagramInput,
+    diagram_style_profile_from_seed,
 )
 from src.models.enums import (
     ExclusionReason,
@@ -73,6 +75,7 @@ from src.models.workflow import (
     DecisionLogEntry,
     FallbackEventRecord,
     GateResult,
+    ManuscriptParityResult,
     PreWritingGateCheck,
     PreWritingGateReport,
     RecoveryPolicyRecord,
@@ -103,6 +106,7 @@ from src.models.writing import (
 __all__ = [
     "AgentConfig",
     "ConceptDiagramInput",
+    "DiagramStyleProfile",
     "FlowchartDiagramInput",
     "FlowchartPhase",
     "FrameworkDiagramInput",
@@ -116,6 +120,7 @@ __all__ = [
     "CitationLineageConfig",
     "ClaimRecord",
     "CostRecord",
+    "diagram_style_profile_from_seed",
     "DecisionLogEntry",
     "DomainExpertConfig",
     "FallbackEventRecord",
@@ -168,6 +173,7 @@ __all__ = [
     "ManuscriptAsset",
     "ManuscriptBlock",
     "ManuscriptOutlinePlan",
+    "ManuscriptParityResult",
     "ManuscriptSection",
     "OutlineNode",
     "SectionBlock",

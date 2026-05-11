@@ -74,11 +74,21 @@ function ReadinessCard({ runId, workflowId }: { runId: string; workflowId?: stri
     void load()
   }, [load])
 
+  const exportReady = data ? (data.submission_ready ?? data.ready) : false
+  const contractReady = data ? (data.contract_ready ?? data.contract_passed) : false
+  const auditReady = data ? (data.audit_ready ?? false) : false
+
   return (
     <CollapsibleSection
       icon={CheckCircle}
-      title="Export Readiness"
-      description={data ? (data.ready ? "Run is export-ready" : "Export is blocked until checks pass") : undefined}
+      title="Readiness Checks"
+      description={
+        data
+          ? (exportReady
+              ? "Detailed backend checks behind the ready state shown in Results."
+              : "Detailed backend checks behind the blocked state shown in Results.")
+          : "Detailed readiness diagnostics for the current run."
+      }
       defaultOpen={false}
     >
       <div className="p-4">
@@ -92,13 +102,24 @@ function ReadinessCard({ runId, workflowId }: { runId: string; workflowId?: stri
         ) : data ? (
           <div className="space-y-3">
             <div
-              className={`rounded-xl border px-3 py-3 text-sm ${data.ready ? "border-emerald-500/30 bg-emerald-500/8 text-emerald-200" : "border-amber-500/30 bg-amber-500/8 text-amber-200"}`}
+              className={`rounded-xl border px-3 py-3 text-sm ${exportReady ? "border-emerald-500/30 bg-emerald-500/8 text-emerald-200" : "border-amber-500/30 bg-amber-500/8 text-amber-200"}`}
             >
-              <div className="font-medium">{data.ready ? "Ready for manuscript export." : "Export blocked by readiness checks."}</div>
+              <div className="font-medium">{exportReady ? "Ready for manuscript export." : "Export blocked by readiness checks."}</div>
               <div className="mt-1 text-xs opacity-80">
                 {data.fallback_event_count > 0
                   ? `${data.fallback_event_count} deterministic fallback event(s) recorded.`
                   : "No fallback events recorded."}
+              </div>
+              <div className="mt-2 flex flex-wrap gap-2 text-[11px]">
+                <span className={cn("rounded-full border px-2 py-0.5", contractReady ? "border-emerald-800 bg-emerald-900/20 text-emerald-300" : "border-amber-800 bg-amber-900/20 text-amber-300")}>
+                  Contract {contractReady ? "ready" : "blocked"}
+                </span>
+                <span className={cn("rounded-full border px-2 py-0.5", auditReady ? "border-emerald-800 bg-emerald-900/20 text-emerald-300" : "border-amber-800 bg-amber-900/20 text-amber-300")}>
+                  Audit {auditReady ? "ready" : "blocked"}
+                </span>
+                <span className={cn("rounded-full border px-2 py-0.5", exportReady ? "border-emerald-800 bg-emerald-900/20 text-emerald-300" : "border-amber-800 bg-amber-900/20 text-amber-300")}>
+                  Submission {exportReady ? "ready" : "blocked"}
+                </span>
               </div>
             </div>
             <div className="grid gap-2">
@@ -118,7 +139,7 @@ function ReadinessCard({ runId, workflowId }: { runId: string; workflowId?: stri
                 </div>
               ))}
             </div>
-            {!data.ready && data.blocking_reasons.length > 0 && (
+            {!exportReady && data.blocking_reasons.length > 0 && (
               <div className="rounded-xl border border-red-500/20 bg-red-500/5 px-3 py-3">
                 <div className="text-xs font-semibold text-red-300">Blocking reasons</div>
                 <div className="mt-1 space-y-1">
@@ -282,7 +303,7 @@ function PrismaCard({ runId }: { runId: string }) {
 }
 
 function ManuscriptAuditCard({ runId }: { runId: string }) {
-  const [open, setOpen] = useState(true)
+  const [open, setOpen] = useState(false)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [data, setData] = useState<ManuscriptAuditPayload | null>(null)
@@ -365,13 +386,13 @@ function ManuscriptAuditCard({ runId }: { runId: string }) {
   return (
     <CollapsibleSection
       icon={AlertTriangle}
-      title="Final Audit Summary"
+      title="Audit Findings"
       description={
         selectedRun?.gate_action === "advisory_only"
-          ? "Workflow completed, but the audit still captured blocking findings to fix next."
+          ? "Detailed audit findings for a workflow that completed in advisory mode."
           : selectedRun
-            ? "Final manuscript review and next-fix guidance."
-            : undefined
+            ? "Detailed manuscript review history, evidence, and next-fix guidance."
+            : "Open to inspect full audit history and detailed findings."
       }
       open={open}
       onToggle={handleToggle}
@@ -760,8 +781,14 @@ export function QualityView({ exportRunId, workflowId }: QualityViewProps) {
 
   return (
     <div className="flex flex-col gap-3 min-h-[520px]">
-      <ManuscriptAuditCard runId={exportRunId} />
+      <div className="rounded-xl border border-zinc-800 bg-zinc-950/60 px-4 py-4">
+        <div className="text-sm font-semibold text-zinc-100">Advanced quality diagnostics</div>
+        <div className="mt-1 text-sm text-zinc-300">
+          Use Results for the primary submission decision. This tab is the deep-dive for readiness checks, audit findings, PRISMA detail, and diagnostics.
+        </div>
+      </div>
       <ReadinessCard runId={exportRunId} workflowId={workflowId} />
+      <ManuscriptAuditCard runId={exportRunId} />
       <PrismaCard runId={exportRunId} />
       <RunDiagnosticsCard runId={exportRunId} workflowId={workflowId} />
       <RagDiagnosticsCard runId={exportRunId} workflowId={workflowId} />
