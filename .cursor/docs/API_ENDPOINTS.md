@@ -15,11 +15,8 @@ When API routes change in `src/web/app.py`, update this table in the same change
 | POST | /api/run-with-supplementary-csv | Start review with connector search plus supplementary CSV upload (multipart form) |
 | GET | /api/stream/{run_id} | SSE stream of ReviewEvent JSON; heartbeat every 15s; ends with done/error/cancelled |
 | POST | /api/cancel/{run_id} | Cancel active run; sets cancellation event |
-| GET | /api/runs | List all in-memory active runs |
-| GET | /api/results/{run_id} | Artifact paths for completed run |
 | GET | /api/download | Download artifact file (query param `path`; restricted to runs/) |
 | GET | /api/config/review | Default review.yaml content (pre-fills Setup form) |
-| POST | /api/config/generate | AI config generation from research question; returns YAML string |
 | POST | /api/config/generate/stream | SSE-streamed version of config generation |
 | GET | /api/config/env-keys | API keys already set in server .env; used to pre-fill Setup form |
 | GET | /api/health | Health check; polled every 6s by useBackendHealth hook |
@@ -35,11 +32,9 @@ When API routes change in `src/web/app.py`, update this table in the same change
 | POST | /api/history/{workflow_id}/complete-hide | Move a non-running workflow into the manual Completed bucket |
 | POST | /api/history/{workflow_id}/complete-restore | Restore a workflow from the Completed bucket to In Progress |
 | DELETE | /api/history/{workflow_id} | Delete run directory + registry entry from disk |
-| GET | /api/db/{run_id}/papers | Paginated + searchable papers from runtime.db |
 | GET | /api/db/{run_id}/papers-all | All papers with doi + url fields for clickable links |
 | GET | /api/db/{run_id}/papers-facets | Distinct facet values (sources, decisions) for filter UI |
 | GET | /api/db/{run_id}/papers-suggest | Autocomplete suggestions for paper search |
-| GET | /api/db/{run_id}/screening | Screening decisions with stage/decision filters |
 | GET | /api/db/{run_id}/costs | Cost records grouped by model and phase (includes embedding phase) |
 | GET | /api/db/{run_id}/costs/aggregates | Time-bucket and dimension cost aggregates (day/week/month/workflow/phase/model) |
 | GET | /api/db/{run_id}/costs/export | CSV export for reconciliation (day/week/month buckets) |

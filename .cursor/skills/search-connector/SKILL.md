@@ -29,6 +29,7 @@ class SearchConnector(Protocol):
 
 ## Reference Implementations
 - Core databases: `src/search/openalex.py`, `pubmed.py`, `arxiv.py`, `ieee_xplore.py`, `scopus.py`, `web_of_science.py`, `embase.py`
+- Shared connector helpers: `src/search/common.py` (`HttpSearchConnectorBase`, `ElsevierConnectorMixin`)
 - Auxiliary / other-source discovery: `src/search/semantic_scholar.py`, `crossref.py`, `perplexity_search.py`, `clinicaltrials.py`
 - Import and expansion helpers: `src/search/csv_import.py`, `citation_chasing.py`
 - Workflow wiring: `src/orchestration/workflow.py`

@@ -708,7 +708,7 @@ that say `PUBMED_EMAIL` is strictly required as policy guidance for polite API u
 not as a crash-if-missing runtime contract.
 
 ## Config Generator Does Not Always Populate Every Override Key
-`/api/config/generate` and `/api/config/generate/stream` produce route-dependent
+`/api/config/generate/stream` produces route-dependent
 search overrides. Do not document this as always populating all six primary
 database override keys for every topic/mode.
 If `.cursor/docs/*` or setup docs still claim a guaranteed full six-database override set,

@@ -6,6 +6,7 @@
 - API client: `frontend/src/lib/api.ts`
 - Phase constants: `frontend/src/lib/constants.ts`
 - SSE hook: `frontend/src/hooks/useSSEStream.ts`
+- Sidebar note autosave hook: `frontend/src/hooks/useNoteAutosave.ts`
 
 ## Run Experience Model
 

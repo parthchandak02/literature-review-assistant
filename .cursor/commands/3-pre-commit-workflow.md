@@ -14,10 +14,10 @@ Prepare and commit all pending changes safely. Scan for secrets, stage clean fil
 
 3. **Verify project rules** -- Before staging anything, check the always-on rules in `.cursor/rules/core/` to confirm the changes comply with project constraints (e.g. no untyped dicts at phase boundaries, no LLM-computed statistics, all I/O is async). Flag any violation and ask the user how to proceed.
 
-4. **Verify docs parity when docs or API changed** -- If touched files include `.cursor/docs/*`, `src/web/app.py`, or `frontend/src/lib/api.ts`, run:
+4. **Verify docs parity and update docs before commit/push** -- For any code-impacting change, ensure all relevant docs are updated in the same commit window (API docs, architecture/behavior docs, operator commands, and any affected skill/rule docs). If touched files include `.cursor/docs/*`, `src/web/app.py`, or `frontend/src/lib/api.ts`, run:
    - `uv run python scripts/check_spec_endpoint_parity.py`
    - Any relevant docs parity/replay command from `.cursor/commands/2-validate-docs.md`
-   Fail fast on mismatch and fix before staging.
+  Fail fast on mismatch and fix docs/code drift before staging.
 
 5. **Stage safe files** -- Add all files that passed the security scan. List exactly which files are being staged and which are being deliberately excluded.
 
