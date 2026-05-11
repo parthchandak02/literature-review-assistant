@@ -161,7 +161,7 @@ async def generate_contradiction_paragraph(
 
     import asyncio
 
-    loop = asyncio.get_event_loop()
+    loop = asyncio.get_running_loop()
     result = await loop.run_in_executor(None, _generate_paragraph_sync, flags, raw_model, key)
 
     if repository is not None and workflow_id:

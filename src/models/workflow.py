@@ -191,7 +191,7 @@ class SectionQualityScore(BaseModel):
     soft_issue_count: int = 10**6
 
     @classmethod
-    def worst(cls) -> "SectionQualityScore":
+    def worst(cls) -> SectionQualityScore:
         return cls()
 
     def _comparison_key(self) -> tuple[int, int, int, int, int, int]:
@@ -254,3 +254,14 @@ class WritingManifestRecord(BaseModel):
     @property
     def issues(self) -> list[str]:
         return json.loads(self.contract_issues)
+
+
+class ManuscriptParityResult(BaseModel):
+    """Result of comparing legacy markdown with DB-assembled manuscript."""
+
+    has_assembly: bool = False
+    hash_match: bool = False
+    citation_set_match: bool = False
+    section_count_match: bool = False
+    legacy_hash: str | None = None
+    assembly_hash: str | None = None

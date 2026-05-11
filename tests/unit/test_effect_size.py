@@ -45,3 +45,26 @@ def test_mean_difference_uses_deterministic_formula() -> None:
     )
     assert effect == 2.0
     assert abs(variance - ((4.0 / 20.0) + (6.25 / 20.0))) < 1e-12
+
+
+def test_mean_difference_rejects_zero_sample_size() -> None:
+    import pytest
+
+    with pytest.raises(ValueError, match="Sample sizes must be positive"):
+        compute_mean_difference_effect_size(
+            mean_treatment=5.0,
+            sd_treatment=2.0,
+            n_treatment=0,
+            mean_control=3.0,
+            sd_control=2.5,
+            n_control=20,
+        )
+    with pytest.raises(ValueError, match="Sample sizes must be positive"):
+        compute_mean_difference_effect_size(
+            mean_treatment=5.0,
+            sd_treatment=2.0,
+            n_treatment=10,
+            mean_control=3.0,
+            sd_control=2.5,
+            n_control=-1,
+        )

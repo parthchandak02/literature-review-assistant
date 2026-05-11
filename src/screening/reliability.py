@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 import math
 import random
-from collections.abc import Callable, Sequence
+from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -93,7 +93,7 @@ class CalibratedThresholds:
 
 async def calibrate_threshold(
     papers: list[CandidatePaper],
-    screener_fn: Callable[[list[CandidatePaper], float], Sequence[DualScreeningResult]],
+    screener_fn: Callable[[list[CandidatePaper], float], Awaitable[Sequence[DualScreeningResult]]],
     target_kappa: float = 0.7,
     max_iterations: int = 3,
     sample_size: int = 30,
@@ -124,7 +124,7 @@ async def calibrate_threshold(
     best_threshold = current
 
     for iteration in range(1, max_iterations + 1):
-        results: Sequence[DualScreeningResult] = await screener_fn(sample, current)  # type: ignore[arg-type]
+        results: Sequence[DualScreeningResult] = await screener_fn(sample, current)
 
         if not results:
             logger.warning("calibrate_threshold: screener returned no results (iteration %d)", iteration)

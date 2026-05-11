@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest"
 import { computePhaseProgress } from "./phaseProgress"
+import { PHASE_ORDER } from "./constants"
 
 describe("computePhaseProgress", () => {
   it("treats progress-only events as a running phase", () => {
@@ -24,6 +25,6 @@ describe("computePhaseProgress", () => {
 
     expect(progress.completedPhases).toBe(4)
     expect(progress.currentPhaseFraction).toBe(0.25)
-    expect(progress.value).toBeGreaterThan(4 / 9)
+    expect(progress.value).toBeGreaterThan(4 / PHASE_ORDER.length)
   })
 })

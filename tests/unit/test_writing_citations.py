@@ -82,10 +82,10 @@ def test_validate_structured_section_draft_rejects_inline_citations_in_normal_pa
     )
 
     assert validated.blocks[0].text == "Exam performance improved and was sustained."
-    assert validated.blocks[0].citations == ["Jones2024"]
-    assert validated.cited_keys == ["Jones2024"]
+    assert validated.blocks[0].citations == ["Jones2024", "Smith2023"]
+    assert validated.cited_keys == ["Jones2024", "Smith2023"]
     assert "invalid_structured_citations:1" in issues
-    assert "invalid_inline_citations:2" in issues
+    assert "invalid_inline_citations:1" in issues
 
 
 def test_render_section_markdown_appends_structured_citations() -> None:

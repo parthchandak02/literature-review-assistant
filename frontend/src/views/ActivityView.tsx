@@ -378,8 +378,32 @@ export function ActivityView({
     if (hasPrefetchedHistorical) {
       return
     }
-    void loadHistoricalEvents(runId, workflowId)
-  }, [isFallbackMode, runId, workflowId, loadHistoricalEvents, hasPrefetchedHistorical])
+    let cancelled = false
+    setLoadingHistory(true)
+    setFetchError(null)
+    ;(async () => {
+      try {
+        let evs = await fetchRunEvents(runId)
+        if (evs.length === 0 && workflowId && workflowId !== runId) {
+          evs = await fetchWorkflowEvents(workflowId)
+        }
+        if (!cancelled) setHistoricalEvents(evs)
+      } catch (e) {
+        if (!cancelled) {
+          const msg = e instanceof Error ? e.message : String(e)
+          setFetchError(
+            msg.toLowerCase().includes("failed to fetch")
+              ? "Cannot reach backend. Start the server and try again."
+              : msg,
+          )
+          setHistoricalEvents([])
+        }
+      } finally {
+        if (!cancelled) setLoadingHistory(false)
+      }
+    })()
+    return () => { cancelled = true }
+  }, [isFallbackMode, runId, workflowId, hasPrefetchedHistorical])
 
   const [searchQuery, setSearchQuery] = useState("")
   const activeHistoricalEvents = hasPrefetchedHistorical ? (prefetchedHistoricalEvents ?? []) : historicalEvents

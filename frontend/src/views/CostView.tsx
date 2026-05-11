@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useCallback } from "react"
+import { useState, useEffect, useMemo, useCallback, useRef } from "react"
 import {
   BarChart,
   Bar,
@@ -105,16 +105,18 @@ export function CostView({ costStats, dbRunId, workflowId, isLive }: CostViewPro
     return q.get("ops") === "1"
   }, [])
 
+  const isFirstFetchRef = useRef(true)
+
   const loadDbCosts = useCallback(() => {
     if (!dbRunId) return
-    // Only show the loading skeleton on the very first fetch (no rows yet).
-    if (!dbRows.length) setLoadingDb(true)
+    if (isFirstFetchRef.current) setLoadingDb(true)
     setDbError(null)
     fetchDbCosts(dbRunId)
       .then((d) => {
         setDbRows(d.records)
         setDbTotalCost(d.total_cost)
         setScreeningDiagnostics(d.screening_diagnostics ?? null)
+        isFirstFetchRef.current = false
       })
       .catch((e: unknown) => {
         const msg = e instanceof Error ? e.message : String(e)
@@ -125,7 +127,7 @@ export function CostView({ costStats, dbRunId, workflowId, isLive }: CostViewPro
         )
       })
       .finally(() => setLoadingDb(false))
-  }, [dbRunId, dbRows.length])
+  }, [dbRunId])
 
   useEffect(() => {
     if (!workflowId) return
@@ -144,12 +146,10 @@ export function CostView({ costStats, dbRunId, workflowId, isLive }: CostViewPro
       .catch(() => setValidationChecks([]))
   }, [workflowId, validationSummary?.validation_run_id])
 
-  // Always load from DB on mount, and poll every 5 s while the run is active
-  // so costs from all phases (screening, extraction, writing, etc.) stay accurate.
-  // Previously the DB was skipped whenever SSE had any events, which caused
-  // earlier phase costs to disappear once the writing phase started streaming.
   useEffect(() => {
-     
+    setDbRows([])
+    setDbTotalCost(0)
+    isFirstFetchRef.current = true
     loadDbCosts()
   }, [loadDbCosts])
 

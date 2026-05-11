@@ -50,6 +50,32 @@ def test_detect_communities_falls_back_to_single_cluster() -> None:
     assert len(communities) >= 1
 
 
+def test_build_paper_graph_with_embeddings_creates_similarity_edge() -> None:
+    rec_a = ExtractionRecord(
+        paper_id="p1",
+        study_design=StudyDesign.RCT,
+        participant_demographics="elderly patients",
+        intervention_description="pharmacological therapy",
+        outcomes=[OutcomeRecord(name="blood_pressure")],
+        results_summary={"summary": "Reduced."},
+    )
+    rec_b = ExtractionRecord(
+        paper_id="p2",
+        study_design=StudyDesign.NON_RANDOMIZED,
+        participant_demographics="young athletes",
+        intervention_description="dietary supplement program",
+        outcomes=[OutcomeRecord(name="muscle_strength")],
+        results_summary={"summary": "Improved."},
+    )
+    papers = [_paper("p1", "One"), _paper("p2", "Two")]
+    embeddings = {
+        "p1": [0.1, 0.2, 0.3],
+        "p2": [0.4, 0.5, 0.6],
+    }
+    graph = build_paper_graph([rec_a, rec_b], papers, chunk_embeddings=embeddings)
+    assert any(edge.rel_type == "embedding_similarity" for edge in graph.edges)
+
+
 def test_detect_research_gaps_finds_sparse_outcome() -> None:
     records = [
         _record("p1", "exam_score", "urban women", StudyDesign.RCT),

@@ -76,6 +76,10 @@ class KnowledgeGraphNode(BaseNode[ReviewState]):
                     for pid, vecs in paper_vecs.items():
                         if vecs:
                             dim = len(vecs[0])
+                            uniform = all(len(v) == dim for v in vecs)
+                            if not uniform:
+                                logger.warning("Skipping paper %s: mixed embedding dimensions", pid)
+                                continue
                             mean_vec = [sum(v[i] for v in vecs) / len(vecs) for i in range(dim)]
                             chunk_embeddings[pid] = mean_vec
 
@@ -112,8 +116,8 @@ class KnowledgeGraphNode(BaseNode[ReviewState]):
                             """,
                             (state.workflow_id, edge.source, edge.target, edge.rel_type, edge.weight),
                         )
-                    except Exception:
-                        pass
+                    except Exception as exc:
+                        logger.warning("Failed to persist edge %s->%s: %s", edge.source, edge.target, exc)
 
                 # Persist communities
                 for comm in communities:
